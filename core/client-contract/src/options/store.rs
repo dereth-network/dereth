@@ -362,6 +362,34 @@ pub fn load(ini: &UserPreferences) -> (usize, usize) {
     (applied, ignored)
 }
 
+/// A named integer preference with its own parser, stored words and menu rows.
+/// Recognition is separate from parsing: invalid text for a known custom choice is refused.
+struct CustomEnum {
+    recognizes: fn(&str) -> bool,
+    parse: fn(&str, &str) -> Option<i32>,
+    format: fn(&str, &PrefValue) -> Option<String>,
+    choices: fn(&str) -> Option<Vec<Choice>>,
+}
+
+const CUSTOM_ENUMS: &[CustomEnum] = &[
+    CustomEnum {
+        recognizes: |name| super::landscape::Landscape::of(name).is_some(),
+        parse: super::landscape::parse_value,
+        format: super::landscape::convert_to_string,
+        choices: super::landscape::choice_rows,
+    },
+    CustomEnum {
+        recognizes: |name| name.eq_ignore_ascii_case(super::interface::INTERFACE),
+        parse: super::interface::parse_value,
+        format: super::interface::convert_to_string,
+        choices: super::interface::choice_rows,
+    },
+];
+
+fn custom_enum(name: &str) -> Option<&'static CustomEnum> {
+    CUSTOM_ENUMS.iter().find(|row| (row.recognizes)(name))
+}
+
 /// The value as the save writes it
 /// into the `.ini`.
 ///
@@ -388,12 +416,7 @@ pub fn load(ini: &UserPreferences) -> (usize, usize) {
 /// enumerated.
 #[must_use]
 pub fn convert_to_string(name: &str, v: &PrefValue) -> String {
-    // This client's landscape options write one word per choice.
-    if let Some(text) = super::landscape::convert_to_string(name, v) {
-        return text;
-    }
-    // So does the interface option.
-    if let Some(text) = super::interface::convert_to_string(name, v) {
+    if let Some(text) = custom_enum(name).and_then(|row| (row.format)(name, v)) {
         return text;
     }
     // The two run-time lists are choice lists too, so once the device has
@@ -538,12 +561,12 @@ const DETAIL_5: &[&str] = &["VeryLow", "Low", "Medium", "High", "VeryHigh"];
 /// [`display_choice`].
 pub const ENUM_CHOICES: [EnumChoices; 8] = [
     EnumChoices {
-        name: "Sound.SoundFeatures",
+        name: crate::options::names::SOUND_FEATURES,
         labels: &["Stereo", "Mono"],
         values: &[],
     },
     EnumChoices {
-        name: "UI.ChatFontFace",
+        name: crate::options::names::CHAT_FONT_FACE,
         labels: &[
             "Arial",
             "CourierNew",
@@ -554,32 +577,32 @@ pub const ENUM_CHOICES: [EnumChoices; 8] = [
         values: &[],
     },
     EnumChoices {
-        name: "UI.ChatFontSize",
+        name: crate::options::names::CHAT_FONT_SIZE,
         labels: &["Tiny", "Small", "Medium", "Large", "XL"],
         values: &[],
     },
     EnumChoices {
-        name: "Render.TextureFiltering",
+        name: crate::options::names::TEXTURE_FILTERING,
         labels: &["Bilinear", "Trilinear", "Sharp", "Anisotropic"],
         values: &[],
     },
     EnumChoices {
-        name: "Render.LandscapeTextureDetail",
+        name: crate::options::names::LANDSCAPE_TEXTURE_DETAIL,
         labels: DETAIL_5,
         values: &[4, 3, 2, 1, 0],
     },
     EnumChoices {
-        name: "Render.EnvironmentTextureDetail",
+        name: crate::options::names::ENVIRONMENT_TEXTURE_DETAIL,
         labels: DETAIL_5,
         values: &[4, 3, 2, 1, 0],
     },
     EnumChoices {
-        name: "Render.SceneryDrawDistance",
+        name: crate::options::names::SCENERY_DRAW_DISTANCE,
         labels: &["Low", "Medium", "High"],
         values: &[],
     },
     EnumChoices {
-        name: "Render.LandscapeDrawDistance",
+        name: crate::options::names::LANDSCAPE_DRAW_DISTANCE,
         labels: &["VeryLow", "Low", "Medium", "High", "VeryHigh", "Extreme"],
         values: &[3, 5, 8, 11, 15, 25],
     },
@@ -702,13 +725,13 @@ impl EnumChoices {
 #[must_use]
 pub fn display_choice(name: &str, text: &str) -> Option<i32> {
     let text = text.trim();
-    if name.eq_ignore_ascii_case("Display.Resolution") {
+    if name.eq_ignore_ascii_case(crate::options::names::DISPLAY_RESOLUTION) {
         let (w, h) = text.split_once(['x', 'X'])?;
         let w: u32 = w.trim().parse().ok()?;
         let h: u32 = h.trim().parse().ok()?;
         return Some(i32::from_ne_bytes((w << 16 | h).to_ne_bytes()));
     }
-    if name.eq_ignore_ascii_case("Display.RefreshRate") {
+    if name.eq_ignore_ascii_case(crate::options::names::DISPLAY_REFRESH_RATE) {
         if text.eq_ignore_ascii_case("Auto") {
             return Some(0);
         }
@@ -728,12 +751,8 @@ pub fn display_choice(name: &str, text: &str) -> Option<i32> {
 /// no-label-matched fallback, inside [`EnumChoices::resolve`] — then the two runtime-built display
 /// lists, then a plain integer, which is the empty-choice-list arm.
 fn set_from_string_uint(name: &str, text: &str) -> Option<i32> {
-    // This client's landscape options read their words, their captions and the older spellings.
-    if super::landscape::Landscape::of(name).is_some() {
-        return super::landscape::parse_value(name, text);
-    }
-    if name.eq_ignore_ascii_case(super::interface::INTERFACE) {
-        return super::interface::parse_value(name, text);
+    if let Some(row) = custom_enum(name) {
+        return (row.parse)(name, text);
     }
     if let Some(c) = enum_choices(name) {
         return Some(c.resolve(text));
@@ -757,11 +776,11 @@ fn set_from_string_uint(name: &str, text: &str) -> Option<i32> {
 // =================================================================================================
 
 /// The two preference names whose choice labels and values are built at run time.
-pub const DISPLAY_RESOLUTION: &str = "Display.Resolution";
+pub const DISPLAY_RESOLUTION: &str = crate::options::names::DISPLAY_RESOLUTION;
 /// `Render.LandscapeDetailTextures`: the detail texture over the ground, off at first.
-pub const LANDSCAPE_DETAIL_TEXTURES: &str = "Render.LandscapeDetailTextures";
+pub const LANDSCAPE_DETAIL_TEXTURES: &str = crate::options::names::LANDSCAPE_DETAIL_TEXTURES;
 /// As [`DISPLAY_RESOLUTION`].
-pub const DISPLAY_REFRESH_RATE: &str = "Display.RefreshRate";
+pub const DISPLAY_REFRESH_RATE: &str = crate::options::names::DISPLAY_REFRESH_RATE;
 
 /// One entry in the display-mode array that display-preference setup walks.
 ///
@@ -960,11 +979,7 @@ pub fn choice_rows(name: &str) -> Option<Vec<Choice>> {
     if !is_registered_as(name, DataType::UInt) {
         return None;
     }
-    // This client's landscape options list literal captions too.
-    if let Some(rows) = super::landscape::choice_rows(name) {
-        return Some(rows);
-    }
-    if let Some(rows) = super::interface::choice_rows(name) {
+    if let Some(rows) = custom_enum(name).and_then(|row| (row.choices)(name)) {
         return Some(rows);
     }
     let runtime = display_choices(name);
@@ -1029,6 +1044,51 @@ fn parse_int(s: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: options.client-page.the-terrain-and-sky-modes-are-chosen-on-the-graphics-section
+    #[test]
+    fn custom_choices_refuse_invalid_numeric_input_and_require_unsigned_registration() {
+        clear();
+        assert_eq!(choice_rows("Render.Ground"), None);
+        assert!(register_preference(
+            "Render.Ground",
+            PrefValue::Int(2),
+            DataType::UInt
+        ));
+        let invalid = UserPreferences::parse("[Render]\nGround=9\n").unwrap();
+        assert_eq!(load(&invalid), (0, 1));
+        assert_eq!(inq_value("Render.Ground"), Some(PrefValue::Int(2)));
+        let valid = UserPreferences::parse("[Render]\nGround=modern\n").unwrap();
+        assert_eq!(load(&valid), (1, 0));
+        assert_eq!(inq_value("Render.Ground"), Some(PrefValue::Int(3)));
+        assert!(save().to_text().contains("Ground=ModernBlend"));
+        assert_eq!(choice_rows("render.ground"), None);
+        assert_eq!(
+            choice_rows("Render.Ground")
+                .unwrap()
+                .into_iter()
+                .map(|r| (r.label, r.value))
+                .collect::<Vec<_>>(),
+            [
+                ("World Default".into(), 0),
+                ("Palette Shift".into(), 1),
+                ("Legacy Blend".into(), 2),
+                ("Modern Blend".into(), 3)
+            ]
+        );
+        assert!(unregister_preference("Render.Ground"));
+        assert!(register_preference(
+            "Render.Ground",
+            PrefValue::Int(2),
+            DataType::Int
+        ));
+        assert_eq!(choice_rows("Render.Ground"), None);
+        assert_eq!(
+            convert_to_string("Render.Ground", &PrefValue::Bool(true)),
+            "True"
+        );
+        clear();
+    }
 
     /// A write occurs only when the requested type matches the variable's stored type, and both
     /// query hops apply the same guard.

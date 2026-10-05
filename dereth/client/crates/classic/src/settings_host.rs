@@ -165,7 +165,10 @@ fn render_requests(s: &ClassicSettings, camera: Option<f32>) -> Vec<UiRequest> {
         ),
     ];
     if let Some(value) = camera {
-        out.push(preference("Camera.Stiffness", PrefValue::Float(value)));
+        out.push(preference(
+            dereth_client_contract::options::names::CAMERA_STIFFNESS,
+            PrefValue::Float(value),
+        ));
     }
     out
 }
@@ -173,16 +176,28 @@ fn render_requests(s: &ClassicSettings, camera: Option<f32>) -> Vec<UiRequest> {
 /// are enables despite their names: true means the sound plays.
 fn sound_requests(s: &ClassicSettings) -> Vec<UiRequest> {
     vec![
-        preference("Sound.SoundDisabled", PrefValue::Bool(s.effects)),
-        preference("Sound.AmbientSoundDisabled", PrefValue::Bool(s.ambient)),
-        preference("Sound.InterfaceSoundDisabled", PrefValue::Bool(s.interface)),
-        preference("Sound.SoundFeatures", PrefValue::Int(i32::from(!s.stereo))),
         preference(
-            "Sound.SoundVolume",
+            dereth_client_contract::options::names::SOUND_DISABLED,
+            PrefValue::Bool(s.effects),
+        ),
+        preference(
+            dereth_client_contract::options::names::AMBIENT_SOUND_DISABLED,
+            PrefValue::Bool(s.ambient),
+        ),
+        preference(
+            dereth_client_contract::options::names::INTERFACE_SOUND_DISABLED,
+            PrefValue::Bool(s.interface),
+        ),
+        preference(
+            dereth_client_contract::options::names::SOUND_FEATURES,
+            PrefValue::Int(i32::from(!s.stereo)),
+        ),
+        preference(
+            dereth_client_contract::options::names::SOUND_VOLUME,
             PrefValue::Float(normalized(s.effects_volume)),
         ),
         preference(
-            "Sound.AmbientSoundVolume",
+            dereth_client_contract::options::names::AMBIENT_SOUND_VOLUME,
             PrefValue::Float(normalized(s.ambient_volume)),
         ),
     ]
@@ -202,9 +217,15 @@ fn shared_values(s: &ClassicSettings) -> Vec<(&'static str, PrefValue)> {
         })
         .collect();
     if let Some((w, h)) = s.resolutions.get(s.resolution) {
-        out.push(("Display.Resolution", resolution_value((*w, *h))));
+        out.push((
+            dereth_client_contract::options::names::DISPLAY_RESOLUTION,
+            resolution_value((*w, *h)),
+        ));
     }
-    out.push(("Display.FullScreen", PrefValue::Bool(s.full_screen)));
+    out.push((
+        dereth_client_contract::options::names::DISPLAY_FULL_SCREEN,
+        PrefValue::Bool(s.full_screen),
+    ));
     out
 }
 
@@ -233,22 +254,22 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
         Some(PrefValue::Int(i)) => Some(i),
         _ => None,
     };
-    if let Some(v) = bool_of("Sound.SoundDisabled") {
+    if let Some(v) = bool_of(dereth_client_contract::options::names::SOUND_DISABLED) {
         s.effects = v;
     }
-    if let Some(v) = bool_of("Sound.AmbientSoundDisabled") {
+    if let Some(v) = bool_of(dereth_client_contract::options::names::AMBIENT_SOUND_DISABLED) {
         s.ambient = v;
     }
-    if let Some(v) = bool_of("Sound.InterfaceSoundDisabled") {
+    if let Some(v) = bool_of(dereth_client_contract::options::names::INTERFACE_SOUND_DISABLED) {
         s.interface = v;
     }
-    if let Some(v) = int_of("Sound.SoundFeatures") {
+    if let Some(v) = int_of(dereth_client_contract::options::names::SOUND_FEATURES) {
         s.stereo = v == 0;
     }
-    if let Some(v) = float_of("Sound.SoundVolume") {
+    if let Some(v) = float_of(dereth_client_contract::options::names::SOUND_VOLUME) {
         s.effects_volume = normalized(v);
     }
-    if let Some(v) = float_of("Sound.AmbientSoundVolume") {
+    if let Some(v) = float_of(dereth_client_contract::options::names::AMBIENT_SOUND_VOLUME) {
         s.ambient_volume = normalized(v);
     }
     use dereth_client_runtime::render_prefs as names;
@@ -264,10 +285,10 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
     if let Some(v) = float_of(names::GRAPHICS_PERFORMANCE) {
         s.performance = normalized((v + 1.0) / 2.0);
     }
-    if let Some(v) = float_of("Camera.Stiffness") {
+    if let Some(v) = float_of(dereth_client_contract::options::names::CAMERA_STIFFNESS) {
         s.camera_stiffness = normalized(v / 0.714_285_73 - 0.4);
     }
-    if let Some(v) = bool_of("Display.FullScreen") {
+    if let Some(v) = bool_of(dereth_client_contract::options::names::DISPLAY_FULL_SCREEN) {
         s.full_screen = v;
     }
     s
@@ -316,9 +337,9 @@ pub fn migrate_settings_file(path: &Path, defaults: &ClassicSettings) -> Result<
         .resolutions
         .contains(&(stored.resolution[0], stored.resolution[1]))
     {
-        after.retain(|(n, _)| *n != "Display.Resolution");
+        after.retain(|(n, _)| *n != dereth_client_contract::options::names::DISPLAY_RESOLUTION);
         after.push((
-            "Display.Resolution",
+            dereth_client_contract::options::names::DISPLAY_RESOLUTION,
             resolution_value((stored.resolution[0], stored.resolution[1])),
         ));
     }
@@ -339,7 +360,10 @@ fn resolution_value(size: (u32, u32)) -> PrefValue {
 }
 
 fn resolution_request(size: (u32, u32)) -> UiRequest {
-    preference("Display.Resolution", resolution_value(size))
+    preference(
+        dereth_client_contract::options::names::DISPLAY_RESOLUTION,
+        resolution_value(size),
+    )
 }
 /// The capability fields are supplied by the actual endpoint/renderer/display, never by the file.
 #[derive(Debug)]
@@ -407,7 +431,7 @@ impl SettingsHost {
             cx.full_screen(),
         ) {
             left.push(preference(
-                "Display.FullScreen",
+                dereth_client_contract::options::names::DISPLAY_FULL_SCREEN,
                 PrefValue::Bool(full_screen),
             ));
         }
@@ -455,7 +479,10 @@ impl SettingsHost {
         stored.resolution = [size.0, size.1];
         self.saved = stored.decode(&self.current)?;
         write_shared(&self.saved);
-        let _ = store::set_value("Display.Resolution", resolution_value(size));
+        let _ = store::set_value(
+            dereth_client_contract::options::names::DISPLAY_RESOLUTION,
+            resolution_value(size),
+        );
         Ok(())
     }
     /// Only the three immediately applied sliders reach this edge.
@@ -506,7 +533,7 @@ impl SettingsHost {
             if let Some((w, h)) = self.current.resolutions.get(self.current.resolution) {
                 if (*w, *h) != (cx.config().width, cx.config().height) {
                     left.push(preference(
-                        "Display.Resolution",
+                        dereth_client_contract::options::names::DISPLAY_RESOLUTION,
                         PrefValue::Int(((*w << 16) | *h) as i32),
                     ));
                 }

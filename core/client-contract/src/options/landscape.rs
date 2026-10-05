@@ -24,12 +24,12 @@
 use crate::view::PrefValue;
 
 /// `[Render] Ground`: the land surface the ground is drawn with.
-pub const GROUND: &str = "Render.Ground";
+pub const GROUND: &str = crate::options::names::GROUND;
 /// `[Render] Sky`: the sky, and the light and fog that come with it.
-pub const SKY: &str = "Render.Sky";
+pub const SKY: &str = crate::options::names::SKY;
 /// `[Render] Objects`: the era whose models, surfaces, pictures and palettes the world's objects
 /// are drawn with.
-pub const OBJECTS: &str = "Render.Objects";
+pub const OBJECTS: &str = crate::options::names::OBJECTS;
 
 /// The value both preferences hold for "the world's own": the hardware region of a world from
 /// before Throne of Destiny (Legacy Blend and its sky), the one region of a later world (Modern).

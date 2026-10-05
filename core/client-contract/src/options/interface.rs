@@ -12,7 +12,7 @@
 use crate::view::PrefValue;
 
 /// `[UI] Interface`: the interface the client shows.
-pub const INTERFACE: &str = "UI.Interface";
+pub const INTERFACE: &str = crate::options::names::INTERFACE;
 
 /// The option's caption, literal text like its choices.
 pub const CAPTION: &str = "Interface";

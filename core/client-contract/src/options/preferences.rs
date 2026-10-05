@@ -53,7 +53,7 @@ const DETAIL_5: &[&str] = &[
 /// state it; the registry is a hash table in the client and a `BTreeMap` here.
 pub const UI_PREFERENCES: [UiPref; 34] = [
     UiPref {
-        name: "Sound.SoundDisabled",
+        name: crate::options::names::SOUND_DISABLED,
         kind: 4,
         label: "ID_Sound_DisableSound",
         help: "ID_Sound_DisableSound_Help",
@@ -62,7 +62,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Sound.SoundVolume",
+        name: crate::options::names::SOUND_VOLUME,
         kind: 3,
         label: "ID_Sound_EffectVolume",
         help: "ID_Sound_EffectVolume_Help",
@@ -71,7 +71,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(1.0),
     },
     UiPref {
-        name: "Sound.AmbientSoundDisabled",
+        name: crate::options::names::AMBIENT_SOUND_DISABLED,
         kind: 4,
         label: "ID_Sound_DisableAmbientSound",
         help: "ID_Sound_DisableAmbientSound_Help",
@@ -80,7 +80,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Sound.AmbientSoundVolume",
+        name: crate::options::names::AMBIENT_SOUND_VOLUME,
         kind: 3,
         label: "ID_Sound_AmbientVolume",
         help: "ID_Sound_AmbientVolume_Help",
@@ -89,7 +89,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(1.0),
     },
     UiPref {
-        name: "Sound.InterfaceSoundDisabled",
+        name: crate::options::names::INTERFACE_SOUND_DISABLED,
         kind: 4,
         label: "ID_Sound_DisableInterfaceSound",
         help: "ID_Sound_DisableInterfaceSound_Help",
@@ -98,7 +98,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Sound.InterfaceSoundVolume",
+        name: crate::options::names::INTERFACE_SOUND_VOLUME,
         kind: 3,
         label: "ID_Sound_InterfaceVolume",
         help: "ID_Sound_InterfaceVolume_Help",
@@ -107,7 +107,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(1.0),
     },
     UiPref {
-        name: "Sound.SoundFeatures",
+        name: crate::options::names::SOUND_FEATURES,
         kind: 2,
         label: "ID_Sound_SoundFeatures",
         help: "ID_Sound_SoundFeatures_Help",
@@ -116,7 +116,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(0),
     },
     UiPref {
-        name: "Sound.PlaySoundOnlyWhenActive",
+        name: crate::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE,
         kind: 4,
         label: "ID_Sound_NoFocusNoSound",
         help: "ID_Sound_NoFocusNoSound_Help",
@@ -125,7 +125,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Misc.TooltipDelay",
+        name: crate::options::names::TOOLTIP_DELAY,
         kind: 3,
         label: "ID_Misc_TooltipDelay",
         help: "ID_Misc_TooltipDelay_Help",
@@ -134,7 +134,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(0.25),
     },
     UiPref {
-        name: "Misc.TooltipEnable",
+        name: crate::options::names::TOOLTIP_ENABLE,
         kind: 4,
         label: "ID_Misc_TooltipEnable",
         help: "ID_Misc_TooltipEnable_Help",
@@ -143,7 +143,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "UI.ChatFontFace",
+        name: crate::options::names::CHAT_FONT_FACE,
         kind: 2,
         label: "ID_UI_ChatFontFace",
         help: "ID_UI_ChatFontFace_Help",
@@ -158,7 +158,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(2),
     },
     UiPref {
-        name: "UI.ChatFontSize",
+        name: crate::options::names::CHAT_FONT_SIZE,
         kind: 2,
         label: "ID_UI_ChatFontSize",
         help: "ID_UI_ChatFontSize_Help",
@@ -173,7 +173,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(1),
     },
     UiPref {
-        name: "Render.TextureFiltering",
+        name: crate::options::names::TEXTURE_FILTERING,
         kind: 2,
         label: "ID_Graphics_TextureFiltering",
         help: "ID_Graphics_TextureFiltering_Help",
@@ -189,7 +189,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(0),
     },
     UiPref {
-        name: "Render.BuildingDetailTextures",
+        name: crate::options::names::BUILDING_DETAIL_TEXTURES,
         kind: 4,
         label: "ID_Graphics_BuildingDetailTextures",
         help: "ID_Graphics_BuildingDetailTextures_Help",
@@ -198,7 +198,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Render.MultiPassAlpha",
+        name: crate::options::names::MULTI_PASS_ALPHA,
         kind: 4,
         label: "ID_Graphics_MultiPassAlpha",
         help: "ID_Graphics_MultiPassAlpha_Help",
@@ -207,7 +207,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(false),
     },
     UiPref {
-        name: "Render.LandscapeTextureDetail",
+        name: crate::options::names::LANDSCAPE_TEXTURE_DETAIL,
         kind: 2,
         label: "ID_Graphics_LandscapeTextureDetail",
         help: "ID_Graphics_LandscapeTextureDetail_Help",
@@ -216,7 +216,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(2),
     },
     UiPref {
-        name: "Render.EnvironmentTextureDetail",
+        name: crate::options::names::ENVIRONMENT_TEXTURE_DETAIL,
         kind: 2,
         label: "ID_Graphics_EnvironmentTextureDetail",
         help: "ID_Graphics_EnvironmentTextureDetail_Help",
@@ -225,7 +225,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(1),
     },
     UiPref {
-        name: "Render.SceneryDrawDistance",
+        name: crate::options::names::SCENERY_DRAW_DISTANCE,
         kind: 2,
         label: "ID_Graphics_SceneryDrawDistance",
         help: "ID_Graphics_SceneryDrawDistance_Help",
@@ -238,7 +238,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(1),
     },
     UiPref {
-        name: "Render.LandscapeDrawDistance",
+        name: crate::options::names::LANDSCAPE_DRAW_DISTANCE,
         kind: 2,
         label: "ID_Graphics_LandscapeDrawDistance",
         help: "ID_Graphics_LandscapeDrawDistance_Help",
@@ -254,7 +254,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(8),
     },
     UiPref {
-        name: "Render.FieldOfView",
+        name: crate::options::names::FIELD_OF_VIEW,
         kind: 3,
         label: "ID_Graphics_FieldOfView",
         help: "ID_Graphics_FieldOfView_Help",
@@ -263,7 +263,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(90.0),
     },
     UiPref {
-        name: "Render.ScreenBrightness",
+        name: crate::options::names::SCREEN_BRIGHTNESS,
         kind: 3,
         label: "ID_Graphics_ScreenBrightness",
         help: "ID_Graphics_ScreenBrightness_Help",
@@ -272,7 +272,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(0.0),
     },
     UiPref {
-        name: "Render.AutomaticDegrades",
+        name: crate::options::names::AUTOMATIC_DEGRADES,
         kind: 4,
         label: "ID_Graphics_AdaptiveDegrade",
         help: "ID_Graphics_AdaptiveDegrade_Help",
@@ -281,7 +281,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Render.GraphicsPerformance",
+        name: crate::options::names::GRAPHICS_PERFORMANCE,
         kind: 3,
         label: "ID_Graphics_AdaptiveDegradeBias",
         help: "ID_Graphics_AdaptiveDegradeBias_Help",
@@ -290,7 +290,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(0.0),
     },
     UiPref {
-        name: "Render.DegradeDistance",
+        name: crate::options::names::DEGRADE_DISTANCE,
         kind: 3,
         label: "ID_Graphics_DegradeDistance",
         help: "ID_Graphics_DegradeDistance_Help",
@@ -299,7 +299,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(50.0),
     },
     UiPref {
-        name: "Display.FullScreen",
+        name: crate::options::names::DISPLAY_FULL_SCREEN,
         kind: 4,
         label: "ID_Rendering_FullScreen",
         help: "ID_Rendering_FullScreen_Help",
@@ -309,7 +309,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(false),
     },
     UiPref {
-        name: "Display.SyncToRefresh",
+        name: crate::options::names::DISPLAY_SYNC_TO_REFRESH,
         kind: 4,
         label: "ID_Rendering_SyncToDisplayRefresh",
         help: "ID_Rendering_SyncToDisplayRefresh_Help",
@@ -318,7 +318,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(false),
     },
     UiPref {
-        name: "Display.Resolution",
+        name: crate::options::names::DISPLAY_RESOLUTION,
         kind: 2,
         label: "ID_Rendering_DisplayResolution",
         help: "ID_Rendering_DisplayResolution_Help",
@@ -331,7 +331,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(0x0400_0300),
     },
     UiPref {
-        name: "Display.RefreshRate",
+        name: crate::options::names::DISPLAY_REFRESH_RATE,
         kind: 2,
         label: "ID_Rendering_RefreshRate",
         help: "ID_Rendering_RefreshRate_Help",
@@ -340,7 +340,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Int(0),
     },
     UiPref {
-        name: "Input.MouseLookSensitivity",
+        name: crate::options::names::MOUSE_LOOK_SENSITIVITY,
         kind: 3,
         label: "ID_Input_MouseLookSensitivity",
         help: "ID_Input_MouseLookSensitivity_Help",
@@ -349,7 +349,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(0.25),
     },
     UiPref {
-        name: "Input.InvertMouseLookYAxis",
+        name: crate::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
         kind: 4,
         label: "ID_Input_InvertMouseLookYAxis",
         help: "ID_Input_InvertMouseLookYAxis_Help",
@@ -358,7 +358,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(false),
     },
     UiPref {
-        name: "Input.UseMouseTurning",
+        name: crate::options::names::USE_MOUSE_TURNING,
         kind: 4,
         label: "ID_Input_UseMouseTurning",
         help: "ID_Input_UseMouseTurning_Help",
@@ -367,7 +367,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(false),
     },
     UiPref {
-        name: "Camera.AlignToSlope",
+        name: crate::options::names::CAMERA_ALIGN_TO_SLOPE,
         kind: 4,
         label: "ID_Camera_AlignToSlope",
         help: "ID_Camera_AlignToSlope_Help",
@@ -376,7 +376,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Bool(true),
     },
     UiPref {
-        name: "Camera.Stiffness",
+        name: crate::options::names::CAMERA_STIFFNESS,
         kind: 3,
         label: "ID_Camera_Stiffness",
         help: "ID_Camera_Stiffness_Help",
@@ -385,7 +385,7 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(0.45),
     },
     UiPref {
-        name: "Camera.AdjustmentSpeed",
+        name: crate::options::names::CAMERA_ADJUSTMENT_SPEED,
         kind: 3,
         label: "ID_Camera_AdjustmentSpeed",
         help: "ID_Camera_AdjustmentSpeed_Help",
@@ -394,3 +394,24 @@ pub const UI_PREFERENCES: [UiPref; 34] = [
         registered_default: Float(40.0),
     },
 ];
+
+/// Static registered bounds, using the slider's 0..1 default when no range is named.
+/// Names match the table exactly.
+#[must_use]
+pub fn range(name: &str) -> (f32, f32) {
+    range_or_default(
+        UI_PREFERENCES
+            .iter()
+            .find(|p| p.name == name)
+            .and_then(|p| p.range),
+    )
+}
+
+/// A slider's bounds after its caller has queried the appropriate metadata registry.
+#[must_use]
+pub const fn range_or_default(bounds: Option<(f32, f32)>) -> (f32, f32) {
+    match bounds {
+        Some(bounds) => bounds,
+        None => (0.0, 1.0),
+    }
+}

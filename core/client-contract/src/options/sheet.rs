@@ -306,15 +306,8 @@ const fn confirmed(r: Row) -> Row {
     }
 }
 
-/// Registered numeric bounds shared by both interfaces; an unregistered slider uses 0..1.
-#[must_use]
-pub fn preference_range(preference: &str) -> (f32, f32) {
-    super::preferences::UI_PREFERENCES
-        .iter()
-        .find(|p| p.name == preference)
-        .and_then(|p| p.range)
-        .unwrap_or((0.0, 1.0))
-}
+/// Static registered bounds shared by the option rows.
+pub use super::preferences::range as preference_range;
 
 /// UI restore values in the page's presentation order, including paired volume controls.
 #[must_use]
@@ -642,11 +635,19 @@ const CHAT: [Heading; 6] = [
             ),
             only(
                 Shown::Only(Interface::Modern),
-                pref("Chat Font", Value::Menu("UI.ChatFontFace"), Int(2)),
+                pref(
+                    "Chat Font",
+                    Value::Menu(crate::options::names::CHAT_FONT_FACE),
+                    Int(2),
+                ),
             ),
             only(
                 Shown::Only(Interface::Modern),
-                pref("Chat Font Size", Value::Menu("UI.ChatFontSize"), Int(1)),
+                pref(
+                    "Chat Font Size",
+                    Value::Menu(crate::options::names::CHAT_FONT_SIZE),
+                    Int(1),
+                ),
             ),
         ],
     },
@@ -696,34 +697,38 @@ const CLIENT: [Heading; 5] = [
         title: "Sound",
         text: Text::preference("ID_Sound_SoundSection", "Sound Options"),
         rows: &[
-            pref("Sound Output", Value::Menu("Sound.SoundFeatures"), Int(0)),
+            pref(
+                "Sound Output",
+                Value::Menu(crate::options::names::SOUND_FEATURES),
+                Int(0),
+            ),
             pref(
                 "Sound Effects",
                 Value::Sound {
-                    on: "Sound.SoundDisabled",
-                    volume: "Sound.SoundVolume",
+                    on: crate::options::names::SOUND_DISABLED,
+                    volume: crate::options::names::SOUND_VOLUME,
                 },
                 Bool(true),
             ),
             pref(
                 "Ambient Sounds",
                 Value::Sound {
-                    on: "Sound.AmbientSoundDisabled",
-                    volume: "Sound.AmbientSoundVolume",
+                    on: crate::options::names::AMBIENT_SOUND_DISABLED,
+                    volume: crate::options::names::AMBIENT_SOUND_VOLUME,
                 },
                 Bool(true),
             ),
             pref(
                 "Interface Sounds",
                 Value::Sound {
-                    on: "Sound.InterfaceSoundDisabled",
-                    volume: "Sound.InterfaceSoundVolume",
+                    on: crate::options::names::INTERFACE_SOUND_DISABLED,
+                    volume: crate::options::names::INTERFACE_SOUND_VOLUME,
                 },
                 Bool(true),
             ),
             pref(
                 "Play Sounds Only When Active",
-                Value::Check("Sound.PlaySoundOnlyWhenActive"),
+                Value::Check(crate::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE),
                 Bool(true),
             ),
         ],
@@ -744,7 +749,7 @@ const CLIENT: [Heading; 5] = [
             )),
             pref(
                 "Full Screen",
-                Value::Check("Display.FullScreen"),
+                Value::Check(crate::options::names::DISPLAY_FULL_SCREEN),
                 Bool(false),
             ),
             ends(
@@ -752,7 +757,7 @@ const CLIENT: [Heading; 5] = [
                 "ID_Graphics_Value_Bright",
                 pref(
                     "Screen Brightness",
-                    Value::Slider("Render.ScreenBrightness"),
+                    Value::Slider(crate::options::names::SCREEN_BRIGHTNESS),
                     Float(0.0),
                 ),
             ),
@@ -761,7 +766,7 @@ const CLIENT: [Heading; 5] = [
                 "ID_Graphics_Value_Wide",
                 pref(
                     "Field of View",
-                    Value::Slider("Render.FieldOfView"),
+                    Value::Slider(crate::options::names::FIELD_OF_VIEW),
                     Float(90.0),
                 ),
             ),
@@ -815,7 +820,7 @@ const CLIENT: [Heading; 5] = [
                 "Lowers the detail of distant objects to hold the frame rate.",
                 pref(
                     "Adaptive Degrade",
-                    Value::Check("Render.AutomaticDegrades"),
+                    Value::Check(crate::options::names::AUTOMATIC_DEGRADES),
                     Bool(false),
                 ),
             ),
@@ -826,7 +831,7 @@ const CLIENT: [Heading; 5] = [
                     "ID_Graphics_Value_Detail",
                     pref(
                         "Adaptive Degrade Bias",
-                        Value::Slider("Render.GraphicsPerformance"),
+                        Value::Slider(crate::options::names::GRAPHICS_PERFORMANCE),
                         Float(0.0),
                     ),
                 ),
@@ -836,43 +841,43 @@ const CLIENT: [Heading; 5] = [
                 "ID_Graphics_Value_Far",
                 pref(
                     "Degrade Distance",
-                    Value::Slider("Render.DegradeDistance"),
+                    Value::Slider(crate::options::names::DEGRADE_DISTANCE),
                     Float(50.0),
                 ),
             ),
             pref(
                 "Landscape Texture Detail",
-                Value::Menu("Render.LandscapeTextureDetail"),
+                Value::Menu(crate::options::names::LANDSCAPE_TEXTURE_DETAIL),
                 Int(2),
             ),
             pref(
                 "Environment Texture Detail",
-                Value::Menu("Render.EnvironmentTextureDetail"),
+                Value::Menu(crate::options::names::ENVIRONMENT_TEXTURE_DETAIL),
                 Int(1),
             ),
             pref(
                 "Texture Filtering",
-                Value::Menu("Render.TextureFiltering"),
+                Value::Menu(crate::options::names::TEXTURE_FILTERING),
                 Int(1),
             ),
             pref(
                 "Landscape Draw Distance",
-                Value::Menu("Render.LandscapeDrawDistance"),
+                Value::Menu(crate::options::names::LANDSCAPE_DRAW_DISTANCE),
                 Int(8),
             ),
             pref(
                 "Environment Detail Textures",
-                Value::Check("Render.BuildingDetailTextures"),
+                Value::Check(crate::options::names::BUILDING_DETAIL_TEXTURES),
                 Bool(true),
             ),
             pref(
                 "Landscape Detail Textures",
-                Value::Check("Render.LandscapeDetailTextures"),
+                Value::Check(crate::options::names::LANDSCAPE_DETAIL_TEXTURES),
                 Bool(false),
             ),
             pref(
                 "Multiple Pass Alpha",
-                Value::Check("Render.MultiPassAlpha"),
+                Value::Check(crate::options::names::MULTI_PASS_ALPHA),
                 Bool(false),
             ),
         ],
@@ -907,7 +912,7 @@ const CLIENT: [Heading; 5] = [
                 "ID_Graphics_Value_Hard",
                 pref(
                     "Camera Stiffness",
-                    Value::Slider("Camera.Stiffness"),
+                    Value::Slider(crate::options::names::CAMERA_STIFFNESS),
                     Float(0.45),
                 ),
             ),
@@ -916,25 +921,25 @@ const CLIENT: [Heading; 5] = [
                 "ID_Graphics_Value_Fast",
                 pref(
                     "Camera Adjustment Speed",
-                    Value::Slider("Camera.AdjustmentSpeed"),
+                    Value::Slider(crate::options::names::CAMERA_ADJUSTMENT_SPEED),
                     Float(40.0),
                 ),
             ),
             pref(
                 "Align Camera to Slope",
-                Value::Check("Camera.AlignToSlope"),
+                Value::Check(crate::options::names::CAMERA_ALIGN_TO_SLOPE),
                 Bool(true),
             ),
             pref(
                 "Mouselook Sensitivity",
-                Value::Slider("Input.MouseLookSensitivity"),
+                Value::Slider(crate::options::names::MOUSE_LOOK_SENSITIVITY),
                 Float(0.55),
             ),
             only(
                 Shown::Only(Interface::Modern),
                 pref(
                     "Invert Mouselook Axes",
-                    Value::Check("Input.InvertMouseLookYAxis"),
+                    Value::Check(crate::options::names::INVERT_MOUSE_LOOK_Y_AXIS),
                     Bool(false),
                 ),
             ),
@@ -950,7 +955,7 @@ const CLIENT: [Heading; 5] = [
                 Shown::Only(Interface::Modern),
                 pref(
                     "Turn Your Character with Camera Turning",
-                    Value::Check("Input.UseMouseTurning"),
+                    Value::Check(crate::options::names::USE_MOUSE_TURNING),
                     Bool(false),
                 ),
             ),
@@ -1047,18 +1052,28 @@ pub fn row_of_option(option: PlayerOption) -> Option<&'static Row> {
 
 /// The slider a check box greys out while the box is ticked: Adaptive Degrade Bias is the speed or
 /// detail chosen by hand, and is used only while Adaptive Degrade is off.
-pub const GREYED_WHILE_ON: [(&str, &str); 1] =
-    [("Render.AutomaticDegrades", "Render.GraphicsPerformance")];
+pub const GREYED_WHILE_ON: [(&str, &str); 1] = [(
+    crate::options::names::AUTOMATIC_DEGRADES,
+    crate::options::names::GRAPHICS_PERFORMANCE,
+)];
 
 /// The captions under a slider's two ends, left then right, for the sliders the modern page
 /// labels; both interfaces draw the same words.
 pub const SLIDER_ENDS: [(&str, &str, &str); 6] = [
-    ("Camera.Stiffness", "Soft", "Hard"),
-    ("Camera.AdjustmentSpeed", "Slow", "Fast"),
-    ("Render.FieldOfView", "Narrow", "Wide"),
-    ("Render.ScreenBrightness", "Dark", "Bright"),
-    ("Render.GraphicsPerformance", "Speed", "Detail"),
-    ("Render.DegradeDistance", "Close", "Far"),
+    (crate::options::names::CAMERA_STIFFNESS, "Soft", "Hard"),
+    (
+        crate::options::names::CAMERA_ADJUSTMENT_SPEED,
+        "Slow",
+        "Fast",
+    ),
+    (crate::options::names::FIELD_OF_VIEW, "Narrow", "Wide"),
+    (crate::options::names::SCREEN_BRIGHTNESS, "Dark", "Bright"),
+    (
+        crate::options::names::GRAPHICS_PERFORMANCE,
+        "Speed",
+        "Detail",
+    ),
+    (crate::options::names::DEGRADE_DISTANCE, "Close", "Far"),
 ];
 
 /// The two end captions of `preference`'s slider, if the modern page labels it.

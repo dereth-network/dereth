@@ -128,7 +128,8 @@ pub fn config_rows() -> impl Iterator<Item = ConfigRow> {
 /// init out of the adapter's enumerated modes, so they cannot be a compiled-in table of string
 /// ids. UI-preference initialisation attaches no enum choices for it either, so routing it
 /// through the UI-preference leg would produce a drop-down with a popup and no rows.
-pub const USER_PREFERENCE_MENUS: [&str; 1] = ["Display.Resolution"];
+pub const USER_PREFERENCE_MENUS: [&str; 1] =
+    [dereth_client_contract::options::names::DISPLAY_RESOLUTION];
 
 /// One row of the mouse-turning preset: the preference the Game / Support page's *Use Mouse
 /// Turning Settings* button sets, the value it sets it to, and the chat line it prints when the
@@ -150,33 +151,33 @@ pub struct MouseTurningPreset {
 /// camera turning* check box, `Input.UseMouseTurning`.
 pub const MOUSE_TURNING_PRESET: [MouseTurningPreset; 6] = [
     MouseTurningPreset {
-        preference: "Camera.Stiffness",
+        preference: dereth_client_contract::options::names::CAMERA_STIFFNESS,
         value: Float(0.95),
         message: "Camera Stiffness was changed from %f to the mouse turning default of %f.",
     },
     MouseTurningPreset {
-        preference: "Camera.AdjustmentSpeed",
+        preference: dereth_client_contract::options::names::CAMERA_ADJUSTMENT_SPEED,
         value: Float(50.0),
         message: "Camera Adjustment was changed from %f to the mouse turning default of %f.",
     },
     MouseTurningPreset {
-        preference: "Input.MouseLookSensitivity",
+        preference: dereth_client_contract::options::names::MOUSE_LOOK_SENSITIVITY,
         value: Float(0.7),
         message: "Mouse Sensitivity was changed from %f to the mouse turning default of %f.",
     },
     MouseTurningPreset {
-        preference: "Camera.AlignToSlope",
+        preference: dereth_client_contract::options::names::CAMERA_ALIGN_TO_SLOPE,
         value: Bool(false),
         message: "Align To Slope was changed from TRUE to the mouse turning default of FALSE.",
     },
     MouseTurningPreset {
-        preference: "Input.InvertMouseLookYAxis",
+        preference: dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
         value: Bool(true),
         message:
             "Invert Mouselook Axes was changed from FALSE to the mouse turning default of TRUE.",
     },
     MouseTurningPreset {
-        preference: "Input.UseMouseTurning",
+        preference: dereth_client_contract::options::names::USE_MOUSE_TURNING,
         value: Bool(true),
         message: "Turn to Face Camera was changed from FALSE to the mouse turning default of TRUE.",
     },

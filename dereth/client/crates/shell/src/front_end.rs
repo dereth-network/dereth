@@ -919,10 +919,16 @@ impl<H: Host> Ui<'_, '_, H> {
                     let _ = self.cx.run_request(request, now, &mut |_, _| false);
                 }
                 own::TOGGLE_INVERT_MOUSE_LOOK => {
-                    self.flip_preference("Input.InvertMouseLookYAxis", None);
+                    self.flip_preference(
+                        dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
+                        None,
+                    );
                 }
                 own::TOGGLE_MUTE_ON_LOSING_FOCUS => {
-                    self.flip_preference("Sound.PlaySoundOnlyWhenActive", None);
+                    self.flip_preference(
+                        dereth_client_contract::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE,
+                        None,
+                    );
                 }
                 own::TOGGLE_RIGHT_CLICK_MOUSE_LOOK => self.flip_preference(
                     dereth_client_contract::options::classic::RIGHT_CLICK_MOUSE_LOOK,
@@ -1549,7 +1555,10 @@ impl<H: Host> ClientShell<H> {
                 // field of view, and the camera's inversion off while it inverts the vertical
                 // itself); the shared store's values take over again.
                 let now = dereth_primitives::LocalTime(cx.now());
-                for name in ["Input.InvertMouseLookYAxis", "Render.FieldOfView"] {
+                for name in [
+                    dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
+                    dereth_client_contract::options::names::FIELD_OF_VIEW,
+                ] {
                     if let Some(v) = dereth_client_contract::options::store::inq_value(name) {
                         let _ = cx.run_request(
                             dereth_client_contract::UiRequest::SetPreference(name, v),

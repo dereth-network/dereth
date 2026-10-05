@@ -653,7 +653,7 @@ impl Interaction {
                             let radius = render_atoi(value) as u32;
                             if (5..=25).contains(&radius) {
                                 self.pending_render_preferences.push((
-                                    "Render.LandscapeDrawDistance",
+                                    dereth_client_contract::options::names::LANDSCAPE_DRAW_DISTANCE,
                                     dereth_client_contract::view::PrefValue::Int(radius as i32),
                                 ));
                                 Some("Landscape radius set")
@@ -669,7 +669,7 @@ impl Interaction {
                             let fov = render_atoi(value) as u32;
                             if (10..=160).contains(&fov) {
                                 self.pending_render_preferences.push((
-                                    "Render.FieldOfView",
+                                    dereth_client_contract::options::names::FIELD_OF_VIEW,
                                     dereth_client_contract::view::PrefValue::Float(fov as f32),
                                 ));
                                 Some("Field of view set")

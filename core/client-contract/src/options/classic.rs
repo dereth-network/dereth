@@ -12,23 +12,23 @@ use crate::view::PrefValue;
 
 /// `[UI.Classic] InvertMouseLook`: mouse look turns the camera up when the mouse moves down.
 /// Only the vertical motion is inverted, unlike `Input.InvertMouseLookYAxis`, which inverts both.
-pub const INVERT_MOUSE_LOOK: &str = "UI.Classic.InvertMouseLook";
+pub const INVERT_MOUSE_LOOK: &str = crate::options::names::CLASSIC_INVERT_MOUSE_LOOK;
 
 /// `[UI.Classic] RightClickMouseLook`: holding the right mouse button looks around.
-pub const RIGHT_CLICK_MOUSE_LOOK: &str = "UI.Classic.RightClickMouseLook";
+pub const RIGHT_CLICK_MOUSE_LOOK: &str = crate::options::names::CLASSIC_RIGHT_CLICK_MOUSE_LOOK;
 
 /// `[UI.Classic] StretchUI`: the interface is stretched to the window's height.
-pub const STRETCH_UI: &str = "UI.Classic.StretchUI";
+pub const STRETCH_UI: &str = crate::options::names::CLASSIC_STRETCH_UI;
 
 /// `[UI.Classic] ShowTradeTab`: the social window has its Secure Trade page, on a world with
 /// trade. Off, the page is left out and the other tabs share its room.
-pub const SHOW_TRADE_TAB: &str = "UI.Classic.ShowTradeTab";
+pub const SHOW_TRADE_TAB: &str = crate::options::names::CLASSIC_SHOW_TRADE_TAB;
 
 /// `[UI.Classic] ShowFriendsTab`: the social window has its Friends page.
-pub const SHOW_FRIENDS_TAB: &str = "UI.Classic.ShowFriendsTab";
+pub const SHOW_FRIENDS_TAB: &str = crate::options::names::CLASSIC_SHOW_FRIENDS_TAB;
 
 /// `[UI.Classic] ShowSquelchTab`: the social window has its Squelch page.
-pub const SHOW_SQUELCH_TAB: &str = "UI.Classic.ShowSquelchTab";
+pub const SHOW_SQUELCH_TAB: &str = crate::options::names::CLASSIC_SHOW_SQUELCH_TAB;
 
 /// The block's names.
 pub const NAMES: [&str; 6] = [

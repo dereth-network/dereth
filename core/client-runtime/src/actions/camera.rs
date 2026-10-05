@@ -105,10 +105,14 @@ impl MouseLookPreferences {
     /// The registry names the input manager registers, spelled
     /// once. If nothing writes these four, `Input.UseMouseTurning` stays permanently false and
     /// the camera's mouse-turning arm is unreachable at run time.
-    pub const SENSITIVITY: &'static str = "Input.MouseLookSensitivity";
-    pub const SMOOTHING: &'static str = "Input.MouseLookSmoothingAmount";
-    pub const INVERT_Y: &'static str = "Input.InvertMouseLookYAxis";
-    pub const USE_MOUSE_TURNING: &'static str = "Input.UseMouseTurning";
+    pub const SENSITIVITY: &'static str =
+        dereth_client_contract::options::names::MOUSE_LOOK_SENSITIVITY;
+    pub const SMOOTHING: &'static str =
+        dereth_client_contract::options::names::MOUSE_LOOK_SMOOTHING_AMOUNT;
+    pub const INVERT_Y: &'static str =
+        dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS;
+    pub const USE_MOUSE_TURNING: &'static str =
+        dereth_client_contract::options::names::USE_MOUSE_TURNING;
 }
 
 impl Default for MouseLookPreferences {

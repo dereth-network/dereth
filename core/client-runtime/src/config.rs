@@ -1195,13 +1195,14 @@ impl Config {
                 self.height = p.height;
             }
         }
-        if let Some(v) = prefs.bool("Display.FullScreen") {
+        if let Some(v) = prefs.bool(dereth_client_contract::options::names::DISPLAY_FULL_SCREEN) {
             self.display.full_screen = v;
         }
-        if let Some(v) = prefs.u32("Display.RefreshRate") {
+        if let Some(v) = prefs.u32(dereth_client_contract::options::names::DISPLAY_REFRESH_RATE) {
             self.display.refresh_rate = v;
         }
-        if let Some(v) = prefs.bool("Display.SyncToRefresh") {
+        if let Some(v) = prefs.bool(dereth_client_contract::options::names::DISPLAY_SYNC_TO_REFRESH)
+        {
             self.display.sync_to_refresh = v;
         }
         // The camera manager's three `Camera.*` registrations,
@@ -1708,10 +1709,11 @@ impl Config {
 /// behind it as the string-to-value conversion's own no-label-matched fall-back, which is what a hand-edited
 /// `Resolution=83886800` takes.
 fn display_resolution(prefs: &Preferences) -> Option<u32> {
-    let raw = prefs.get("Display.Resolution")?;
-    if let Some(v) =
-        dereth_client_contract::options::store::display_choice("Display.Resolution", raw)
-    {
+    let raw = prefs.get(dereth_client_contract::options::names::DISPLAY_RESOLUTION)?;
+    if let Some(v) = dereth_client_contract::options::store::display_choice(
+        dereth_client_contract::options::names::DISPLAY_RESOLUTION,
+        raw,
+    ) {
         return Some(u32::from_ne_bytes(v.to_ne_bytes()));
     }
     strtoul_base0(raw)

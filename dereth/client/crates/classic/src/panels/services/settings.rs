@@ -104,19 +104,19 @@ fn max_scroll(page: PageId, c: &Context<'_>) -> i32 {
 fn hosted(preference: &str) -> bool {
     matches!(
         preference,
-        "Sound.SoundFeatures"
-            | "Sound.SoundDisabled"
-            | "Sound.AmbientSoundDisabled"
-            | "Sound.InterfaceSoundDisabled"
-            | "Sound.SoundVolume"
-            | "Sound.AmbientSoundVolume"
-            | "Display.Resolution"
-            | "Display.FullScreen"
-            | "Render.ScreenBrightness"
-            | "Camera.Stiffness"
-            | "Render.GraphicsPerformance"
-            | "Render.AutomaticDegrades"
-            | "Render.BuildingDetailTextures"
+        dereth_client_contract::options::names::SOUND_FEATURES
+            | dereth_client_contract::options::names::SOUND_DISABLED
+            | dereth_client_contract::options::names::AMBIENT_SOUND_DISABLED
+            | dereth_client_contract::options::names::INTERFACE_SOUND_DISABLED
+            | dereth_client_contract::options::names::SOUND_VOLUME
+            | dereth_client_contract::options::names::AMBIENT_SOUND_VOLUME
+            | dereth_client_contract::options::names::DISPLAY_RESOLUTION
+            | dereth_client_contract::options::names::DISPLAY_FULL_SCREEN
+            | dereth_client_contract::options::names::SCREEN_BRIGHTNESS
+            | dereth_client_contract::options::names::CAMERA_STIFFNESS
+            | dereth_client_contract::options::names::GRAPHICS_PERFORMANCE
+            | dereth_client_contract::options::names::AUTOMATIC_DEGRADES
+            | dereth_client_contract::options::names::BUILDING_DETAIL_TEXTURES
     )
 }
 
@@ -205,10 +205,14 @@ impl Settings {
     /// The check box of a check row: its state and whether it can be changed.
     fn check_state(&self, s: &ClassicSettings, preference: &'static str) -> (bool, bool) {
         match preference {
-            "Display.FullScreen" => (s.full_screen, true),
-            "Render.AutomaticDegrades" => (s.auto_degrade, true),
-            "Render.BuildingDetailTextures" => (s.environment_detail, s.detail_available),
-            "Render.LandscapeDetailTextures" => (self.own_bool(preference), s.detail_available),
+            dereth_client_contract::options::names::DISPLAY_FULL_SCREEN => (s.full_screen, true),
+            dereth_client_contract::options::names::AUTOMATIC_DEGRADES => (s.auto_degrade, true),
+            dereth_client_contract::options::names::BUILDING_DETAIL_TEXTURES => {
+                (s.environment_detail, s.detail_available)
+            }
+            dereth_client_contract::options::names::LANDSCAPE_DETAIL_TEXTURES => {
+                (self.own_bool(preference), s.detail_available)
+            }
             _ => (self.own_bool(preference), true),
         }
     }
@@ -221,9 +225,15 @@ impl Settings {
     ) -> (bool, i32) {
         let pct = |v: f32| to_i32((v * 100.0).round());
         match on {
-            "Sound.SoundDisabled" => (s.effects, pct(s.effects_volume)),
-            "Sound.AmbientSoundDisabled" => (s.ambient, pct(s.ambient_volume)),
-            "Sound.InterfaceSoundDisabled" => (s.interface, self.own_slider(volume)),
+            dereth_client_contract::options::names::SOUND_DISABLED => {
+                (s.effects, pct(s.effects_volume))
+            }
+            dereth_client_contract::options::names::AMBIENT_SOUND_DISABLED => {
+                (s.ambient, pct(s.ambient_volume))
+            }
+            dereth_client_contract::options::names::INTERFACE_SOUND_DISABLED => {
+                (s.interface, self.own_slider(volume))
+            }
             _ => (self.own_bool(on), self.own_slider(volume)),
         }
     }
@@ -231,17 +241,19 @@ impl Settings {
     fn slider_state(&self, s: &ClassicSettings, preference: &'static str) -> i32 {
         let pct = |v: f32| to_i32((v * 100.0).round());
         match preference {
-            "Render.ScreenBrightness" => pct(s.brightness),
-            "Camera.Stiffness" => pct(s.camera_stiffness),
-            "Render.GraphicsPerformance" => pct(s.performance),
+            dereth_client_contract::options::names::SCREEN_BRIGHTNESS => pct(s.brightness),
+            dereth_client_contract::options::names::CAMERA_STIFFNESS => pct(s.camera_stiffness),
+            dereth_client_contract::options::names::GRAPHICS_PERFORMANCE => pct(s.performance),
             _ => self.own_slider(preference),
         }
     }
     /// A drop-down row's choices and the chosen one.
     fn menu_state(&self, s: &ClassicSettings, preference: &'static str) -> (Vec<String>, usize) {
         match preference {
-            "Sound.SoundFeatures" => (vec!["Stereo".into(), "Mono".into()], usize::from(!s.stereo)),
-            "Display.Resolution" => (
+            dereth_client_contract::options::names::SOUND_FEATURES => {
+                (vec!["Stereo".into(), "Mono".into()], usize::from(!s.stereo))
+            }
+            dereth_client_contract::options::names::DISPLAY_RESOLUTION => (
                 s.resolutions
                     .iter()
                     .map(|(w, h)| format!("{w} x {h}"))
@@ -330,7 +342,8 @@ impl Settings {
                 }
                 Value::Slider(p) => {
                     // The bias by hand is used only while Adaptive Degrade is off.
-                    let enabled = p != "Render.GraphicsPerformance" || !s.auto_degrade;
+                    let enabled = p != dereth_client_contract::options::names::GRAPHICS_PERFORMANCE
+                        || !s.auto_degrade;
                     f.label(
                         14,
                         y + 2,
@@ -360,7 +373,8 @@ impl Settings {
                 Value::Menu(p) => {
                     f.label(14, y + 2, caption, "15-6", INK, clip);
                     let (options, selected) = self.menu_state(s, p);
-                    let enabled = p != "Sound.SoundFeatures" || (s.sound_available && s.effects);
+                    let enabled = p != dereth_client_contract::options::names::SOUND_FEATURES
+                        || (s.sound_available && s.effects);
                     let menu = f.control(
                         format!("row:{p}"),
                         rect(160, y - 1, 120, 18),
@@ -458,18 +472,27 @@ impl Settings {
             _ => unreachable!("shared menu default for {name}"),
         };
         let s = self.draft.as_mut().unwrap();
-        s.effects = s.sound_available && boolean("Sound.SoundDisabled");
-        s.ambient = s.sound_available && boolean("Sound.AmbientSoundDisabled");
-        s.interface = s.sound_available && boolean("Sound.InterfaceSoundDisabled");
-        s.stereo = integer("Sound.SoundFeatures") == 0;
-        s.effects_volume = float("Sound.SoundVolume");
-        s.ambient_volume = float("Sound.AmbientSoundVolume");
-        s.auto_degrade = boolean("Render.AutomaticDegrades");
-        s.performance = ((float("Render.GraphicsPerformance") + 1.0) / 2.0).clamp(0.0, 1.0);
-        s.brightness = crate::settings_host::slider_of_brightness(float("Render.ScreenBrightness"));
-        s.camera_stiffness = (float("Camera.Stiffness") / 0.714_285_73 - 0.4).clamp(0.0, 1.0);
-        s.full_screen = boolean("Display.FullScreen");
-        let packed = integer("Display.Resolution") as u32;
+        s.effects =
+            s.sound_available && boolean(dereth_client_contract::options::names::SOUND_DISABLED);
+        s.ambient = s.sound_available
+            && boolean(dereth_client_contract::options::names::AMBIENT_SOUND_DISABLED);
+        s.interface = s.sound_available
+            && boolean(dereth_client_contract::options::names::INTERFACE_SOUND_DISABLED);
+        s.stereo = integer(dereth_client_contract::options::names::SOUND_FEATURES) == 0;
+        s.effects_volume = float(dereth_client_contract::options::names::SOUND_VOLUME);
+        s.ambient_volume = float(dereth_client_contract::options::names::AMBIENT_SOUND_VOLUME);
+        s.auto_degrade = boolean(dereth_client_contract::options::names::AUTOMATIC_DEGRADES);
+        s.performance =
+            ((float(dereth_client_contract::options::names::GRAPHICS_PERFORMANCE) + 1.0) / 2.0)
+                .clamp(0.0, 1.0);
+        s.brightness = crate::settings_host::slider_of_brightness(float(
+            dereth_client_contract::options::names::SCREEN_BRIGHTNESS,
+        ));
+        s.camera_stiffness =
+            (float(dereth_client_contract::options::names::CAMERA_STIFFNESS) / 0.714_285_73 - 0.4)
+                .clamp(0.0, 1.0);
+        s.full_screen = boolean(dereth_client_contract::options::names::DISPLAY_FULL_SCREEN);
+        let packed = integer(dereth_client_contract::options::names::DISPLAY_RESOLUTION) as u32;
         if let Some(i) = s
             .resolutions
             .iter()
@@ -478,10 +501,14 @@ impl Settings {
             s.resolution = i;
         }
         // Texture sizes are edited directly by their preference rows below.
-        if let Some(PrefValue::Bool(on)) = default_of("Render.BuildingDetailTextures") {
+        if let Some(PrefValue::Bool(on)) =
+            default_of(dereth_client_contract::options::names::BUILDING_DETAIL_TEXTURES)
+        {
             s.environment_detail = on;
         }
-        if let Some(PrefValue::Bool(on)) = default_of("Render.LandscapeDetailTextures") {
+        if let Some(PrefValue::Bool(on)) =
+            default_of(dereth_client_contract::options::names::LANDSCAPE_DETAIL_TEXTURES)
+        {
             s.landscape_detail = on;
         }
         let s = s.clone();
@@ -526,12 +553,22 @@ impl Settings {
                 };
                 let s = self.draft.as_mut().unwrap();
                 match name {
-                    "Sound.SoundDisabled" => s.effects = checked,
-                    "Sound.AmbientSoundDisabled" => s.ambient = checked,
-                    "Sound.InterfaceSoundDisabled" => s.interface = checked,
-                    "Render.AutomaticDegrades" => s.auto_degrade = checked,
-                    "Render.BuildingDetailTextures" => s.environment_detail = checked,
-                    "Display.FullScreen" => s.full_screen = checked,
+                    dereth_client_contract::options::names::SOUND_DISABLED => s.effects = checked,
+                    dereth_client_contract::options::names::AMBIENT_SOUND_DISABLED => {
+                        s.ambient = checked
+                    }
+                    dereth_client_contract::options::names::INTERFACE_SOUND_DISABLED => {
+                        s.interface = checked
+                    }
+                    dereth_client_contract::options::names::AUTOMATIC_DEGRADES => {
+                        s.auto_degrade = checked
+                    }
+                    dereth_client_contract::options::names::BUILDING_DETAIL_TEXTURES => {
+                        s.environment_detail = checked
+                    }
+                    dereth_client_contract::options::names::DISPLAY_FULL_SCREEN => {
+                        s.full_screen = checked
+                    }
                     other => self.set_own(other, PrefValue::Bool(checked)),
                 }
                 self.dirty = true;
@@ -551,11 +588,17 @@ impl Settings {
                 let s = self.draft.as_mut().unwrap();
                 self.dirty = true;
                 match name {
-                    "Sound.SoundVolume" => s.effects_volume = v,
-                    "Sound.AmbientSoundVolume" => s.ambient_volume = v,
-                    "Render.ScreenBrightness" => s.brightness = v,
-                    "Camera.Stiffness" => s.camera_stiffness = v,
-                    "Render.GraphicsPerformance" => s.performance = v,
+                    dereth_client_contract::options::names::SOUND_VOLUME => s.effects_volume = v,
+                    dereth_client_contract::options::names::AMBIENT_SOUND_VOLUME => {
+                        s.ambient_volume = v
+                    }
+                    dereth_client_contract::options::names::SCREEN_BRIGHTNESS => s.brightness = v,
+                    dereth_client_contract::options::names::CAMERA_STIFFNESS => {
+                        s.camera_stiffness = v
+                    }
+                    dereth_client_contract::options::names::GRAPHICS_PERFORMANCE => {
+                        s.performance = v
+                    }
                     other => {
                         let (lo, hi) = range(other);
                         self.set_own(other, PrefValue::Float(lo + v * (hi - lo)));
@@ -564,7 +607,9 @@ impl Settings {
                 }
                 if matches!(
                     name,
-                    "Render.ScreenBrightness" | "Camera.Stiffness" | "Render.GraphicsPerformance"
+                    dereth_client_contract::options::names::SCREEN_BRIGHTNESS
+                        | dereth_client_contract::options::names::CAMERA_STIFFNESS
+                        | dereth_client_contract::options::names::GRAPHICS_PERFORMANCE
                 ) {
                     vec![PanelAction::Host(HostAction::PreviewClassicSettings(
                         self.draft.clone().unwrap(),
@@ -583,8 +628,12 @@ impl Settings {
                 };
                 let s = self.draft.as_mut().unwrap();
                 match name {
-                    "Sound.SoundFeatures" => s.stereo = index == 0,
-                    "Display.Resolution" if index < s.resolutions.len() => s.resolution = index,
+                    dereth_client_contract::options::names::SOUND_FEATURES => s.stereo = index == 0,
+                    dereth_client_contract::options::names::DISPLAY_RESOLUTION
+                        if index < s.resolutions.len() =>
+                    {
+                        s.resolution = index
+                    }
                     other => {
                         let choices = store::choice_rows(other).unwrap_or_default();
                         let Some(choice) = choices.get(index) else {

@@ -39,7 +39,10 @@ pub const BIT_PREFERENCES: [(u32, &str); 4] = [
         STRETCH_UI,
         dereth_client_contract::options::classic::STRETCH_UI,
     ),
-    (MUTE_INACTIVE, "Sound.PlaySoundOnlyWhenActive"),
+    (
+        MUTE_INACTIVE,
+        dereth_client_contract::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE,
+    ),
 ];
 
 /// This client's own settings, as the bits of [`CLASSIC_ONLY`], read from the shared store.
@@ -97,9 +100,12 @@ pub fn sync_options<S: Shell>(cx: &mut Cx<'_, S>) {
     // negates both axes, so it stays off and `cursor_moved` applies this option.
     let now = dereth_primitives::LocalTime(cx.now());
     for request in [
-        UiRequest::SetPreference("Input.InvertMouseLookYAxis", PrefValue::Bool(false)),
         UiRequest::SetPreference(
-            "Sound.PlaySoundOnlyWhenActive",
+            dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
+            PrefValue::Bool(false),
+        ),
+        UiRequest::SetPreference(
+            dereth_client_contract::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE,
             PrefValue::Bool(word & MUTE_INACTIVE != 0),
         ),
     ] {

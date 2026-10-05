@@ -244,9 +244,11 @@ pub struct CameraPreferences {
 }
 
 impl CameraPreferences {
-    pub const ALIGN_TO_SLOPE: &'static str = "Camera.AlignToSlope";
-    pub const STIFFNESS: &'static str = "Camera.Stiffness";
-    pub const ADJUSTMENT_SPEED: &'static str = "Camera.AdjustmentSpeed";
+    pub const ALIGN_TO_SLOPE: &'static str =
+        dereth_client_contract::options::names::CAMERA_ALIGN_TO_SLOPE;
+    pub const STIFFNESS: &'static str = dereth_client_contract::options::names::CAMERA_STIFFNESS;
+    pub const ADJUSTMENT_SPEED: &'static str =
+        dereth_client_contract::options::names::CAMERA_ADJUSTMENT_SPEED;
 }
 
 impl Default for CameraPreferences {

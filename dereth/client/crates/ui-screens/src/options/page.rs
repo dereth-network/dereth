@@ -312,7 +312,9 @@ pub const SLIDER_RANGES: [(&str, (f32, f32)); 10] = [
 /// gets 0.0..1.0 on every slider**, which is exactly what retail would do with an empty registry.
 #[must_use]
 pub fn slider_range(preference: &str) -> (f32, f32) {
-    super::preferences::inq_preference_range(preference).unwrap_or((0.0, 1.0))
+    dereth_client_contract::options::preferences::range_or_default(
+        super::preferences::inq_preference_range(preference),
+    )
 }
 
 // -------------------------------------------------------------------------------------------
@@ -1284,11 +1286,9 @@ impl PlayerOptionPage {
 
     /// Read back the runtime's resolution result without committing other page drafts.
     pub fn confirmation_tick(&mut self, ui: &mut UiSystem) -> Vec<ElemHandle> {
-        if let Some(i) = self
-            .options
-            .iter()
-            .position(|o| o.preference == "Display.Resolution")
-        {
+        if let Some(i) = self.options.iter().position(|o| {
+            o.preference == dereth_client_contract::options::names::DISPLAY_RESOLUTION
+        }) {
             let value = self.get_value(i);
             if self.options[i].current != value {
                 self.options[i].current = value;

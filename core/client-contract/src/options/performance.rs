@@ -8,7 +8,7 @@
 use crate::view::PrefValue;
 
 /// `[Debug] PerformancePanel`: whether the performance panel shows.
-pub const PERFORMANCE_PANEL: &str = "Debug.PerformancePanel";
+pub const PERFORMANCE_PANEL: &str = crate::options::names::PERFORMANCE_PANEL;
 
 /// The option's caption, literal text: no string table has one.
 pub const CAPTION: &str = "Performance Panel";

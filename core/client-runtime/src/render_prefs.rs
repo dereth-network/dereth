@@ -4,7 +4,7 @@
 //! then applies any preloaded shadow through string conversion.
 
 use crate::config::Preferences;
-pub const TEXTURE_FILTERING: &str = "Render.TextureFiltering";
+pub const TEXTURE_FILTERING: &str = dereth_client_contract::options::names::TEXTURE_FILTERING;
 
 /// `Render.LandscapeDrawDistance` controls the landscape's mid radius.
 /// Updating render preferences hands it to the smart box's mid-radius setter,
@@ -12,7 +12,8 @@ pub const TEXTURE_FILTERING: &str = "Render.TextureFiltering";
 /// it as an unsigned 32-bit preference with the choice list
 /// `[VeryLow, Low, Medium, High, VeryHigh, Extreme]` and the value array `[3, 5, 8, 11, 15, 25]`
 /// in the client; the registered default is **8** (`Medium`).
-pub const LANDSCAPE_DRAW_DISTANCE: &str = "Render.LandscapeDrawDistance";
+pub const LANDSCAPE_DRAW_DISTANCE: &str =
+    dereth_client_contract::options::names::LANDSCAPE_DRAW_DISTANCE;
 
 /// `Render.LandscapeDrawDistance`'s registered default, i.e. on a fresh
 /// install. The landscape's constructor default is 5, but render startup registers 8 and
@@ -23,7 +24,7 @@ pub const LANDSCAPE_DRAW_DISTANCE_DEFAULT: u32 = 8;
 /// `[Render] TerrainBlending`: how the landscape blends each cell's terrain layers. Not a retail
 /// preference and not on the options page; the preferences file is its only control, and the
 /// save merge keeps it because it keeps every key it does not register.
-pub const TERRAIN_BLENDING: &str = "Render.TerrainBlending";
+pub const TERRAIN_BLENDING: &str = dereth_client_contract::options::names::TERRAIN_BLENDING;
 
 /// The values of [`TERRAIN_BLENDING`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -201,31 +202,35 @@ pub const LANDSCAPE_TEXTURE_DETAIL_DEFAULT: u32 = 2;
 pub const ASPECT_RATIO_DEFAULT: u32 = 1;
 
 /// `Render.EnvironmentTextureDetail`.
-pub const ENVIRONMENT_TEXTURE_DETAIL: &str = "Render.EnvironmentTextureDetail";
+pub const ENVIRONMENT_TEXTURE_DETAIL: &str =
+    dereth_client_contract::options::names::ENVIRONMENT_TEXTURE_DETAIL;
 /// `Render.LandscapeTextureDetail`.
-pub const LANDSCAPE_TEXTURE_DETAIL: &str = "Render.LandscapeTextureDetail";
+pub const LANDSCAPE_TEXTURE_DETAIL: &str =
+    dereth_client_contract::options::names::LANDSCAPE_TEXTURE_DETAIL;
 /// `Render.SceneryDrawDistance`.
-pub const SCENERY_DRAW_DISTANCE: &str = "Render.SceneryDrawDistance";
+pub const SCENERY_DRAW_DISTANCE: &str =
+    dereth_client_contract::options::names::SCENERY_DRAW_DISTANCE;
 /// `Render.AspectRatio`. One of the nine with no options-page row.
-pub const ASPECT_RATIO: &str = "Render.AspectRatio";
+pub const ASPECT_RATIO: &str = dereth_client_contract::options::names::ASPECT_RATIO;
 /// `Render.FieldOfView`.
-pub const FIELD_OF_VIEW: &str = "Render.FieldOfView";
+pub const FIELD_OF_VIEW: &str = dereth_client_contract::options::names::FIELD_OF_VIEW;
 /// `Render.ScreenBrightness`.
-pub const SCREEN_BRIGHTNESS: &str = "Render.ScreenBrightness";
+pub const SCREEN_BRIGHTNESS: &str = dereth_client_contract::options::names::SCREEN_BRIGHTNESS;
 /// `Render.MultiPassAlpha`.
-pub const MULTI_PASS_ALPHA: &str = "Render.MultiPassAlpha";
+pub const MULTI_PASS_ALPHA: &str = dereth_client_contract::options::names::MULTI_PASS_ALPHA;
 /// `Render.BuildingDetailTextures`, bound to `RenderPreferences::environment_detail_textures`.
-pub const BUILDING_DETAIL_TEXTURES: &str = "Render.BuildingDetailTextures";
+pub const BUILDING_DETAIL_TEXTURES: &str =
+    dereth_client_contract::options::names::BUILDING_DETAIL_TEXTURES;
 /// `Render.LandscapeDetailTextures`: the detail texture over the ground. Retail's page had no
 /// row for it; both interfaces' pages here do.
 pub const LANDSCAPE_DETAIL_TEXTURES: &str =
     dereth_client_contract::options::store::LANDSCAPE_DETAIL_TEXTURES;
 /// `Render.AutomaticDegrades`.
-pub const AUTOMATIC_DEGRADES: &str = "Render.AutomaticDegrades";
+pub const AUTOMATIC_DEGRADES: &str = dereth_client_contract::options::names::AUTOMATIC_DEGRADES;
 /// `Render.GraphicsPerformance`.
-pub const GRAPHICS_PERFORMANCE: &str = "Render.GraphicsPerformance";
+pub const GRAPHICS_PERFORMANCE: &str = dereth_client_contract::options::names::GRAPHICS_PERFORMANCE;
 /// `Render.DegradeDistance`.
-pub const DEGRADE_DISTANCE: &str = "Render.DegradeDistance";
+pub const DEGRADE_DISTANCE: &str = dereth_client_contract::options::names::DEGRADE_DISTANCE;
 
 /// One unsigned 32-bit preference with a registered choice list: a case-insensitive label match
 /// wins, an unmatched string is `strtol`'d as an **index** into the value array, and a negative or

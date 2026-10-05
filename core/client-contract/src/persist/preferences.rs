@@ -277,14 +277,14 @@ impl UserPreferences {
 /// The UI's own registered preferences.
 pub mod keys {
     /// Bound to the UI element manager's tooltip delay.
-    pub const TOOLTIP_DELAY: &str = "Misc.TooltipDelay";
+    pub const TOOLTIP_DELAY: &str = crate::options::names::TOOLTIP_DELAY;
     /// Bound to the UI element manager's tooltip enable flag.
-    pub const TOOLTIP_ENABLE: &str = "Misc.TooltipEnable";
+    pub const TOOLTIP_ENABLE: &str = crate::options::names::TOOLTIP_ENABLE;
     /// Bound to the process-wide IME preference.
-    pub const USE_IME: &str = "International.UseIME";
-    pub const KEYMAP_FILE: &str = "Input.KeymapFile";
-    pub const CHAT_FONT_FACE: &str = "UI.ChatFontFace";
-    pub const CHAT_FONT_SIZE: &str = "UI.ChatFontSize";
+    pub const USE_IME: &str = crate::options::names::USE_IME;
+    pub const KEYMAP_FILE: &str = crate::options::names::KEYMAP_FILE;
+    pub const CHAT_FONT_FACE: &str = crate::options::names::CHAT_FONT_FACE;
+    pub const CHAT_FONT_SIZE: &str = crate::options::names::CHAT_FONT_SIZE;
 }
 
 /// The type supplied when attaching a preference.

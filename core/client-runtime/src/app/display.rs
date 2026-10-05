@@ -301,7 +301,7 @@ impl<S: Shell> App<S> {
         let packed = ((effect.size.0 << 16) | effect.size.1) as i32;
         if effect.store {
             dereth_client_contract::options::store::set_value(
-                "Display.Resolution",
+                dereth_client_contract::options::names::DISPLAY_RESOLUTION,
                 dereth_client_contract::PrefValue::Int(packed),
             );
         }
@@ -389,7 +389,9 @@ impl<S: Shell> App<S> {
                         return false;
                     }
                     UiRequest::SetPreference(name, PrefValue::Bool(v)) => {
-                        if name.eq_ignore_ascii_case("Display.FullScreen") {
+                        if name.eq_ignore_ascii_case(
+                            dereth_client_contract::options::names::DISPLAY_FULL_SCREEN,
+                        ) {
                             self.cfg.display.full_screen = *v;
                             // **The one rule, in the one place that is not a mode edge.** The
                             // preference is stored whatever mode the player is in -- the options
@@ -402,7 +404,9 @@ impl<S: Shell> App<S> {
                             self.pump.state.full_screen = *v && in_gameplay;
                             return false;
                         }
-                        if name.eq_ignore_ascii_case("Display.SyncToRefresh") {
+                        if name.eq_ignore_ascii_case(
+                            dereth_client_contract::options::names::DISPLAY_SYNC_TO_REFRESH,
+                        ) {
                             self.cfg.display.sync_to_refresh = *v;
                             return false;
                         }
