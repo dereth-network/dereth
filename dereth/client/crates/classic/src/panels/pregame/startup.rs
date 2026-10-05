@@ -3,6 +3,8 @@ use super::*;
 use crate::int::u32_from;
 use dereth_client_contract::pregame::{DddEvent, PregameView};
 use dereth_primitives::num::to_i32_f64;
+/// The width of a progress vial's art; each vial's caption is centred under it.
+const VIAL_WIDTH: i32 = 325;
 #[derive(Debug)]
 pub(super) struct Startup {
     expected: u64,
@@ -81,7 +83,12 @@ impl Startup {
             if right <= left {
                 continue;
             }
-            f.image(&format!("{did:08X}"), rect(x, 514, 325, 52), false, false);
+            f.image(
+                &format!("{did:08X}"),
+                rect(x, 514, VIAL_WIDTH, 52),
+                false,
+                false,
+            );
             if let Some(crate::Command::Image { clip, .. }) = f.screen.commands.last_mut() {
                 *clip = Some([x + left, 514, x + right, 560]);
             }
@@ -93,19 +100,23 @@ impl Startup {
         f.image("06001343", rect(0, 30, 800, 482), false, false);
         f.text_box(rect(0,467,800,45),
             "Copyright 1996-2004 Turbine Entertainment Software Corporation. All rights reserved.\nThis program is protected by U.S. and International copyright laws as described in Help/About Asheron's Call.",
-            "14-5",COLOR,TextAlign::Left,true,None);
+            "14-5",COLOR,TextAlign::Center,true,None);
         // The shared view exposes connection completion, not the classic transport's step/total.
         let connected = view.connected || !view.has_packet_controller;
         self.bar(&mut f, 28, if connected { 1.0 } else { 0.0 });
         self.bar(&mut f, 408, self.update_fraction());
-        text(
-            &mut f,
-            rect(28, 560, 354, 20),
+        f.text_box(
+            rect(28, 560, VIAL_WIDTH, 20),
             if connected {
                 "Connected!"
             } else {
                 "Connect progress"
             },
+            "16-7",
+            COLOR,
+            TextAlign::Center,
+            false,
+            None,
         );
         let fraction = self.update_fraction();
         let update = if fraction >= 1.0 {
@@ -119,7 +130,7 @@ impl Startup {
             "Update progress".to_owned()
         };
         f.text_box(
-            rect(408, 560, 354, 20),
+            rect(408, 560, VIAL_WIDTH, 20),
             update,
             "16-7",
             COLOR,
@@ -186,6 +197,42 @@ mod tests {
         v.received_set = true;
         assert!(s.tick(&v, dereth_primitives::LocalTime(0.0)));
         assert_eq!(s.update_fraction(), 1.0);
+    }
+    #[test]
+    fn copyright_is_centred_on_the_screen_and_each_progress_caption_under_its_vial() {
+        let f = Startup::new(dereth_primitives::LocalTime(0.0)).paint(&PregameView {
+            has_packet_controller: true,
+            ..Default::default()
+        });
+        let boxed = |wanted: &str| {
+            f.screen.commands.iter().find_map(|c| match c {
+                crate::Command::TextBox {
+                    text, rect, align, ..
+                } if text.starts_with(wanted) => Some((*rect, matches!(align, TextAlign::Center))),
+                _ => None,
+            })
+        };
+        assert_eq!(boxed("Copyright"), Some(([0, 467, 800, 45], true)));
+        assert_eq!(
+            boxed("Connect progress"),
+            Some(([28, 560, VIAL_WIDTH, 20], true))
+        );
+        assert_eq!(
+            boxed("Update progress"),
+            Some(([408, 560, VIAL_WIDTH, 20], true))
+        );
+        let vials: Vec<_> = f
+            .screen
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                crate::Command::Image {
+                    x, y: 514, width, ..
+                } => Some((*x, *width)),
+                _ => None,
+            })
+            .collect();
+        assert!(vials.contains(&(28, 325)) && vials.contains(&(408, 325)));
     }
     #[test]
     fn startup_without_packet_controller_advances_without_invented_network_progress() {
