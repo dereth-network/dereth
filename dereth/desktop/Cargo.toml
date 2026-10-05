@@ -29,9 +29,11 @@ dereth-dat.workspace = true
 # the OS error box.
 dereth-clipboard.workspace = true
 dereth-console.workspace = true
-# The system fonts the classic interface's text is drawn with.
+# The classic interface's text: the Windows font system on Windows, the client's own fonts
+# elsewhere.
 dereth-classic-dat.workspace = true
 dereth-classic-gdi.workspace = true
+dereth-classic-fonts.workspace = true
 tracing.workspace = true
 # The one subscriber a product's `main` installs (`logging`).
 tracing-subscriber.workspace = true

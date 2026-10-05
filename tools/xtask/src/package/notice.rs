@@ -217,8 +217,9 @@ pub struct DerethFacts<'a> {
     pub crates: &'a [Crate],
     /// The project's MIT licence (the repository's top-level `LICENSE`).
     pub mit_licence: &'a str,
-    /// The typefaces' licences, as (typeface, licence text): the launcher's page embeds them.
-    pub fonts: &'a [(&'a str, String)],
+    /// The typefaces the package carries, as (typeface, what carries it and for what, licence
+    /// text).
+    pub fonts: &'a [(&'a str, &'a str, String)],
     /// MoltenVK's licence, when the package carries MoltenVK (macOS).
     pub moltenvk_licence: Option<&'a str>,
 }
@@ -271,14 +272,13 @@ DERETH
         commit = f.commit,
         mit = indent(f.mit_licence.trim_end()),
     );
-    for (name, text) in f.fonts {
+    for (name, carried, text) in f.fonts {
         out.push_str(&format!(
             "
 
 THE {upper} TYPEFACE
 
-The launcher's page is set in {name}, which the launcher carries, under the SIL Open Font
-License, version 1.1:
+{carried}, under the SIL Open Font License, version 1.1:
 
 {text}",
             upper = name.to_ascii_uppercase(),
@@ -312,6 +312,88 @@ Third-party crates (their licence texts are in THIRD-PARTY-LICENSES.html):
 ",
         own.join("\n"),
         third.join("\n")
+    ));
+    out
+}
+
+/// Everything the web client's `NOTICE.txt` states.
+#[derive(Debug, Clone)]
+pub struct WebFacts<'a> {
+    pub version: &'a str,
+    pub commit: &'a str,
+    /// The public repository, without a trailing slash.
+    pub source_url: &'a str,
+    pub crates: &'a [Crate],
+    /// The project's MIT licence (the repository's top-level `LICENSE`).
+    pub mit_licence: &'a str,
+    /// The typefaces the module carries, as (typeface, what carries it and for what, licence).
+    pub fonts: &'a [(&'a str, &'a str, String)],
+}
+
+/// The web client's `NOTICE.txt`.
+pub fn web_notice(f: &WebFacts) -> String {
+    let tag = format!("{}{}", super::web::TAG_PREFIX, f.version);
+    let url = f.source_url.trim_end_matches('/');
+    let title = format!("Dereth web client {}", f.version);
+    let (own, third): (Vec<&Crate>, Vec<&Crate>) = f.crates.iter().partition(|c| is_own(c));
+    let line = |c: &&Crate| format!("  {} {} ({})", c.name, c.version, c.licence);
+    let mut out = format!(
+        "{title}
+{rule}
+
+This is the Dereth client in a web browser, made by the Dereth project (https://dereth.network).
+It is free software under the MIT licence, which is in LICENSE beside this file and below.
+
+
+SOURCE CODE
+
+This build was made from commit {commit} of
+  {url}
+The source of exactly that commit:
+  {url}/tree/{commit}
+The release it belongs to:
+  {url}/releases/tag/{tag}
+
+
+NO GAME DATA
+
+These files contain no Asheron's Call files. The client reads the game's data files the player
+picks, in the player's own browser.
+
+
+DERETH
+
+{mit}",
+        rule = "=".repeat(title.len()),
+        commit = f.commit,
+        mit = indent(f.mit_licence.trim_end()),
+    );
+    for (name, carried, text) in f.fonts {
+        out.push_str(&format!(
+            "
+
+THE {upper} TYPEFACE
+
+{carried}, under the SIL Open Font License, version 1.1:
+
+{text}",
+            upper = name.to_ascii_uppercase(),
+            text = indent(text.trim_end()),
+        ));
+    }
+    out.push_str(&format!(
+        "
+
+WHAT THE MODULE IS BUILT FROM
+
+This project's own crates:
+{}
+
+Third-party crates (their licence texts are in THIRD-PARTY-LICENSES.html):
+{}
+",
+        own.iter().map(line).collect::<Vec<_>>().join("\n"),
+        third.iter().map(line).collect::<Vec<_>>().join("\n"),
     ));
     out
 }

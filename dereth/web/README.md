@@ -9,7 +9,7 @@ WebGPU, or WebGL 2 where the browser has no WebGPU.
   worlds; the page reads them on the player's machine and can keep a copy in the browser's private
   storage. Nothing is uploaded.
 - **Both interfaces.** The retail interface, and the classic one, whose text is drawn with the
-  browser's own fonts.
+  Liberation fonts the client carries, laid out as on the Windows desktop.
 - **One WebSocket to the server.** Either an Empyrean server's own `wss://` endpoint, or
   `dereth-web-relay` (`tools/web-relay`) on the player's machine for a server that speaks only UDP.
   Plain `ws://` is refused for anything but the player's own machine.
@@ -26,5 +26,5 @@ parameters. `cargo xtask web` builds it and serves it on `127.0.0.1` for develop
 | `www/audio-worklet.js` | plays the sound the worker mixes |
 | `src/browser.rs` | the module's bindings the worker calls |
 | `src/play.rs` | the client shell's application on the browser's host |
-| `src/host.rs`, `src/host/` | the browser as the shell's host: canvas, clock and time zone, clipboard, sound, links, and the classic interface's fonts (`host/fonts.rs`) |
+| `src/host.rs`, `src/host/` | the browser as the shell's host: canvas, clock and time zone, clipboard, sound, links, and the classic interface's fonts (`dereth-classic-fonts`) |
 | `src/dats.rs`, `src/settings.rs`, `src/server_url.rs`, `src/frame.rs`, `src/keycodes.rs` | the data store over the worker's reads, the client's own files in browser storage, the server URL rule, the WebSocket frame, the key names |

@@ -26,6 +26,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
   cloak, trinket and aetheria slots, which open from an Accessories button beside the shield.
 - **The web client plays in the classic interface too**, with the early-2005 files picked beside
   the later ones.
+- **The classic interface runs on macOS and Linux**, and its text in the web client comes out the
+  same in every browser: it is drawn with the Liberation fonts the client carries, at the sizes and
+  spacing the Windows desktop gives it, so every line is as long and wraps where it does on
+  Windows.
 - The screens follow the world's era and the systems it announces: what it lacks (Contracts,
   Titles, the journal, luminance, cloak and trinket slots, House) is left out, and the tabs and
   panel buttons left close up without a gap. On a February 2005 world, character creation uses

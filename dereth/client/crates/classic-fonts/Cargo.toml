@@ -1,0 +1,27 @@
+[package]
+name = "dereth-classic-fonts"
+description = "The classic interface's text rasterised from the Liberation fonts it ships, for hosts without the Windows font system."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+dereth-classic-dat.workspace = true
+dereth-primitives.workspace = true
+skrifa.workspace = true
+
+[dev-dependencies]
+png.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+dereth-classic-gdi.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

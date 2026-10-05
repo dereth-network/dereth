@@ -11,8 +11,8 @@
 //! device on its `wgpu` backend (`dereth-render`), and what its host names by crate:
 //! `dereth-client-runtime`, `dereth-client-contract`, `dereth-client-net`, `dereth-client-sdk`
 //! (the data store), `dereth-dat`, `dereth-primitives`, `dereth-ui-screens` and `dereth-input`;
-//! `dereth-transport` for the WebSocket frame; and `dereth-classic-dat` for the font atlas the
-//! browser's fonts fill for the classic interface. The WebAssembly build adds `wasm-bindgen`,
+//! `dereth-transport` for the WebSocket frame; and `dereth-classic-dat` and `dereth-classic-fonts`
+//! for the classic interface's text, drawn from the fonts the client carries. The WebAssembly build adds `wasm-bindgen`,
 //! `js-sys`, `web-sys` and a `tracing-subscriber` that writes to the browser console. **Used by**
 //! the page and worker under `www/`, which load it as a WebAssembly module.
 //!

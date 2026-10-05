@@ -10,7 +10,9 @@
 //! and writes three release files into `<target dir>/package/dereth-web-<version>/` (or `--out`):
 //!
 //! - `dereth-web-<version>.zip`: the files under one folder, `dereth-web-<version>/`, ready to be
-//!   served as they are ([`FILES`]);
+//!   served as they are ([`FILES`]), with the notices the module needs beside them ([`NOTICES`]:
+//!   the licence, what the module is built from and the typefaces it carries, and every
+//!   third-party crate's licence text);
 //! - `web.json`: the release's manifest, which a host or the launcher reads to find out what the
 //!   newest web client is and to check what it downloaded: the version, the commit, the archive's
 //!   name, size and SHA-256, and every file's path, size and SHA-256 ([`manifest`]);
@@ -58,6 +60,16 @@ pub const FILES: &[&str] = &[
     "play-worker.js",
     "play.js",
 ];
+
+/// The notices the bundle carries beside the page's files, written by the package itself.
+pub const NOTICES: &[&str] = &["LICENSE", "NOTICE.txt", "THIRD-PARTY-LICENSES.html"];
+
+/// The module's target, for the licences of what it is built from.
+const WASM: super::targets::Target = super::targets::Target {
+    triple: "wasm32-unknown-unknown",
+    os: super::targets::Os::Linux,
+    arch: super::targets::Arch::X86_64,
+};
 
 /// Files under `www/` that are never released: the folder's own ignore file.
 const NOT_RELEASED: &[&str] = &[".gitignore"];
@@ -169,7 +181,11 @@ pub fn entries(members: &[Member]) -> Vec<Entry> {
 /// Every finding of the deny scan over `entries`.
 #[must_use]
 pub fn scan(entries: &[Entry]) -> Vec<String> {
-    let required: Vec<String> = FILES.iter().map(|f| (*f).to_owned()).collect();
+    let required: Vec<String> = FILES
+        .iter()
+        .chain(NOTICES)
+        .map(|f| (*f).to_owned())
+        .collect();
     guard::scan_tree(entries, &required, &[], FILE_CAP, TOTAL_CAP)
 }
 
@@ -294,6 +310,47 @@ fn listing(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     Ok(out)
 }
 
+/// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html` for the module.
+fn notices(ws: &Path, version: &str, facts: &BuildFacts) -> Result<Vec<Member>, String> {
+    let manifest = "dereth/web/Cargo.toml";
+    let crates = super::dereth::crates_of(ws, manifest, "dereth-web", WASM)?;
+    let mit = String::from_utf8_lossy(&read(&ws.join("LICENSE"))?).into_owned();
+    let mut fonts = Vec::new();
+    for (name, carried, path) in super::dereth::FONTS {
+        if path.starts_with("dereth/client/") {
+            fonts.push((
+                *name,
+                *carried,
+                String::from_utf8_lossy(&read(&ws.join(path))?).into_owned(),
+            ));
+        }
+    }
+    let text = super::notice::web_notice(&super::notice::WebFacts {
+        version,
+        commit: &facts.commit,
+        source_url: &facts.source_url,
+        crates: &crates,
+        mit_licence: &mit,
+        fonts: &fonts,
+    });
+    let about = target_dir().join("package").join("web-about");
+    std::fs::create_dir_all(&about).map_err(|e| format!("{}: {e}", about.display()))?;
+    let page = super::dereth::licence_page(ws, manifest, WASM, &about, "dereth-web")?;
+    let licences = super::notice::splice_licence_pages(&[("the web client's module", page)])?;
+    Ok([
+        ("LICENSE", mit.into_bytes()),
+        ("NOTICE.txt", text.into_bytes()),
+        ("THIRD-PARTY-LICENSES.html", licences.into_bytes()),
+    ]
+    .into_iter()
+    .map(|(name, bytes)| Member {
+        name: name.to_owned(),
+        bytes,
+        executable: false,
+    })
+    .collect())
+}
+
 fn build(ws: &Path, o: &Options) -> Result<PathBuf, String> {
     let version = version::dereth_version(ws)?;
     version::parse_release_version(&version)?;
@@ -327,7 +384,8 @@ fn build(ws: &Path, o: &Options) -> Result<PathBuf, String> {
         }
     }
     let www = ws.join(WWW);
-    let members = stage(&listing(&www)?).map_err(|f| f.join("\n"))?;
+    let mut members = stage(&listing(&www)?).map_err(|f| f.join("\n"))?;
+    members.extend(notices(ws, &version, &facts)?);
     let mut findings = scan(&entries(&members));
     let folders = guard::local_folders(ws);
     for m in &members {
@@ -399,6 +457,17 @@ mod tests {
             .collect()
     }
 
+    /// The staged page files with the notices the package writes beside them.
+    fn bundle(listing: &[(String, Vec<u8>)]) -> Vec<Member> {
+        let mut members = stage(listing).expect("stages");
+        members.extend(NOTICES.iter().map(|n| Member {
+            name: (*n).to_owned(),
+            bytes: b"notice".to_vec(),
+            executable: false,
+        }));
+        members
+    }
+
     fn facts() -> BuildFacts {
         BuildFacts {
             commit: "abc123".into(),
@@ -418,7 +487,12 @@ mod tests {
             members.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
             FILES
         );
-        assert!(scan(&entries(&members)).is_empty());
+        let missing = scan(&entries(&members));
+        assert!(
+            missing.iter().any(|f| f.contains("NOTICE.txt")),
+            "{missing:?}"
+        );
+        assert!(scan(&entries(&bundle(&listing))).is_empty());
 
         let mut stray = www();
         stray.push(("notes.txt".into(), b"x".to_vec()));
@@ -489,6 +563,43 @@ mod tests {
         assert_eq!(rc["prerelease"], true);
     }
 
+    /// The notice names the source and the release, says there is no game data, and carries
+    /// the licence of the typeface the module carries.
+    #[test]
+    fn the_web_notice_names_the_source_and_carries_the_typeface_licence() {
+        let crates = [super::super::notice::Crate {
+            name: "skrifa".to_owned(),
+            version: "0.48.0".to_owned(),
+            licence: "MIT OR Apache-2.0".to_owned(),
+        }];
+        let fonts = [(
+            "Liberation",
+            "The classic interface's text is drawn in Liberation",
+            "OFL text".to_owned(),
+        )];
+        let text = super::super::notice::web_notice(&super::super::notice::WebFacts {
+            version: "0.2.0",
+            commit: "abc123",
+            source_url: "https://github.com/example/dereth/",
+            crates: &crates,
+            mit_licence: "MIT License",
+            fonts: &fonts,
+        });
+        assert!(text.contains("https://github.com/example/dereth/tree/abc123"));
+        assert!(text.contains("releases/tag/dereth-web-v0.2.0"));
+        assert!(text.contains("NO GAME DATA") && text.contains("MIT License"));
+        assert!(text.contains("THE LIBERATION TYPEFACE") && text.contains("OFL text"));
+        assert!(text.contains("skrifa 0.48.0 (MIT OR Apache-2.0)"));
+        let liberation = super::super::dereth::FONTS
+            .iter()
+            .filter(|(_, _, path)| path.starts_with("dereth/client/"))
+            .count();
+        assert_eq!(
+            liberation, 1,
+            "the module carries the classic interface's typeface"
+        );
+    }
+
     #[test]
     fn the_tag_names_the_version_the_tree_carries() {
         assert!(check_tag("dereth-web-v0.2.0", "0.2.0").is_ok());
@@ -500,7 +611,7 @@ mod tests {
 
     #[test]
     fn the_archive_holds_the_files_under_one_folder_and_scans_clean() {
-        let members = stage(&www()).expect("stages");
+        let members = bundle(&www());
         let zip = archive::zip_bytes(&archive_root("0.2.0"), &members, 1_759_000_000).unwrap();
         let read =
             archive::relative_to_root(archive::zip_entries(&zip).unwrap(), &archive_root("0.2.0"));

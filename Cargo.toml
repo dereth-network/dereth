@@ -42,6 +42,7 @@ members = [
     "dereth/client/crates/classic",
     "dereth/client/crates/classic-dat",
     "dereth/client/crates/classic-gdi",
+    "dereth/client/crates/classic-fonts",
     "dereth/headless",
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
@@ -94,6 +95,7 @@ dereth-assets = { path = "core/assets" }
 dereth-audio = { path = "core/audio" }
 dereth-chargen = { path = "core/chargen" }
 dereth-classic-dat = { path = "dereth/client/crates/classic-dat" }
+dereth-classic-fonts = { path = "dereth/client/crates/classic-fonts" }
 dereth-classic-gdi = { path = "dereth/client/crates/classic-gdi" }
 dereth-classic-ui = { path = "dereth/client/crates/classic" }
 dereth-client = { path = "dereth/client", default-features = false }
@@ -178,6 +180,8 @@ png = "0.17"
 pollster = "0.4"
 raw-window-handle = "0.6"
 serde_json = "1"
+# The classic interface's shipped fonts: TrueType outlines and their hinting instructions.
+skrifa = { version = "0.48", default-features = false, features = ["std"] }
 # Legacy SHA512 account password hashes.
 sha2 = "0.10"
 # Configuration consumers retain ordered table keys through their preserve_order feature.

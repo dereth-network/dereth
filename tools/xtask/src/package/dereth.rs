@@ -50,6 +50,41 @@ use super::version::{self, Product};
 use super::{build_facts, read, sha256_hex, write, BuildFacts};
 use crate::util::{target_dir, workspace_root};
 
+/// The licences of everything `manifest`'s package is built from for `target`, as cargo-about's
+/// page, written as `<name>.html` in `dir`.
+pub(super) fn licence_page(
+    ws: &Path,
+    manifest: &str,
+    target: Target,
+    dir: &Path,
+    name: &str,
+) -> Result<String, String> {
+    let out = dir.join(format!("{name}.html"));
+    let out_arg = out.display().to_string();
+    run_in(
+        ws,
+        "cargo",
+        &[
+            "about",
+            "generate",
+            "--locked",
+            "--fail",
+            "-m",
+            manifest,
+            "-c",
+            ABOUT_CONFIG,
+            "--target",
+            target.triple,
+            "-o",
+            &out_arg,
+            ABOUT_TEMPLATE,
+        ],
+        &[],
+        &[],
+    )?;
+    Ok(String::from_utf8_lossy(&read(&out)?).into_owned())
+}
+
 /// The launcher's Tauri app, a workspace of its own.
 pub const LAUNCHER_DIR: &str = "dereth/launcher";
 
@@ -57,12 +92,23 @@ pub const LAUNCHER_DIR: &str = "dereth/launcher";
 const ABOUT_CONFIG: &str = "dereth/about.toml";
 const ABOUT_TEMPLATE: &str = "dereth/about.hbs";
 
-/// The typefaces the launcher's page embeds, and their licences.
-const FONTS: &[(&str, &str)] = &[
-    ("Cinzel", "dereth/launcher/assets/fonts/OFL-Cinzel.txt"),
+/// The typefaces the package carries: (typeface, what carries it and for what, its licence).
+pub const FONTS: &[(&str, &str, &str)] = &[
+    (
+        "Cinzel",
+        "The launcher's page is set in Cinzel, which the launcher carries",
+        "dereth/launcher/assets/fonts/OFL-Cinzel.txt",
+    ),
     (
         "EB Garamond",
+        "The launcher's page is set in EB Garamond, which the launcher carries",
         "dereth/launcher/assets/fonts/OFL-EBGaramond.txt",
+    ),
+    (
+        "Liberation",
+        "The classic interface's text is drawn in the Liberation fonts (Liberation Serif, Mono and\n\
+         Sans, version 2.1.5), which the client carries",
+        "dereth/client/crates/classic-fonts/fonts/OFL.txt",
     ),
 ];
 
@@ -527,7 +573,7 @@ fn executable(path: &Path) -> bool {
 }
 
 /// The crates `cargo tree` says the package in `manifest` is built from, for `target`.
-fn crates_of(
+pub(super) fn crates_of(
     ws: &Path,
     manifest: &str,
     package: &str,
@@ -635,9 +681,10 @@ impl Job<'_> {
         all_crates.dedup();
         let mit = String::from_utf8_lossy(&read(&self.ws.join("LICENSE"))?).into_owned();
         let mut fonts = Vec::new();
-        for (name, path) in FONTS {
+        for (name, carried, path) in FONTS {
             fonts.push((
                 *name,
+                *carried,
                 String::from_utf8_lossy(&read(&self.ws.join(path))?).into_owned(),
             ));
         }
@@ -648,32 +695,7 @@ impl Job<'_> {
 
         let about = self.stage.join("about");
         mkdir(&about)?;
-        let page = |manifest: &str, name: &str| -> Result<String, String> {
-            let out = about.join(format!("{name}.html"));
-            let out_arg = out.display().to_string();
-            run_in(
-                self.ws,
-                "cargo",
-                &[
-                    "about",
-                    "generate",
-                    "--locked",
-                    "--fail",
-                    "-m",
-                    manifest,
-                    "-c",
-                    ABOUT_CONFIG,
-                    "--target",
-                    t.triple,
-                    "-o",
-                    &out_arg,
-                    ABOUT_TEMPLATE,
-                ],
-                &[],
-                &[],
-            )?;
-            Ok(String::from_utf8_lossy(&read(&out)?).into_owned())
-        };
+        let page = |manifest: &str, name: &str| licence_page(self.ws, manifest, t, &about, name);
         let exe = t.exe_suffix();
         let launcher_page = page(&launcher_manifest, "dereth")?;
         let client_page = page("dereth/client/Cargo.toml", "dereth-client")?;

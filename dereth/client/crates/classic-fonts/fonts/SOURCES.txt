@@ -1,0 +1,22 @@
+The Liberation fonts, version 2.1.5, unmodified.
+
+Copyright (c) 2010 Google Corporation, with Reserved Font Arimo, Tinos and Cousine.
+Copyright (c) 2012 Red Hat, Inc., with Reserved Font Name Liberation.
+Licensed under the SIL Open Font License, Version 1.1 (OFL.txt, beside this file, is the
+release's own LICENSE file).
+
+Source: the Liberation Fonts project's 2.1.5 release,
+  https://github.com/liberationfonts/liberation-fonts/releases/tag/2.1.5
+  archive liberation-fonts-ttf-2.1.5.tar.gz,
+  https://github.com/liberationfonts/liberation-fonts/files/7261482/liberation-fonts-ttf-2.1.5.tar.gz
+  SHA-256 7191c669bf38899f73a2094ed00f7b800553364f90e2637010a69c0e268f25d0
+
+The files taken from it, with their SHA-256:
+  058ea80864aef09a23f45cbec2bb5400bc3dfbdea01c3f10538a21fcb497fb74  LiberationSerif-Regular.ttf
+  d754ba427cfe0bca54ae052384baa8f842da5bd6550ad4da024ac441e7a7d5ce  LiberationSerif-Bold.ttf
+  0e3dea9f8d613e006ccfa62201f33e265d19167bd0907725c3e145368b04fc2e  LiberationSerif-Italic.ttf
+  bd62a0672d0b9b6710b01df434c80ad54fa5f0835207eb7b17b7a761463067bb  LiberationMono-Bold.ttf
+  788abee4c806d660e8aee46689dd8540cd4bb98da03dcc9d171ce3efd99a9173  LiberationSans-Bold.ttf
+
+Liberation Serif stands in for Times New Roman, Liberation Mono for Courier New and Liberation
+Sans for Arial: each has the same advance widths, in font units, as the face it replaces.

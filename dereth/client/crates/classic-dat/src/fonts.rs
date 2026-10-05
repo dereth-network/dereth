@@ -76,6 +76,28 @@ impl std::fmt::Debug for FontAtlas {
     }
 }
 
+/// The fonts the classic interface asks for, by the name its screens use:
+/// `(name, height, average width, weight, face)`.
+pub const REQUESTS: [(&str, i32, i32, i32, &str); 17] = [
+    ("10-4", 10, 4, 500, "Times New Roman"),
+    ("14-5", 14, 5, 500, "Times New Roman"),
+    ("14-6", 14, 6, 500, "Times New Roman"),
+    ("15-5", 15, 5, 500, "Times New Roman"),
+    ("15-6", 15, 6, 500, "Times New Roman"),
+    ("16-6", 16, 6, 500, "Times New Roman"),
+    ("16-7", 16, 7, 500, "Times New Roman"),
+    ("20-8", 20, 8, 500, "Times New Roman"),
+    ("25-10", 25, 10, 500, "Times New Roman"),
+    ("35-16", 35, 16, 500, "Times New Roman"),
+    ("courier-14-7", 14, 7, 700, "Courier New"),
+    ("arial-14-6", 14, 6, 700, "Arial"),
+    ("times-18-7-bold", 18, 7, 700, "Times New Roman"),
+    ("times-35-16-heavy", 35, 16, 900, "Times New Roman"),
+    ("times-35-13-bold", 35, 13, 700, "Times New Roman"),
+    ("times-25-11", 25, 11, 500, "Times New Roman"),
+    ("italic-15-6", 15, 6, 500, "Times New Roman Italic"),
+];
+
 /// Cell size, margin inside a cell, and the grid.
 pub const CELL: i32 = 64;
 pub const PAD: i32 = 12;
@@ -154,6 +176,18 @@ pub fn measure_cells(
         );
     }
     Ok(glyphs)
+}
+
+/// A pixel's coverage from the number of its sample points inside a glyph, 0 to 64 (the levels
+/// of the Windows font system's grey glyph bitmaps), spread over a byte the way the game's own
+/// glyph sheets spread theirs: level `n` is `4n - 1`, so full coverage is 255 and none is 0.
+#[must_use]
+pub fn coverage(level: u8) -> u8 {
+    match level {
+        0 => 0,
+        64.. => 255,
+        n => n * 4 - 1,
+    }
 }
 
 /// What draws the classic interface's fonts: the host's font system. A host without one gives

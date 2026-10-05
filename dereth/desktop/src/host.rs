@@ -11,6 +11,10 @@ use dereth_client_shell::platform::host::Host;
 
 use crate::Product;
 
+/// The developer switch that draws the classic interface's text with the carried fonts on
+/// Windows: set to `carried`.
+pub const CLASSIC_FONTS: &str = "DERETH_CLASSIC_FONTS";
+
 /// The desktop, as the client shell's host, for product `P`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Desktop<P: Product>(PhantomData<P>);
@@ -47,11 +51,15 @@ impl<P: Product> Host for Desktop<P> {
         P::cursor_images(window)
     }
 
-    /// The Windows font system; none elsewhere.
+    /// The Windows font system on Windows; elsewhere the fonts the client carries, drawn as the
+    /// Windows font system draws them. `DERETH_CLASSIC_FONTS=carried` draws with the carried fonts
+    /// on Windows too, to compare the two.
     fn classic_fonts() -> Option<std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>> {
-        cfg!(windows).then(|| {
+        let carried = std::env::var_os(CLASSIC_FONTS).is_some_and(|v| v == "carried");
+        Some(if cfg!(windows) && !carried {
             std::sync::Arc::new(dereth_classic_gdi::fonts::SystemFonts)
-                as std::sync::Arc<dyn dereth_classic_dat::fonts::FontSource>
+        } else {
+            std::sync::Arc::new(dereth_classic_fonts::ShippedFonts)
         })
     }
 

@@ -9,7 +9,9 @@
 //! choice instead, and with subpixel smoothing on, the coloured fringes read as extra coverage
 //! and every stroke comes out heavier.
 
-pub use dereth_classic_dat::fonts::{cp1252, measure_cells, to_cp1252, FontAtlas, FontSpec, Glyph};
+pub use dereth_classic_dat::fonts::{
+    coverage, cp1252, measure_cells, to_cp1252, FontAtlas, FontSpec, Glyph,
+};
 use dereth_classic_dat::fonts::{CELL, COLUMNS, PAD, ROWS};
 
 /// The Windows font system, as a [`dereth_classic_dat::fonts::FontSource`].
@@ -223,18 +225,6 @@ mod windows {
             baseline: metrics.tmAscent,
             face: face[..end].iter().map(|b| char::from(*b)).collect(),
         })
-    }
-}
-
-/// A glyph pixel's coverage from the system's grey glyph bitmap, whose levels run from 0 (none)
-/// to 64 (full), spread over a byte the way the game's own glyph sheets spread theirs: level `n`
-/// is `4n - 1`, so full coverage is 255 and none is 0.
-#[must_use]
-pub fn coverage(level: u8) -> u8 {
-    match level {
-        0 => 0,
-        64.. => 255,
-        n => n * 4 - 1,
     }
 }
 

@@ -188,9 +188,9 @@ They are never uploaded, and a deployment never hosts them. The dev runner's `--
 
 The player chooses it as on the desktop (the Interface option, or `[UI] Interface=Classic` in the
 client's preferences), and needs the older `portal.dat` among the picked files. Its text is drawn
-with the browser's own fonts (Times New Roman, Arial and Courier New, or their metric-compatible
-free equivalents Liberation Serif, Sans and Mono, or Tinos, Arimo and Cousine, else the browser's
-generic serif, sans-serif and monospace), so a host serves no fonts and needs no header for them.
+with the Liberation fonts the module carries (Serif, Mono and Sans, under the SIL Open Font
+Licence), sized and spaced as the Windows desktop's, so a host serves no fonts and needs no header
+for them.
 
 ## Connecting to a server
 

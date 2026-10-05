@@ -34,8 +34,9 @@ dereth-transport.workspace = true
 dereth-dat.workspace = true
 dereth-ui-screens.workspace = true
 dereth-input.workspace = true
-# The font atlas the classic interface's text is drawn from, which this host's fonts fill.
+# The classic interface's text: its font atlas, drawn from the fonts the client carries.
 dereth-classic-dat.workspace = true
+dereth-classic-fonts.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
@@ -57,12 +58,7 @@ js-sys = "0.3.104"
 tracing-subscriber.workspace = true
 # The GPU backend's set-up is asynchronous in a browser; this turns it into a promise.
 wasm-bindgen-futures = "0.4.77"
-web-sys = { workspace = true, features = [
-    "OffscreenCanvas",
-    "OffscreenCanvasRenderingContext2d",
-    "TextMetrics",
-    "ImageData",
-] }
+web-sys = { workspace = true, features = ["OffscreenCanvas"] }
 
 [lints]
 workspace = true

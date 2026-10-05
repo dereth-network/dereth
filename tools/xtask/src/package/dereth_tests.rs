@@ -562,6 +562,9 @@ fn every_file_the_dereth_package_reads_from_the_tree_is_there() {
     ] {
         assert!(ws.join(path).is_file(), "{path}");
     }
+    for (_, _, path) in super::dereth::FONTS {
+        assert!(ws.join(path).is_file(), "{path}");
+    }
     let hbs = std::fs::read_to_string(ws.join("dereth/about.hbs")).expect("template");
     assert!(hbs.contains(super::notice::SECTION_START));
     assert!(hbs.contains(super::notice::SECTION_END));
@@ -576,7 +579,14 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
         version: "1.0.0".to_owned(),
         licence: "MIT OR Apache-2.0".to_owned(),
     }];
-    let fonts = [("Cinzel", "OFL text".to_owned())];
+    let fonts = [
+        ("Cinzel", "The page is set in Cinzel", "OFL text".to_owned()),
+        (
+            "Liberation",
+            "The classic interface's text is drawn in Liberation",
+            "Liberation OFL".to_owned(),
+        ),
+    ];
     let facts = |moltenvk| super::notice::DerethFacts {
         version: V,
         target: MAC_ARM,
@@ -593,6 +603,9 @@ fn the_notice_names_the_source_and_carries_the_licences_the_package_needs() {
     assert!(text.contains("NO GAME DATA"));
     assert!(text.contains("MOLTENVK") && text.contains("Apache License"));
     assert!(text.contains("CINZEL") && text.contains("OFL text"));
+    assert!(text.contains("THE LIBERATION TYPEFACE"));
+    assert!(text.contains("drawn in Liberation, under the SIL Open Font License"));
+    assert!(text.contains("Liberation OFL"));
     assert!(text.contains("serde 1.0.0"));
     assert!(text.contains("the launcher, with the Dereth client"));
     let windows = super::notice::dereth_notice(&facts(None));
