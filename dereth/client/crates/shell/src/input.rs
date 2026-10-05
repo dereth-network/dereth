@@ -1081,6 +1081,63 @@ mod tests {
         }
     }
 
+    /// The classic key page is where this client's own actions take a key: one already in use
+    /// raises the question first, and once it is answered yes the key is taken from the other
+    /// action and answers this client's.
+    ///
+    /// Behaviour: keys.own.a-key-in-use-given-to-this-clients-action-asks-first-and-is-taken
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken() {
+        use dereth_classic_ui::keybindings::{CaptureResult, KeyBindings};
+        use dereth_classic_ui::panels::HostAction;
+        const VK_W: u16 = 0x57;
+        let perf = dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL;
+        let own = dereth_input::dereth::INPUT_MAP;
+        let mut shell = InputShell::new(&store(), None).expect("input tables");
+        shell.activate_classic(true);
+        let mut page = KeyBindings::new(&shell.classic_keys());
+        assert!(
+            page.bound_to(VK_W, 0, action::MOVE_FORWARD.0),
+            "the key starts out walking forward"
+        );
+        page.handle(&HostAction::CaptureBinding {
+            action: perf.0,
+            map: own.0,
+            slot: 0,
+        })
+        .expect("the row takes a key");
+        let asked = page.key(VK_W, true, false, 0).expect("a key").capture;
+        assert_eq!(asked, CaptureResult::Conflict("Walk Forward".into()));
+        assert!(
+            page.requests.is_empty(),
+            "nothing is taken before the answer"
+        );
+        page.confirm_capture(true).expect("yes");
+        for request in std::mem::take(&mut page.requests) {
+            shell.classic_request(request);
+        }
+        let w = |keys: Vec<dereth_input::ControlChord>| {
+            keys.iter()
+                .any(|k| k.control.offset() == 0x11 && k.meta_mode == 0)
+        };
+        assert!(w(shell.keys_for_action(perf, own)));
+        assert!(!w(shell.keys_for_action(
+            action::MOVE_FORWARD,
+            dereth_input::maps::MOVEMENT
+        )));
+
+        let mut pump = crate::pump::Pump::new();
+        shell.on_message(pump.key_message_for_key(Key::KEY_W, true, 1_000));
+        shell.collect_message();
+        let answered: Vec<ActionId> = shell.take_events().iter().map(|e| e.action).collect();
+        assert!(answered.contains(&perf), "{answered:?}");
+        assert!(!shell.is_action_in_progress(action::MOVE_FORWARD));
+    }
+
     /// Behaviour: keymap.storage.saved-maps-remain-specific-to-their-interface
     #[test]
     #[cfg_attr(

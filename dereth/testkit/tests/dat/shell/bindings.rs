@@ -1405,18 +1405,8 @@ impl KeyHand {
 }
 
 // ---------------------------------------------------------------------------------------------
-// keys.own.each-of-this-clients-actions-works-on-a-key-the-page-gives-it
+// keys.own.each-of-this-clients-actions-works-on-a-key-a-saved-key-map-gives-it
 // ---------------------------------------------------------------------------------------------
-
-/// The row of one of this client's own actions, its first key cell.
-fn own_cell(app: &mut dereth_client::app::App, action: u32) -> dereth_ui::ElemHandle {
-    let s = kb_screen(app);
-    let i = s
-        .key_bindings
-        .row_of(dereth_input::dereth::INPUT_MAP, ActionId(action))
-        .expect("this client's action has a row");
-    s.key_bindings.rows[i].key_buttons[0]
-}
 
 fn pref_on(name: &str) -> bool {
     matches!(
@@ -1425,14 +1415,13 @@ fn pref_on(name: &str) -> bool {
     )
 }
 
-/// Each of this client's own actions the modern interface answers, given a free key on the key
-/// page as a player gives it one, answers that key: the performance panel, the inverted mouse
+/// Each of this client's own actions the modern interface answers, given a free key by the key
+/// map the client saved last time, answers that key: the performance panel, the inverted mouse
 /// look and mute-when-inactive flip their settings, the trade key shows the trade window, and
-/// hold sidestep is held for as long as its key is.
-pub(super) fn each_of_this_clients_actions_works_on_a_key_the_page_gives_it() {
+/// hold sidestep is held for as long as its key is. The modern key page lists none of these rows,
+/// so a saved key map is how the modern interface comes by their keys.
+pub(super) fn each_of_this_clients_actions_works_on_a_key_a_saved_key_map_gives_it() {
     use dereth_client_contract::actions::dereth as own;
-    let mut c = a_client_for_the_key_bindings_page();
-    let mut hands = Hands::new();
     // Keys no shipped map binds, one for each action.
     let free = [
         (own::TOGGLE_PERFORMANCE_PANEL.0, KeyCode::F7),
@@ -1441,19 +1430,55 @@ pub(super) fn each_of_this_clients_actions_works_on_a_key_the_page_gives_it() {
         (own::TOGGLE_TRADE_PANEL.0, KeyCode::Numpad7),
         (own::MOVEMENT_HOLD_SIDESTEP.0, KeyCode::Numpad9),
     ];
-    let mut bound = Vec::new();
-    for (action, code) in free {
-        let cell = own_cell(c.app_mut(), action);
-        click_element(&mut c, cell);
-        hands.tap(&mut c, key(code));
-        c.tick(2);
-        let keys = c
+    let dir = std::env::temp_dir().join(format!("dere-scenario-own-keys-{}", std::process::id()));
+    let spec = || ClientSpec::gameplay_in_world(6).with_settings_dir(dir.clone());
+
+    // One run gives the keys and saves its key map, the file the client writes on the way out.
+    // Its settings directory goes with it, so what it wrote is carried to the next run's.
+    let (file, saved) = {
+        let mut first = HeadlessClient::new(spec());
+        let input = first
             .app_mut()
             .input_manager_mut()
-            .expect("the input shell")
-            .keys_for_action(ActionId(action), dereth_input::dereth::INPUT_MAP);
-        bound.push((action, keys.len()));
-    }
+            .expect("the input shell");
+        for (action, code) in free {
+            // None of these keys is an extended one, so the scan code is the key map's number.
+            let chord =
+                dereth_input::dereth::keyboard_chord(&input.manager.keymap, key(code).scan_code)
+                    .expect("a keyboard key");
+            assert!(input.set_binding(
+                dereth_input::dereth::INPUT_MAP,
+                ActionId(action),
+                None,
+                chord
+            ));
+        }
+        assert!(input.save_keymap().expect("the key map is written"));
+        let file = input
+            .keymap_path()
+            .expect("the key map's file")
+            .to_path_buf();
+        let saved = std::fs::read(&file).expect("the saved key map");
+        first.shutdown();
+        (file, saved)
+    };
+
+    // The next run reads it back.
+    std::fs::create_dir_all(&dir).expect("the settings directory");
+    std::fs::write(&file, saved).expect("the saved key map is in place");
+    let mut c = HeadlessClient::new(spec());
+    let mut hands = Hands::new();
+    let bound: Vec<(u32, usize)> = free
+        .iter()
+        .map(|(action, _)| {
+            let keys = c
+                .app_mut()
+                .input_manager_mut()
+                .expect("the input shell")
+                .keys_for_action(ActionId(*action), dereth_input::dereth::INPUT_MAP);
+            (*action, keys.len())
+        })
+        .collect();
     let all_bound = bound.iter().all(|(_, n)| *n == 1);
 
     let flips = |c: &mut HeadlessClient, hands: &mut Hands, code, name: &str| {
@@ -1510,108 +1535,12 @@ pub(super) fn each_of_this_clients_actions_works_on_a_key_the_page_gives_it() {
     let let_go = !c.app_mut().movement.lists.hold_sidestep;
 
     c.assert_behaviour(
-        "keys.own.each-of-this-clients-actions-works-on-a-key-the-page-gives-it",
+        "keys.own.each-of-this-clients-actions-works-on-a-key-a-saved-key-map-gives-it",
         move |_| {
             eprintln!(
                 "bound {bound:?} perf {perf} invert {invert} mute {mute} trade {trade} held {held} let go {let_go}"
             );
             all_bound && perf && invert && mute && trade && held && let_go
-        },
-    );
-    c.shutdown();
-}
-
-// ---------------------------------------------------------------------------------------------
-// keys.own.a-key-in-use-given-to-this-clients-action-asks-first-and-is-taken
-// ---------------------------------------------------------------------------------------------
-
-/// A key another action has, given to one of this client's own actions, raises the same question
-/// a shipped action's row raises; yes takes the key from the other action, and the key then
-/// answers this client's action.
-pub(super) fn a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken() {
-    use dereth_client_contract::actions::dereth as own;
-    const PICK_UP: ActionId = ActionId(0x1000_002C);
-    const ITEMS: InputMapId = InputMapId(0x1000_0007);
-    const KB_F: u16 = 0x21;
-    let mut c = a_client_on_the_key_bindings("own-conflict");
-    let mut hand = KeyHand::new();
-    let perf = own::TOGGLE_PERFORMANCE_PANEL;
-    let picks_up_on_f = |c: &mut dereth_client::app::App| {
-        c.input_manager_mut()
-            .expect("the input manager")
-            .keys_for_action(PICK_UP, ITEMS)
-            .iter()
-            .any(|k| k.control.offset() == KB_F && k.meta_mode == 0)
-    };
-    let f_picked_up_first = picks_up_on_f(c.app_mut());
-    let cell = {
-        let s = kb_screen(c.app_mut());
-        let i = s
-            .key_bindings
-            .row_of(dereth_input::dereth::INPUT_MAP, perf)
-            .expect("the performance panel has a row");
-        s.key_bindings.rows[i].key_buttons[0]
-    };
-    // The row is down the interface tab's list, out of the list's view: its press is the
-    // element message a click raises.
-    click_element(&mut c, cell);
-    kb_tap(c.app_mut(), &mut hand, KeyCode::KeyF);
-    let context = {
-        let s = kb_screen(c.app_mut());
-        let i = s
-            .key_bindings
-            .row_of(dereth_input::dereth::INPUT_MAP, perf)
-            .expect("the row");
-        s.key_bindings.rows[i].dialog_context(RowDialog::Overwrite)
-    };
-    let asked = context.is_some();
-    let not_yet = !c
-        .app_mut()
-        .input_manager_mut()
-        .expect("the input manager")
-        .keys_for_action(perf, dereth_input::dereth::INPUT_MAP)
-        .iter()
-        .any(|k| k.control.offset() == KB_F);
-    if let Some(context) = context {
-        let question = kb_ui(c.app_mut())
-            .dialogs
-            .info(context)
-            .and_then(|info| info.element)
-            .expect("the question is drawn");
-        let yes = kb_child(
-            c.app_mut(),
-            question,
-            dereth_ui::dialog::base::child::BUTTON1,
-        );
-        kb_press(c.app_mut(), yes);
-    }
-    let taken = c
-        .app_mut()
-        .input_manager_mut()
-        .expect("the input manager")
-        .keys_for_action(perf, dereth_input::dereth::INPUT_MAP)
-        .iter()
-        .any(|k| k.control.offset() == KB_F)
-        && !picks_up_on_f(c.app_mut());
-    let name = dereth_client_contract::options::performance::PERFORMANCE_PANEL;
-    let on = |n: &str| {
-        matches!(
-            dereth_client_contract::options::store::inq_value(n),
-            Some(dereth_client_contract::PrefValue::Bool(true))
-        )
-    };
-    let was = on(name);
-    kb_tap(c.app_mut(), &mut hand, KeyCode::KeyF);
-    c.app_mut().frame();
-    let answers = on(name) != was;
-
-    c.assert_behaviour(
-        "keys.own.a-key-in-use-given-to-this-clients-action-asks-first-and-is-taken",
-        move |_| {
-            eprintln!(
-                "first {f_picked_up_first} asked {asked} not yet {not_yet} taken {taken} answers {answers}"
-            );
-            f_picked_up_first && asked && not_yet && taken && answers
         },
     );
     c.shutdown();

@@ -26,11 +26,10 @@ mod wizard;
 use bindings::{
     a_capture_in_flight_swallows_the_key, a_cell_shows_the_key_the_way_the_desktop_names_it,
     a_key_already_in_use_asks_first_and_one_that_cannot_be_taken_refuses,
-    a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken,
     a_key_pressed_over_a_row_rebinds_it,
     a_press_on_a_cell_waits_for_a_key_and_undo_puts_the_old_one_back,
     a_set_of_keys_can_be_saved_under_a_name_and_loaded_back,
-    each_of_this_clients_actions_works_on_a_key_the_page_gives_it,
+    each_of_this_clients_actions_works_on_a_key_a_saved_key_map_gives_it,
     every_section_is_titled_in_words, kb_text, kb_ui,
     resting_on_a_cell_says_what_a_press_there_would_do,
     restoring_the_defaults_gives_back_the_shipped_keys,
@@ -431,8 +430,7 @@ dereth_testkit::scenarios! {
     scenario_only_the_shortcut_and_the_auto_saved_option_reach_the_shard_at_the_gesture => only_the_shortcut_and_the_auto_saved_option_reach_the_shard_at_the_gesture ["relog.state.only-the-shortcut-and-the-auto-saved-option-reach-the-shard-at-the-gesture"],
     scenario_every_deferred_change_is_saved_at_the_log_off_and_found_by_the_next_session => every_deferred_change_is_saved_at_the_log_off_and_found_by_the_next_session ["relog.state.every-deferred-change-is-saved-at-the-log-off-and-found-by-the-next-session"],
     scenario_a_session_that_changed_nothing_deferred_saves_nothing_at_the_log_off => a_session_that_changed_nothing_deferred_saves_nothing_at_the_log_off ["relog.state.a-session-that-changed-nothing-deferred-saves-nothing-at-the-log-off"],
-    scenario_each_of_this_clients_actions_works_on_a_key_the_page_gives_it => each_of_this_clients_actions_works_on_a_key_the_page_gives_it ["keys.own.each-of-this-clients-actions-works-on-a-key-the-page-gives-it"],
-    scenario_a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken => a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken ["keys.own.a-key-in-use-given-to-this-clients-action-asks-first-and-is-taken"],
+    scenario_each_of_this_clients_actions_works_on_a_key_a_saved_key_map_gives_it => each_of_this_clients_actions_works_on_a_key_a_saved_key_map_gives_it ["keys.own.each-of-this-clients-actions-works-on-a-key-a-saved-key-map-gives-it"],
 }
 
 use dereth_protocol::property::BasePropertyValue;

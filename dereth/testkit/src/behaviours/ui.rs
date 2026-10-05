@@ -360,23 +360,28 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "keys.own.a-key-in-use-given-to-this-clients-action-asks-first-and-is-taken",
-        says: "A key another action has, given on the key page to one of this client's own \
-               actions, raises the question a shipped action's row raises before it is taken; \
-               yes takes it from the other action, and the key then answers this client's \
-               action.",
+        says: "A key another action has, given on the classic interface's key page to one of \
+               this client's own actions, raises the question a shipped action's row raises \
+               before it is taken; yes takes it from the other action, and the key then answers \
+               this client's action. The modern key page lists none of these actions.",
         since: THIS_CLIENT,
         divergence: "CD-022",
         evidence: Evidence::Private("AC-EVID-KEYBIND-OWN-CONFLICT"),
-        station: "dereth-testkit::dat::shell::scenario_a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken",
+        station: "dereth-client-shell::lib::input::tests::a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken",
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "keys.own.each-of-this-clients-actions-works-on-a-key-the-page-gives-it",
-        says: "Each of this client's own actions the modern interface answers, given a free key                on the key page as a player gives it one, answers that key: the performance panel,                the inverted mouse look and mute-when-inactive flip their settings, the trade key                shows the trade window, and hold sidestep is held for as long as its key is.",
+        id: "keys.own.each-of-this-clients-actions-works-on-a-key-a-saved-key-map-gives-it",
+        says: "Each of this client's own actions the modern interface answers, given a free key \
+               by the key map the client saved, answers that key: the performance panel, the \
+               inverted mouse look and mute-when-inactive flip their settings, the trade key shows \
+               the trade window, and hold sidestep is held for as long as its key is. The modern \
+               key page lists none of these actions, so a saved key map is how it comes by keys \
+               for them.",
         since: THIS_CLIENT,
         divergence: "CD-022",
         evidence: Evidence::Private("AC-EVID-KEYBIND-OWN-REBOUND"),
-        station: "dereth-testkit::dat::shell::scenario_each_of_this_clients_actions_works_on_a_key_the_page_gives_it",
+        station: "dereth-testkit::dat::shell::scenario_each_of_this_clients_actions_works_on_a_key_a_saved_key_map_gives_it",
         tier: Tier::Dat,
     },
     behaviour! {
