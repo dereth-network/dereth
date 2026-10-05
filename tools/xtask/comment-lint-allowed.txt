@@ -17,5 +17,5 @@ dereth/client/crates/render/examples/smoke.rs|work-item label|P6|the binary PPM 
 dereth/client/crates/render-cpu/src/pixel_format.rs|work-item label|P8|the 8-bit palettised pixel format
 dereth/client/crates/render-cpu/src/texture.rs|work-item label|P8|the 8-bit palettised pixel format
 dereth/client/crates/scene/src/textures.rs|work-item label|P8|the 8-bit palettised pixel format
-dereth/client/crates/ui-screens/src/screens/chargen.rs|work-item label|B0b|a sample character name the name rules refuse
+dereth/client/crates/ui-screens/src/screens/chargen/summary_screen.rs|work-item label|B0b|a sample character name the name rules refuse
 empyrean/crates/common/src/extensions/double_extensions.rs|work-item label|F99|the .NET F99 numeric format specifier
