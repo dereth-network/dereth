@@ -93,6 +93,12 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 - Animated scenery and objects move: butterflies flutter over the meadows, and the other placed
   objects with an animation of their own play it instead of standing frozen in their first pose.
+- Switching interface from the options page no longer leaves the other interface needing an extra
+  click for every switch made.
+- The classic chat log shows the world's welcome once, however often you log back in or switch
+  interface.
+- A random heritage in character creation is always one the screen offers: Aluvian, Gharu'ndim or
+  Sho in the classic interface, and one the world has in the modern one.
 - `@version` names the client's own version instead of 0.0.0.
 - At a load of exactly 110% the burden penalty shows 20%, as the game's own client does.
 - Components carried at log-in are listed in the Components tab whatever order they arrive in.
