@@ -964,9 +964,13 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
 // one. Counts are full `u32`s, heritages and sexes are ordered lists with no keys, and the credits,
 // skill costs and templates belong to each sex. It is read into the later shape: heritages keyed
 // 1, 2, 3 in list order, sexes keyed by name (Male 1, Female 2), and the heritage's credits, skill
-// costs and templates shared only after equality validation. Sex-specific template presentation
-// and the original list ordering remain separate from those shared rules. What the older table does not have
-// (a sex's scale, physics, motion and combat tables, a hair style's alternate setup) reads as zero.
+// costs and templates shared only when every sex of the heritage has the same ones. A template's
+// skill lists count as the same when they name the same skills: the tables of 1999 to mid-2001 list
+// the Vagabond's specialised skills in a different order for each sex, and the order changes
+// nothing a template does, so the first sex's order is kept. Sex-specific template presentation
+// and the original list ordering remain separate from those shared rules. What the older table
+// does not have (a sex's scale, physics, motion and combat tables, a hair style's alternate setup)
+// reads as zero.
 
 /// A string of the older table: a `u32` length and the bytes, padded to four bytes, unless the
 /// first word is above `0xFFFF`, when it is a padded `u16`-length string instead.
@@ -1172,9 +1176,18 @@ fn same_creation_rules(a: &ClassicSexExtras, b: &ClassicSexExtras) -> bool {
             a.name == b.name
                 && a.title == b.title
                 && a.attributes == b.attributes
-                && a.normal_skills == b.normal_skills
-                && a.primary_skills == b.primary_skills
+                && same_skills(&a.normal_skills, &b.normal_skills)
+                && same_skills(&a.primary_skills, &b.primary_skills)
         })
+}
+
+/// Two template skill lists name the same skills, in whatever order.
+fn same_skills(a: &[u32], b: &[u32]) -> bool {
+    let mut a = a.to_vec();
+    let mut b = b.to_vec();
+    a.sort_unstable();
+    b.sort_unstable();
+    a == b
 }
 
 fn decode_classic_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {

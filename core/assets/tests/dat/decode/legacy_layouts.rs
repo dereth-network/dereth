@@ -91,6 +91,47 @@ fn the_october_1999_chargen_has_eighteen_starter_areas_and_eight_templates() {
     );
 }
 
+/// From the October 1999 CD to July 2001 the Aluvian female and male Vagabond list the same five
+/// specialised skills in different orders (the male has the last two the other way round); the
+/// two sexes still share one template, in the order of the first sex, the female.
+#[test]
+fn the_1999_vagabond_lists_its_specialised_skills_in_a_different_order_for_each_sex() {
+    for folder in ["1999-10-09", "2001-07-05"] {
+        let cg: CharGen = read(&capture(folder, "portal.dat"), 0x0E00_0002);
+        let aluvian = &cg.heritage_groups[&1];
+        assert_eq!(aluvian.sex_order, [2, 1], "{folder}");
+        let vagabond = &aluvian.templates[6];
+        assert_eq!(vagabond.name, "Vagabond");
+        assert_eq!(vagabond.primary_skills, [20, 18, 23, 4, 30], "{folder}");
+        assert_eq!(vagabond.normal_skills, [7, 12, 39, 36], "{folder}");
+    }
+}
+
+/// Order is all the two Vagabonds may differ in: a male Vagabond specialising a different skill
+/// is a sex-specific rule, which the shared template cannot hold, and the table is refused.
+#[test]
+fn a_vagabond_specialising_a_different_skill_for_one_sex_is_refused() {
+    let f = capture("1999-10-09", "portal.dat");
+    let mut bytes = f.read(DataId(0x0E00_0002)).expect("present");
+    let male: Vec<u8> = [5u32, 20, 18, 23, 30, 4]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect();
+    let at = bytes
+        .windows(male.len())
+        .position(|w| w == male)
+        .expect("the Aluvian male's list");
+    // The last skill of the list, 4, becomes 15.
+    bytes[at + 20..at + 24].copy_from_slice(&15u32.to_le_bytes());
+    assert!(matches!(
+        CharGen::decode_payload_in(f.era(), DataId(0x0E00_0002), &bytes),
+        Err(dereth_assets::AssetError::Unsupported {
+            what: "sex-specific character-generation rules",
+            value: 1
+        })
+    ));
+}
+
 /// The October 1999 spells end after their recovery fields: no display order, target type or
 /// per-target mana. Their names carry a terminating NUL in their length, which is not part of the
 /// name.
