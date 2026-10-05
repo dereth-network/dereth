@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dereth_dat::RetailDat;
+use dereth_dat::ModernDat;
 
 /// The outcome of one gate.
 ///
@@ -284,7 +284,7 @@ pub fn run_captured(dir: &Path, program: &str, args: &[&str]) -> (bool, String) 
 
 /// The four files [`retail_data_available`] requires. Named here so a failure message can list
 /// exactly which of them was missing rather than saying "the dats".
-pub const RETAIL_DATS: [RetailDat; 4] = RetailDat::ALL;
+pub const RETAIL_DATS: [ModernDat; 4] = ModernDat::ALL;
 
 /// The directory [`retail_data_available`] looks in: the tests' own lookup,
 /// [`dereth_dat::testing::dat_dir`] (`DERETH_TEST_DAT_DIR`), so the
@@ -431,7 +431,7 @@ mod tests {
         std::fs::create_dir_all(&full).expect("a temp directory");
         assert_eq!(
             retail_shortfall(&empty),
-            RETAIL_DATS.map(RetailDat::file_name).to_vec(),
+            RETAIL_DATS.map(ModernDat::file_name).to_vec(),
             "a directory with no dats must name all four"
         );
         for d in RETAIL_DATS {
@@ -442,7 +442,7 @@ mod tests {
             "four files present must produce no shortfall"
         );
         // And the discriminating middle case: the partial install that used to half-skip.
-        std::fs::remove_file(RetailDat::HighRes.in_dir(&full)).expect("remove one");
+        std::fs::remove_file(ModernDat::HighRes.in_dir(&full)).expect("remove one");
         assert_eq!(retail_shortfall(&full), vec!["client_highres.dat"]);
         std::fs::remove_dir_all(&base).ok();
     }

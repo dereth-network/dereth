@@ -4,9 +4,9 @@
 //! such files opens as a store.
 //! Fixture: containers built byte by byte in the test.
 
-use dereth_dat::btree::PRE_TOD_NODE_SIZE;
+use dereth_dat::btree::CLASSIC_NODE_SIZE;
 use dereth_dat::container::{DatFile, CELL_DATFILE, PORTAL_DATFILE};
-use dereth_dat::{ContainerEra, DatError, DatKind, PreTodDat, RetailDat, RetailDatStore};
+use dereth_dat::{ClassicDat, ContainerEra, DatError, DatKind, ModernDat, RetailDatStore};
 use dereth_primitives::DataId;
 
 /// Builds a container block by block: the 0x400-byte prologue, then chains laid end to end.
@@ -52,7 +52,7 @@ impl Builder {
 
     /// A directory node: children (fill past the count), count, then 12-byte entries.
     fn node(children: &[u32], entries: &[(u32, u32, u32)]) -> Vec<u8> {
-        let mut n = vec![0xCD; PRE_TOD_NODE_SIZE];
+        let mut n = vec![0xCD; CLASSIC_NODE_SIZE];
         for i in 0..62 {
             let c = if children.is_empty() {
                 if i == 0 {
@@ -137,7 +137,7 @@ fn two_level(block: usize, iteration: u32) -> (Vec<u8>, Vec<(u32, Vec<u8>)>) {
 fn a_pre_tod_container_walks_its_twelve_byte_directory_and_reads_every_record() {
     let (bytes, records) = two_level(0x100, 1593);
     let file = DatFile::from_storage("cell.dat".into(), Box::new(bytes)).expect("opens");
-    assert_eq!(file.era(), ContainerEra::PreTod);
+    assert_eq!(file.era(), ContainerEra::Classic);
     assert_eq!(file.header_iteration(), Some(1593));
     assert_eq!(file.header().block_size, 0x100);
     assert_eq!(
@@ -175,14 +175,14 @@ fn the_later_files_answer_what_an_older_world_lacks() {
     std::fs::create_dir_all(&later_dir).expect("temp dir");
     let (portal, records) = two_level(0x400, 2112);
     let (cell, _) = two_level(0x100, 1593);
-    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
-    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
+    std::fs::write(ClassicDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(ClassicDat::Cell.in_dir(&dir), &cell).expect("write");
     let shared = DataId(records[2].0);
     let only_later = DataId(0x3900_0001);
     let string_table = DataId(0x2300_0001);
     {
         let mut w = DatWriter::create(
-            &RetailDat::Portal.in_dir(&later_dir),
+            &ModernDat::Portal.in_dir(&later_dir),
             0x400,
             1,
             0,
@@ -192,7 +192,7 @@ fn the_later_files_answer_what_an_older_world_lacks() {
         w.save(only_later, b"later only", 1, 1, 1).expect("save");
         w.save(shared, b"later copy", 1, 1, 1).expect("save");
         let mut l = DatWriter::create(
-            &RetailDat::Local.in_dir(&later_dir),
+            &ModernDat::Local.in_dir(&later_dir),
             0x400,
             3,
             1,
@@ -201,26 +201,26 @@ fn the_later_files_answer_what_an_older_world_lacks() {
         .expect("create");
         l.save(string_table, b"strings", 1, 1, 1).expect("save");
     }
-    let s = RetailDatStore::open_pre_tod_with_later(&dir, &later_dir).expect("opens");
-    assert!(s.has_later_interface());
-    assert_eq!(s.era(), ContainerEra::PreTod);
+    let s = RetailDatStore::open_classic_with_modern(&dir, &later_dir).expect("opens");
+    assert!(s.has_modern_interface());
+    assert_eq!(s.era(), ContainerEra::Classic);
     // A record both portal files hold is the older one's.
     assert_eq!(s.read_portal(shared).expect("reads"), records[2].1);
-    assert_eq!(s.era_of(shared), ContainerEra::PreTod);
+    assert_eq!(s.era_of(shared), ContainerEra::Classic);
     // One only the later portal file holds is the later one's, in its layout.
     assert_eq!(s.read_portal(only_later).expect("reads"), b"later only");
-    assert_eq!(s.era_of(only_later), ContainerEra::Tod);
+    assert_eq!(s.era_of(only_later), ContainerEra::Modern);
     assert!(s.resolve(only_later).is_some());
     // The language reads are the later language file's.
     assert_eq!(s.local().read(string_table).expect("reads"), b"strings");
-    assert_eq!(s.era_of(string_table), ContainerEra::Tod);
+    assert_eq!(s.era_of(string_table), ContainerEra::Modern);
     // The later files on their own read the shared record as the later portal file has it.
-    let later = s.later_files().expect("the later files");
-    assert_eq!(later.era(), ContainerEra::Tod);
+    let later = s.modern_companion_files().expect("the later files");
+    assert_eq!(later.era(), ContainerEra::Modern);
     assert_eq!(later.read_portal(shared).expect("reads"), b"later copy");
     assert_eq!(later.read_portal(only_later).expect("reads"), b"later only");
     assert_eq!(later.local().read(string_table).expect("reads"), b"strings");
-    assert!(!later.has_later_interface());
+    assert!(!later.has_modern_interface());
     drop(later);
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
@@ -236,12 +236,12 @@ fn an_older_portal_beside_a_later_world_is_read_only_as_the_legacy_files() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&legacy_dir).expect("temp dir");
     let (portal, records) = two_level(0x400, 2112);
-    std::fs::write(PreTodDat::Portal.in_dir(&legacy_dir), &portal).expect("write");
+    std::fs::write(ClassicDat::Portal.in_dir(&legacy_dir), &portal).expect("write");
     let shared = DataId(records[2].0);
     let only_older = DataId(records[3].0);
     {
         let mut p = DatWriter::create(
-            &RetailDat::Portal.in_dir(&dir),
+            &ModernDat::Portal.in_dir(&dir),
             0x400,
             1,
             0,
@@ -250,7 +250,7 @@ fn an_older_portal_beside_a_later_world_is_read_only_as_the_legacy_files() {
         .expect("create");
         p.save(shared, b"later copy", 1, 1, 1).expect("save");
         DatWriter::create(
-            &RetailDat::Cell.in_dir(&dir),
+            &ModernDat::Cell.in_dir(&dir),
             0x100,
             2,
             1,
@@ -258,7 +258,7 @@ fn an_older_portal_beside_a_later_world_is_read_only_as_the_legacy_files() {
         )
         .expect("create");
         DatWriter::create(
-            &RetailDat::Local.in_dir(&dir),
+            &ModernDat::Local.in_dir(&dir),
             0x400,
             3,
             1,
@@ -267,40 +267,40 @@ fn an_older_portal_beside_a_later_world_is_read_only_as_the_legacy_files() {
         .expect("create");
     }
     let world = RetailDatStore::open_dir(&dir).expect("opens");
-    assert!(world.legacy_files().is_none(), "nothing beside it yet");
+    assert!(world.classic_files().is_none(), "nothing beside it yet");
     assert_eq!(
         world.modern_files().map(|m| m.era()),
-        Some(ContainerEra::Tod),
+        Some(ContainerEra::Modern),
         "a later world is its own later files"
     );
-    let world = world.with_legacy_portal(&legacy_dir).expect("attaches");
+    let world = world.with_classic_portal(&legacy_dir).expect("attaches");
     // The world's own reads are unchanged: the shared id is the later copy, and the record only
     // the older file holds is not there.
     assert_eq!(world.read_portal(shared).expect("reads"), b"later copy");
     assert!(world.read_portal(only_older).is_err());
-    assert_eq!(world.era_of(shared), ContainerEra::Tod);
+    assert_eq!(world.era_of(shared), ContainerEra::Modern);
     // The legacy files read the older file, in its layout.
-    let legacy = world.legacy_files().expect("the legacy files");
-    assert_eq!(legacy.era(), ContainerEra::PreTod);
+    let legacy = world.classic_files().expect("the legacy files");
+    assert_eq!(legacy.era(), ContainerEra::Classic);
     assert_eq!(legacy.read_portal(shared).expect("reads"), records[2].1);
     assert_eq!(legacy.read_portal(only_older).expect("reads"), records[3].1);
-    assert_eq!(legacy.era_of(shared), ContainerEra::PreTod);
+    assert_eq!(legacy.era_of(shared), ContainerEra::Classic);
     drop(legacy);
     // A later-layout file under the older name is refused as presentation files.
     std::fs::write(
-        PreTodDat::Portal.in_dir(&legacy_dir),
-        std::fs::read(RetailDat::Portal.in_dir(&dir)).expect("read"),
+        ClassicDat::Portal.in_dir(&legacy_dir),
+        std::fs::read(ModernDat::Portal.in_dir(&dir)).expect("read"),
     )
     .expect("write");
     let err = RetailDatStore::open_dir(&dir)
         .expect("opens")
-        .with_legacy_portal(&legacy_dir)
+        .with_classic_portal(&legacy_dir)
         .expect_err("the later layout under the older name");
     assert!(matches!(
         err,
         DatError::UnexpectedContainerEra {
-            found: ContainerEra::Tod,
-            expected: ContainerEra::PreTod,
+            found: ContainerEra::Modern,
+            expected: ContainerEra::Classic,
             ..
         }
     ));
@@ -316,11 +316,11 @@ fn an_older_world_is_its_own_legacy_files() {
     std::fs::create_dir_all(&dir).expect("temp dir");
     let (portal, records) = two_level(0x400, 2112);
     let (cell, _) = two_level(0x100, 1593);
-    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
-    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
-    let s = RetailDatStore::open_pre_tod_dir(&dir).expect("opens");
-    let legacy = s.legacy_files().expect("its own files");
-    assert_eq!(legacy.era(), ContainerEra::PreTod);
+    std::fs::write(ClassicDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(ClassicDat::Cell.in_dir(&dir), &cell).expect("write");
+    let s = RetailDatStore::open_classic_dir(&dir).expect("opens");
+    let legacy = s.classic_files().expect("its own files");
+    assert_eq!(legacy.era(), ContainerEra::Classic);
     let (id, payload) = &records[1];
     assert_eq!(&legacy.read_portal(DataId(*id)).expect("reads"), payload);
     assert!(s.modern_files().is_none(), "no later files beside it");
@@ -340,13 +340,13 @@ fn the_object_files_of_a_later_world_are_the_older_portal_alone() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&legacy_dir).expect("temp dir");
     let (portal, records) = two_level(0x400, 2112);
-    std::fs::write(PreTodDat::Portal.in_dir(&legacy_dir), &portal).expect("write");
+    std::fs::write(ClassicDat::Portal.in_dir(&legacy_dir), &portal).expect("write");
     let shared = DataId(records[1].0);
     let image = DataId(records[2].0);
     let world_only = DataId(0x0100_0099);
     {
         let mut p = DatWriter::create(
-            &RetailDat::Portal.in_dir(&dir),
+            &ModernDat::Portal.in_dir(&dir),
             0x400,
             1,
             0,
@@ -357,7 +357,7 @@ fn the_object_files_of_a_later_world_are_the_older_portal_alone() {
         p.save(world_only, b"world only", 1, 1, 1).expect("save");
         p.save(image, b"later image", 1, 1, 1).expect("save");
         DatWriter::create(
-            &RetailDat::Cell.in_dir(&dir),
+            &ModernDat::Cell.in_dir(&dir),
             0x100,
             2,
             1,
@@ -365,7 +365,7 @@ fn the_object_files_of_a_later_world_are_the_older_portal_alone() {
         )
         .expect("create");
         DatWriter::create(
-            &RetailDat::Local.in_dir(&dir),
+            &ModernDat::Local.in_dir(&dir),
             0x400,
             3,
             1,
@@ -375,20 +375,20 @@ fn the_object_files_of_a_later_world_are_the_older_portal_alone() {
     }
     let world = RetailDatStore::open_dir(&dir).expect("opens");
     assert!(
-        world.object_files(ContainerEra::PreTod).is_none(),
+        world.object_files(ContainerEra::Classic).is_none(),
         "no older files beside it yet"
     );
     assert!(
-        world.object_files(ContainerEra::Tod).is_none(),
+        world.object_files(ContainerEra::Modern).is_none(),
         "the world's own era is the world's files"
     );
-    let world = world.with_legacy_portal(&legacy_dir).expect("attaches");
+    let world = world.with_classic_portal(&legacy_dir).expect("attaches");
     let objects = world
-        .object_files(ContainerEra::PreTod)
+        .object_files(ContainerEra::Classic)
         .expect("the older look");
     // A record both hold is the older file's, in its layout.
     assert_eq!(objects.read_portal(shared).expect("reads"), records[1].1);
-    assert_eq!(objects.era_of(shared), ContainerEra::PreTod);
+    assert_eq!(objects.era_of(shared), ContainerEra::Classic);
     // A record the older file lacks is not borrowed from the world.
     assert!(objects.read_portal(world_only).is_err());
     // An id the older file holds is its own record, whatever the later files hold under it.
@@ -398,11 +398,11 @@ fn the_object_files_of_a_later_world_are_the_older_portal_alone() {
             .expect("reads"),
         records[2].1
     );
-    assert_eq!(objects.era_of(image), ContainerEra::PreTod);
+    assert_eq!(objects.era_of(image), ContainerEra::Classic);
     // The world itself still reads its own.
     assert_eq!(world.read_portal(shared).expect("reads"), b"later copy");
     // With no older cell file in the folder there are no older interiors.
-    assert!(world.interior_files(ContainerEra::PreTod).is_none());
+    assert!(world.interior_files(ContainerEra::Classic).is_none());
     drop((objects, world));
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -420,14 +420,14 @@ fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
     std::fs::create_dir_all(&later_dir).expect("temp dir");
     let (portal, records) = two_level(0x400, 2112);
     let (cell, _) = two_level(0x100, 1593);
-    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
-    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
+    std::fs::write(ClassicDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(ClassicDat::Cell.in_dir(&dir), &cell).expect("write");
     let shared = DataId(records[1].0);
     let older_only = DataId(records[0].0);
     let image = DataId(records[2].0);
     {
         let mut p = DatWriter::create(
-            &RetailDat::Portal.in_dir(&later_dir),
+            &ModernDat::Portal.in_dir(&later_dir),
             0x400,
             1,
             0,
@@ -437,7 +437,7 @@ fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
         p.save(shared, b"later copy", 1, 1, 1).expect("save");
         p.save(image, b"later image", 1, 1, 1).expect("save");
         DatWriter::create(
-            &RetailDat::Local.in_dir(&later_dir),
+            &ModernDat::Local.in_dir(&later_dir),
             0x400,
             3,
             1,
@@ -445,7 +445,7 @@ fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
         )
         .expect("create");
         let mut c = DatWriter::create(
-            &RetailDat::Cell.in_dir(&later_dir),
+            &ModernDat::Cell.in_dir(&later_dir),
             0x100,
             2,
             1,
@@ -455,12 +455,12 @@ fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
         c.save(DataId(0x0101_0100), b"later room", 1, 1, 1)
             .expect("save");
     }
-    let world = RetailDatStore::open_pre_tod_with_later(&dir, &later_dir).expect("opens");
-    assert!(world.object_files(ContainerEra::PreTod).is_none());
+    let world = RetailDatStore::open_classic_with_modern(&dir, &later_dir).expect("opens");
+    assert!(world.object_files(ContainerEra::Classic).is_none());
     // The later cell file answers the interiors' cell reads, beside the later portal; the
     // world's own cell reads are untouched.
     let interiors = world
-        .interior_files(ContainerEra::Tod)
+        .interior_files(ContainerEra::Modern)
         .expect("the later interiors");
     assert_eq!(
         interiors.read_cell(DataId(0x0101_0100)).expect("reads"),
@@ -468,13 +468,13 @@ fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
     );
     assert_eq!(interiors.read_portal(shared).expect("reads"), b"later copy");
     assert!(world.read_cell(DataId(0x0101_0100)).is_err());
-    assert!(world.interior_files(ContainerEra::PreTod).is_none());
+    assert!(world.interior_files(ContainerEra::Classic).is_none());
     let objects = world
-        .object_files(ContainerEra::Tod)
+        .object_files(ContainerEra::Modern)
         .expect("the later look");
-    assert_eq!(objects.era(), ContainerEra::Tod);
+    assert_eq!(objects.era(), ContainerEra::Modern);
     assert_eq!(objects.read_portal(shared).expect("reads"), b"later copy");
-    assert_eq!(objects.era_of(shared), ContainerEra::Tod);
+    assert_eq!(objects.era_of(shared), ContainerEra::Modern);
     assert!(objects.read_portal(older_only).is_err());
     assert_eq!(
         objects
@@ -484,6 +484,52 @@ fn the_object_files_of_an_older_world_are_the_later_portal_alone() {
     );
     // The world reads its own older record for the shared id.
     assert_eq!(world.read_portal(shared).expect("reads"), records[1].1);
+    // Attaching a Classic presentation portal retains the Modern portal but replaces the
+    // single companion cell. Interior views use that cell without another format check.
+    let replaced = world.clone().with_classic_portal(&dir).expect("attaches");
+    let interiors = replaced
+        .interior_files(ContainerEra::Modern)
+        .expect("the replaced companion cell");
+    assert_eq!(interiors.cell().era(), ContainerEra::Classic);
+    assert_eq!(interiors.cell().path(), ClassicDat::Cell.in_dir(&dir));
+    assert_eq!(interiors.read_portal(shared).expect("reads"), b"later copy");
+    assert_eq!(
+        replaced.read_portal(shared).expect("world reads"),
+        records[1].1
+    );
+
+    let portal_only = dir.join("portal-only");
+    std::fs::create_dir_all(&portal_only).expect("temp dir");
+    std::fs::write(ClassicDat::Portal.in_dir(&portal_only), &portal).expect("write");
+    let no_cell = replaced
+        .with_classic_portal(&portal_only)
+        .expect("attaches");
+    assert!(no_cell.interior_files(ContainerEra::Modern).is_none());
+    assert_eq!(
+        no_cell
+            .object_files(ContainerEra::Modern)
+            .expect("retained portal")
+            .read_portal(shared)
+            .expect("reads"),
+        b"later copy"
+    );
+    // An existing cell in the wrong format is just as absent as a missing file.
+    std::fs::copy(
+        ModernDat::Cell.in_dir(&later_dir),
+        ClassicDat::Cell.in_dir(&portal_only),
+    )
+    .expect("copy");
+    let wrong_cell = no_cell.with_classic_portal(&portal_only).expect("attaches");
+    assert!(wrong_cell.interior_files(ContainerEra::Modern).is_none());
+    assert_eq!(
+        wrong_cell
+            .object_files(ContainerEra::Modern)
+            .expect("retained portal")
+            .read_portal(shared)
+            .expect("reads"),
+        b"later copy"
+    );
+    drop((interiors, wrong_cell));
     drop((objects, world));
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -505,12 +551,12 @@ fn a_pre_tod_dat_set_opens_as_a_store_whose_portal_file_answers_language_reads()
     std::fs::create_dir_all(&dir).expect("temp dir");
     let (portal, records) = two_level(0x400, 2112);
     let (cell, _) = two_level(0x100, 1593);
-    std::fs::write(PreTodDat::Portal.in_dir(&dir), &portal).expect("write");
-    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
-    assert!(dereth_dat::holds_pre_tod_dats(&dir));
+    std::fs::write(ClassicDat::Portal.in_dir(&dir), &portal).expect("write");
+    std::fs::write(ClassicDat::Cell.in_dir(&dir), &cell).expect("write");
+    assert!(dereth_dat::holds_classic_dats(&dir));
 
-    let s = RetailDatStore::open_pre_tod_dir(&dir).expect("opens");
-    assert_eq!(s.era(), ContainerEra::PreTod);
+    let s = RetailDatStore::open_classic_dir(&dir).expect("opens");
+    assert_eq!(s.era(), ContainerEra::Classic);
     assert_eq!(s.portal().header().data_set, PORTAL_DATFILE);
     assert_eq!(s.portal().header_iteration(), Some(2112));
     assert_eq!(s.cell().header_iteration(), Some(1593));
@@ -521,13 +567,16 @@ fn a_pre_tod_dat_set_opens_as_a_store_whose_portal_file_answers_language_reads()
     let (id, payload) = &records[3];
     assert_eq!(&s.local().read(DataId(*id)).expect("reads"), payload);
     assert!(!s.grant_highres().expect("no high-resolution file"));
-    assert!(s.later_files().is_none(), "no later files beside it");
+    assert!(
+        s.modern_companion_files().is_none(),
+        "no later files beside it"
+    );
 
     // The same files under the later names are refused as the later dat set.
     for (dat, bytes) in [
-        (RetailDat::Portal, &portal),
-        (RetailDat::Cell, &cell),
-        (RetailDat::Local, &portal),
+        (ModernDat::Portal, &portal),
+        (ModernDat::Cell, &cell),
+        (ModernDat::Local, &portal),
     ] {
         std::fs::write(dat.in_dir(&dir), bytes).expect("write");
     }
@@ -537,8 +586,8 @@ fn a_pre_tod_dat_set_opens_as_a_store_whose_portal_file_answers_language_reads()
         matches!(
             err,
             DatError::UnexpectedContainerEra {
-                found: ContainerEra::PreTod,
-                expected: ContainerEra::Tod,
+                found: ContainerEra::Classic,
+                expected: ContainerEra::Modern,
                 ..
             }
         ),
@@ -560,15 +609,15 @@ fn read_iterations_answers_both_layouts_and_refuses_what_is_not_a_dat() {
     std::fs::create_dir_all(&dir).expect("temp dir");
 
     let (cell, _) = two_level(0x100, 1593);
-    std::fs::write(PreTodDat::Cell.in_dir(&dir), &cell).expect("write");
-    let it = DatFile::read_iterations(&PreTodDat::Cell.in_dir(&dir)).expect("reads");
-    assert_eq!(it.era, ContainerEra::PreTod);
+    std::fs::write(ClassicDat::Cell.in_dir(&dir), &cell).expect("write");
+    let it = DatFile::read_iterations(&ClassicDat::Cell.in_dir(&dir)).expect("reads");
+    assert_eq!(it.era, ContainerEra::Classic);
     assert_eq!(
         (it.data_set, it.count, it.highest),
         (CELL_DATFILE, 1593, 1593)
     );
 
-    let later = RetailDat::Local.in_dir(&dir);
+    let later = ModernDat::Local.in_dir(&dir);
     {
         let mut w =
             DatWriter::create(&later, 0x400, LOCAL_DATFILE, 1, 0x400 + 0x400 * 32).expect("create");
@@ -589,7 +638,7 @@ fn read_iterations_answers_both_layouts_and_refuses_what_is_not_a_dat() {
         }
     }
     let it = DatFile::read_iterations(&later).expect("reads");
-    assert_eq!(it.era, ContainerEra::Tod);
+    assert_eq!(it.era, ContainerEra::Modern);
     assert_eq!(
         (it.data_set, it.data_subset, it.count, it.highest),
         (LOCAL_DATFILE, 1, 991, 994)
@@ -605,7 +654,7 @@ fn read_iterations_answers_both_layouts_and_refuses_what_is_not_a_dat() {
     );
 
     // A later file with no list, a truncated file and a file of something else are errors.
-    let none = RetailDat::Portal.in_dir(&dir);
+    let none = ModernDat::Portal.in_dir(&dir);
     {
         let mut w =
             DatWriter::create(&none, 0x400, PORTAL_DATFILE, 0, 0x400 + 0x400 * 8).expect("create");

@@ -128,7 +128,7 @@ fn human_table(store: &RetailDatStore) -> MotionTable {
 /// table is left as it is.
 #[test]
 fn the_february_2005_logout_link_becomes_the_final_logout_with_its_own_animation() {
-    let old = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let old = dereth_dat::testing::open_classic_store_or_fail();
     let raw = human_table(&old);
     assert_eq!(numbering::of_store(&old), CommandNumbering::Before2015);
     assert_eq!(ready_links(&raw).get(&0x1000_011B), Some(&0x0300_07BE));
@@ -162,7 +162,7 @@ fn the_february_2005_logout_link_becomes_the_final_logout_with_its_own_animation
 /// the same gesture once translated as the end-of-retail file gives it.
 #[test]
 fn the_february_2005_manoeuvres_and_gestures_translate_with_the_motion_tables() {
-    let old = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let old = dereth_dat::testing::open_classic_store_or_fail();
     let now = dereth_dat::testing::open_store_or_fail();
     let n = numbering::of_store(&old);
     assert_eq!(n, CommandNumbering::Before2015);

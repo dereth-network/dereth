@@ -93,7 +93,7 @@ fn a_manifest_reads_and_refuses_what_it_cannot_mean() {
          0x06006BF0 rgb b.png\n0x0600708F\trgb\ta.png\t000000\n",
     )
     .unwrap();
-    assert_eq!(m.over, ContainerEra::PreTod);
+    assert_eq!(m.over, ContainerEra::Classic);
     assert_eq!(m.background, [0x0D, 0x11, 0x15]);
     assert_eq!(
         m.entries.iter().map(|e| e.id).collect::<Vec<_>>(),
@@ -142,7 +142,7 @@ fn a_pack_writes_the_same_container_every_time_and_it_reads_back_as_a_client_lay
         "the same input, the same bytes"
     );
     let layer = ClientLayer::from_file(dereth_dat::DatFile::open(&packed.out).unwrap()).unwrap();
-    assert_eq!(layer.era(), ContainerEra::PreTod);
+    assert_eq!(layer.era(), ContainerEra::Classic);
     let (id, picture) = decode(&layer.read(DataId(0x0600_0002)).unwrap(), Format::Rgb).unwrap();
     assert_eq!(id, DataId(0x0600_0002));
     assert_eq!((picture.width, picture.height), (34, 27));

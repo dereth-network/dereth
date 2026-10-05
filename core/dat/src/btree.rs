@@ -46,7 +46,7 @@ impl BtEntry {
 
     /// A directory entry of the container before Throne of Destiny (`portal.dat`, `cell.dat`): 12
     /// bytes, id, first block and size, with no flags, date or iteration, which read as zero.
-    pub(crate) fn parse_pre_tod(b: &[u8]) -> Self {
+    pub(crate) fn parse_classic(b: &[u8]) -> Self {
         let w = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
         Self {
             bits: 0,
@@ -105,7 +105,7 @@ pub const NODE_SIZE: usize = 62 * 4 + 4 + 61 * 24;
 
 /// The pre-Throne-of-Destiny node: `62 * 4 + 4 + 61 * 12` = 984 bytes, the same children and count
 /// with 12-byte entries.
-pub const PRE_TOD_NODE_SIZE: usize = 62 * 4 + 4 + 61 * 12;
+pub const CLASSIC_NODE_SIZE: usize = 62 * 4 + 4 + 61 * 12;
 
 impl BtNode {
     #[must_use]
@@ -122,11 +122,11 @@ impl BtNode {
         Self::parse_with(buf, offset, 24, BtEntry::parse)
     }
 
-    /// Parse a pre-Throne-of-Destiny node from its [`PRE_TOD_NODE_SIZE`] payload bytes. Child slots
+    /// Parse a pre-Throne-of-Destiny node from its [`CLASSIC_NODE_SIZE`] payload bytes. Child slots
     /// past the count are fill (`0xCDCDCDCD` in the shipped files) and are never followed.
-    pub fn parse_pre_tod(buf: &[u8], offset: u32) -> Result<Self, DatError> {
-        debug_assert_eq!(buf.len(), PRE_TOD_NODE_SIZE);
-        Self::parse_with(buf, offset, 12, BtEntry::parse_pre_tod)
+    pub fn parse_classic(buf: &[u8], offset: u32) -> Result<Self, DatError> {
+        debug_assert_eq!(buf.len(), CLASSIC_NODE_SIZE);
+        Self::parse_with(buf, offset, 12, BtEntry::parse_classic)
     }
 
     fn parse_with(
@@ -190,8 +190,8 @@ mod tests {
     /// The pre-Throne-of-Destiny node is 984 bytes of 12-byte entries: id, first block, size.
     #[test]
     fn a_pre_tod_node_holds_twelve_byte_entries_with_no_date_or_iteration() {
-        assert_eq!(PRE_TOD_NODE_SIZE, 984);
-        let mut buf = vec![0xCDu8; PRE_TOD_NODE_SIZE];
+        assert_eq!(CLASSIC_NODE_SIZE, 984);
+        let mut buf = vec![0xCDu8; CLASSIC_NODE_SIZE];
         buf[..4].copy_from_slice(&0u32.to_le_bytes()); // a leaf
         buf[248..252].copy_from_slice(&2u32.to_le_bytes());
         for (i, (id, first, size)) in [(0x0100_0001u32, 0x800u32, 40u32), (0x0100_0002, 0xC00, 7)]
@@ -203,7 +203,7 @@ mod tests {
             buf[o + 4..o + 8].copy_from_slice(&first.to_le_bytes());
             buf[o + 8..o + 12].copy_from_slice(&size.to_le_bytes());
         }
-        let node = BtNode::parse_pre_tod(&buf, 0x400).unwrap();
+        let node = BtNode::parse_classic(&buf, 0x400).unwrap();
         assert!(node.is_leaf());
         assert_eq!(node.entries.len(), 2);
         let e = node.entries[1];

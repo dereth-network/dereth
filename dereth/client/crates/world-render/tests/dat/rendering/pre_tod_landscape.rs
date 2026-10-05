@@ -21,11 +21,11 @@ use {
 
 #[test]
 fn every_february_2005_cell_finds_a_palette_shift_texture_and_rotation() {
-    let s = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let s = dereth_dat::testing::open_classic_store_or_fail();
     let id = DataId(0x1300_0000);
     let bytes = s.read_typed(DbType::Region, id).expect("the region");
     let DecodedAsset::Region(region) =
-        decode_any_in(ContainerEra::PreTod, DbType::Region, id, &bytes).expect("decodes")
+        decode_any_in(ContainerEra::Classic, DbType::Region, id, &bytes).expect("decodes")
     else {
         panic!("not a region");
     };
@@ -41,8 +41,8 @@ fn every_february_2005_cell_finds_a_palette_shift_texture_and_rotation() {
     let (mut cells, mut rotated) = (0usize, 0usize);
     for lb_id in s.ids_of(DbType::LandBlock) {
         let bytes = s.read_cell(lb_id).expect("reads");
-        let lb =
-            CellLandblock::decode_payload_in(ContainerEra::PreTod, lb_id, &bytes).expect("decodes");
+        let lb = CellLandblock::decode_payload_in(ContainerEra::Classic, lb_id, &bytes)
+            .expect("decodes");
         for i in 0..8 {
             for j in 0..8 {
                 let (keys, _) = cell_rotation_keys(&lb, &region, 8, i, j);
@@ -78,11 +78,11 @@ fn every_february_2005_cell_finds_a_palette_shift_texture_and_rotation() {
 /// region, as the road does.
 #[test]
 fn the_february_2005_cells_read_as_the_later_region_numbers_its_terrains() {
-    let old = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let old = dereth_dat::testing::open_classic_store_or_fail();
     let new = dereth_dat::testing::open_store_or_fail();
     let id = DataId(0x1300_0000);
     let DecodedAsset::Region(older) = decode_any_in(
-        ContainerEra::PreTod,
+        ContainerEra::Classic,
         DbType::Region,
         id,
         &old.read_typed(DbType::Region, id)
@@ -123,8 +123,8 @@ fn the_february_2005_cells_read_as_the_later_region_numbers_its_terrains() {
     let mut used = BTreeSet::new();
     for lb_id in old.ids_of(DbType::LandBlock) {
         let bytes = old.read_cell(lb_id).expect("reads");
-        let lb =
-            CellLandblock::decode_payload_in(ContainerEra::PreTod, lb_id, &bytes).expect("decodes");
+        let lb = CellLandblock::decode_payload_in(ContainerEra::Classic, lb_id, &bytes)
+            .expect("decodes");
         used.extend(lb.terrain.iter().map(|w| u32::from((w >> 2) & 0x1F)));
     }
     let missing: Vec<u32> = used.difference(&described).copied().collect();

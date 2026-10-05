@@ -52,7 +52,7 @@ pub struct VertexArray {
 
 impl VertexArray {
     pub fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        Self::decode_in(c, ContainerEra::Tod)
+        Self::decode_in(c, ContainerEra::Modern)
     }
 
     /// Decode in the given era's layout. Before Throne of Destiny each vertex is followed by
@@ -73,7 +73,7 @@ impl VertexArray {
             let position = c.vec3()?;
             let normal = c.vec3()?;
             let uvs = read_n(c, nuv, |c| Ok((c.f32()?, c.f32()?)))?;
-            if era == ContainerEra::PreTod {
+            if era == ContainerEra::Classic {
                 c.align_ptr();
             }
             Ok(SwVertex {
@@ -109,7 +109,7 @@ pub struct Polygon {
 
 impl Polygon {
     pub fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        Self::decode_in(c, ContainerEra::Tod)
+        Self::decode_in(c, ContainerEra::Modern)
     }
 
     /// Decode in the given era's layout: before Throne of Destiny each polygon ends with
@@ -136,7 +136,7 @@ impl Polygon {
             neg_surface = pos_surface;
             neg_uv_indices.clone_from(&pos_uv_indices);
         }
-        if era == ContainerEra::PreTod {
+        if era == ContainerEra::Classic {
             c.align_ptr();
         }
         Ok(Self {
@@ -216,7 +216,7 @@ impl BspTree {
     /// Parsed with an explicit work list rather than recursion: deep DAT trees can exhaust
     /// a small stack.
     pub fn decode(c: &mut Cursor<'_>, kind: BspKind) -> Result<Self, AssetError> {
-        Self::decode_in(c, kind, ContainerEra::Tod)
+        Self::decode_in(c, kind, ContainerEra::Modern)
     }
 
     /// Decode in the given era's layout: before Throne of Destiny a node's polygon list (a
@@ -238,7 +238,7 @@ impl BspTree {
             Finish(usize),
         }
 
-        let aligned = era == ContainerEra::PreTod;
+        let aligned = era == ContainerEra::Classic;
         let mut nodes: Vec<BspNode> = Vec::new();
         let mut stack = vec![Task::Read(Link::Root)];
 

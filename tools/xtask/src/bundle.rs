@@ -40,7 +40,7 @@
 
 use std::path::{Path, PathBuf};
 
-use dereth_dat::RetailDat;
+use dereth_dat::ModernDat;
 
 use crate::util::{run, workspace_root};
 
@@ -90,7 +90,7 @@ pub fn bundle_macos(args: &[String]) -> i32 {
         return 2;
     }
     if let Some(dir) = &dat_dir {
-        if !dereth_dat::holds_retail_dats(dir) {
+        if !dereth_dat::holds_modern_dats(dir) {
             eprintln!("bundle-macos: no retail dats in {}", dir.display());
             return 1;
         }
@@ -146,10 +146,10 @@ fn assemble(debug: bool, dat_dir: Option<&Path>) -> Result<PathBuf, String> {
 
     if let Some(dats) = dat_dir {
         let dats = std::fs::canonicalize(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-        for dat in RetailDat::ALL {
+        for dat in ModernDat::ALL {
             let file = dat.in_dir(&dats);
             // The high-resolution partition is the optional one; the other three are not, and
-            // `holds_retail_dats` has already reported on the file that stands for the set.
+            // `holds_modern_dats` has already reported on the file that stands for the set.
             if file.is_file() {
                 let at = macos.join(dat.file_name());
                 link(&file, &at).map_err(|e| format!("{}: {e}", at.display()))?;

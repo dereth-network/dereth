@@ -103,7 +103,7 @@ pub trait Decode: Sized {
     /// Read one object in its layout from before Throne of Destiny (the `portal.dat` and
     /// `cell.dat` set). A type whose layout did not change there reads as [`Decode::decode`]; the
     /// types rewritten at Throne of Destiny override it. Must consume the payload exactly.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         Self::decode(c)
     }
 
@@ -111,10 +111,10 @@ pub trait Decode: Sized {
     /// DataID echo check.
     fn decode_payload_in(era: ContainerEra, id: DataId, bytes: &[u8]) -> Result<Self, AssetError> {
         match era {
-            ContainerEra::Tod => Self::decode_payload(id, bytes),
-            ContainerEra::PreTod => {
+            ContainerEra::Modern => Self::decode_payload(id, bytes),
+            ContainerEra::Classic => {
                 let mut c = Cursor::new(bytes);
-                let v = Self::decode_pre_tod(&mut c)?;
+                let v = Self::decode_classic(&mut c)?;
                 c.expect_end()?;
                 if let Some(found) = v.declared_id() {
                     check_id_echo(id, found)?;
@@ -208,11 +208,11 @@ macro_rules! dispatch {
 /// as the client does. Use [`ui::LayoutDesc::decode_payload`] and
 /// [`ui::PropertyAsset::decode_payload`], which take that map.
 pub fn decode_any(kind: DbType, id: DataId, bytes: &[u8]) -> Result<DecodedAsset, AssetError> {
-    decode_any_in(ContainerEra::Tod, kind, id, bytes)
+    decode_any_in(ContainerEra::Modern, kind, id, bytes)
 }
 
 /// [`decode_any`] in the record layouts of the dat set `era` names: before Throne of Destiny the
-/// rewritten types read their older layout ([`Decode::decode_pre_tod`]) into the same values.
+/// rewritten types read their older layout ([`Decode::decode_classic`]) into the same values.
 pub fn decode_any_in(
     era: ContainerEra,
     kind: DbType,

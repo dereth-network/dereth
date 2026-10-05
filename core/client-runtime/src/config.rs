@@ -1435,8 +1435,8 @@ impl Config {
             "overlay-dat-dir" => self.overlay_dat_dir = Some(PathBuf::from(v)),
             "world-base" => {
                 self.world_base = Some(match v.trim().to_ascii_lowercase().as_str() {
-                    "modern" => dereth_primitives::ContainerEra::Tod,
-                    "classic" => dereth_primitives::ContainerEra::PreTod,
+                    "modern" => dereth_primitives::ContainerEra::Modern,
+                    "classic" => dereth_primitives::ContainerEra::Classic,
                     _ => {
                         return Err(ConfigError::new(format!(
                             "unknown --world-base {v:?} (modern or classic)"
@@ -1771,7 +1771,7 @@ pub fn dat_dir_candidates() -> Vec<PathBuf> {
 #[must_use]
 pub fn default_dat_dir() -> PathBuf {
     let candidates = dat_dir_candidates();
-    match dereth_dat::locate_retail_dats(&candidates) {
+    match dereth_dat::locate_modern_dats(&candidates) {
         Ok(dir) => dir.into_path_buf(),
         Err(_) => candidates.into_iter().next().unwrap_or_default(),
     }
@@ -2056,9 +2056,9 @@ mod tests {
         let c = parse(&["--overlay-dat-dir", "worlds/one"]).expect("parses");
         assert_eq!(c.overlay_dat_dir, Some(PathBuf::from("worlds/one")));
         let c = parse(&["--world-base", "Modern"]).expect("parses");
-        assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::Tod));
+        assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::Modern));
         let c = parse(&["--world-base", "classic"]).expect("parses");
-        assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::PreTod));
+        assert_eq!(c.world_base, Some(dereth_primitives::ContainerEra::Classic));
         assert!(parse(&["--world-base", "eor"]).is_err());
         for retired in ["--world-dat-dir", "--legacy-dat-dir"] {
             assert!(parse(&[retired, "x"]).is_err(), "{retired}");

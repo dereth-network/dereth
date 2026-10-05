@@ -171,7 +171,7 @@ fn oath_cost_reads_live_breaks_and_survives_the_snapshot() {
 )]
 fn the_era_view_reads_the_worlds_level_cap_and_skills() {
     let world = dereth_client_model::World::default();
-    let old = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let old = dereth_dat::testing::open_classic_store_or_fail();
     let mut h = Hud::new();
     h.load_tables(&old, &world);
     let v = HudView {

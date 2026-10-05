@@ -166,7 +166,7 @@ impl<'a> TextureStore<'a> {
         let payload = rs.payload(&bytes).ok_or(TextureError::NotATexture(rsid))?;
         let mut data = self.decode_render_surface(rsid, &rs, payload, false, None)?;
         if PixelFormatId::from_raw(rs.format) == PixelFormatId::CustomB8G8R8
-            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::PreTod
+            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::Classic
             && data.format == TextureFormat::Bgra8
         {
             for level in &mut data.levels {
@@ -271,7 +271,7 @@ impl<'a> TextureStore<'a> {
         // A 256-colour image of the dat set before Throne of Destiny indexes that era's 256-entry
         // palette, which the expanded palette holds eight times over: colour `i` is entry `8i`.
         let pre_tod_p8 = format == PixelFormatId::P8
-            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::PreTod;
+            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::Classic;
         if format == PixelFormatId::Index16 || pre_tod_p8 {
             let table = palette.ok_or(TextureError::NotATexture(rsid))?;
             let indices: Vec<u16> = if pre_tod_p8 {
@@ -296,7 +296,7 @@ impl<'a> TextureStore<'a> {
         // three planes one after another, red, green, then blue; the later files interleave each
         // pixel's blue, green and red. The planes are interleaved here into the later order.
         if format == PixelFormatId::CustomLscapeR8G8B8
-            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::PreTod
+            && self.lookup.era_of(rsid) == dereth_dat::ContainerEra::Classic
         {
             let bgr = interleave_rgb_planes(payload, rs.width, rs.height)
                 .ok_or(TextureError::NotATexture(rsid))?;
@@ -415,14 +415,15 @@ mod tests {
         ignore = "reads the February 2005 and end-of-retail dats: --features retail-dats"
     )]
     fn a_february_2005_landscape_image_reads_as_three_colour_planes() {
-        let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+        let old = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
             panic!(
                 "{}",
-                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+                dereth_dat::testing::classic_shortfall().unwrap_or_default()
             )
         });
-        let hybrid = RetailDatStore::open_pre_tod_with_later(&old, &dereth_dat::testing::dat_dir())
-            .expect("the February 2005 dats beside the end-of-retail ones");
+        let hybrid =
+            RetailDatStore::open_classic_with_modern(&old, &dereth_dat::testing::dat_dir())
+                .expect("the February 2005 dats beside the end-of-retail ones");
         let textures = TextureStore::new(&hybrid);
         let mean = |id: u32| {
             let img = textures.bgra8(DataId(id)).expect("decodes");
@@ -447,14 +448,15 @@ mod tests {
         ignore = "reads the February 2005 and end-of-retail dats: --features retail-dats"
     )]
     fn a_february_2005_image_is_transparent_where_it_is_black() {
-        let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+        let old = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
             panic!(
                 "{}",
-                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+                dereth_dat::testing::classic_shortfall().unwrap_or_default()
             )
         });
-        let hybrid = RetailDatStore::open_pre_tod_with_later(&old, &dereth_dat::testing::dat_dir())
-            .expect("the February 2005 dats beside the end-of-retail ones");
+        let hybrid =
+            RetailDatStore::open_classic_with_modern(&old, &dereth_dat::testing::dat_dir())
+                .expect("the February 2005 dats beside the end-of-retail ones");
         let later =
             RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).expect("the retail dats");
         let clear = |store: &RetailDatStore, id: u32| -> Vec<bool> {
@@ -492,7 +494,7 @@ mod tests {
         ignore = "reads the February 2005 dats: --features retail-dats"
     )]
     fn a_february_2005_palette_image_takes_its_colours_by_index() {
-        let store = dereth_dat::testing::open_pre_tod_store_or_fail();
+        let store = dereth_dat::testing::open_classic_store_or_fail();
         let t = TextureStore::new(&store);
         let id = DataId(0x0500_0BB0);
         let (rsid, rs, bytes) = t.resolve(id).expect("the image resolves to itself");

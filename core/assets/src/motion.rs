@@ -219,7 +219,7 @@ impl Decode for PhysicsScriptTable {
     /// later inserted at 30, and every type from there moved up by one (the February 2005 table's
     /// 117 is the hiding script that is 118 afterwards, its 116 the unhiding one). The table is
     /// keyed by the later numbering, which is what every caller asks with.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let t = Self::decode(c)?;
         let script_table = t
             .script_table
@@ -395,13 +395,13 @@ impl Decode for ClothingTable {
     /// Before Throne of Destiny a palette held 256 colours and a sub-palette range counted them;
     /// the later files count the entries of a palette eight times as long. The ranges are read
     /// into the later count, so a range means the same colours whichever file it came from.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let mut t = Self::decode(c)?;
         for template in t.palette_templates.values_mut() {
             for effect in &mut template.subpalette_effects {
                 for range in &mut effect.ranges {
-                    range.offset *= PRE_TOD_PALETTE_SCALE;
-                    range.length *= PRE_TOD_PALETTE_SCALE;
+                    range.offset *= CLASSIC_PALETTE_SCALE;
+                    range.length *= CLASSIC_PALETTE_SCALE;
                 }
             }
         }
@@ -410,7 +410,7 @@ impl Decode for ClothingTable {
 }
 
 /// How many entries of a later palette one colour of a palette from before Throne of Destiny is.
-const PRE_TOD_PALETTE_SCALE: u32 = 8;
+const CLASSIC_PALETTE_SCALE: u32 = 8;
 
 #[cfg(test)]
 mod tests {

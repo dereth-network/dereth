@@ -2311,10 +2311,10 @@ mod real_content_components {
     /// Divergence: V415
     #[test]
     fn on_the_february_2005_dats_each_component_a_spell_uses_is_found_as_its_weenie() {
-        let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+        let dir = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
             panic!(
                 "{}",
-                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+                dereth_dat::testing::classic_shortfall().unwrap_or_default()
             )
         });
         let mut w = world(&dir, &empyrean_common::test_paths::infiltration_pack());

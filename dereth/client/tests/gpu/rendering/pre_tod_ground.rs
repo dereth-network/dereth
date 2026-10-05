@@ -27,12 +27,12 @@ use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrit
 
 /// The February 2005 world with the end-of-retail files beside it, or a failed test.
 fn older_world() -> Arc<RetailDatStore> {
-    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+    if let Some(msg) = dereth_dat::testing::classic_shortfall() {
         panic!("{msg}");
     }
-    let world = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    let world = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
     Arc::new(
-        RetailDatStore::open_pre_tod_with_later(&world, &dereth_dat::testing::dat_dir())
+        RetailDatStore::open_classic_with_modern(&world, &dereth_dat::testing::dat_dir())
             .unwrap_or_else(|e| panic!("the February 2005 world did not open: {e}")),
     )
 }

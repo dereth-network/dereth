@@ -160,7 +160,7 @@ mod tests {
             }
         );
         let mut late = world(EraId::Eor);
-        late.era.world_dats = ContainerEra::PreTod;
+        late.era.world_dats = ContainerEra::Classic;
         assert_eq!(
             late.era_ui(),
             EraUiFacts {

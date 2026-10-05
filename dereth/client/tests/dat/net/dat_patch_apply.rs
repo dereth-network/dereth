@@ -60,7 +60,7 @@ impl Scratch {
         let overlay =
             OverlayDir::new(&directory.path().join("overlay")).expect("an overlay folder");
         let store = dereth_dat::testing::open_store_or_fail();
-        let local = dereth_dat::RetailDat::Local.in_dir(&dereth_dat::testing::dat_dir());
+        let local = dereth_dat::ModernDat::Local.in_dir(&dereth_dat::testing::dat_dir());
         let pristine = vec![(local.clone(), digest(&local))];
         Self {
             overlay,
@@ -72,7 +72,7 @@ impl Scratch {
 
     /// The cell file is digested too, for the test that tombstones a landblock in it.
     fn watch_cell(&mut self) {
-        let cell = dereth_dat::RetailDat::Cell.in_dir(&dereth_dat::testing::dat_dir());
+        let cell = dereth_dat::ModernDat::Cell.in_dir(&dereth_dat::testing::dat_dir());
         let d = digest(&cell);
         self.pristine.push((cell, d));
     }
@@ -584,7 +584,7 @@ fn a_patch_never_writes_the_installed_files() {
         "PREFLIGHT: set DERETH_TEST_DAT_DIR; {} has no language dat",
         dir.display()
     );
-    let before = digest(&dereth_dat::RetailDat::Local.in_dir(&dir));
+    let before = digest(&dereth_dat::ModernDat::Local.in_dir(&dir));
 
     let s = Scratch::new("installed_untouched");
     let mut p = s.patcher();
@@ -613,7 +613,7 @@ fn a_patch_never_writes_the_installed_files() {
         "{outcome:?}"
     );
     assert_eq!(
-        digest(&dereth_dat::RetailDat::Local.in_dir(&dir)),
+        digest(&dereth_dat::ModernDat::Local.in_dir(&dir)),
         before,
         "the installed language file is byte-identical"
     );

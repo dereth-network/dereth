@@ -262,26 +262,26 @@ impl Decode for Region {
     /// does not end exactly on the record's end, without it.
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let start = c.position();
-        if let Ok(r) = decode_region(c, ContainerEra::Tod, true) {
+        if let Ok(r) = decode_region(c, ContainerEra::Modern, true) {
             if c.remaining() == 0 {
                 return Ok(r);
             }
         }
         c.seek(start)?;
-        if let Ok(r) = decode_region(c, ContainerEra::Tod, false) {
+        if let Ok(r) = decode_region(c, ContainerEra::Modern, false) {
             if c.remaining() == 0 {
                 return Ok(r);
             }
         }
         // Neither fits: report the reading with the particle-script id.
         c.seek(start)?;
-        decode_region(c, ContainerEra::Tod, true)
+        decode_region(c, ContainerEra::Modern, true)
     }
 
     /// Before Throne of Destiny a sky object has no particle-script id (eight words), and the land
     /// surface is the palette-shift technique ([`PalShift`], type 1) rather than texture merging.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_region(c, ContainerEra::PreTod, false)
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_region(c, ContainerEra::Classic, false)
     }
 }
 
@@ -521,7 +521,7 @@ fn read_terrain_types(c: &mut Cursor<'_>) -> Result<Vec<TerrainType>, AssetError
 }
 
 fn read_land_surface(c: &mut Cursor<'_>, era: ContainerEra) -> Result<LandSurf, AssetError> {
-    let pre_tod = era == ContainerEra::PreTod;
+    let pre_tod = era == ContainerEra::Classic;
     let surf_type = c.u32()?;
     let tex_merge = if surf_type == 0 {
         let base_tex_size = c.u32()?;

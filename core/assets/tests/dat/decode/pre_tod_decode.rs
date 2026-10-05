@@ -14,12 +14,12 @@ use dereth_dat::{ContainerEra, DbType, RetailDatStore};
 use dereth_primitives::DataId;
 
 fn store() -> RetailDatStore {
-    dereth_dat::testing::open_pre_tod_store_or_fail()
+    dereth_dat::testing::open_classic_store_or_fail()
 }
 
 fn read<T: Decode>(s: &RetailDatStore, id: u32) -> T {
     let bytes = s.read_portal(DataId(id)).expect("present");
-    T::decode_payload_in(ContainerEra::PreTod, DataId(id), &bytes)
+    T::decode_payload_in(ContainerEra::Classic, DataId(id), &bytes)
         .unwrap_or_else(|e| panic!("{id:#010X}: {e}"))
 }
 
@@ -262,7 +262,7 @@ fn every_february_2005_environment_gfxobj_and_envcell_decodes_whole() {
     assert_eq!(cells.len(), 455_641);
     for id in cells {
         let bytes = s.read_cell(id).expect("present");
-        let cell = EnvCell::decode_payload_in(ContainerEra::PreTod, id, &bytes)
+        let cell = EnvCell::decode_payload_in(ContainerEra::Classic, id, &bytes)
             .unwrap_or_else(|e| panic!("{id}: {e}"));
         let env = environments
             .get(&cell.environment.raw())
@@ -351,7 +351,7 @@ fn differing_sex_budgets_are_refused_before_sharing_creation_rules() {
     assert_eq!(matches.len(), 6, "one encoded budget per sex");
     bytes[matches[1]..matches[1] + 4].copy_from_slice(&331u32.to_le_bytes());
     assert!(matches!(
-        CharGen::decode_payload_in(ContainerEra::PreTod, DataId(0x0e00_0002), &bytes),
+        CharGen::decode_payload_in(ContainerEra::Classic, DataId(0x0e00_0002), &bytes),
         Err(dereth_assets::AssetError::Unsupported {
             what: "sex-specific character-generation rules",
             value: 1

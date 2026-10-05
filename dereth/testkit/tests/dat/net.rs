@@ -90,7 +90,7 @@ impl Scratch {
     /// Copy the cell dat in. It is the only one these scenarios write to.
     fn cell_copy(&mut self) -> PathBuf {
         let src = self.watch("client_cell_1.dat");
-        let dst = dereth_dat::RetailDat::Cell.in_dir(&self.dir);
+        let dst = dereth_dat::ModernDat::Cell.in_dir(&self.dir);
         std::fs::copy(&src, &dst).unwrap_or_else(|e| panic!("copy {}: {e}", src.display()));
         dst
     }
@@ -116,11 +116,11 @@ impl Drop for Scratch {
 fn store_with_cell_copy(cell: &Path) -> RetailDatStore {
     let dir = dereth_dat::testing::dat_dir();
     let portal =
-        DatFile::open(&dereth_dat::RetailDat::Portal.in_dir(&dir)).expect("the portal dat opens");
+        DatFile::open(&dereth_dat::ModernDat::Portal.in_dir(&dir)).expect("the portal dat opens");
     let cell = DatFile::open(cell).expect("the cell copy opens");
     let local =
-        DatFile::open(&dereth_dat::RetailDat::Local.in_dir(&dir)).expect("the language dat");
-    let hi = dereth_dat::RetailDat::HighRes.in_dir(&dir);
+        DatFile::open(&dereth_dat::ModernDat::Local.in_dir(&dir)).expect("the language dat");
+    let hi = dereth_dat::ModernDat::HighRes.in_dir(&dir);
     let highres = hi
         .is_file()
         .then(|| DatFile::open(&hi).expect("the high-res dat opens"));

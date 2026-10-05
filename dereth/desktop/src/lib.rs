@@ -103,13 +103,13 @@ pub fn start<P: Product>(argv: &[String]) -> Result<Config, String> {
     // else the executable's directory. A run that has none says where it looked and how to say
     // where they are. The install is then read-only for the run: a data-patch message that would
     // save into it is refused.
-    if !dereth_dat::holds_retail_dats(&cfg.dat_dir) && !dereth_dat::holds_pre_tod_dats(&cfg.dat_dir)
+    if !dereth_dat::holds_modern_dats(&cfg.dat_dir) && !dereth_dat::holds_classic_dats(&cfg.dat_dir)
     {
         let mut searched = dereth_client_runtime::config::dat_dir_candidates();
         if !searched.contains(&cfg.dat_dir) {
             searched = vec![cfg.dat_dir.clone()];
         }
-        let e = dereth_dat::locate_retail_dats(&searched)
+        let e = dereth_dat::locate_modern_dats(&searched)
             .err()
             .map_or_else(String::new, |e| e.to_string());
         return Err(format!(

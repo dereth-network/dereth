@@ -42,7 +42,7 @@ pub trait AssetSource {
     /// Which dat set the records come from, and so which record layouts they are in. Anything
     /// that is not the dat files from before Throne of Destiny is the later layout.
     fn container_era(&self) -> ContainerEra {
-        ContainerEra::Tod
+        ContainerEra::Modern
     }
 
     /// The layout of the one record `id`: a source that mixes the two dat sets (the later
@@ -97,11 +97,11 @@ pub enum ContainerEra {
     /// `portal.dat` and `cell.dat`: a 44-byte header at `0x12C` holding the whole file's iteration,
     /// no transaction journal, no data set or version stamp, and 12-byte directory entries (id,
     /// first block, size) with no per-entry date, version or iteration.
-    PreTod,
+    Classic,
     /// The `client_*.dat` files: the 80-byte header at `0x140`, the journal at `0x100`, 24-byte
     /// directory entries and the `0xFFFF0001` iteration list.
     #[default]
-    Tod,
+    Modern,
 }
 
 /// An opaque handle to an uploaded mesh.
@@ -180,13 +180,13 @@ mod source_tests {
             )
         }
         fn container_era(&self) -> ContainerEra {
-            ContainerEra::PreTod
+            ContainerEra::Classic
         }
         fn container_era_of(&self, id: DataId) -> ContainerEra {
             if id == DataId(2) {
-                ContainerEra::Tod
+                ContainerEra::Modern
             } else {
-                ContainerEra::PreTod
+                ContainerEra::Classic
             }
         }
     }
@@ -202,9 +202,9 @@ mod source_tests {
             [DataId(2), DataId(4)]
         );
         assert_eq!(source.iter_type(DataType::Animation).count(), 0);
-        assert_eq!(source.container_era(), ContainerEra::PreTod);
-        assert_eq!(source.container_era_of(DataId(2)), ContainerEra::Tod);
-        assert_eq!(source.container_era_of(DataId(4)), ContainerEra::PreTod);
+        assert_eq!(source.container_era(), ContainerEra::Classic);
+        assert_eq!(source.container_era_of(DataId(2)), ContainerEra::Modern);
+        assert_eq!(source.container_era_of(DataId(4)), ContainerEra::Classic);
     }
     /// Behaviour: none (shared asset sources preserve bytes, errors, iteration and per-record layouts).
     #[test]

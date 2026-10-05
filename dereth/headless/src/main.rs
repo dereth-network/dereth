@@ -89,8 +89,8 @@ fn real_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
             "--world-base" => {
                 let v = value("--world-base")?;
                 opts.world_base = Some(match v.to_ascii_lowercase().as_str() {
-                    "modern" => dereth_client_sdk::primitives::ContainerEra::Tod,
-                    "classic" => dereth_client_sdk::primitives::ContainerEra::PreTod,
+                    "modern" => dereth_client_sdk::primitives::ContainerEra::Modern,
+                    "classic" => dereth_client_sdk::primitives::ContainerEra::Classic,
                     _ => {
                         return Err(format!("unknown --world-base {v:?} (modern or classic)").into())
                     }
@@ -128,7 +128,7 @@ fn real_main() -> Result<ExitCode, Box<dyn std::error::Error>> {
     } else {
         dereth_client_sdk::runtime::config::dat_dir_candidates()
     };
-    if let Err(e) = dereth_client_sdk::dat::locate_retail_dats(&searched) {
+    if let Err(e) = dereth_client_sdk::dat::locate_modern_dats(&searched) {
         return Err(format!("{e} (pass --dat-dir <dir>)").into());
     }
     // The install is read, never written: a data-patch message that would save into it is refused.

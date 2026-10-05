@@ -10,11 +10,11 @@ use dereth_primitives::DataId;
 /// The headers name the layout, the block sizes and the whole file's iteration.
 #[test]
 fn the_february_2005_headers_carry_the_files_iteration() {
-    let s = dereth_dat::testing::open_pre_tod_store_or_fail();
-    assert_eq!(s.era(), ContainerEra::PreTod);
+    let s = dereth_dat::testing::open_classic_store_or_fail();
+    assert_eq!(s.era(), ContainerEra::Classic);
 
     let p = s.portal();
-    assert_eq!(p.era(), ContainerEra::PreTod);
+    assert_eq!(p.era(), ContainerEra::Classic);
     assert_eq!(p.header_iteration(), Some(2112));
     let h = p.header();
     assert_eq!(h.block_size, 0x400);
@@ -24,7 +24,7 @@ fn the_february_2005_headers_carry_the_files_iteration() {
     assert_eq!(h.free_count, 1410);
 
     let c = s.cell();
-    assert_eq!(c.era(), ContainerEra::PreTod);
+    assert_eq!(c.era(), ContainerEra::Classic);
     assert_eq!(c.header_iteration(), Some(1593));
     let h = c.header();
     assert_eq!(h.block_size, 0x100);
@@ -43,7 +43,7 @@ fn the_february_2005_headers_carry_the_files_iteration() {
 /// yields exactly the size its entry declares.
 #[test]
 fn every_february_2005_record_reads_whole() {
-    let s = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let s = dereth_dat::testing::open_classic_store_or_fail();
     for (file, entries, nodes) in [(s.portal(), 51_001, 1404), (s.cell(), 524_954, 16_881)] {
         assert_eq!(file.len(), entries, "{}", file.path().display());
         let report = file.verify_structure().expect("the directory walks");
@@ -76,7 +76,7 @@ fn read_every_record(file: &DatFile) {
 /// Destiny), and the cell file the landblocks.
 #[test]
 fn the_february_2005_store_routes_language_records_to_the_portal_file() {
-    let s = dereth_dat::testing::open_pre_tod_store_or_fail();
+    let s = dereth_dat::testing::open_classic_store_or_fail();
     assert_eq!(
         s.file(DatKind::Local).map(DatFile::path),
         Some(s.portal().path())

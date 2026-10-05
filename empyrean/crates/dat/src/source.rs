@@ -45,7 +45,7 @@ pub trait DatSource: Send + Sync + fmt::Debug {
 
     /// Which dat set the files belong to: the later four files unless a source says otherwise.
     fn container_era(&self) -> ContainerEra {
-        ContainerEra::Tod
+        ContainerEra::Modern
     }
 
     /// The whole file's iteration from its header, which only the files from before Throne of
@@ -94,8 +94,8 @@ impl RealDats {
     pub fn open(dir: &Path) -> Result<Self, DatError> {
         // Not ACE: a directory with `portal.dat` and `cell.dat` and no `client_portal.dat` is
         // the dat set from before Throne of Destiny, whose language reads the portal file answers.
-        let store = if !dereth_dat::holds_retail_dats(dir) && dereth_dat::holds_pre_tod_dats(dir) {
-            RetailDatStore::open_pre_tod_dir(dir)?
+        let store = if !dereth_dat::holds_modern_dats(dir) && dereth_dat::holds_classic_dats(dir) {
+            RetailDatStore::open_classic_dir(dir)?
         } else {
             let store = RetailDatStore::open_dir(dir)?;
             store.grant_highres()?;
@@ -118,8 +118,8 @@ impl RealDats {
     /// A required file of that set is missing or does not open.
     pub fn open_era(dir: &Path, era: ContainerEra) -> Result<Self, DatError> {
         let store = match era {
-            ContainerEra::PreTod => RetailDatStore::open_pre_tod_dir(dir)?,
-            ContainerEra::Tod => {
+            ContainerEra::Classic => RetailDatStore::open_classic_dir(dir)?,
+            ContainerEra::Modern => {
                 let store = RetailDatStore::open_dir(dir)?;
                 store.grant_highres()?;
                 store
@@ -230,18 +230,18 @@ impl DatSource for RealDats {
     }
 
     fn describe(&self, db: DatDatabaseType) -> String {
-        if self.store.era() == ContainerEra::PreTod {
+        if self.store.era() == ContainerEra::Classic {
             let file = match db {
-                DatDatabaseType::Cell => dereth_dat::PreTodDat::Cell,
-                _ => dereth_dat::PreTodDat::Portal,
+                DatDatabaseType::Cell => dereth_dat::ClassicDat::Cell,
+                _ => dereth_dat::ClassicDat::Portal,
             };
             return file.in_dir(&self.dir).display().to_string();
         }
         let file = match db {
-            DatDatabaseType::Portal => dereth_dat::RetailDat::Portal,
-            DatDatabaseType::Cell => dereth_dat::RetailDat::Cell,
-            DatDatabaseType::Language => dereth_dat::RetailDat::Local,
-            DatDatabaseType::HighRes => dereth_dat::RetailDat::HighRes,
+            DatDatabaseType::Portal => dereth_dat::ModernDat::Portal,
+            DatDatabaseType::Cell => dereth_dat::ModernDat::Cell,
+            DatDatabaseType::Language => dereth_dat::ModernDat::Local,
+            DatDatabaseType::HighRes => dereth_dat::ModernDat::HighRes,
         };
         file.in_dir(&self.dir).display().to_string()
     }

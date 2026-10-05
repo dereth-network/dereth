@@ -11,14 +11,14 @@ use std::{collections::BTreeMap, rc::Rc};
 
 fn tables(old: bool) -> CreationTables {
     let store = if old {
-        dereth_dat::testing::open_pre_tod_store_or_fail()
+        dereth_dat::testing::open_classic_store_or_fail()
     } else {
         RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).unwrap()
     };
     let era = if old {
-        ContainerEra::PreTod
+        ContainerEra::Classic
     } else {
-        ContainerEra::Tod
+        ContainerEra::Modern
     };
     let decode = |id| store.read_portal(DataId(id)).unwrap();
     let chargen =
@@ -371,7 +371,7 @@ fn color_choices_sample_the_decoded_palette_layout() {
     assert_eq!(PaletteLayout::from_entry_count(257), None);
     for old in [true, false] {
         let store = if old {
-            dereth_dat::testing::open_pre_tod_store_or_fail()
+            dereth_dat::testing::open_classic_store_or_fail()
         } else {
             RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).unwrap()
         };

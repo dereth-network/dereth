@@ -18,10 +18,10 @@ use empyrean_dat::{DatDatabaseType, DatManager, DatSource, RealDats};
 fn dats() -> Arc<DatManager> {
     static DATS: OnceLock<Arc<DatManager>> = OnceLock::new();
     Arc::clone(DATS.get_or_init(|| {
-        if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+        if let Some(msg) = dereth_dat::testing::classic_shortfall() {
             panic!("{msg}");
         }
-        let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+        let dir = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
         let real = RealDats::open(&dir)
             .unwrap_or_else(|e| panic!("the February 2005 dats under {}: {e}", dir.display()));
         DatManager::initialize(Arc::new(real)).expect("the February 2005 dats initialize")
@@ -31,7 +31,7 @@ fn dats() -> Arc<DatManager> {
 #[test]
 fn the_february_2005_dats_open_with_their_header_iterations_and_era_tables() {
     let dats = dats();
-    assert_eq!(dats.portal_dat().container_era(), ContainerEra::PreTod);
+    assert_eq!(dats.portal_dat().container_era(), ContainerEra::Classic);
     assert_eq!(dats.cell_dat().iteration(), ITERATION_CELL_FEBRUARY_2005);
     assert_eq!(
         dats.portal_dat().iteration(),
@@ -188,10 +188,10 @@ impl DatSource for AbsentReads {
 /// that have one still read it.
 #[test]
 fn the_february_2005_dats_are_never_asked_for_a_record_they_lack() {
-    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+    if let Some(msg) = dereth_dat::testing::classic_shortfall() {
         panic!("{msg}");
     }
-    let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    let dir = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
     let source = Arc::new(AbsentReads {
         real: RealDats::open(&dir).expect("the February 2005 dats"),
         absent: std::sync::Mutex::new(Vec::new()),
@@ -231,14 +231,14 @@ fn the_february_2005_dats_are_never_asked_for_a_record_they_lack() {
 #[test]
 fn the_era_chooses_the_set_a_folder_holding_both_serves_and_a_missing_set_is_refused() {
     let both = dereth_dat::testing::both_sets_dir();
-    let older = RealDats::open_era(&both, ContainerEra::PreTod).expect("the older set");
-    assert_eq!(older.container_era(), ContainerEra::PreTod);
+    let older = RealDats::open_era(&both, ContainerEra::Classic).expect("the older set");
+    assert_eq!(older.container_era(), ContainerEra::Classic);
     assert!(!older.has_database(DatDatabaseType::HighRes));
-    let later = RealDats::open_era(&both, ContainerEra::Tod).expect("the later set");
-    assert_eq!(later.container_era(), ContainerEra::Tod);
+    let later = RealDats::open_era(&both, ContainerEra::Modern).expect("the later set");
+    assert_eq!(later.container_era(), ContainerEra::Modern);
     // Neither set stands in for the other.
-    let only_older = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
-    assert!(RealDats::open_era(&only_older, ContainerEra::Tod).is_err());
+    let only_older = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
+    assert!(RealDats::open_era(&only_older, ContainerEra::Modern).is_err());
     let only_later = dereth_dat::testing::dat_dir();
-    assert!(RealDats::open_era(&only_later, ContainerEra::PreTod).is_err());
+    assert!(RealDats::open_era(&only_later, ContainerEra::Classic).is_err());
 }

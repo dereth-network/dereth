@@ -51,8 +51,8 @@
 //!     any other. (Its screens, `dereth-ui-screens`, cannot name the runtime at all: rule 2.)
 //! 8. **One place finds the retail dats.** No workspace file outside `core/dat/` joins a retail dat
 //!    file name onto a path ([`dat_path_violations`]): the client, the server and every test find
-//!    the directory with `dereth_dat::locate_retail_dats` (the tests through `dereth_dat::testing`)
-//!    and name a file in it with `dereth_dat::RetailDat`. And no tracked file of the workspace
+//!    the directory with `dereth_dat::locate_modern_dats` (the tests through `dereth_dat::testing`)
+//!    and name a file in it with `dereth_dat::ModernDat`. And no tracked file of the workspace
 //!    names a retired environment variable ([`env_name_violations`]).
 //!
 //! The dependency half reads `cargo tree`, so a rule broken two crates down is still caught. The
@@ -686,7 +686,7 @@ const RETIRED_VAR_PREFIX: &str = concat!("DERE", "_");
 
 /// Rule 8's first half: the code (comments stripped) of any workspace file outside `core/dat/`
 /// that joins a retail dat file name onto a path. Where the dats are, and what the files are
-/// called on disk, is `dereth-dat`'s business (`locate_retail_dats`, `RetailDat::in_dir`, and
+/// called on disk, is `dereth-dat`'s business (`locate_modern_dats`, `ModernDat::in_dir`, and
 /// `dereth_dat::testing` for the tests); plain name strings -- a table of file names, a message,
 /// a retail string -- are not paths and are not reported.
 #[must_use]
@@ -709,7 +709,7 @@ pub fn dat_path_violations(files: &[(PathBuf, String)]) -> Vec<String> {
         for m in join.find_iter(&code) {
             let line = code[..m.start()].matches('\n').count() + 1;
             out.push(format!(
-                "{}:{line}: joins a retail dat file name onto a path (use dereth_dat::RetailDat or dereth_dat::testing)",
+                "{}:{line}: joins a retail dat file name onto a path (use dereth_dat::ModernDat or dereth_dat::testing)",
                 path.display()
             ));
         }

@@ -286,7 +286,7 @@ pub fn divine_type(id: DataId) -> Option<DbType> {
 /// had their own two ids (the later files put them at `0x0E010000` on), and a second set of
 /// regions sat at `0x130F0000` beside the first at `0x13000000`, the client loading region `n`
 /// from one or the other by a display setting.
-const PRE_TOD_RANGES: &[Row] = &[
+const CLASSIC_RANGES: &[Row] = &[
     (0x0E00_0010, 0x0E00_0010, DbType::QualityFilter),
     (0x0E00_0017, 0x0E00_0017, DbType::QualityFilter),
     (0x130F_0000, 0x130F_FFFF, DbType::Region),
@@ -297,8 +297,8 @@ const PRE_TOD_RANGES: &[Row] = &[
 #[must_use]
 pub fn divine_type_in(era: ContainerEra, id: DataId) -> Option<DbType> {
     divine_type(id).or_else(|| match era {
-        ContainerEra::Tod => None,
-        ContainerEra::PreTod => PRE_TOD_RANGES
+        ContainerEra::Modern => None,
+        ContainerEra::Classic => CLASSIC_RANGES
             .iter()
             .find(|(base, top, _)| id.raw() >= *base && id.raw() <= *top)
             .map(|(_, _, t)| *t),

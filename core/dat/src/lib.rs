@@ -64,8 +64,8 @@ pub use divine::{
 pub use error::DatError;
 pub use inflate::{inflate_raw, inflate_zlib};
 pub use locate::{
-    holds_pre_tod_dats, holds_retail_dats, locate_retail_dats, protect_install, DatDir,
-    DatsNotFound, PreTodDat, RetailDat,
+    holds_classic_dats, holds_modern_dats, locate_modern_dats, protect_install, ClassicDat, DatDir,
+    DatsNotFound, ModernDat,
 };
 pub use store::RetailDatStore;
 pub use write::{DatWriter, Fault, SaveOutcome};

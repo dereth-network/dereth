@@ -68,12 +68,12 @@ pub fn style_region(store: &RetailDatStore, style: RegionStyle) -> Result<StyleS
     let needs = style.required_files();
     let (files, own) = match needs {
         RequiredFiles::Legacy => (
-            store.legacy_files(),
-            store.era() == dereth_dat::ContainerEra::PreTod,
+            store.classic_files(),
+            store.era() == dereth_dat::ContainerEra::Classic,
         ),
         RequiredFiles::Modern => (
             store.modern_files(),
-            store.era() == dereth_dat::ContainerEra::Tod,
+            store.era() == dereth_dat::ContainerEra::Modern,
         ),
     };
     let files = files.ok_or(StyleError::Missing(needs))?;

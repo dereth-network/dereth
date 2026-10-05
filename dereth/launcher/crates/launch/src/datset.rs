@@ -303,7 +303,7 @@ pub fn scan_classic_dir(dir: &Path) -> Vec<DatFileState> {
             let path = dir.join(name);
             let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file())?;
             let (iterations, error) = match read_dat(&path) {
-                Ok(info) if info.era == ContainerEra::PreTod && kind_matches(role, info.kind) => {
+                Ok(info) if info.era == ContainerEra::Classic && kind_matches(role, info.kind) => {
                     (Some(info.iterations.count), None)
                 }
                 Ok(_) => (
@@ -389,7 +389,7 @@ fn scan_files(dir: &Path, previous: &[DatFileState]) -> Vec<DatFileState> {
             }
         }
         let (iterations, error) = match read_dat(&path) {
-            Ok(info) if info.era == ContainerEra::Tod && kind_matches(role, info.kind) => {
+            Ok(info) if info.era == ContainerEra::Modern && kind_matches(role, info.kind) => {
                 (Some(info.iterations.count), None)
             }
             Ok(info) => (

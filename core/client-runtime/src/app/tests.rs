@@ -229,14 +229,14 @@ fn the_documented_window_style_has_no_resize_and_no_maximise() {
     ignore = "reads the retail and February 2005 dats: --features retail-dats"
 )]
 fn a_client_drawing_the_february_2005_world_answers_ddd_with_that_worlds_iterations() {
-    let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+    let old = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
         panic!(
             "{}",
-            dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            dereth_dat::testing::classic_shortfall().unwrap_or_default()
         )
     });
     let store =
-        dereth_dat::RetailDatStore::open_pre_tod_with_later(&old, &dereth_dat::testing::dat_dir())
+        dereth_dat::RetailDatStore::open_classic_with_modern(&old, &dereth_dat::testing::dat_dir())
             .expect("the two dat sets");
     let r = ddd_interrogation_response(&store, 0);
     let by = |ty: u32, id: u32| {

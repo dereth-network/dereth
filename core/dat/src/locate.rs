@@ -2,13 +2,13 @@
 //! the four files are called on disk.
 //!
 //! Nothing here reads the environment or knows an install location. A caller hands
-//! [`locate_retail_dats`] the directories it is willing to use, in its own order of preference --
+//! [`locate_modern_dats`] the directories it is willing to use, in its own order of preference --
 //! the client passes `--dat-dir`, the working directory and the executable's directory; the server
 //! passes its configured `dat_files_directory` or its search folders; the tests pass their
 //! test-only variable -- and gets back the first that holds
 //! `client_portal.dat`, or an error naming every directory it tried.
 //!
-//! A path to one of the files is built here too ([`RetailDat::in_dir`]), so no other crate joins a
+//! A path to one of the files is built here too ([`ModernDat::in_dir`]), so no other crate joins a
 //! retail file name onto a directory.
 
 use std::path::{Path, PathBuf};
@@ -16,10 +16,10 @@ use std::sync::{Mutex, OnceLock, PoisonError};
 
 use crate::DatKind;
 
-/// One of the four retail data files, by the name it has on disk. They order as [`RetailDat::ALL`]
+/// One of the four retail data files, by the name it has on disk. They order as [`ModernDat::ALL`]
 /// lists them, so a map keyed by the file walks them in the order the client opens them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RetailDat {
+pub enum ModernDat {
     /// `client_portal.dat`: the portal database, and the file whose presence marks a dat
     /// directory.
     Portal,
@@ -31,7 +31,7 @@ pub enum RetailDat {
     HighRes,
 }
 
-impl RetailDat {
+impl ModernDat {
     /// All four, in the order the client opens them (the high-resolution file last, and only on
     /// request).
     pub const ALL: [Self; 4] = [Self::Portal, Self::Cell, Self::Local, Self::HighRes];
@@ -71,14 +71,14 @@ impl RetailDat {
 /// One of the two data files from before Throne of Destiny (June 2005), by its name on disk. Strings
 /// and interface layouts, which later moved to the language file, were in the portal file then.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PreTodDat {
+pub enum ClassicDat {
     /// `portal.dat`: the portal database, strings and layouts included.
     Portal,
     /// `cell.dat`: the landblocks and interior cells.
     Cell,
 }
 
-impl PreTodDat {
+impl ClassicDat {
     /// Both, portal first.
     pub const ALL: [Self; 2] = [Self::Portal, Self::Cell];
 
@@ -100,17 +100,17 @@ impl PreTodDat {
 
 /// Whether `dir` holds a dat set from before Throne of Destiny: `portal.dat` and `cell.dat`.
 #[must_use]
-pub fn holds_pre_tod_dats(dir: &Path) -> bool {
-    PreTodDat::ALL.iter().all(|d| d.in_dir(dir).is_file())
+pub fn holds_classic_dats(dir: &Path) -> bool {
+    ClassicDat::ALL.iter().all(|d| d.in_dir(dir).is_file())
 }
 
 /// Whether `dir` holds the retail dats: whether `client_portal.dat` is a file in it.
 #[must_use]
-pub fn holds_retail_dats(dir: &Path) -> bool {
-    RetailDat::Portal.in_dir(dir).is_file()
+pub fn holds_modern_dats(dir: &Path) -> bool {
+    ModernDat::Portal.in_dir(dir).is_file()
 }
 
-/// A directory [`locate_retail_dats`] found `client_portal.dat` in.
+/// A directory [`locate_modern_dats`] found `client_portal.dat` in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DatDir(PathBuf);
 
@@ -129,7 +129,7 @@ impl DatDir {
 
     /// One file's path in this directory.
     #[must_use]
-    pub fn file(&self, dat: RetailDat) -> PathBuf {
+    pub fn file(&self, dat: ModernDat) -> PathBuf {
         dat.in_dir(&self.0)
     }
 
@@ -173,10 +173,10 @@ fn tried_list(tried: &[PathBuf]) -> String {
 /// # Errors
 ///
 /// [`DatsNotFound`], naming every candidate, when none holds it.
-pub fn locate_retail_dats(candidates: &[PathBuf]) -> Result<DatDir, DatsNotFound> {
+pub fn locate_modern_dats(candidates: &[PathBuf]) -> Result<DatDir, DatsNotFound> {
     candidates
         .iter()
-        .find(|dir| holds_retail_dats(dir))
+        .find(|dir| holds_modern_dats(dir))
         .map(|dir| DatDir(dir.clone()))
         .ok_or_else(|| DatsNotFound {
             tried: candidates.to_vec(),
@@ -230,17 +230,17 @@ mod tests {
         for d in [&a, &b, &c] {
             std::fs::create_dir_all(d).unwrap();
         }
-        std::fs::write(RetailDat::Portal.in_dir(&b), b"").unwrap();
-        std::fs::write(RetailDat::Portal.in_dir(&c), b"").unwrap();
-        let found = locate_retail_dats(&[a.clone(), b.clone(), c.clone()]).unwrap();
+        std::fs::write(ModernDat::Portal.in_dir(&b), b"").unwrap();
+        std::fs::write(ModernDat::Portal.in_dir(&c), b"").unwrap();
+        let found = locate_modern_dats(&[a.clone(), b.clone(), c.clone()]).unwrap();
         assert_eq!(found.path(), b);
 
-        let miss = locate_retail_dats(&[a.clone(), root.join("absent")]).unwrap_err();
+        let miss = locate_modern_dats(&[a.clone(), root.join("absent")]).unwrap_err();
         let text = miss.to_string();
         assert!(text.starts_with("retail dats not found"), "{text}");
         assert!(text.contains(&a.display().to_string()), "{text}");
         assert!(text.contains("absent"), "{text}");
-        assert!(locate_retail_dats(&[]).is_err());
+        assert!(locate_modern_dats(&[]).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -251,8 +251,8 @@ mod tests {
         std::fs::create_dir_all(&inside).unwrap();
         std::fs::create_dir_all(&beside).unwrap();
         protect_install(&inside);
-        assert!(is_protected(&RetailDat::Local.in_dir(&inside)));
-        assert!(!is_protected(&RetailDat::Local.in_dir(&beside)));
+        assert!(is_protected(&ModernDat::Local.in_dir(&inside)));
+        assert!(!is_protected(&ModernDat::Local.in_dir(&beside)));
         let _ = std::fs::remove_dir_all(&root);
     }
 }

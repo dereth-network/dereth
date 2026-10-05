@@ -66,9 +66,9 @@ impl<'a> TextureLookup<'a> {
                 self.resolve(next)
             }
             // Before Throne of Destiny an image texture carries its own pixels.
-            DbType::SurfaceTexture if self.store.era_of(id) == ContainerEra::PreTod => {
+            DbType::SurfaceTexture if self.store.era_of(id) == ContainerEra::Classic => {
                 let bytes = self.read(DbType::SurfaceTexture, id)?;
-                let rs = RenderSurface::from_pre_tod_texture(id, &bytes)
+                let rs = RenderSurface::from_classic_texture(id, &bytes)
                     .map_err(|e| LookupError::Asset(id, e))?;
                 Ok((id, rs, bytes))
             }

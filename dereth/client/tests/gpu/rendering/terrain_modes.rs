@@ -28,13 +28,13 @@ use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrit
 /// The end-of-retail world with the February 2005 `portal.dat` beside it for presentation, or a
 /// failed test.
 fn end_of_retail_with_legacy_files() -> Arc<RetailDatStore> {
-    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+    if let Some(msg) = dereth_dat::testing::classic_shortfall() {
         panic!("{msg}");
     }
-    let legacy = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    let legacy = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
     Arc::new(
         dereth_dat::testing::open_store_or_fail()
-            .with_legacy_portal(&legacy)
+            .with_classic_portal(&legacy)
             .unwrap_or_else(|e| panic!("the February 2005 portal did not attach: {e}")),
     )
 }

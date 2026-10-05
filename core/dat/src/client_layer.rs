@@ -26,7 +26,7 @@ use crate::container::{ContainerEra, DatFile, PORTAL_DATFILE};
 use crate::error::DatError;
 use crate::overlay::{is_reserved, record_hash, ContainerManifest, Layer, OverlayError, MANIFEST};
 use crate::write::{DatWriter, ROOM_RESERVE};
-use crate::{PreTodDat, RetailDat};
+use crate::{ClassicDat, ModernDat};
 
 /// The world a client layer's manifest names: no world's name, so no world's overlay is taken
 /// for one.
@@ -112,10 +112,10 @@ impl ClientLayer {
 
 /// The layout of a base file by its name.
 fn era_of_base(name: &str) -> Option<ContainerEra> {
-    if PreTodDat::Portal.file_name().eq_ignore_ascii_case(name) {
-        Some(ContainerEra::PreTod)
-    } else if RetailDat::Portal.file_name().eq_ignore_ascii_case(name) {
-        Some(ContainerEra::Tod)
+    if ClassicDat::Portal.file_name().eq_ignore_ascii_case(name) {
+        Some(ContainerEra::Classic)
+    } else if ModernDat::Portal.file_name().eq_ignore_ascii_case(name) {
+        Some(ContainerEra::Modern)
     } else {
         None
     }
@@ -136,8 +136,8 @@ pub fn write(
         return Err(DatError::NotFound(*id).into());
     }
     let base_name = match era {
-        ContainerEra::PreTod => PreTodDat::Portal.file_name(),
-        ContainerEra::Tod => RetailDat::Portal.file_name(),
+        ContainerEra::Classic => ClassicDat::Portal.file_name(),
+        ContainerEra::Modern => ModernDat::Portal.file_name(),
     };
     let manifest = ContainerManifest {
         world_key: CLIENT_KEY.to_owned(),

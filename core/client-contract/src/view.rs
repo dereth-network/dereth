@@ -2353,15 +2353,15 @@ impl EraView {
     #[must_use]
     pub fn era_of_dats(world_dats: dereth_primitives::ContainerEra) -> dereth_primitives::EraId {
         match world_dats {
-            dereth_primitives::ContainerEra::PreTod => dereth_primitives::EraId::Infiltration,
-            dereth_primitives::ContainerEra::Tod => dereth_primitives::EraId::Eor,
+            dereth_primitives::ContainerEra::Classic => dereth_primitives::EraId::Infiltration,
+            dereth_primitives::ContainerEra::Modern => dereth_primitives::EraId::Eor,
         }
     }
 
     /// Whether the world is the one from before Throne of Destiny.
     #[must_use]
     pub fn before_throne_of_destiny(&self) -> bool {
-        self.world_dats == dereth_primitives::ContainerEra::PreTod
+        self.world_dats == dereth_primitives::ContainerEra::Classic
     }
 
     /// Whether the world has skill `id`.

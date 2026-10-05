@@ -156,7 +156,7 @@ fn a_new_record_reopens_byte_exact_through_the_ordinary_reader() {
 /// `DERETH_TEST_DAT_DIR` outright.
 #[test]
 fn the_writer_refuses_to_open_an_owner_dat() {
-    let owner = dereth_dat::testing::dat_file(dereth_dat::RetailDat::Local);
+    let owner = dereth_dat::testing::dat_file(dereth_dat::ModernDat::Local);
     let before = digest(&owner);
     let err = DatWriter::open(&owner).expect_err("opening an owner dat for write must be refused");
     assert!(

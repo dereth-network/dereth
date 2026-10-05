@@ -23,22 +23,22 @@ use {
 
 /// The February 2005 world with the end-of-retail files beside it.
 fn older_world() -> RetailDatStore {
-    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+    if let Some(msg) = dereth_dat::testing::classic_shortfall() {
         panic!("{msg}");
     }
-    let world = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
-    RetailDatStore::open_pre_tod_with_later(&world, &dereth_dat::testing::dat_dir())
+    let world = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
+    RetailDatStore::open_classic_with_modern(&world, &dereth_dat::testing::dat_dir())
         .unwrap_or_else(|e| panic!("the February 2005 world did not open: {e}"))
 }
 
 /// The end-of-retail world with the February 2005 portal beside it for presentation.
 fn end_of_retail_world() -> RetailDatStore {
-    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+    if let Some(msg) = dereth_dat::testing::classic_shortfall() {
         panic!("{msg}");
     }
-    let legacy = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+    let legacy = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
     dereth_dat::testing::open_store_or_fail()
-        .with_legacy_portal(&legacy)
+        .with_classic_portal(&legacy)
         .unwrap_or_else(|e| panic!("the February 2005 portal did not attach: {e}"))
 }
 
@@ -98,7 +98,7 @@ fn picture_of_surface(store: &RetailDatStore, surface: u32) -> Option<u32> {
 #[test]
 fn a_clothing_picture_follows_the_surface_onto_the_later_arm() {
     let world = older_world();
-    let (look, identity) = look_of(&world, ContainerEra::Tod);
+    let (look, identity) = look_of(&world, ContainerEra::Modern);
     assert_eq!(
         surface_textures(&world, DataId(0x0100_0055)),
         Some(vec![Some(DataId(0x0500_02CC))]),
@@ -133,7 +133,7 @@ fn a_clothing_picture_follows_the_surface_onto_the_later_arm() {
 #[test]
 fn a_change_with_no_matching_slot_draws_the_object_with_the_worlds_records() {
     let world = older_world();
-    let (look, identity) = look_of(&world, ContainerEra::Tod);
+    let (look, identity) = look_of(&world, ContainerEra::Modern);
     assert_eq!(
         surface_textures(&world, DataId(0x0100_007B)).map(|v| v.len()),
         Some(6)
@@ -164,7 +164,7 @@ fn a_change_with_no_matching_slot_draws_the_object_with_the_worlds_records() {
 fn the_human_body_keeps_the_worlds_seventeen_parts_and_the_later_files_name_the_same_ones() {
     let world = older_world();
     let look = world
-        .object_files(ContainerEra::Tod)
+        .object_files(ContainerEra::Modern)
         .expect("the later files");
     let older = parts_of(&world, 0x0200_0001);
     let later = parts_of(&look, 0x0200_0001);
@@ -174,7 +174,7 @@ fn the_human_body_keeps_the_worlds_seventeen_parts_and_the_later_files_name_the_
     assert!(later[17..].iter().all(|&p| p == 0x0100_01EC));
     // Each of those parts reads in the later layout from the later files.
     for p in &older {
-        assert_eq!(look.era_of(DataId(*p)), ContainerEra::Tod, "{p:08X}");
+        assert_eq!(look.era_of(DataId(*p)), ContainerEra::Modern, "{p:08X}");
     }
 }
 
@@ -190,7 +190,7 @@ fn the_human_body_keeps_the_worlds_seventeen_parts_and_the_later_files_name_the_
 fn a_later_model_the_older_files_lack_is_drawn_wholly_from_the_worlds_records() {
     let world = end_of_retail_world();
     let look = world
-        .object_files(ContainerEra::PreTod)
+        .object_files(ContainerEra::Classic)
         .expect("the older files");
     let (identity, census) = ObjectIdentity::build(world.portal(), look.portal());
     let hair = DataId(0x0100_481D);
@@ -233,7 +233,7 @@ fn a_later_model_the_older_files_lack_is_drawn_wholly_from_the_worlds_records() 
 #[test]
 fn a_bare_arm_draws_as_the_other_eras_bare_arm_and_not_its_armoured_one() {
     let world = end_of_retail_world();
-    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let (look, identity) = look_of(&world, ContainerEra::Classic);
     assert_eq!(
         surface_textures(&look, DataId(0x0100_0055)),
         Some(vec![Some(DataId(0x0500_02CC))]),
@@ -269,7 +269,7 @@ fn a_bare_arm_draws_as_the_other_eras_bare_arm_and_not_its_armoured_one() {
 #[test]
 fn a_building_shell_takes_the_older_look_only_where_its_geometry_is_the_worlds() {
     let world = end_of_retail_world();
-    let (_, identity) = look_of(&world, ContainerEra::PreTod);
+    let (_, identity) = look_of(&world, ContainerEra::Classic);
     for shell in [0x0100_0BC3, 0x0100_0830] {
         assert!(identity.same(DataId(shell)), "{shell:08X}");
         assert!(identity.same_geometry(DataId(shell)), "{shell:08X}");
@@ -296,7 +296,7 @@ fn an_interior_takes_the_other_eras_room_only_where_it_is_the_same_room_in_the_s
     };
     let world = end_of_retail_world();
     let interiors = world
-        .interior_files(ContainerEra::PreTod)
+        .interior_files(ContainerEra::Classic)
         .expect("the older cell file is in the legacy folder");
     let (mut identity, _) = ObjectIdentity::build(world.portal(), interiors.portal());
     let census = identity.build_rooms(
@@ -353,7 +353,7 @@ fn an_interior_takes_the_other_eras_room_only_where_it_is_the_same_room_in_the_s
 
     let older = older_world();
     let later = older
-        .interior_files(ContainerEra::Tod)
+        .interior_files(ContainerEra::Modern)
         .expect("the later cell file is beside the older world");
     let (mut identity, _) = ObjectIdentity::build(older.portal(), later.portal());
     let census = identity.build_rooms(older.cell(), later.cell(), older.portal(), later.portal());
@@ -367,8 +367,8 @@ fn an_interior_takes_the_other_eras_room_only_where_it_is_the_same_room_in_the_s
 /// The other era beside `world`.
 fn other_era(world: &RetailDatStore) -> ContainerEra {
     match world.era() {
-        ContainerEra::Tod => ContainerEra::PreTod,
-        ContainerEra::PreTod => ContainerEra::Tod,
+        ContainerEra::Modern => ContainerEra::Classic,
+        ContainerEra::Classic => ContainerEra::Modern,
     }
 }
 
@@ -699,7 +699,7 @@ fn palettes(p: &PhysicsPart) -> Vec<u32> {
 #[test]
 fn a_new_end_of_retail_body_takes_the_older_look_with_the_older_hair_colour() {
     let world = end_of_retail_world();
-    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let (look, identity) = look_of(&world, ContainerEra::Classic);
     assert!(!look.portal().contains(DataId(0x0400_1FC5)));
     let set = {
         let id = DataId(0x0F00_0017);
@@ -759,7 +759,7 @@ fn skin_colours(store: &RetailDatStore, id: u32) -> Vec<u32> {
 #[test]
 fn a_later_head_on_an_older_body_takes_the_older_skin_colour() {
     let world = end_of_retail_world();
-    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let (look, identity) = look_of(&world, ContainerEra::Classic);
     let body = end_of_retail_starter_body();
     let drawn = parts_for_look(&world, &look, &identity, None, &body);
     assert!(drawn[16].is_none(), "the head keeps the world's model");
@@ -887,7 +887,7 @@ fn end_of_retail_barkeeper() -> Vec<PhysicsPart> {
 #[test]
 fn a_dye_the_older_files_cannot_match_is_left_off_and_the_body_takes_the_older_look() {
     let world = end_of_retail_world();
-    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let (look, identity) = look_of(&world, ContainerEra::Classic);
     for c in [0x0400_1B4B, 0x0400_1B82] {
         assert!(!look.portal().contains(DataId(c)));
         assert_eq!(
@@ -962,7 +962,7 @@ fn a_head_draws_the_other_eras_head_for_the_same_hair_style() {
         .collect();
 
     let world = end_of_retail_world();
-    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let (look, identity) = look_of(&world, ContainerEra::Classic);
     body[16] = with_face(0x0100_481B, (0x0500_0098, 0x0500_11FD));
     let drawn = parts_for_look(&world, &look, &identity, None, &body);
     let head = drawn[16].as_ref().expect("the second style translates");
@@ -975,7 +975,7 @@ fn a_head_draws_the_other_eras_head_for_the_same_hair_style() {
     assert!(drawn[16].is_none(), "the shaved head keeps the world's");
 
     let world = older_world();
-    let (look, identity) = look_of(&world, ContainerEra::Tod);
+    let (look, identity) = look_of(&world, ContainerEra::Modern);
     body[16] = with_face(0x0100_04A7, (0x0500_0098, 0x0500_11FD));
     let drawn = parts_for_look(&world, &look, &identity, None, &body);
     let head = drawn[16]
@@ -996,7 +996,7 @@ fn a_head_draws_the_other_eras_head_for_the_same_hair_style() {
 #[test]
 fn a_remodelled_creature_draws_the_other_eras_remodel_where_it_rests_as_the_worlds_does() {
     let world = end_of_retail_world();
-    let (look, identity) = look_of(&world, ContainerEra::PreTod);
+    let (look, identity) = look_of(&world, ContainerEra::Classic);
     let body = |setup: u32| -> Vec<PhysicsPart> {
         parts_of(&world, setup)
             .into_iter()
@@ -1056,7 +1056,7 @@ fn a_remodelled_creature_draws_the_other_eras_remodel_where_it_rests_as_the_worl
     );
 
     let world = older_world();
-    let (_, identity) = look_of(&world, ContainerEra::Tod);
+    let (_, identity) = look_of(&world, ContainerEra::Modern);
     assert!(identity.remodel(DataId(0x0200_0059)).is_some());
     assert!(
         identity.remodel(DataId(0x0200_02D9)).is_none(),

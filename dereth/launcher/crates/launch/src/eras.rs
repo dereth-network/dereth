@@ -81,7 +81,7 @@ pub fn features() -> Vec<FeatureInfo> {
 
 fn needs(era: EraId) -> SetKind {
     match era.container_era() {
-        ContainerEra::PreTod => SetKind::Classic,
+        ContainerEra::Classic => SetKind::Classic,
         _ => SetKind::Modern,
     }
 }

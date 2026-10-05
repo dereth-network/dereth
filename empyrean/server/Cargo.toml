@@ -22,7 +22,7 @@ empyrean-content.workspace = true
 empyrean-dat.workspace = true
 empyrean-common.workspace = true
 empyrean-entity.workspace = true
-# `locate_retail_dats`: the one search for the retail dat folder, shared with the client.
+# `locate_modern_dats`: the one search for the retail dat folder, shared with the client.
 dereth-dat.workspace = true
 log.workspace = true
 # Named for its `log` feature alone: the shared crates the server runs on (dats, physics, world

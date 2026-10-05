@@ -284,7 +284,7 @@ pub fn create(
     // DIVERGE: the character-generation table from before Throne of Destiny names no motion,
     // physics-effect or combat table and no scale for a sex (they read as zero); the player keeps
     // its weenie's own tables and its full size.
-    let older_table = dats.portal_dat().container_era() == ContainerEra::PreTod;
+    let older_table = dats.portal_dat().container_era() == ContainerEra::Classic;
     let named = |id: u32| !(older_table && id == 0);
     if named(sex.motion_table.0) {
         p.player

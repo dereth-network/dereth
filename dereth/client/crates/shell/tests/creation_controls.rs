@@ -11,8 +11,8 @@ use dereth_ui_screens::screens::chargen::{self, CharGenScreen, EParts, EcgProgre
 
 fn fixture(old: bool) -> (UiShell, CharGenScreen, Arc<dereth_dat::RetailDatStore>) {
     let store = Arc::new(if old {
-        dereth_dat::RetailDatStore::open_pre_tod_with_later(
-            &dereth_dat::testing::pre_tod_dat_dir().expect("earlier world directory"),
+        dereth_dat::RetailDatStore::open_classic_with_modern(
+            &dereth_dat::testing::classic_dat_dir().expect("earlier world directory"),
             &dereth_dat::testing::dat_dir(),
         )
         .expect("earlier world with later interface")

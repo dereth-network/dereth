@@ -11,7 +11,7 @@ use dereth_dat::container::{CELL_DATFILE, LOCAL_DATFILE, PORTAL_DATFILE};
 use dereth_dat::divine::DbType;
 use dereth_dat::overlay::{self, OverlayDir, OverlayError, OverlayWriter};
 use dereth_dat::write::DatWriter;
-use dereth_dat::{ContainerEra, DatFile, RetailDat, RetailDatStore, ITERATION_LIST};
+use dereth_dat::{ContainerEra, DatFile, ModernDat, RetailDatStore, ITERATION_LIST};
 use dereth_primitives::{AssetSource, DataId};
 
 const KEPT: DataId = DataId(0x0600_0001);
@@ -40,14 +40,14 @@ fn base_set(dir: &Path) {
         }
     };
     make(
-        RetailDat::Portal.file_name(),
+        ModernDat::Portal.file_name(),
         0x400,
         PORTAL_DATFILE,
         0,
         &[(KEPT, b"kept"), (REPLACED, b"old"), (DELETED, b"doomed")],
     );
     make(
-        RetailDat::Cell.file_name(),
+        ModernDat::Cell.file_name(),
         0x100,
         CELL_DATFILE,
         1,
@@ -57,7 +57,7 @@ fn base_set(dir: &Path) {
             (OTHER_LANDBLOCK, b"elsewhere"),
         ],
     );
-    make(RetailDat::Local.file_name(), 0x400, LOCAL_DATFILE, 1, &[]);
+    make(ModernDat::Local.file_name(), 0x400, LOCAL_DATFILE, 1, &[]);
 }
 
 fn scratch(tag: &str) -> PathBuf {
@@ -76,7 +76,7 @@ fn sha(path: &Path) -> Vec<u8> {
 fn write_overlay(store: &RetailDatStore, dir: &OverlayDir, world: &str) {
     let portal = store.portal();
     let mut w = OverlayWriter::open_or_create(
-        &dir.container(RetailDat::Portal),
+        &dir.container(ModernDat::Portal),
         portal,
         "client_portal.dat",
         world,
@@ -90,7 +90,7 @@ fn write_overlay(store: &RetailDatStore, dir: &OverlayDir, world: &str) {
     w.flush(1).unwrap();
     let cell = store.cell();
     let mut c = OverlayWriter::open_or_create(
-        &dir.container(RetailDat::Cell),
+        &dir.container(ModernDat::Cell),
         cell,
         "client_cell_1.dat",
         world,
@@ -108,7 +108,7 @@ fn an_overlay_adds_replaces_and_deletes_over_the_base_and_never_writes_it() {
     let root = scratch("layers");
     let base = root.join("base");
     base_set(&base);
-    let before: Vec<Vec<u8>> = RetailDat::REQUIRED
+    let before: Vec<Vec<u8>> = ModernDat::REQUIRED
         .iter()
         .map(|d| sha(&d.in_dir(&base)))
         .collect();
@@ -131,7 +131,7 @@ fn an_overlay_adds_replaces_and_deletes_over_the_base_and_never_writes_it() {
         vec![KEPT, REPLACED, ADDED],
         "ascending, the deleted one gone"
     );
-    assert_eq!(s.era_of(ADDED), ContainerEra::Tod);
+    assert_eq!(s.era_of(ADDED), ContainerEra::Modern);
     // The whole landblock family is gone; the other landblock stands.
     assert!(s.read_cell(LANDBLOCK).is_err() && s.read_cell(ITS_CELL).is_err());
     assert_eq!(s.read_cell(OTHER_LANDBLOCK).unwrap(), b"elsewhere");
@@ -158,7 +158,7 @@ fn an_overlay_adds_replaces_and_deletes_over_the_base_and_never_writes_it() {
     assert!(!s.exists(overlay::MANIFEST) && !s.exists(overlay::TOMBSTONES));
     // The store without the overlay is the base, and the base files were never written.
     assert_eq!(store.read_portal(REPLACED).unwrap(), b"old");
-    let after: Vec<Vec<u8>> = RetailDat::REQUIRED
+    let after: Vec<Vec<u8>> = ModernDat::REQUIRED
         .iter()
         .map(|d| sha(&d.in_dir(&base)))
         .collect();
@@ -190,7 +190,7 @@ fn an_overlay_is_refused_over_another_base_for_another_world_and_in_a_base_folde
     ));
     // Another base: the same files, one record changed.
     {
-        let mut w = DatWriter::open(&RetailDat::Portal.in_dir(&base)).unwrap();
+        let mut w = DatWriter::open(&ModernDat::Portal.in_dir(&base)).unwrap();
         w.save(KEPT, b"changed", 1, 6, 2).unwrap();
     }
     let changed = RetailDatStore::open_dir(&base).unwrap();
@@ -211,7 +211,7 @@ fn a_record_older_than_the_one_in_force_is_refused_and_the_overlay_copy_wins_ove
     let dir = OverlayDir::new(&root.join("overlay")).unwrap();
     let portal: DatFile = store.portal().clone();
     let mut w = OverlayWriter::open_or_create(
-        &dir.container(RetailDat::Portal),
+        &dir.container(ModernDat::Portal),
         &portal,
         "client_portal.dat",
         "w",

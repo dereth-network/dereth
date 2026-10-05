@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use dereth_dat::overlay::{self, OverlayDir};
-use dereth_dat::{decompose, DatFile, RetailDat};
+use dereth_dat::{decompose, DatFile, ModernDat};
 
 fn usage() -> ExitCode {
     eprintln!(
@@ -49,14 +49,14 @@ fn find(dir: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// The files `--era` compares, by the overlay target each lies under and its own name.
-fn targets(pre_tod: bool) -> Vec<(RetailDat, &'static str)> {
+fn targets(pre_tod: bool) -> Vec<(ModernDat, &'static str)> {
     if pre_tod {
         vec![
-            (RetailDat::Portal, dereth_dat::PreTodDat::Portal.file_name()),
-            (RetailDat::Cell, dereth_dat::PreTodDat::Cell.file_name()),
+            (ModernDat::Portal, dereth_dat::ClassicDat::Portal.file_name()),
+            (ModernDat::Cell, dereth_dat::ClassicDat::Cell.file_name()),
         ]
     } else {
-        RetailDat::ALL.iter().map(|t| (*t, t.file_name())).collect()
+        ModernDat::ALL.iter().map(|t| (*t, t.file_name())).collect()
     }
 }
 
@@ -81,7 +81,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 _ => return usage(),
             },
             "--era" => match value().as_deref().and_then(dereth_primitives::EraId::parse) {
-                Some(e) => pre_tod = e.container_era() == dereth_primitives::ContainerEra::PreTod,
+                Some(e) => pre_tod = e.container_era() == dereth_primitives::ContainerEra::Classic,
                 None => return usage(),
             },
             _ => return usage(),
@@ -139,7 +139,7 @@ pub fn run(args: &[String]) -> ExitCode {
         if d.is_empty() {
             continue;
         }
-        let cell = target == RetailDat::Cell;
+        let cell = target == ModernDat::Cell;
         let gone = decompose::deletions(&bf, &d, cell);
         match decompose::write(
             &bf,

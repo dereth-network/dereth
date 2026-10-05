@@ -18,7 +18,7 @@ use crate::container::{
 };
 use crate::divine::{classify_cell_id, divine_type, DatKind, DbType};
 use crate::error::DatError;
-use crate::locate::{PreTodDat, RetailDat};
+use crate::locate::{ClassicDat, ModernDat};
 
 pub(crate) mod shared;
 
@@ -53,26 +53,25 @@ pub struct RetailDatStore {
     /// because the grant is monotone (retail never closes the file) and the store is shared
     /// behind an `Arc`. Per *handle*, not per file: see the type's note.
     highres: OnceLock<Arc<DatFile>>,
-    /// Beside a dat set from before Throne of Destiny, the later `client_portal.dat`, which
-    /// answers a portal read the older portal file has no record for: the interface's records
-    /// (layout properties, fonts, the enum and id maps, interface images) that the later client's
-    /// screens need and the older files do not have. `None` otherwise.
-    later_portal: Option<Arc<DatFile>>,
-    /// Beside a later world, a `portal.dat` from before Throne of Destiny that only presentation
-    /// reads: the older regions' ground and sky, and the pictures and objects they name. No read
-    /// of this store reaches it; [`Self::legacy_files`] and [`Self::object_files`] are the only
-    /// ways in. `None` otherwise.
-    legacy_portal: Option<Arc<DatFile>>,
-    /// The other era's cell file beside the world, for presentation alone: the older `cell.dat`
-    /// in the folder [`Self::with_legacy_portal`] attaches, or the later `client_cell_1.dat` with
-    /// the later files beside an older world. No read of this store reaches it;
-    /// [`Self::interior_files`] is the only way in. `None` when it is not there.
-    other_cell: Option<Arc<DatFile>>,
+    /// Optional format-specific presentation portals and the last attached companion cell.
+    companions: DatCompanions,
     /// Where [`Self::grant_highres`] looks for the file; `None` for a store built from files.
     client_dir: Option<PathBuf>,
     /// The world's overlay folder, once [`Self::with_overlay`] has laid it over the world files:
     /// the high-resolution file takes its overlay from here when it is granted.
     overlay: Option<(crate::overlay::OverlayDir, Option<String>)>,
+}
+
+/// Presentation records kept beside the world's files. Portal slots are independent; attaching
+/// another set replaces the one companion cell, including when that set has no usable cell.
+#[derive(Clone, Debug, Default)]
+struct DatCompanions {
+    /// Missing-record fallback for a Classic world and explicit Modern presentation views.
+    modern_portal: Option<Arc<DatFile>>,
+    /// Explicit Classic presentation views only; ordinary world reads never consult it.
+    classic_portal: Option<Arc<DatFile>>,
+    /// The last attached set's optional cell file, used only by interior views.
+    cell: Option<Arc<DatFile>>,
 }
 
 impl RetailDatStore {
@@ -86,9 +85,9 @@ impl RetailDatStore {
     /// differing is a fact worth knowing rather than a bug. `dereth-dat`'s own
     /// `tests/aaa_preflight.rs` asserts the stricter four and says so at the site.
     pub const REQUIRED_DATS: [&'static str; 3] = [
-        RetailDat::Portal.file_name(),
-        RetailDat::Cell.file_name(),
-        RetailDat::Local.file_name(),
+        ModernDat::Portal.file_name(),
+        ModernDat::Cell.file_name(),
+        ModernDat::Local.file_name(),
     ];
 
     /// Open the three required files from one directory. `client_highres.dat` is **not** opened
@@ -104,29 +103,27 @@ impl RetailDatStore {
     /// or `client_dir` is shared -- and `shared::open` re-walks whenever the file's length or
     /// mtime has moved, which is what keeps `App::invalidate_after_ddd`'s reopen honest.
     pub fn open_dir(client_dir: &Path) -> Result<Self, DatError> {
-        let open = |dat: RetailDat| -> Result<Arc<DatFile>, DatError> {
+        let open = |dat: ModernDat| -> Result<Arc<DatFile>, DatError> {
             let path = dat.in_dir(client_dir);
             let file = shared::open(&path)?;
-            if file.era() != ContainerEra::Tod {
+            if file.era() != ContainerEra::Modern {
                 return Err(DatError::UnexpectedContainerEra {
                     path,
                     found: file.era(),
-                    expected: ContainerEra::Tod,
+                    expected: ContainerEra::Modern,
                 });
             }
             Ok(file)
         };
-        let portal = open(RetailDat::Portal)?;
-        let cell = open(RetailDat::Cell)?;
-        let local = open(RetailDat::Local)?;
+        let portal = open(ModernDat::Portal)?;
+        let cell = open(ModernDat::Cell)?;
+        let local = open(ModernDat::Local)?;
         Ok(Self {
             portal,
             cell,
             local,
             highres: OnceLock::new(),
-            later_portal: None,
-            legacy_portal: None,
-            other_cell: None,
+            companions: DatCompanions::default(),
             client_dir: Some(client_dir.to_path_buf()),
             overlay: None,
         })
@@ -141,29 +138,27 @@ impl RetailDatStore {
     /// # Errors
     ///
     /// A file is missing, does not open, or is in the later layout.
-    pub fn open_pre_tod_dir(dir: &Path) -> Result<Self, DatError> {
-        let open = |dat: PreTodDat| -> Result<Arc<DatFile>, DatError> {
+    pub fn open_classic_dir(dir: &Path) -> Result<Self, DatError> {
+        let open = |dat: ClassicDat| -> Result<Arc<DatFile>, DatError> {
             let path = dat.in_dir(dir);
             let file = shared::open(&path)?;
-            if file.era() != ContainerEra::PreTod {
+            if file.era() != ContainerEra::Classic {
                 return Err(DatError::UnexpectedContainerEra {
                     path,
                     found: file.era(),
-                    expected: ContainerEra::PreTod,
+                    expected: ContainerEra::Classic,
                 });
             }
             Ok(file)
         };
-        let portal = open(PreTodDat::Portal)?;
-        let cell = open(PreTodDat::Cell)?;
+        let portal = open(ClassicDat::Portal)?;
+        let cell = open(ClassicDat::Cell)?;
         Ok(Self {
             local: Arc::clone(&portal),
             portal,
             cell,
             highres: OnceLock::new(),
-            later_portal: None,
-            legacy_portal: None,
-            other_cell: None,
+            companions: DatCompanions::default(),
             client_dir: Some(dir.to_path_buf()),
             overlay: None,
         })
@@ -180,30 +175,30 @@ impl RetailDatStore {
     /// # Errors
     ///
     /// A file is missing, does not open, or is in the other layout.
-    pub fn open_pre_tod_with_later(dir: &Path, later_dir: &Path) -> Result<Self, DatError> {
-        let mut store = Self::open_pre_tod_dir(dir)?;
-        let later = |dat: RetailDat| -> Result<Arc<DatFile>, DatError> {
+    pub fn open_classic_with_modern(dir: &Path, later_dir: &Path) -> Result<Self, DatError> {
+        let mut store = Self::open_classic_dir(dir)?;
+        let later = |dat: ModernDat| -> Result<Arc<DatFile>, DatError> {
             let path = dat.in_dir(later_dir);
             let file = shared::open(&path)?;
-            if file.era() != ContainerEra::Tod {
+            if file.era() != ContainerEra::Modern {
                 return Err(DatError::UnexpectedContainerEra {
                     path,
                     found: file.era(),
-                    expected: ContainerEra::Tod,
+                    expected: ContainerEra::Modern,
                 });
             }
             Ok(file)
         };
-        store.local = later(RetailDat::Local)?;
-        store.later_portal = Some(later(RetailDat::Portal)?);
+        store.local = later(ModernDat::Local)?;
+        store.companions.modern_portal = Some(later(ModernDat::Portal)?);
         // The later interiors, for drawing only; a folder without them still opens.
-        store.other_cell = later(RetailDat::Cell).ok();
+        store.companions.cell = later(ModernDat::Cell).ok();
         store.client_dir = None;
         Ok(store)
     }
 
     /// The container layout of the store's world files: the portal file's, which [`Self::open_dir`]
-    /// and [`Self::open_pre_tod_dir`] each require the others to share.
+    /// and [`Self::open_classic_dir`] each require the others to share.
     #[must_use]
     pub fn era(&self) -> ContainerEra {
         self.portal.era()
@@ -220,10 +215,10 @@ impl RetailDatStore {
         if self.cell.contains(id) {
             return self.cell.era();
         }
-        let later = self.later_answers(id)
+        let later = self.modern_companion_answers(id)
             || (!Arc::ptr_eq(&self.local, &self.portal) && self.local.contains(id));
         if later {
-            ContainerEra::Tod
+            ContainerEra::Modern
         } else {
             self.portal.era()
         }
@@ -239,8 +234,8 @@ impl RetailDatStore {
     /// The client's own records over the older portal ([`Self::with_client_layer`]) are the
     /// classic interface's, read from that file directly: the later files still answer the
     /// world's read of an id both hold.
-    fn later_answers(&self, id: DataId) -> bool {
-        let Some(later) = &self.later_portal else {
+    fn modern_companion_answers(&self, id: DataId) -> bool {
+        let Some(later) = &self.companions.modern_portal else {
             return false;
         };
         if self.portal.world_contains(id) || !later.contains(id) {
@@ -255,8 +250,8 @@ impl RetailDatStore {
 
     /// Whether this store answers from the later interface files beside an older world.
     #[must_use]
-    pub fn has_later_interface(&self) -> bool {
-        self.later_portal.is_some()
+    pub fn has_modern_interface(&self) -> bool {
+        self.companions.modern_portal.is_some()
     }
 
     /// Beside an older world, the later files as a store of their own: the later portal and
@@ -265,77 +260,73 @@ impl RetailDatStore {
     /// is no later cell file beside an older world, so cell reads still go to the world's.
     /// `None` for a store with no later files beside it.
     #[must_use]
-    pub fn later_files(&self) -> Option<Self> {
-        let portal = Arc::clone(self.later_portal.as_ref()?);
+    pub fn modern_companion_files(&self) -> Option<Self> {
+        let portal = Arc::clone(self.companions.modern_portal.as_ref()?);
         Some(Self {
             portal,
             cell: Arc::clone(&self.cell),
             local: Arc::clone(&self.local),
             highres: OnceLock::new(),
-            later_portal: None,
-            legacy_portal: None,
-            other_cell: None,
+            companions: DatCompanions::default(),
             client_dir: None,
             overlay: None,
         })
     }
 
     /// The files the later interface's own screens read: their layouts, strings, fonts and art.
-    /// Beside an older world these are the later files ([`Self::later_files`]), so a record both
+    /// Beside an older world these are the later files ([`Self::modern_companion_files`]), so a record both
     /// sets carry -- a panel's frame, a button's picture -- is the later interface's and not the
     /// older world's picture under the same id. Otherwise this store itself. The pictures a world
     /// names (an item's icon, a spell's) stay this store's to answer.
     #[must_use]
     pub fn interface_files(self: &Arc<Self>) -> Arc<Self> {
-        self.later_files()
+        self.modern_companion_files()
             .map_or_else(|| Arc::clone(self), Arc::new)
     }
 
     /// This store with a `portal.dat` from before Throne of Destiny beside it, for presentation
     /// alone: the older regions' ground and sky and what they name, read through
-    /// [`Self::legacy_files`]. Every read of this store itself is unchanged, so the world it reads
+    /// [`Self::classic_files`]. Every read of this store itself is unchanged, so the world it reads
     /// is not touched. The folder needs only that one file; its `cell.dat`, when there, is the
     /// older interiors ([`Self::interior_files`]).
     ///
     /// # Errors
     ///
     /// The file is missing, does not open, or is in the later layout.
-    pub fn with_legacy_portal(mut self, dir: &Path) -> Result<Self, DatError> {
-        let path = PreTodDat::Portal.in_dir(dir);
+    pub fn with_classic_portal(mut self, dir: &Path) -> Result<Self, DatError> {
+        let path = ClassicDat::Portal.in_dir(dir);
         let file = shared::open(&path)?;
-        if file.era() != ContainerEra::PreTod {
+        if file.era() != ContainerEra::Classic {
             return Err(DatError::UnexpectedContainerEra {
                 path,
                 found: file.era(),
-                expected: ContainerEra::PreTod,
+                expected: ContainerEra::Classic,
             });
         }
-        self.legacy_portal = Some(file);
+        self.companions.classic_portal = Some(file);
         // The older interiors beside it, for drawing only, when the folder holds them.
-        self.other_cell = shared::open(&PreTodDat::Cell.in_dir(dir))
+        self.companions.cell = shared::open(&ClassicDat::Cell.in_dir(dir))
             .ok()
-            .filter(|f| f.era() == ContainerEra::PreTod);
+            .filter(|f| f.era() == ContainerEra::Classic);
         Ok(self)
     }
 
     /// The files from before Throne of Destiny as a store of their own, for the older regions and
     /// the pictures and objects they name: an older world's own files, or the presentation portal
-    /// beside a later world ([`Self::with_legacy_portal`]). `None` for a later world with none
+    /// beside a later world ([`Self::with_classic_portal`]). `None` for a later world with none
     /// beside it.
     #[must_use]
-    pub fn legacy_files(&self) -> Option<Self> {
-        if self.era() == ContainerEra::PreTod {
+    pub fn classic_files(&self) -> Option<Self> {
+        if self.era() == ContainerEra::Classic {
             return Some(self.clone());
         }
-        let portal = Arc::clone(self.legacy_portal.as_ref()?);
+        let portal = Arc::clone(self.companions.classic_portal.as_ref()?);
         Some(Self {
             local: Arc::clone(&portal),
             portal,
             cell: Arc::clone(&self.cell),
             highres: OnceLock::new(),
-            later_portal: None,
-            legacy_portal: None,
-            other_cell: None,
+            companions: DatCompanions::default(),
             client_dir: None,
             overlay: None,
         })
@@ -343,13 +334,13 @@ impl RetailDatStore {
 
     /// The files from Throne of Destiny on as a store of their own, for the later region and the
     /// pictures and objects it names: a later world's own files, or the later files beside an
-    /// older world ([`Self::later_files`]). `None` for an older world with none beside it.
+    /// older world ([`Self::modern_companion_files`]). `None` for an older world with none beside it.
     #[must_use]
     pub fn modern_files(&self) -> Option<Self> {
-        if self.era() == ContainerEra::Tod {
+        if self.era() == ContainerEra::Modern {
             return Some(self.clone());
         }
-        self.later_files()
+        self.modern_companion_files()
     }
 
     /// The files the world's objects draw with when they take the look of the files of `era`:
@@ -360,7 +351,7 @@ impl RetailDatStore {
     /// reads stay the world's.
     ///
     /// The other era's files are the presentation portal beside a later world
-    /// ([`Self::with_legacy_portal`]) for the files from before Throne of Destiny, and the later
+    /// ([`Self::with_classic_portal`]) for the files from before Throne of Destiny, and the later
     /// files beside an older world for the later ones. `None` when `era` is the world's own, or
     /// when those files are not here.
     #[must_use]
@@ -369,14 +360,14 @@ impl RetailDatStore {
             return None;
         }
         let other = match era {
-            ContainerEra::PreTod => self.legacy_portal.as_ref()?,
-            ContainerEra::Tod => self.later_portal.as_ref()?,
+            ContainerEra::Classic => self.companions.classic_portal.as_ref()?,
+            ContainerEra::Modern => self.companions.modern_portal.as_ref()?,
         };
         // The high-resolution partition holds later image levels only: a later look keeps it if
         // it was granted, and an older look, whose files hold other records under those ids,
         // never reads it.
         let highres = OnceLock::new();
-        if era == ContainerEra::Tod {
+        if era == ContainerEra::Modern {
             if let Some(h) = self.highres.get() {
                 let _ = highres.set(Arc::clone(h));
             }
@@ -386,9 +377,7 @@ impl RetailDatStore {
             cell: Arc::clone(&self.cell),
             local: Arc::clone(&self.local),
             highres,
-            later_portal: None,
-            legacy_portal: None,
-            other_cell: None,
+            companions: DatCompanions::default(),
             client_dir: None,
             overlay: None,
         })
@@ -401,7 +390,7 @@ impl RetailDatStore {
     #[must_use]
     pub fn interior_files(&self, era: ContainerEra) -> Option<Self> {
         let mut files = self.object_files(era)?;
-        files.cell = Arc::clone(self.other_cell.as_ref()?);
+        files.cell = Arc::clone(self.companions.cell.as_ref()?);
         Some(files)
     }
 
@@ -427,9 +416,7 @@ impl RetailDatStore {
             cell: Arc::new(cell),
             local: Arc::new(local),
             highres: lock,
-            later_portal: None,
-            legacy_portal: None,
-            other_cell: None,
+            companions: DatCompanions::default(),
             client_dir: None,
             overlay: None,
         }
@@ -451,13 +438,13 @@ impl RetailDatStore {
         let Some(dir) = &self.client_dir else {
             return Ok(false);
         };
-        let path = RetailDat::HighRes.in_dir(dir);
+        let path = ModernDat::HighRes.in_dir(dir);
         if !path.is_file() {
             return Ok(false);
         }
         let mut file = shared::open(&path)?;
         if let Some((dir, key)) = &self.overlay {
-            match dir.layer_over(RetailDat::HighRes, &file, key.as_deref()) {
+            match dir.layer_over(ModernDat::HighRes, &file, key.as_deref()) {
                 Ok(Some(l)) => file = Arc::new(file.layered(Arc::new(l))),
                 Ok(None) => {}
                 Err(crate::overlay::OverlayError::Dat(e)) => return Err(e),
@@ -489,21 +476,21 @@ impl RetailDatStore {
     ) -> Result<Self, crate::overlay::OverlayError> {
         let alias = Arc::ptr_eq(&self.local, &self.portal);
         let lay = |slot: &Arc<DatFile>,
-                   target: RetailDat|
+                   target: ModernDat|
          -> Result<Option<Arc<DatFile>>, crate::overlay::OverlayError> {
             Ok(dir
                 .layer_over(target, slot, world_key)?
                 .map(|l| Arc::new(slot.layered(Arc::new(l)))))
         };
-        let portal = lay(&self.portal, RetailDat::Portal)?;
-        let cell = lay(&self.cell, RetailDat::Cell)?;
+        let portal = lay(&self.portal, ModernDat::Portal)?;
+        let cell = lay(&self.cell, ModernDat::Cell)?;
         let local = if alias {
             None
         } else {
-            lay(&self.local, RetailDat::Local)?
+            lay(&self.local, ModernDat::Local)?
         };
         let highres = match self.highres.get() {
-            Some(h) => lay(h, RetailDat::HighRes)?,
+            Some(h) => lay(h, ModernDat::HighRes)?,
             None => None,
         };
         if let Some(p) = portal {
@@ -544,8 +531,8 @@ impl RetailDatStore {
             }
         }
         let other = match layer.era() {
-            ContainerEra::PreTod => &mut self.legacy_portal,
-            ContainerEra::Tod => &mut self.later_portal,
+            ContainerEra::Classic => &mut self.companions.classic_portal,
+            ContainerEra::Modern => &mut self.companions.modern_portal,
         };
         if let Some(f) = other {
             *f = Arc::new(layer.over(f));
@@ -571,12 +558,12 @@ impl RetailDatStore {
     /// The file a data-patch target names as the world reads it (with its overlay); `None` for
     /// the high-resolution file before it is granted.
     #[must_use]
-    pub fn target_file(&self, target: RetailDat) -> Option<&DatFile> {
+    pub fn target_file(&self, target: ModernDat) -> Option<&DatFile> {
         match target {
-            RetailDat::Portal => Some(&self.portal),
-            RetailDat::Cell => Some(&self.cell),
-            RetailDat::Local => Some(&self.local),
-            RetailDat::HighRes => self.highres(),
+            ModernDat::Portal => Some(&self.portal),
+            ModernDat::Cell => Some(&self.cell),
+            ModernDat::Local => Some(&self.local),
+            ModernDat::HighRes => self.highres(),
         }
     }
 
@@ -690,8 +677,8 @@ impl RetailDatStore {
                 return hi.read(id);
             }
         }
-        if self.later_answers(id) {
-            if let Some(later) = &self.later_portal {
+        if self.modern_companion_answers(id) {
+            if let Some(later) = &self.companions.modern_portal {
                 return later.read(id);
             }
         }
@@ -719,7 +706,7 @@ impl RetailDatStore {
                     DatKind::Portal => {
                         f.contains(id)
                             || self.highres.get().is_some_and(|h| h.contains(id))
-                            || self.later_answers(id)
+                            || self.modern_companion_answers(id)
                     }
                     _ => f.contains(id),
                 };
@@ -747,12 +734,10 @@ impl RetailDatStore {
                 if let Some(hi) = self.highres.get() {
                     ids.extend(hi.iter_ids().filter(|i| divine_type(*i) == Some(kind)));
                 }
-                if let Some(later) = &self.later_portal {
-                    ids.extend(
-                        later
-                            .iter_ids()
-                            .filter(|i| divine_type(*i) == Some(kind) && self.later_answers(*i)),
-                    );
+                if let Some(later) = &self.companions.modern_portal {
+                    ids.extend(later.iter_ids().filter(|i| {
+                        divine_type(*i) == Some(kind) && self.modern_companion_answers(*i)
+                    }));
                 }
                 ids
             }

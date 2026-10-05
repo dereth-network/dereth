@@ -494,10 +494,10 @@ pub(crate) mod real {
     /// Step 1: Connect, create a character through chargen, and enter the world at the chargen spawn.
     /// The February 2005 dat set (`DERETH_TEST_PRETOD_DAT_DIR`).
     pub(crate) fn pre_tod_dats() -> Arc<DatManager> {
-        if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+        if let Some(msg) = dereth_dat::testing::classic_shortfall() {
             panic!("{msg}");
         }
-        let dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default();
+        let dir = dereth_dat::testing::classic_dat_dir().unwrap_or_default();
         let source = RealDats::open(&dir)
             .unwrap_or_else(|e| panic!("the February 2005 dats under {}: {e}", dir.display()));
         DatManager::initialize(Arc::new(source)).expect("the February 2005 dats initialize")

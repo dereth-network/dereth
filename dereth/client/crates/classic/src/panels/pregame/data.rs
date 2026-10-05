@@ -115,7 +115,7 @@ impl CreationData {
         let mut out = Self {
             tables: Rc::clone(&tables),
             separate_custom: store.is_none_or(|s| {
-                s.container_era_of(DataId(0x0e000002)) == dereth_dat::ContainerEra::PreTod
+                s.container_era_of(DataId(0x0e000002)) == dereth_dat::ContainerEra::Classic
             }),
             appearance: Default::default(),
             heritages: vec![],

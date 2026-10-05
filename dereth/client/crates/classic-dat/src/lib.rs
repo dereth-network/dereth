@@ -76,10 +76,10 @@ impl ClassicPortal {
     /// has neither.
     #[must_use]
     pub fn of_store(store: &RetailDatStore) -> Option<Self> {
-        let older = if store.era() == dereth_dat::ContainerEra::PreTod {
+        let older = if store.era() == dereth_dat::ContainerEra::Classic {
             Some(store.clone())
         } else {
-            store.legacy_files()
+            store.classic_files()
         }?;
         Some(Self {
             source: Source::Store(older),
@@ -87,7 +87,7 @@ impl ClassicPortal {
     }
 
     fn from_file(file: DatFile) -> Result<Self, String> {
-        if file.era() != dereth_dat::ContainerEra::PreTod {
+        if file.era() != dereth_dat::ContainerEra::Classic {
             return Err("not a portal from before Throne of Destiny".into());
         }
         Ok(Self {

@@ -53,7 +53,7 @@ fn table(spells: &[Vec<u8>]) -> Vec<u8> {
 #[test]
 fn an_older_spell_table_reads_in_whichever_ending_its_spells_have() {
     let id = DataId(0x0E00_000E);
-    let read = |b: &[u8]| SpellTable::decode_payload_in(ContainerEra::PreTod, id, b).unwrap();
+    let read = |b: &[u8]| SpellTable::decode_payload_in(ContainerEra::Classic, id, b).unwrap();
 
     let t = read(&table(&[spell(1, b"Bolt\0", &[]), spell(2, b"Arc\0", &[])]));
     assert_eq!(t.spells[&1].name, "Bolt");
@@ -79,7 +79,7 @@ fn an_older_spell_table_reads_in_whichever_ending_its_spells_have() {
 
     // A table whose spells end in none of the three ways is refused.
     assert!(SpellTable::decode_payload_in(
-        ContainerEra::PreTod,
+        ContainerEra::Classic,
         id,
         &table(&[spell(1, b"Bolt", &[40, 0x10])])
     )
@@ -112,7 +112,7 @@ fn an_older_quality_filter_has_no_int64_list() {
     let mut b = words(&[id.raw(), 1, 2, 0, 0, 0, 0, 0]);
     b.extend(words(&[12, 3, 20]));
     b.extend(words(&[0, 3, 0, 2, 4, 6]));
-    let f = QualityFilter::decode_payload_in(ContainerEra::PreTod, id, &b).unwrap();
+    let f = QualityFilter::decode_payload_in(ContainerEra::Classic, id, &b).unwrap();
     assert_eq!(f.property_lists[0], [12]);
     assert!(f.property_lists[1].is_empty());
     assert_eq!(f.property_lists[2], [3, 20]);
@@ -131,7 +131,7 @@ fn the_quest_table_reads_each_quest_and_its_display_name() {
     b.extend(packed(b"BestowerFletching1\0", false));
     b.extend(words(&[0, 1]));
     b.extend(packed(b"Fletcher", true));
-    let t = QuestTable::decode_payload_in(ContainerEra::PreTod, id, &b).unwrap();
+    let t = QuestTable::decode_payload_in(ContainerEra::Classic, id, &b).unwrap();
     assert_eq!(t.buckets, 32);
     assert_eq!(t.quests[0].key, "BestowerFletching1");
     assert_eq!((t.quests[0].min_delta, t.quests[0].max_solves), (0, 1));
@@ -149,18 +149,18 @@ fn only_the_older_files_type_their_quality_filters_and_second_region() {
     ] {
         assert_eq!(divine_type(DataId(id)), None, "{id:#010X}");
         assert_eq!(
-            divine_type_in(ContainerEra::Tod, DataId(id)),
+            divine_type_in(ContainerEra::Modern, DataId(id)),
             None,
             "{id:#010X}"
         );
         assert_eq!(
-            divine_type_in(ContainerEra::PreTod, DataId(id)),
+            divine_type_in(ContainerEra::Classic, DataId(id)),
             Some(kind),
             "{id:#010X}"
         );
     }
     assert_eq!(
-        divine_type_in(ContainerEra::PreTod, DataId(0x0E00_001B)),
+        divine_type_in(ContainerEra::Classic, DataId(0x0E00_001B)),
         Some(DbType::QuestDefDb)
     );
 }

@@ -89,7 +89,7 @@ pub const LANDBLOCK_MASK: u32 = 0xFFFF_0000;
 
 /// Which of the four containers a message's dat-file type and id pair names: the retail file
 /// itself.
-pub use dereth_dat::RetailDat as DatTarget;
+pub use dereth_dat::ModernDat as DatTarget;
 
 /// `DDDManager.HiFi_String_As_Int` — the four bytes of `"HiFi"` read as a little-endian int.
 pub const HIFI: u32 = u32::from_le_bytes(*b"HiFi");

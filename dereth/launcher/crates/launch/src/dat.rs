@@ -257,7 +257,7 @@ mod tests {
     fn a_retail_shaped_list_reads_as_its_count() {
         let info = read_dat_bytes(eor(1, 0, 2072)).unwrap();
         assert_eq!(info.kind, DatKind::Portal);
-        assert_eq!(info.era, ContainerEra::Tod);
+        assert_eq!(info.era, ContainerEra::Modern);
         assert_eq!(
             info.iterations,
             IterationSet {
@@ -312,7 +312,7 @@ mod tests {
         let info = read_dat_bytes(pre_tod(false, 2112)).unwrap();
         assert_eq!(
             (info.kind, info.era, info.iterations.count),
-            (DatKind::Portal, ContainerEra::PreTod, 2112)
+            (DatKind::Portal, ContainerEra::Classic, 2112)
         );
         let info = read_dat_bytes(pre_tod(true, 1593)).unwrap();
         assert_eq!(info.kind, DatKind::Cell { region: 0 });
@@ -334,30 +334,30 @@ mod tests {
     /// repository), and the February 2005 pair when `DERETH_TEST_PRETOD_DAT_DIR` does.
     #[test]
     fn the_retail_dats_read_as_their_iterations_when_present() {
-        use dereth_dat::{testing, PreTodDat, RetailDat};
+        use dereth_dat::{testing, ClassicDat, ModernDat};
         if testing::have_dats() {
             for (dat, want) in [
-                (RetailDat::Portal, 2072),
-                (RetailDat::Cell, 982),
-                (RetailDat::Local, 994),
-                (RetailDat::HighRes, 497),
+                (ModernDat::Portal, 2072),
+                (ModernDat::Cell, 982),
+                (ModernDat::Local, 994),
+                (ModernDat::HighRes, 497),
             ] {
                 let path = testing::dat_file(dat);
                 let info = read_dat(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 assert_eq!(info.iterations.count, want, "{}", path.display());
-                assert_eq!(info.era, ContainerEra::Tod);
+                assert_eq!(info.era, ContainerEra::Modern);
             }
         }
-        if testing::pre_tod_shortfall().is_none() {
-            let dir = testing::pre_tod_dat_dir().unwrap_or_default();
+        if testing::classic_shortfall().is_none() {
+            let dir = testing::classic_dat_dir().unwrap_or_default();
             for (dat, kind, want) in [
-                (PreTodDat::Portal, DatKind::Portal, 2112),
-                (PreTodDat::Cell, DatKind::Cell { region: 0 }, 1593),
+                (ClassicDat::Portal, DatKind::Portal, 2112),
+                (ClassicDat::Cell, DatKind::Cell { region: 0 }, 1593),
             ] {
                 let info = read_dat(&dat.in_dir(&dir)).unwrap();
                 assert_eq!(
                     (info.kind, info.era, info.iterations.count),
-                    (kind, ContainerEra::PreTod, want)
+                    (kind, ContainerEra::Classic, want)
                 );
             }
         }

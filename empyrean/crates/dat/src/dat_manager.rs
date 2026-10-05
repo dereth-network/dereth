@@ -71,7 +71,7 @@ fn required<'a, T>(t: Option<&'a Arc<T>>, name: &str, id: u32) -> &'a Arc<T> {
 /// that read them came later and find them absent. Such a table is not asked for, so no missing
 /// record is reported for it; [`DatManager::initialize`] names each one once.
 fn later_table<T: DatFileType>(base: &DatDatabase, id: u32) -> Option<Arc<T>> {
-    if base.container_era() == ContainerEra::PreTod && !base.contains_file(id) {
+    if base.container_era() == ContainerEra::Classic && !base.contains_file(id) {
         return None;
     }
     base.read_from_dat::<T>(id)
@@ -153,7 +153,7 @@ impl PortalDatDatabase {
             // DIVERGE: the table from before Throne of Destiny carries the ten weapon
             // skills itself (with their costs and names), so nothing is added to it; ACE's
             // `Dictionary.Add` would throw on the first.
-            Some(t) if base.container_era() == ContainerEra::PreTod => {
+            Some(t) if base.container_era() == ContainerEra::Classic => {
                 let t = Arc::new(t);
                 base.insert_cache(file_id::SKILL_TABLE, Arc::clone(&t));
                 Some(t)
@@ -304,7 +304,7 @@ impl DatManager {
         // DIVERGE: a dat set from before Throne of Destiny is compared with the February 2005
         // iterations (it has no language or high-resolution file of its own: the portal file
         // answers language reads).
-        let pre_tod = source.container_era() == ContainerEra::PreTod;
+        let pre_tod = source.container_era() == ContainerEra::Classic;
         let (expected_cell, expected_portal) = if pre_tod {
             (ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005)
         } else {
@@ -384,7 +384,7 @@ impl DatManager {
 }
 
 fn log_opened(db: &DatDatabase, expected: i32) {
-    let set = if db.container_era() == ContainerEra::PreTod {
+    let set = if db.container_era() == ContainerEra::Classic {
         "February 2005"
     } else {
         "end-of-retail"

@@ -2,14 +2,14 @@
 //! The four retail dats resolve under DERETH_TEST_DAT_DIR (the label for every other dat-tier failure).
 //! Fixture: the shipped retail DAT records and recorded inputs.
 
-use dereth_dat::{RetailDat, RetailDatStore};
+use dereth_dat::{ModernDat, RetailDatStore};
 
 /// The four files in the retail-data locator. `client_highres.dat` is in the list even though
 /// [`RetailDatStore::open_dir`] treats it as optional, because that check requires all four — so an install missing it
 /// answers *"no retail data"* to every tier-1 gate while the store itself opens happily. A partial
 /// install produces a confusing half-skip rather than a clean one; that is the gates' own
 /// stated reason and it is why this preflight is the stricter of the two.
-const FOUR: [RetailDat; 4] = RetailDat::ALL;
+const FOUR: [ModernDat; 4] = ModernDat::ALL;
 
 /// The whole point of the file. Reads the directory; opens nothing.
 #[test]
@@ -60,7 +60,7 @@ fn the_four_retail_dats_resolve_or_nothing_else_in_this_workspace_means_anything
         control.contains(&empty.display().to_string()),
         "the shortfall message must name the directory it looked in:\n{control}"
     );
-    let miss = dereth_dat::locate_retail_dats(std::slice::from_ref(&empty))
+    let miss = dereth_dat::locate_modern_dats(std::slice::from_ref(&empty))
         .expect_err("an empty directory holds no dats");
     assert!(
         miss.to_string().contains(&empty.display().to_string()),

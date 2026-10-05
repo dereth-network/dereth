@@ -47,7 +47,7 @@ impl Decode for GfxObj {
     }
 
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_gfxobj(c, ContainerEra::Tod)
+        decode_gfxobj(c, ContainerEra::Modern)
     }
 
     /// Before Throne of Destiny the counts are plain `u32`s rather than compressed, the polygons
@@ -55,13 +55,13 @@ impl Decode for GfxObj {
     /// the object's own id; see [`GfxObj::did_degrade`]), and bit 2 would add a triangle-strip
     /// block (which no shipped record sets, and which is refused) before the record ends aligned
     /// to four bytes.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_gfxobj(c, ContainerEra::PreTod)
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_gfxobj(c, ContainerEra::Classic)
     }
 }
 
 fn decode_gfxobj(c: &mut Cursor<'_>, era: ContainerEra) -> Result<GfxObj, AssetError> {
-    let pre_tod = era == ContainerEra::PreTod;
+    let pre_tod = era == ContainerEra::Classic;
     let count = |c: &mut Cursor<'_>| -> Result<usize, AssetError> {
         Ok(if pre_tod {
             c.u32()? as usize
@@ -401,13 +401,13 @@ impl Decode for Environment {
     }
 
     fn decode(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_environment(c, ContainerEra::Tod)
+        decode_environment(c, ContainerEra::Modern)
     }
 
     /// Before Throne of Destiny the shape is the same, and each polygon and BSP node carries the
     /// older alignment ([`Polygon::decode_in`], [`BspTree::decode_in`]).
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_environment(c, ContainerEra::PreTod)
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_environment(c, ContainerEra::Classic)
     }
 }
 

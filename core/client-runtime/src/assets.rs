@@ -94,7 +94,7 @@ pub fn open_data_files(dat_dir: &Path) -> Result<RetailDatStore, DataFilesError>
 /// folder only says where to look; what the client does follows from what is found.
 #[must_use]
 pub fn classic_set_dir(dat_dir: &Path, classic_dat_dir: Option<&Path>) -> Option<PathBuf> {
-    let holds = |dir: &Path| dereth_dat::PreTodDat::Portal.in_dir(dir).is_file();
+    let holds = |dir: &Path| dereth_dat::ClassicDat::Portal.in_dir(dir).is_file();
     let beside = holds(dat_dir);
     match classic_dat_dir {
         Some(classic) if holds(classic) => {
@@ -134,10 +134,10 @@ pub fn classic_set_dir(dat_dir: &Path, classic_dat_dir: Option<&Path>) -> Option
 ///
 /// - A world drawn from the files before Throne of Destiny draws from the older set, with the later files
 ///   beside it answering the later interface and every record the older ones lack
-///   ([`RetailDatStore::open_pre_tod_with_later`]). With no later files, the older set alone.
+///   ([`RetailDatStore::open_classic_with_modern`]). With no later files, the older set alone.
 /// - A world drawn from the later files, and one with no set named, draws the later world, with the older `portal.dat` beside
 ///   it for the classic interface and the older grounds, skies and object looks when one is found
-///   ([`RetailDatStore::with_legacy_portal`]). An older portal that will not open is reported and
+///   ([`RetailDatStore::with_classic_portal`]). An older portal that will not open is reported and
 ///   left out: the world still opens, and what needs it is refused as it is with none.
 /// - With no set named, a `dat_dir` holding only the older set opens that set.
 ///
@@ -159,10 +159,10 @@ fn open_retail_files(
     classic_dat_dir: Option<&Path>,
     world_set: Option<dereth_dat::ContainerEra>,
 ) -> Result<RetailDatStore, DataFilesError> {
-    let later = dereth_dat::holds_retail_dats(dat_dir);
+    let later = dereth_dat::holds_modern_dats(dat_dir);
     let classic = classic_set_dir(dat_dir, classic_dat_dir);
     let pre_tod_world = match world_set {
-        Some(set) => set == dereth_dat::ContainerEra::PreTod,
+        Some(set) => set == dereth_dat::ContainerEra::Classic,
         None => !later && classic.is_some(),
     };
     if pre_tod_world {
@@ -177,9 +177,9 @@ fn open_retail_files(
             });
         };
         return if later {
-            RetailDatStore::open_pre_tod_with_later(older, dat_dir)
+            RetailDatStore::open_classic_with_modern(older, dat_dir)
         } else {
-            RetailDatStore::open_pre_tod_dir(older)
+            RetailDatStore::open_classic_dir(older)
         }
         .map_err(|e| DataFilesError {
             cause: format!("{}: {e}", older.display()),
@@ -191,7 +191,7 @@ fn open_retail_files(
     let Some(classic) = classic else {
         return Ok(store);
     };
-    match store.clone().with_legacy_portal(&classic) {
+    match store.clone().with_classic_portal(&classic) {
         Ok(with) => Ok(with),
         Err(e) => {
             tracing::warn!(
@@ -240,8 +240,8 @@ pub fn world_set(cfg: &crate::config::Config) -> Option<dereth_dat::ContainerEra
 /// A dat set's name as `--world-base` spells it.
 fn set_name(set: dereth_dat::ContainerEra) -> &'static str {
     match set {
-        dereth_dat::ContainerEra::Tod => "modern",
-        dereth_dat::ContainerEra::PreTod => "classic",
+        dereth_dat::ContainerEra::Modern => "modern",
+        dereth_dat::ContainerEra::Classic => "classic",
     }
 }
 
@@ -341,19 +341,19 @@ mod tests {
     fn available(store: &RetailDatStore) -> Available {
         let world = store.era();
         let other = match world {
-            dereth_dat::ContainerEra::PreTod => dereth_dat::ContainerEra::Tod,
-            dereth_dat::ContainerEra::Tod => dereth_dat::ContainerEra::PreTod,
+            dereth_dat::ContainerEra::Classic => dereth_dat::ContainerEra::Modern,
+            dereth_dat::ContainerEra::Modern => dereth_dat::ContainerEra::Classic,
         };
         Available {
             world,
-            classic: world == dereth_dat::ContainerEra::PreTod || store.legacy_files().is_some(),
+            classic: world == dereth_dat::ContainerEra::Classic || store.classic_files().is_some(),
             modern: store.modern_files().is_some(),
             other_objects: store.object_files(other).is_some(),
         }
     }
 
-    const EOR: Option<dereth_dat::ContainerEra> = Some(dereth_dat::ContainerEra::Tod);
-    const INFILTRATION: Option<dereth_dat::ContainerEra> = Some(dereth_dat::ContainerEra::PreTod);
+    const EOR: Option<dereth_dat::ContainerEra> = Some(dereth_dat::ContainerEra::Modern);
+    const INFILTRATION: Option<dereth_dat::ContainerEra> = Some(dereth_dat::ContainerEra::Classic);
 
     fn both(world: dereth_dat::ContainerEra) -> Available {
         Available {
@@ -377,12 +377,12 @@ mod tests {
             let store = open_world_files(&dir, None, era).expect("both sets open");
             assert_eq!(
                 available(&store),
-                both(dereth_dat::ContainerEra::Tod),
+                both(dereth_dat::ContainerEra::Modern),
                 "{era:?}"
             );
         }
         let store = open_world_files(&dir, None, INFILTRATION).expect("both sets open");
-        assert_eq!(available(&store), both(dereth_dat::ContainerEra::PreTod));
+        assert_eq!(available(&store), both(dereth_dat::ContainerEra::Classic));
     }
 
     /// Behaviour: none (tooling: which data files open from the folders given)
@@ -393,10 +393,10 @@ mod tests {
     )]
     fn the_sets_in_two_folders_make_the_same_things_available_as_one_folder() {
         let later = dereth_dat::testing::dat_dir();
-        let older = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+        let older = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
             panic!(
                 "{}",
-                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+                dereth_dat::testing::classic_shortfall().unwrap_or_default()
             )
         });
         assert_eq!(classic_set_dir(&later, Some(&older)), Some(older.clone()));
@@ -404,12 +404,12 @@ mod tests {
             let store = open_world_files(&later, Some(&older), era).expect("both sets open");
             assert_eq!(
                 available(&store),
-                both(dereth_dat::ContainerEra::Tod),
+                both(dereth_dat::ContainerEra::Modern),
                 "{era:?}"
             );
         }
         let store = open_world_files(&later, Some(&older), INFILTRATION).expect("both sets open");
-        assert_eq!(available(&store), both(dereth_dat::ContainerEra::PreTod));
+        assert_eq!(available(&store), both(dereth_dat::ContainerEra::Classic));
         // The named folder wins over a set beside the later one.
         let one = dereth_dat::testing::both_sets_dir();
         assert_eq!(classic_set_dir(&one, Some(&older)), Some(older.clone()));
@@ -426,7 +426,7 @@ mod tests {
         let later = dereth_dat::testing::dat_dir();
         assert_eq!(classic_set_dir(&later, None), None);
         let alone = Available {
-            world: dereth_dat::ContainerEra::Tod,
+            world: dereth_dat::ContainerEra::Modern,
             classic: false,
             modern: true,
             other_objects: false,
@@ -459,7 +459,7 @@ mod tests {
         let one = dereth_dat::testing::both_sets_dir();
         assert_eq!(classic_set_dir(&one, Some(empty.path())), Some(one.clone()));
         let store = open_world_files(&one, Some(empty.path()), None).expect("both sets");
-        assert_eq!(available(&store), both(dereth_dat::ContainerEra::Tod));
+        assert_eq!(available(&store), both(dereth_dat::ContainerEra::Modern));
     }
 
     /// Behaviour: none (tooling: which data files open from the folders given)
@@ -474,13 +474,13 @@ mod tests {
         };
         assert_eq!(
             world_set(&cfg),
-            Some(dereth_dat::ContainerEra::PreTod),
+            Some(dereth_dat::ContainerEra::Classic),
             "the era's"
         );
-        cfg.world_base = Some(dereth_dat::ContainerEra::Tod);
+        cfg.world_base = Some(dereth_dat::ContainerEra::Modern);
         assert_eq!(
             world_set(&cfg),
-            Some(dereth_dat::ContainerEra::Tod),
+            Some(dereth_dat::ContainerEra::Modern),
             "the switch's"
         );
         // An overlay made against `portal.dat` names the older set, whatever the switch says.
@@ -494,7 +494,7 @@ mod tests {
         let base = dereth_dat::DatFile::open(&base_path).expect("the base");
         let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
         let mut w = OverlayWriter::open_or_create(
-            &dir.container(dereth_dat::RetailDat::Portal),
+            &dir.container(dereth_dat::ModernDat::Portal),
             &base,
             "portal.dat",
             "a world",
@@ -506,7 +506,7 @@ mod tests {
         cfg.overlay_dat_dir = Some(dir.path().to_path_buf());
         assert_eq!(
             world_set(&cfg),
-            Some(dereth_dat::ContainerEra::PreTod),
+            Some(dereth_dat::ContainerEra::Classic),
             "the overlay's"
         );
     }
@@ -526,11 +526,11 @@ mod tests {
     /// The older portal the classic interface reads from `store`: the world's own on an older
     /// world, else the one beside it.
     fn classic_portal(store: &RetailDatStore) -> dereth_dat::DatFile {
-        if store.era() == dereth_dat::ContainerEra::PreTod {
+        if store.era() == dereth_dat::ContainerEra::Classic {
             store.portal().clone()
         } else {
             store
-                .legacy_files()
+                .classic_files()
                 .expect("the older portal beside the world")
                 .portal()
                 .clone()
@@ -545,7 +545,7 @@ mod tests {
     )]
     fn the_later_slots_read_the_clients_pictures_from_the_older_portal_on_both_kinds_of_world() {
         let layer = &client_layers()[0];
-        assert_eq!(layer.era(), dereth_dat::ContainerEra::PreTod);
+        assert_eq!(layer.era(), dereth_dat::ContainerEra::Classic);
         assert_eq!(
             layer.ids(),
             {
@@ -621,7 +621,7 @@ mod tests {
         };
         let base = store.portal().base();
         let mut w = OverlayWriter::open_or_create(
-            &overlay.container(dereth_dat::RetailDat::Portal),
+            &overlay.container(dereth_dat::ModernDat::Portal),
             &base,
             "portal.dat",
             "a world",
@@ -661,7 +661,7 @@ mod tests {
                     "{era:?}"
                 );
             }
-            for t in dereth_dat::RetailDat::REQUIRED {
+            for t in dereth_dat::ModernDat::REQUIRED {
                 let (a, b) = (bare.target_file(t).unwrap(), store.target_file(t).unwrap());
                 assert_eq!(a.header_iteration(), b.header_iteration(), "{era:?} {t:?}");
                 assert_eq!(a.iteration_list().ok(), b.iteration_list().ok());

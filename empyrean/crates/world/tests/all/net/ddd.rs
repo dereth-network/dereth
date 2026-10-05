@@ -796,13 +796,13 @@ mod real_content {
     /// end-of-retail language list before, which the server once booted as incomplete.
     #[test]
     fn a_server_on_the_february_2005_dats_admits_a_client_drawing_that_world() {
-        let old_dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+        let old_dir = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
             panic!(
                 "{}",
-                dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+                dereth_dat::testing::classic_shortfall().unwrap_or_default()
             )
         });
-        let old = dereth_dat::RetailDatStore::open_pre_tod_dir(&old_dir).expect("2005 dats");
+        let old = dereth_dat::RetailDatStore::open_classic_dir(&old_dir).expect("2005 dats");
         let later = dereth_dat::RetailDatStore::open_dir(&dereth_dat::testing::dat_dir())
             .expect("the end-of-retail dats");
         let dats: Arc<DatManager> =

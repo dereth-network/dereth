@@ -306,7 +306,7 @@ impl Decode for EnvCell {
     /// Before Throne of Destiny the record starts with the flags and then the cell id (there is
     /// no leading id before the flags, so the id is read once and repeated here), and it aligns to
     /// four bytes after the surface list and after the visible-cell list.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let flags = c.u32()?;
         let id = c.data_id()?;
         let num_surfaces = c.u8()? as usize;

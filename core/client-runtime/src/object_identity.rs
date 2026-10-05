@@ -644,8 +644,8 @@ fn get<T: Decode>(f: &DatFile, id: u32) -> Option<T> {
 /// image level the texture names.
 fn texture_palette(f: &DatFile, id: u32) -> Option<u32> {
     let b = f.read(DataId(id)).ok()?;
-    let rs = if f.era() == ContainerEra::PreTod {
-        RenderSurface::from_pre_tod_texture(DataId(id), &b).ok()?
+    let rs = if f.era() == ContainerEra::Classic {
+        RenderSurface::from_classic_texture(DataId(id), &b).ok()?
     } else {
         let st = SurfaceTexture::decode_payload(DataId(id), &b).ok()?;
         let lvl = *st.source_levels.last()?;
@@ -1769,8 +1769,8 @@ impl IdentityBuild {
     #[must_use]
     pub fn for_store(store: &RetailDatStore, cache: Option<PathBuf>) -> Option<Self> {
         let era = match store.era() {
-            ContainerEra::Tod => ContainerEra::PreTod,
-            ContainerEra::PreTod => ContainerEra::Tod,
+            ContainerEra::Modern => ContainerEra::Classic,
+            ContainerEra::Classic => ContainerEra::Modern,
         };
         let look = store.object_files(era)?;
         let interiors = store.interior_files(era);

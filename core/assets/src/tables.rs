@@ -259,7 +259,7 @@ impl Decode for SpellTable {
     /// records end in one of three ways ([`SpellTail`]) and nothing in the table says which, so the
     /// table is read with each in turn, the later first, and the one whose reading ends exactly on
     /// the record's end is taken. Exactly one does for each table shipped.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let start = c.position();
         let mut first_error = None;
@@ -537,7 +537,7 @@ impl Decode for XpTable {
 
     /// Before Throne of Destiny the character-level list is `u32` (126 levels in February 2005),
     /// widened here; the other five lists are unchanged.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let na = c.u32()? as usize;
         let nv = c.u32()? as usize;
@@ -796,8 +796,8 @@ impl Decode for CharGen {
     fn declared_id(&self) -> Option<DataId> {
         Some(self.id)
     }
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        decode_pre_tod_chargen(c)
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+        decode_classic_chargen(c)
     }
     /// The table changed three times in the later files and nothing in it says which layout it
     /// is in ([`ChargenLayout`]), so it is read in each, the latest first, and the one whose
@@ -970,7 +970,7 @@ fn decode_chargen(c: &mut Cursor<'_>, layout: ChargenLayout) -> Result<CharGen, 
 
 /// A string of the older table: a `u32` length and the bytes, padded to four bytes, unless the
 /// first word is above `0xFFFF`, when it is a padded `u16`-length string instead.
-fn pre_tod_string(c: &mut Cursor<'_>) -> Result<String, AssetError> {
+fn classic_string(c: &mut Cursor<'_>) -> Result<String, AssetError> {
     let start = c.position();
     let n = c.u32()?;
     if n > 0xFFFF {
@@ -983,7 +983,7 @@ fn pre_tod_string(c: &mut Cursor<'_>) -> Result<String, AssetError> {
 }
 
 /// A `u32` count, then that many items.
-fn pre_tod_list<T>(
+fn classic_list<T>(
     c: &mut Cursor<'_>,
     mut item: impl FnMut(&mut Cursor<'_>) -> Result<T, AssetError>,
 ) -> Result<Vec<T>, AssetError> {
@@ -996,8 +996,8 @@ fn pre_tod_list<T>(
 }
 
 /// A string and two words, read and let go (the older table's help and naming lists).
-fn pre_tod_named_pair(c: &mut Cursor<'_>) -> Result<(), AssetError> {
-    pre_tod_string(c)?;
+fn classic_named_pair(c: &mut Cursor<'_>) -> Result<(), AssetError> {
+    classic_string(c)?;
     c.u32()?;
     c.u32()?;
     Ok(())
@@ -1005,7 +1005,7 @@ fn pre_tod_named_pair(c: &mut Cursor<'_>) -> Result<(), AssetError> {
 
 /// The heritage-level parts the older table keeps on each sex.
 #[derive(Debug)]
-struct PreTodSexExtras {
+struct ClassicSexExtras {
     attribute_credits: u32,
     skill_credits: u32,
     skills: Vec<(u32, i32, i32)>,
@@ -1013,20 +1013,20 @@ struct PreTodSexExtras {
     presentation: Vec<TemplatePresentation>,
 }
 
-fn pre_tod_template(
+fn classic_template(
     c: &mut Cursor<'_>,
 ) -> Result<(CharGenTemplate, TemplatePresentation), AssetError> {
-    let name = pre_tod_string(c)?;
+    let name = classic_string(c)?;
     let icon = c.u32()?;
     let description = c.data_id()?;
-    let profiles = pre_tod_list(c, |c| {
+    let profiles = classic_list(c, |c| {
         let mut attributes = [0u32; 6];
         for a in &mut attributes {
             *a = c.u32()?;
         }
-        let normal = pre_tod_list(c, |c| Ok(c.u32()?))?;
-        let primary = pre_tod_list(c, |c| Ok(c.u32()?))?;
-        let third = pre_tod_list(c, |c| Ok(c.u32()?))?;
+        let normal = classic_list(c, |c| Ok(c.u32()?))?;
+        let primary = classic_list(c, |c| Ok(c.u32()?))?;
+        let third = classic_list(c, |c| Ok(c.u32()?))?;
         Ok((attributes, normal, primary, third))
     })?;
     // Every template of the February 2005 table has one profile and an empty third list; a table
@@ -1059,17 +1059,17 @@ fn pre_tod_template(
 }
 
 fn pre_tod_gear(c: &mut Cursor<'_>) -> Result<Vec<GearItem>, AssetError> {
-    pre_tod_list(c, |c| {
+    classic_list(c, |c| {
         Ok(GearItem {
-            name: pre_tod_string(c)?,
+            name: classic_string(c)?,
             clothing_table: c.data_id()?,
             weenie_default: c.u32()?,
         })
     })
 }
 
-fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetError> {
-    let name = pre_tod_string(c)?;
+fn classic_sex(c: &mut Cursor<'_>) -> Result<(SexCg, ClassicSexExtras), AssetError> {
+    let name = classic_string(c)?;
     let setup = c.data_id()?;
     let sound_table = c.data_id()?;
     let icon = c.u32()?;
@@ -1077,24 +1077,24 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
     let base_objdesc = read_objdesc(c)?;
     c.u32()?;
     c.u32()?;
-    pre_tod_list(c, pre_tod_string)?;
-    pre_tod_list(c, |c| {
-        pre_tod_string(c)?;
-        pre_tod_string(c)?;
+    classic_list(c, classic_string)?;
+    classic_list(c, |c| {
+        classic_string(c)?;
+        classic_string(c)?;
         c.u32()?;
         Ok(())
     })?;
     let attribute_credits = c.u32()?;
     c.u32()?;
     let skill_credits = c.u32()?;
-    pre_tod_list(c, pre_tod_named_pair)?;
-    let skills = pre_tod_list(c, |c| Ok((c.u32()?, c.i32()?, c.i32()?)))?;
-    let (templates, presentation) = pre_tod_list(c, pre_tod_template)?.into_iter().unzip();
-    pre_tod_list(c, |c| Ok(c.skip(17 * 4)?))?;
+    classic_list(c, classic_named_pair)?;
+    let skills = classic_list(c, |c| Ok((c.u32()?, c.i32()?, c.i32()?)))?;
+    let (templates, presentation) = classic_list(c, classic_template)?.into_iter().unzip();
+    classic_list(c, |c| Ok(c.skip(17 * 4)?))?;
     let base_palette = c.data_id()?;
     let skin_palset = c.data_id()?;
-    let hair_colors = pre_tod_list(c, |c| Ok(c.u32()?))?;
-    let hair_styles = pre_tod_list(c, |c| {
+    let hair_colors = classic_list(c, |c| Ok(c.u32()?))?;
+    let hair_styles = classic_list(c, |c| {
         let icon = c.u32()?;
         let bald = c.u32()?;
         Ok(HairStyle {
@@ -1107,8 +1107,8 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
             objdesc: read_objdesc(c)?,
         })
     })?;
-    let eye_colors = pre_tod_list(c, |c| Ok(c.u32()?))?;
-    let eye_strips = pre_tod_list(c, |c| {
+    let eye_colors = classic_list(c, |c| Ok(c.u32()?))?;
+    let eye_strips = classic_list(c, |c| {
         Ok(EyeStrip {
             icon: c.u32()?,
             icon_bald: c.u32()?,
@@ -1116,8 +1116,8 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
             objdesc_bald: read_objdesc(c)?,
         })
     })?;
-    let nose_strips = pre_tod_list(c, |c| Ok((c.u32()?, read_objdesc(c)?)))?;
-    let mouth_strips = pre_tod_list(c, |c| Ok((c.u32()?, read_objdesc(c)?)))?;
+    let nose_strips = classic_list(c, |c| Ok((c.u32()?, read_objdesc(c)?)))?;
+    let mouth_strips = classic_list(c, |c| Ok((c.u32()?, read_objdesc(c)?)))?;
     let headgear = pre_tod_gear(c)?;
     let shirts = pre_tod_gear(c)?;
     let pants = pre_tod_gear(c)?;
@@ -1153,7 +1153,7 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
             footwear,
             clothing_colors,
         },
-        PreTodSexExtras {
+        ClassicSexExtras {
             attribute_credits,
             skill_credits,
             skills,
@@ -1163,7 +1163,7 @@ fn pre_tod_sex(c: &mut Cursor<'_>) -> Result<(SexCg, PreTodSexExtras), AssetErro
     ))
 }
 
-fn same_creation_rules(a: &PreTodSexExtras, b: &PreTodSexExtras) -> bool {
+fn same_creation_rules(a: &ClassicSexExtras, b: &ClassicSexExtras) -> bool {
     a.attribute_credits == b.attribute_credits
         && a.skill_credits == b.skill_credits
         && a.skills == b.skills
@@ -1177,23 +1177,23 @@ fn same_creation_rules(a: &PreTodSexExtras, b: &PreTodSexExtras) -> bool {
         })
 }
 
-fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
+fn decode_classic_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
     let id = c.data_id()?;
     let help_strings = read_n(c, 8, Cursor::data_id)?;
-    let starter_areas = pre_tod_list(c, |c| {
-        let name = pre_tod_string(c)?;
-        let locations = pre_tod_list(c, |c| Ok(read_position(c)?))?;
+    let starter_areas = classic_list(c, |c| {
+        let name = classic_string(c)?;
+        let locations = classic_list(c, |c| Ok(read_position(c)?))?;
         Ok(StarterArea { name, locations })
     })?;
-    let heritages = pre_tod_list(c, |c| {
-        let name = pre_tod_string(c)?;
+    let heritages = classic_list(c, |c| {
+        let name = classic_string(c)?;
         let icon = c.u32()?;
         let setup = c.data_id()?;
         let description = c.data_id()?;
         let environment_setup = c.data_id()?;
-        let primary_start_areas = pre_tod_list(c, |c| Ok(c.u32()?))?;
-        let secondary_start_areas = pre_tod_list(c, |c| Ok(c.u32()?))?;
-        let sexes = pre_tod_list(c, pre_tod_sex)?;
+        let primary_start_areas = classic_list(c, |c| Ok(c.u32()?))?;
+        let secondary_start_areas = classic_list(c, |c| Ok(c.u32()?))?;
+        let sexes = classic_list(c, classic_sex)?;
         Ok((
             name,
             icon,
@@ -1210,7 +1210,7 @@ fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
     for (i, (name, icon, setup, environment_setup, description, primary, secondary, sexes)) in
         heritages.into_iter().enumerate()
     {
-        let mut extras: Option<PreTodSexExtras> = None;
+        let mut extras: Option<ClassicSexExtras> = None;
         let mut by_key = BTreeMap::new();
         let mut sex_order = Vec::new();
         let mut template_presentations = BTreeMap::new();
@@ -1233,7 +1233,7 @@ fn decode_pre_tod_chargen(c: &mut Cursor<'_>) -> Result<CharGen, AssetError> {
             extras.get_or_insert(sex_extras);
             by_key.insert(key, sex);
         }
-        let extras = extras.unwrap_or(PreTodSexExtras {
+        let extras = extras.unwrap_or(ClassicSexExtras {
             attribute_credits: 0,
             skill_credits: 0,
             skills: Vec::new(),
@@ -1785,7 +1785,7 @@ impl Decode for QualityFilter {
 
     /// Before Throne of Destiny there are no 64-bit integer properties, so the filter has seven
     /// property lists, not eight: the int64 list is absent and reads as empty.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let mut counts = [0usize; 7];
         for n in &mut counts {

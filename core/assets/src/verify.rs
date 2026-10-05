@@ -74,7 +74,7 @@ pub fn exhaustive_decode(s: &RetailDatStore) -> Result<VerifyReport, AssetError>
     let mut files: Vec<(&dereth_dat::DatFile, bool)> = vec![(s.portal(), false), (s.cell(), true)];
     // Before Throne of Destiny the language records are in the portal file, which the store also
     // answers language reads from: walked once.
-    if s.era() == ContainerEra::Tod {
+    if s.era() == ContainerEra::Modern {
         files.push((s.local(), false));
     }
     if let Some(hi) = s.highres() {

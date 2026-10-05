@@ -21,7 +21,7 @@ fn the_february_2005_holtburg_draws_under_todays_screens() {
          DERETH_TEST_DAT_DIR",
         dat_dir.display()
     );
-    if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+    if let Some(msg) = dereth_dat::testing::classic_shortfall() {
         panic!("{msg}");
     }
     // The one folder a player's `--dat-dir` names, holding both sets.

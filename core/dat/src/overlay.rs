@@ -47,7 +47,7 @@ use crate::container::{ContainerEra, DatFile};
 use crate::cursor::Cursor;
 use crate::divine::ITERATION_LIST;
 use crate::error::DatError;
-use crate::locate::RetailDat;
+use crate::locate::ModernDat;
 use crate::write::{DatWriter, SaveOutcome};
 
 /// The overlay's tombstones record.
@@ -64,12 +64,12 @@ pub fn is_reserved(id: DataId) -> bool {
 
 /// The file name of the overlay container over `target`'s file.
 #[must_use]
-pub const fn container_name(target: RetailDat) -> &'static str {
+pub const fn container_name(target: ModernDat) -> &'static str {
     match target {
-        RetailDat::Portal => "overlay_portal.dat",
-        RetailDat::Cell => "overlay_cell.dat",
-        RetailDat::Local => "overlay_local.dat",
-        RetailDat::HighRes => "overlay_highres.dat",
+        ModernDat::Portal => "overlay_portal.dat",
+        ModernDat::Cell => "overlay_cell.dat",
+        ModernDat::Local => "overlay_local.dat",
+        ModernDat::HighRes => "overlay_highres.dat",
     }
 }
 
@@ -247,7 +247,7 @@ pub fn fingerprint(file: &DatFile) -> [u8; 32] {
         hd.data_subset,
         hd.btree_root,
         hd.master_map_id,
-        u32::from(file.era() == ContainerEra::PreTod),
+        u32::from(file.era() == ContainerEra::Classic),
         file.base_header_iteration().unwrap_or(0),
     ] {
         h.update(v.to_le_bytes());
@@ -576,8 +576,8 @@ impl OverlayDir {
     /// # Errors
     /// [`OverlayError::BaseFolder`] when `dir` holds base data files.
     pub fn new(dir: &Path) -> Result<Self, OverlayError> {
-        let holds_base = RetailDat::ALL.iter().any(|d| d.in_dir(dir).is_file())
-            || crate::PreTodDat::ALL
+        let holds_base = ModernDat::ALL.iter().any(|d| d.in_dir(dir).is_file())
+            || crate::ClassicDat::ALL
                 .iter()
                 .any(|d| d.in_dir(dir).is_file());
         if holds_base {
@@ -595,7 +595,7 @@ impl OverlayDir {
 
     /// Where the overlay container over `target`'s file is.
     #[must_use]
-    pub fn container(&self, target: RetailDat) -> PathBuf {
+    pub fn container(&self, target: ModernDat) -> PathBuf {
         self.dir.join(container_name(target))
     }
 
@@ -603,7 +603,7 @@ impl OverlayDir {
     /// a folder with no container yet.
     #[must_use]
     pub fn world_key(&self) -> Option<String> {
-        RetailDat::ALL.iter().find_map(|t| {
+        ModernDat::ALL.iter().find_map(|t| {
             let f = DatFile::open(&self.container(*t)).ok()?;
             let m = ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()?;
             Some(m.world_key)
@@ -615,16 +615,16 @@ impl OverlayDir {
     /// otherwise. `None` for a folder with no container yet.
     #[must_use]
     pub fn base_era(&self) -> Option<ContainerEra> {
-        RetailDat::ALL.iter().find_map(|t| {
+        ModernDat::ALL.iter().find_map(|t| {
             let f = DatFile::open(&self.container(*t)).ok()?;
             let m = ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()?;
-            let older = crate::PreTodDat::ALL
+            let older = crate::ClassicDat::ALL
                 .iter()
                 .any(|d| d.file_name().eq_ignore_ascii_case(&m.base_name));
             Some(if older {
-                ContainerEra::PreTod
+                ContainerEra::Classic
             } else {
-                ContainerEra::Tod
+                ContainerEra::Modern
             })
         })
     }
@@ -636,7 +636,7 @@ impl OverlayDir {
     /// As [`Layer::over`], and a container that will not open.
     pub fn layer_over(
         &self,
-        target: RetailDat,
+        target: ModernDat,
         base: &DatFile,
         world_key: Option<&str>,
     ) -> Result<Option<Layer>, OverlayError> {
@@ -651,7 +651,7 @@ impl OverlayDir {
     /// Every overlay container's path in the folder.
     #[must_use]
     pub fn containers(&self) -> Vec<PathBuf> {
-        RetailDat::ALL
+        ModernDat::ALL
             .iter()
             .map(|t| self.container(*t))
             .filter(|p| p.is_file())

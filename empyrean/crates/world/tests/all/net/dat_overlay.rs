@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use dereth_dat::overlay::{OverlayDir, OverlayWriter};
-use dereth_dat::{DatFile, RetailDat, RetailDatStore};
+use dereth_dat::{DatFile, ModernDat, RetailDatStore};
 use dereth_primitives::{DataId, NetQueue};
 use dereth_protocol::admin::{
     DddBeginDdd, DddData, DddInterrogation, DddInterrogationResponse, DddOverlayManifest,
@@ -58,7 +58,7 @@ fn make_overlay(
     let (replaced, deleted) = (pictures[0], pictures[1]);
     let portal_revision = revision(&portal);
     let mut w = OverlayWriter::open_or_create(
-        &dir.container(RetailDat::Portal),
+        &dir.container(ModernDat::Portal),
         &portal,
         portal_name,
         WORLD,
@@ -84,7 +84,7 @@ fn make_overlay(
     let (cell_replaced, cell_deleted) = (rooms[0], rooms[1]);
     let cell_revision = revision(&cell);
     let mut c =
-        OverlayWriter::open_or_create(&dir.container(RetailDat::Cell), &cell, cell_name, WORLD, 1)
+        OverlayWriter::open_or_create(&dir.container(ModernDat::Cell), &cell, cell_name, WORLD, 1)
             .expect("the cell overlay");
     let room = cell.read(cell_replaced).expect("the room");
     c.save(&cell, cell_replaced, &room, 2, cell_revision, 1)
@@ -190,7 +190,7 @@ fn a_client_that_keeps_overlays_is_sent_the_manifest_the_records_and_the_deletio
     let base_dir = dereth_dat::testing::dat_dir();
     let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
     let made = make_overlay(&base, &dir, "client_portal.dat", "client_cell_1.dat");
-    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Tod);
+    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Modern);
     assert_eq!(
         dats.portal_dat().iteration(),
         i32::try_from(made.portal_revision).unwrap()
@@ -279,7 +279,7 @@ fn a_client_holding_another_base_is_refused_with_the_reason_and_one_without_over
     let base_dir = dereth_dat::testing::dat_dir();
     let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
     make_overlay(&base, &dir, "client_portal.dat", "client_cell_1.dat");
-    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Tod);
+    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Modern);
 
     let mut other = response(&base, true);
     other.overlay_bases[0].fingerprint = [0x5A; 32];
@@ -308,18 +308,18 @@ fn a_client_holding_another_base_is_refused_with_the_reason_and_one_without_over
 fn a_february_2005_world_with_an_overlay_patches_a_client_that_keeps_overlays() {
     let scratch = dereth_dat::testing::ScratchDir::new("server-overlay-2005").expect("scratch");
     let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
-    let old_dir = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+    let old_dir = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
         panic!(
             "{}",
-            dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            dereth_dat::testing::classic_shortfall().unwrap_or_default()
         )
     });
-    let old = RetailDatStore::open_pre_tod_dir(&old_dir).expect("the 2005 dats");
+    let old = RetailDatStore::open_classic_dir(&old_dir).expect("the 2005 dats");
     let made = make_overlay(&old, &dir, "portal.dat", "cell.dat");
     let dats = overlaid(
         &old_dir,
         dir.path(),
-        dereth_primitives::ContainerEra::PreTod,
+        dereth_primitives::ContainerEra::Classic,
     );
     let later = RetailDatStore::open_dir(&dereth_dat::testing::dat_dir()).expect("later");
     // The client drawing that world: its 2005 portal and cell, its later language file.
@@ -353,7 +353,7 @@ fn a_client_that_keeps_overlays_is_sent_its_records_at_the_overlays_rate() {
     let portal = base.portal().base();
     let revision = revision(&portal);
     let mut w = OverlayWriter::open_or_create(
-        &dir.container(RetailDat::Portal),
+        &dir.container(ModernDat::Portal),
         &portal,
         "client_portal.dat",
         WORLD,
@@ -374,7 +374,7 @@ fn a_client_that_keeps_overlays_is_sent_its_records_at_the_overlays_rate() {
     w.add_iteration(revision, 1).expect("the revision");
     w.flush(1).expect("flushed");
     drop(w);
-    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Tod);
+    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Modern);
     let (mut ts, id) = exchange(&dats, &response(&base, true));
     ts.run_until(6.0, |ts| ts.received::<DddData>(id).len() >= 600);
     assert_eq!(ts.received::<DddData>(id).len(), 600);

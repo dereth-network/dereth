@@ -8,7 +8,7 @@
 //! relative to that directory). Pointing it at an empty directory is how a run proves it passes
 //! with no dats.
 //!
-//! The search itself is [`crate::locate_retail_dats`]; this module only supplies the candidate.
+//! The search itself is [`crate::locate_modern_dats`]; this module only supplies the candidate.
 //! The directory found is declared read-only for the run ([`crate::protect_install`]), so no test
 //! can write to the install every other test reads.
 
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
-use crate::{locate_retail_dats, DatDir, DatsNotFound, RetailDat, RetailDatStore};
+use crate::{locate_modern_dats, DatDir, DatsNotFound, ModernDat, RetailDatStore};
 
 /// A uniquely owned temporary directory. Existing paths are never removed during allocation.
 #[derive(Debug)]
@@ -104,7 +104,7 @@ pub fn locate() -> Result<&'static DatDir, &'static DatsNotFound> {
     static FOUND: OnceLock<Result<DatDir, DatsNotFound>> = OnceLock::new();
     FOUND
         .get_or_init(|| {
-            let found = locate_retail_dats(&candidates());
+            let found = locate_modern_dats(&candidates());
             if let Ok(dir) = &found {
                 crate::protect_install(dir.path());
             }
@@ -125,7 +125,7 @@ pub fn dat_dir() -> PathBuf {
 
 /// One retail file's path in [`dat_dir`].
 #[must_use]
-pub fn dat_file(dat: RetailDat) -> PathBuf {
+pub fn dat_file(dat: ModernDat) -> PathBuf {
     dat.in_dir(&dat_dir())
 }
 
@@ -197,27 +197,27 @@ pub fn open_store_or_fail() -> RetailDatStore {
 
 /// The test-only variable naming a directory that holds the February 2005 dat set (`portal.dat`
 /// and `cell.dat`, from before Throne of Destiny).
-pub const PRE_TOD_DAT_DIR_VAR: &str = "DERETH_TEST_PRETOD_DAT_DIR";
+pub const CLASSIC_DAT_DIR_VAR: &str = "DERETH_TEST_PRETOD_DAT_DIR";
 
 /// The directory `DERETH_TEST_PRETOD_DAT_DIR` names, or `None` when it is unset or empty.
 #[must_use]
-pub fn pre_tod_dat_dir() -> Option<PathBuf> {
-    std::env::var_os(PRE_TOD_DAT_DIR_VAR)
+pub fn classic_dat_dir() -> Option<PathBuf> {
+    std::env::var_os(CLASSIC_DAT_DIR_VAR)
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
 }
 
 /// Why the February 2005 dats cannot be read, or `None` when both files are there.
 #[must_use]
-pub fn pre_tod_shortfall() -> Option<String> {
-    match pre_tod_dat_dir() {
+pub fn classic_shortfall() -> Option<String> {
+    match classic_dat_dir() {
         None => Some(format!(
-            "the February 2005 dats were not found: {PRE_TOD_DAT_DIR_VAR} is unset (set it to \
+            "the February 2005 dats were not found: {CLASSIC_DAT_DIR_VAR} is unset (set it to \
              the directory holding portal.dat and cell.dat)"
         )),
-        Some(dir) if !crate::holds_pre_tod_dats(&dir) => Some(format!(
+        Some(dir) if !crate::holds_classic_dats(&dir) => Some(format!(
             "the February 2005 dats were not found: no portal.dat and cell.dat under {} \
-             ({PRE_TOD_DAT_DIR_VAR})",
+             ({CLASSIC_DAT_DIR_VAR})",
             dir.display()
         )),
         Some(_) => None,
@@ -229,16 +229,16 @@ pub fn pre_tod_shortfall() -> Option<String> {
 ///
 /// # Panics
 ///
-/// With [`pre_tod_shortfall`]'s line when the files are not there, or with the open error when
+/// With [`classic_shortfall`]'s line when the files are not there, or with the open error when
 /// they are and do not open.
 #[must_use]
-pub fn open_pre_tod_store_or_fail() -> RetailDatStore {
-    if let Some(msg) = pre_tod_shortfall() {
+pub fn open_classic_store_or_fail() -> RetailDatStore {
+    if let Some(msg) = classic_shortfall() {
         panic!("{msg}");
     }
-    let dir = pre_tod_dat_dir().unwrap_or_default();
+    let dir = classic_dat_dir().unwrap_or_default();
     crate::protect_install(&dir);
-    RetailDatStore::open_pre_tod_dir(&dir).unwrap_or_else(|e| {
+    RetailDatStore::open_classic_dir(&dir).unwrap_or_else(|e| {
         panic!(
             "the February 2005 dats under {} did not open: {e}",
             dir.display()
@@ -247,7 +247,7 @@ pub fn open_pre_tod_store_or_fail() -> RetailDatStore {
 }
 
 /// One folder holding both dat sets, as a player's one `--dat-dir` does: the retail files of
-/// [`dat_dir`] and the February 2005 `portal.dat` and `cell.dat` of [`pre_tod_dat_dir`], hard-linked
+/// [`dat_dir`] and the February 2005 `portal.dat` and `cell.dat` of [`classic_dat_dir`], hard-linked
 /// into a folder under the temp directory (no copy is made). The folder is named after the two it
 /// joins, so every test process reuses it, and it is protected for the run as the install is.
 ///
@@ -262,11 +262,11 @@ pub fn both_sets_dir() -> PathBuf {
         if let Some(msg) = shortfall() {
             panic!("{msg}");
         }
-        if let Some(msg) = pre_tod_shortfall() {
+        if let Some(msg) = classic_shortfall() {
             panic!("{msg}");
         }
         let later = dat_dir();
-        let older = pre_tod_dat_dir().unwrap_or_default();
+        let older = classic_dat_dir().unwrap_or_default();
         // FNV-1a over the two folders' spellings: a stable name for the pair.
         let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
         for b in format!("{}|{}", later.display(), older.display()).bytes() {
@@ -275,10 +275,10 @@ pub fn both_sets_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("dereth-both-dat-sets-{hash:016x}"));
         std::fs::create_dir_all(&dir)
             .unwrap_or_else(|e| panic!("the folder {} could not be made: {e}", dir.display()));
-        let files = RetailDat::ALL
+        let files = ModernDat::ALL
             .iter()
             .map(|d| d.in_dir(&later))
-            .chain(crate::PreTodDat::ALL.iter().map(|d| d.in_dir(&older)))
+            .chain(crate::ClassicDat::ALL.iter().map(|d| d.in_dir(&older)))
             .filter(|p| p.is_file());
         for src in files {
             let dst = dir.join(src.file_name().unwrap_or_default());

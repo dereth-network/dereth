@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex};
 
 /// Whether `name` is one of the retail data files the worker's development reader asks for.
 fn is_dat_name(name: &str) -> bool {
-    dereth_dat::RetailDat::ALL
+    dereth_dat::ModernDat::ALL
         .iter()
         .any(|d| d.file_name() == name)
 }
@@ -520,7 +520,7 @@ mod tests {
         std::fs::create_dir_all(&dats).unwrap();
         std::fs::write(www.join("index.html"), "<p>").unwrap();
         std::fs::write(root.join("secret.txt"), "no").unwrap();
-        let portal = dereth_dat::RetailDat::Portal;
+        let portal = dereth_dat::ModernDat::Portal;
         std::fs::write(portal.in_dir(&dats), "d").unwrap();
         std::fs::write(dats.join("other.dat"), "x").unwrap();
         let www = www.canonicalize().unwrap();

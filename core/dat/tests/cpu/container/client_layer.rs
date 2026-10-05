@@ -13,7 +13,7 @@ use dereth_dat::container::{CELL_DATFILE, LOCAL_DATFILE, PORTAL_DATFILE};
 use dereth_dat::divine::DbType;
 use dereth_dat::overlay::{self, OverlayDir, OverlayWriter};
 use dereth_dat::write::DatWriter;
-use dereth_dat::{ContainerEra, DatFile, RetailDat, RetailDatStore, ITERATION_LIST};
+use dereth_dat::{ContainerEra, DatFile, ModernDat, RetailDatStore, ITERATION_LIST};
 use dereth_primitives::{AssetSource, DataId};
 
 const KEPT: DataId = DataId(0x0600_0001);
@@ -48,21 +48,21 @@ fn base_set(dir: &Path) {
         }
     };
     make(
-        RetailDat::Portal.file_name(),
+        ModernDat::Portal.file_name(),
         0x400,
         PORTAL_DATFILE,
         0,
         &[(KEPT, b"kept"), (REPLACED, b"old"), (DELETED, b"doomed")],
     );
-    make(RetailDat::Cell.file_name(), 0x100, CELL_DATFILE, 1, &[]);
-    make(RetailDat::Local.file_name(), 0x400, LOCAL_DATFILE, 1, &[]);
+    make(ModernDat::Cell.file_name(), 0x100, CELL_DATFILE, 1, &[]);
+    make(ModernDat::Local.file_name(), 0x400, LOCAL_DATFILE, 1, &[]);
 }
 
 /// The world's overlay: revision 11 replaces one portal record, adds one and deletes one.
 fn write_overlay(store: &RetailDatStore, dir: &OverlayDir) {
     let portal = store.portal();
     let mut w = OverlayWriter::open_or_create(
-        &dir.container(RetailDat::Portal),
+        &dir.container(ModernDat::Portal),
         portal,
         "client_portal.dat",
         "world one",
@@ -88,9 +88,9 @@ fn client(root: &Path) -> ClientLayer {
     .into_iter()
     .collect();
     let path = root.join("client-layer.dat");
-    client_layer::write(&path, ContainerEra::Tod, &records).unwrap();
+    client_layer::write(&path, ContainerEra::Modern, &records).unwrap();
     let again = root.join("client-layer-again.dat");
-    client_layer::write(&again, ContainerEra::Tod, &records).unwrap();
+    client_layer::write(&again, ContainerEra::Modern, &records).unwrap();
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(
         bytes,
@@ -100,7 +100,7 @@ fn client(root: &Path) -> ClientLayer {
     assert!(bytes.len() < 32 * 1024, "{} bytes", bytes.len());
     let built_in: &'static [u8] = Box::leak(bytes.into_boxed_slice());
     let layer = ClientLayer::from_static("client-layer", built_in).unwrap();
-    assert_eq!(layer.era(), ContainerEra::Tod);
+    assert_eq!(layer.era(), ContainerEra::Modern);
     assert_eq!(layer.base_name(), "client_portal.dat");
     assert_eq!(layer.ids(), vec![KEPT, REPLACED, DELETED, CLIENT_ONLY]);
     layer
@@ -177,7 +177,7 @@ fn the_clients_records_are_in_no_iteration_and_in_none_of_the_base_files() {
         (store.clone(), store.clone().with_client_layer(&layer)),
         (world.clone(), world.clone().with_client_layer(&layer)),
     ] {
-        for t in RetailDat::REQUIRED {
+        for t in ModernDat::REQUIRED {
             let (a, b) = (
                 without.target_file(t).unwrap(),
                 with.target_file(t).unwrap(),
@@ -197,7 +197,7 @@ fn the_clients_records_are_in_no_iteration_and_in_none_of_the_base_files() {
         assert!(with.portal().contains(CLIENT_ONLY));
     }
     // A world's overlay is not a client layer.
-    let world_container = DatFile::open(&dir.container(RetailDat::Portal)).unwrap();
+    let world_container = DatFile::open(&dir.container(ModernDat::Portal)).unwrap();
     assert!(ClientLayer::from_file(world_container).is_err());
     let _ = std::fs::remove_dir_all(&root);
 }

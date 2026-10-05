@@ -73,8 +73,8 @@ impl Format {
     #[must_use]
     pub const fn era(self) -> ContainerEra {
         match self {
-            Self::Rgb => ContainerEra::PreTod,
-            Self::Surface => ContainerEra::Tod,
+            Self::Rgb => ContainerEra::Classic,
+            Self::Surface => ContainerEra::Modern,
         }
     }
 }
@@ -277,9 +277,9 @@ impl Manifest {
                 [] => {}
                 ["over", name] => {
                     over = Some(if name.eq_ignore_ascii_case("portal.dat") {
-                        ContainerEra::PreTod
+                        ContainerEra::Classic
                     } else if name.eq_ignore_ascii_case("client_portal.dat") {
-                        ContainerEra::Tod
+                        ContainerEra::Modern
                     } else {
                         return Err(bad("over names portal.dat or client_portal.dat"));
                     });

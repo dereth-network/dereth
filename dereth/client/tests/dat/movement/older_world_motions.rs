@@ -26,7 +26,7 @@ const DEPARTURE_2005: u32 = 0x0300_07BE;
 const DEPARTURE_END_OF_RETAIL: u32 = 0x0300_0C22;
 
 fn older() -> Arc<RetailDatStore> {
-    Arc::new(dereth_dat::testing::open_pre_tod_store_or_fail())
+    Arc::new(dereth_dat::testing::open_classic_store_or_fail())
 }
 
 fn later() -> Arc<RetailDatStore> {

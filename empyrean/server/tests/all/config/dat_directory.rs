@@ -37,7 +37,7 @@ fn base(with_config: bool) -> PathBase {
 }
 
 /// The folder the server would use if exactly `holding` held the dats: the first candidate that
-/// does (what `dereth_dat::locate_retail_dats` answers on disk), else the first candidate.
+/// does (what `dereth_dat::locate_modern_dats` answers on disk), else the first candidate.
 fn find(configured: &str, with_config: bool, holding: &[PathBuf]) -> PathBuf {
     let holding: BTreeSet<PathBuf> = holding.iter().cloned().collect();
     let candidates = dat_directory_candidates(configured, &base(with_config));

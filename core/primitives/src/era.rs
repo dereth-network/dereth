@@ -51,8 +51,8 @@ impl EraId {
     #[must_use]
     pub const fn container_era(self) -> crate::ContainerEra {
         match self {
-            Self::Infiltration => crate::ContainerEra::PreTod,
-            Self::Eor => crate::ContainerEra::Tod,
+            Self::Infiltration => crate::ContainerEra::Classic,
+            Self::Eor => crate::ContainerEra::Modern,
         }
     }
 

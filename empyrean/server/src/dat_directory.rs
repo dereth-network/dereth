@@ -10,7 +10,7 @@
 //! default was a Windows drive path, which is wrong on the Linux and macOS builds; the default here
 //! is the same on every platform.
 //!
-//! The search is `dereth-dat`'s ([`dereth_dat::locate_retail_dats`]), the one the client uses for
+//! The search is `dereth-dat`'s ([`dereth_dat::locate_modern_dats`]), the one the client uses for
 //! its own candidates; this module only decides which folders are candidates.
 
 use std::path::PathBuf;
@@ -34,12 +34,12 @@ pub fn dat_directory_candidates(configured: &str, base: &PathBase) -> Vec<PathBu
 #[must_use]
 pub fn dat_directory(configured: &str, base: &PathBase) -> PathBuf {
     let candidates = dat_directory_candidates(configured, base);
-    match dereth_dat::locate_retail_dats(&candidates) {
+    match dereth_dat::locate_modern_dats(&candidates) {
         Ok(dir) => dir.into_path_buf(),
         // The dat set from before Throne of Destiny (`portal.dat`, `cell.dat`) marks a folder too.
         Err(_) => candidates
             .iter()
-            .find(|d| dereth_dat::holds_pre_tod_dats(d))
+            .find(|d| dereth_dat::holds_classic_dats(d))
             .or(candidates.first())
             .cloned()
             .unwrap_or_default(),
@@ -65,11 +65,11 @@ pub fn world_set(config: &MasterConfiguration, base: &PathBase) -> dereth_dat::C
 #[must_use]
 pub fn configured_dat_directory(config: &MasterConfiguration, base: &PathBase) -> PathBuf {
     let configured = &config.server.dat_files_directory;
-    if world_set(config, base) == dereth_dat::ContainerEra::PreTod {
+    if world_set(config, base) == dereth_dat::ContainerEra::Classic {
         let candidates = dat_directory_candidates(configured, base);
         if let Some(dir) = candidates
             .iter()
-            .find(|d| dereth_dat::holds_pre_tod_dats(d))
+            .find(|d| dereth_dat::holds_classic_dats(d))
         {
             return dir.clone();
         }

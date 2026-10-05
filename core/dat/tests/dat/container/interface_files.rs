@@ -24,15 +24,15 @@ fn colliding_images(world: &RetailDatStore, later: &RetailDatStore) -> Vec<DataI
 /// Behaviour: presentation.era.the-retail-interface-draws-its-own-art-over-an-older-world
 #[test]
 fn the_interface_files_beside_an_older_world_answer_with_the_later_pictures() {
-    let old = dereth_dat::testing::pre_tod_dat_dir().unwrap_or_else(|| {
+    let old = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
         panic!(
             "{}",
-            dereth_dat::testing::pre_tod_shortfall().unwrap_or_default()
+            dereth_dat::testing::classic_shortfall().unwrap_or_default()
         )
     });
     let later_dir = dereth_dat::testing::dat_dir();
     let world = Arc::new(
-        RetailDatStore::open_pre_tod_with_later(&old, &later_dir)
+        RetailDatStore::open_classic_with_modern(&old, &later_dir)
             .expect("the February 2005 dats beside the end-of-retail ones"),
     );
     let later = RetailDatStore::open_dir(&later_dir).expect("the end-of-retail dats");

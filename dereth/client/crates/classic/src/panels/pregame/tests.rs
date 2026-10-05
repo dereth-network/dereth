@@ -1314,7 +1314,7 @@ fn both_worlds_project_real_keys_face_pixels_preview_resources_and_results() {
     );
     for old in [true, false] {
         let store = if old {
-            dereth_dat::testing::open_pre_tod_store_or_fail()
+            dereth_dat::testing::open_classic_store_or_fail()
         } else {
             dereth_dat::testing::open_store_or_fail()
         };

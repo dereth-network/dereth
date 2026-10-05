@@ -12,7 +12,7 @@ the layouts below: every record has a type and decodes with nothing left over. W
 changed within the era, the difference is listed with when it appears; the record itself (its
 length, or a type word it holds) decides which one a reader takes, never the file's date.
 
-**Readers:** `Decode::decode_pre_tod` on each type in `dereth-assets` (the default, for the types
+**Readers:** `Decode::decode_classic` on each type in `dereth-assets` (the default, for the types
 whose layout did not change, is the later reader), chosen by `Decode::decode_payload_in` and
 `decode_any_in` from the store's `ContainerEra`; the type of an id is `divine_type_in`. Pinned by
 the public-tier `pre_tod_layouts` and `legacy_tables` tests in `core/assets/tests/cpu/`; in the
@@ -223,7 +223,7 @@ the same in every region.
 
 The two older files have no interface records of the later kind (layout properties, fonts, the
 enum and id maps, interface images, the language file's layouts and strings). A store that opens
-the older world with the end-of-retail files beside it (`RetailDatStore::open_pre_tod_with_later`,
+the older world with the end-of-retail files beside it (`RetailDatStore::open_classic_with_modern`,
 the client's world when `--era` names an era before Throne of Destiny and both sets are found:
 beside each other in `--dat-dir`, or the older set in `--classic-dat-dir`) answers every record the older portal and cell files hold from
 them, in their layouts, and every other portal record and every language record from the later

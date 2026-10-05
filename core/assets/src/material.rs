@@ -105,7 +105,7 @@ impl Decode for Surface {
     }
 
     /// Before Throne of Destiny the record starts with its own id; the rest is unchanged.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let _id = c.data_id()?;
         Self::decode(c)
     }
@@ -168,9 +168,9 @@ impl Decode for SurfaceTexture {
     }
 
     /// Before Throne of Destiny a `0x05` record is itself the image ([`pre_tod_image`]), so it
-    /// reads as a texture whose one level is itself; [`RenderSurface::from_pre_tod_texture`]
+    /// reads as a texture whose one level is itself; [`RenderSurface::from_classic_texture`]
     /// reads its pixels.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let (id, _) = pre_tod_image(c)?;
         Ok(Self {
             id,
@@ -338,7 +338,7 @@ impl RenderSurface {
     ///
     /// # Errors
     /// The record is not a whole image texture of a known type, or names another id.
-    pub fn from_pre_tod_texture(id: DataId, bytes: &[u8]) -> Result<Self, AssetError> {
+    pub fn from_classic_texture(id: DataId, bytes: &[u8]) -> Result<Self, AssetError> {
         let mut c = Cursor::new(bytes);
         let (found, rs) = pre_tod_image(&mut c)?;
         c.expect_end()?;
@@ -388,7 +388,7 @@ impl Decode for RenderSurface {
     /// Before Throne of Destiny a `0x06` record is an id, a width, a height and three bytes per
     /// pixel in red, green, blue order ([`PFID_CUSTOM_B8G8R8`]), with no category, format, length,
     /// palette or padding.
-    fn decode_pre_tod(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
+    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
         let id = c.data_id()?;
         let width = c.u32()?;
         let height = c.u32()?;

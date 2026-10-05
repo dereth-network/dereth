@@ -200,7 +200,7 @@ pub fn ddd_interrogation_response_with(
     // portal file holds the strings) and no patching (those files have no iteration lists to
     // patch from): the portal and cell iterations are compared, the language list is not, and a
     // client missing iterations is booted as when patching is off.
-    let pre_tod = dats.portal_dat().container_era() == dereth_primitives::ContainerEra::PreTod;
+    let pre_tod = dats.portal_dat().container_era() == dereth_primitives::ContainerEra::Classic;
     // DIVERGE (V437): a client that keeps overlays is patched to a world with a data overlay,
     // before Throne of Destiny too (the overlay carries its own iteration list).
     let enable_dat_patching = (enable_dat_patching && !pre_tod) || overlay_patching;

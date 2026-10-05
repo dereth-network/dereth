@@ -64,7 +64,7 @@ impl StoreNumbering {
     pub fn of(store: &RetailDatStore) -> Self {
         Self {
             world: of_store(store),
-            later: store.later_files().map(|l| of_store(&l)),
+            later: store.modern_companion_files().map(|l| of_store(&l)),
         }
     }
 

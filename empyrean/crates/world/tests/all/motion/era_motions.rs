@@ -39,10 +39,10 @@ fn world(dats: Arc<DatManager>) -> World {
 fn february_2005() -> World {
     static DATS: OnceLock<Arc<DatManager>> = OnceLock::new();
     let dats = DATS.get_or_init(|| {
-        if let Some(msg) = dereth_dat::testing::pre_tod_shortfall() {
+        if let Some(msg) = dereth_dat::testing::classic_shortfall() {
             panic!("{msg}");
         }
-        open(&dereth_dat::testing::pre_tod_dat_dir().unwrap_or_default())
+        open(&dereth_dat::testing::classic_dat_dir().unwrap_or_default())
     });
     world(Arc::clone(dats))
 }

@@ -531,7 +531,7 @@ fn shared_heading_descriptors_use_each_asset_environment_or_their_fallback() {
     for (store, expected) in [
         (dereth_dat::testing::open_store_or_fail(), "Sound Options"),
         (
-            dereth_dat::testing::open_pre_tod_store_or_fail(),
+            dereth_dat::testing::open_classic_store_or_fail(),
             "Sound Options",
         ),
     ] {

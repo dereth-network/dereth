@@ -290,9 +290,9 @@ directory and its lookup are the same; the header, the entry and the iteration a
 changed exactly once, with the renaming, so a file's layout is told by where its magic sits: at
 `0x140` it is the layout above, at `0x12C` it is this one.
 
-**Readers:** `dereth_dat::container` (`ContainerEra::PreTod`, `DatFile::header_iteration`),
-`dereth_dat::btree` (`BtNode::parse_pre_tod`), `dereth_dat::store`
-(`RetailDatStore::open_pre_tod_dir`). The layout is read, never written.
+**Readers:** `dereth_dat::container` (`ContainerEra::Classic`, `DatFile::header_iteration`),
+`dereth_dat::btree` (`BtNode::parse_classic`), `dereth_dat::store`
+(`RetailDatStore::open_classic_dir`). The layout is read, never written.
 
 | offset | size | field | meaning |
 |---:|---:|---|---|
