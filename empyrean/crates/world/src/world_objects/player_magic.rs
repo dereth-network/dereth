@@ -763,10 +763,12 @@ pub fn verify_spell_target(
     target: ObjectGuid,
 ) -> bool {
     if is_invalid_target(w, this, spell, target) {
+        // DIVERGE: the target alone is named, as the clients' own refusal names it (ClassicACE's
+        // text); ACE's names the spell too.
         send_transient_string(
             w,
             this,
-            &format!("{} cannot be cast on {}.", spell.name(), name_of(w, target)),
+            &format!("This spell cannot be cast on {}.", name_of(w, target)),
         );
         send_use_done_event(w, this, WeenieError::None);
         return false;
@@ -1034,9 +1036,14 @@ pub fn do_spell_words(w: &mut World, this: ObjectGuid, spell: &mut Spell, is_wea
     get_player_formula(w, this, spell);
 
     let spell_words = spell_words(w, spell);
+    speak_spell_words(w, this, &spell_words, is_weapon_spell);
+}
+
+/// The caster says the words aloud to those near, and is heard saying them.
+fn speak_spell_words(w: &mut World, this: ObjectGuid, spell_words: &str, is_weapon_spell: bool) {
     if !spell_words.trim().is_empty() && !is_weapon_spell {
         let msg = game_message_hear_speech(
-            &spell_words,
+            spell_words,
             &player_get_name_with_suffix(w, this),
             this.full(),
             ChatMessageType::Spellcasting,
@@ -1050,7 +1057,99 @@ pub fn do_spell_words(w: &mut World, this: ObjectGuid, spell: &mut Spell, is_wea
         );
     }
 
-    player_on_talk(w, this, &spell_words);
+    player_on_talk(w, this, spell_words);
+}
+
+/// A legal research formula that is no spell of this account's: cast, and always fizzled. The
+/// caster speaks the formula's own words and makes its gestures (a windup for each scarab, then the
+/// talisman's), then spends what a fizzle spends -- a fizzle's mana, and each component by its own
+/// destruction rate times the world's mean spell component loss -- and is told "Your spell
+/// fizzled.". Nothing is learned.
+pub(crate) fn fizzle_research_formula(w: &mut World, this: ObjectGuid, formula: &[u32]) {
+    use empyrean_dat::file_types::spell_table::{component_type, get_spell_words};
+    /// What a fizzle costs in mana (ACE's).
+    const FIZZLE_MANA: u32 = 5;
+
+    if creature_combat::combat_mode(w, this) != CombatMode::Magic {
+        if player_last_combat_mode(w, this) == CombatMode::Magic {
+            creature_combat::set_combat_mode_field(w, this, CombatMode::Magic);
+        } else {
+            send_use_done_event(w, this, WeenieError::None);
+            return;
+        }
+    }
+    if !pre_cast_checks(w, this) || !verify_busy(w, this) {
+        return;
+    }
+    let mana = {
+        let o = obj(w, this);
+        o.mana().current(o)
+    };
+    if mana < FIZZLE_MANA {
+        send_use_done_event(w, this, WeenieError::YouDontHaveEnoughManaToCast);
+        return;
+    }
+    magic_state::on_cast_start(w, this);
+    let start_pos = physics_position(w, this);
+    fields_mut(w, this).start_pos = Some(start_pos);
+
+    let table = crate::entity::spell_formula::spell_components_table(w);
+    let words = get_spell_words(table, Some(formula)).unwrap_or_default();
+    let gesture = |kind: u32| {
+        formula
+            .iter()
+            .filter_map(|c| table.components.get(c))
+            .filter(move |c| c.component_type == kind)
+            .map(|c| MotionCommand(c.gesture))
+            .collect::<Vec<_>>()
+    };
+    let (windups, casts) = (
+        gesture(component_type::SCARAB),
+        gesture(component_type::TALISMAN),
+    );
+    speak_spell_words(w, this, &words, false);
+
+    let mut chain = ActionChain::new();
+    for motion in windups.into_iter().chain(casts) {
+        world_object_networking::enqueue_motion_magic(w, this, &mut chain, motion, CAST_SPEED);
+    }
+    let formula = formula.to_vec();
+    chain.add_action(Actor::Object(this), move |w| {
+        let mana = obj(w, this).mana();
+        crate::world_objects::creature_vitals::update_vital_delta(
+            w,
+            this,
+            mana,
+            FIZZLE_MANA.cast_signed().wrapping_neg(),
+        );
+        let base_rate = mean_component_loss(w);
+        let table = crate::entity::spell_formula::spell_components_table(w);
+        let burned: Vec<u32> = formula
+            .iter()
+            .copied()
+            .filter(|c| {
+                table.components.get(c).is_some_and(|c| {
+                    ThreadSafeRandom::next_float(0.0, 1.0) < f64::from(base_rate * c.cdm)
+                })
+            })
+            .collect();
+        consume_burned_components(w, this, burned);
+        broadcast_script(w, this, PlayScript::Fizzle, 0.5);
+        send_weenie_error(w, this, WeenieError::YourSpellFizzled);
+        finish_cast(w, this);
+    });
+    chain.enqueue_chain(w);
+}
+
+/// The world's spells' mean component loss: the burn rate of a formula that is no spell's.
+fn mean_component_loss(w: &World) -> f32 {
+    let spells = &crate::entity::spell_formula::spell_table(w).spells;
+    if spells.is_empty() {
+        return 0.0;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let n = spells.len() as f32;
+    spells.values().map(|s| s.component_loss).sum::<f32>() / n
 }
 
 /// from retail captures, player animation speed for windup / first half of cast gesture
@@ -1939,7 +2038,17 @@ pub fn try_burn_components(w: &mut World, this: ObjectGuid, spell: &Spell) {
         return;
     }
 
-    let mut burned = spell.try_burn_components(w, this);
+    let burned = spell.try_burn_components(w, this);
+    consume_burned_components(w, this, burned);
+}
+
+/// Take the burned components out of the pack and tell the caster what was consumed.
+fn consume_burned_components(w: &mut World, this: ObjectGuid, mut burned: Vec<u32>) {
+    if obj(w, this).safe_spell_components()
+        || property_manager::get_bool(w, "safe_spell_comps", false, true).item
+    {
+        return;
+    }
     if burned.is_empty() {
         return;
     }

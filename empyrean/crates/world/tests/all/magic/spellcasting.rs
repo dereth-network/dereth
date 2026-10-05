@@ -906,6 +906,145 @@ fn research_teaches_only_after_a_successful_cast_and_acknowledges_known_success(
     }
 }
 
+/// A formula test is judged legality, then target, then match or fizzle: an unspeakable formula
+/// is an impossible spell path; a spell's formula at a target it cannot take is "Incorrect target
+/// type" with nothing spent and no spell named; a legal formula that is no spell's is cast and
+/// fizzles (5 mana, "Your spell fizzled."); a spell's formula beyond the caster's skill fizzles as
+/// any cast does. None of them teaches.
+/// Divergence: V440
+#[test]
+fn a_formula_test_is_judged_legality_then_target_then_match_or_fizzle() {
+    use empyrean_world::world_objects::spell_research::handle_test_spell_formula;
+    const IMPOSSIBLE: u32 = 0x03FA;
+    const INCORRECT_TARGET: u32 = 0x03FF;
+    const FIZZLED: u32 = 0x0402;
+    let research = |defs: Vec<Def>| {
+        let mut h = H::with_dats(dats_with(defs, ItemType::Creature.0));
+        let mut features = h.w.era.features;
+        features.spell_research = true;
+        h.w.era = empyrean_common::era::with_features(h.w.era, features);
+        h.player(100.0, 100.0);
+        h
+    };
+    let mut definition = defs().remove(0);
+    definition.flags = BENEFICIAL;
+
+    // (b) No talisman: the words cannot be finished.
+    let mut h = research(vec![definition_clone(&definition)]);
+    let items = h.give_components();
+    assert!(player_spells::remove_known_spell(
+        &mut h.w,
+        PLAYER,
+        STRENGTH_SELF
+    ));
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA[..4], PLAYER.full());
+    let got = sent();
+    assert_eq!(events(&got, EV_USE_DONE), [IMPOSSIBLE], "{got:?}");
+    assert!(!player_magic::fields(&h.w, PLAYER).magic_state.is_casting);
+
+    // (c) The spell's own formula at a component, which no creature spell takes.
+    let mana_before = h.vital(PLAYER, PropertyAttribute2nd::MaxMana);
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, items[0].full());
+    let got = sent();
+    assert_eq!(events(&got, EV_USE_DONE), [INCORRECT_TARGET], "{got:?}");
+    assert!(
+        got.iter()
+            .filter_map(|s| s.text.as_deref())
+            .all(|t| !t.contains("Strength")),
+        "no spell is named: {got:?}"
+    );
+    assert_eq!(h.vital(PLAYER, PropertyAttribute2nd::MaxMana), mana_before);
+    assert!(!player_spells::spell_is_known(&h.w, PLAYER, STRENGTH_SELF));
+
+    // (a) A legal formula that is no spell's: two scarabs. Cast, and fizzled.
+    let other = [1, 1, 10, 20, 30, 40];
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &other, PLAYER.full());
+    assert!(
+        player_magic::fields(&h.w, PLAYER).magic_state.is_casting,
+        "the formula is cast"
+    );
+    assert!(h.run_until(3.0, |h| !player_magic::is_busy(&h.w, PLAYER)));
+    let got = sent();
+    assert_eq!(events(&got, EV_WEENIE_ERROR), [FIZZLED], "{got:?}");
+    assert_eq!(
+        h.vital(PLAYER, PropertyAttribute2nd::MaxMana),
+        mana_before - 5,
+        "a fizzle's mana"
+    );
+    assert!(events(&got, 0x02C1).is_empty(), "nothing is learned");
+
+    // (d) The spell's own formula, beyond the caster's skill: a fizzle as any cast's.
+    let mut hard = definition_clone(&definition);
+    hard.power = 400;
+    let mut h = research(vec![hard]);
+    let _ = h.give_components();
+    assert!(player_spells::remove_known_spell(
+        &mut h.w,
+        PLAYER,
+        STRENGTH_SELF
+    ));
+    start_capture();
+    handle_test_spell_formula(&mut h.w, PLAYER, &FORMULA, PLAYER.full());
+    assert!(h.run_until(3.0, |h| !player_magic::is_busy(&h.w, PLAYER)));
+    let got = sent();
+    assert_eq!(events(&got, EV_WEENIE_ERROR), [FIZZLED], "{got:?}");
+    assert!(!player_spells::spell_is_known(&h.w, PLAYER, STRENGTH_SELF));
+}
+
+/// A cast at a target the spell cannot take is refused naming the target alone, as the clients'
+/// own refusal does: "This spell cannot be cast on <target>.", never the spell.
+/// Divergence: V441
+#[test]
+fn a_spell_refused_its_target_names_the_target_and_not_the_spell() {
+    let mut definition = defs().remove(0);
+    definition.flags = BENEFICIAL;
+    let mut h = H::with_dats(dats_with(vec![definition], ItemType::Creature.0));
+    h.player(100.0, 100.0);
+    let items = h.give_components();
+    start_capture();
+    player_magic::handle_action_cast_targeted_spell(
+        &mut h.w,
+        PLAYER,
+        items[0].full(),
+        STRENGTH_SELF,
+        None,
+    );
+    let _ = h.run_until(1.0, |h| !player_magic::is_busy(&h.w, PLAYER));
+    // The transient string event (0x02EB): its text, a 16-bit length then the bytes.
+    let texts: Vec<String> = take_sent()
+        .into_iter()
+        .filter_map(|(_, _, b)| {
+            let word = |at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+            (b.len() > 18 && word(0) == 0xF7B0 && word(12) == 0x02EB).then(|| {
+                let len = usize::from(u16::from_le_bytes(b[16..18].try_into().unwrap()));
+                String::from_utf8_lossy(&b[18..18 + len]).into_owned()
+            })
+        })
+        .collect();
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("This spell cannot be cast on ")),
+        "{texts:?}"
+    );
+    assert!(texts.iter().all(|t| !t.contains("Strength")), "{texts:?}");
+}
+
+fn definition_clone(d: &Def) -> Def {
+    Def {
+        id: d.id,
+        name: d.name,
+        school: d.school,
+        meta: d.meta,
+        flags: d.flags,
+        power: d.power,
+        db: d.db.clone(),
+    }
+}
+
 // ------------------------------------------------------------------------------------ scenarios
 
 /// A self buff (`HandleActionCastTargetedSpell` at yourself): the target is `Self`, so no turn;
