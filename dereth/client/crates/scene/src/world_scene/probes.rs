@@ -334,6 +334,21 @@ impl SceneDraw {
         out
     }
 
+    /// Every placed static drawn posed from its own default animation: its setup and the frame
+    /// each of its parts is drawn at this frame, in the renderer's space. For the tests.
+    #[must_use]
+    pub fn animated_static_parts(&self) -> Vec<(DataId, Vec<Frame>)> {
+        self.blocks
+            .values()
+            .flat_map(|b| {
+                b.hosts.iter().filter(|h| h.meshes.is_some()).map(|h| {
+                    let setup = b.emitters.get(h.placement).map_or(DataId(0), |p| p.setup);
+                    (setup, h.part_draw_pos.clone())
+                })
+            })
+            .collect()
+    }
+
     /// Every emitter host's origin in the renderer's space, for the tests.
     #[must_use]
     pub fn emitter_host_origins(&self, ws: &WorldState) -> Vec<Vec3> {

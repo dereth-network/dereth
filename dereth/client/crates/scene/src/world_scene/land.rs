@@ -318,8 +318,10 @@ impl LandContext {
         //
         // The bake turns the same placements into batches in the same order -- scenery, then
         // building shells, then statics -- and pairs every placement whose setup names a
-        // default script with its collision record by index: static initialization creates
-        // one physics body per placement and queues its default script on that same body.
+        // default script or a default animation with its collision record by index: static
+        // initialization creates one physics body per placement, queues its default script on
+        // that same body and plays its default animation on that body's parts
+        // ([`land_placements`]).
         let LandContent {
             lbi,
             full_detail,
@@ -337,49 +339,17 @@ impl LandContext {
         let takes = |id: DataId, building: bool| {
             self.objects.as_ref().is_some_and(|l| l.takes(id, building))
         };
-        // (object, frame, scale, building shell, drawn from the look), in bake order.
-        let mut items: Vec<(DataId, Frame, f32, bool, bool)> = Vec::new();
-        let mut emitters: Vec<EmitterPlacement> = Vec::new();
-        for (i, p) in placed.iter().enumerate() {
-            items.push((p.gfxobj, p.frame, p.scale, false, takes(p.gfxobj, false)));
-            if crate::particles::has_default_script(store, p.gfxobj) {
-                // A scenery placement's collision record is `land_statics[i]`.
-                emitters.push(EmitterPlacement {
-                    cell: p.cell,
-                    setup: p.gfxobj,
-                    frame: p.frame,
-                    slot: StaticSlot::Land(i),
-                    body: None,
-                });
-            }
-        }
-        let (mut buildings, mut statics) = (0usize, 0usize);
-        if let Some(info) = lbi.as_ref().filter(|_| full_detail) {
-            buildings = info.buildings.len();
-            statics = info.objects.len();
-            for b in &info.buildings {
-                // Building drawing sets the building-part flag only for the shell.
-                // The existing baker still resolves all parts; retail draws parts[0] here.
-                items.push((b.id, b.frame, 1.0, true, takes(b.id, true)));
-            }
-            for (o, slot) in info.objects.iter().zip(&object_slots) {
-                items.push((o.id, o.frame, 1.0, false, takes(o.id, false)));
-                // A placement whose land-cell lookup answered nothing is destroyed during
-                // static-object initialization and never reaches registration, so it has no
-                // record to pair with.
-                if let Some((cell, index)) = *slot {
-                    if crate::particles::has_default_script(store, o.id) {
-                        emitters.push(EmitterPlacement {
-                            cell,
-                            setup: o.id,
-                            frame: o.frame,
-                            slot: StaticSlot::Land(index),
-                            body: None,
-                        });
-                    }
-                }
-            }
-        }
+        let (items, mut emitters) = land_placements(
+            store,
+            &placed,
+            lbi.as_ref().filter(|_| full_detail),
+            &object_slots,
+            &takes,
+        );
+        let (buildings, statics) = lbi
+            .as_ref()
+            .filter(|_| full_detail)
+            .map_or((0, 0), |info| (info.buildings.len(), info.objects.len()));
         // The world's side first, then the look's, each through its own files and cache; the
         // look's degrading placements follow the world's, so its batches' chunks are moved up
         // by the world's count.
@@ -565,6 +535,7 @@ impl LandContext {
         // Per static id, decoded once per block -- a dungeon
         // stands the same wall torch forty times.
         let mut setup_lights: HashMap<DataId, Vec<LightInfo>> = HashMap::new();
+        let mut setup_defaults: HashMap<DataId, crate::particles::StaticDefaults> = HashMap::new();
         for (d, statics) in decoded.iter().zip(per_cell_statics) {
             // The vertices are emitted white here and `burn_static_lighting` writes
             // the static-light burn's colour over them once the pool is
@@ -679,14 +650,27 @@ impl LandContext {
             let mut statics_opaque = Vec::new();
             let mut statics_blended = Vec::new();
             let mut cell_degrade = Vec::new();
+            // What setup creation starts on each piece: a piece whose setup names a default
+            // animation is a live object drawn posed every frame, so it is not baked.
+            let defaults: Vec<crate::particles::StaticDefaults> = statics
+                .iter()
+                .map(|s| {
+                    *setup_defaults
+                        .entry(s.id)
+                        .or_insert_with(|| crate::particles::static_defaults(store, s.id))
+                })
+                .collect();
+            let piece_from_look = |s: &dereth_world_data::env_cells::CellStatic| {
+                from_look && self.objects.as_ref().is_some_and(|l| l.takes(s.id, false))
+            };
+            let looks: Vec<bool> = statics.iter().map(piece_from_look).collect();
             for side_look in [false, true] {
                 let mine: Vec<&dereth_world_data::env_cells::CellStatic> = statics
                     .iter()
-                    .filter(|s| {
-                        let takes = from_look
-                            && self.objects.as_ref().is_some_and(|l| l.takes(s.id, false));
-                        takes == side_look
-                    })
+                    .zip(&defaults)
+                    .zip(&looks)
+                    .filter(|((_, d), takes)| !d.animation && **takes == side_look)
+                    .map(|((s, _), _)| s)
                     .collect();
                 if mine.is_empty() {
                     continue;
@@ -730,13 +714,17 @@ impl LandContext {
                 cell_degrade.extend(degrade);
             }
             for (i, s) in statics.iter().enumerate() {
-                if crate::particles::has_default_script(store, s.id) {
+                if defaults[i].hosted() {
                     emitters.push(EmitterPlacement {
                         cell: s.cell,
                         setup: s.id,
                         frame: s.frame,
                         slot: StaticSlot::Cell(statics_base + i),
                         body: None,
+                        // An environment-cell static carries no scale.
+                        scale: 1.0,
+                        animated: defaults[i].animation,
+                        from_look: looks[i],
                     });
                 }
                 // Light initialization for the static:
@@ -770,6 +758,84 @@ impl LandContext {
         }
         Ok((out, all_statics, all_lights))
     }
+}
+
+/// One entry of a block's bake list: `(object, frame, scale, building shell, drawn from the look)`.
+pub(super) type BakeItem = (DataId, Frame, f32, bool, bool);
+
+/// What a block's bake bakes, and what it makes live objects of, from its outdoor placements:
+/// the scenery, then the building shells, then the landblock statics.
+///
+/// The bake list is `(object, frame, scale, building shell, drawn from the look)` in bake order.
+/// A placement whose setup names a default script or a default animation also gets an
+/// [`EmitterPlacement`], paired with its collision record by index. One that names a default
+/// animation is left out of the bake list, because its parts are drawn posed every frame from its
+/// live part array; everything else (the great majority) stays baked. `takes` is the objects'
+/// look's verdict for an id (`true` for a building shell).
+///
+/// A static whose land-cell lookup answered nothing is destroyed during static-object
+/// initialization and never reaches registration, so it has no record to pair with and no live
+/// object; it stays in the bake list as it was.
+pub(super) fn land_placements(
+    store: &RetailDatStore,
+    placed: &[dereth_terrain::scenery::PlacedScenery],
+    info: Option<&LandblockInfo>,
+    object_slots: &[Option<(CellId, usize)>],
+    takes: &dyn Fn(DataId, bool) -> bool,
+) -> (Vec<BakeItem>, Vec<EmitterPlacement>) {
+    let mut items: Vec<BakeItem> = Vec::new();
+    let mut emitters: Vec<EmitterPlacement> = Vec::new();
+    for (i, p) in placed.iter().enumerate() {
+        let defaults = crate::particles::static_defaults(store, p.gfxobj);
+        let from_look = takes(p.gfxobj, false);
+        if !defaults.animation {
+            items.push((p.gfxobj, p.frame, p.scale, false, from_look));
+        }
+        if defaults.hosted() {
+            // A scenery placement's collision record is `land_statics[i]`.
+            emitters.push(EmitterPlacement {
+                cell: p.cell,
+                setup: p.gfxobj,
+                frame: p.frame,
+                slot: StaticSlot::Land(i),
+                body: None,
+                scale: p.scale,
+                animated: defaults.animation,
+                from_look,
+            });
+        }
+    }
+    if let Some(info) = info {
+        for b in &info.buildings {
+            // Building drawing sets the building-part flag only for the shell.
+            // The existing baker still resolves all parts; retail draws parts[0] here.
+            items.push((b.id, b.frame, 1.0, true, takes(b.id, true)));
+        }
+        for (o, slot) in info.objects.iter().zip(object_slots) {
+            let from_look = takes(o.id, false);
+            let Some((cell, index)) = *slot else {
+                items.push((o.id, o.frame, 1.0, false, from_look));
+                continue;
+            };
+            let defaults = crate::particles::static_defaults(store, o.id);
+            if !defaults.animation {
+                items.push((o.id, o.frame, 1.0, false, from_look));
+            }
+            if defaults.hosted() {
+                emitters.push(EmitterPlacement {
+                    cell,
+                    setup: o.id,
+                    frame: o.frame,
+                    slot: StaticSlot::Land(index),
+                    body: None,
+                    scale: 1.0,
+                    animated: defaults.animation,
+                    from_look,
+                });
+            }
+        }
+    }
+    (items, emitters)
 }
 
 impl PaletteComposition {

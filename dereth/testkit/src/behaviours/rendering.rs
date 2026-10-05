@@ -917,6 +917,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.scenery.a-default-animation-plays-on-a-placed-static",
+        says: "A piece of scenery or a placed object whose model has an animation of its own \
+               plays it for ever: the butterfly over the grass west of Shoushi bobs and beats \
+               its wings from frame to frame, on the February 2005 world and at the end of \
+               retail alike, advancing by the time since its last step, a frame too short for \
+               that carried into the next and a gap over two seconds not played at all.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM"),
+        station: "dereth-scene::lib::world_scene::imp::animated_scenery::the_butterfly_west_of_shoushi_is_a_live_object_whose_wings_move_from_frame_to_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.scenery.a-placed-static-with-no-default-animation-stays-baked",
+        says: "A placed object whose model has no animation and no effect of its own is drawn \
+               as part of the land's fixed objects, not as a live object, so only the few \
+               animated pieces of scenery cost a live object each.",
+        since: THIS_CLIENT,
+        evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM-BAKE"),
+        station: "dereth-scene::lib::world_scene::imp::animated_scenery::a_static_with_no_default_animation_or_script_stays_in_the_bake_and_is_not_live",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.scenery.an-animated-static-is-drawn-in-its-current-pose",
+        says: "The butterfly west of Shoushi is drawn where its animation has it this frame: \
+               two pictures taken half a second apart from the same spot show it in different \
+               places.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM-DRAW"),
+        station: "dereth-client::gpu::rendering::animated_scenery::the_butterfly_west_of_shoushi_is_drawn_in_a_new_place_half_a_second_later",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.scenery.a-setups-part-scale-sizes-its-baked-parts",
         says: "A tree, shrub or rock whose model shrinks or stretches its own pieces is drawn with \
                each piece at that size times the object's placed size, so the flowering shrub by \

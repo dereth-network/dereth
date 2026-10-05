@@ -176,6 +176,55 @@ impl SceneDraw {
                 drawn_batches += pl.at(level).len();
             }
         }
+        // --- the placed statics that play a default animation -----------------------------
+        // Their parts are in absolute world coordinates; the renderer's space is a shift away.
+        // Never the player, and never a particle emitter, so the object share distance is an
+        // ordinary object's.
+        let shift = self.block_shift(ws);
+        let share_2dsq = share.share_distance_2dsq(false);
+        for block in self.blocks.values_mut() {
+            for h in &mut block.hosts {
+                let Some(meshes) = h.meshes.as_ref() else {
+                    continue;
+                };
+                let outdoors = dereth_physics::landdefs::is_outdoors(h.cell);
+                let shared = dereth_world_render::objects::parts::object_viewer_distance(
+                    h.frame.origin.add(shift),
+                    outdoors,
+                    cam,
+                    share_2dsq,
+                );
+                for (i, pl) in meshes.iter().enumerate() {
+                    if pl.info.is_some() {
+                        with_record += 1;
+                    }
+                    let Some(part) = h.driver.part_array.parts.get(i) else {
+                        continue;
+                    };
+                    let pos = Frame::new(part.pos.origin.add(shift), part.pos.rotation);
+                    let chosen = part_level_at(pl, part, pos, false, cam, shared, &globals);
+                    h.part_cypt[i] = chosen.cypt;
+                    h.part_draw_pos[i] = if billboards { chosen.draw_pos } else { pos };
+                    if chosen.mode != dereth_world_render::objects::degrade::DegradeMode::None {
+                        part_billboards += 1;
+                        if h.part_draw_pos[i] != pos {
+                            part_turns += 1;
+                        }
+                    }
+                    if h.part_levels[i] != chosen.level {
+                        h.part_levels[i] = chosen.level;
+                        switches += 1;
+                    }
+                    if chosen.level != 0 {
+                        degraded += 1;
+                        if pl.at(chosen.level).is_empty() {
+                            culled += 1;
+                        }
+                    }
+                }
+            }
+        }
+
         self.stats.server_object_triangles = drawn_tris;
         self.stats.server_object_batches = drawn_batches;
         self.stats.server_object_triangles_resident = resident;
@@ -483,11 +532,25 @@ pub(super) fn part_level(
     shared: Option<(f32, Vec3)>,
     globals: &dereth_world_render::objects::degrade::DegradeGlobals,
 ) -> PartFrameChoice {
+    part_level_at(pl, part, part.pos, is_player, cam, shared, globals)
+}
+
+/// [`part_level`] for a part placed at `pos` rather than at its own `pos`: a placed static's
+/// parts are kept in absolute world coordinates and measured in the renderer's space.
+pub(super) fn part_level_at(
+    pl: &PartLevels,
+    part: &dereth_animation::parts::PhysicsPart,
+    pos: Frame,
+    is_player: bool,
+    cam: Vec3,
+    shared: Option<(f32, Vec3)>,
+    globals: &dereth_world_render::objects::degrade::DegradeGlobals,
+) -> PartFrameChoice {
     use dereth_world_render::objects::degrade::DegradeMode;
     use dereth_world_render::objects::parts::{part_viewer_distance, select_level, PartDraw};
     let mut pd = PartDraw {
-        pos: part.pos,
-        draw_pos: part.pos,
+        pos,
+        draw_pos: pos,
         gfxobj_scale: part.gfxobj_scale,
         cypt: 0.0,
         deg_level: 0,

@@ -3,7 +3,8 @@
 use super::*;
 
 impl SceneDraw {
-    /// Give every scripted placement a live object, and every emitter a mesh.
+    /// Give every scripted or animated placement a live object, every animated one its part
+    /// geometry, and every emitter a mesh.
     ///
     /// Called from [`Self::sync_objects`] because that is the frame step handed both the
     /// shared `Arc<RetailDatStore>` a `MotionDriver` needs and the device the meshes need, and
@@ -38,55 +39,77 @@ impl SceneDraw {
             #[allow(clippy::cast_precision_loss)] // a block index, 0..=254
             let (ox, oy) = (bx as f32 * BLOCK_LENGTH, by as f32 * BLOCK_LENGTH);
             for (slot, p) in block.emitters.iter().enumerate() {
-                let Some(setup) =
-                    dereth_animation::data::AnimAssets::setup(assets.as_ref(), p.setup)
-                else {
-                    continue;
-                };
-                // The setup's default sound-table id, which
-                // `MotionDriver::set_setup` does not read. Taken before `set_setup` moves the
-                // record.
-                let sound_table = setup.default_sound_table;
-                let mut driver = MotionDriver::new(Arc::clone(&dyn_assets));
-                // Static-object creation receives `(setup_id, 0, 0)`: object id 0 and **not**
-                // dynamic.
-                // Setup creation queues the default script on the object's script manager;
-                // its hooks run on the first script update.
-                if !driver.set_setup(setup) {
-                    continue;
-                }
-                // The placement in **absolute** world coordinates. See
-                // [`crate::particles::collect`]: a particle born with `is_parent_local == 0`
-                // keeps its birth frame for its whole life, and a permanent emitter's whole
-                // life outlasts every landblock scroll.
-                let frame = Frame::new(
-                    Vec3::new(
-                        p.frame.origin.x + ox,
-                        p.frame.origin.y + oy,
-                        p.frame.origin.z,
-                    ),
-                    p.frame.rotation,
-                );
-                // Physics placement would put it in a cell; the script layer only asks
-                // whether it is in one, and a placed static always is.
-                driver.env.in_cell = true;
-                driver.env.position = Position::new(CellId(0), frame);
-                // Place the part array through the internal part update:
-                // a placed object's parts are in world space from the moment it is placed.
-                driver.update_parts(&frame);
                 // `p.body` is this placement's `static_objects[i]`, already
                 // filled if [`Self::init_cell_statics`] has run for the block (`stream` runs
                 // before `sync_objects` in `App::frame`, so it normally has); `placement` is
                 // how `init_cell_statics` reaches back to a host that was spawned first,
                 // which is the order a scene with no character yet takes.
-                block.hosts.push(EmitterHost {
-                    cell: p.cell,
-                    driver,
-                    frame,
-                    placement: slot,
-                    body: p.body,
-                    sound_table,
-                });
+                if let Some(host) = EmitterHost::spawn(&dyn_assets, p, slot, (ox, oy)) {
+                    block.hosts.push(host);
+                }
+            }
+        }
+
+        // --- the animated hosts' parts ------------------------------------------------
+        // A host that plays a default animation is drawn from its own part array, which the
+        // static batches left out. Its geometry is built once per setup, through the objects'
+        // look when the bake would have drawn the placement from it.
+        let wanted: Vec<((i32, i32), usize, DataId, bool)> = self
+            .blocks
+            .iter()
+            .flat_map(|(&key, block)| {
+                block
+                    .hosts
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, h)| h.animated && h.meshes.is_none())
+                    .map(move |(i, h)| {
+                        let p = block.emitters.get(h.placement);
+                        (
+                            key,
+                            i,
+                            p.map_or(DataId(0), |p| p.setup),
+                            p.is_some_and(|p| p.from_look),
+                        )
+                    })
+            })
+            .collect();
+        for (key, i, setup, from_look) in wanted {
+            let meshes = match self.host_meshes.get(&(setup, from_look)) {
+                Some(m) => Arc::clone(m),
+                None => {
+                    let Some(array) = self
+                        .blocks
+                        .get(&key)
+                        .and_then(|b| b.hosts.get(i))
+                        .map(|h| h.driver.part_array.parts.clone())
+                    else {
+                        continue;
+                    };
+                    let built = if from_look {
+                        self.build_object_meshes(store, gpu, Some(setup), &array, false)?
+                    } else {
+                        self.build_part_meshes(store, gpu, &array, false)?
+                    };
+                    let m = Arc::new(built);
+                    self.host_meshes
+                        .insert((setup, from_look), Arc::clone(&m));
+                    m
+                }
+            };
+            let shift = self.block_shift(ws);
+            if let Some(h) = self.blocks.get_mut(&key).and_then(|b| b.hosts.get_mut(i)) {
+                let n = meshes.len();
+                h.meshes = Some(meshes);
+                h.part_levels = vec![0; n];
+                // The placed parts in the renderer's space, until the first level refresh.
+                h.part_draw_pos = (0..n)
+                    .map(|k| {
+                        h.driver.part_array.parts.get(k).map_or(h.frame, |p| p.pos)
+                    })
+                    .map(|f| Frame::new(f.origin.add(shift), f.rotation))
+                    .collect();
+                h.part_cypt = vec![0.0; n];
             }
         }
 
@@ -147,6 +170,12 @@ impl SceneDraw {
             self.particle_gfx.insert(id, entry);
         }
         self.stats.emitter_hosts = self.blocks.values().map(|b| b.hosts.len()).sum();
+        self.stats.animated_hosts = self
+            .blocks
+            .values()
+            .flat_map(|b| b.hosts.iter())
+            .filter(|h| h.meshes.is_some())
+            .count();
         Ok(())
     }
 
@@ -347,10 +376,10 @@ impl SceneDraw {
 
     /// The particle half of the physics tick, run for every object that has a particle manager.
     ///
-    /// The hosts' script manager is ticked here too, because a placed static has no animation
-    /// and therefore never went through `step_animation`; the server's objects and the body
-    /// have already had theirs ticked by `Self::advance_objects` and
-    /// [`dereth_client_runtime::character::Character::update`].
+    /// The hosts' whole static tick runs here — the default animation's step, the part
+    /// placement and the script manager — because a placed static never goes through
+    /// `step_animation`; the server's objects and the body have already had theirs ticked by
+    /// `Self::advance_objects` and [`dereth_client_runtime::character::Character::update`].
     pub(super) fn update_particles(
         &mut self,
         ws: &mut WorldState,
@@ -388,12 +417,15 @@ impl SceneDraw {
         for block in blocks.values_mut() {
             for h in &mut block.hosts {
                 h.driver.cur_time = ServerTime(now.0);
-                // Place the parts **before** running scripts.
-                // A particle-creation hook names a part index and
-                // captures that part's frame as the birth frame, which for an emitter with
+                // The default animation's step and the part placement, **before** running
+                // scripts. A particle-creation hook names a part index and captures that
+                // part's frame as the birth frame, which for an emitter with
                 // `is_parent_local == 0` is where its particles live for ever. The client's
-                // order is the same — part placement completes before the first script update.
-                h.driver.update_parts(&h.frame);
+                // order is the same — the part array's update and part placement complete
+                // before the first script update.
+                if h.animate(now.0) {
+                    stats.hosts_animated += 1;
+                }
                 h.driver.update_scripts();
                 let origin = h.frame.origin.add(shift);
                 let cypt = origin.sub(viewer).mag2().sqrt();

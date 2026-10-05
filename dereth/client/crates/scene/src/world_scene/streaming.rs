@@ -236,6 +236,7 @@ impl SceneDraw {
             viewcone_check_object_id: std::cell::Cell::new(0),
             selected_part_drawn: std::cell::Cell::new(false),
             object_meshes: BTreeMap::new(),
+            host_meshes: BTreeMap::new(),
             game_viewport: None,
             particle_gfx: ParticleGeometry::default(),
             frame_particles: std::cell::Cell::new(ParticleStats::default()),
@@ -568,6 +569,31 @@ impl SceneDraw {
             // before it frees the cells, so the merged terrain surfaces go back on the same
             // teardown as the object textures above.
             self.release_block_terrain(gpu, &b.cell_keys);
+        }
+        self.release_unlinked_host_meshes(gpu);
+    }
+
+    /// Drop the animated statics' geometry no host holds any more — the departed blocks' — and
+    /// hand back the texture links its build took, one per mesh, as an object appearance's
+    /// release does.
+    pub(super) fn release_unlinked_host_meshes(&mut self, gpu: &mut Gpu) {
+        let dead: Vec<(DataId, bool)> = self
+            .host_meshes
+            .iter()
+            .filter(|(_, m)| Arc::strong_count(m) == 1)
+            .map(|(k, _)| *k)
+            .collect();
+        for key in dead {
+            let Some(meshes) = self.host_meshes.remove(&key) else {
+                continue;
+            };
+            for part in meshes.iter() {
+                for mesh in part.all() {
+                    if let Some(slot) = mesh.texture {
+                        self.release_look_texture(gpu, slot, part.from_look);
+                    }
+                }
+            }
         }
     }
 

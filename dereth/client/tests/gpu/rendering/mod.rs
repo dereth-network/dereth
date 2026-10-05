@@ -3,6 +3,7 @@
 //! and the terrain.
 
 mod adaptive_degrade;
+mod animated_scenery;
 mod billboards;
 pub(crate) mod building_boundary_draw;
 mod clipped_outdoor_pass;

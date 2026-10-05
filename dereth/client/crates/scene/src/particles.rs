@@ -187,6 +187,12 @@ pub(crate) fn read_sort_center(store: &RetailDatStore, id: DataId) -> Vec3 {
 ///
 /// The rest of a static object — its triangles — is already drawn by the baked static batches, so
 /// this carries only what those batches cannot: the object identity the script hangs off.
+///
+/// **A placement whose setup names a default animation is one too**, and is not baked: static
+/// initialization puts every static whose setup names a default animation or a default script on
+/// one list, and every physics tick plays the animation on its part array. A butterfly over the
+/// grass or a turning sign is drawn from its live part array, posed every frame, rather than from
+/// the static batches, which could only hold its first pose.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct EmitterPlacement {
     /// The host's authored cell. A particle emitter registers one shadow in this cell, not
@@ -208,6 +214,54 @@ pub(crate) struct EmitterPlacement {
     /// run. `None` until then, and `None` for ever for a placement that produced no body at all —
     /// the client's own null entry for that placement.
     pub(crate) body: Option<PhysHandle>,
+    /// The placement's scale: generated scenery's own, 1 for an authored static.
+    pub(crate) scale: f32,
+    /// Whether the setup names a default animation, so the placement's parts are posed every
+    /// frame and drawn from the host rather than baked.
+    pub(crate) animated: bool,
+    /// Whether the bake would have drawn the placement from the objects' look (another era's
+    /// files); an animated placement's parts follow the same verdict.
+    pub(crate) from_look: bool,
+}
+
+/// What setup creation starts on a placed static: its default script, its default animation,
+/// both or neither.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct StaticDefaults {
+    /// The setup names a default script.
+    pub(crate) script: bool,
+    /// The setup names a default animation.
+    pub(crate) animation: bool,
+}
+
+impl StaticDefaults {
+    /// Whether the placement is a live object: one on the static-animating list.
+    pub(crate) fn hosted(self) -> bool {
+        self.script || self.animation
+    }
+}
+
+/// Which defaults a placement's setup record names. A placement that is not a setup record (a
+/// bare graphics object) names neither.
+///
+/// The default script id is zero for the 3,774 end-of-retail setups that have none; the 2,161
+/// nonzero ids are what setup creation queues. A default animation is rarer: 7 of the 177 setups
+/// the scenery records grow name one (butterflies among them), as do 22 of the 1,475 authored
+/// outdoor statics' setups and 59 of the 3,580 interior ones'.
+pub(crate) fn static_defaults(store: &RetailDatStore, id: DataId) -> StaticDefaults {
+    if dereth_dat::divine_type(id) != Some(DbType::Setup) {
+        return StaticDefaults::default();
+    }
+    let Ok(bytes) = store.read_typed(DbType::Setup, id) else {
+        return StaticDefaults::default();
+    };
+    dereth_assets::Setup::decode_payload_in(store.era_of(id), id, &bytes).map_or(
+        StaticDefaults::default(),
+        |s| StaticDefaults {
+            script: s.default_script_id != DataId(0),
+            animation: s.default_anim_id != DataId(0),
+        },
+    )
 }
 
 /// Which of a block's two collision-static lists a placement is in, and where.
@@ -251,6 +305,130 @@ pub(crate) struct EmitterHost {
     /// **4** of the 2,161 scripted setups name a table at all, so this is
     /// `None` for almost every host in the world.
     pub(crate) sound_table: Option<DataId>,
+    /// Whether the setup names a default animation, which this host plays and draws.
+    pub(crate) animated: bool,
+    /// When the animation last advanced, on the frame clock; `None` before its first step.
+    pub(crate) update_time: Option<f64>,
+    /// An animated host's drawing half: one entry per part, each holding every degrade level.
+    /// Shared with every other host on the same setup. `None` for a host whose parts the static
+    /// batches draw.
+    pub(crate) meshes: Option<std::sync::Arc<Vec<crate::world_scene::PartLevels>>>,
+    /// The level each part draws this frame.
+    pub(crate) part_levels: Vec<u32>,
+    /// Each part's draw-position frame this frame, in the renderer's viewer-block-relative space.
+    pub(crate) part_draw_pos: Vec<Frame>,
+    /// Each part's viewer distance this frame, its depth-sort key.
+    pub(crate) part_cypt: Vec<f32>,
+}
+
+/// The shortest step a static's animation advances by, in seconds: a frame shorter than this is
+/// carried into the next one.
+const STATIC_MIN_STEP: f64 = dereth_physics::globals::MIN_QUANTUM;
+/// The longest gap a static's animation advances over, in seconds; after a longer one (a hitch, a
+/// return from elsewhere) the animation picks up where it was.
+const STATIC_MAX_STEP: f64 = 2.0;
+/// A gap under this is no time at all: the clock is restarted and nothing advances.
+const STATIC_NO_TIME: f64 = 0.0002;
+
+impl EmitterHost {
+    /// Make the live object for one placement: its setup's part array with the setup's defaults
+    /// started (the default animation playing, the default script queued), at the placement's
+    /// frame and scale. `origin` is the block's south-west corner in absolute world coordinates.
+    /// `None` when the setup will not load.
+    pub(crate) fn spawn(
+        assets: &std::sync::Arc<dyn dereth_animation::data::AnimAssets>,
+        p: &EmitterPlacement,
+        slot: usize,
+        origin: (f32, f32),
+    ) -> Option<Self> {
+        let setup = assets.setup(p.setup)?;
+        // The setup's default sound-table id, which `MotionDriver::set_setup` does not read.
+        // Taken before `set_setup` moves the record.
+        let sound_table = setup.default_sound_table;
+        let mut driver = dereth_animation::MotionDriver::new(std::sync::Arc::clone(assets));
+        // Static-object creation receives `(setup_id, 0, 0)`: object id 0 and **not** dynamic.
+        // Setup creation queues the default script on the object's script manager; its hooks run
+        // on the first script update. The default animation is the sequence's one animation.
+        if !driver.set_setup(setup) {
+            return None;
+        }
+        // Generated scenery is created at its own scale; an authored static at 1.
+        if p.scale != 1.0 {
+            driver.scale = p.scale;
+            driver
+                .part_array
+                .set_scale_internal(Vec3::new(p.scale, p.scale, p.scale));
+        }
+        // The placement in **absolute** world coordinates. See [`collect`]: a particle born with
+        // `is_parent_local == 0` keeps its birth frame for its whole life, and a permanent
+        // emitter's whole life outlasts every landblock scroll.
+        let frame = Frame::new(
+            Vec3::new(
+                p.frame.origin.x + origin.0,
+                p.frame.origin.y + origin.1,
+                p.frame.origin.z,
+            ),
+            p.frame.rotation,
+        );
+        // Physics placement would put it in a cell; the script layer only asks whether it is in
+        // one, and a placed static always is.
+        driver.env.in_cell = true;
+        driver.env.position = dereth_primitives::Position::new(CellId(0), frame);
+        // Place the part array through the internal part update: a placed object's parts are in
+        // world space from the moment it is placed.
+        driver.update_parts(&frame);
+        Some(Self {
+            cell: p.cell,
+            driver,
+            frame,
+            placement: slot,
+            body: p.body,
+            sound_table,
+            animated: p.animated,
+            update_time: None,
+            meshes: None,
+            part_levels: Vec::new(),
+            part_draw_pos: Vec::new(),
+            part_cypt: Vec::new(),
+        })
+    }
+
+    /// The animation half of a static's physics tick at frame time `now`: advance the default
+    /// animation by the time since the last advance and re-place the parts.
+    ///
+    /// A gap shorter than [`STATIC_MIN_STEP`] is left to accumulate into the next frame; a gap
+    /// longer than [`STATIC_MAX_STEP`] restarts the clock without advancing. A host with no
+    /// default animation only has its parts re-placed. Returns whether the animation advanced.
+    pub(crate) fn animate(&mut self, now: f64) -> bool {
+        use dereth_physics::MotionSource;
+        let mut advanced = false;
+        if self.animated {
+            match self.update_time {
+                None => self.update_time = Some(now),
+                Some(last) => {
+                    let dt = now - last;
+                    if dt < STATIC_NO_TIME {
+                        self.update_time = Some(now);
+                    } else if dt >= STATIC_MIN_STEP {
+                        if dt <= STATIC_MAX_STEP {
+                            let _ = self.driver.advance(dt);
+                            advanced = true;
+                        }
+                        self.update_time = Some(now);
+                    }
+                }
+            }
+        }
+        // Place the parts **before** running scripts. A particle-creation hook names a part
+        // index and captures that part's frame as the birth frame, which for an emitter with
+        // `is_parent_local == 0` is where its particles live for ever.
+        self.driver.update_parts(&self.frame);
+        if advanced {
+            // The hooks the animation frames just passed (a sound, a particle burst).
+            self.driver.process_hooks();
+        }
+        advanced
+    }
 }
 
 impl std::fmt::Debug for EmitterHost {
@@ -259,23 +437,9 @@ impl std::fmt::Debug for EmitterHost {
             .field("origin", &self.frame.origin)
             .field("emitters", &self.driver.particles.len())
             .field("body", &self.body)
+            .field("animated", &self.animated)
             .finish()
     }
-}
-
-/// Whether a placement is a setup record that names a `default_script`.
-///
-/// The default script id is zero for the 3,774 setups that have none; the 2,161 nonzero ids are
-/// what setup creation queues.
-pub(crate) fn has_default_script(store: &RetailDatStore, id: DataId) -> bool {
-    if dereth_dat::divine_type(id) != Some(DbType::Setup) {
-        return false;
-    }
-    let Ok(bytes) = store.read_typed(DbType::Setup, id) else {
-        return false;
-    };
-    dereth_assets::Setup::decode_payload_in(store.era_of(id), id, &bytes)
-        .is_ok_and(|s| s.default_script_id != DataId(0))
 }
 
 /// One live particle, ready to draw: the emitter's mesh id and everything simulation wrote into

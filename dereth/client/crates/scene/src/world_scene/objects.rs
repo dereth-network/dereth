@@ -183,6 +183,7 @@ impl SceneDraw {
                 }
                 subs.push(PartSubmission {
                     object: Some(*id),
+                    placed: false,
                     index: i,
                     part,
                     outdoors,
@@ -198,6 +199,44 @@ impl SceneDraw {
                     cypt: d.part_cypt.get(i).copied().unwrap_or(0.0),
                     meshes,
                 });
+            }
+        }
+
+        // --- the placed statics that play a default animation -----------------------------
+        // Static drawing draws them with their land cell's or interior cell's objects, from
+        // the parts this frame's static tick posed; `refresh_part_levels` chose each part's
+        // level and draw frame. They carry no object id.
+        for block in self.blocks.values() {
+            for h in &block.hosts {
+                let Some(meshes) = h.meshes.as_ref() else {
+                    continue;
+                };
+                let Some(outdoors) = wanted_light(Some(h.cell), None) else {
+                    continue;
+                };
+                for (i, pl) in meshes.iter().enumerate() {
+                    let Some(part) = h.driver.part_array.parts.get(i) else {
+                        continue;
+                    };
+                    let level = h.part_levels.get(i).copied().unwrap_or(0);
+                    let meshes = pl.at(level);
+                    if part.no_draw() || meshes.is_empty() {
+                        continue;
+                    }
+                    subs.push(PartSubmission {
+                        object: None,
+                        placed: true,
+                        index: i,
+                        part,
+                        outdoors,
+                        before_depth_clear: phase == ObjectPhase::Outdoors,
+                        cell: Some(h.cell),
+                        drawing_sphere: pl.drawing_sphere_at(level),
+                        draw_pos: h.part_draw_pos.get(i).copied().unwrap_or(part.pos),
+                        cypt: h.part_cypt.get(i).copied().unwrap_or(0.0),
+                        meshes,
+                    });
+                }
             }
         }
 
@@ -237,6 +276,7 @@ impl SceneDraw {
                 }
                 subs.push(PartSubmission {
                     object: None,
+                    placed: false,
                     index: i,
                     part,
                     outdoors: *outdoors,
@@ -516,6 +556,7 @@ impl SceneDraw {
                     (None, Some(m)) => {
                         let handle = match s.object {
                             Some(id) => ws.objects.get(&id).and_then(|o| o.sim.physics_handle),
+                            None if s.placed => None,
                             None => ws.character.as_ref().map(|c| c.handle),
                         };
                         handle
@@ -577,7 +618,10 @@ impl SceneDraw {
             // `body_id` is what retail's physics-object id reads for him,
             // so he is entered under his own id.
             if let Some(seen) = self.frame_pick_candidates.borrow_mut().as_mut() {
-                if let Some(id) = s.object.or_else(|| body_id.map(ObjectId)) {
+                if let Some(id) = s
+                    .object
+                    .or_else(|| body_id.filter(|_| !s.placed).map(ObjectId))
+                {
                     seen.insert(id);
                 }
             }
@@ -612,7 +656,7 @@ impl SceneDraw {
             // physics-object id reads for him (he *can* be his own selection).
             if status == dereth_world_render::objects::draw::MeshDrawStatus::InsideViewcone
                 && watched != 0
-                && s.object.map(|o| o.0).or(body_id) == Some(watched)
+                && s.object.map(|o| o.0).or(body_id.filter(|_| !s.placed)) == Some(watched)
             {
                 self.selected_part_drawn.set(true);
             }

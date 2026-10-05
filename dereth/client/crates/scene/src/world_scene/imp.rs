@@ -945,6 +945,10 @@ pub struct SceneDraw {
     /// Two mosswarts cost one decode and one set of textures; two players in the same outfit do
     /// too, and two in different outfits do not.
     object_meshes: BTreeMap<AppearanceKey, Arc<Vec<PartLevels>>>,
+    /// Geometry per setup for the placed statics that play a default animation, and whether it
+    /// was built with the objects' look: every butterfly of a meadow shares one entry. An entry
+    /// no host holds any more is released with the blocks that held it.
+    host_meshes: BTreeMap<(DataId, bool), Arc<Vec<PartLevels>>>,
     /// One geometry entry per emitter graphics id in play: every particle of
     /// an emitter shares one graphics object, so a town full of torches costs one mesh.
     particle_gfx: ParticleGeometry,
@@ -1931,6 +1935,11 @@ pub struct SceneStats {
     /// Placed statics and scenery whose setup record names a `default_script`, so they are live
     /// objects rather than only baked triangles.
     pub emitter_hosts: usize,
+    /// Those of them whose setup names a default animation, drawn posed from their own part
+    /// arrays rather than baked.
+    pub animated_hosts: usize,
+    /// How many times a host's default animation has advanced, over the session.
+    pub hosts_animated: u64,
     /// Draw batches the resident interior cells' baked objects cost, and what
     /// static registration made of them on the physics side.
     pub cell_static_batches: usize,
@@ -3277,8 +3286,13 @@ struct PartDrawCounts {
 /// them -- and this is where that phase keeps its parts.
 #[derive(Debug, Clone, Copy)]
 struct PartSubmission<'a> {
-    /// The server object this part belongs to, or `None` for the **local body**.
+    /// The server object this part belongs to, or `None` for the **local body** or a placed
+    /// static.
     object: Option<ObjectId>,
+    /// Whether the part is a placed static's (an animated piece of scenery or furniture): it
+    /// has no object id, so it is neither the local body nor anything the selection ray can
+    /// take.
+    placed: bool,
     /// Its index in the object's part array.
     index: usize,
     part: &'a dereth_animation::parts::PhysicsPart,
@@ -3423,6 +3437,10 @@ mod building_shell_visibility;
 #[cfg(test)]
 #[path = "../world_part_scale_tests.rs"]
 mod part_scale;
+
+#[cfg(test)]
+#[path = "../world_animated_scenery_tests.rs"]
+mod animated_scenery;
 
 #[cfg(test)]
 #[path = "../world_env_surface_visibility_tests.rs"]
