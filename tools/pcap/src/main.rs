@@ -19,9 +19,9 @@ commands:
                         run SQL against the index; a table, or CSV with --csv.
                         Cite sessions by session_key (stable across rebuilds); sid('<key>')
                         gives a key's current session_id
-  triage [--out FILE] [--examples N]
+  triage --out FILE [--examples N]
                         decode failures grouped by type and error kind, with example sessions
-                        and hex around the failing offset (markdown)
+                        and hex around the failing offset, written as markdown to FILE
 
 common options:
   --roots <paths>       corpus roots, a path list (default: $DERETH_RETAIL_PCAPS)
@@ -181,7 +181,8 @@ fn run() -> Result<(), String> {
         }
         "triage" => {
             let out = take(&mut a.rest, "--out")?
-                .map_or_else(|| PathBuf::from("retail-pcaps-triage.md"), PathBuf::from);
+                .map(PathBuf::from)
+                .ok_or("triage writes a file: name it with --out FILE")?;
             let examples = match take(&mut a.rest, "--examples")? {
                 Some(n) => n.parse().map_err(|_| format!("bad --examples {n}"))?,
                 None => 3,

@@ -49,7 +49,7 @@ unless `DERETH_PCAP_INDEX` or `--index <file>` says otherwise; it can always be 
   joining them up; filter on `game = 'ac1'` for any Asheron's Call statistic. Four functions are
   added: `fields(dir, raw)` (a message's decoded fields as JSON), `guids(dir, raw)`,
   `type_name(mtype)` and `sid(key)`.
-- **`triage`** writes the decode failures as markdown (`--out FILE`, `--examples N`): grouped by
+- **`triage`** writes the decode failures as markdown to the file `--out FILE` names (`--examples N`): grouped by
   direction, message type and error kind, each group with its count, example messages and the hex
   around the byte where decoding failed.
 
