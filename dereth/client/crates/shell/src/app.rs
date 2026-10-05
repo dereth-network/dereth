@@ -178,21 +178,6 @@ impl<H: Host> App<H> {
         self.core.start_shell(&mut self.shell)
     }
 
-    /// The classic interface, once it has been brought up: what a scripted run drives its windows
-    /// through.
-    pub fn classic_ui_mut(&mut self) -> Option<&mut dereth_classic_ui::runtime::ClassicUi> {
-        self.shell.classic.ui.as_mut()
-    }
-
-    /// The classic interface and the application beside it, both writable, for a scripted run
-    /// that builds a panel context from the one to drive the other.
-    pub fn classic_ui_and_core(
-        &mut self,
-    ) -> Option<(&mut dereth_classic_ui::runtime::ClassicUi, &mut CoreApp<H>)> {
-        let ui = self.shell.classic.ui.as_mut()?;
-        Some((ui, &mut self.core))
-    }
-
     /// Run the normal cleanup path, in [`crate::shutdown::Step::ORDER`].
     pub fn shutdown(self) -> crate::shutdown::CleanupLog {
         let Self { core, mut shell } = self;
