@@ -628,7 +628,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "rendering.objects.an-object-mode-without-its-files-is-refused",
         says: "Choosing the Classic object mode without the older data files leaves the objects \
                drawn as they were, puts the option back, and tells the player in the chat window \
-               that the object mode requires legacy DATs.",
+               that the object mode requires classic DATs.",
         since: THIS_CLIENT,
         divergence: "CD-014",
         evidence: Evidence::Private("AC-EVID-ERA-VISUALS-REFUSED"),
@@ -973,7 +973,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "rendering.terrain.a-style-without-its-files-is-refused-and-the-world-keeps-its-own",
         says: "Choosing an older terrain mode or sky without the older data files leaves the world \
                drawn as it was, puts the option back, and tells the player in the chat window \
-               that the mode requires legacy DATs.",
+               that the mode requires classic DATs.",
         since: THIS_CLIENT,
         divergence: "CD-012",
         evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-REFUSED"),

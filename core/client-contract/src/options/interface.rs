@@ -7,7 +7,7 @@
 //! text, so any front end lists it from [`crate::options::store::choice_rows`] and writes it with
 //! [`crate::view::UiRequest::SetPreference`], as it does a retail option. The client switches live.
 //! The classic interface draws from the early-2005 portal: without those files it is refused, the
-//! current interface stays, and the client says why ([`REQUIRES_LEGACY_FILES`]).
+//! current interface stays, and the client says why ([`REQUIRES_CLASSIC_FILES`]).
 
 use crate::view::PrefValue;
 
@@ -18,7 +18,7 @@ pub const INTERFACE: &str = crate::options::names::INTERFACE;
 pub const CAPTION: &str = "Interface";
 
 /// What [`INTERFACE`] says when the classic interface cannot be shown for want of its files.
-pub const REQUIRES_LEGACY_FILES: &str = "The classic interface requires legacy DATs";
+pub const REQUIRES_CLASSIC_FILES: &str = "The classic interface requires classic DATs";
 
 /// What it says when the host cannot draw the classic interface's text.
 pub const REQUIRES_FONTS: &str = "The classic interface needs the system's fonts";

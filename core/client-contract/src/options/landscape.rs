@@ -120,7 +120,7 @@ impl RequiredFiles {
     #[must_use]
     pub const fn ground_notice(self) -> &'static str {
         match self {
-            Self::Classic => "This terrain mode requires legacy DATs",
+            Self::Classic => "This terrain mode requires classic DATs",
             Self::Modern => "This terrain mode requires end-of-retail DATs",
         }
     }
@@ -129,7 +129,7 @@ impl RequiredFiles {
     #[must_use]
     pub const fn sky_notice(self) -> &'static str {
         match self {
-            Self::Classic => "This sky requires legacy DATs",
+            Self::Classic => "This sky requires classic DATs",
             Self::Modern => "This sky requires end-of-retail DATs",
         }
     }
@@ -138,7 +138,7 @@ impl RequiredFiles {
     #[must_use]
     pub const fn objects_notice(self) -> &'static str {
         match self {
-            Self::Classic => "This object mode requires legacy DATs",
+            Self::Classic => "This object mode requires classic DATs",
             Self::Modern => "This object mode requires end-of-retail DATs",
         }
     }
@@ -488,7 +488,7 @@ mod tests {
         assert_eq!(Landscape::of("render.objects"), Some(Landscape::Objects));
         assert_eq!(
             Landscape::Objects.notice(RequiredFiles::Classic),
-            "This object mode requires legacy DATs"
+            "This object mode requires classic DATs"
         );
         assert_eq!(Landscape::Objects.caption(), "Object Mode");
     }

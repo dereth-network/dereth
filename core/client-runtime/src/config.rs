@@ -1451,7 +1451,7 @@ impl Config {
                 let style = dereth_client_contract::options::landscape::parse(v)
                     .ok_or_else(|| {
                         ConfigError::new(format!(
-                            "--object-visuals takes world, legacy or modern, not {v:?}"
+                            "--object-visuals takes world, classic or modern, not {v:?}"
                         ))
                     })?
                     .map(crate::render_prefs::objects_style);

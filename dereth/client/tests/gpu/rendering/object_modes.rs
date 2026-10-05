@@ -390,7 +390,7 @@ fn client(dat_dir: std::path::PathBuf, set_at: Vec<(u64, String)>) -> dereth_cli
 /// Behaviour: rendering.objects.an-object-mode-without-its-files-is-refused
 /// In the running client, choosing the Legacy object mode on the end-of-retail world with no
 /// older files beside it leaves the world's own objects, puts the option back to World Default,
-/// and tells the player in the chat window: "This object mode requires legacy DATs". With the
+/// and tells the player in the chat window: "This object mode requires classic DATs". With the
 /// older files beside it, the same setting draws the objects with the older look on the next
 /// frame.
 #[test]
@@ -424,7 +424,7 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
         .scroll
         .pending()
         .iter()
-        .any(|l| l.body == "This object mode requires legacy DATs"
+        .any(|l| l.body == "This object mode requires classic DATs"
             && l.chat_type == dereth_client_model::scroll::LOCAL_ERROR_TYPE));
     drop(app);
 

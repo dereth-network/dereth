@@ -449,7 +449,7 @@ fn client(dat_dir: std::path::PathBuf, set_at: Vec<(u64, String)>) -> dereth_cli
 /// In the running client, choosing Classic Blend and the Classic Software sky on the end-of-retail
 /// world with no older files beside it leaves the world's own ground and sky, puts the two options
 /// back to the world's own, and tells the player in the chat window: "This terrain mode requires
-/// legacy DATs" and "This sky requires legacy DATs".
+/// classic DATs" and "This sky requires classic DATs".
 #[test]
 fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() {
     use dereth_client_contract::options::{landscape, store};
@@ -491,8 +491,8 @@ fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() 
         .map(|l| (l.body.clone(), l.chat_type))
         .collect();
     for want in [
-        "This terrain mode requires legacy DATs",
-        "This sky requires legacy DATs",
+        "This terrain mode requires classic DATs",
+        "This sky requires classic DATs",
     ] {
         assert!(
             lines

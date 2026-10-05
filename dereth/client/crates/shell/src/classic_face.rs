@@ -47,7 +47,7 @@ impl Refusal {
     #[must_use]
     pub fn notice(&self) -> String {
         match self {
-            Self::Files => interface::REQUIRES_LEGACY_FILES.into(),
+            Self::Files => interface::REQUIRES_CLASSIC_FILES.into(),
             Self::Fonts => interface::REQUIRES_FONTS.into(),
             Self::Failed(why) => format!("The classic interface could not start: {why}"),
         }
