@@ -1,6 +1,6 @@
 # Tools
 
-The workspace's three programs live in `xtask/`, `corpus/` and `pcap/`. They are crates like any
+The workspace's programs include `xtask/`, `corpus/`, `pack/` and `pcap/`. They are crates like any
 other, but they are things people run, so each has
 its own page. The workspace carries no scripts: every check and runner is Rust, reached through
 `cargo xtask`. `sweep-timings/` holds the recorded per-test times the sweep deals shards by.
@@ -30,6 +30,23 @@ Records a session between the retail client and a server through a logging proxy
 message corpus, the capture index and the manifest from the recordings (`corpus`, and
 `corpus --check`, which `cargo test -p dereth-corpus` runs). See [`corpus/README.md`](corpus/README.md)
 for how to add a recording and how tests read the corpus.
+
+## `dereth-pack` — the client's own records
+
+Packs PNG pictures into a client layer, the container of Dereth's own records that the client
+reads over the portal files beneath any world's overlay. A manifest names the files it lies over,
+the container it writes and each record's id, format (`rgb`, the image record of the files from
+before Throne of Destiny, or `surface`, the later files' `R8G8B8` image) and picture; transparent
+pixels are laid on the manifest's background. The same input always gives the same bytes.
+
+```text
+cargo run -p dereth-pack -- core/client-runtime/assets/classic-portal/pack.tsv
+cargo run -p dereth-pack -- <manifest> --check
+```
+
+The client builds in the classic portal's layer from `core/client-runtime/assets/classic-portal/`;
+`cargo test -p dereth-pack` fails while that container is not what its manifest makes. The
+library (`dereth_pack`) is the start of an editor for these records.
 
 ## `dereth-pcap` — the community-capture index
 

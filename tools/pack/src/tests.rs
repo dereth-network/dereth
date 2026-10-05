@@ -22,7 +22,11 @@ fn gradient(width: u32, height: u32) -> Vec<u8> {
     (0..width * height)
         .flat_map(|i| {
             let (x, y) = (i % width, i / width);
-            [x as u8 * 7, y as u8 * 5, (x ^ y) as u8]
+            [
+                (x * 7).to_le_bytes()[0],
+                (y * 5).to_le_bytes()[0],
+                (x ^ y).to_le_bytes()[0],
+            ]
         })
         .collect()
 }

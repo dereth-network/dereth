@@ -79,7 +79,7 @@ pub fn narrowed(id: u32, width: u32) -> u32 {
 /// Whether `id` is one this module composes when no record holds it.
 #[must_use]
 pub fn is_composed(id: u32) -> bool {
-    (id >= BASE && id < BASE + 0x1_0000)
+    (BASE..BASE + 0x1_0000).contains(&id)
         || JOURNAL_BUTTON.contains(&id)
         || [CLOAK_SLOT, TRINKET_SLOT].contains(&id)
         || SIGIL_SLOTS.contains(&id)

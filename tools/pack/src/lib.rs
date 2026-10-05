@@ -1,5 +1,7 @@
-//! Packs pictures into a client layer: the container of Dereth's own records that the client
-//! reads over the portal files ([`dereth_dat::client_layer`]).
+//! Packs pictures into a client layer: the container of Dereth's own records the client reads
+//! over the portal files.
+//!
+//! The container is [`dereth_dat::client_layer`]'s.
 //!
 //! **Depends on** `dereth-dat` (the container and its writer), `dereth-primitives` (data ids) and
 //! `png`. **Used by** its own command line, `dereth-pack`, and by nothing else yet: it is meant to
@@ -166,7 +168,7 @@ pub fn encode(id: DataId, picture: &Picture, format: Format) -> Vec<u8> {
             ] {
                 out.extend_from_slice(&v.to_le_bytes());
             }
-            for px in picture.rgb.chunks_exact(3) {
+            for px in picture.rgb.as_chunks::<3>().0 {
                 out.extend_from_slice(&[px[2], px[1], px[0]]);
             }
         }
@@ -197,7 +199,9 @@ pub fn decode(record: &[u8], format: Format) -> Option<(DataId, Picture)> {
     }
     let rgb = if bgr {
         pixels
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .flat_map(|p| [p[2], p[1], p[0]])
             .collect()
     } else {
@@ -338,15 +342,15 @@ impl Manifest {
     }
 }
 
+/// A pack's records by id, and the ids whose pictures were flattened.
+pub type Built = (BTreeMap<DataId, Vec<u8>>, Vec<DataId>);
+
 /// The records a manifest makes, with the ids whose pictures were flattened. `dir` is the
 /// manifest's folder.
 ///
 /// # Errors
 /// A picture that does not read.
-pub fn build(
-    manifest: &Manifest,
-    dir: &Path,
-) -> Result<(BTreeMap<DataId, Vec<u8>>, Vec<DataId>), PackError> {
+pub fn build(manifest: &Manifest, dir: &Path) -> Result<Built, PackError> {
     let mut records = BTreeMap::new();
     let mut flattened = Vec::new();
     for e in &manifest.entries {
