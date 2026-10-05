@@ -64,6 +64,8 @@ struct Def {
     stat: F,
     key: u32,
     val: f32,
+    /// The spell's target type (`ItemType` bits); 0 for none.
+    target: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -87,6 +89,7 @@ const fn d(
         stat,
         key,
         val,
+        target: 0,
     }
 }
 
@@ -252,7 +255,7 @@ fn spell_base(def: &Def) -> SpellBase {
         recovery_interval: 0.0,
         recovery_amount: 0.0,
         display_order: 0,
-        non_component_target_type: 0,
+        non_component_target_type: def.target,
         mana_mod: 0,
     }
 }
@@ -1170,6 +1173,7 @@ fn add_scripts_match_ace() {
                 stat: F(i32::try_from(vi(&s["type"])).unwrap()),
                 key: vu(&s["key"]),
                 val: f32_of(&s["val"]).unwrap(),
+                target: 0,
             })
             .collect();
         let sets = BTreeMap::from([(
@@ -1826,4 +1830,92 @@ mod world_effects {
         let expected = (20.0 / interval).ceil() as usize;
         assert_eq!(beats, expected, "one heartbeat per {interval} s");
     }
+}
+
+// ------------------------------------------------------------------ weapon enchantments on an era
+
+/// Swift Killer I as the February 2005 table has it: an item enchantment (school 3) of
+/// WeaponTimeRaising aimed at a melee or missile weapon (`0x101`).
+const SWIFT_KILLER_I: u32 = 49;
+const SWORD: ObjectGuid = ObjectGuid::new(0x8000_0010);
+
+fn swift_killer_world(rules: &'static empyrean_common::era::EraRules, armed: bool) -> World {
+    let mut def = d(
+        SWIFT_KILLER_I,
+        u32::from(SpellCategory::WeaponTimeRaising.0),
+        10,
+        1800.0,
+        true,
+        ADD_INT,
+        u32::from(PropertyInt::WeaponTime.0),
+        -10.0,
+    );
+    def.school = 3;
+    def.target = 0x101;
+    let mut w = world_with(&[def], Vec::new(), BTreeMap::new());
+    w.era = rules;
+    w.sessions.get_mut(S).expect("the player's session").account = Some("swift".into());
+    if armed {
+        let mut o = WorldObject::allocate(Class::GenericObject);
+        o.guid = SWORD;
+        o.biota.id = SWORD.full();
+        o.biota.properties_enchantment_registry = Some(Vec::new());
+        o.set_property(
+            empyrean_entity::enums::PropertyString::Name,
+            "Sword".to_owned(),
+        );
+        o.set_current_wielded_location(Some(empyrean_entity::enums::EquipMask::MeleeWeapon));
+        o.set_parent_location(Some(empyrean_entity::enums::ParentLocation::RightHand));
+        w.objects.insert(o).expect("fresh guid");
+        let c = w
+            .objects
+            .get_mut(PLAYER)
+            .unwrap()
+            .creature
+            .as_mut()
+            .unwrap();
+        c.creature_equipment.equipped_objects.insert(SWORD, ());
+        c.creature_equipment.equipped_objects_loaded = true;
+    }
+    w
+}
+
+fn holds(w: &World, this: ObjectGuid, spell: u32) -> bool {
+    registry(w, this)
+        .iter()
+        .any(|e| u32::from(e.spell_id.cast_unsigned()) == spell)
+}
+
+/// Divergence: V439
+/// Before the weapon spells became auras, Swift Killer cast on oneself lands on the wielded
+/// weapon, never on the caster; with no weapon wielded it fails to affect the caster. At the end
+/// of retail ACE's rule stands: the item spell is laid on the target it was aimed at.
+#[test]
+fn an_era_weapon_enchantment_cast_on_oneself_goes_to_the_wielded_weapon() {
+    use empyrean_common::era::EraId;
+    use empyrean_world::world_objects::world_object_magic::try_cast_item_enchantment_with_redirects;
+
+    let mut w = swift_killer_world(EraId::Infiltration.rules(), true);
+    let s = spell(&w, SWIFT_KILLER_I);
+    try_cast_item_enchantment_with_redirects(&mut w, PLAYER, &s, Some(PLAYER), None);
+    assert!(holds(&w, SWORD, SWIFT_KILLER_I), "the sword holds it");
+    assert!(!holds(&w, PLAYER, SWIFT_KILLER_I), "the caster does not");
+
+    let mut w = swift_killer_world(EraId::Infiltration.rules(), false);
+    let s = spell(&w, SWIFT_KILLER_I);
+    start_capture();
+    try_cast_item_enchantment_with_redirects(&mut w, PLAYER, &s, Some(PLAYER), None);
+    assert!(
+        !holds(&w, PLAYER, SWIFT_KILLER_I),
+        "unarmed, nothing lands on the caster"
+    );
+    assert!(
+        !take_sent().is_empty(),
+        "the caster is told it failed to affect them"
+    );
+
+    let mut w = swift_killer_world(EraId::Eor.rules(), true);
+    let s = spell(&w, SWIFT_KILLER_I);
+    try_cast_item_enchantment_with_redirects(&mut w, PLAYER, &s, Some(PLAYER), None);
+    assert!(holds(&w, PLAYER, SWIFT_KILLER_I) && !holds(&w, SWORD, SWIFT_KILLER_I));
 }

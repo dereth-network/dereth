@@ -3438,7 +3438,13 @@ pub fn try_cast_item_enchantment_with_redirects(
                 }
             }
         }
-    } else if spell.is_other_negative_redirectable() || spell.is_item_redirectable_type() {
+    } else if spell.is_other_negative_redirectable()
+        || spell.is_item_redirectable_type()
+        // DIVERGE: before the item spells became auras (`EraFeatures::item_spell_auras`) a weapon
+        // or caster enchantment aimed at a creature, the caster included, goes to its wielded
+        // weapon or caster, as ClassicACE's; it is never laid on the creature itself.
+        || (!w.era.features.item_spell_auras && spell.is_other_positive_redirectable())
+    {
         // blood loather, spirit loather, lure blade, turn blade, leaden weapon, hermetic void
         match target_creature {
             None => {

@@ -458,6 +458,22 @@ impl Spell {
         )
     }
 
+    /// The weapon and caster enchantments a self-cast or a cast on a creature lays on that
+    /// creature's wielded weapon or caster before they became auras: Heart Seeker, Blood and
+    /// Spirit Drinker, Defender, Swift Killer, Hermetic Link (ClassicACE's raising half of
+    /// `IsOtherRedirectable`).
+    #[must_use]
+    pub fn is_other_positive_redirectable(&self) -> bool {
+        matches!(
+            self.category(),
+            SpellCategory::DamageRaising
+                | SpellCategory::DefenseModRaising
+                | SpellCategory::AttackModRaising
+                | SpellCategory::WeaponTimeRaising
+                | SpellCategory::ManaConversionModRaising
+        )
+    }
+
     // ACE: Spell.IsPortalSpell
     #[must_use]
     pub fn is_portal_spell(&self) -> bool {
