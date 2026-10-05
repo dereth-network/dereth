@@ -147,19 +147,33 @@ pub fn the_scroll_keys_move_the_log_and_the_history_keys_fill_the_entry() {
 /// Run one typed line through the client's own frame with the talk focus set, and answer with what
 /// it produced.
 fn line_with_focus(focus: u32, text: &str) -> Vec<dereth_client_model::Request> {
+    use dereth_client_contract::UiRequest;
     let store = dereth_dat::testing::open_store().expect("the retail data is the client's own");
     let mut inter = dereth_client_runtime::interaction::Interaction::new();
     let mut objects = dereth_client_runtime::objects::ObjectStream::new();
-    inter.queue(
-        Vec::new(),
-        vec![
-            dereth_client_contract::UiRequest::SetTalkFocus { focus },
-            dereth_client_contract::UiRequest::ChatLine {
-                text: text.to_owned(),
-                window: 8,
-            },
-        ],
-    );
+    let mut requests = vec![UiRequest::SetTalkFocus { focus }];
+    if focus == 2 {
+        // The tell row is taken only with a named player picked out, so one is; the chat window
+        // then gives up its target before the line is typed -- whoever it was has gone.
+        let world = &mut objects.world;
+        let me = ObjectId(0x5000_0001);
+        let them = ObjectId(0x5000_0002);
+        let mut peer = dereth_client_model::Weenie::new(them);
+        peer.pwd.name = "Alba".into();
+        peer.pwd.obj_type = dereth_rules::weenie::item_type::CREATURE;
+        peer.pwd.bitfield |= dereth_rules::weenie::bitfield::PLAYER;
+        world.tables.weenies.insert(them, peer);
+        world.player = Some(me);
+        world.selected = Some(them);
+        requests.push(UiRequest::SetLastSpeakableTarget {
+            object: ObjectId(0),
+        });
+    }
+    requests.push(UiRequest::ChatLine {
+        text: text.to_owned(),
+        window: 8,
+    });
+    inter.queue(Vec::new(), requests);
     let (unowned, _) = dereth_client_runtime::interaction::use_time(
         &mut inter,
         &store,
@@ -199,8 +213,8 @@ pub fn what_a_typed_line_becomes_follows_the_menu() {
     // way round sends a line where everybody but the player can read it.
     let cases: [(u32, Option<Request>); 6] = [
         (1, Some(talk("well met"))),
-        // The row that talks to whoever is selected, with nobody selected: dropped rather than
-        // said out loud, which is what stops a private line becoming a public one.
+        // The row that talks to whoever is selected, with nobody there any more: dropped rather
+        // than said out loud, which is what stops a private line becoming a public one.
         (2, None),
         (3, Some(channel(0x800, "well met"))),
         (4, Some(channel(0x2000, "well met"))),
