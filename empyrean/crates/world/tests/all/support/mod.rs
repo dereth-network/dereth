@@ -1,6 +1,7 @@
 pub(crate) mod clock_and_object_lifetime;
 pub(crate) mod content_interactions;
 pub(crate) mod creature_world;
+pub(crate) mod hex;
 pub(crate) mod log_capture;
 pub(crate) mod navigation_world;
 pub(crate) mod player_services;

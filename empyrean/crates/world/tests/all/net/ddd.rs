@@ -22,9 +22,7 @@ use empyrean_world::network::structure::c_mostly_consecutive_int_set::CMostlyCon
 use empyrean_world::World;
 use serde_json::Value;
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02X}")).collect()
-}
+use crate::support::hex::hex;
 
 fn u32_of(v: &Value) -> u32 {
     u32::try_from(u64_of(v).expect("an integer")).expect("a uint")

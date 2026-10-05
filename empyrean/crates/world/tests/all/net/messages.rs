@@ -131,9 +131,7 @@ fn player_obj(guid: u32) -> WorldObject {
     }
 }
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02X}")).collect()
-}
+use crate::support::hex::hex;
 
 fn world() -> World {
     let now = ClockSnapshot {

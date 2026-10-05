@@ -425,9 +425,7 @@ fn known(key: &str) -> Outcome {
         .map_or(Outcome::Same, |(_, o, _)| *o)
 }
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02X}")).collect()
-}
+use crate::support::hex::hex;
 
 fn unhex(s: &str) -> Vec<u8> {
     (0..s.len())

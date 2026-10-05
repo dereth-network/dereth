@@ -40,16 +40,7 @@ use serde_json::Value;
 
 // ---- helpers ------------------------------------------------------------------------------
 
-fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02X}")).collect()
-}
-
-fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).expect("hex"))
-        .collect()
-}
+use crate::support::hex::{hex, unhex};
 
 fn u(v: &Value) -> u32 {
     u32::try_from(u64_of(v).unwrap_or_else(|| panic!("uint: {v}"))).expect("u32")
