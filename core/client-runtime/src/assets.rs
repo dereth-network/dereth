@@ -511,13 +511,16 @@ mod tests {
         );
     }
 
-    /// The paper doll's later slots, as the client's classic-portal layer holds them.
-    const SLOTS: [u32; 5] = [
+    /// The client's classic-portal pictures: the paper doll's later slots, then the journal's
+    /// toolbar button, normal and lit.
+    const PICTURES: [u32; 7] = [
         0x0600_708F,
         0x0600_6A6C,
         0x0600_6BEF,
         0x0600_6BF0,
         0x0600_6BF1,
+        0x0600_69AE,
+        0x0600_69AF,
     ];
 
     /// The older portal the classic interface reads from `store`: the world's own on an older
@@ -546,20 +549,25 @@ mod tests {
         assert_eq!(
             layer.ids(),
             {
-                let mut s = SLOTS.map(DataId);
+                let mut s = PICTURES.map(DataId);
                 s.sort_unstable();
                 s.to_vec()
             },
-            "the five slots, and nothing else"
+            "the slots and the journal button, and nothing else"
         );
         let dir = dereth_dat::testing::both_sets_dir();
         for era in [INFILTRATION, EOR] {
             let store = open_world_files(&dir, None, era).expect("both sets open");
             let bare = open_retail_files(&dir, None, era).expect("both sets open");
             let portal = classic_portal(&store);
-            for id in SLOTS {
+            for id in PICTURES {
                 let ours = layer.read(DataId(id)).expect("the layer's record");
-                assert_eq!(ours.len(), 12 + 32 * 32 * 3, "{id:#010X}: 32 x 32 RGB");
+                let (w, h) = if (0x0600_69AE..=0x0600_69AF).contains(&id) {
+                    (34, 27)
+                } else {
+                    (32, 32)
+                };
+                assert_eq!(ours.len(), 12 + w * h * 3, "{id:#010X}: {w} x {h} RGB");
                 assert_eq!(&ours[..4], &id.to_le_bytes(), "{id:#010X} echoes its id");
                 assert_eq!(
                     portal.read(DataId(id)).ok(),
@@ -573,7 +581,7 @@ mod tests {
             }
             // The later interface still reads the later files' own pictures at those ids.
             if let Some(later) = store.modern_files() {
-                for id in SLOTS {
+                for id in PICTURES {
                     assert_eq!(
                         later.read_portal(DataId(id)).ok(),
                         bare.modern_files().unwrap().read_portal(DataId(id)).ok(),
@@ -584,8 +592,8 @@ mod tests {
             if era == INFILTRATION {
                 // A world read of an id the later files answer is still theirs.
                 assert_eq!(
-                    store.read_portal(DataId(SLOTS[0])).ok(),
-                    bare.read_portal(DataId(SLOTS[0])).ok()
+                    store.read_portal(DataId(PICTURES[0])).ok(),
+                    bare.read_portal(DataId(PICTURES[0])).ok()
                 );
             }
         }
@@ -605,7 +613,7 @@ mod tests {
         let store = open_world_files(&dir, None, INFILTRATION).expect("both sets open");
         let overlay = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
         let theirs = {
-            let mut r = SLOTS[2].to_le_bytes().to_vec();
+            let mut r = PICTURES[2].to_le_bytes().to_vec();
             r.extend_from_slice(&1u32.to_le_bytes());
             r.extend_from_slice(&1u32.to_le_bytes());
             r.extend_from_slice(&[1, 2, 3]);
@@ -620,18 +628,18 @@ mod tests {
             1,
         )
         .expect("the overlay");
-        w.save(&base, DataId(SLOTS[2]), &theirs, 1, 1, 1)
+        w.save(&base, DataId(PICTURES[2]), &theirs, 1, 1, 1)
             .expect("the world's record");
         w.flush(1).expect("flushed");
         drop(w);
         let world = store
             .with_overlay(&overlay, Some("a world"))
             .expect("the overlay opens over the older portal");
-        assert_eq!(world.portal().read(DataId(SLOTS[2])).ok(), Some(theirs));
+        assert_eq!(world.portal().read(DataId(PICTURES[2])).ok(), Some(theirs));
         // The others are still the client's.
         assert_eq!(
-            world.portal().read(DataId(SLOTS[3])).ok(),
-            client_layers()[0].read(DataId(SLOTS[3])).ok()
+            world.portal().read(DataId(PICTURES[3])).ok(),
+            client_layers()[0].read(DataId(PICTURES[3])).ok()
         );
     }
 
@@ -661,7 +669,7 @@ mod tests {
                     dereth_dat::overlay::fingerprint(a),
                     dereth_dat::overlay::fingerprint(b)
                 );
-                for id in SLOTS {
+                for id in PICTURES {
                     assert_eq!(b.base().contains(DataId(id)), a.base().contains(DataId(id)));
                 }
             }

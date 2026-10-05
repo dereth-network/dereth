@@ -19,5 +19,5 @@ background  0D1115
 
 # The journal's toolbar button, 34 x 27 like the map's, normal and lit (its page shown; the
 # pressed button shows the lit picture). Until these are here the interface composes them.
-# 0x060069AE  rgb  journal.png
-# 0x060069AF  rgb  journal-lit.png
+0x060069AE  rgb  journal.png
+0x060069AF  rgb  journal-lit.png
