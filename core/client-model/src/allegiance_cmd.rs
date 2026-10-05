@@ -87,7 +87,7 @@ pub const BOOT_CHAT_TYPE: u32 = 0;
 pub const HEAR_ALLEGIANCE_CHAT_ORDINAL: usize = 27;
 
 /// `Request::ChannelBroadcast(0x2000000, text)` — the Allegiance Broadcast channel,
-/// the same bit `dereth_client::chat::channel_broadcast_line` prints `[Allegiance Broadcast]` for.
+/// the same bit `dereth_client_model::chat::composition::channel_broadcast_line` prints `[Allegiance Broadcast]` for.
 pub const ALLEGIANCE_BROADCAST_CHANNEL: u32 = 0x0200_0000;
 
 /// `AllegianceLockAction`, the `Request::AllegianceDoLockAction` argument. The numbers are

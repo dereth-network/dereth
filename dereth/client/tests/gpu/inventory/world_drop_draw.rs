@@ -10,24 +10,24 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::models::PLACEMENT_RESTING;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::shared_session;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::models::PLACEMENT_RESTING;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, Vec3};
 use dereth_protocol::movement::{position_flags, MovementPositionEvent, PositionPack};
 use dereth_protocol::types::space::{Origin, Quat as WireQuat, Vec3 as WireVec3};
 use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// A recording with a populated outdoor landblock and a player with a full pack.
 const SESSION: &str = "long-solo-play";
@@ -266,7 +266,7 @@ fn one_frame(
 ) {
     scene.sync_objects(store, gpu, s).expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,

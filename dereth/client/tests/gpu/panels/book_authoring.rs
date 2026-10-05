@@ -12,12 +12,15 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 
-use dereth_client::{app::App, config::Config, net::ClientNetwork};
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::Message;
 use dereth_ui::ElementId;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork,
+};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 const BOOK: ObjectId = ObjectId(0x8000_0B00);
@@ -108,7 +111,7 @@ fn setup() -> (App, Peer) {
     })
     .expect("app");
     app.start_shell().expect("shell");
-    app.load_static_scene(dereth_client::world::SceneConfig {
+    app.load_static_scene(dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,

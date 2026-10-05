@@ -289,7 +289,7 @@ impl Hud {
     /// Mirror `LockUI` by changing `options2_` bit 24 only when the requested value differs.
     ///
     /// This is the **presentation mirror** where the radar's padlock lands after
-    /// `dereth_client::ui` pushes the new value into `GamePlayScreen` and broadcasts global `0x0D`.
+    /// `dereth_client_shell::ui` pushes the new value into `GamePlayScreen` and broadcasts global `0x0D`.
     /// The authoritative write is deliberately not attempted from `Hud::drive`'s immutable
     /// object view: the request owner first calls `PlayerSystem::set_option(51, ..)`, which mirrors
     /// bit 24 into the module `save_to_server` packs and emits `0x0005` because `LockUI` is one of

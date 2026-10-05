@@ -6,14 +6,17 @@
 //! and world, objects created from synthetic object-create messages.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneReads;
-use dereth_client::{app::App, config::Config, world::SceneConfig};
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{DataId, LocalTime, ObjectId, Quat, Vec3};
 use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
+use dereth_scene::world_scene::SceneReads;
 use dereth_ui::{framework::mode, ElemHandle, ElementId};
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::scene::SceneConfig,
+};
 
 const CREATURE: ObjectId = ObjectId(0x8300_0F01);
 const CORPSE: ObjectId = ObjectId(0x8300_0F02);
@@ -256,13 +259,13 @@ fn app_draws_dat_brackets_for_world_creature_and_corpse_and_clears_deselection()
     }
     // Camera movement happens after ui_use_time; this catches a one-frame-old HUD projection.
     let before = assert_sphere_geometry(&app, CORPSE);
-    app.flycam_key(dereth_client::platform::keys::Key::SPACE, true);
+    app.flycam_key(dereth_input::keys::Key::SPACE, true);
     assert!(
         app.probe().camera_input().up,
         "real residual flycam input accepted"
     );
     assert!(app.frame());
-    app.flycam_key(dereth_client::platform::keys::Key::SPACE, false);
+    app.flycam_key(dereth_input::keys::Key::SPACE, false);
     let after = assert_sphere_geometry(&app, CORPSE);
     assert_ne!(
         before.y0, after.y0,
@@ -464,7 +467,7 @@ fn rebuilt_gameplay_at_a_different_display_extent_reprojects_real_dat_corners() 
 /// it does not validate the model's documented use of 0xF748 for the physics state.
 #[test]
 fn selected_target_tracks_world_fade_projection_and_hides_during_the_tunnel() {
-    use dereth_client::teleport::TeleportAnimState;
+    use dereth_client_runtime::teleport::TeleportAnimState;
     let mut app = setup();
     place(&mut app, CREATURE, Vec3::new(2.0, 18.0, -1.0), false);
     select(&mut app, Some(CREATURE));

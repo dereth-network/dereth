@@ -317,7 +317,7 @@ pub(super) fn the_journal_timer_counts_down_and_the_button_resets_it() {
 
     // Nothing but time: the headless client steps its own clock a fixed amount per frame.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let frames = (5.0 / dereth_client::app::HEADLESS_STEP).ceil() as u64 + 2;
+    let frames = (5.0 / dereth_client_runtime::platform::clock::HEADLESS_STEP).ceil() as u64 + 2;
     c.tick(frames);
     let later = el_text(&mut c, journal::TIMER_TEXT);
     let moved = later != first;

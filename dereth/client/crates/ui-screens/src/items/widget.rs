@@ -66,7 +66,7 @@ pub mod item_state {
 /// pack) are **not a mouse cursor**:
 ///
 /// * The client's cursor state
-///   machine, transcribed in `dereth_client::cursor`, has **no drag arm**. Its nine
+///   machine, transcribed in `dereth_desktop::cursor`, has **no drag arm**. Its nine
 ///   branches are busy / target-mode / combat-mode only, and none of them reads the drag state.
 /// * The per-element override has exactly **one** caller in the
 ///   whole retail client (an animated-cursor media track).
@@ -196,7 +196,7 @@ pub mod child {
 /// This module owns the **enum lookups** — the four `DidMapper` groups the two composites
 /// index and the index arithmetic for each. The blending is
 /// [`dereth_ui::region::SurfaceOp::blit_3alpha`] / [`blit_4alpha`](dereth_ui::region::SurfaceOp::blit_4alpha)
-/// and the compositing is `dereth_client::ui_draw::composite`.
+/// and the compositing is `dereth_client_shell::ui_draw::composite`.
 pub mod icon_background {
     /// The `DidMapper 0x25000000` group `UIIconBackgrounds`.
     pub const ITEM_TYPE_GROUP: u32 = 0x1000_0004;

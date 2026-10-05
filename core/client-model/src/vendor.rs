@@ -281,7 +281,7 @@ impl Shop {
     /// The client's version reads the *live object*'s item type, and which object that is depends on
     /// the ownership fork — a question a `Shop` cannot answer without player and object-table
     /// access. The production reader is therefore
-    /// `dereth_client::vendor_view`'s `type_filters`, which walks the same eighteen masks over types
+    /// `dereth_client_runtime::vendor_view`'s `type_filters`, which walks the same eighteen masks over types
     /// resolved through that fork. This stays as the `Shop`-local form the vendor tests use to
     /// pick the recorded grocer out of the corpus by its contents.
     #[must_use]
@@ -1031,7 +1031,7 @@ impl crate::world::World {
     ///
     /// **Where the write lands here.** The original stock-loading path copies each description
     /// into the game object it
-    /// manufactures (see `dereth_client::vendor_view`'s `inq_type`). This build keeps
+    /// manufactures (see `dereth_client_runtime::vendor_view`'s `inq_type`). This build keeps
     /// two stores for that one desc — [`Shop::stock`]'s profile, which every stock reader uses,
     /// and the world object table, populated from vendor stock as well as object creates —
     /// so the client's single write is applied to both. That is a deviation only in the case
@@ -1393,7 +1393,7 @@ impl crate::world::World {
 
     /// Add a dragged item to the sell list and mark its sale state.
     ///
-    /// **This is `Weenie::sell_state`'s production writer.** `dereth_client::hud` and
+    /// **This is `Weenie::sell_state`'s production writer.** `dereth_client_shell::hud` and
     /// `items::widget` read the field; without this writer they would always see zero.
     ///
     /// Returns false when the vendor refuses the item, in which case nothing is marked and

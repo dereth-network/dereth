@@ -12,21 +12,25 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::world::SceneWrites;
 use dereth_physics::math::V3 as _;
 use dereth_physics::{PhysicsState, Transition};
+use dereth_scene::world_scene::SceneWrites;
 
-use dereth_client::character::{setup_geometry, Character};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{load_region, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState, ObjectCreatePayload};
 use dereth_protocol::types::physicsdesc::flags;
 use dereth_protocol::types::{PhysicsDesc, PositionWire, PublicWeenieDesc};
 use dereth_protocol::{Message, Opcode};
+use {dereth_client_runtime::character::Character, dereth_world_data::setup::setup_geometry};
+use {
+    dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The bolt.
 const BOLT: ObjectId = ObjectId(0x8000_0F50);
@@ -379,7 +383,7 @@ fn fly_with_bystander(
         },
     )
     .expect("the recorded block loads");
-    let region = dereth_client::world::load_region(&store).expect("the region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("a physics owner");
@@ -544,7 +548,7 @@ fn move_player_pair(mover_flags: u32, obstacle_flags: u32) -> (Vec3, Vec3) {
         },
     )
     .expect("the recorded block loads");
-    let region = dereth_client::world::load_region(&store).expect("the region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("a physics owner");

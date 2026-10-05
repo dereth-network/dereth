@@ -134,7 +134,7 @@ impl GameView for Module {
 }
 
 /// The shipped gameplay screen with `RemainingPanels` bound off its root, exactly as
-/// `dereth_client::hud::Hud::drive` binds it.
+/// `dereth_client_shell::hud::Hud::drive` binds it.
 fn screen(with_strings: bool) -> (UiSystem, GamePlayScreen, RemainingPanels) {
     let mut ui = env(with_strings);
     let mut s = GamePlayScreen::default();
@@ -590,7 +590,7 @@ mod appear_offline {
     }
 
     /// The shipped gameplay screen with `RemainingPanels` bound off its root, exactly as
-    /// `dereth_client::hud::Hud::drive` binds it.
+    /// `dereth_client_shell::hud::Hud::drive` binds it.
     fn screen(with_strings: bool) -> (UiSystem, GamePlayScreen, RemainingPanels) {
         let mut ui = env(with_strings);
         let mut s = GamePlayScreen::default();

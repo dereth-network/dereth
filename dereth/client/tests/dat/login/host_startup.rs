@@ -2,19 +2,18 @@
 
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
-use dereth_client::{
-    app::{App, Platform},
-    config::Config,
-    present::NullPresentation,
-};
 use dereth_input::host::HostEvent;
+use {
+    dereth_client::app::App, dereth_client_runtime::app::Platform,
+    dereth_client_runtime::config::Config, dereth_client_runtime::present::NullPresentation,
+};
 
 #[test]
 fn host_startup_reuses_the_store_and_routes_the_supplied_event_queue() {
     let store = Arc::new(
         dereth_dat::RetailDatStore::open_dir(&crate::common::client_dir()).expect("retail dats"),
     );
-    let events = dereth_client::platform::window::WindowEvents::default();
+    let events = dereth_client_shell::platform::window::WindowEvents::default();
     let phase = Cell::new(0);
     let cfg = Config {
         dat_dir: std::path::PathBuf::from("host-store-has-no-disk-directory"),

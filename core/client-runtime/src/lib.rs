@@ -43,9 +43,6 @@ pub mod stats;
 /// Lives in `dereth-world-data`; re-exported at its old path.
 pub use dereth_world_data::anim_assets;
 
-/// The six built-in display templates a speech line is composed with.
-pub mod chat;
-
 /// `ClientNetwork`: the UDP socket handed to `dereth_client_net::client_session`, and nothing else.
 pub mod net;
 
@@ -76,7 +73,7 @@ pub mod object_identity;
 pub mod dropped;
 
 /// The live diagnostic trace targets (`dereth::trace::*`) and their filter checks. The two
-/// functions that read a live UI tree stay in `dereth_client::trace`.
+/// functions that read a live UI tree stay in `dereth_client_shell::trace`.
 pub mod trace;
 
 /// `send_request`: the one place a `dereth_client_model::Request` becomes bytes on a session.
@@ -102,7 +99,7 @@ pub mod world_overlay;
 /// `dereth-world-data`; re-exported at its old path.
 pub use dereth_world_data::env_cells;
 /// The free camera and the character camera. The four functions that take a
-/// `crate::present::Scene` stay in `dereth_client::camera`, with the two tests whose oracle is
+/// `crate::present::Scene` stay in `dereth_client_runtime::camera`, with the two tests whose oracle is
 /// `dereth_render::camera::view_from_frame`.
 pub mod camera;
 /// The embodied character.
@@ -116,7 +113,7 @@ pub mod object_range;
 /// The objects the server puts in the world.
 pub mod objects;
 /// `WorldObjects`'s pick, and the geometry it sweeps. `impl PickScene for WorldScene` stays in
-/// `dereth_client::pick_scene`, because `WorldScene` is `dereth-client`'s.
+/// the scene crate's `pick_scene` implementation, because `WorldScene` is `dereth-scene`'s.
 pub mod pick;
 /// The pick's geometry: the pick ray, the sphere and polygon tests, and the sweep over the parts
 /// a frame draws.
@@ -136,10 +133,10 @@ pub mod teleport;
 /// `App` is constructed from; `Preferences` is the `UserPreferences.ini` it reads.
 pub mod config;
 /// The fourteen `Render.*` preference names and their choice decodes. The three `apply_*`
-/// functions that hold a `Gpu` stay in `dereth_client::render_prefs`.
+/// functions that hold a `Gpu` stay in `dereth_client_shell::render_prefs`.
 pub mod render_prefs;
 
-/// `SoundTrigger` alone. The rest of `dereth_client::audio` holds the `cpal` stream, so it stays
+/// `SoundTrigger` alone. The rest of `dereth_desktop::audio` holds the `cpal` stream, so it stays
 /// in `dereth-client`.
 pub mod audio;
 
@@ -157,7 +154,7 @@ pub mod object_step;
 
 /// The game model: the HUD model and its `GameView` provider, the interaction layer (selection, combat, use, the
 /// `UiRequest` router), the shop/trade/allegiance projections, and the cursor decision's item-use
-/// predicates. `dereth_client` re-exports each at its old path.
+/// predicates.
 pub mod allegiance_view;
 pub mod cursor;
 /// The questions the game asks the player, whatever UI shows them.
@@ -187,7 +184,7 @@ pub mod world_objects;
 pub mod world_step;
 
 /// The player system's process-owned landscape presets.
-/// `dereth_client::world::EnvironmentOverrideState` resolves to it through a `pub use`.
+/// `EnvironmentOverrideState` is the shared handle used by both simulation and rendering.
 pub mod environment;
 
 /// The presentation seam: the device the frame draws through, the headless presentation, and the

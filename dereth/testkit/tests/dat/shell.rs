@@ -235,8 +235,8 @@ use wizard::{
     wizard_roots, wizard_text, yes_leaves_the_wizard_and_no_stays_on_the_page,
 };
 
-use dereth_client::platform::window::key_from_key_code;
-use dereth_client::ui::HostState;
+use dereth_client_contract::pregame::PregameView as HostState;
+use dereth_desktop::platform::window::key_from_key_code;
 use dereth_testkit::adapters_shell::{
     build_app, element, open_options_page, scratch_preferences, AppSpec, BareKeyboard, Hands,
 };
@@ -514,7 +514,7 @@ fn the_shipped_keymap_binds_use_to_r_and_the_step_presses_it() {
 
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
     let bound = input_steps::bound_scan_code(&mut c, input_steps::USE, input_steps::UI_COMMANDS);
-    let r = dereth_client::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyR)
+    let r = dereth_desktop::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyR)
         .expect("the host names R");
     assert_eq!(
         bound & 0x7F,
@@ -556,8 +556,11 @@ use dereth_ui_screens::chat::window::{ENTRY, LOG};
 use dereth_input::spec::{ControlCode, SubControlIndex};
 use dereth_ui_screens::options::keybinding::{control_name, RowDialog, DIALOG_QUEUE};
 
-use dereth_client::pump::key_text_messages;
-use dereth_client::pump::window_proc::{msg as win_msg, Effect};
+use dereth_input::pump::key_text_messages;
+use {
+    dereth_client_contract::window_proc::msg as win_msg,
+    dereth_client_contract::window_proc::Effect,
+};
 
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::ObjectId;

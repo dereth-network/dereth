@@ -1173,7 +1173,9 @@ feedback,channel: 0x1A, text},
                     if change.moved() && matches!(ordinal, 35 | 36 | 37 | 38 | 46) {
                         let heritage = Self::player_desc(game, player_desc_received)
                             .map_or(0, |q| q.inq_int(0xBC));
-                        game.enable_chat_talk_focuses(crate::chat::is_olthoi(heritage));
+                        game.enable_chat_talk_focuses(
+                            dereth_client_model::chat::composition::is_olthoi(heritage),
+                        );
                         chat_focus(&mut game.chat);
                     }
                     // Player-option-changed event `0x0005`,

@@ -38,7 +38,7 @@ pub fn launch_uri(url: &str) -> i32 {
 /// [`StartupError::Device`] when the event loop or the window cannot be created.
 pub fn open_platform<P: Product>(
     cfg: &Config,
-    events: crate::platform::window::WindowEvents,
+    events: dereth_client_shell::platform::window::WindowEvents,
 ) -> Result<Platform, StartupError> {
     P::before_window();
     let look = crate::platform::window::WindowLook {

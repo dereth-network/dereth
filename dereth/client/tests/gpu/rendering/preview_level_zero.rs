@@ -18,17 +18,17 @@ use std::sync::Arc;
 use dereth_animation::parts::PhysicsPart;
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo, Setup};
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::gpu::PreviewId;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::preview::PreviewObject;
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::gpu::PreviewId;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::BBoxExt;
 use dereth_primitives::{DataId, LocalTime, Vec3};
+use dereth_scene::preview::PreviewObject;
 use dereth_ui_screens::screens::gameplay::{window::INVENTORY_PAGE, GamePlayScreen};
 
 const SESSION: &str = "first-login-walk-jump";
@@ -51,7 +51,7 @@ fn store() -> Arc<RetailDatStore> {
         "the retail dats are this test's oracle: none at {} -- set DERETH_TEST_DAT_DIR",
         d.display()
     );
-    Arc::new(dereth_client::assets::open_data_files(&d).expect("the retail dats open"))
+    Arc::new(dereth_client_runtime::assets::open_data_files(&d).expect("the retail dats open"))
 }
 
 fn gfxobj(store: &RetailDatStore, id: DataId) -> Option<GfxObj> {
@@ -334,11 +334,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = App::new(cfg).expect("the headless GPU device and the shipped UI");
     app.start_shell().expect("the shell starts");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
@@ -423,9 +423,9 @@ fn the_paper_doll_bakes_gfxobj_zero_for_every_part() {
 fn the_char_gen_turntable_bakes_gfxobj_zero_for_every_part() {
     let store = store();
     let mut app = app_in_gameplay(2);
-    let assets = Arc::new(dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(
-        &store,
-    )));
+    let assets = Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+        Arc::clone(&store),
+    ));
     assert!(
         app.renderer_mut()
             .ensure_preview(PreviewId::CharGen, &assets),
@@ -458,9 +458,9 @@ fn the_char_gen_turntable_bakes_gfxobj_zero_for_every_part() {
 fn the_identify_portrait_bakes_gfxobj_zero_and_frames_from_level_zeros_box() {
     let store = store();
     let mut app = app_in_gameplay(2);
-    let assets = Arc::new(dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(
-        &store,
-    )));
+    let assets = Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+        Arc::clone(&store),
+    ));
     assert!(
         app.renderer_mut()
             .ensure_preview(PreviewId::Examine, &assets),
@@ -547,10 +547,10 @@ fn the_identify_portrait_bakes_gfxobj_zero_and_frames_from_level_zeros_box() {
 fn the_portal_space_is_the_control() {
     let store = store();
     let a: &dyn dereth_primitives::AssetSource = &*store;
-    let setup = dereth_client::assets::enum_did(
+    let setup = dereth_client_runtime::assets::enum_did(
         a,
-        dereth_client::preview::UIASSET_GROUP,
-        dereth_client::preview::ENUM_PORTALSPACE_BACKGROUND,
+        dereth_scene::preview::UIASSET_GROUP,
+        dereth_scene::preview::ENUM_PORTALSPACE_BACKGROUND,
     )
     .expect("portalspace_background resolves");
     assert_eq!(setup, PORTAL_BACKGROUND, "the shipped DidMapper's answer");
@@ -566,9 +566,9 @@ fn the_portal_space_is_the_control() {
     );
 
     let mut app = app_in_gameplay(2);
-    let assets = Arc::new(dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(
-        &store,
-    )));
+    let assets = Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+        Arc::clone(&store),
+    ));
     assert!(
         app.renderer_mut()
             .ensure_preview(PreviewId::Portal, &assets),

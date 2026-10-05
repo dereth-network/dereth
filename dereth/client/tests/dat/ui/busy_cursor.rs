@@ -10,9 +10,9 @@ use crate::common::app::{app_in_gameplay, app_in_gameplay_unanswered};
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::cursor::{cursor_enum, UICURSOR_GROUP};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{DataId, ObjectId};
+use {dereth_client_shell::cursor::cursor_enum, dereth_client_shell::cursor::UICURSOR_GROUP};
 
 const PLAYER: ObjectId = ObjectId(0x5000_000A);
 const SWORD: ObjectId = ObjectId(0x8000_0101);
@@ -24,7 +24,8 @@ fn cursor(key: u32) -> DataId {
         client_dir().display()
     );
     let store = dereth_dat::RetailDatStore::open_dir(&client_dir()).expect("open the retail dats");
-    dereth_client::assets::enum_did(&store, UICURSOR_GROUP, key).expect("the shipped cursor")
+    dereth_client_runtime::assets::enum_did(&store, UICURSOR_GROUP, key)
+        .expect("the shipped cursor")
 }
 
 fn settle(app: &mut App) {

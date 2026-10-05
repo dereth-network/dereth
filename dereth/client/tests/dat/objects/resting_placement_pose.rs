@@ -14,11 +14,17 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::env_cells::{cell_statics, EnvCellLoader};
-use dereth_client::models::{resolve_parts, PLACEMENT_DEFAULT, PLACEMENT_RESTING};
-use dereth_client::object_physics::{setup_geometry_with_parts, SetupPartStats};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
+use {
+    dereth_client_runtime::models::resolve_parts, dereth_client_runtime::models::PLACEMENT_DEFAULT,
+    dereth_client_runtime::models::PLACEMENT_RESTING,
+};
+use {
+    dereth_client_runtime::object_physics::setup_geometry_with_parts,
+    dereth_client_runtime::object_physics::SetupPartStats,
+};
+use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
 
 /// Starter-area entry 0, "Holtburg": the training-academy block.
 const TRAINING_DUNGEON: u16 = 0x8602;

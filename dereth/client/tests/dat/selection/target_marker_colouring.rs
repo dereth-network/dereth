@@ -1,11 +1,11 @@
 //! The target marker is colourised with retail's integer hue and saturation arithmetic and keeps
 //! its alpha, for all twelve shipped target surfaces. Fixture: the retail dats; no device.
 
-use dereth_client::{
-    textures::TextureStore,
-    ui_draw::{derive, image_key},
-};
 use dereth_ui::region::SurfaceOp;
+use {
+    dereth_client_shell::ui_draw::derive, dereth_client_shell::ui_draw::image_key,
+    dereth_scene::textures::TextureStore,
+};
 
 /// Behaviour: selection.target-marker.is-colourised-with-retails-integer-hue-and-keeps-its-alpha
 #[test]

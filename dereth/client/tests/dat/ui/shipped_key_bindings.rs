@@ -27,10 +27,13 @@
 //! two analog mouse axes have no producer at all, and the four `SystemKeys` rows are what input
 //! map `0x10` exists to swallow.
 
-use dereth_client::{app::App, config::Config, interaction::TargetMode, pump::Pump};
 use dereth_input::{ActionId, InputMapId};
 use dereth_primitives::ObjectId;
 use winit::keyboard::KeyCode;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::interaction::TargetMode, dereth_desktop::pump::Pump,
+};
 
 /// `UICommands`, where the shipped `ActionMap` declares `SelectionExamine` and `EscapeKey`.
 const UI_COMMANDS: u32 = 0x1000_0009;
@@ -114,7 +117,7 @@ fn key_for(app: &mut App, action: u32, map: u32) -> KeyCode {
     CANDIDATES
         .into_iter()
         .find(|c| {
-            dereth_client::pump::scan_code_from_key_code(*c)
+            dereth_desktop::pump::scan_code_from_key_code(*c)
                 .is_some_and(|s| u32::from(s & 0x7F) == u32::from(binding.control.offset() & 0x7F))
         })
         .unwrap_or_else(|| {
@@ -140,12 +143,16 @@ fn press(app: &mut App, code: KeyCode, time: u32) {
 }
 
 /// The current cursor `DataId`, compared against a `UICURSOR` enum key resolved through the
-/// shipped mapper rather than by a literal (`dereth_client::cursor`: *"never hard-code a cursor's
+/// shipped mapper rather than by a literal (`dereth_desktop::cursor`: *"never hard-code a cursor's
 /// DataID"*).
 fn cursor_did(key: u32) -> dereth_primitives::DataId {
     let store = dereth_dat::testing::open_store().expect("required retail DAT");
-    dereth_client::assets::enum_did(&store, dereth_client::cursor::UICURSOR_GROUP, key)
-        .expect("the shipped UICURSOR mapper")
+    dereth_client_runtime::assets::enum_did(
+        &store,
+        dereth_client_shell::cursor::UICURSOR_GROUP,
+        key,
+    )
+    .expect("the shipped UICURSOR mapper")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -163,7 +170,7 @@ fn e_with_nothing_selected_arms_the_identify_cursor() {
     let mut app = screen_only();
     let e = key_for(
         &mut app,
-        dereth_client::interaction::action::SELECTION_EXAMINE,
+        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
         UI_COMMANDS,
     );
     assert_eq!(
@@ -191,7 +198,9 @@ fn e_with_nothing_selected_arms_the_identify_cursor() {
     let before = app.current_cursor_did();
     assert_eq!(
         before,
-        Some(cursor_did(dereth_client::cursor::cursor_enum::DEFAULT)),
+        Some(cursor_did(
+            dereth_client_shell::cursor::cursor_enum::DEFAULT
+        )),
         "Default"
     );
 
@@ -211,7 +220,9 @@ fn e_with_nothing_selected_arms_the_identify_cursor() {
     );
     assert_eq!(
         app.current_cursor_did(),
-        Some(cursor_did(dereth_client::cursor::cursor_enum::EXAMINE)),
+        Some(cursor_did(
+            dereth_client_shell::cursor::cursor_enum::EXAMINE
+        )),
         "the examine target-mode cursor arm is enum 10 + hovering -- the magnifying glass"
     );
     assert_ne!(app.current_cursor_did(), before, "the pointer changed");
@@ -226,7 +237,7 @@ fn e_with_a_selection_appraises_and_arms_nothing() {
     let mut app = screen_only();
     let e = key_for(
         &mut app,
-        dereth_client::interaction::action::SELECTION_EXAMINE,
+        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
         UI_COMMANDS,
     );
     let target = ObjectId(0x8000_09A4);
@@ -262,7 +273,7 @@ fn e_with_a_selection_appraises_and_arms_nothing() {
     // shard's description, and nothing here answers it.
     assert_eq!(
         app.current_cursor_did(),
-        Some(cursor_did(dereth_client::cursor::cursor_enum::WAIT)),
+        Some(cursor_did(dereth_client_shell::cursor::cursor_enum::WAIT)),
         "and the pointer waits on the description rather than arming anything"
     );
 }
@@ -274,12 +285,12 @@ fn escape_puts_the_identify_cursor_away() {
     let mut app = screen_only();
     let e = key_for(
         &mut app,
-        dereth_client::interaction::action::SELECTION_EXAMINE,
+        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
         UI_COMMANDS,
     );
     let esc = key_for(
         &mut app,
-        dereth_client::interaction::action::ESCAPE_KEY,
+        dereth_client_runtime::interaction::action::ESCAPE_KEY,
         UI_COMMANDS,
     );
     assert_eq!(esc, KeyCode::Escape);
@@ -307,7 +318,9 @@ fn escape_puts_the_identify_cursor_away() {
     );
     assert_eq!(
         app.current_cursor_did(),
-        Some(cursor_did(dereth_client::cursor::cursor_enum::DEFAULT)),
+        Some(cursor_did(
+            dereth_client_shell::cursor::cursor_enum::DEFAULT
+        )),
         "and the no-target-mode cursor arm puts the default pointer back"
     );
 }
@@ -479,7 +492,10 @@ fn j_asks_the_body_to_wave() {
 #[test]
 fn the_wave_key_reaches_the_motion_state_the_client_would_report() {
     use dereth_animation::MotionCommand;
-    use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
+    use {
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig,
+    };
 
     let mut app = screen_only();
     app.load_static_scene(SceneConfig {
@@ -592,7 +608,7 @@ fn waving_while_running_does_not_stop_the_player() {
 fn v_is_not_bound_to_any_emote_in_the_shipped_keymaps() {
     let mut app = screen_only();
     let scan = u32::from(
-        dereth_client::pump::scan_code_from_key_code(KeyCode::KeyV).expect("V has a scan code")
+        dereth_desktop::pump::scan_code_from_key_code(KeyCode::KeyV).expect("V has a scan code")
             & 0x7F,
     );
     let shell = app

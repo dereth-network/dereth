@@ -11,7 +11,7 @@
 //! | [`Assets::None`] | the object stream, the HUD and the interaction layer, with an optional \
 //!   replay endpoint under them -- no `App`, no dats, no screens | the model: objects, chat, \
 //!   requests, the snapshot |
-//! | [`Assets::Shell`] | the same model, plus a bare `dereth_client::ui::UiShell` over the retail \
+//! | [`Assets::Shell`] | the same model, plus a bare `dereth_client_shell::ui::UiShell` over the retail \
 //!   dats driven against a **synthetic** `HostState` -- no `App` | the UI tree and the shipped \
 //!   layouts, at a host state the scenario writes |
 //! | [`Assets::Retail`] | `App::with_platform(cfg, NullPresentation, Platform::headless(w, h))` \
@@ -48,20 +48,23 @@
 
 use std::sync::Arc;
 
-use dereth_client::app::{App, Platform, HEADLESS_STEP};
-use dereth_client::config::Config;
-use dereth_client::frame_events::FrameEvents;
-use dereth_client::hud::Hud;
-use dereth_client::interaction::Interaction;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::present::NullPresentation;
 use dereth_client_contract::{GameSnapshot, UiRequest};
 use dereth_client_model::{Notice, RecordingSink, Request, World};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::frame_events::FrameEvents;
+use dereth_client_runtime::interaction::Interaction;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::present::NullPresentation;
+use dereth_client_shell::hud::Hud;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_ui_screens::chat::interface::ChatMessage;
+use {
+    dereth_client::app::App, dereth_client_runtime::app::Platform,
+    dereth_client_runtime::platform::clock::HEADLESS_STEP,
+};
 
 use crate::login;
 use crate::view::ScenarioView;
@@ -71,7 +74,7 @@ use crate::view::ScenarioView;
 pub enum Assets {
     /// No retail data file at all. The model only: no `App`, no screens, no layouts.
     None,
-    /// The retail dats under `$DERETH_TEST_DAT_DIR`, a bare [`dereth_client::ui::UiShell`] over them, and
+    /// The retail dats under `$DERETH_TEST_DAT_DIR`, a bare [`dereth_client_shell::ui::UiShell`] over them, and
     /// the host state the scenario writes. No `App`. See the module docs.
     Shell,
     /// The retail dats under `$DERETH_TEST_DAT_DIR`, and a whole `App` over them.
@@ -106,7 +109,7 @@ pub struct ClientSpec {
     pub settings_dir: Option<std::path::PathBuf>,
     /// The synthetic host state an [`Assets::Shell`] client is driven against. See
     /// [`Self::shell`].
-    pub host: Option<Box<dereth_client::ui::HostState>>,
+    pub host: Option<Box<dereth_client_contract::pregame::PregameView>>,
 }
 
 impl ClientSpec {
@@ -167,14 +170,14 @@ impl ClientSpec {
         }
     }
 
-    /// A bare [`dereth_client::ui::UiShell`] over the retail dats, driven against `host`. No `App`.
+    /// A bare [`dereth_client_shell::ui::UiShell`] over the retail dats, driven against `host`. No `App`.
     ///
     /// The shell's mode is whatever the flow decides from `host` -- which is the
     /// point: `UiShell::new` comes up with the data-patch mode pending, and the screens the login
     /// flow walks through are reached by *what the host says*, not by queueing a mode. A scenario
     /// that wants to stand on one mode regardless says so with [`Self::on_mode`].
     #[must_use]
-    pub fn shell(host: dereth_client::ui::HostState) -> Self {
+    pub fn shell(host: dereth_client_contract::pregame::PregameView) -> Self {
         Self {
             assets: Assets::Shell,
             host: Some(Box::new(host)),
@@ -353,10 +356,10 @@ pub(crate) struct Model {
 /// This is everything a login-flow scenario needs, and the `host` field is the thing it cannot
 /// say to an `App`.
 pub(crate) struct ShellOnly {
-    pub(crate) ui: dereth_client::ui::UiShell,
+    pub(crate) ui: dereth_client_shell::ui::UiShell,
     /// What the application would be telling the shell this frame. A scenario writes it through
     /// [`HeadlessClient::host_mut`], which is the step "and now the shard says so".
-    pub(crate) host: dereth_client::ui::HostState,
+    pub(crate) host: dereth_client_contract::pregame::PregameView,
     /// What the shell asked the host for, accumulated. `UiShell::frame` answers these and the
     /// application acts on them; here the scenario reads them.
     pub(crate) requests: Vec<UiRequest>,
@@ -922,7 +925,10 @@ impl HeadlessClient {
     /// A claim about earshot or about what is on the radar needs a viewer; one about the chat
     /// model does not, and a HUD that has never synced deliberately has no body -- which is itself
     /// a behaviour two of the seeded scenarios assert.
-    pub fn sync_viewer(&mut self, viewer: Option<dereth_client::hud::ViewerFrame>) -> &mut Self {
+    pub fn sync_viewer(
+        &mut self,
+        viewer: Option<dereth_client_runtime::hud::ViewerFrame>,
+    ) -> &mut Self {
         match &mut self.backend {
             Backend::Model(m) => m.hud.sync(&m.objects, viewer),
             Backend::App(_) => panic!(
@@ -943,7 +949,7 @@ impl HeadlessClient {
     /// # Panics
     /// Panics when the client already has a link. A scenario gets one shard, and a second endpoint
     /// would leave the first one's queued datagrams unread.
-    pub fn attach_replay(&mut self, net: dereth_client::net::ClientNetwork) {
+    pub fn attach_replay(&mut self, net: dereth_client_runtime::net::ClientNetwork) {
         match &mut self.backend {
             Backend::App(app) => app.attach_replay_network(net).unwrap_or_else(|_| {
                 panic!("this client already has a link; a scenario logs in once")
@@ -963,7 +969,7 @@ impl HeadlessClient {
     /// an endpoint for -- feeding a datagram in, taking the written ones out -- needs it anyway.
     ///
     /// See [`Self::attach_replay`].
-    pub fn replay_net_mut(&mut self) -> Option<&mut dereth_client::net::ClientNetwork> {
+    pub fn replay_net_mut(&mut self) -> Option<&mut dereth_client_runtime::net::ClientNetwork> {
         match &mut self.backend {
             Backend::App(app) => app.replay_network_mut(),
             Backend::Model(m) => m.net.as_mut(),
@@ -989,7 +995,7 @@ impl HeadlessClient {
     /// A scenario reaches the current screen through it -- `shell.flow.current_mut()` and a
     /// downcast -- which is what every login-flow scenario does. The element tree is
     /// better read through [`Self::ui_snapshot`].
-    pub fn shell_mut(&mut self) -> Option<&mut dereth_client::ui::UiShell> {
+    pub fn shell_mut(&mut self) -> Option<&mut dereth_client_shell::ui::UiShell> {
         match &mut self.backend {
             Backend::Model(m) => m.shell.as_mut().map(|s| &mut s.ui),
             Backend::App(_) => None,
@@ -1000,7 +1006,7 @@ impl HeadlessClient {
     ///
     /// # Panics
     /// Panics on any backend but [`Assets::Shell`].
-    pub fn expect_shell(&mut self) -> &mut dereth_client::ui::UiShell {
+    pub fn expect_shell(&mut self) -> &mut dereth_client_shell::ui::UiShell {
         assert!(
             matches!(self.spec.assets, Assets::Shell),
             "this step drives the bare UI shell, so the scenario must be built with \
@@ -1018,7 +1024,7 @@ impl HeadlessClient {
     ///
     /// # Panics
     /// Panics on any backend but [`Assets::Shell`].
-    pub fn host_mut(&mut self) -> &mut dereth_client::ui::HostState {
+    pub fn host_mut(&mut self) -> &mut dereth_client_contract::pregame::PregameView {
         assert!(
             matches!(self.spec.assets, Assets::Shell),
             "the host state is the Assets::Shell backend's; an App computes its own every frame, \
@@ -1080,7 +1086,7 @@ impl HeadlessClient {
                     m.shell.as_mut().map(|s| &mut s.ui.ui.requests),
                     &mut |_, _| {},
                 );
-                dereth_client::interaction::apply_events(
+                dereth_client_runtime::interaction::apply_events(
                     &mut m.interaction,
                     events,
                     &mut m.objects.world,
@@ -1168,7 +1174,7 @@ impl HeadlessClient {
                     m.shell.as_mut().map(|s| &mut s.ui.ui.requests),
                     &mut |_, _| {},
                 );
-                dereth_client::interaction::apply_events(
+                dereth_client_runtime::interaction::apply_events(
                     &mut m.interaction,
                     &events,
                     &mut m.objects.world,
@@ -1257,7 +1263,11 @@ fn model_frame(m: &mut Model) -> (Vec<ChatMessage>, Vec<Notice>, Vec<Request>) {
         m.shell.as_mut().map(|s| &mut s.ui.ui.requests),
         &mut |_, _| {},
     );
-    dereth_client::interaction::apply_events(&mut m.interaction, &events, &mut m.objects.world);
+    dereth_client_runtime::interaction::apply_events(
+        &mut m.interaction,
+        &events,
+        &mut m.objects.world,
+    );
     shell_frame(m);
     (chat, notices.0, requests.0)
 }
@@ -1298,7 +1308,7 @@ fn seed_player(w: &mut World, id: ObjectId) {
         .insert(id, dereth_client_model::objects::ObjectInventory::new(id));
 }
 
-/// A bare [`dereth_client::ui::UiShell`] over the retail dats, settled to the spec's mode if it
+/// A bare [`dereth_client_shell::ui::UiShell`] over the retail dats, settled to the spec's mode if it
 /// named one.
 ///
 /// There is no `App` here and nothing that could open a socket: the shell reads a `HostState` and
@@ -1313,7 +1323,7 @@ fn build_shell(spec: &ClientSpec) -> (Arc<RetailDatStore>, ShellOnly) {
     }));
     #[allow(clippy::cast_possible_wrap)]
     let display = (spec.width as i32, spec.height as i32);
-    let ui = dereth_client::ui::UiShell::new(&store, display)
+    let ui = dereth_client_shell::ui::UiShell::new(&store, display)
         .unwrap_or_else(|e| panic!("the UI shell comes up over the retail dats: {e}"));
     let host = spec.host.as_deref().cloned().unwrap_or_default();
     let mut shell = ShellOnly {
@@ -1381,11 +1391,11 @@ fn build_app(spec: &ClientSpec) -> App {
         app.start_shell().expect("the UI shell comes up");
     }
     if spec.static_scene {
-        let s = dereth_client::world::SceneConfig {
+        let s = dereth_client_runtime::scene::SceneConfig {
             landblock: app.config().landblock,
             land_radius: app.config().land_radius,
             scenery_radius: app.config().scenery_radius,
-            ..dereth_client::world::SceneConfig::default()
+            ..dereth_client_runtime::scene::SceneConfig::default()
         };
         app.load_static_scene(s).expect("the static scene loads");
     }

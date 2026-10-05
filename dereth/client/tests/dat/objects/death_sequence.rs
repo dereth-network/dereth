@@ -94,8 +94,8 @@ use crate::common::workspace_root;
 use std::path::PathBuf;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::Message as _;
 use dereth_ui::framework::mode;
@@ -435,11 +435,11 @@ impl Station {
         let (peer, net) = Peer::new();
         app.attach_replay_network(net)
             .expect("a headless App takes a replay endpoint");
-        let s = dereth_client::world::SceneConfig {
+        let s = dereth_client_runtime::scene::SceneConfig {
             landblock: app.config().landblock,
             land_radius: app.config().land_radius,
             scenery_radius: app.config().scenery_radius,
-            ..dereth_client::world::SceneConfig::default()
+            ..dereth_client_runtime::scene::SceneConfig::default()
         };
         app.load_static_scene(s).expect("the static scene loads");
         Self {

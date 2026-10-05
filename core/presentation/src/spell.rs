@@ -29,7 +29,7 @@ pub fn school_name(school: u32) -> &'static str {
 /// the spell-range determination's arithmetic.
 ///
 /// All three live in [`dereth_client_contract::panels::spell_examine`], because
-/// `dereth_client::hud` evaluates the range against the player's own skills.
+/// `dereth_client_shell::hud` evaluates the range against the player's own skills.
 pub use dereth_client_contract::panels::spell_examine::{
     skill_for_spell, spell_range, MAGIC_SKILLS,
 };

@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use dereth_animation::{AnimAssets, MotionDriver};
-use dereth_client::anim_assets::DatAnimAssets;
 use dereth_primitives::{DataId, Frame, ServerTime, Vec3};
+use dereth_world_data::anim_assets::DatAnimAssets;
 
 const PS_HIDE: u32 = 116;
 const PLAYER_SCRIPT_TABLE: DataId = DataId(0x3400_0004);
@@ -18,7 +18,7 @@ fn player_driver() -> MotionDriver {
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
     let assets: Arc<dyn AnimAssets> = Arc::new(DatAnimAssets::new(store));
     let setup = assets
-        .setup(dereth_client::character::ALUVIAN_MALE_SETUP)
+        .setup(dereth_client_runtime::character::ALUVIAN_MALE_SETUP)
         .expect("the shipped Aluvian male setup");
     let mut driver = MotionDriver::new(Arc::clone(&assets));
     assert!(driver.set_setup(setup));

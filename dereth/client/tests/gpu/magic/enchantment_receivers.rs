@@ -11,7 +11,7 @@ use crate::common::gpu_lock;
 use crate::net::late_receivers::{chat, describe_player, recorded, settle, setup};
 
 use dereth_client::app::App;
-use dereth_client::dropped;
+use dereth_client_runtime::dropped;
 use dereth_protocol::{Message, Opcode};
 use dereth_ui_screens::view::GameView;
 

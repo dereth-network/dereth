@@ -11,20 +11,26 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::selection_geometry::SceneSelectionPhysics;
-use dereth_client::world::{ObjectConeStats, SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::selection_geometry::SceneSelectionPhysics;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 use std::sync::Arc;
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::PLAYER_OBJECT_ID,
+};
+use {
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::ObjectConeStats,
+    dereth_scene::world_scene::WorldScene,
+};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// In front of the player, well inside any field of view — the calibration positive.
 const AHEAD: ObjectId = ObjectId(0x8300_0011);
@@ -79,7 +85,8 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &dev).expect("a D3D12 WARP device");
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,
@@ -269,8 +276,8 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,
         );
@@ -829,7 +836,7 @@ fn step(
 ) {
     scene.sync_objects(store, gpu, s).expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
@@ -958,7 +965,7 @@ fn tour(
             .sync_objects(store, &mut gpu, &mut r.objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(t + 1.0),
             1.0 / 30.0,

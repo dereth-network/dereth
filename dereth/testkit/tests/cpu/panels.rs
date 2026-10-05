@@ -49,21 +49,21 @@ pub fn every_house_message_the_shard_can_send_reaches_a_receiver() {
     let mut received = Vec::new();
     let mut dropped = Vec::new();
     for (op, what) in INBOUND {
-        dereth_client::dropped::clear();
+        dereth_client_runtime::dropped::clear();
         let mut blob = op.0.to_le_bytes().to_vec();
         blob.extend(std::iter::repeat_n(0_u8, 64));
         let events =
             [dereth_client_net::client_session::SessionEvent::UiEvent { opcode: op, blob }];
 
         let mut world = dereth_client_model::World::new();
-        let mut hud = dereth_client::hud::Hud::new();
+        let mut hud = dereth_client_shell::hud::Hud::new();
         hud.apply_events(&events, &mut world);
 
         let mut world = dereth_client_model::World::new();
-        let mut inter = dereth_client::interaction::Interaction::new();
-        dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+        let mut inter = dereth_client_runtime::interaction::Interaction::new();
+        dereth_client_runtime::interaction::apply_events(&mut inter, &events, &mut world);
 
-        if dereth_client::dropped::unreceived(op) {
+        if dereth_client_runtime::dropped::unreceived(op) {
             dropped.push((op, what));
         } else {
             received.push(op);
@@ -477,20 +477,20 @@ fn quals_set_object_int(
 /// either took an arm. A body of zeroes is enough -- an arm either decodes it or counts it
 /// undecodable, and in neither case does it reach the wildcard.
 fn quals_ui_queue_has_a_receiver(opcode: dereth_protocol::Opcode) -> bool {
-    dereth_client::dropped::clear();
+    dereth_client_runtime::dropped::clear();
     let mut blob = opcode.0.to_le_bytes().to_vec();
     blob.extend(std::iter::repeat_n(0_u8, 64));
     let events = [dereth_client_net::client_session::SessionEvent::UiEvent { opcode, blob }];
 
     let mut world = dereth_client_model::World::new();
-    let mut hud = dereth_client::hud::Hud::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
     hud.apply_events(&events, &mut world);
 
     let mut world = dereth_client_model::World::new();
-    let mut inter = dereth_client::interaction::Interaction::new();
-    dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+    let mut inter = dereth_client_runtime::interaction::Interaction::new();
+    dereth_client_runtime::interaction::apply_events(&mut inter, &events, &mut world);
 
-    !dereth_client::dropped::unreceived(opcode)
+    !dereth_client_runtime::dropped::unreceived(opcode)
 }
 
 /// **The gate. All sixteen, and the negative control beside them.**
@@ -529,14 +529,14 @@ pub fn every_clearing_message_the_shard_can_send_reaches_a_receiver() {
     // **The instrument must be able to fail.**
     let control_is_still_unreceived =
         !quals_ui_queue_has_a_receiver(dereth_protocol::Opcode::ADMIN_ENVIRONS);
-    dereth_client::dropped::clear();
+    dereth_client_runtime::dropped::clear();
     let _ = quals_ui_queue_has_a_receiver(dereth_protocol::Opcode::ADMIN_ENVIRONS);
     // ...and it names the opcode and the site, not just a total.
-    let control_is_named = dereth_client::dropped::snapshot().iter().any(|d| {
+    let control_is_named = dereth_client_runtime::dropped::snapshot().iter().any(|d| {
         d.opcode == dereth_protocol::Opcode::ADMIN_ENVIRONS
-            && d.site == dereth_client::dropped::Site::UiEvent
+            && d.site == dereth_client_runtime::dropped::Site::UiEvent
     });
-    dereth_client::dropped::clear();
+    dereth_client_runtime::dropped::clear();
 
     let mut c = HeadlessClient::model();
     c.assert_behaviour(

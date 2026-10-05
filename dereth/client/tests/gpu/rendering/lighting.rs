@@ -11,15 +11,13 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_animation::parts::LightingMode;
 use dereth_assets::Decode;
-use dereth_client::character::CharacterInput;
-use dereth_client::env_cells::{cell_statics, EnvCellLoader};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{CellId, DataId, LocalTime, Vec3};
 use dereth_render::device::Gpu;
@@ -27,6 +25,11 @@ use dereth_world_render::lighting::{
     minimize_object_lighting, LightInfo, LightPools, CALC_POINT_LIGHT_FALLOFF_MULTIPLIER,
     HARDWARE_LIGHT_SLOTS, INDOOR_AMBIENT_LEVEL,
 };
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
+use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
 
 const W: u32 = 400;
 const H: u32 = 300;
@@ -80,7 +83,7 @@ fn torch_cells(store: &RetailDatStore) -> Vec<(CellId, DataId, Vec3, usize)> {
 /// sync/update/stream/draw order for six frames and return its last capture. No session input
 /// is replayed through the empty object stream.
 fn station(store: &Arc<RetailDatStore>, gpu: &mut Gpu, cfg: SceneConfig) -> (WorldScene, Vec<u8>) {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
     scene
         .attach_character(store, &region, gpu)
@@ -101,12 +104,12 @@ fn frames(
 ) -> Vec<u8> {
     let mut rgba = Vec::new();
     for i in from..from + count {
-        let t = f64::from(i + 1) * dereth_client::app::HEADLESS_STEP;
+        let t = f64::from(i + 1) * dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(t),
             1.0 / 30.0,

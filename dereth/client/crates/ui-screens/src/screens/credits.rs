@@ -59,7 +59,7 @@ pub const PICTURE_STATE: u32 = 3;
 
 /// The input map for which the original credits screen registers its action callback, and
 /// which its action handler therefore catches **every** control of. `charmgmt.rs` has the same
-/// constant, so both rows of `dereth_client::ui::PREGAME_MODE_INPUT_MAPS` name the screen's own
+/// constant, so both rows of `dereth_client_shell::ui::PREGAME_MODE_INPUT_MAPS` name the screen's own
 /// map.
 ///
 /// Retail registers map 9 at the focused-UI priority 3000. — the same registration the
@@ -637,7 +637,7 @@ impl Screen for CreditsScreen {
             .or_else(|| ui.children(tf).first().copied());
         ui.register_for_global_message(dereth_ui::msg::global::TICK, ME);
         // No `KEY_DOWN_UNCONSUMED` registration here. The constructor's closing registration of
-        // input map 9 at priority 3000 is made by `dereth_client::ui::PREGAME_MODE_INPUT_MAPS` and
+        // input map 9 at priority 3000 is made by `dereth_client_shell::ui::PREGAME_MODE_INPUT_MAPS` and
         // answered by `UiShell::mode_on_action`. The retail screen registers for exactly one global
         // message, 3; listening on 1 as well would be a deviation and a duplicate.
         Ok(())

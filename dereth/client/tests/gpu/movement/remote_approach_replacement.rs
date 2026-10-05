@@ -12,17 +12,17 @@
 use dereth_animation::motion::moveto::{distance, position_heading};
 use dereth_animation::table::MovementType;
 use dereth_animation::MotionCommand;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::SceneWrites;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId, Position};
 use dereth_protocol::movement::{
     MoveToArm, MovementBody, MovementParameters, MovementSetObjectMovement,
 };
 use dereth_protocol::{Message, Opcode};
 use dereth_render::device::{DeviceConfig, Gpu};
+use dereth_scene::world_scene::SceneWrites;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const PLAYER: ObjectId = ObjectId(0x5000_000a);
 const MOVER: ObjectId = ObjectId(0x8000_09d2); // long-solo-play's Sparring Golem
@@ -249,7 +249,7 @@ fn recorded_approach_replacement_unsticks_and_starts_again() {
         },
     )
     .expect("scene loads");
-    let region = dereth_client::world::load_region(&store).expect("retail region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("retail region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("physics world and body");

@@ -41,7 +41,7 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::LocalTime;
 use dereth_ui::framework::mode;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
@@ -71,9 +71,9 @@ struct Peer {
 impl Peer {
     /// A socket-free `ClientNetwork` with one already-established connection and no fragments:
     /// recipient `0xB`, out seed `0xDEADBEEF`, in seed `0x12345678`.
-    fn new() -> (Self, dereth_client::net::ClientNetwork) {
+    fn new() -> (Self, dereth_client_runtime::net::ClientNetwork) {
         let mut net =
-            dereth_client::net::ClientNetwork::new(PEER, 7304, "f71-station", "unused", 0)
+            dereth_client_runtime::net::ClientNetwork::new(PEER, 7304, "f71-station", "unused", 0)
                 .expect("a net");
         net.session.transport.add_connection(
             0xB,
@@ -154,11 +154,11 @@ fn app_in_world() -> (App, Peer) {
     })
     .expect("a headless application over the retail dats");
     app.start_shell().expect("the UI shell comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("a static scene");
     app.queue_ui_mode(mode::GAME_PLAY);
@@ -452,7 +452,7 @@ fn a_sync_shifts_the_absolute_time_by_a_constant_and_never_the_local_step() {
 
     const N: u32 = 9;
     pump(&mut app, N);
-    let step = dereth_client::app::HEADLESS_STEP;
+    let step = dereth_client_runtime::platform::clock::HEADLESS_STEP;
 
     assert!(
         (app.clock().elapsed_time() - (local_before + step * f64::from(N + 1))).abs() < 1e-9,
@@ -483,7 +483,9 @@ fn with_nothing_on_the_wire_the_clock_is_still_the_fixed_step_alone() {
     pump(&mut app, N);
 
     assert!(
-        (app.clock().cur_time - (base + dereth_client::app::HEADLESS_STEP * f64::from(N))).abs()
+        (app.clock().cur_time
+            - (base + dereth_client_runtime::platform::clock::HEADLESS_STEP * f64::from(N)))
+        .abs()
             < 1e-12,
         "cur_time is {} after {N} headless frames from {base}",
         app.clock().cur_time

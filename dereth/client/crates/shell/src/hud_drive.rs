@@ -19,7 +19,11 @@ use dereth_ui_screens::screens::gameplay_host::{
     selection_query_counts, FrameCall, GameCall, ObjectNoticeCall, PanelInputCall,
 };
 
-use crate::hud::{character_option, decode_chat_filters, decode_chat_opacity, Hud, HudView};
+use {
+    crate::hud::Hud, dereth_client_runtime::hud::character_option,
+    dereth_client_runtime::hud::decode_chat_filters,
+    dereth_client_runtime::hud::decode_chat_opacity, dereth_client_runtime::hud::HudView,
+};
 
 /// The gameplay screen, when it is the screen that is up.
 pub fn game_screen(flow: &mut dereth_ui::UiFlow) -> Option<&mut dyn Screen> {
@@ -173,7 +177,7 @@ impl Hud {
         ui: &mut dereth_ui::UiSystem,
         screen: &mut dyn Screen,
         screen_serial: u64,
-        objects: &crate::objects::ObjectStream,
+        objects: &dereth_client_runtime::objects::ObjectStream,
         target_mode_active: bool,
     ) {
         if self.panels_bound_to != Some(screen_serial) {
@@ -211,7 +215,7 @@ impl Hud {
         &mut self,
         ui: &mut dereth_ui::UiSystem,
         screen: &mut dyn Screen,
-        objects: &crate::objects::ObjectStream,
+        objects: &dereth_client_runtime::objects::ObjectStream,
     ) {
         let mut panels = std::mem::take(&mut self.panels);
         let mut call = GameCall::RefreshItemInputs;
@@ -232,7 +236,7 @@ impl Hud {
         &mut self,
         ui: &mut dereth_ui::UiSystem,
         screen: &mut dyn Screen,
-        objects: &crate::objects::ObjectStream,
+        objects: &dereth_client_runtime::objects::ObjectStream,
     ) -> usize {
         let mut call = GameCall::RereadOptions(0);
         let view = self.view(objects);
@@ -254,7 +258,7 @@ impl Hud {
         ui: &mut dereth_ui::UiSystem,
         screen: &mut dyn Screen,
         screen_serial: u64,
-        objects: &crate::objects::ObjectStream,
+        objects: &dereth_client_runtime::objects::ObjectStream,
     ) {
         // Network link status first: the link lamp reads it through the view, and `UiSystem::now`
         // is the clock that connection-status calculation subtracts from.
@@ -262,7 +266,8 @@ impl Hud {
         // Before the view is built, because every panel that draws a name reads it
         // through that view.
         self.refresh_display_names(&objects.world);
-        self.link_status = crate::net::link_status_holder::connection_status(ui.now.0);
+        self.link_status =
+            dereth_client_runtime::net::link_status_holder::connection_status(ui.now.0);
         let world = &objects.world;
 
         // A received player description feeds every window's `update_from_player_module`. Run once

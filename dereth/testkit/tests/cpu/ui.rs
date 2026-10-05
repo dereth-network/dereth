@@ -7,13 +7,15 @@
 //! model client, which is how a scenario whose subject is not the game model still books its
 //! claim.
 
-use dereth_client::clipboard::{ClipboardBridge, FakeClipboard};
 use dereth_primitives::{AssetError, AssetSource, DataId, DataType, LocalTime};
 use dereth_testkit::HeadlessClient;
 use dereth_ui::desc::{incorporation, ElementDesc, LayoutDesc, StateDesc};
 use dereth_ui::factory::ty;
 use dereth_ui::focus::{action, InputEvent};
 use dereth_ui::{ElemHandle, ElementId, ElementType, InputPump, UiSystem};
+use {
+    dereth_client_shell::clipboard::ClipboardBridge, dereth_client_shell::clipboard::FakeClipboard,
+};
 
 /// No dats: every element below is built from a description written here.
 #[derive(Debug)]

@@ -1,7 +1,7 @@
 //! The world as the simulation holds it.
 //!
 //! `WorldState` is the simulation and residency half of the drawn world, beside
-//! `dereth_client::world::WorldScene`: the local body, every server object's simulation record,
+//! `dereth_scene::world_scene::WorldScene`: the local body, every server object's simulation record,
 //! the landblock residency window, the chase camera, the calendar clock and its tick schedule, the
 //! environment options, and the queues the frame drains (sounds, house-barrier effects, the
 //! movement latch). Nothing in it names a device: the drawing half -- meshes, textures, the
@@ -19,7 +19,6 @@ use dereth_animation::MotionCommand;
 use dereth_physics::obj::PhysicsState;
 use dereth_primitives::{CellId, DataId, Frame, ObjectId, Vec3};
 
-use crate::anim_assets::DatAnimAssets;
 use crate::anim_hooks::HookObject;
 use crate::audio::SoundTrigger;
 use crate::camera::FreeCamera;
@@ -27,6 +26,7 @@ use crate::character::{Character, RenderSpace};
 use crate::environment::EnvironmentOverrideState;
 use crate::object_step::{AsObjectSim, ObjectSim};
 use crate::objects::ObjectStream;
+use dereth_world_data::anim_assets::DatAnimAssets;
 
 /// One object the server put in the world.
 ///
@@ -146,7 +146,7 @@ pub struct WorldState {
     /// The physics bodies of the objects every resident interior cell bakes in.
     /// It lives here rather than beside the
     /// body because a cell belongs to a landblock and this is what owns the resident blocks.
-    pub cell_static_objects: crate::env_cells::CellStaticObjects,
+    pub cell_static_objects: dereth_world_data::env_cells::CellStaticObjects,
     /// How many cells this scene has fenced with a house restriction,
     /// cumulative over the run. Reported the way the cell-static count is, for the same
     /// reason: "the world looks right and nothing stops you" is a failure no picture shows.
@@ -276,7 +276,7 @@ impl WorldState {
     /// For the tests: what made of the resident
     /// cells, and the physics handles one cell's objects hold.
     #[must_use]
-    pub fn cell_static_stats(&self) -> crate::env_cells::CellStaticStats {
+    pub fn cell_static_stats(&self) -> dereth_world_data::env_cells::CellStaticStats {
         self.cell_static_objects.stats
     }
 

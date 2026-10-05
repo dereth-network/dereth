@@ -2,8 +2,8 @@
 //! the gameplay screen current, with no graphics device (`NullPresentation`) and no network.
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::present::NullPresentation;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::present::NullPresentation;
 use dereth_primitives::ObjectId;
 use dereth_ui::UiSystem;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
@@ -19,7 +19,7 @@ use super::client_dir;
 /// installs any parked description. A bare `Weenie::new` has no qualities record, and an update
 /// arriving at one is refused as unstorable rather than creating it.
 ///
-/// The app answers for the server it does not have (`dereth_client::server_stub`), as every
+/// The app answers for the server it does not have (`dereth_client_runtime::server_stub`), as every
 /// headless app with no connection does; [`app_in_gameplay_unanswered`] is the one that does not.
 pub fn app_in_gameplay(frames: u32, player: Option<ObjectId>) -> App {
     build(frames, player, true)
@@ -56,11 +56,11 @@ fn build(frames: u32, player: Option<ObjectId>, answered: bool) -> App {
             .insert(player, dereth_client_model::weenie::Weenie::new(player));
         assert!(w.set_player(player), "the identity is adopted once");
     }
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);

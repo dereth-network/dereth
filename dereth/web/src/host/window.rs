@@ -16,10 +16,10 @@ use dereth_client_runtime::platform::window::{
 };
 use dereth_ui_screens::options::store::DisplayMode;
 
-use dereth_client_shell::platform::keys::Key;
+use dereth_input::keys::Key;
 
 /// The shared event, and the window's queue of them: the client shell's.
-pub use dereth_client_shell::platform::window::{HostEvent, WindowEvents};
+pub use {dereth_client_shell::platform::window::WindowEvents, dereth_input::host::HostEvent};
 
 /// The canvas's size, shared by the window and the page that resizes the canvas.
 pub type CanvasSize = std::rc::Rc<Cell<(u32, u32)>>;

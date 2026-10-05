@@ -627,7 +627,7 @@ pub(super) fn finish_composes_the_character_the_player_built_and_only_once() {
         && result.is_envoy == 0;
 
     // And it survives the trip on to the wire and back, with the client's own checksum.
-    let mut msg = dereth_client::app::chargen_result_to_wire(result);
+    let mut msg = dereth_client_runtime::app::chargen_result_to_wire(result);
     msg.checksum_value = msg.checksum();
     let m = dereth_protocol::login::CharacterSendCharGenResult {
         account: "ac01".into(),
@@ -998,7 +998,7 @@ pub(super) fn the_finish_buttons_caption_is_drawn_in_the_font_the_layout_names()
     // ...and the font draws the letters of the caption. It is the font's own sheet that a caption
     // is drawn from, and a sheet must not be refused for being too tall.
     let store = c.dat_store().expect("a retail client has a store").clone();
-    let atlas = dereth_client::ui_draw::build_font_atlas(&store, font.expect("a font"))
+    let atlas = dereth_client_shell::ui_draw::build_font_atlas(&store, font.expect("a font"))
         .expect("the caption's font rasterises");
     let legible = "FINISH".chars().all(|ch| atlas.glyph(ch).is_some());
 

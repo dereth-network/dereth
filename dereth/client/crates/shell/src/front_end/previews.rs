@@ -173,7 +173,7 @@ impl<H: Host> Ui<'_, '_, H> {
             .and_then(|p| {
                 Some((
                     p.setup_id?,
-                    crate::world::to_anim_objdesc(&p.objdesc),
+                    dereth_client_runtime::movement::to_anim_objdesc(&p.objdesc),
                     p.scale,
                 ))
             });
@@ -217,9 +217,9 @@ impl<H: Host> Ui<'_, '_, H> {
                 Some(&objdesc),
             ) {
                 Ok(Some(_)) => {
-                    let anim = crate::assets::enum_did(
+                    let anim = dereth_client_runtime::assets::enum_did(
                         &*store,
-                        crate::preview::UIASSET_GROUP,
+                        dereth_scene::preview::UIASSET_GROUP,
                         self.paper_doll_animation_enum(),
                     );
                     self.cx
@@ -289,11 +289,12 @@ impl<H: Host> Ui<'_, '_, H> {
                 let world = self.cx.model();
                 let inventory = player.and_then(|p| world.tables.inventories.get(p));
                 let upper = |loc: u32| inventory.and_then(|inv| inv.upper_inv_obj(loc));
-                let mask = crate::preview::PaperDollSelectionLighting::selection_mask_from_object(
-                    item,
-                    world.player,
-                    &upper,
-                );
+                let mask =
+                    dereth_scene::preview::PaperDollSelectionLighting::selection_mask_from_object(
+                        item,
+                        world.player,
+                        &upper,
+                    );
                 let doll = self.cx.present_mut().preview_part_array_mut(id, 0);
                 self.front.paper_doll_lighting.begin(mask, now, doll);
             }
@@ -308,7 +309,7 @@ impl<H: Host> Ui<'_, '_, H> {
     /// **The identify window's 3D portrait.**
     ///
     /// Appraising a creature or an NPC shows the creature beside the numbers. The viewport element
-    /// is registered as engine class `0x0D` (`factory.rs`), and [`crate::preview::PreviewSpace`]
+    /// is registered as engine class `0x0D` (`factory.rs`), and [`dereth_scene::preview::PreviewSpace`]
     /// drives it as it drives the three other viewports; this is what binds `0x10000148` and
     /// queues a space for it. Without it the element is built from the layout and draws an
     /// empty box.
@@ -340,7 +341,7 @@ impl<H: Host> Ui<'_, '_, H> {
     ///   object. Same builds, driven from the state rather than from the edge, which is what the
     ///   other three viewports here already do.
     /// * **Clone order.** Retail boxes the clone *before* adding it; the box is taken here after
-    ///   the add, because [`crate::preview::PreviewSpace::add_object_dressed`] is what establishes
+    ///   the add, because [`dereth_scene::preview::PreviewSpace::add_object_dressed`] is what establishes
     ///   the part frames at all. Adding only sets cell membership and
     ///   placement frame 0, both of which the add already applied, so the box is of the
     ///   same posed object either way.
@@ -352,7 +353,7 @@ impl<H: Host> Ui<'_, '_, H> {
     /// object keeps its setup-default animation, which
     /// `add_object_dressed` already applies. The portrait is therefore *live* — retail's
     /// update path advances every visible preview object each frame, and
-    /// [`crate::preview::PreviewSpace::use_time`] provides that behavior here.
+    /// [`dereth_scene::preview::PreviewSpace::use_time`] provides that behavior here.
     pub(super) fn examine_3d_use_time(&mut self) {
         use dereth_ui_screens::panels::examination::portrait;
         use dereth_ui_screens::screens::gameplay_host::GameCall;
@@ -410,11 +411,12 @@ impl<H: Host> Ui<'_, '_, H> {
 
         // Look up the *live* object by id. A null there
         // is the client's `if (p)` and leaves the space with whatever it last held.
-        let dress = self
-            .cx
-            .objects()
-            .presence(object)
-            .and_then(|p| Some((p.setup_id?, crate::world::to_anim_objdesc(&p.objdesc))));
+        let dress = self.cx.objects().presence(object).and_then(|p| {
+            Some((
+                p.setup_id?,
+                dereth_client_runtime::movement::to_anim_objdesc(&p.objdesc),
+            ))
+        });
         let Some((setup, objdesc)) = dress else {
             return;
         };
@@ -644,12 +646,12 @@ impl<H: Host> Ui<'_, '_, H> {
         // Assemble the character-generation preview's appearance — everything that dresses the model.
         // Without it the turntable draws the naked setup record: the arrows move `CharGenState`'s
         // indices and the wizard rebuilds the view, but the model is never dressed. See
-        // [`crate::preview::chargen_objdesc`].
+        // [`dereth_scene::preview::chargen_objdesc`].
         let (objdesc, dress_stats) = match cg_tables.as_ref() {
             Some(t) => {
                 let s = std::sync::Arc::clone(self.cx.store());
                 let cache = &mut self.front.chargen_pal_sets;
-                crate::preview::chargen_objdesc(
+                dereth_scene::preview::chargen_objdesc(
                     &t.chargen,
                     cg_state,
                     &t.clothing,
@@ -659,7 +661,7 @@ impl<H: Host> Ui<'_, '_, H> {
             }
             None => (
                 dereth_animation::parts::ObjDesc::default(),
-                crate::preview::ChargenDressStats::default(),
+                dereth_scene::preview::ChargenDressStats::default(),
             ),
         };
         self.front.chargen_dress = dress_stats;
@@ -669,7 +671,7 @@ impl<H: Host> Ui<'_, '_, H> {
         //
         // The `ObjDesc` is part of the key for the reason the paper doll's is: the part
         // meshes are baked from the **dressed** part array
-        // ([`crate::preview::PreviewSpace::add_object_dressed`]), so a redress is a rebuild. The
+        // ([`dereth_scene::preview::PreviewSpace::add_object_dressed`]), so a redress is a rebuild. The
         // client can be cheaper -- it reapplies the descriptor to the object it
         // already has -- and gets the same picture.
         //
@@ -737,7 +739,11 @@ impl<H: Host> Ui<'_, '_, H> {
             } else {
                 (view3d.rest_animation_enum, 0.0)
             };
-            match crate::assets::enum_did(&*store, crate::preview::UIASSET_GROUP, enum_value) {
+            match dereth_client_runtime::assets::enum_did(
+                &*store,
+                dereth_scene::preview::UIASSET_GROUP,
+                enum_value,
+            ) {
                 Some(a) => {
                     self.cx.present_mut().preview_clear_sequence_anims(id, 0);
                     if !self

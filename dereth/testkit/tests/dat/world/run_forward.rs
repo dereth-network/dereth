@@ -1,9 +1,11 @@
-use dereth_client::character::{Character, CharacterInput};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_primitives::LocalTime;
 use dereth_protocol::actions::unpack_action;
 use dereth_protocol::movement::{MovementMoveToState, RawMotionState};
 use dereth_protocol::Message;
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+};
 
 /// The command a walk forward reports, as a literal: reading it back through the client's own
 /// constant would not notice a wrong constant.
@@ -19,11 +21,11 @@ pub const HOLD: u32 = 60;
 
 /// A body standing still on the default landblock's terrain, settled for two seconds.
 pub fn settled_character(store: &std::sync::Arc<dereth_dat::RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client::world::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the character is created");
@@ -85,5 +87,5 @@ pub fn recorded_move_to_states() -> Vec<(String, Vec<u8>, MovementMoveToState)> 
 
 /// What the client would put on the wire for the body as it stands.
 pub fn wire(c: &Character) -> RawMotionState {
-    dereth_client::app::raw_motion_state_to_wire(&c.driver().movement.interp.raw_state)
+    dereth_client_runtime::app::raw_motion_state_to_wire(&c.driver().movement.interp.raw_state)
 }

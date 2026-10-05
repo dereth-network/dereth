@@ -11,17 +11,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
 use dereth_animation::hooks::{AnimHook, HookKind};
 use dereth_animation::{AnimAssets, AnimEvent, MotionCommand, MotionDriver};
-use dereth_client::anim_assets::DatAnimAssets;
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::V3;
 use dereth_primitives::{DataId, LocalTime, Vec3};
+use dereth_world_data::anim_assets::DatAnimAssets;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The door setup used while scanning for a table with the required hook pair.
 const DOOR_SETUP: u32 = 0x0200_024F;
@@ -77,7 +77,7 @@ fn an_ethereal_motion_table(store: &Arc<RetailDatStore>) -> DataId {
 fn an_ethereal_hook_fired_inside_the_frame_reaches_the_physics_object() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let mtable = an_ethereal_motion_table(&store);
     eprintln!(
         "ethereal hook: driving the body with retail motion table {:#010X}",
@@ -93,7 +93,7 @@ fn an_ethereal_hook_fired_inside_the_frame_reaches_the_physics_object() {
         for _ in 0..frames {
             *t += 1.0 / 30.0;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(*t),
                 1.0 / 30.0,
@@ -188,7 +188,7 @@ fn quarter_turn_per_second() -> Vec3 {
 fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
 
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene
@@ -200,7 +200,7 @@ fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
         for _ in 0..frames {
             *t += 1.0 / 30.0;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(*t),
                 1.0 / 30.0,
@@ -308,7 +308,7 @@ fn a_set_omega_hook_fired_inside_the_frame_turns_the_physics_body() {
 fn the_last_set_omega_hook_of_a_step_wins() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
 
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene
@@ -320,7 +320,7 @@ fn the_last_set_omega_hook_of_a_step_wins() {
         for _ in 0..frames {
             *t += 1.0 / 30.0;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(*t),
                 1.0 / 30.0,

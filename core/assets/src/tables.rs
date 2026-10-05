@@ -1908,10 +1908,10 @@ pub const MASTER_DID_MAPPER: DataId = DataId(0x2500_0000);
 /// caller must treat as a failure rather than as an empty result: the client's own `require` on
 /// the returned pointer is fatal.
 ///
-/// This lives here rather than in the client because two crates need it — `dereth_client::assets`
+/// This lives here rather than in the client because two crates need it — `dereth_client_runtime::assets`
 /// (the action map, the key maps, the UI sound table, the preview animations) and
 /// `dereth_ui_screens::env` (the icon backgrounds an item slot paints) — and
-/// `dereth-ui-screens` sits *below* `dereth-client`. `dereth_client::assets::enum_did` is a
+/// `dereth-ui-screens` sits *below* `dereth-client`. `dereth_client_runtime::assets::enum_did` is a
 /// one-line forward to it.
 #[must_use]
 pub fn did_by_enum(

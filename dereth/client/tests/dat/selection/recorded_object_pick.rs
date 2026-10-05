@@ -10,12 +10,12 @@ use crate::common::client_dir;
 
 use std::collections::BTreeMap;
 
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::pick::{PickScene, WorldPicker};
 use dereth_client_net::client_session::testing::shared_session;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{Frame, LocalTime, ObjectId, Quat, Vec3};
+use {dereth_client_runtime::pick::PickScene, dereth_client_runtime::pick::WorldPicker};
 
 // ---------------------------------------------------------------------------------------------
 // Harness

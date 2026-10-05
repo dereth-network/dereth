@@ -19,7 +19,7 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui::{ElementId, StateId, UiFill};
 
@@ -128,12 +128,12 @@ fn glyph_pixels(
     > = std::collections::BTreeMap::new();
     let mut mask = vec![false; (fb.0 * fb.1) as usize];
     for cmd in list {
-        let Some(clip) = dereth_client::ui_draw::visible_box(cmd, fb) else {
+        let Some(clip) = dereth_client_shell::ui_draw::visible_box(cmd, fb) else {
             continue;
         };
         for g in &cmd.glyphs {
             let font = fonts.entry(g.font).or_insert_with(|| {
-                dereth_client::ui_draw::load_font(store, g.font).expect("a font")
+                dereth_client_shell::ui_draw::load_font(store, g.font).expect("a font")
             });
             let Some(d) = font.get_char_desc(g.ch) else {
                 continue;
@@ -531,7 +531,7 @@ fn the_chat_window_background_is_a_translucent_black_tile_not_an_opaque_one() {
     let did = cmd.image.expect("the chat background has an image");
 
     // The tile itself, straight out of the dat.
-    let tex = dereth_client::textures::TextureStore::new(&store)
+    let tex = dereth_scene::textures::TextureStore::new(&store)
         .texture_data(did)
         .expect("the tile decodes");
     let px = &tex.levels[0];

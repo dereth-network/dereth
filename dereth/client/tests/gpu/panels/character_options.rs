@@ -12,14 +12,14 @@
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;
-use dereth_client::world::SceneReads;
+use dereth_scene::world_scene::SceneReads;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::pump::Pump;
-use dereth_client::world::SceneConfig;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::scene::SceneConfig;
+use dereth_desktop::pump::Pump;
 use dereth_primitives::ObjectId;
 use dereth_protocol::comms::CommunicationHearSpeech;
 use dereth_protocol::login::{LoginEnterGameServerReady, LoginPlayerDescription, PlayerModule};
@@ -401,7 +401,7 @@ impl Bench {
             .world
             .player_system
             .options
-            .get(dereth_client::hud::option_ordinal(option))
+            .get(dereth_client_runtime::hud::option_ordinal(option))
     }
 
     /// Toggle through pointer messages, requiring both checkbox attribute and model bit to
@@ -797,7 +797,7 @@ fn the_character_options_page_is_fifty_rows_and_each_edits_its_own_bit() {
 
     let mut ordinals: Vec<usize> = options
         .iter()
-        .map(|o| dereth_client::hud::option_ordinal(*o))
+        .map(|o| dereth_client_runtime::hud::option_ordinal(*o))
         .collect();
     let n = ordinals.len();
     ordinals.sort_unstable();

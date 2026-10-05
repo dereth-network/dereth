@@ -3,7 +3,7 @@
 //! cell static.
 //!
 //! The physics-part draw guard `g = gfxobj[deg_level]; if (!g) return` refuses a part whose degrade
-//! record has nothing at the chosen level ([`dereth_client::models::draws_at_near_band`]). On a
+//! record has nothing at the chosen level ([`dereth_client_runtime::models::draws_at_near_band`]). On a
 //! creature that drops the corpus's marker parts; the local player is exempt (his degrade level is
 //! pinned to 0) and still submits them. The first test reports the **whole distribution** of
 //! refused swaps rather than a summary, so a tail cannot hide.
@@ -18,20 +18,20 @@ use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo, Setup};
-use dereth_client::models::draws_at_near_band;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::models::draws_at_near_band;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_render::device::Gpu;
 use dereth_world_render::objects::degrade::{draws_anything, get_degrade, DegradeGlobals};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // ---------------------------------------------------------------------------------------------
 // The replay: the capture through the client's network and object stream.
@@ -125,7 +125,7 @@ fn setup_of(store: &RetailDatStore, id: DataId) -> Setup {
 }
 
 fn triangles(store: &RetailDatStore, gfxobj: DataId) -> usize {
-    dereth_client::models::build_gfxobj(store, gfxobj)
+    dereth_client_runtime::models::build_gfxobj(store, gfxobj)
         .iter()
         .map(|g| g.vertices.len() / 3)
         .sum()
@@ -449,8 +449,8 @@ type Shot = (Vec<u8>, u32, u32);
 fn settle(scene: &mut WorldScene) {
     for i in 0..8u32 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );
@@ -509,7 +509,7 @@ fn diff(a: &Shot, b: &Shot) -> (usize, (u32, u32, u32, u32)) {
 fn the_guard_takes_the_markers_off_creatures_and_leaves_the_local_player_alone() {
     let store = retail_store();
     let mut gpu = test_gpu(640, 640);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let pos = {
         let r = in_world("first-login-walk-jump");
         let id = r.player.expect("the capture creates a player");
@@ -522,7 +522,7 @@ fn the_guard_takes_the_markers_off_creatures_and_leaves_the_local_player_alone()
     let block = pos.cell.landblock();
     let landblock = (u16::from(block.x()) << 8) | u16::from(block.y());
 
-    let mut render = |guard: bool| -> (dereth_client::world::SceneStats, Shot, Vec<ObjectId>) {
+    let mut render = |guard: bool| -> (dereth_scene::world_scene::SceneStats, Shot, Vec<ObjectId>) {
         let cfg = SceneConfig {
             landblock,
             character: true,
@@ -742,7 +742,7 @@ fn nothing_but_a_marker_is_ever_refused() {
 #[test]
 fn the_markers_texture_is_transparent() {
     let store = retail_store();
-    let textures = dereth_client::textures::TextureStore::new(&store);
+    let textures = dereth_scene::textures::TextureStore::new(&store);
     let mut ids: BTreeSet<u32> = BTreeSet::new();
     for name in world_sessions() {
         for (_, p) in in_world(name).objects.presences() {

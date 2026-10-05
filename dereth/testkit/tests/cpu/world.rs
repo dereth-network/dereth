@@ -6,8 +6,8 @@
 //! `ALL` is this file's own list, concatenated with the other subjects' in `census.rs`, so a
 //! scenario that is written and not listed shows up as a shortfall rather than as a silent gap.
 
-use dereth_client::character::PLAYER_OBJECT_ID;
 use dereth_client_contract::GameView as _;
+use dereth_client_runtime::character::PLAYER_OBJECT_ID;
 use dereth_testkit::{Given, HeadlessClient};
 
 // -------------------------------------------------------------------------------------------

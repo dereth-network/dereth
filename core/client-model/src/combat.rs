@@ -972,7 +972,7 @@ impl World {
     /// **This is a separate call, one statement later.** Retail runs it inside
     /// the mode change itself; here the geometry seam [`crate::selection::SelectionPhysics`] lives in
     /// `dereth-client`, so `set_combat_mode` cannot reach it without carrying the lookup through
-    /// nine parameters and fifteen call sites. `dereth_client::interaction::Interaction`'s
+    /// nine parameters and fifteen call sites. `dereth_client_runtime::interaction::Interaction`'s
     /// `run_combat_mode_toggle` calls this immediately after `set_combat_mode` returns, in the
     /// same frame with nothing in between — the same shape as the input-map registration.
     /// It is guarded there on the mode having actually **changed**, because retail reaches
@@ -1089,8 +1089,8 @@ impl World {
     /// different file.** Retail runs the whole tail inside the two handlers reached while
     /// draining the network-message queue.
     /// `auto_target` needs [`crate::selection::SelectionPhysics`], which lives in `dereth-client`, so
-    /// `dereth_client::interaction::apply_events` records the notification and
-    /// `dereth_client::interaction::use_time` runs this — **the same `App::frame`**, with the frame's
+    /// `dereth_client_runtime::interaction::apply_events` records the notification and
+    /// `dereth_client_runtime::interaction::use_time` runs this — **the same `App::frame`**, with the frame's
     /// own geometry snapshot rather than the previous frame's, and still before any input action is
     /// dispatched. The same seam and the same reasoning as [`Self::combat_mode_auto_target`].
     ///
@@ -1167,7 +1167,7 @@ impl World {
     /// Retail dispatches selection-change subscribers synchronously when the selected id actually
     /// changes; `auto_target` needs
     /// `crate::selection::SelectionPhysics`, which lives in `dereth-client`, so
-    /// `dereth_client::interaction` counts the notice as it is absorbed and runs this from
+    /// `dereth_client_runtime::interaction` counts the notice as it is absorbed and runs this from
     /// `use_time` in the same frame.
     ///
     /// Returns whether `auto_target` ran, so the caller counts it rather than assuming it.

@@ -88,7 +88,7 @@ fn released(offset: u16) -> ControlChord {
 
 /// Device start-up then the client's keymap init, with the
 /// movement, UI-command and item-selection maps registered as
-/// `dereth_client::input::BASE_MAP_REGISTRATIONS` registers them.
+/// `dereth_client_shell::input::BASE_MAP_REGISTRATIONS` registers them.
 fn manager(f: &Payloads, user_keymap: Option<&str>) -> InputManager {
     let (am, gm, dm) = (&f.actionmap, &f.keymap_gm, &f.keymap_default);
     let mut m = InputManager::on_startup(am, dm).expect("startup");

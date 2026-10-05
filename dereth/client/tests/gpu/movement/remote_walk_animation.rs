@@ -10,14 +10,14 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_animation::MotionCommand;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::SceneWrites;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::Opcode;
 use dereth_render::device::{DeviceConfig, Gpu};
+use dereth_scene::world_scene::SceneWrites;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const PLAYER: ObjectId = ObjectId(0x5000_000a);
 const MOVER: ObjectId = ObjectId(0x8000_09d2);
@@ -100,7 +100,7 @@ fn a_recorded_remote_walk_raises_no_ground_edges_and_never_reaches_the_falling_a
         },
     )
     .expect("scene");
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("physics owner");

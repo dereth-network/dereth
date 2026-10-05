@@ -75,13 +75,16 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::textures::TextureStore;
-use dereth_client::world::{load_region, SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
+use dereth_scene::textures::TextureStore;
+use {
+    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 use dereth_render::{combined_texture_key, TextureKey, TextureSpace};
 use dereth_ui::region::SurfaceOp;
@@ -112,7 +115,8 @@ fn the_ui_and_world_key_spaces_can_produce_the_same_sixty_four_bits() {
 
     // Invert `c.rotate_left(3) | 1 == palette_did`.
     let c = palette_did.rotate_right(3);
-    let ui = dereth_client::ui_draw::image_key(DataId(texture_did), Some(SurfaceOp::Multiply(c)));
+    let ui =
+        dereth_client_shell::ui_draw::image_key(DataId(texture_did), Some(SurfaceOp::Multiply(c)));
 
     eprintln!(
         "key spaces witness: world key {:#018x} ({:?}), UI key {:#018x} ({:?})",
@@ -132,7 +136,7 @@ fn the_ui_and_world_key_spaces_can_produce_the_same_sixty_four_bits() {
     assert_eq!(world.space(), TextureSpace::World);
 
     // The second, arithmetic-free case: a plain image and an unpalettised world texture.
-    let plain = dereth_client::ui_draw::image_key(DataId(texture_did), None);
+    let plain = dereth_client_shell::ui_draw::image_key(DataId(texture_did), None);
     let unpalettised = TextureKey::world(combined_texture_key(0, texture_did));
     assert_eq!(
         plain.raw(),
@@ -350,7 +354,7 @@ fn the_cross_space_census_over_a_shipped_window_is_reported_with_its_denominator
         let Ok(data) = textures.texture_data(DataId(*id)) else {
             continue;
         };
-        let key = dereth_client::ui_draw::image_key(DataId(*id), None);
+        let key = dereth_client_shell::ui_draw::image_key(DataId(*id), None);
         assert_eq!(key.space(), TextureSpace::Ui);
         let Ok(slot) = gpu.upload_texture_keyed(key, &data) else {
             continue;

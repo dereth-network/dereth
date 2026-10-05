@@ -25,12 +25,12 @@ use crate::common::{
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
 
-use dereth_client::interaction::{self, Interaction};
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::{Message, Opcode};
+use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
 // ---------------------------------------------------------------------------------------------
 // Harness. `fixtures/packet-captures` is tracked in the repository, so a missing directory is a
@@ -225,7 +225,7 @@ fn census(session: &str) -> Vec<Case> {
         .expect("a replay client network");
     let mut objects = ObjectStream::new();
     let mut inter = Interaction::new();
-    let mut hud = dereth_client::hud::Hud::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
     let mut entries = recorded_entries(&records).into_iter().peekable();
     let mut cases: Vec<Case> = Vec::new();
     let mut awaiting: BTreeMap<ObjectId, usize> = BTreeMap::new();

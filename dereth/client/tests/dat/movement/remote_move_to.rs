@@ -60,15 +60,17 @@ use dereth_animation::motion::{flags, MovementParameters as RtParams};
 use dereth_animation::table::MovementType;
 use dereth_animation::MotionCommand;
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
 use dereth_client_runtime::{sim_present::SimPresentation, world_state::WorldState};
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::movement::{MoveToArm, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 /// long-solo-play's own character.
 const PLAYER: ObjectId = ObjectId(0x5000_000a);

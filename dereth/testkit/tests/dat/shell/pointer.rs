@@ -173,7 +173,7 @@ pub(super) fn the_same_box_still_answers_a_click_and_so_does_the_bar() {
 /// Four looks in order, and the third is the one a single-look scenario cannot see: still held,
 /// pointer gone, and the button is lit rather than sunk.
 pub(super) fn a_button_lights_under_the_pointer_and_sinks_under_the_press() {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
 
     let mut c = a_client_on_character_select();
     let exit = element(&c, LIST_EXIT);
@@ -239,7 +239,7 @@ pub(super) fn a_button_lights_under_the_pointer_and_sinks_under_the_press() {
 /// The press and the release both happen -- which is what stops a client that simply lost the
 /// gesture from passing -- and what the button does is not done.
 pub(super) fn a_press_dragged_off_a_button_releases_it_without_firing_it() {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
 
     let mut c = a_client_on_character_select();
     let credits = element(&c, LIST_CREDITS);

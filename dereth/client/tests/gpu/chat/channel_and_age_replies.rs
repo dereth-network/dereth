@@ -8,7 +8,7 @@
 use crate::common::gpu_lock;
 use crate::net::late_receivers::{chat, settle, setup};
 
-use dereth_client::dropped;
+use dereth_client_runtime::dropped;
 use dereth_protocol::Opcode;
 
 /// Behaviour: chat.channels.the-list-replies-print-into-the-log

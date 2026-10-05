@@ -10,11 +10,11 @@
 
 use std::sync::Arc;
 
-use dereth_client::land_source::DatLandSource;
-use dereth_client::world::load_region;
+use dereth_client_runtime::landblock::load_region;
 use dereth_physics::source::SetupGeometry;
 use dereth_physics::{LandSource, PhysicsWorld};
 use dereth_primitives::{CellId, Frame, LandblockId, ObjectId, Position, Quat, Vec3};
+use dereth_world_data::land_source::DatLandSource;
 
 const HOLTBURG: u16 = 0xA9B4;
 /// The **outdoor** landcell a Holtburg house's front doorway falls in.

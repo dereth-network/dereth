@@ -21,15 +21,15 @@ use crate::common::sim_app::{app_in_gameplay, gameplay};
 
 use dereth_client::app::App;
 
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::pump::{Pump, Win32Message};
 use dereth_client_net::client_session::testing::capture::{shared_session, Datagram};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::comms::{CommunicationChannelBroadcastRecv, CommunicationHearDirectSpeech};
 use dereth_protocol::{Message as _, Opcode};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::chat::window::ENTRY;
@@ -137,8 +137,8 @@ fn with_target_id(blob: &[u8], id: ObjectId) -> Vec<u8> {
 
 /// Deliver SessionEvent::PlayerCreated to the HUD and the world owning its ChatState.
 /// This supplies the local player id used by note_last_teller's target comparison.
-fn hud_for(player: ObjectId) -> (dereth_client::hud::Hud, ObjectStream) {
-    let mut hud = dereth_client::hud::Hud::default();
+fn hud_for(player: ObjectId) -> (dereth_client_shell::hud::Hud, ObjectStream) {
+    let mut hud = dereth_client_shell::hud::Hud::default();
     let mut objects = ObjectStream::new();
     let _ = hud.apply_events(&[SessionEvent::PlayerCreated(player)], &mut objects.world);
     assert_eq!(hud.player, Some(player), "the player id reached the HUD");
@@ -151,7 +151,7 @@ fn hud_for(player: ObjectId) -> (dereth_client::hud::Hud, ObjectStream) {
 }
 
 fn feed(
-    hud: &mut dereth_client::hud::Hud,
+    hud: &mut dereth_client_shell::hud::Hud,
     objects: &mut ObjectStream,
     opcode: Opcode,
     blob: Vec<u8>,
@@ -180,8 +180,8 @@ fn session_events(player: ObjectId, tell: &[u8]) -> Vec<SessionEvent> {
             opcode: Opcode::COMMUNICATION_HEAR_DIRECT_SPEECH,
             blob: tell.to_vec(),
         },
-        broadcast(dereth_client::hud::channel::MONARCH, "Aldis"),
-        broadcast(dereth_client::hud::channel::PATRON, "Plonk"),
+        broadcast(dereth_client_runtime::hud::channel::MONARCH, "Aldis"),
+        broadcast(dereth_client_runtime::hud::channel::PATRON, "Plonk"),
     ]
 }
 
@@ -390,7 +390,7 @@ fn logging_off_forgets_all_three_names() {
         &mut objects,
         Opcode::COMMUNICATION_CHANNEL_BROADCAST,
         ui_blob(&CommunicationChannelBroadcastRecv {
-            channel: dereth_client::hud::channel::MONARCH,
+            channel: dereth_client_runtime::hud::channel::MONARCH,
             sender_name: "Aldis".to_owned(),
             message: "all hail".to_owned(),
         }),
@@ -434,7 +434,7 @@ fn only_the_monarch_and_patron_channels_remember_their_speaker() {
         sender_name: who.to_owned(),
         message: "orders".to_owned(),
     };
-    let send = |hud: &mut dereth_client::hud::Hud,
+    let send = |hud: &mut dereth_client_shell::hud::Hud,
                 objects: &mut ObjectStream,
                 m: CommunicationChannelBroadcastRecv| {
         feed(
@@ -463,12 +463,12 @@ fn only_the_monarch_and_patron_channels_remember_their_speaker() {
     send(
         &mut hud,
         &mut objects,
-        say(dereth_client::hud::channel::MONARCH, "Aldis"),
+        say(dereth_client_runtime::hud::channel::MONARCH, "Aldis"),
     );
     send(
         &mut hud,
         &mut objects,
-        say(dereth_client::hud::channel::PATRON, "Plonk"),
+        say(dereth_client_runtime::hud::channel::PATRON, "Plonk"),
     );
     assert_eq!(hud.stats.at_channel_name_writes, 2);
     let t = hud.reply_targets(&objects.world);
@@ -481,7 +481,7 @@ fn only_the_monarch_and_patron_channels_remember_their_speaker() {
     send(
         &mut hud,
         &mut objects,
-        say(dereth_client::hud::channel::MONARCH, ""),
+        say(dereth_client_runtime::hud::channel::MONARCH, ""),
     );
     assert_eq!(
         hud.stats.at_channel_name_writes, 2,
@@ -573,7 +573,7 @@ fn remember_three_speakers(app: &mut App) {
         SessionEvent::UiEvent {
             opcode: Opcode::COMMUNICATION_CHANNEL_BROADCAST,
             blob: blob(Opcode::COMMUNICATION_CHANNEL_BROADCAST, &|w| {
-                say(dereth_client::hud::channel::MONARCH, "Aldis")
+                say(dereth_client_runtime::hud::channel::MONARCH, "Aldis")
                     .write(w)
                     .expect("encodes");
             }),
@@ -581,7 +581,7 @@ fn remember_three_speakers(app: &mut App) {
         SessionEvent::UiEvent {
             opcode: Opcode::COMMUNICATION_CHANNEL_BROADCAST,
             blob: blob(Opcode::COMMUNICATION_CHANNEL_BROADCAST, &|w| {
-                say(dereth_client::hud::channel::PATRON, "Plonk")
+                say(dereth_client_runtime::hud::channel::PATRON, "Plonk")
                     .write(w)
                     .expect("encodes");
             }),

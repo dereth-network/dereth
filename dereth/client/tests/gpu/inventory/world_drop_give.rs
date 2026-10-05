@@ -18,21 +18,21 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::interaction::{self, SearchReason};
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::ui::UiMouseEvent;
 use dereth_client_model::inventory::requests::InventoryRequest;
 use dereth_client_model::weenie::item_type;
 use dereth_client_net::client_session::testing::{shared_session, Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::ui::UiMouseEvent;
 use dereth_primitives::{AssetSource, LocalTime, ObjectId, ServerTime};
 use dereth_transport::wire::ParsedPacket;
 use dereth_ui::{ElemHandle, UiSystem};
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
 use dereth_ui_screens::view::{DropTarget, UiRequest};
+use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::SearchReason};
 
 /// `0x00CD Inventory_GiveObjectRequest`, pinned as a literal rather than reached through a symbol.
 const AC_GIVE_OBJECT_REQUEST: u32 = 0x00CD;
@@ -150,11 +150,11 @@ struct Host {
     store: dereth_dat::RetailDatStore,
     objects: ObjectStream,
     net: ClientNetwork,
-    inter: dereth_client::interaction::Interaction,
+    inter: dereth_client_runtime::interaction::Interaction,
     player: ObjectId,
     clock: f64,
     /// What the physics lookup for the current player returns; `None` is its null. Built by [`Host::embody`] only where the ground leg is the subject.
-    body: Option<dereth_client::character::Character>,
+    body: Option<dereth_client_runtime::character::Character>,
 }
 
 impl Host {
@@ -212,7 +212,7 @@ impl Host {
             store,
             objects,
             net,
-            inter: dereth_client::interaction::Interaction::new(),
+            inter: dereth_client_runtime::interaction::Interaction::new(),
             player,
             clock: 1.0,
             body: None,
@@ -232,11 +232,12 @@ impl Host {
         let store = std::sync::Arc::new(
             dereth_dat::RetailDatStore::open_dir(&dats()).expect("the retail dats open"),
         );
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
-        let mut c = dereth_client::character::Character::new(
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+        let mut c = dereth_client_runtime::character::Character::new(
             &store,
             &region,
-            dereth_client::world::DEFAULT_LANDBLOCK,
+            dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
             (96.0, 96.0),
         )
         .expect("the character is created");
@@ -451,11 +452,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = App::new(cfg).expect("an App: the retail dats and a WARP device are the oracle");
     app.start_shell().expect("the UI shell comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
@@ -1115,7 +1116,7 @@ fn a_viewport_click_after_a_refused_drop_still_arms_a_pick() {
 #[test]
 fn a_material_bearing_refused_world_drop_uses_the_display_name() {
     let mut host = Host::new("early-inventory-and-casting");
-    let mapper_id = dereth_client::hud::MATERIAL_TYPE_NAMES;
+    let mapper_id = dereth_client_runtime::hud::MATERIAL_TYPE_NAMES;
     let bytes = host
         .store
         .read(mapper_id)
@@ -1127,7 +1128,7 @@ fn a_material_bearing_refused_world_drop_uses_the_display_name() {
         .enum_to_name
         .iter()
         .filter_map(|(id, _)| {
-            dereth_client::hud::material_name_of(Some(&mapper), *id).map(|name| (*id, name))
+            dereth_client_runtime::hud::material_name_of(Some(&mapper), *id).map(|name| (*id, name))
         })
         .collect();
     host.objects.world.install_material_names(material_names);

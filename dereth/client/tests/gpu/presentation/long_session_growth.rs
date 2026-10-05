@@ -53,8 +53,6 @@
 //! `TimeSync` optional header, which advances the application clock.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneReads;
-use dereth_client::{app::App, config::Config, world::SceneConfig};
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::{
     movement::{position_flags, MovementPositionEvent, PositionPack},
@@ -66,7 +64,12 @@ use dereth_protocol::{
     },
     Message,
 };
+use dereth_scene::world_scene::SceneReads;
 use dereth_ui_screens::mapradar::radar::{inq_showable_on_radar, radar_enum};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::scene::SceneConfig,
+};
 
 const REMOTE: ObjectId = ObjectId(0x5000_1C95);
 const WAND: ObjectId = ObjectId(0x5000_1C96);
@@ -140,7 +143,7 @@ impl Peer {
     /// same entry point at the real local time, so the transport's 140 s silence clock receives
     /// the clock it actually compares against instead of a frozen zero.
     fn attach(app: &mut App) -> Self {
-        let mut net = dereth_client::net::ClientNetwork::new(
+        let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "long-session-growth",
@@ -175,7 +178,7 @@ impl Peer {
         );
         assert_eq!(
             net.status(),
-            dereth_client::net::LinkStatus::LoginConnecting,
+            dereth_client_runtime::net::LinkStatus::LoginConnecting,
             "the ConnectRequest took the login FSM out of its twenty-attempt state"
         );
         app.attach_replay_network(net).unwrap();
@@ -1260,7 +1263,7 @@ fn nine_landblock_round_trips_return_every_container_to_baseline() {
         VISIBLE,
         None,
     );
-    me.0.physicsdesc.setup_id = Some(dereth_client::character::ALUVIAN_MALE_SETUP.0);
+    me.0.physicsdesc.setup_id = Some(dereth_client_runtime::character::ALUVIAN_MALE_SETUP.0);
     peer.send(&mut app, &me);
     frames(&mut app, 4);
     assert_eq!(

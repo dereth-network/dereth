@@ -39,7 +39,7 @@ struct AView {
     frames: std::collections::BTreeMap<dereth_primitives::ObjectId, dereth_primitives::Frame>,
 }
 
-impl dereth_client::pick::PickScene for AView {
+impl dereth_client_runtime::pick::PickScene for AView {
     fn viewer(&self) -> dereth_primitives::Frame {
         self.viewer
     }
@@ -55,8 +55,8 @@ impl dereth_client::pick::PickScene for AView {
 /// One thing three metres due north of the eye and level with it.
 fn one_thing_ahead(
     store: &std::sync::Arc<dereth_dat::RetailDatStore>,
-) -> (dereth_client::objects::ObjectStream, AView) {
-    let mut objects = dereth_client::objects::ObjectStream::with_store(store.clone());
+) -> (dereth_client_runtime::objects::ObjectStream, AView) {
+    let mut objects = dereth_client_runtime::objects::ObjectStream::with_store(store.clone());
     let payload = dereth_protocol::objects::ObjectCreatePayload {
         id: VIEW_TARGET,
         objdesc: dereth_protocol::types::ObjDesc::default(),
@@ -103,12 +103,12 @@ fn one_thing_ahead(
 /// One whole look: aim at a window point, sweep, and answer what was found.
 fn what_is_found_at(
     store: &dereth_dat::RetailDatStore,
-    objects: &dereth_client::objects::ObjectStream,
+    objects: &dereth_client_runtime::objects::ObjectStream,
     view: &AView,
     at: (i32, i32),
     viewport: dereth_primitives::viewport::Viewport,
 ) -> Option<dereth_primitives::ObjectId> {
-    let mut pick = dereth_client::pick::WorldPicker::new();
+    let mut pick = dereth_client_runtime::pick::WorldPicker::new();
     if !pick.find_object(at.0, at.1, viewport) {
         return None;
     }
@@ -163,7 +163,7 @@ pub(super) fn a_press_in_the_middle_of_a_moved_view_finds_what_is_ahead_of_the_e
 
 /// One press on the world, over no part of the interface, through the client's own step.
 fn a_press_on_the_world(c: &mut HeadlessClient, x: i32, y: i32) -> (bool, Option<(f32, f32)>) {
-    let e = dereth_client::ui::UiMouseEvent {
+    let e = dereth_client_shell::ui::UiMouseEvent {
         action: dereth_ui::focus::action::PRIMARY_CLICK,
         start: true,
         x,
@@ -174,7 +174,7 @@ fn a_press_on_the_world(c: &mut HeadlessClient, x: i32, y: i32) -> (bool, Option
     let armed = app.probe_mut().interaction_mut().wrapper_mouse(
         e,
         VIEW_WINDOW,
-        dereth_client::interaction::is_world_click(e.over),
+        dereth_client_runtime::interaction::is_world_click(e.over),
     );
     (armed, app.interaction().pick.selection_cursor())
 }

@@ -10,9 +10,9 @@
 //!
 //! Behaviour: none (decoder conformance over the recorded corpus)
 
-use dereth_client::net::ClientNetwork;
 use dereth_client_net::client_session::testing::{capture, session_names};
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_primitives::LocalTime;
 
 use crate::common::recorded_movement_events;

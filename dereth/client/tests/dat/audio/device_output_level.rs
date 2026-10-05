@@ -7,13 +7,16 @@
 //! dats. The output stream cannot be opened on a headless runner, so the resampler is driven with
 //! the same closure the device start installs; the device open itself is not exercised here.
 
-use dereth_client::audio::{
-    Audio, Resampler, SOUND_UI_BUTTON_PRESS, UI_SOUND_TABLE_ENUM, UI_SOUND_TABLE_GROUP,
-};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::DataId;
 use std::sync::Arc;
+use {
+    dereth_client_runtime::audio::Audio, dereth_client_runtime::audio::Resampler,
+    dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
+    dereth_client_runtime::audio::UI_SOUND_TABLE_ENUM,
+    dereth_client_runtime::audio::UI_SOUND_TABLE_GROUP,
+};
 
 /// The rate this machine's endpoint actually reported. Hard-coded rather than probed because a
 /// test must not depend on the sound card it happens to run beside; 48 kHz is the shared-mode
@@ -48,9 +51,12 @@ fn peak(buf: &[f32]) -> f32 {
 
 /// Load the UI sound table exactly as `App::start_shell` does, and return it with its rows resident.
 fn ui_table(audio: &mut Audio, store: &Arc<RetailDatStore>) -> DataId {
-    let table =
-        dereth_client::assets::enum_did(&**store, UI_SOUND_TABLE_GROUP, UI_SOUND_TABLE_ENUM)
-            .expect("the UI sound table resolves by enum");
+    let table = dereth_client_runtime::assets::enum_did(
+        &**store,
+        UI_SOUND_TABLE_GROUP,
+        UI_SOUND_TABLE_ENUM,
+    )
+    .expect("the UI sound table resolves by enum");
     assert!(
         audio.load_sound_table(store, table),
         "the UI sound table loads"

@@ -84,7 +84,8 @@ impl<'a> TextureStore<'a> {
     pub fn new(store: &'a RetailDatStore) -> Self {
         Self::with_environment_texture_detail(
             store,
-            crate::render_prefs::RenderPreferences::default().environment_texture_detail,
+            dereth_client_runtime::render_prefs::RenderPreferences::default()
+                .environment_texture_detail,
         )
     }
 
@@ -607,7 +608,8 @@ mod tests {
                 dereth_dat::testing::dat_dir().display()
             )
         });
-        let region = crate::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let tm = region
             .land_surf
             .tex_merge

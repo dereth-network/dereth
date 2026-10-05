@@ -10,17 +10,25 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #![allow(clippy::pedantic)]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::character::{Character, CharacterInput, MovementCommands, ALUVIAN_MALE_SCALE};
-use dereth_client::world::{load_region, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_client_runtime::actions::movement::{
     action, command, on_action, CmdStruct, MovementAction,
 };
 use dereth_dat::RetailDatStore;
 use dereth_input::ActionId;
 use dereth_primitives::{DataId, LocalTime, Vec3};
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::MovementCommands,
+    dereth_client_runtime::character::ALUVIAN_MALE_SCALE,
+};
+use {
+    dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The middle of Holtburg's own landblock, where the other embodied-body tests spawn.
 const SPAWN: (f32, f32) = (96.0, 96.0);
@@ -289,7 +297,7 @@ fn the_drawn_bodys_own_travel_is_monotone_and_the_screen_sawtooth_is_the_gate() 
         for _ in 0..90 {
             t += 1.0 / hz;
             scene.update(Default::default(), input, LocalTime(t), dtf);
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 &mut scene,
                 Default::default(),
                 LocalTime(t),
@@ -306,7 +314,7 @@ fn the_drawn_bodys_own_travel_is_monotone_and_the_screen_sawtooth_is_the_gate() 
         for _ in 0..n {
             t += 1.0 / hz;
             scene.update(Default::default(), input, LocalTime(t), dtf);
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 &mut scene,
                 Default::default(),
                 LocalTime(t),

@@ -12,7 +12,7 @@ use crate::common::sim_app::app_in_gameplay;
 
 use dereth_client::app::App;
 
-use dereth_client::pump::{Pump, Win32Message};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::window::ENTRY;
@@ -437,7 +437,7 @@ fn the_eight_world_camera_commands_reach_the_camera_set() {
         let c = app.probe().camera_control().expect("a camera");
         assert_eq!(
             c.manager.viewer_offset,
-            dereth_client::camera::IN_HEAD_OFFSET,
+            dereth_client_runtime::camera::IN_HEAD_OFFSET,
             "first-person offset"
         );
         assert!(

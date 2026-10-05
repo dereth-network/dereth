@@ -938,7 +938,7 @@ impl<S: Shell> App<S> {
 
     /// The asynchronous cache-miss path's production caller.
     ///
-    /// [`crate::land_source::DatLandSource::build`] is the run-time cache miss: a landblock record
+    /// [`dereth_world_data::land_source::DatLandSource::build`] is the run-time cache miss: a landblock record
     /// the store does not carry, discovered while the streaming ring was building a block. This
     /// turns each one into the `0xF7E3` the client sends, under the client's own two conditions --
     /// a connection has to exist and one `QualifiedDataID` gets one
@@ -947,7 +947,7 @@ impl<S: Shell> App<S> {
     /// The return leg is the other half: a `0xF7E2` answering one of those gets goes through the
     /// ordinary patcher (the client's arm has no state gate either), and the record then has to
     /// reach the *land source's* handle on the store, which is an `Arc` it took at world entry.
-    /// That is what [`crate::land_source::DatLandSource::resupply`] is for.
+    /// That is what [`dereth_world_data::land_source::DatLandSource::resupply`] is for.
     pub(super) fn request_missing_cell_records(&mut self) {
         let land = self
             .world

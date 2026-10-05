@@ -419,7 +419,7 @@ impl AudioSystem {
     /// **Entry 3** -- play a sound type on an object at a given volume. The server's
     /// `Sound` message (`0xF750`), whose volume overrides the row's.
     ///
-    /// `dereth_client::audio`'s `SoundTrigger::TableAtVolume` is the caller that routes the
+    /// `dereth_desktop::audio`'s `SoundTrigger::TableAtVolume` is the caller that routes the
     /// message to it.
     pub fn play_from_table_at_volume(
         &mut self,

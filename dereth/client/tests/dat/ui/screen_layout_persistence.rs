@@ -36,9 +36,7 @@ use crate::common::client_dir;
 use std::path::PathBuf;
 
 use dereth_client::app::App;
-use dereth_client::config::{Config, Preferences};
-use dereth_client::net::ClientNetwork;
-use dereth_client::pump::{Pump, Win32Message};
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::login::{
     CharacterIdentity, LoginCharacterSet, LoginEnterGameServerReady, LoginPlayerDescription,
@@ -49,6 +47,8 @@ use dereth_ui::framework::mode;
 use dereth_ui::persist::ScreenLayout;
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0246);
 const UI_QUEUE: u16 = 9;
@@ -334,11 +334,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = crate::common::sim_app::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(mode::GAME_PLAY);

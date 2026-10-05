@@ -20,14 +20,12 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{retail_store, test_gpu};
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::models::{child_frame, placement_frames};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemParentEvent, ObjectCreatePayload};
@@ -37,6 +35,8 @@ use dereth_protocol::types::{
 use dereth_protocol::types::{PhysicsEventStamp, PhysicsTimestamps};
 use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::models::child_frame, dereth_client_runtime::models::placement_frames};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The human setup 36 of the corpus's 37 parent events name as the holder.
 const HOLDER_SETUP: u32 = 0x0200_0001;
@@ -189,8 +189,8 @@ fn scene_of(store: &Arc<RetailDatStore>, gpu: &mut Gpu, character: bool) -> Worl
 
 fn step(scene: &mut WorldScene) {
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(0.0),
         0.0,
     );
@@ -223,7 +223,7 @@ fn a_wielded_weapon_is_drawn_in_the_holders_hand() {
     let combat = placement_frames(&item_dat, RIGHT_HAND_COMBAT)
         .expect("the item carries RightHandCombat")
         .to_vec();
-    let resting = placement_frames(&item_dat, dereth_client::models::PLACEMENT_RESTING)
+    let resting = placement_frames(&item_dat, dereth_client_runtime::models::PLACEMENT_RESTING)
         .expect("and Resting")
         .to_vec();
     assert_ne!(
@@ -519,7 +519,7 @@ fn wielding_a_weapon_changes_pixels_and_only_where_the_weapon_is() {
     let viewport = (800u32, 600u32);
 
     let mut shot = |wielding: bool| -> Option<(Vec<u8>, u32, u32)> {
-        use dereth_client::pick::PickScene;
+        use dereth_client_runtime::pick::PickScene;
         let mut scene = scene_of(&store, &mut gpu, true);
         let mut stream = ObjectStream::with_store(Arc::clone(&store));
 
@@ -638,7 +638,7 @@ fn to_anim(e: dereth_assets::geometry::LocationEntry) -> dereth_animation::data:
 /// Behaviour: objects.held.a-wielded-weapon-is-drawn-in-the-holders-hand
 ///
 /// **The player's own weapon.** The player is the one holder with no [`SceneObject`]: his body is
-/// built locally as [`dereth_client::character::Character`] and the server's copy is not drawn, so
+/// built locally as [`dereth_client_runtime::character::Character`] and the server's copy is not drawn, so
 /// a weapon wielded by *him* hangs off that local part array instead.
 ///
 /// It takes a different branch in `place_held_objects` from every other holder, so it gets its own
@@ -649,7 +649,7 @@ fn to_anim(e: dereth_assets::geometry::LocationEntry) -> dereth_animation::data:
 fn a_weapon_wielded_by_the_player_hangs_off_his_own_body() {
     let store = retail_store();
     let mut gpu = test_gpu(800, 600);
-    let player_setup = dereth_client::character::ALUVIAN_MALE_SETUP;
+    let player_setup = dereth_client_runtime::character::ALUVIAN_MALE_SETUP;
     let holder_dat = setup_of(&store, player_setup.0);
     let Some(holding) = holder_dat.holding_locations.get(&RIGHT_HAND).copied() else {
         eprintln!("skipping: the local body's setup carries no RightHand holding location");
@@ -658,7 +658,7 @@ fn a_weapon_wielded_by_the_player_hangs_off_his_own_body() {
 
     // The local body. `SceneConfig::character` alone does not build one: `attach_character` is a
     // separate call the application makes, and every test that needs a body makes it too.
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene = scene_of(&store, &mut gpu, true);
     scene
         .attach_character(&store, &region, &mut gpu)

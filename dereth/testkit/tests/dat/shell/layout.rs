@@ -118,7 +118,7 @@ fn kept_placement(
     c: &HeadlessClient,
     window: u32,
 ) -> dereth_ui_screens::hud::floaty::WindowPlacement {
-    dereth_client::hud::decode_placements(
+    dereth_client_runtime::hud::decode_placements(
         c.view()
             .expect_app()
             .objects()
@@ -197,7 +197,7 @@ pub(super) fn moving_a_window_is_remembered_across_a_rebuild() {
         let back =
             dereth_protocol::login::PlayerModule::read(&mut dereth_protocol::Reader::new(&bytes))
                 .expect("it decodes");
-        dereth_client::hud::decode_placements(&back).get(id) == Some(&row)
+        dereth_client_runtime::hud::decode_placements(&back).get(id) == Some(&row)
     };
 
     // And the screen rebuilt: the new toolbar comes up where the old one was left, hidden.
@@ -523,8 +523,9 @@ pub(super) fn a_saved_layout_is_clamped_and_moves_only_what_it_names() {
 pub(super) fn the_full_screen_setting_is_kept_and_applied_on_entering_the_world() {
     // It is read out of the player's own saved settings file in the first place.
     let read_from_the_file = {
-        let prefs = dereth_client::config::Preferences::parse("[Display]\r\nFullScreen=True\r\n");
-        let mut cfg = dereth_client::config::Config::default();
+        let prefs =
+            dereth_client_runtime::config::Preferences::parse("[Display]\r\nFullScreen=True\r\n");
+        let mut cfg = dereth_client_runtime::config::Config::default();
         cfg.display.full_screen = false;
         cfg.apply_preferences(&prefs);
         cfg.display.full_screen
@@ -594,7 +595,10 @@ pub(super) fn the_full_screen_setting_is_kept_and_applied_on_entering_the_world(
 /// through the same two calls the window loop makes, which is the only way to press a key that
 /// the desktop, and not the client's input manager, owns.
 pub(super) fn the_full_screen_switch_key_is_refused_outside_the_world() {
-    use dereth_client::pump::window_proc::{finish_event_loop, msg, wnd_proc};
+    use {
+        dereth_client_contract::window_proc::finish_event_loop,
+        dereth_client_contract::window_proc::msg, dereth_client_contract::window_proc::wnd_proc,
+    };
 
     let app = build_app(&AppSpec {
         shell: true,

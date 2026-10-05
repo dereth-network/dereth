@@ -528,7 +528,7 @@ struct MoviePlayer {
 ///
 /// The world-view wrapper's own mouse-down/mouse-up arms are the 3D world's half of the same
 /// events, and that element type is not
-/// implemented in this build, so the events are recorded here and [`crate::interaction`] runs the
+/// implemented in this build, so the events are recorded here and [`dereth_client_runtime::interaction`] runs the
 /// wrapper's table. Nothing else about the dispatch changes: the tree still sees every event first,
 /// and `over` is the last element under the pointer, exactly as the hit test reads it. The type
 /// lives beside its consumer, the interaction layer, in `dereth_client_runtime`.
@@ -1996,7 +1996,7 @@ impl UiShell {
     ///
     /// This crate owns the movie player but not the sound device, so — exactly as the video
     /// frame above is handed up for the host to upload — the audio is handed up for the host to
-    /// give to [`crate::audio::Audio`].
+    /// give to [`dereth_client_runtime::audio::Audio`].
     pub fn take_movie_audio_cue(&mut self) -> Option<MovieAudioCue> {
         self.movie_audio_cue.take()
     }
@@ -2010,7 +2010,7 @@ impl UiShell {
     /// The sound media steps this frame's media machines ran, taken once.
     ///
     /// Each is a [`UiRequest::PlaySound`] carrying the media file name and sound type unchanged;
-    /// `crate::audio::apply_sound_requests` is the far end and makes the same choice between
+    /// `dereth_client_runtime::audio::apply_sound_requests` is the far end and makes the same choice between
     /// entries 7 and 8 that the media machine makes.
     ///
     /// `dereth_ui` raises [`dereth_ui::MediaEffect::PlaySound`] for every click-sound media step,
@@ -2542,7 +2542,11 @@ fn load_chargen_tables(
     // An id that will not resolve is left 0 and the wheel draws nothing for it rather than drawing
     // the wrong picture -- and it is counted, not swallowed.
     let did = |e: u32| {
-        let r = crate::assets::enum_did(assets, crate::preview::UIASSET_GROUP, e);
+        let r = dereth_client_runtime::assets::enum_did(
+            assets,
+            dereth_scene::preview::UIASSET_GROUP,
+            e,
+        );
         if r.is_none() {
             tracing::warn!("UIASSET enum {e:#010X} (colour wheel) does not resolve");
         }

@@ -2289,7 +2289,7 @@ fn typed_loadfile_echoes_then_executes_each_local_command_in_file_order() {
         .as_secs() as i64;
     let date = dereth_client_model::cmd::loadfile::format_date(
         unix,
-        dereth_client::platform::local_utc_offset_secs(unix),
+        dereth_desktop::platform::local_utc_offset_secs(unix),
     );
     // UTC/date-boundary cases are independently pinned in `dereth-input`; this covers the current
     // host-local replacement on screen.

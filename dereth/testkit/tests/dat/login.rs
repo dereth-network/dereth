@@ -11,14 +11,17 @@
 //! `ALL` is this file's own list, concatenated with the other subjects' in `census.rs`, so a
 //! scenario that is written and not listed shows up as a shortfall rather than as a silent gap.
 
-use dereth_client::frame::FrameStep;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::present::{NullPresentation, NullPresentationCounts};
 use dereth_client_net::client_session::testing::capture::Datagram;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::frame::FrameStep;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_testkit::{ClientSpec, HeadlessClient, ScenarioView};
+use {
+    dereth_client_runtime::present::NullPresentation,
+    dereth_client_runtime::present::NullPresentationCounts,
+};
 
 /// The recording the identity scenario replays, by its content slug.
 const FIRST_LOGIN: &str = "first-login-walk-jump";
@@ -47,7 +50,7 @@ fn counts(v: &ScenarioView<'_>) -> NullPresentationCounts {
 
 /// The whole client runs with no device and no window, on a clock that is exactly its own steps.
 pub fn a_whole_client_with_no_device_or_window() {
-    use dereth_client::app::HEADLESS_STEP;
+    use dereth_client_runtime::platform::clock::HEADLESS_STEP;
 
     let mut c = HeadlessClient::new(ClientSpec::retail());
     let before = counts(&c.view());
@@ -103,10 +106,12 @@ dereth_testkit::scenarios! {
 /// The shell alone is what this needs -- the data files and nothing else, no device and no
 /// socket -- so it is stood up directly rather than through a whole client.
 pub fn entering_the_world_reaches_the_hud_from_the_wizard() {
-    use dereth_client::ui::{HostState, UiShell};
     use dereth_primitives::LocalTime;
     use dereth_ui::framework::mode;
     use dereth_ui::{NullInputPump, UiMode};
+    use {
+        dereth_client_contract::pregame::PregameView as HostState, dereth_client_shell::ui::UiShell,
+    };
 
     let dir = dereth_dat::testing::dat_dir();
     assert!(
@@ -234,10 +239,13 @@ fn replay_to_the_world(session: &str) -> (ObjectStream, ObjectId) {
 /// Two bodies under one id leave the first out of the sweep, which is why a re-key onto an
 /// occupied id is refused.
 pub fn two_bodies_cannot_share_one_id() {
-    use dereth_client::character::{Character, PLAYER_OBJECT_ID};
     use dereth_physics::source::StaticLandSource;
     use dereth_physics::{PhysicsWorld, SetupGeometry, Sphere};
     use dereth_primitives::{Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
+    use {
+        dereth_client_runtime::character::Character,
+        dereth_client_runtime::character::PLAYER_OBJECT_ID,
+    };
 
     /// The id this client's own body carries before a shard has named it, and the one a shard
     /// allocates first -- which is what made the collision reachable at all.
@@ -292,7 +300,7 @@ pub fn two_bodies_cannot_share_one_id() {
             dereth_dat::testing::dat_dir().display()
         )
     }));
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut body = Character::new(&store, &region, block.0, (96.0, 96.0)).expect("the body builds");
     let occupied = ObjectId(0x5000_0009);
     let sitting = body.world.create(occupied, a_sphere(), true);

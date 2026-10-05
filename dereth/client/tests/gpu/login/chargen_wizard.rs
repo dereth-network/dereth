@@ -15,7 +15,7 @@ use crate::common::gpu_lock;
 
 use dereth_chargen::{Attr, CharGenState, SkillAdvancementClass};
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::{DataId, ObjectId};
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId};
@@ -313,7 +313,7 @@ fn a_character_with_a_chosen_profession_skills_and_face_passes_every_check_ace_m
     let [chargen::CharGenAction::SendCharGenResult(result)] = actions.as_slice() else {
         panic!("the wizard did not ask to create anything: {actions:?}");
     };
-    let mut msg = dereth_client::app::chargen_result_to_wire(result);
+    let mut msg = dereth_client_runtime::app::chargen_result_to_wire(result);
     msg.checksum_value = msg.checksum();
 
     // ---- `PlayerFactory.Create`, in its own order -----------------------------------------
@@ -599,12 +599,12 @@ fn glyph_mask(
         std::collections::BTreeMap::new();
     let mut mask = vec![false; (fb.0 * fb.1) as usize];
     for cmd in list.iter().filter(|c| keep(c)) {
-        let Some(clip) = dereth_client::ui_draw::visible_box(cmd, fb) else {
+        let Some(clip) = dereth_client_shell::ui_draw::visible_box(cmd, fb) else {
             continue;
         };
         for g in &cmd.glyphs {
             let font = fonts.entry(g.font).or_insert_with(|| {
-                dereth_client::ui_draw::load_font(store, g.font).expect("a font")
+                dereth_client_shell::ui_draw::load_font(store, g.font).expect("a font")
             });
             let Some(d) = font.get_char_desc(g.ch) else {
                 continue;

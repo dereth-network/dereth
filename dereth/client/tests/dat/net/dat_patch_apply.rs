@@ -19,8 +19,10 @@
 
 use std::path::{Path, PathBuf};
 
-use dereth_client::ddd::{DatTarget, DataOutcome, DddPatcher, DddPhase, DddRefusal, OverlayTarget};
-use dereth_client::present::NullPresentation;
+use dereth_client_runtime::ddd::{
+    DatTarget, DataOutcome, DddPatcher, DddPhase, DddRefusal, OverlayTarget,
+};
+use dereth_client_runtime::present::NullPresentation;
 use dereth_dat::overlay::OverlayDir;
 use dereth_dat::write::SaveOutcome;
 use dereth_dat::{DatFile, RetailDatStore};
@@ -241,7 +243,7 @@ fn hex(s: &str) -> Vec<u8> {
 fn a_run_time_cache_miss_produces_the_native_f7e3_bytes() {
     // The client's type mapping gives a landblock `0x01`; the ID is landblock (0xAB, 0xCD)'s
     // `0xFFFF` record, which is the shape ACE's handler special-cases.
-    let m = dereth_client::ddd::request_message(1, DataId(0xABCD_FFFF));
+    let m = dereth_client_runtime::ddd::request_message(1, DataId(0xABCD_FFFF));
     let body = dereth_protocol::write_blob(&m).expect("the request encodes");
 
     // Opcode dword then the two dwords of the `QualifiedDataID`, type first, no padding:
@@ -1071,8 +1073,8 @@ fn the_wire_bytes_decode_to_the_event_the_patcher_applies() {
 #[test]
 fn a_data_message_off_the_wire_reaches_the_apps_patcher() {
     use dereth_client::app::App;
-    use dereth_client::config::Config;
-    use dereth_client::net::ClientNetwork;
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::net::ClientNetwork;
 
     let dir = dereth_dat::testing::dat_dir();
     assert!(

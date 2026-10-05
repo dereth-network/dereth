@@ -8,7 +8,7 @@
 //! | the arena, the cell object lists, the shadow lists | [`dereth_physics::PhysicsWorld`] |
 //! | the shadow-list walk and what it skips | `dereth_physics::transition::collide` |
 //! | which objects exist and where the server says they are | [`crate::objects::ObjectStream`] |
-//! | a setup record's collision half | [`crate::character::setup_geometry`] |
+//! | a setup record's collision half | [`dereth_world_data::setup::setup_geometry`] |
 //!
 //! # Why this exists
 //!
@@ -254,7 +254,7 @@ pub struct ObjectPhysics {
     pub stats: ObjectPhysicsStats,
     /// What loading those setups' parts did.
     pub part_stats: SetupPartStats,
-    /// `SceneConfig::mesh_collision`; see [`crate::env_cells::CellStaticObjects`].
+    /// `SceneConfig::mesh_collision`; see [`dereth_world_data::env_cells::CellStaticObjects`].
     pub mesh_collision: bool,
 }
 
@@ -937,7 +937,7 @@ impl ObjectPhysics {
     /// an object the server names for a landblock the client has left cannot be placed there at
     /// all, and create-object handling's tail queues it for destruction instead.
     ///
-    /// [`crate::land_source::DatLandSource`] loads a block on demand and caches it for ever, so
+    /// [`dereth_world_data::land_source::DatLandSource`] loads a block on demand and caches it for ever, so
     /// `landblock()` alone answers "yes" for every block in Dereth. Without the residency check
     /// that would not merely leak the late arrivals — it would undo a landblock release on the
     /// next frame. [`Self::leave_visibility`] clears the object's [`Self::placed`] memo on
@@ -988,7 +988,7 @@ impl ObjectPhysics {
                 Some(s) => Some(Arc::new(if self.mesh_collision {
                     setup_geometry_with_parts_at(store, &s, placement, &mut self.part_stats)
                 } else {
-                    crate::character::setup_geometry(&s)
+                    dereth_world_data::setup::setup_geometry(&s)
                 })),
                 None => {
                     self.stats.setup_undecodable += 1;

@@ -8,12 +8,15 @@
 
 use crate::common::client_dir;
 
-use dereth_client::present::NullPresentation;
-use dereth_client::{app::App, config::Config, net::ClientNetwork};
+use dereth_client_runtime::present::NullPresentation;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::{
     admin::AdminEnvirons,
     objects::{ItemCreateObject, LoginCreatePlayer, ObjectCreatePayload},
+};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork,
 };
 
 const PLAYER: ObjectId = ObjectId(0x5000_00EA);

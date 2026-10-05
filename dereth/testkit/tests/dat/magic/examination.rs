@@ -66,7 +66,7 @@ pub fn a_secondary_click_on_a_spell_opens_its_description() {
                 && pane.component_names == components
                 && pane.rows_drawn == 5
                 && pane.component_scids.len() == 5
-                && cursor == dereth_client::interaction::TargetMode::None
+                && cursor == dereth_client_runtime::interaction::TargetMode::None
                 && sent == 0
         },
     );
@@ -252,8 +252,8 @@ pub fn the_same_look_from_the_cast_bar_opens_it_without_selecting() {
 }
 
 pub fn a_look_cancels_an_appraisal_in_flight_and_only_the_first_of_two_does() {
-    use dereth_client::interaction::TargetMode;
     use dereth_client_contract::UiRequest;
+    use dereth_client_runtime::interaction::TargetMode;
     use dereth_testkit::Player;
 
     let mut c = examine::a_book_of_two();

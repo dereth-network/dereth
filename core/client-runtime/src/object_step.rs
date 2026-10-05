@@ -1,13 +1,13 @@
 //! The per-object physics / animation step — the physics update loop over
 //! the object-maintenance table, and the object state it runs on.
 //!
-//! It is kept apart from `dereth_client::world`'s `impl WorldScene` because it is pure
+//! It is kept apart from `dereth_scene::world_scene`'s `impl WorldScene` because it is pure
 //! simulation: it reads and writes an object's driver, its collision body, its position and its
 //! move-to/stick plans, and it never touches a mesh, a texture slot or a device. The scene keeps
 //! the render half of a scene object and calls these with the simulation half.
 //!
 //! **What "the simulation half" is.** `ObjectSim` holds the twelve fields the step reads;
-//! `dereth_client::world::SceneObject` keeps the ten that draw it (the shared part meshes, the
+//! `dereth_scene::world_scene::SceneObject` keeps the ten that draw it (the shared part meshes, the
 //! per-frame degrade levels, the draw frames, the viewer distances) and reaches its own through
 //! `AsObjectSim`. Splitting the struct rather than the map is what lets the step move with no
 //! second table to keep in step, and it is why every function below is generic over the scene's
@@ -25,7 +25,7 @@ use crate::character::Character;
 
 /// The simulation half of a scene object: what object updating and the
 /// movement layer read and write, with no drawing state in it; the drawing half stays on
-/// `dereth_client::world::SceneObject`.
+/// `dereth_scene::world_scene::SceneObject`.
 #[derive(Debug)]
 pub struct ObjectSim {
     /// The part array plus the movement manager: the whole animation runtime.
@@ -83,7 +83,7 @@ pub struct ObjectSim {
 
 /// A scene's own object type, reduced to the half this module steps.
 ///
-/// `dereth_client::world::SceneObject` is the only implementor; the trait exists so that the step
+/// `dereth_scene::world_scene::SceneObject` is the only implementor; the trait exists so that the step
 /// can iterate the scene's real table without the render fields following it down here.
 pub trait AsObjectSim {
     fn sim(&self) -> &ObjectSim;
@@ -101,7 +101,7 @@ impl AsObjectSim for ObjectSim {
 
 /// What the step counts, handed back to the scene's own `SceneStats`.
 ///
-/// The counters live on `dereth_client::world::SceneStats`, which the whole test tree reads by its
+/// The counters live on `dereth_scene::world_scene::SceneStats`, which the whole test tree reads by its
 /// flat field names; the step accumulates into one of these and the scene folds it in, so the
 /// public counters stay where the tests read them.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -855,7 +855,7 @@ pub fn server_object_reported_position<S: AsObjectSim>(
 /// `physics_bsp` says whether it is inside the masonry. Sampling is only how the two are
 /// asked; the answer is the client's.
 ///
-/// It lives here rather than in `dereth_client::world` because it is a physics query over the
+/// It lives here rather than in `dereth_scene::world_scene` because it is a physics query over the
 /// body's own `LandSource` and names no render type.
 #[must_use]
 pub fn standable_point(character: &Character, cell: dereth_primitives::CellId) -> Option<Vec3> {
@@ -886,7 +886,7 @@ pub fn standable_point(character: &Character, cell: dereth_primitives::CellId) -
 /// the physics world's cell fence. Returns how many cells were fenced.
 ///
 /// The bake table the pairs are collected into is the scene's
-/// (`dereth_client::world::init_cell_restrictions` fills `BlockDraw::cell_restrictions`); this
+/// (`dereth_scene::world_scene::init_cell_restrictions` fills `BlockDraw::cell_restrictions`); this
 /// is the half that talks to `dereth_physics`.
 pub fn register_cell_restrictions(
     character: &mut Character,
@@ -908,7 +908,7 @@ pub fn register_cell_restrictions(
 /// offset `advance` returns is therefore discarded rather than applied. That is a declared
 /// bodyless-viewer limitation, not the production remote-body path.
 ///
-/// The part of `dereth_client::world::advance_objects` that is *not* here is the loop that
+/// The part of `dereth_scene::world_scene::advance_objects` that is *not* here is the loop that
 /// writes each object's **drawn** frame through `WorldScene::render_frame_of` and places its
 /// held children: that writes render state, so it stays with the scene and runs immediately
 /// after this returns.

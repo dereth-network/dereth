@@ -15,16 +15,20 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::camera::CameraInput;
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::camera::CameraInput;
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_physics::LandSource;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// `BLOCK_LENGTH`.
 const BLOCK: f32 = 192.0;
@@ -48,7 +52,7 @@ fn block_at(x: i32, y: i32) -> LandblockId {
 
 fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let mut scene = WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -883,7 +887,7 @@ fn walk_north(store: &Arc<RetailDatStore>, gpu: &mut Gpu, x: f32) -> Walk {
     );
     for i in 1..=10 {
         sim(&mut scene, f64::from(i) / 30.0);
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(f64::from(i) / 30.0),
@@ -925,7 +929,7 @@ fn walk_north(store: &Arc<RetailDatStore>, gpu: &mut Gpu, x: f32) -> Walk {
             last_cell = after;
         }
 
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),
@@ -1027,17 +1031,21 @@ mod cell_source {
     //! retail dats on a software device; fails when the dats or a device are absent.
 
     use super::{block_at, store, CELL};
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::camera::CameraInput;
-    use dereth_client::character::CharacterInput;
-    use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+    use dereth_client_runtime::camera::CameraInput;
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_dat::RetailDatStore;
     use dereth_physics::landdefs;
     use dereth_primitives::num::math;
     use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
     use dereth_render::device::Gpu;
+    use {
+        dereth_client_runtime::landblock::block_xy,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    };
 
     /// The viewer sphere's radius, which is what sets the window in which a neighbouring cell is
     /// added to the sphere's cell list.
@@ -1046,7 +1054,8 @@ mod cell_source {
     fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         let mut scene =
             WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");
@@ -1298,7 +1307,7 @@ mod cell_source {
                 LocalTime(now),
                 1.0 / 30.0,
             );
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 &mut scene,
                 CameraInput::default(),
                 LocalTime(now),
@@ -1328,7 +1337,7 @@ mod cell_source {
                 ..CharacterInput::default()
             };
             scene.update(CameraInput::default(), running, LocalTime(now), dt);
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 &mut scene,
                 CameraInput::default(),
                 LocalTime(now),
@@ -1596,18 +1605,23 @@ mod load_time {
     //! Fixture: the retail dats on a software device; fails without the dats or a device.
 
     use super::{block_at, sim, stand, store, BLOCK, CELL};
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
     use dereth_dat::RetailDatStore;
     use dereth_primitives::Vec3;
     use dereth_render::device::Gpu;
+    use {
+        dereth_client_runtime::landblock::block_xy,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    };
 
     fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         let mut scene =
             WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");
@@ -1954,7 +1968,7 @@ mod load_time {
     ///
     /// `App::frame` runs `player_teleport_use_time` and `load_pending_scene` inside its
     /// `WorldViewStep` step and `world.update` later in that same step, and `DrawWorld` is a
-    /// later step still (`dereth_client::frame::FrameStep::ORDER`, asserted by the frame module's unit
+    /// later step still (`dereth_client_runtime::frame::FrameStep::ORDER`, asserted by the frame module's unit
     /// tests). So
     /// whatever a load-time arm leaves in `viewer_cell` is overwritten by the ordered pair
     /// `recenter(); ..; update_viewer_cell()` before the frame is drawn.

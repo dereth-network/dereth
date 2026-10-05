@@ -231,7 +231,7 @@ pub struct WorldPicker {
 /// The scene supplies each object and the frame it was drawn at. It is a trait so the sweep can
 /// be exercised against real retail geometry with no D3D12 device — the acceptance test replays the
 /// packet corpus into an [`crate::objects::ObjectStream`] and supplies the frames itself, which is
-/// the same data `dereth_client::world_scene::WorldScene` would have.
+/// the same data `dereth_scene::world_scene::WorldScene` would have.
 pub trait PickScene {
     /// the camera frame, in the same (viewer-block-relative) space the object
     /// frames are in.
@@ -242,7 +242,7 @@ pub trait PickScene {
     /// the frame was drawn with, or the pick desynchronises from the image.
     ///
     /// The argument is the **back buffer's** extent, not the 3D viewport's: it is what
-    /// `dereth_client::world_scene::WorldScene::view_params` takes, and `view_params` reads the game
+    /// `dereth_scene::world_scene::WorldScene::view_params` takes, and `view_params` reads the game
     /// viewport's rectangle out of its own field. The name says which of the two rectangles it
     /// is.
     fn fov_y_rad(&self, screen: (u32, u32)) -> f32;

@@ -61,7 +61,7 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::DataId;
 use dereth_render::ui::pixel_rules::{
     graphic_draw_axis, graphic_draw_tiles, ui_sampler_address_modes, ui_sampler_filter,
@@ -368,7 +368,7 @@ struct Bench {
 impl Bench {
     fn new(did: DataId, size: (u32, u32)) -> Self {
         let store = store();
-        let tex = dereth_client::textures::TextureStore::new(&store);
+        let tex = dereth_scene::textures::TextureStore::new(&store);
         let src = tex.texture_data(did).expect("the shipped picture decodes");
         assert_eq!(
             src.format,
@@ -693,7 +693,7 @@ fn the_start_texel_is_reduced_modulo_the_picture_before_the_sampler_sees_it() {
 fn the_shipped_frame_uses_the_mixed_descriptors_and_the_census_is_an_equality() {
     let _gpu = gpu_lock();
     let store = store();
-    let tex = dereth_client::textures::TextureStore::new(&store);
+    let tex = dereth_scene::textures::TextureStore::new(&store);
     let mut app = app_on(mode::GAME_PLAY);
 
     let before = app.renderer_mut().ui_stats;

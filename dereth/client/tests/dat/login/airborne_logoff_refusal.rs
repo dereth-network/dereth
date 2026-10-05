@@ -11,9 +11,8 @@
 use crate::common::sim_app::{body, frames, key};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::{
     testing::{Corpus, Direction},
     SessionEvent,
@@ -22,6 +21,9 @@ use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::objects::{physics_state, ItemSetState};
 use dereth_protocol::{Message, Opcode};
 use dereth_ui_screens::screens::gameplay::{logout, GamePlayScreen};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 fn space(app: &mut App, down: bool, time: u32) {
     key(app, winit::keyboard::KeyCode::Space, down, time);
@@ -34,7 +36,7 @@ fn space(app: &mut App, down: bool, time: u32) {
 fn inject_action(app: &mut App, action: u32) {
     let e = dereth_input::InputEvent {
         action: dereth_input::ActionId(action),
-        input_map: dereth_client::ui::UI_INPUT_MAP,
+        input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,
         extent: 1.0,
         start: true,

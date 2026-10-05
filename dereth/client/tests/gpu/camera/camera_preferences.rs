@@ -6,10 +6,10 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::camera::CameraPreferences;
-use dereth_client::config::{Config, Preferences};
-use dereth_client::world::SceneWrites;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::camera::CameraPreferences;
+use dereth_scene::world_scene::SceneWrites;
+use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The landblock the body is attached in, Holtburg; any block with a body would do.
 const LANDBLOCK: u16 = 0xA9B4;
@@ -37,7 +37,7 @@ fn the_profile_s_camera_preferences_reach_the_camera_manager() {
 
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = crate::common::dats();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let scene_config = SceneConfig {
         landblock: LANDBLOCK,
         camera: cfg.camera,
@@ -81,7 +81,10 @@ fn the_profile_s_camera_preferences_reach_the_camera_manager() {
         UiRequest::SetPreference("camera.alignToSlope".into(), PrefValue::Bool(true)),
         UiRequest::SetPreference("Camera.AdjustmentSpeed".into(), PrefValue::Float(55.0)),
     ];
-    let left = dereth_client::camera::apply_preference_requests(scene.character.as_mut(), requests);
+    let left = dereth_client_runtime::camera::apply_preference_requests(
+        scene.character.as_mut(),
+        requests,
+    );
     assert_eq!(
         left.len(),
         1,

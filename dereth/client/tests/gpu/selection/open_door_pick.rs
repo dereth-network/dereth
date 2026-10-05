@@ -52,9 +52,9 @@
 use std::sync::Arc;
 
 use dereth_animation::{AnimAssets, AnimEvent, MotionCommand, MotionDriver};
-use dereth_client::anim_assets::DatAnimAssets;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, Frame, LocalTime, Quat, Vec3};
+use dereth_world_data::anim_assets::DatAnimAssets;
 
 /// `early-inventory-and-casting` row 52: the recorded academy door's setup.
 const DOOR_SETUP: u32 = 0x0200_05DA;
@@ -287,12 +287,12 @@ mod in_the_doorway {
     use crate::common::app::{frames, position};
     use dereth_animation::MotionCommand;
     use dereth_client::app::App;
-    use dereth_client::config::Config;
-    use dereth_client::pick::PickScene;
-    use dereth_client::world::SceneConfig;
     use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::pick::PickScene;
     use dereth_client_runtime::pick_geometry::selection_ray;
+    use dereth_client_runtime::scene::SceneConfig;
     use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
     use dereth_protocol::types::PhysicsEventStamp;
@@ -317,7 +317,7 @@ mod in_the_doorway {
     /// The frames the whole open/close swing needs to finish (it settles at ~29 of 30/s).
     const SWING: usize = 120;
 
-    /// One recorded server blob into [`dereth_client::objects::ObjectStream`], and **only** there.
+    /// One recorded server blob into [`dereth_client_runtime::objects::ObjectStream`], and **only** there.
     ///
     /// Deliberately not `App::apply_hud_events`: the recorded login's `0xF746` raises the login
     /// tunnel, a full-screen UI element that covers `<SBOX>` for ~170 headless frames and therefore
@@ -401,7 +401,7 @@ mod in_the_doorway {
     }
 
     fn move_pointer_to(app: &mut App, x: i32, y: i32, at: u32) {
-        let mut pump = dereth_client::pump::Pump::new();
+        let mut pump = dereth_desktop::pump::Pump::new();
         pump.state.is_ready = true;
         pump.state.is_active_app = true;
         let message = pump.mouse_move_message(f64::from(x), f64::from(y), at);
@@ -520,8 +520,8 @@ mod in_the_doorway {
     /// The interior cell of `block` that contains `world` (landblock metres) with nothing solid at
     /// it, by the same `cell_bsp` / `physics_bsp` pair used to find a standable point.
     fn cell_containing(store: &dereth_dat::RetailDatStore, block: u16, world: Vec3) -> Option<u32> {
-        for d in dereth_client::env_cells::EnvCellLoader::new().load_block(store, block) {
-            let g = dereth_client::env_cells::physics_geometry(&d);
+        for d in dereth_world_data::env_cells::EnvCellLoader::new().load_block(store, block) {
+            let g = dereth_world_data::env_cells::physics_geometry(&d);
             let Some(bsp) = g.cell_bsp.as_ref() else {
                 continue;
             };

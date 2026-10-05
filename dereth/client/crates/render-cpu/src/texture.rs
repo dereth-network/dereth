@@ -592,7 +592,7 @@ mod tests {
     ///
     /// An arm that required the header to equal the stream, or ran only after a non-zero-extent
     /// check, would decode **no retail JPEG surface at all**. The live counterpart is
-    /// `dereth_client::textures`'s `the_retail_jpeg_surface_the_character_screen_uses_decodes`,
+    /// `dereth_scene::textures`'s `the_retail_jpeg_surface_the_character_screen_uses_decodes`,
     /// which reads `0x06007576` out of `client_portal.dat`.
     #[test]
     fn a_jpeg_surface_takes_its_extent_from_the_stream_because_the_header_carries_none() {

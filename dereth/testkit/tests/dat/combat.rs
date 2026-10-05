@@ -6,7 +6,7 @@
 //!
 //! **Two shapes**, the same two `world.rs` uses. A claim about the combat *model* -- the readiness
 //! predicates, the charge, the acknowledgement -- drives the client's own frame slot
-//! (`dereth_client::interaction::use_time`, which is what `App::frame` calls) at clocks the
+//! (`dereth_client_runtime::interaction::use_time`, which is what `App::frame` calls) at clocks the
 //! scenario chooses, opens the dats itself for the body and the region, and books the claim through
 //! `assert_behaviour` on a model client. A claim about a gesture the player makes with the shipped
 //! keymap builds a whole client with [`dereth_testkit::ClientSpec::gameplay`] and fires real input

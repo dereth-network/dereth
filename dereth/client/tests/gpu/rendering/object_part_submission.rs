@@ -11,14 +11,12 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo};
-use dereth_client::character::CharacterInput;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId, Vec3};
 use dereth_render::device::Gpu;
@@ -30,6 +28,8 @@ use dereth_world_render::objects::draw::{classify_subset, subset_mask};
 use dereth_world_render::objects::parts::{update_viewer_distance, PartDraw};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -134,7 +134,7 @@ fn frame(
 ) {
     scene.sync_objects(store, gpu, s).expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
@@ -157,7 +157,7 @@ fn shot(
 ) -> (Vec<u8>, u32, u32) {
     scene.sync_objects(store, gpu, s).expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
@@ -1089,12 +1089,12 @@ fn deferring_the_transparent_subsets_is_visible_and_the_control_arm_queues_nothi
         Vec<(ObjectId, i32, dereth_animation::MotionCommand)>,
     );
 
-    let mut arm = |on: bool| -> (Vec<Station>, dereth_client::world::AlphaListStats) {
+    let mut arm = |on: bool| -> (Vec<Station>, dereth_scene::world_scene::AlphaListStats) {
         let mut r = populated("first-login-walk-jump");
         let mut scene = scene_for_alpha(&store, &mut gpu, &r, on);
         let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
         let mut out: Vec<Station> = Vec::with_capacity(STATIONS.len());
-        let mut last = dereth_client::world::AlphaListStats::default();
+        let mut last = dereth_scene::world_scene::AlphaListStats::default();
         for (i, dz) in STATIONS.iter().enumerate() {
             scene.camera.position = Vec3::new(centre.x, centre.y, centre.z + dz);
             // LINT-OK: a station index.
@@ -1202,7 +1202,7 @@ fn deferring_the_transparent_subsets_is_visible_and_the_control_arm_queues_nothi
 /// edge, and never has that edge painted over it.
 #[test]
 fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_flush() {
-    use dereth_client::world::AlphaDraw;
+    use dereth_scene::world_scene::AlphaDraw;
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
     let mut r = populated("first-login-walk-jump");
@@ -1217,9 +1217,9 @@ fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_
         part_depth_sort: true,
         part_alpha_lists: true,
         object_viewcone: false,
-        render: dereth_client::render_prefs::RenderPreferences {
+        render: dereth_client_runtime::render_prefs::RenderPreferences {
             multi_pass_alpha: true,
-            ..dereth_client::render_prefs::RenderPreferences::default()
+            ..dereth_client_runtime::render_prefs::RenderPreferences::default()
         },
         ..SceneConfig::default()
     };
@@ -1279,7 +1279,7 @@ fn with_multiple_pass_alpha_no_soft_edge_is_drawn_after_a_blended_object_of_its_
 /// which writes no depth to stop it.
 #[test]
 fn a_far_translucent_static_draws_before_a_nearer_translucent_object() {
-    use dereth_client::world::AlphaDraw;
+    use dereth_scene::world_scene::AlphaDraw;
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
     for multi_pass_alpha in [false, true] {
@@ -1296,9 +1296,9 @@ fn a_far_translucent_static_draws_before_a_nearer_translucent_object() {
             part_depth_sort: true,
             part_alpha_lists: true,
             object_viewcone: false,
-            render: dereth_client::render_prefs::RenderPreferences {
+            render: dereth_client_runtime::render_prefs::RenderPreferences {
                 multi_pass_alpha,
-                ..dereth_client::render_prefs::RenderPreferences::default()
+                ..dereth_client_runtime::render_prefs::RenderPreferences::default()
             },
             ..SceneConfig::default()
         };
@@ -1365,7 +1365,7 @@ fn a_far_translucent_static_draws_before_a_nearer_translucent_object() {
 /// stop it.
 #[test]
 fn a_far_emitter_s_blended_particles_draw_before_a_nearer_blended_object() {
-    use dereth_client::world::AlphaDraw;
+    use dereth_scene::world_scene::AlphaDraw;
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
     for multi_pass_alpha in [false, true] {
@@ -1384,9 +1384,9 @@ fn a_far_emitter_s_blended_particles_draw_before_a_nearer_blended_object() {
             part_depth_sort: true,
             part_alpha_lists: true,
             object_viewcone: false,
-            render: dereth_client::render_prefs::RenderPreferences {
+            render: dereth_client_runtime::render_prefs::RenderPreferences {
                 multi_pass_alpha,
-                ..dereth_client::render_prefs::RenderPreferences::default()
+                ..dereth_client_runtime::render_prefs::RenderPreferences::default()
             },
             ..SceneConfig::default()
         };

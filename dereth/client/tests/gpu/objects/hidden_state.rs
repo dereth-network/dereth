@@ -59,15 +59,13 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::retail_store;
-use dereth_client::world::SceneReads;
+use dereth_scene::world_scene::SceneReads;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use dereth_animation::motion::MovementParameters;
 use dereth_animation::MotionCommand;
 use dereth_assets::Decode;
-use dereth_client::world::{EmitterOwner, SceneConfig};
-use dereth_client::{app::App, config::Config};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_dat::{DbType, RetailDatStore};
@@ -77,6 +75,8 @@ use dereth_protocol::objects::{
 };
 use dereth_protocol::types::{PhysicsDesc, PhysicsEventStamp, PublicWeenieDesc};
 use dereth_protocol::Message;
+use {dereth_client::app::App, dereth_client_runtime::config::Config};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::EmitterOwner};
 
 /// Protocol script types for the hide, unhide, hidden and materialise effects.
 const PS_HIDE: u32 = 116;

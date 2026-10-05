@@ -16,7 +16,7 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_render::ui::pixel_rules::{
     ui_surface_sampler, UI_GLYPH_SAMPLER, UI_SURFACE_SAMPLER_SCALED, UI_SURFACE_SAMPLER_TILED,
     UI_SURFACE_SAMPLER_UNSCALED,

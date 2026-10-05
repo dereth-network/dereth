@@ -12,10 +12,10 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use dereth_animation::data::LocationEntry;
-use dereth_client::models::child_frame;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::models::child_frame;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::num::math;
 use dereth_primitives::{Frame, LocalTime, Quat, Vec3};
 

@@ -151,8 +151,9 @@ impl Default for BakeCache {
             // which `max(v,1)-1` also makes `FULL_RES`, so the two agree on a fresh install.
             image_scale: dereth_render::texture::ImageScale::FullRes,
             pending_surfaces: 0,
-            environment_texture_detail: crate::render_prefs::RenderPreferences::default()
-                .environment_texture_detail,
+            environment_texture_detail:
+                dereth_client_runtime::render_prefs::RenderPreferences::default()
+                    .environment_texture_detail,
             last_texture_built: None,
             texture_uploads: 0,
             texture_upload_texels: 0,
@@ -839,12 +840,12 @@ impl SceneDraw {
         )
     }
 
-    /// [`crate::render_prefs::RenderPreferences`]'s shadow bank, i.e. what the last preference
+    /// [`dereth_client_runtime::render_prefs::RenderPreferences`]'s shadow bank, i.e. what the last preference
     /// poll believes the renderer is running at.
     /// A test that could only read [`Self::cfg`] back would be reading the
     /// value the options page wrote, not the one the renderer acted on.
     #[must_use]
-    pub const fn render_shadow(&self) -> crate::render_prefs::RenderPreferences {
+    pub const fn render_shadow(&self) -> dereth_client_runtime::render_prefs::RenderPreferences {
         self.render_shadow
     }
 

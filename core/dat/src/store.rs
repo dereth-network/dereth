@@ -614,7 +614,7 @@ impl RetailDatStore {
     ///
     /// Takes `&mut self`, which is the honest signature and the one that names the problem: the
     /// client holds this store behind an `Arc` that many owners have cloned, so invalidating it
-    /// means *replacing the `Arc`*, not mutating through it. `dereth_client::ddd` says which owners
+    /// means *replacing the `Arc`*, not mutating through it. `dereth_client_runtime::ddd` says which owners
     /// pick the replacement up and which do not.
     ///
     /// A container is shared, so reloading does not re-walk in place: it opens a new one and puts

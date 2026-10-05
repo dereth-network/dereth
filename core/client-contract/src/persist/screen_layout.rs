@@ -13,7 +13,7 @@
 //! The table, the row format and the parse/serialise pair are the shape of the file and belong to
 //! whoever describes it; the `fopen` pair and the path the caller resolves before it —
 //! `load_layout_file`, `save_layout_file` and the three-way `layout_path` branch — are
-//! `dereth_client::persist`, because a contract crate that touches `std::fs` is not a contract.
+//! `dereth_client_shell::persist`, because a contract crate that touches `std::fs` is not a contract.
 //! The three path *formats* the branch chooses between ([`ScreenLayout::auto_path`],
 //! [`ScreenLayout::named_path`], [`ScreenLayout::default_path`]) and the
 //! [`ScreenLayout::AUTO_NAME`] literal that selects the first are here, because they are the

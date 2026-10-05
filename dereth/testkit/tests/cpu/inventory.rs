@@ -218,7 +218,7 @@ pub fn the_trade_window_follows_the_shards_lists() {
         .when(Inbound::message(&add_row(ITEM2, 1, 0)))
         .when(Inbound::message(&add_row(ITEM3, 1, 1)))
         .when(Inbound::message(&add_row(THEIRS, 2, 0)));
-    let view = dereth_client::trade_view::trade(c.view().world());
+    let view = dereth_client_runtime::trade_view::trade(c.view().world());
     let ordered = view.self_rows.iter().map(|r| r.item).collect::<Vec<_>>() == [ITEM2, ITEM3, ITEM]
         && view.partner_rows.iter().map(|r| r.item).collect::<Vec<_>>() == [THEIRS]
         && view.self_rows[2].name == "Sturdy Iron Key";
@@ -230,7 +230,7 @@ pub fn the_trade_window_follows_the_shards_lists() {
             side: 2,
         },
     ));
-    let wrong_side = dereth_client::trade_view::trade(c.view().world())
+    let wrong_side = dereth_client_runtime::trade_view::trade(c.view().world())
         .self_rows
         .len()
         == 3;
@@ -240,7 +240,7 @@ pub fn the_trade_window_follows_the_shards_lists() {
             side: 1,
         },
     ));
-    let right_side = dereth_client::trade_view::trade(c.view().world())
+    let right_side = dereth_client_runtime::trade_view::trade(c.view().world())
         .self_rows
         .len()
         == 2;
@@ -281,7 +281,7 @@ pub fn the_trade_window_follows_the_shards_lists() {
     }));
     let emptied = c.view().world().trade.open
         && c.view().world().trade.partner == ObjectId(0)
-        && dereth_client::trade_view::trade(c.view().world())
+        && dereth_client_runtime::trade_view::trade(c.view().world())
             .self_rows
             .is_empty();
 
@@ -2388,7 +2388,7 @@ pub fn a_refusal_is_about_one_item_and_does_not_outlive_the_trade() {
         },
     ));
     let put_back = {
-        let v = dereth_client::trade_view::trade(c.view().world());
+        let v = dereth_client_runtime::trade_view::trade(c.view().world());
         v.self_removed.is_empty() && v.self_rows.iter().any(|r| r.item == TRADE_REFUSED)
     };
 

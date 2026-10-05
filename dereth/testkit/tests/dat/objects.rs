@@ -11,8 +11,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_physics::{LandSource, PhysicsWorld};
 use dereth_primitives::{CellId, LocalTime, ObjectId, ServerTime};
@@ -94,8 +94,8 @@ use dereth_testkit::replay::records as recording;
 
 /// The descriptor's word is the word the body ends up with, in both directions.
 pub fn the_descriptors_word_wins_over_the_scan() {
-    use dereth_client::object_physics::ObjectPhysics;
-    use dereth_client::objects::Presence;
+    use dereth_client_runtime::object_physics::ObjectPhysics;
+    use dereth_client_runtime::objects::Presence;
     use dereth_primitives::{DataId, Frame, Position};
 
     /// Spawn one object through the real synchronisation and report the state its body ends with,
@@ -538,10 +538,13 @@ pub fn a_hidden_body_stops_being_a_target() {
 
 /// A description that moves only the animation table reaches the body and rebuilds nothing else.
 pub fn a_new_animation_table_alone_reaches_the_body() {
-    use dereth_client::character::Character;
-    use dereth_client::world::{load_region, DEFAULT_LANDBLOCK};
+    use dereth_client_runtime::character::Character;
     use dereth_dat::DbType;
     use dereth_primitives::DataId;
+    use {
+        dereth_client_runtime::landblock::load_region,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+    };
 
     /// The middle of the body's own block, where every movement scenario stands one up.
     const MID: f32 = dereth_physics::globals::BLOCK_LENGTH * 0.5;
@@ -627,7 +630,7 @@ pub fn a_new_animation_table_alone_reaches_the_body() {
     let refused_cleanly = c2.motion_table_id() == own_table
         && style(&c2) == was
         && c2.stats.motion_table_changes == 0
-        && matches!(err, dereth_client::character::CharacterError::NoMotionTable(id) if id == missing);
+        && matches!(err, dereth_client_runtime::character::CharacterError::NoMotionTable(id) if id == missing);
 
     let mut c = HeadlessClient::model();
     c.assert_behaviour(
@@ -760,8 +763,8 @@ pub fn a_holder_holds_only_where_its_body_has_a_place() {
 
 /// A held object has no body of its own, and it leaves the room with whatever is holding it.
 pub fn a_held_object_has_no_body_of_its_own() {
-    use dereth_client::land_source::DatLandSource;
     use dereth_primitives::{LandblockId, Vec3};
+    use dereth_world_data::land_source::DatLandSource;
 
     const HOLDER: ObjectId = ObjectId(0x7011_0001);
     const CHILD: ObjectId = ObjectId(0x7011_0002);
@@ -800,7 +803,7 @@ pub fn a_held_object_has_no_body_of_its_own() {
 
     // 2. And it has no body at all: the synchronisation skips a held object, and destroys the body
     //    of one that becomes held. Measured from the arena rather than asserted from the source.
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let land =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land source opens"));
     let block = LandblockId(0x7F03);
@@ -877,8 +880,8 @@ pub fn a_held_object_has_no_body_of_its_own() {
 /// A position report from an older teleport generation is undone completely.
 #[allow(clippy::too_many_lines)]
 pub fn an_older_teleport_puts_the_position_stamp_back() {
-    use dereth_client::app::player_timestamps;
-    use dereth_client::objects::PlayerMotionDispatch;
+    use dereth_client_runtime::app::player_timestamps;
+    use dereth_client_runtime::objects::PlayerMotionDispatch;
     use dereth_primitives::{Frame, Position};
     use dereth_protocol::movement::{position_flags, MovementPositionEvent, PositionPack};
     use dereth_protocol::types::{Origin, PhysicsTimestamps};
@@ -1137,11 +1140,11 @@ pub fn an_older_teleport_puts_the_position_stamp_back() {
 /// A body whose room the client unloaded is rescued by the next position the shard sends for it.
 #[allow(clippy::too_many_lines)]
 pub fn an_unloaded_body_is_rescued_by_a_position() {
-    use dereth_client::land_source::DatLandSource;
     use dereth_client_net::client_session::testing::MockTransport;
     use dereth_primitives::{Frame, Position, Vec3};
     use dereth_protocol::movement::{position_flags, MovementPositionEvent, PositionPack};
     use dereth_protocol::objects::ItemParentEvent;
+    use dereth_world_data::land_source::DatLandSource;
 
     const PARENT: ObjectId = ObjectId(0x7000_6011);
     const CHILD: ObjectId = ObjectId(0x8000_6011);
@@ -1151,7 +1154,7 @@ pub fn an_unloaded_body_is_rescued_by_a_position() {
     const GROUNDED: u32 = position_flags::IS_GROUNDED;
 
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let land =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the land source opens"));
     // Two real interiors, so "into another room that is loaded" is a real room.
@@ -1547,8 +1550,8 @@ const SEL_OBJECT_FIELD: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_019E)
 
 /// The shipped game screen and the display that drives it.
 struct Toolbar {
-    shell: dereth_client::ui::UiShell,
-    hud: dereth_client::hud::Hud,
+    shell: dereth_client_shell::ui::UiShell,
+    hud: dereth_client_shell::hud::Hud,
     objects: ObjectStream,
     serial: u64,
     field: Option<dereth_ui::ElemHandle>,
@@ -1560,9 +1563,9 @@ struct Toolbar {
 impl Toolbar {
     fn new(objects: ObjectStream) -> Self {
         let store = store();
-        let shell = dereth_client::ui::UiShell::new(&store, (800, 600))
+        let shell = dereth_client_shell::ui::UiShell::new(&store, (800, 600))
             .expect("the shell comes up on the retail data files");
-        let mut hud = dereth_client::hud::Hud::new();
+        let mut hud = dereth_client_shell::hud::Hud::new();
         hud.sync(&objects, None);
         let mut t = Toolbar {
             shell,
@@ -1580,7 +1583,7 @@ impl Toolbar {
 
     fn settle_on_the_game_screen(&mut self) {
         use dereth_ui::framework::mode;
-        let host = dereth_client::ui::HostState::default();
+        let host = dereth_client_contract::pregame::PregameView::default();
         self.shell.queue(mode::GAME_PLAY);
         for _ in 0..16 {
             self.now += 1.0;
@@ -1614,7 +1617,7 @@ impl Toolbar {
     /// serial at all.
     fn rebuild_screen(&mut self) {
         use dereth_ui::framework::mode;
-        let host = dereth_client::ui::HostState::default();
+        let host = dereth_client_contract::pregame::PregameView::default();
         self.shell.queue(mode::CHARACTER_MANAGEMENT);
         for _ in 0..16 {
             self.now += 1.0;
@@ -1682,7 +1685,7 @@ fn a_creature_and_a_stack(n: u16) -> (ObjectStream, ObjectId, ObjectId) {
     let mut creature = dereth_client_model::Weenie::new(CREATURE);
     creature.valid = true;
     creature.pwd.name = "a selection subject".to_owned();
-    creature.pwd.obj_type |= dereth_client::hud::ITEM_TYPE_CREATURE;
+    creature.pwd.obj_type |= dereth_client_runtime::hud::ITEM_TYPE_CREATURE;
     // **The property the subject is chosen for**, not the type: with no stack size at all nothing
     // can re-seed a stale edge for it, which is the only condition under which one remembered
     // selection and two of them can disagree.
@@ -2066,7 +2069,7 @@ pub fn the_fellowship_done_marker_is_consumed_and_changes_nothing() {
 
     let app = s.client.view().expect_app();
     let consumed = app.hud().stats.fellow_update_done == before.0 + n as u64
-        && !dereth_client::dropped::unreceived(
+        && !dereth_client_runtime::dropped::unreceived(
             dereth_protocol::Opcode::FELLOWSHIP_FELLOW_UPDATE_DONE,
         );
     let changed_nothing = app.hud().stats.fellowship_lines_composed == before.1
@@ -2091,7 +2094,7 @@ pub fn the_fellowship_done_marker_is_consumed_and_changes_nothing() {
 /// of each is asserted first.
 pub fn none_of_the_three_reaches_no_receiver() {
     let mut s = shell_support::Station::new();
-    dereth_client::dropped::clear();
+    dereth_client_runtime::dropped::clear();
 
     let (pop, _) = shell_support::a_recorded_pop_up();
     s.replay(pop);
@@ -2114,8 +2117,8 @@ pub fn none_of_the_three_reaches_no_receiver() {
         dereth_protocol::Opcode::FELLOWSHIP_FELLOW_UPDATE_DONE,
     ]
     .into_iter()
-    .all(|o| !dereth_client::dropped::unreceived(o));
-    let unannounced = dereth_client::dropped::announcements()
+    .all(|o| !dereth_client_runtime::dropped::unreceived(o));
+    let unannounced = dereth_client_runtime::dropped::announcements()
         .iter()
         .all(|l| !l.contains("0x0004") && !l.contains("0x0226") && !l.contains("0x01C9"));
 
@@ -2258,19 +2261,19 @@ mod shell_support {
     pub struct Station {
         pub client: HeadlessClient,
         peer: Peer,
-        pump: dereth_client::pump::Pump,
+        pump: dereth_desktop::pump::Pump,
     }
 
     impl Station {
         pub fn new() -> Self {
-            dereth_client::dropped::clear();
+            dereth_client_runtime::dropped::clear();
             let mut client = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
 
             let peer = Peer::attach(&mut client, PLAYER);
             let mut s = Self {
                 client,
                 peer,
-                pump: dereth_client::pump::Pump::new(),
+                pump: dereth_desktop::pump::Pump::new(),
             };
             s.pump.state.is_ready = true;
             s.pump.state.is_active_app = true;
@@ -2337,7 +2340,7 @@ mod shell_support {
 
         /// Click a control, through the client's own pump and input manager.
         pub fn click(&mut self, h: ElemHandle, time: u32) {
-            use dereth_client::pump::Win32Message;
+            use dereth_input::win32::Win32Message;
             let at = {
                 let app = self.client.view().expect_app();
                 let ui = &app.ui().expect("the shell").ui;
@@ -2827,9 +2830,9 @@ mod hud_support {
     pub struct Bench {
         ui: UiSystem,
         screen: Box<dyn dereth_ui::framework::Screen>,
-        pub hud: dereth_client::hud::Hud,
-        pub objects: dereth_client::objects::ObjectStream,
-        inter: dereth_client::interaction::Interaction,
+        pub hud: dereth_client_shell::hud::Hud,
+        pub objects: dereth_client_runtime::objects::ObjectStream,
+        inter: dereth_client_runtime::interaction::Interaction,
         pub health: ElemHandle,
         pub mana: ElemHandle,
         now: f64,
@@ -2846,10 +2849,10 @@ mod hud_support {
                 .presence(player)
                 .and_then(|p| p.position)
                 .expect("the player has a place");
-            let mut hud = dereth_client::hud::Hud::new();
+            let mut hud = dereth_client_shell::hud::Hud::new();
             hud.sync(
                 &objects,
-                Some(dereth_client::hud::ViewerFrame {
+                Some(dereth_client_runtime::hud::ViewerFrame {
                     position: pos,
                     heading_degrees: 0.0,
                 }),
@@ -2865,7 +2868,7 @@ mod hud_support {
                 screen,
                 hud,
                 objects,
-                inter: dereth_client::interaction::Interaction::default(),
+                inter: dereth_client_runtime::interaction::Interaction::default(),
                 health,
                 mana,
                 now: 0.0,
@@ -2967,7 +2970,7 @@ mod hud_support {
     }
 
     /// The recording's creatures, by kind. Used only to choose a subject.
-    fn creatures(objects: &dereth_client::objects::ObjectStream) -> Vec<ObjectId> {
+    fn creatures(objects: &dereth_client_runtime::objects::ObjectStream) -> Vec<ObjectId> {
         let mut v: Vec<_> = objects
             .world
             .tables
@@ -2980,7 +2983,9 @@ mod hud_support {
         v
     }
 
-    fn attackable_creatures(objects: &dereth_client::objects::ObjectStream) -> Vec<ObjectId> {
+    fn attackable_creatures(
+        objects: &dereth_client_runtime::objects::ObjectStream,
+    ) -> Vec<ObjectId> {
         let me = objects.world.player;
         creatures(objects)
             .into_iter()
@@ -3041,10 +3046,8 @@ mod held {
 
     use dereth_animation::data::LocationEntry;
     use dereth_assets::Decode;
-    use dereth_client::models::{resolve_parts, resolve_parts_at, PLACEMENT_RESTING};
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::pick::{PickScene, WorldPicker};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Quat, Vec3, Viewport};
     use dereth_protocol::objects::{ItemCreateObject, ItemParentEvent, ObjectCreatePayload};
     use dereth_protocol::types::physicsdesc::{flags, PhysicsDesc};
@@ -3052,6 +3055,12 @@ mod held {
         ObjDesc, PhysicsEventStamp, PhysicsTimestamps, PositionWire, PublicWeenieDesc,
     };
     use dereth_protocol::{write_body, Opcode};
+    use {
+        dereth_client_runtime::models::resolve_parts,
+        dereth_client_runtime::models::resolve_parts_at,
+        dereth_client_runtime::models::PLACEMENT_RESTING,
+    };
+    use {dereth_client_runtime::pick::PickScene, dereth_client_runtime::pick::WorldPicker};
 
     use super::{store, PERSON_SETUP, RIGHT_HAND};
 
@@ -3188,9 +3197,9 @@ mod held {
             frame: Frame::new(Vec3::new(0.5, 0.0, 0.0), Quat::IDENTITY),
         };
         let want = dereth_animation::frame::combine(&root, &holding.frame);
-        let fallback = dereth_client::models::child_frame(&root, &parts, &holding) == want;
+        let fallback = dereth_client_runtime::models::child_frame(&root, &parts, &holding) == want;
         assert_eq!(
-            dereth_client::models::child_frame(&root, &parts, &holding),
+            dereth_client_runtime::models::child_frame(&root, &parts, &holding),
             want,
             "an index equal to the part count is already out of range"
         );
@@ -3198,7 +3207,8 @@ mod held {
             part_id: 1,
             ..holding
         };
-        let present_part_wins = dereth_client::models::child_frame(&root, &parts, &inside) != want;
+        let present_part_wins =
+            dereth_client_runtime::models::child_frame(&root, &parts, &inside) != want;
         assert!(present_part_wins);
         fallback && present_part_wins
     }

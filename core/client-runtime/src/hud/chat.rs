@@ -211,16 +211,16 @@ impl Hud {
     ///    and the type is the literal `0xC` (the emote text type), which is not on the wire:
     ///    neither `0x01E0` nor `0x01E2` carries a text type.
     /// 2. the `^` then `&` search over the **sender name**, trailing-trimmed
-    ///    ([`crate::chat::language_marker`]).
-    /// 3. the language decision ([`crate::chat::is_untranslated`]).
-    /// 4. the composition ([`crate::chat::hear_emote_line`]) and
+    ///    ([`dereth_client_model::chat::composition::language_marker`]).
+    /// 3. the language decision ([`dereth_client_model::chat::composition::is_untranslated`]).
+    /// 4. the composition ([`dereth_client_model::chat::composition::hear_emote_line`]) and
     ///    adding the line to the chat scroll as `(line, 0xC, true, 0)`.
     ///
     /// **Step 3's `true` arm** replaces
     /// the text with a random Olthoi / human phrase — ten
     /// fixed phrases each, picked by `(1, 10)`, transcribed as
-    /// [`crate::chat::OLTHOI_TEXT`] / [`crate::chat::HUMAN_TEXT`] — and composes
-    /// [`crate::chat::GARBLED`] through [`crate::chat::garbled_line`] instead of the
+    /// [`dereth_client_model::chat::composition::OLTHOI_TEXT`] / [`dereth_client_model::chat::composition::HUMAN_TEXT`] — and composes
+    /// [`dereth_client_model::chat::composition::GARBLED`] through [`dereth_client_model::chat::composition::garbled_line`] instead of the
     /// apostrophe-aware join. [`HudStats::emote_lines_untranslated`] counts lines that were
     /// actually garbled. See [`Self::garbled_or_plain`], which is the one producer all three arms
     /// share.
@@ -248,7 +248,7 @@ impl Hud {
         }
 
         // Steps 2 and 3. The creature-type predicate is `Self::is_olthoi`.
-        let (marker, name) = crate::chat::language_marker(sender_name);
+        let (marker, name) = dereth_client_model::chat::composition::language_marker(sender_name);
         let name = name.to_owned();
         // Step 4. The garble arm composes `GARBLED`; the plain arm composes by hand and omits the
         // space before an apostrophe.
@@ -257,7 +257,7 @@ impl Hud {
                 self.stats.emote_lines_untranslated += 1;
                 g
             }
-            None => crate::chat::hear_emote_line(&name, text),
+            None => dereth_client_model::chat::composition::hear_emote_line(&name, text),
         };
         chat.push(speech(EMOTE, line));
         self.stats.emote_lines_composed += 1;
@@ -270,7 +270,7 @@ impl Hud {
     /// enabling of the chat talk focuses in the `0x0013` arm. Both are this one call, and
     /// they read the same local player description the client does: the canonical local-player
     /// object row, queried for `PropertyInt 0xBC HeritageGroup` against 12 and 13. See
-    /// [`crate::chat::OLTHOI_HERITAGE_GROUPS`].
+    /// [`dereth_client_model::chat::composition::OLTHOI_HERITAGE_GROUPS`].
     ///
     /// No player description yet reads `0` — the int-quality query's own answer for an absent
     /// property — which is not Olthoi.
@@ -279,7 +279,7 @@ impl Hud {
         let heritage = self.player_desc(world).map_or(0, |q| {
             q.inq_int(dereth_client_contract::panels::inventory::HERITAGE_GROUP_PROPERTY)
         });
-        crate::chat::is_olthoi(heritage)
+        dereth_client_model::chat::composition::is_olthoi(heritage)
     }
 
     /// Seed the chat path's generator only.
@@ -295,7 +295,7 @@ impl Hud {
 
     /// One inclusive draw from 1 through 10. See [`Self::garble_rng`].
     fn garble_roll(&mut self) -> i32 {
-        let (lo, hi) = crate::chat::GARBLE_ROLL;
+        let (lo, hi) = dereth_client_model::chat::composition::GARBLE_ROLL;
         self.garble_rng
             .get_or_insert_with(|| {
                 dereth_primitives::num::rng::Ran2::new(crate::audio::ran2_seed_at(
@@ -323,22 +323,27 @@ impl Hud {
     /// which is why this is `is_some_and` and not an `Option` three-way.
     pub(super) fn garbled_or_plain(
         &mut self,
-        marker: crate::chat::LanguageMarker,
+        marker: dereth_client_model::chat::composition::LanguageMarker,
         trimmed_name: &str,
         world: &dereth_client_model::World,
     ) -> Option<String> {
         let no_olthoi_talk = self
             .player_desc(world)
             .is_some_and(|q| q.inq_bool(bool_property::NO_OLTHOI_TALK));
-        if !crate::chat::is_untranslated(marker, self.is_olthoi(world), no_olthoi_talk) {
+        if !dereth_client_model::chat::composition::is_untranslated(
+            marker,
+            self.is_olthoi(world),
+            no_olthoi_talk,
+        ) {
             return None;
         }
         // The **speaker's** flag chooses the table, not the listener's.
-        let speaker_is_olthoi = marker == crate::chat::LanguageMarker::Ampersand;
+        let speaker_is_olthoi =
+            marker == dereth_client_model::chat::composition::LanguageMarker::Ampersand;
         let roll = self.garble_roll();
-        Some(crate::chat::garbled_line(
+        Some(dereth_client_model::chat::composition::garbled_line(
             trimmed_name,
-            crate::chat::random_text(roll, speaker_is_olthoi),
+            dereth_client_model::chat::composition::random_text(roll, speaker_is_olthoi),
         ))
     }
 
@@ -424,10 +429,10 @@ impl Hud {
     }
 }
 
-/// Remove a trailing language marker from the sender name through [`crate::chat::language_marker`].
+/// Remove a trailing language marker from the sender name through [`dereth_client_model::chat::composition::language_marker`].
 /// An unmarked name is returned unchanged.
 fn trim_language_marker(name: &str) -> &str {
-    crate::chat::language_marker(name).1
+    dereth_client_model::chat::composition::language_marker(name).1
 }
 
 /// The shift from UTC to the zone `localtime` would have used for `at`, in seconds.
@@ -457,7 +462,7 @@ pub(super) fn wall_clock_unix() -> i64 {
 /// One composed speech line on its way to the chat scroll.
 ///
 /// `body` is the **whole** line — speaker, verb, comma and quotes — as one of the seven fixed
-/// templates in [`crate::chat`] composed it. `prefix` is `None` here because the notice's prefix
+/// templates in [`dereth_client_model::chat::composition`] composed it. `prefix` is `None` here because the notice's prefix
 /// slot is the **timestamp**, and scroll insertion is what fills it; see
 /// [`crate::hud::Hud::stamp_timestamps`]. Putting the speaker's name in the prefix slot and the
 /// raw message in the body would draw a grey `Lark` abutting a bare `W`.
@@ -507,13 +512,13 @@ pub fn pk_death_filter(text: &str, hear_pk_deaths: bool) -> PkDeathLine {
 
 /// One Fellowship-panel line on its way to the chat scroll.
 ///
-/// The composers in [`crate::chat`] return the fixed literal with its trailing newline;
+/// The composers in [`dereth_client_model::chat::composition`] return the fixed literal with its trailing newline;
 /// scroll insertion's first act is `trim(text, true, true, L"\n")`, applied here. Chat type 0 —
 /// every one of those five functions pushes `0` ( …).
 pub(super) fn fellowship_ui_line(body: String) -> ChatMessage {
     speech(
-        crate::chat::FELLOWSHIP_UI_CHAT_TYPE,
-        crate::chat::add_text_to_scroll_trim(&body).to_owned(),
+        dereth_client_model::chat::composition::FELLOWSHIP_UI_CHAT_TYPE,
+        dereth_client_model::chat::composition::add_text_to_scroll_trim(&body).to_owned(),
     )
 }
 
@@ -521,7 +526,7 @@ pub(super) fn fellowship_ui_line(body: String) -> ChatMessage {
 /// type kept. The `0x028A` / `0x028B` arms push the trimmed literal.
 pub(super) fn failure_line(m: ChatMessage) -> ChatMessage {
     ChatMessage {
-        body: crate::chat::add_text_to_scroll_trim(&m.body).to_owned(),
+        body: dereth_client_model::chat::composition::add_text_to_scroll_trim(&m.body).to_owned(),
         ..m
     }
 }

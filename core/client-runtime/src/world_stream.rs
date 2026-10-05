@@ -462,7 +462,7 @@ pub fn choose_viewer_block(character: &mut Option<Character>, block: (i32, i32))
 /// Here it could: `follow_character` runs inside `update`
 /// and **overwrites the flycam** with the debug chase camera before `recenter`
 /// reads it, so reading the flycam takes both halves from a viewpoint the shipped client never
-/// draws with: `dereth_client::camera::update_viewer` replaces the flycam outright a few
+/// draws with: `dereth_client_runtime::camera::update_viewer` replaces the flycam outright a few
 /// lines later in `App::frame`. The two cameras are not the same place — the chase camera
 /// sits `camera_distance` (4.5 m) behind the body along its heading and passes
 /// through walls, where the swept viewer sits at the camera's configured offset behind
@@ -491,7 +491,7 @@ pub fn choose_viewer_block(character: &mut Option<Character>, block: (i32, i32))
 /// visible. `Character::camera.viewer` is written by the camera update and by resetting the viewer
 /// from a position (which is what [`Character::teleport`] calls),
 /// and by nothing else — so a loop that calls `update` and never calls
-/// `dereth_client::camera::update_viewer` leaves the viewpoint wherever the last teleport put
+/// `dereth_client_runtime::camera::update_viewer` leaves the viewpoint wherever the last teleport put
 /// it, and the window will not re-centre however far the body walks. A harness that walks
 /// the body must run `App::frame`'s order — `update` then `camera::update_viewer` — which
 /// moves the viewpoint with the body. A harness that steps the body by teleporting
@@ -499,7 +499,7 @@ pub fn choose_viewer_block(character: &mut Option<Character>, block: (i32, i32))
 ///
 /// The client cannot reach that state, because its sweep is unconditional and sits on the
 /// line before the viewpoint is read. It is a **number** rather than a comment:
-/// `dereth_client::world_scene::SceneStats::updates_without_a_sweep` counts exactly this, on the update it happens,
+/// `dereth_scene::world_scene::SceneStats::updates_without_a_sweep` counts exactly this, on the update it happens,
 /// instead of leaving it to redden whichever test twenty frames downstream happened to
 /// depend on the window moving.
 ///
@@ -539,7 +539,7 @@ pub fn choose_viewer_block(character: &mut Option<Character>, block: (i32, i32))
 /// `CameraControl::update_viewer` — the sweep itself — is block-**independent**: it works
 /// in `Position` (a cell id and a cell-local frame) and in physics space and never
 /// consults the viewer block, which is exactly why reading `viewer` here is not circular.
-/// But `dereth_client::camera::update_viewer` also does `scene.camera =
+/// But `dereth_client_runtime::camera::update_viewer` also does `scene.camera =
 /// FreeCamera::from_frame(&c.camera_render_frame()?)`, and `camera_render_frame` goes
 /// through [`Character::render_frame_of`], which subtracts the **current**
 /// `viewer_block`. Move that call above `recenter` and the render camera is left

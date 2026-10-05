@@ -364,8 +364,8 @@ pub fn a_shard_authored_swing_holds_the_body_for_its_own_animation() {
 /// The middle sample is taken **in the air**, between the two edges, because either edge would
 /// leave the ledger clear by the time the body lands.
 pub fn leaving_the_ground_empties_the_motion_ledger_and_routes_it() {
-    use dereth_client::character::GroundEdges;
     use dereth_client_runtime::actions::movement::action;
+    use dereth_client_runtime::character::GroundEdges;
 
     let stop = world_support::a_recorded_stop_with_an_action();
     let (mut c, mut mc, mut input) = world_support::running_body();
@@ -435,8 +435,8 @@ pub fn leaving_the_ground_empties_the_motion_ledger_and_routes_it() {
 /// A teleport that changes the ground under the body raises the edge that empties the ledger,
 /// and the key that was held the whole time moves him afterwards.
 pub fn a_teleport_that_changes_the_ground_frees_the_body() {
-    use dereth_client::character::GroundEdges;
     use dereth_client_runtime::actions::movement::action;
+    use dereth_client_runtime::character::GroundEdges;
 
     let stop = world_support::a_recorded_stop_with_an_action();
     let (mut c, mut mc, mut input) = world_support::running_body();
@@ -478,8 +478,8 @@ pub fn a_teleport_that_changes_the_ground_frees_the_body() {
 /// This is the assertion that fails if a later reader "fixes" a stuck body by emptying the
 /// ledger from the teleport directly: that would pass the scenario above and redden this one.
 pub fn a_teleport_onto_the_same_ground_raises_no_edge() {
-    use dereth_client::character::GroundEdges;
     use dereth_client_runtime::actions::movement::action;
+    use dereth_client_runtime::character::GroundEdges;
     use dereth_primitives::{Frame, Position, Vec3};
 
     let stop = world_support::a_recorded_stop_with_an_action();

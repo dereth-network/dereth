@@ -610,7 +610,7 @@ fn drop_on_tile(c: &mut HeadlessClient, from: ElemHandle, n: u32) {
 /// Press the key the **shipped keymap** binds to "use what is in tile `n`".
 pub(super) fn press_tile_key(c: &mut HeadlessClient, n: u32, code: winit::keyboard::KeyCode) {
     let key =
-        dereth_client::platform::window::key_from_key_code(code).expect("the host names this key");
+        dereth_desktop::platform::window::key_from_key_code(code).expect("the host names this key");
     dereth_testkit::input_steps::press_bound(c, use_tile_action(n), QUICKSLOT_COMMANDS, key);
 }
 
@@ -785,8 +785,8 @@ pub(super) fn a_number_key_pressed_with_a_cursor_armed_finishes_that_gesture() {
         dereth_ui_screens::toolbar::target_mode::EXAMINE_BUTTON,
     ));
     clear_requests(c.ui_outbox());
-    let armed =
-        c.view().interaction().target_mode() != dereth_client::interaction::TargetMode::None;
+    let armed = c.view().interaction().target_mode()
+        != dereth_client_runtime::interaction::TargetMode::None;
 
     let mark = c.outbound().len();
     press_tile_key(&mut c, PACK_TILE, winit::keyboard::KeyCode::Digit9);
@@ -884,8 +884,8 @@ pub(super) fn a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
 
     let mark = c.outbound().len();
     press_tile_key(&mut c, KIT_TILE, winit::keyboard::KeyCode::Digit8);
-    let armed =
-        c.view().interaction().target_mode() == dereth_client::interaction::TargetMode::UseTarget;
+    let armed = c.view().interaction().target_mode()
+        == dereth_client_runtime::interaction::TargetMode::UseTarget;
     let eight_sent_nothing = c.outbound().len() == mark;
 
     let mark = c.outbound().len();
@@ -895,8 +895,8 @@ pub(super) fn a_kit_key_then_the_main_pack_key_uses_the_kit_on_the_player() {
         matches!(r, Request::UseWithTargetEvent(m)
             if m.object == kit && m.target == HINT_DRAG_PLAYER)
     });
-    let disarmed =
-        c.view().interaction().target_mode() == dereth_client::interaction::TargetMode::None;
+    let disarmed = c.view().interaction().target_mode()
+        == dereth_client_runtime::interaction::TargetMode::None;
     clear_requests(c.ui_outbox());
 
     c.assert_behaviour(

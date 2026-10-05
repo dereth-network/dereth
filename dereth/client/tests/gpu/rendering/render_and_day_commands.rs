@@ -14,12 +14,15 @@ use crate::common::chat::{
     install_player_module, Hand,
 };
 use crate::common::gpu_lock;
-use dereth_client::world::SceneReads;
+use dereth_scene::world_scene::SceneReads;
 
 use dereth_assets::Decode;
-use dereth_client::{app::App, config::Config, world::SceneConfig};
 use dereth_primitives::AssetSource;
 use dereth_ui::framework::mode;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::scene::SceneConfig,
+};
 
 fn app() -> App {
     app_with(|cfg| App::new(cfg).expect("required retail DATs and headless graphics device"))
@@ -77,9 +80,9 @@ fn typed_render_preserves_the_native_parser_and_reaches_projection_and_landscape
                 land_radius: 2,
                 scenery_radius: 0,
                 character: false,
-                render: dereth_client::render_prefs::RenderPreferences {
+                render: dereth_client_runtime::render_prefs::RenderPreferences {
                     landscape_draw_distance: 2,
-                    ..dereth_client::render_prefs::RenderPreferences::default()
+                    ..dereth_client_runtime::render_prefs::RenderPreferences::default()
                 },
                 ..SceneConfig::default()
             },

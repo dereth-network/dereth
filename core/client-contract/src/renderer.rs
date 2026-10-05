@@ -8,7 +8,7 @@
 //!
 //! So the *selection* and the *capability* are separated instead. This enum is the selection: a
 //! name a player typed or a preferences file spelled, with no opinion about what this build can
-//! create. `dereth_client::config::Config::renderer` holds one, which is what lets `config.rs` live
+//! create. `dereth_client_runtime::config::Config::renderer` holds one, which is what lets `config.rs` live
 //! in `dereth-client-runtime`. `dereth_render::device::Backend` keeps the capability and implements
 //! `From<RendererChoice>`, and the one site that creates a device
 //! (`dereth_client::app::App::device_presentation`) resolves the choice against

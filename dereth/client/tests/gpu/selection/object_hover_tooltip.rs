@@ -41,11 +41,10 @@ use crate::common::app::{frames, position};
 use std::collections::BTreeSet;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pick::PickScene;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::pick::PickScene;
 use dereth_client_runtime::pick_geometry::selection_ray;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
@@ -53,6 +52,9 @@ use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
 use dereth_ui::{ElemHandle, UiDrawCmd, UiSystem};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// Recorded visible-state mask that un-hides the player at login; applied here with a fresh stamp.
@@ -302,7 +304,7 @@ fn chest_pixel(app: &App, chest: ObjectId) -> (i32, i32) {
 /// Send a normalized pointer-move message through the pump and input manager, without
 /// synthesizing a button press or directly invoking the hover/tooltip helpers.
 fn move_pointer_to(app: &mut App, x: i32, y: i32, at: u32) {
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
     let message = pump.mouse_move_message(f64::from(x), f64::from(y), at);

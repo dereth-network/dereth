@@ -21,6 +21,8 @@ default = []
 retail-dats = []
 
 [dependencies]
+dereth-desktop.workspace = true
+dereth-client-shell.workspace = true
 # The client. `App::with_platform(cfg, NullPresentation, Platform::headless(w, h))` is what the
 # retail-assets backend is; `default-features = false` because the default is a graphics backend and
 # a scenario never has a device.
@@ -63,6 +65,8 @@ dereth-client-net = { workspace = true, default-features = true, features = ["te
 dereth-transport.workspace = true
 
 [dev-dependencies]
+dereth-scene.workspace = true
+dereth-world-data.workspace = true
 dereth-chargen.workspace = true
 # `dereth_primitives::num::math`: the scenarios build headings with the same portable trigonometry as the client.
 dereth-primitives.workspace = true

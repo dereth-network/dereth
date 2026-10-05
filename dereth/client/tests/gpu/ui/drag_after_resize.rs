@@ -49,7 +49,7 @@ use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_ui::layout::EdgeMode;
 use dereth_ui::region::Box2D;
@@ -177,11 +177,11 @@ fn station() -> App {
     })
     .expect("an App with the retail dats and a headless GPU device");
     app.start_shell().expect("the shell comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("a static scene");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
@@ -376,7 +376,7 @@ fn the_ghosts_uvs_span_one_copy_of_the_icon_and_the_sampler_clamps() {
     let _ = pick_up(&mut app, tile, 2.0);
     let p = proxy(&mut app);
     let cmd = ghost_cmd(&mut app, p);
-    let q = dereth_client::ui_draw::quad(&cmd, MONITOR, ICON).expect("the ghost rasterises");
+    let q = dereth_client_shell::ui_draw::quad(&cmd, MONITOR, ICON).expect("the ghost rasterises");
     assert_eq!(
         q.wrap,
         (false, false),
@@ -417,7 +417,7 @@ fn the_same_rule_answers_wrap_for_the_quad_the_defect_drew() {
         cmd.screen.y1 + dh,
     );
     cmd.clip = cmd.screen;
-    let q = dereth_client::ui_draw::quad(&cmd, MONITOR, ICON).expect("it rasterises");
+    let q = dereth_client_shell::ui_draw::quad(&cmd, MONITOR, ICON).expect("it rasterises");
     assert_eq!(
         q.wrap,
         (true, true),
@@ -624,7 +624,7 @@ fn a_resize_during_a_drag_still_re_anchors_the_ghost_exactly_as_retails_resizeto
 /// The `(u, v)` of vertex `i` of a `UiQuad`'s six, which are `UI_VERTEX_BYTES` apart with the two
 /// floats at offset 16.
 fn uv_of(vertices: &[u8], i: usize) -> (f32, f32) {
-    let at = i * dereth_client::ui_draw::UI_VERTEX_BYTES + 16;
+    let at = i * dereth_client_shell::ui_draw::UI_VERTEX_BYTES + 16;
     let u = f32::from_le_bytes([
         vertices[at],
         vertices[at + 1],

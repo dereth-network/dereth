@@ -1,7 +1,7 @@
 //! A scripted static's hook effects reach its own collision body. In retail one object per
 //! placement holds the rendered parts, the queued default script and the collision state, so an
 //! immediate scale hook changes the body as well. The client keeps the script host
-//! (`dereth_client::particles::EmitterHost`) and the collision static apart and pairs them through
+//! (`dereth_scene::particles::EmitterHost`) and the collision static apart and pairs them through
 //! the placement's handle; these tests check the pairing and one concrete scale and radius update.
 //!
 //! Two tests read the shipped dats only: which setups' default scripts raise SCALE and
@@ -304,14 +304,14 @@ fn the_sound_table_hooks_ceiling_is_the_four_setups_that_name_a_table() {
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 mod scene {
-    use dereth_client::world::{SceneReads, SceneWrites};
     use std::sync::Arc;
+    use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{SceneConfig, WorldScene};
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::LocalTime;
     use dereth_render::device::Gpu;
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
     /// Landblock of the single decoded environment-cell SCALE placement asserted above.
     const SCALE_BLOCK: u16 = 0x5655;
@@ -331,7 +331,7 @@ mod scene {
         // Cell-static registration writes into the attached character's PhysicsWorld. Attach
         // one before streaming, as the application does, so collision bodies exist for the
         // later script-host pairing.
-        let region = dereth_client::world::load_region(store).expect("region");
+        let region = dereth_client_runtime::landblock::load_region(store).expect("region");
         scene.attach_character(store, &region, gpu).expect("body");
         // `stream` is the other place cell statics are registered, for blocks that arrive later;
         // `sync_objects` is where the hosts are spawned.
@@ -354,7 +354,11 @@ mod scene {
     fn every_landblock_static_that_runs_a_script_carries_its_own_collision_body() {
         let mut gpu = crate::common::test_gpu(640, 480);
         let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-        let mut scene = scene(&mut gpu, &store, dereth_client::world::DEFAULT_LANDBLOCK);
+        let mut scene = scene(
+            &mut gpu,
+            &store,
+            dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        );
         let mut stream = ObjectStream::new();
         scene
             .sync_objects(&store, &mut gpu, &mut stream)
@@ -468,8 +472,8 @@ mod scene {
         // through the scene's host loop; the final state does not identify the exact firing tick.
         for f in 1..=4 {
             scene.update(
-                dereth_client::camera::CameraInput::default(),
-                dereth_client::character::CharacterInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
+                dereth_client_runtime::character::CharacterInput::default(),
                 LocalTime(f64::from(f) / 30.0),
                 1.0 / 30.0,
             );

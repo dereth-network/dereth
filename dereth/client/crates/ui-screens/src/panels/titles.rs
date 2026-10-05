@@ -8,7 +8,7 @@
 //! # The title list
 //!
 //! `0x0029 Social_CharacterTitleTable` carries both the display title and the title list, and
-//! both must be kept: `dereth_client::hud` keeps the list and it reaches this module through
+//! both must be kept: `dereth_client_shell::hud` keeps the list and it reaches this module through
 //! [`GameView::character_titles`].
 //!
 //! # The four functions, and where they live here

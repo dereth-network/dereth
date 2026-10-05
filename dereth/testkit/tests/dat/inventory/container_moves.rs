@@ -1512,7 +1512,7 @@ pub(super) fn the_shards_own_message_puts_the_shop_on_screen_and_not_only_its_ta
 
     let the_model_agrees = c.view().world().shop.vendor_id == Some(GROCER)
         && c.view().interaction().stats.vendor_opens == 1
-        && dereth_client::vendor_view::shop(c.view().world()).open
+        && dereth_client_runtime::vendor_view::shop(c.view().world()).open
         && c.view().expect_app().hud().panels.vendor.bound();
 
     let the_page_is_visible = {

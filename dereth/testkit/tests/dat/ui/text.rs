@@ -32,10 +32,10 @@ fn a_shipped_ui() -> (
     .expect("it decodes");
     let mut ui = dereth_ui::UiSystem::new((800, 600));
     ui.install_master(&master);
-    ui.strings = Some(Rc::new(dereth_client::ui_draw::DatStringResolver::new(
-        Arc::clone(&store),
-    )));
-    ui.fonts = Some(Rc::new(dereth_client::ui_draw::DatFontProvider::new(
+    ui.strings = Some(Rc::new(
+        dereth_client_shell::ui_draw::DatStringResolver::new(Arc::clone(&store)),
+    ));
+    ui.fonts = Some(Rc::new(dereth_client_shell::ui_draw::DatFontProvider::new(
         Arc::clone(&store),
     )));
     let mut flow = dereth_ui::UiFlow::new();

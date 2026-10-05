@@ -12,14 +12,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{EmitterDegrade, SceneConfig, WorldScene};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::EmitterDegrade,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The retail dats, or **fail**: a missing oracle must not read as a pass.
 fn store() -> Arc<RetailDatStore> {
@@ -60,8 +63,8 @@ fn step(
         .sync_objects(store, gpu, stream)
         .expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(now),
         1.0 / 60.0,
     );

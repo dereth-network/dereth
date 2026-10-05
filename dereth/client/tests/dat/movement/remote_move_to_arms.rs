@@ -17,14 +17,14 @@ use std::sync::Arc;
 
 use dereth_animation::table::MovementType;
 use dereth_animation::MotionCommand;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::SceneConfig;
 use dereth_client_net::client_session::testing::{
     session_names, shared_session, Corpus, Direction,
 };
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::{connection_sequence_number, recorded_enter_world_requests};
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{
@@ -740,8 +740,8 @@ fn a_remote_creature_with_a_destination_walks_toward_it() {
         let s = scene.as_mut().expect("built above");
         s.sync_objects(&mut stream).expect("objects sync");
         s.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             now,
             1.0 / 30.0,
         );

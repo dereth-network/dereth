@@ -10,7 +10,6 @@
 
 use std::sync::Arc;
 
-use dereth_client::land_source::DatLandSource;
 use dereth_dat::RetailDatStore;
 use dereth_physics::cell::Cell;
 use dereth_physics::source::EnvCellGeometry;
@@ -18,6 +17,7 @@ use dereth_physics::transition::Transition;
 use dereth_physics::{LandSource, PhysicsWorld, SetupGeometry};
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LandblockId, ObjectId, Position, Quat, Vec3};
+use dereth_world_data::land_source::DatLandSource;
 
 /// The cell the wrong-space reproduction uses. Everything about it — bounds, walls, frame — is
 /// read from the dat.
@@ -36,7 +36,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn source(store: &Arc<RetailDatStore>) -> Option<Arc<DatLandSource>> {
-    let region = dereth_client::world::load_region(store).ok()?;
+    let region = dereth_client_runtime::landblock::load_region(store).ok()?;
     let src = Arc::new(DatLandSource::new(Arc::clone(store), &region).ok()?);
     for b in BLOCKS {
         src.load_block_cells(LandblockId(b));

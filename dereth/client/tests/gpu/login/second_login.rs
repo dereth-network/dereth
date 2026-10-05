@@ -14,9 +14,9 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::world::SceneConfig;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_primitives::ObjectId;
 use dereth_protocol::login::{LoginEnterGameServerReady, LoginExecuteLogOff};
 use dereth_protocol::objects::{ItemCreateObject, LoginCreatePlayer, ObjectCreatePayload};
@@ -619,13 +619,13 @@ fn squelch_rows(app: &App) -> usize {
 /// `walk_input_maps` is behind the chat typing barrier, and a test that set `auto_run` directly
 /// would be measuring the field rather than the input path.
 struct Keys {
-    pump: dereth_client::pump::Pump,
+    pump: dereth_desktop::pump::Pump,
     time_ms: u32,
 }
 
 impl Keys {
     fn new() -> Self {
-        let mut pump = dereth_client::pump::Pump::new();
+        let mut pump = dereth_desktop::pump::Pump::new();
         pump.state.is_ready = true;
         pump.state.is_active_app = true;
         Self {
@@ -852,7 +852,7 @@ fn the_run_lock_does_not_survive_into_the_next_session() {
 /// toolbar; it is the same request the toolbar raises and the targeted-use fixture exercises.
 #[test]
 fn the_use_cursor_is_not_still_armed_in_the_next_session() {
-    use dereth_client::interaction::TargetMode;
+    use dereth_client_runtime::interaction::TargetMode;
     let _gpu = gpu_lock();
     let mut app = app();
     let (mut peer, net) = Peer::new();

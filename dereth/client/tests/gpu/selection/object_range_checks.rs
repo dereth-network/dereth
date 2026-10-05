@@ -2,7 +2,7 @@
 //! is out of its range, and with no local body the checks are skipped rather than run. The
 //! selection range watch arms at the radar radius the player's own cell chooses: 75 m on the
 //! landscape, 25 m in an interior cell, and back to 75 m when the body walks out again.
-//! Fixture: `dereth_client::interaction::use_time` (the step `App::frame` calls) over a real
+//! Fixture: `dereth_client_runtime::interaction::use_time` (the step `App::frame` calls) over a real
 //! `WorldScene` and character body (and an interior cell of the default landblock) on a headless
 //! WARP device; the retail dats; no window, no input.
 //!
@@ -22,17 +22,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::character::PLAYER_OBJECT_ID;
-use dereth_client::interaction::{self, Interaction};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_model::range::RangeHandler;
+use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::types::PublicWeenieDesc;
+use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const VENDOR: ObjectId = ObjectId(0x8000_0001);
 
@@ -54,7 +54,7 @@ fn put(w: &mut dereth_client_model::World, id: ObjectId, pwd: PublicWeenieDesc) 
 fn a_frame_closes_the_vendor_the_player_has_walked_away_from() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -254,18 +254,21 @@ mod range_watch {
     //! put on the land cell the building stands in. So the body is stood at a point the room's own
     //! `cell_bsp` says is inside it (`WorldScene::standable_point`).
 
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::character::PLAYER_OBJECT_ID;
-    use dereth_client::interaction::{self, Interaction};
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
     use dereth_client_model::range::{RangeHandler, RADAR_RADIUS_INDOORS, RADAR_RADIUS_OUTDOORS};
+    use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
     use dereth_physics::LandSource;
     use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::types::PublicWeenieDesc;
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
+    use {
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    };
 
     const TARGET: ObjectId = ObjectId(0x8000_0011);
 
@@ -344,7 +347,8 @@ mod range_watch {
     fn the_selection_watch_arms_at_the_range_the_players_own_cell_chooses() {
         let store = store();
         let mut gpu = crate::common::test_gpu(800, 600);
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
         scene
@@ -443,7 +447,8 @@ mod range_watch {
     fn the_range_follows_the_body_when_it_goes_back_outside() {
         let store = store();
         let mut gpu = crate::common::test_gpu(800, 600);
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let mut scene =
             WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
         scene

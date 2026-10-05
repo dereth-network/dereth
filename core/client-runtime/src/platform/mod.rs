@@ -12,17 +12,17 @@ pub mod text;
 
 /// The clock seam without the zone: `Clock`, `Pacer` and `system_unix_time`.
 /// `local_utc_offset_secs`, the two `Clock` implementations and `Timer` live in
-/// `dereth_client::platform::clock`, which re-exports the three here.
+/// `dereth_desktop::platform::clock`, which re-exports the three here.
 pub mod clock;
 
 /// The window seam: `WindowHost`, `HostEvent`, `PumpedEvents` and `NullWindow`. `WinitWindow`
-/// and every `winit` name live in `dereth_client::platform::window`, which re-exports what is
+/// and every `winit` name live in `dereth_desktop::platform::window`, which re-exports what is
 /// here.
 pub mod window;
 
 /// The modal error box the client shows when its first connection fails, before any screen
 /// exists: `ErrorDialogHost` and the headless `NoDialog`. The OS message box stays in
-/// `dereth_client::platform::dialog`.
+/// `dereth_desktop::platform::dialog`.
 pub mod dialog;
 
 /// The audio endpoint the host opens for the mixer.

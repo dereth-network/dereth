@@ -11,10 +11,13 @@ use std::sync::Arc;
 
 use crate::common::sim::SimWorld;
 
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, SceneConfig, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 /// `BLOCK_LENGTH`: one landblock, and therefore the exact size of a part misplacement.
 const BLOCK: f32 = 192.0;
@@ -39,7 +42,7 @@ fn block_at(x: i32, y: i32) -> LandblockId {
 /// construction and a difference between them cannot be about the idle cycle.
 fn tick(scene: &mut SimWorld) {
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(0.0),
         0.0,

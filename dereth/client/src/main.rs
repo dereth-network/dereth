@@ -23,9 +23,9 @@
 //! unaffected.
 #![windows_subsystem = "windows"]
 
-use dereth_client::config::Config;
-use dereth_client::corestrings;
 use dereth_client::Dereth;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::corestrings;
 use dereth_desktop::crashlog;
 
 mod input_replay;
@@ -35,9 +35,9 @@ fn main() -> std::process::ExitCode {
     // `std` resolves the standard handles when it writes, so the console has to exist by the first
     // write or that write is lost. `--no-console` is read straight out of `argv` here rather than
     // taken off the parsed `Config`, because the parse comes later and reports its failures on the
-    // stderr this call is what provides. See `dereth_client::config::no_console_in_argv`.
+    // stderr this call is what provides. See `dereth_client_runtime::config::no_console_in_argv`.
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    if dereth_client::config::no_console_in_argv(&argv) {
+    if dereth_client_runtime::config::no_console_in_argv(&argv) {
         // Nothing to do, and that is the whole feature: no console is borrowed, and the process's
         // streams stay as the windows subsystem left them.
     } else {
@@ -82,7 +82,7 @@ fn run() -> Result<(), String> {
 /// The variant also carries the underlying failure for this log line, so a start-up that dies on,
 /// say, a missing Vulkan loader says so instead of asking the player to reboot.
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
-fn fatal(e: dereth_client::app::StartupError) -> String {
+fn fatal(e: dereth_client_runtime::app::StartupError) -> String {
     if let Some(cause) = e.cause() {
         tracing::error!("{cause}");
     }
@@ -115,7 +115,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     // load on WARP). The two are bit-identical, so the CPU one is taken instead.
     if app.renderer_mut().software() && scene.gpu_terrain_merge {
         scene.gpu_terrain_merge = false;
-        if terrain_blending == dereth_client::render_prefs::TerrainBlending::Gpu {
+        if terrain_blending == dereth_client_runtime::render_prefs::TerrainBlending::Gpu {
             tracing::info!(
                 "TerrainBlending=gpu on a software device -- composing on the CPU, which is faster there and identical"
             );
@@ -142,7 +142,10 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     } else {
         // The full-screen quad, kept reachable so its regression still runs.
         app.load_first_pixel_scene().map_err(fatal)?;
-        tracing::info!("surface 0x{:08X}", dereth_client::gpu::FIRST_PIXEL_SURFACE);
+        tracing::info!(
+            "surface 0x{:08X}",
+            dereth_client_runtime::assets::FIRST_PIXEL_SURFACE
+        );
     }
 
     if cfg_connect {
@@ -163,7 +166,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
 
     // run the client frame loop.
     let frames = if let Some(mut replay) = replay {
-        app.state = dereth_client::app::AppState::Running;
+        app.state = dereth_client_runtime::app::AppState::Running;
         let mut frame = 1;
         loop {
             replay.drain_frame(frame, |event| app.queue_window_event(event));
@@ -172,7 +175,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
             }
             frame += 1;
         }
-        app.state = dereth_client::app::AppState::ShuttingDown;
+        app.state = dereth_client_runtime::app::AppState::ShuttingDown;
         app.frames_drawn()
     } else {
         app.run()

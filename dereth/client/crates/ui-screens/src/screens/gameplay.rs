@@ -304,7 +304,7 @@ pub mod window {
     /// `<SBOX>` — the 3D viewport.
     ///
     /// It lives in [`dereth_client_contract::gameplay`], because
-    /// `dereth_client::interaction` names it to tell a world click from a panel click.
+    /// `dereth_client_runtime::interaction` names it to tell a world click from a panel click.
     pub use dereth_client_contract::gameplay::SMART_BOX;
     use dereth_ui::ElementId;
     /// `<CHAT>` — the main chat window.
@@ -559,7 +559,7 @@ pub struct GamePlayScreen {
     /// (the refusal is a cancellation, not a deferral). `false` — the `Default` —
     /// is retail's "on the ground", so a screen nobody pushes to
     /// behaves as a standing player does. The host writes it every frame from
-    /// `dereth_client::character::Character::in_contact` — `CONTACT_TS` alone, which is the bit the
+    /// `dereth_client_runtime::character::Character::in_contact` — `CONTACT_TS` alone, which is the bit the
     /// client tests, and deliberately not `on_ground`'s `Contact && OnWalkable` pair.
     pub player_airborne: bool,
     /// How many times the per-frame update has refused a log-off for being airborne.
@@ -755,7 +755,7 @@ pub struct GamePlayScreen {
     /// `Some(sel)` (the outer `None` is this screen's own "never asked", which the client does not
     /// need because its member starts at 0) and the splitter compares `flatten() != sel`, which is
     /// the client's own "stored id differs from the current selection" edge. There is no second
-    /// copy on `dereth_client::hud::Hud`, so the client's one selection edge is one edge and the
+    /// copy on `dereth_client_shell::hud::Hud`, so the client's one selection edge is one edge and the
     /// two halves cannot disagree.
     last_selection: Option<Option<ObjectId>>,
     /// The current selection **as the input-dispatch boundary last supplied it** — a
@@ -846,7 +846,7 @@ pub struct GamePlayScreen {
     // ---- the stat-management panels' input --------------------------------------------------
     /// Element messages this frame that a stat-management panel or `SpellbookPanel` might own.
     ///
-    /// **This queue exists because `RemainingPanels` lives on `dereth_client::hud::Hud`.** Tests
+    /// **This queue exists because `RemainingPanels` lives on `dereth_client_shell::hud::Hud`.** Tests
     /// read `app.hud().panels`, so the panels stay there. So the screen — which *is* the registered
     /// listener — records the two message ids those panels switch on and the HUD drains them in the
     /// same frame, which is the same one-step deferral `crate::requests` uses and for the same
@@ -857,7 +857,7 @@ pub struct GamePlayScreen {
     ///
     /// The tuple also carries this gesture's split size and maximum split size. The same one-frame
     /// deferral as [`Self::panel_messages`] exists for the same reason: the trade panel lives on
-    /// `dereth_client::hud::Hud` with the rest of `RemainingPanels`, and this screen is the element
+    /// `dereth_client_shell::hud::Hud` with the rest of `RemainingPanels`, and this screen is the element
     /// the drop message is delivered to. The client has no such hop -- its drop handling *is* the
     /// window's own handler and tests whether the drop target is inside its own items list itself.
     trade_drops: Vec<(ObjectId, u32, u32)>,
@@ -878,7 +878,7 @@ pub struct GamePlayScreen {
     /// same client function shape: the drop target inside the sell list, the dropped icon's
     /// info read, and not an alias (flags `0x0E`) -> accept, which is the secure-trade
     /// drop handling with one element id changed. `VendorPanel`
-    /// lives on `dereth_client::hud::Hud` with the rest of `RemainingPanels`, so the drop
+    /// lives on `dereth_client_shell::hud::Hud` with the rest of `RemainingPanels`, so the drop
     /// is recorded here and delivered there.
     ///
     /// The two numbers are the splitter's split and maximum, whose equality is the whole-stack
@@ -893,7 +893,7 @@ pub struct GamePlayScreen {
     /// handling is the drop target inside the salvage list, the dropped icon's info read, and
     /// not an alias (flags `0x0E`) -> its drag-accept, which is the secure-trade panel's
     /// drop handling with one element id changed. The panel
-    /// lives on `dereth_client::hud::Hud` with the rest of `RemainingPanels`, so the drop
+    /// lives on `dereth_client_shell::hud::Hud` with the rest of `RemainingPanels`, so the drop
     /// is recorded here and delivered there.
     ///
     /// No ghost, for the reason the trade table and the sell basket have none: `accept_drag_object`
@@ -2160,7 +2160,7 @@ impl GamePlayScreen {
     ///
     /// **This arm is what makes inventory interactable.** Listening on `0x19 MOUSE_CLICK` instead
     /// would mean a double-click never eats, reads or equips anything and a right-click never
-    /// appraises. All three requests are honoured by `dereth_client::interaction`; this is the arm
+    /// appraises. All three requests are honoured by `dereth_client_runtime::interaction`; this is the arm
     /// that emits them.
     ///
     /// Two details that are easy to lose and are load-bearing:
@@ -2780,7 +2780,7 @@ impl GamePlayScreen {
     ///
     /// * the mouse-over hit test only considers an element that is mouse-visible or blocks
     ///   clicks, so `hit_test_screen` over the viewport returns **`None`**
-    ///   (`dereth_client::interaction::is_world_click` reads `None` as the world, so *clicks* would
+    ///   (`dereth_client_runtime::interaction::is_world_click` reads `None` as the world, so *clicks* would
     ///   still work);
     /// * the mouse-over switch asks the **hit element** for its drag-and-drop catcher, and with no
     ///   hit element the last drag-cursor-over element stays null, the drag-and-drop stop
@@ -3957,7 +3957,7 @@ impl GamePlayScreen {
     /// radar's window id.
     ///
     /// `0x10000086`/`0x10000087` are the X and Y of one `Option_Placement` row — the same two
-    /// `dereth_client::hud::decode_placements` reads back and [`Self::update_from_player_module`]
+    /// `dereth_client_runtime::hud::decode_placements` reads back and [`Self::update_from_player_module`]
     /// re-applies. So a dragged radar survives a relog because the drag wrote the row the login
     /// blob carries.
     ///
@@ -5593,7 +5593,7 @@ impl Screen for GamePlayScreen {
         // because the update's first line sets the next update to now + 5.
         //
         // Only the update half is transcribed here: this build's tick does not go through a
-        // listener registration, it goes through `dereth_client::hud`'s `if
+        // listener registration, it goes through `dereth_client_shell::hud`'s `if
         // screen.map_update_due(...)`. Zeroing `next_map_update` makes the next poll due at once,
         // which is exactly what running the update on the show edge achieves; the
         // unregister-on-hide is **not** transcribed, so this build keeps polling a closed page.
@@ -5856,7 +5856,7 @@ impl Screen for GamePlayScreen {
         //
         // The lock arm reaches `PlayerModule` and the `0x0D` broadcast through the host, because
         // the flag is the player's and this crate never touches player state — see
-        // [`Self::set_lock_ui`] and `dereth_client::ui`'s `SetLockUi` handler. The select arm is
+        // [`Self::set_lock_ui`] and `dereth_client_shell::ui`'s `SetLockUi` handler. The select arm is
         // `UiRequest::Select`, which selects the object and is routed by the host.
         if m.id == dereth_ui::msg::element::id::MOUSE_CLICK {
             if m.source_id == crate::mapradar::radar::child::LOCK_BUTTON {

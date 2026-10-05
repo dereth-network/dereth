@@ -59,7 +59,7 @@
 //! item-list-begin-drag notices.
 //! This build has no notice bus at
 //! that seam, so the first three arrive as [`SalvageNotice`] through
-//! `dereth_client::hud::Hud::pending_salvage` — the same one-frame hop
+//! `dereth_client_shell::hud::Hud::pending_salvage` — the same one-frame hop
 //! [`crate::panels::external_container::ExternalContainerNotice`] takes, and for the same reason.
 //!
 //! # Shard safety
@@ -119,7 +119,7 @@ use dereth_client_contract::panels::salvage::SalvageAction;
 /// The three notices the panel registers that carry an object, in registration order.
 ///
 /// Defined in [`dereth_client_contract::panels::salvage`], because it is the value
-/// `dereth_client::hud` queues and this panel drains.
+/// `dereth_client_shell::hud` queues and this panel drains.
 pub use dereth_client_contract::panels::salvage::SalvageNotice;
 
 /// The snapshot [`SalvagePanel::update`] guards on, so an unchanged frame redraws nothing.

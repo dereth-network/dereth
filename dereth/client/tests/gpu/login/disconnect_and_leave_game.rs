@@ -14,12 +14,12 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 
-use dereth_client::app::{App, AppState};
-use dereth_client::config::Config;
 use dereth_client_net::client_session::{DisconnectReason, SessionEvent, SessionState};
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui_screens::screens::disconnected::{self, DisconnectedScreen};
 use dereth_ui_screens::screens::epilogue::EpilogueScreen;
+use {dereth_client::app::App, dereth_client_runtime::app::AppState};
 
 fn base_config() -> Config {
     Config {
@@ -127,7 +127,7 @@ fn shipped_reason(app: &App, id: &str) -> String {
     )
     .expect("the string-table group resolves")
     .resolve(dereth_ui::framework::LayoutEnum(
-        dereth_client::ui::PATCH_STRING_TABLE_ENUM,
+        dereth_client_shell::ui::PATCH_STRING_TABLE_ENUM,
     ))
     .expect("string-table enum 0x10000002 resolves to a shipped table");
     app.ui()

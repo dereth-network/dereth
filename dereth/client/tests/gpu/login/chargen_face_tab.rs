@@ -12,8 +12,8 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::gpu::PreviewId;
+use dereth_client_runtime::config::Config;
+use dereth_client_shell::gpu::PreviewId;
 use dereth_primitives::DataId;
 use dereth_ui::framework::mode;
 use dereth_ui::ElementId;
@@ -247,11 +247,11 @@ fn a_character_created_without_opening_the_clothes_tab_goes_out_bare_headed() {
 
     // Preserve the style across the UI-result to wire-result adapter.
     assert_eq!(
-        dereth_client::app::chargen_result_to_wire(&bare).headgear_style,
+        dereth_client_runtime::app::chargen_result_to_wire(&bare).headgear_style,
         -1
     );
     assert_eq!(
-        dereth_client::app::chargen_result_to_wire(&dressed).headgear_style,
+        dereth_client_runtime::app::chargen_result_to_wire(&dressed).headgear_style,
         parked_bare
     );
 }

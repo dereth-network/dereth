@@ -15,13 +15,13 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_render::device::{DeviceConfig, Gpu};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -194,8 +194,8 @@ fn draw_ground(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gp
     let mut rgba = Vec::new();
     for _ in 0..3 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             dereth_primitives::LocalTime(0.0),
             0.0,
         );
@@ -225,7 +225,7 @@ fn under_splat_blending_landscape_texture_detail_changes_the_ground_and_back() {
         terrain_splat: true,
         time_of_day: Some(0.5),
         game_time: Some(0.0),
-        render: dereth_client::render_prefs::RenderPreferences {
+        render: dereth_client_runtime::render_prefs::RenderPreferences {
             landscape_texture_detail: 0,
             ..SceneConfig::default().render
         },

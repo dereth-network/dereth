@@ -28,18 +28,18 @@ use crate::common::gpu_lock;
 use crate::common::workspace_root;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::pump::{Pump, Win32Message};
 use dereth_client_net::client_session::testing::capture::{shared_session, Datagram};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::LocalTime;
 use dereth_ui::framework::mode;
 use dereth_ui::{Box2D, ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::interface::ChatMessage;
 use dereth_ui_screens::chat::window::{LOG, NEW_TEXT_BELOW, SCROLLBAR};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 use winit::event::MouseButton;
 
@@ -65,11 +65,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = App::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(mode::GAME_PLAY);
@@ -212,7 +212,11 @@ fn replay(records: &[Datagram]) -> Vec<SessionEvent> {
 fn replay_link(
     records: &[Datagram],
     offset: f64,
-) -> (Vec<SessionEvent>, dereth_client::net::LinkStatus, u32) {
+) -> (
+    Vec<SessionEvent>,
+    dereth_client_runtime::net::LinkStatus,
+    u32,
+) {
     let mut net = ClientNetwork::new(
         "127.0.0.1:19000",
         7304,
@@ -254,7 +258,7 @@ fn shard_chat_lines() -> Vec<ChatMessage> {
     let mut best: Vec<ChatMessage> = Vec::new();
     for (_, records) in corpus_recordings() {
         let events = replay(records);
-        let mut hud = dereth_client::hud::Hud::default();
+        let mut hud = dereth_client_shell::hud::Hud::default();
         let mut world = dereth_client_model::World::new();
         let mut lines = Vec::new();
         for e in &events {
@@ -301,7 +305,7 @@ fn a_login_made_long_after_start_up_keeps_its_connection() {
     let (events, status, rejected) = replay_link(&seg, LATE_LOGIN_START);
     assert_eq!(
         status,
-        dereth_client::net::LinkStatus::Connected,
+        dereth_client_runtime::net::LinkStatus::Connected,
         "the recorded link was alive for the whole segment; this build ended it"
     );
     assert_eq!(
@@ -309,7 +313,7 @@ fn a_login_made_long_after_start_up_keeps_its_connection() {
         "every recorded server datagram belongs to the recorded connection"
     );
 
-    let mut hud = dereth_client::hud::Hud::default();
+    let mut hud = dereth_client_shell::hud::Hud::default();
     let mut world = dereth_client_model::World::new();
     let mut lines = Vec::new();
     for e in &events {

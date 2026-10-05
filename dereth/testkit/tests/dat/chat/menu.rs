@@ -62,7 +62,9 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
         dereth_client_runtime::ui_context::offer_talk_focus_notices(
             chat,
             notices,
-            &mut |focus, notice| dereth_client::hud::talk_focus_notice(ui, screen, focus, notice),
+            &mut |focus, notice| {
+                dereth_client_shell::hud_drive::talk_focus_notice(ui, screen, focus, notice)
+            },
         );
         let state = |row: u32| {
             screen
@@ -123,7 +125,9 @@ pub fn the_talk_to_menu_is_redrawn_from_the_settings() {
         dereth_client_runtime::ui_context::offer_talk_focus_notices(
             chat,
             notices,
-            &mut |focus, notice| dereth_client::hud::talk_focus_notice(ui, screen, focus, notice),
+            &mut |focus, notice| {
+                dereth_client_shell::hud_drive::talk_focus_notice(ui, screen, focus, notice)
+            },
         );
         let kept = chat.talk_focus == TalkFocus::All;
         // The menu builds itself again and lands on the row it does have.

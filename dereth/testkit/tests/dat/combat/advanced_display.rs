@@ -91,8 +91,8 @@ pub(super) fn turning_the_advanced_option_on_while_the_window_is_up_takes_it_dow
 }
 
 pub(super) fn the_strip_comes_up_while_an_attack_key_is_held_and_goes_on_release() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::{CombatMode, PowerBarMode};
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = advanced::Bench::new();
     b.set_advanced(true);
@@ -132,8 +132,8 @@ pub(super) fn the_strip_comes_up_while_an_attack_key_is_held_and_goes_on_release
 }
 
 pub(super) fn a_release_that_reaches_the_shard_holds_the_strip_until_the_answer() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::{CombatMode, PowerBarMode};
+    use dereth_client_runtime::interaction::action as ia;
     use dereth_primitives::LocalTime;
 
     let mut b = advanced::Bench::new();
@@ -166,8 +166,8 @@ pub(super) fn a_release_that_reaches_the_shard_holds_the_strip_until_the_answer(
 }
 
 pub(super) fn the_advanced_option_chooses_which_display_is_live() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::{CombatMode, PowerBarMode};
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut classic = advanced::Bench::new();
     classic.set_mode(CombatMode::Melee);

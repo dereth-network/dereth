@@ -142,7 +142,7 @@ fn house_now() -> i64 {
 /// An instant as the pane prints it, in whatever zone the host is in -- which is what the pane
 /// asks for too, so this file stays green wherever it runs.
 fn c_time(t: i64) -> String {
-    dereth_ui_screens::ctime::strftime_c(t, dereth_client::platform::local_utc_offset_secs(t))
+    dereth_ui_screens::ctime::strftime_c(t, dereth_desktop::platform::local_utc_offset_secs(t))
 }
 
 /// The frames the pane needs to redraw after something arrives.

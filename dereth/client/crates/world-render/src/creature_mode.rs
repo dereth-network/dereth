@@ -12,7 +12,7 @@
 //! in this build want one and neither can draw without it: the
 //! teleport tunnel's swirl, and the character-generation turntable. This
 //! module is the part that has no GPU in it: the camera frame, the lights and the two global flags
-//! the pass takes over. The drawing half is the host's (`dereth_client::preview`).
+//! the pass takes over. The drawing half is the host's (`dereth_scene::preview`).
 //!
 //! # The three things `Render` does that are easy to miss
 //!

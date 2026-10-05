@@ -10,16 +10,21 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::{Character, CharacterInput};
-use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::RetailDatStore;
 use dereth_physics::trace::{compare, TraceRecord};
 use dereth_physics::{PlaneExt, TransitionState};
 use dereth_primitives::{LandblockId, LocalTime, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// Where the character spawns: the middle of Holtburg's own landblock.
 const SPAWN: (f32, f32) = (96.0, 96.0);
@@ -39,7 +44,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn character(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created")
 }
 
@@ -64,11 +69,11 @@ fn physics_ground(store: &Arc<RetailDatStore>, block: LandblockId, x: f32, y: f3
     use dereth_assets::Decode;
     use dereth_dat::DbType;
 
-    let region = dereth_client::world::load_region(store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("region");
     let table =
         dereth_physics::landdefs::validate_height_table(&region.land_defs.land_height_table)
             .expect("the retail height table is valid");
-    let did = dereth_client::world::landblock_did(block.0);
+    let did = dereth_client_runtime::landblock::landblock_did(block.0);
     let bytes = store.read_typed(DbType::LandBlock, did).expect("landblock");
     let lb = CellLandblock::decode_payload(did, &bytes).expect("decodes");
     let col = dereth_physics::LandblockCollision::build(
@@ -169,8 +174,8 @@ fn the_ground_physics_stands_on_is_the_ground_the_renderer_draws() {
 
     let store = store();
     let block = LandblockId(DEFAULT_LANDBLOCK);
-    let region = dereth_client::world::load_region(&store).expect("region");
-    let did = dereth_client::world::landblock_did(block.0);
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
+    let did = dereth_client_runtime::landblock::landblock_did(block.0);
     let bytes = store.read_typed(DbType::LandBlock, did).expect("landblock");
     let lb = CellLandblock::decode_payload(did, &bytes).expect("decodes");
 
@@ -374,7 +379,7 @@ fn physics_calls_back_into_the_animation_layer_when_the_body_reaches_the_ground(
     let mut c = character(&store);
     assert_eq!(
         c.ground_edges(),
-        dereth_client::character::GroundEdges::default(),
+        dereth_client_runtime::character::GroundEdges::default(),
         "none yet"
     );
     run(&mut c, 0.0, 1.0, 30.0);
@@ -419,7 +424,7 @@ fn a_jump_leaves_the_ground_through_the_seam_and_gravity_brings_it_back() {
     let expect = dereth_animation::motion::get_jump_height(
         load,
         skill,
-        dereth_client::character::FULL_JUMP_EXTENT,
+        dereth_client_runtime::character::FULL_JUMP_EXTENT,
         scale,
     );
 
@@ -655,7 +660,9 @@ fn the_body_animates_and_the_part_placement_is_a_step_function() {
         // it here, and `place_parts` takes the `RenderSpace` that `set_viewer_block` returns, so
         // this line states which block the placement is expressed in: the body's own block, which
         // is what `WorldScene::recenter` would choose with no window scrolling under it.
-        let space = c.set_viewer_block(dereth_client::world::block_xy(DEFAULT_LANDBLOCK));
+        let space = c.set_viewer_block(dereth_client_runtime::landblock::block_xy(
+            DEFAULT_LANDBLOCK,
+        ));
         c.place_parts(space);
         let d = c.driver();
         let body = c.render_frame().origin;
@@ -713,7 +720,7 @@ fn the_body_animates_and_the_part_placement_is_a_step_function() {
 fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
 
     // The control is the **same scene from the same chase camera** with the body hidden, so the
     // only difference between the two frames is the body itself. The control sets the no-draw
@@ -727,7 +734,7 @@ fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
         for _ in 0..30 {
             t += 1.0 / 30.0;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(t),
                 1.0 / 30.0,
@@ -793,7 +800,7 @@ fn the_body_is_drawn_in_front_of_the_camera_and_carries_its_palette() {
 fn two_identically_stepped_scenes_render_the_same_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let mut shots = Vec::new();
     for _ in 0..2 {
         let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
@@ -802,9 +809,9 @@ fn two_identically_stepped_scenes_render_the_same_frame() {
             .expect("attaches");
         let mut t = 0.0;
         for _ in 0..45 {
-            t += dereth_client::app::HEADLESS_STEP;
+            t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput {
                     forward: true,
                     ..CharacterInput::default()
@@ -812,7 +819,7 @@ fn two_identically_stepped_scenes_render_the_same_frame() {
                 LocalTime(t),
                 #[allow(clippy::cast_possible_truncation)]
                 {
-                    dereth_client::app::HEADLESS_STEP as f32
+                    dereth_client_runtime::platform::clock::HEADLESS_STEP as f32
                 },
             );
         }

@@ -13,10 +13,10 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::ui::{HostState, UiShell};
+use dereth_client_runtime::config::Config;
 use dereth_primitives::DataId;
 use dereth_ui::framework::mode;
+use {dereth_client_contract::pregame::PregameView as HostState, dereth_client_shell::ui::UiShell};
 
 /// The retail store; the test fails when it is absent.
 fn store() -> std::sync::Arc<dereth_dat::RetailDatStore> {
@@ -258,12 +258,12 @@ fn glyph_pixels(
     let mut mask = vec![false; (fb.0 * fb.1) as usize];
     let mut inked = 0usize;
     for cmd in list {
-        let Some(clip) = dereth_client::ui_draw::visible_box(cmd, fb) else {
+        let Some(clip) = dereth_client_shell::ui_draw::visible_box(cmd, fb) else {
             continue;
         };
         for g in &cmd.glyphs {
             let font = fonts.entry(g.font).or_insert_with(|| {
-                dereth_client::ui_draw::load_font(store, g.font).expect("a font")
+                dereth_client_shell::ui_draw::load_font(store, g.font).expect("a font")
             });
             let Some(d) = font.get_char_desc(g.ch) else {
                 continue;
@@ -343,7 +343,7 @@ fn the_text_rasterises_only_inside_the_glyph_rectangles_the_font_metrics_predict
         u32,
         Vec<u8>,
         Vec<dereth_ui::UiDrawCmd>,
-        dereth_client::ui_draw::UiTextureStats,
+        dereth_client_shell::ui_draw::UiTextureStats,
     );
     let run = |with_text: bool| -> Option<Shot> {
         let mut app = App::new(base_config())
@@ -470,7 +470,7 @@ fn assert_two_outline_arms(
     assert_eq!(fids.len(), 49, "the shipped font set");
     let (mut sheet, mut neighbourhood) = (Vec::new(), Vec::new());
     for f in &fids {
-        let font = dereth_client::ui_draw::load_font(store, *f).expect("a font");
+        let font = dereth_client_shell::ui_draw::load_font(store, *f).expect("a font");
         if font.background_surface_data_id == 0 {
             neighbourhood.push(*f);
         } else {
@@ -527,7 +527,7 @@ fn assert_two_outline_arms(
             (1, 1, 1, 1),
         ),
     ] {
-        let font = dereth_client::ui_draw::load_font(store, fid).expect("a font");
+        let font = dereth_client_shell::ui_draw::load_font(store, fid).expect("a font");
         assert_eq!(
             (
                 font.num_horizontal_border_pixels,

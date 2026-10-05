@@ -14,17 +14,23 @@
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Decode;
-use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{landblock_did, SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
 use dereth_primitives::{LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::PLAYER_OBJECT_ID,
+};
+use {
+    dereth_client_runtime::landblock::landblock_did, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 800;
 const H: u32 = 600;
@@ -99,10 +105,10 @@ fn world_height(store: &RetailDatStore, table: &[f32], wx: f32, wy: f32) -> Opti
 #[test]
 fn the_distant_mountains_are_outside_the_default_land_window() {
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let table = &region.land_defs.land_height_table;
 
-    let (bx, by) = dereth_client::world::block_xy(HOLTBURG);
+    let (bx, by) = dereth_client_runtime::landblock::block_xy(HOLTBURG);
     #[allow(clippy::cast_precision_loss)]
     let (wx, wy) = (bx as f32 * BLOCK + STATION.0, by as f32 * BLOCK + STATION.1);
     let eye = 94.005 + 2.54; // the station's z plus the chase camera's lift
@@ -204,7 +210,7 @@ fn the_shipped_window_is_the_lowest_of_the_six_choices() {
         DRAW_DISTANCE_CHOICES[0], 3,
         "VeryLow is 3; if this moved the sentence below is wrong"
     );
-    let shipped = dereth_client::config::Config::default().land_radius;
+    let shipped = dereth_client_runtime::config::Config::default().land_radius;
     eprintln!("draw distance: the client's configured land_radius is {shipped}");
     assert_eq!(
         shipped, RETAIL_DEFAULT_MID_RADIUS,
@@ -217,7 +223,7 @@ fn the_shipped_window_is_the_lowest_of_the_six_choices() {
 /// The preference reaches the configured radius rather than being decoration.
 #[test]
 fn the_landscape_draw_distance_preference_reaches_the_window() {
-    use dereth_client::config::{Config, Preferences};
+    use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
     for (label, radius) in [
         ("VeryLow", 3u32),
         ("Low", 5),
@@ -261,7 +267,8 @@ struct Bench {
 
 impl Bench {
     fn new(store: &std::sync::Arc<RetailDatStore>, mut gpu: Gpu, land_radius: u32) -> Self {
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             land_radius,
@@ -416,7 +423,7 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,
@@ -507,7 +514,7 @@ fn the_recorded_frame_loses_the_far_terrain_to_the_window() {
     // **The rejecting half.** The same frame under the radius the client chooses for itself,
     // against the same frame under retail's registered default: the two arms are the same window
     // and the frame is identical. A client defaulting to radius 3 differs in thousands of pixels.
-    let configured = dereth_client::config::Config::default().land_radius;
+    let configured = dereth_client_runtime::config::Config::default().land_radius;
     let gpu = crate::common::test_gpu(W, H);
     let mut own = Bench::new(&store, gpu, configured);
     own.stand_at_the_recorded_station();
@@ -534,9 +541,9 @@ fn the_recorded_frame_loses_the_far_terrain_to_the_window() {
 #[test]
 fn an_object_behind_a_ridge_beyond_the_window_draws_through_it() {
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let table = &region.land_defs.land_height_table;
-    let (bx, by) = dereth_client::world::block_xy(HOLTBURG);
+    let (bx, by) = dereth_client_runtime::landblock::block_xy(HOLTBURG);
     #[allow(clippy::cast_precision_loss)]
     let (wx, wy) = (bx as f32 * BLOCK + STATION.0, by as f32 * BLOCK + STATION.1);
     let eye = 94.005 + 2.54;
@@ -616,7 +623,7 @@ fn an_object_behind_a_ridge_beyond_the_window_draws_through_it() {
     // the measurement that the window is what decides it.
     // Two benches per arm, drawn in lockstep, so that the sky's own animation cancels: a "before
     // and after in one bench" differential counts the clouds.
-    let configured = dereth_client::config::Config::default().land_radius;
+    let configured = dereth_client_runtime::config::Config::default().land_radius;
     let mut painted = Vec::new();
     let mut submits = Vec::new();
     let mut control = 0usize;

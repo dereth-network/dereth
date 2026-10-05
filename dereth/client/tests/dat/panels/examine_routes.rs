@@ -14,10 +14,10 @@ use crate::common::recorded_sessions;
 use std::net::SocketAddr;
 
 use dereth_client::app::App;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::ui::UiMouseEvent;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::ui::UiMouseEvent;
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::{Message, Opcode};
 use dereth_ui_screens::panels::examination::{self, ExamineSubUi};
@@ -134,7 +134,7 @@ fn key(action: u32) -> dereth_client_runtime::actions::Action {
 }
 
 struct Bench {
-    inter: dereth_client::interaction::Interaction,
+    inter: dereth_client_runtime::interaction::Interaction,
     objects: ObjectStream,
     store: dereth_dat::RetailDatStore,
 }
@@ -150,7 +150,7 @@ impl Bench {
     fn new() -> (Self, ObjectId) {
         have_dats();
         let mut b = Self {
-            inter: dereth_client::interaction::Interaction::new(),
+            inter: dereth_client_runtime::interaction::Interaction::new(),
             objects: ObjectStream::new(),
             store: dereth_dat::RetailDatStore::open_dir(&client_dir()).expect("the retail dats"),
         };
@@ -233,7 +233,7 @@ impl Bench {
     }
 
     fn use_time(&mut self, actions: Vec<dereth_client_runtime::actions::Action>, now: f64) {
-        dereth_client::interaction::use_time(
+        dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,
@@ -349,7 +349,9 @@ impl Bench {
                 self.use_time(vec![], now);
                 assert_eq!(self.objects.world.selected, Some(target));
                 self.use_time(
-                    vec![key(dereth_client::interaction::action::SELECTION_EXAMINE)],
+                    vec![key(
+                        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+                    )],
                     now + 0.1,
                 );
             }

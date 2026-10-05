@@ -15,8 +15,8 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::ObjectId;
 
 /// **An `expect`, never a skip.** A test that returns early is counted as a pass and
@@ -47,11 +47,11 @@ fn app_in_world() -> Option<App> {
         .unwrap_or_else(|e| panic!("the gpu tier needs a headless device and none opened: {e}"));
     app.start_shell()
         .unwrap_or_else(|e| panic!("the shell does not start: {e}"));
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s)
         .unwrap_or_else(|e| panic!("Holtburg's scene does not load: {e}"));

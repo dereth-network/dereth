@@ -1,7 +1,7 @@
 //! The world-view screen's teleport / portal animation.
 //!
 //! The model lives in [`dereth_client_contract::teleport`]: it is a pure function of elapsed time
-//! and four observable facts, and `dereth_client::teleport` drives it from a core module, so it
+//! and four observable facts, and `dereth_client_runtime::teleport` drives it from a core module, so it
 //! sits in the crate both sides may name. Everything it holds is re-exported here, so
 //! `dereth_ui_screens::screens::teleport::TeleportAnim` and every sibling path resolve.
 //!

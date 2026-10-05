@@ -243,7 +243,7 @@ impl Presentation for SimPresentation {
     fn preview_ensure(
         &mut self,
         id: dereth_client_contract::overlay::PreviewSpace,
-        assets: &std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+        assets: &std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
     ) -> bool {
         self.device.preview_ensure(id, assets)
     }

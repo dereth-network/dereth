@@ -67,15 +67,14 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{retail_store, test_gpu};
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_client::app::App;
-use dereth_client::character::CharacterInput;
-use dereth_client::config::Config;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{
     CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, ServerTime, Vec3,
@@ -88,6 +87,11 @@ use dereth_protocol::{
 };
 use dereth_render::device::Gpu;
 use dereth_ui_screens::mapradar::radar::{inq_showable_on_radar, radar_enum};
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// long-solo-play's recorded corpse.
 const CORPSE: ObjectId = ObjectId(0x8000_0A3C);
@@ -119,7 +123,7 @@ struct Peer {
 
 impl Peer {
     fn attach(app: &mut App) -> Self {
-        let mut net = dereth_client::net::ClientNetwork::new(
+        let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "corpse-decay",
@@ -330,7 +334,7 @@ fn observer_create(at: Position) -> ItemCreateObject {
         physicsdesc: PhysicsDesc {
             bitfield: flags::POSITION | flags::SETUP,
             state: VISIBLE,
-            setup_id: Some(dereth_client::character::ALUVIAN_MALE_SETUP.0),
+            setup_id: Some(dereth_client_runtime::character::ALUVIAN_MALE_SETUP.0),
             position: Some(PositionWire {
                 objcell_id: at.cell.0,
                 frame: dereth_protocol::types::Frame {
@@ -906,7 +910,7 @@ fn walk_to(
     }
     scene.follow_character_now();
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(now),
         1.0 / 30.0,
@@ -979,7 +983,7 @@ fn the_ghost_band_is_the_gap_between_aces_pvs_and_the_clients_landblock_window()
         "this arm is calibrated against the cheapest shipped landscape-radius preset"
     );
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the scene loads");
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -1083,7 +1087,7 @@ fn the_ghost_band_is_the_gap_between_aces_pvs_and_the_clients_landblock_window()
         .sync_objects(&store, &mut gpu, &mut stream)
         .expect("the removal drains");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(dead),
         1.0 / 30.0,

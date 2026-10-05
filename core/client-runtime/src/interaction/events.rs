@@ -260,7 +260,7 @@ pub fn apply_events_at_boundary(
                         dereth_client_contract::chat::failure::handle_failure_event(m.reason, "")
                     {
                         game.scroll.add_feedback_to_scroll(
-                            crate::chat::add_text_to_scroll_trim(&c.body),
+                            dereth_client_model::chat::composition::add_text_to_scroll_trim(&c.body),
                             u32::from(c.ty),
                             true,
                             0, c.feedback);

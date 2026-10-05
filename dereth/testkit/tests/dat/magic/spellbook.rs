@@ -5,7 +5,7 @@ use super::*;
 
 /// Clicking a clipped spell row scrolls it into view and selects it, in the same frame.
 pub fn a_spellbook_click_reveals_and_selects() {
-    use dereth_client::pump::Pump;
+    use dereth_desktop::pump::Pump;
     use dereth_primitives::DataId;
     use dereth_ui::widgets::listbox::{scroll_offset_of, set_scroll_offset};
     use dereth_ui_screens::panels::remaining::SPELL_PAGE;

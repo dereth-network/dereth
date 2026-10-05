@@ -16,19 +16,19 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{addr, connection_sequence_number, load, retail_store, test_gpu};
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use dereth_client::character::CharacterInput;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// Independent literal no-draw mask, kept separate from the crate's state symbol.
 const NODRAW_PS: u32 = 0x0000_0020;
@@ -254,7 +254,7 @@ fn one_frame(
 ) {
     scene.sync_objects(store, gpu, s).expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,

@@ -344,7 +344,7 @@ impl StateSideEffects {
     /// The physics object's three state-change reactions, computed from the old and new words alone.
     ///
     /// This is split out of [`PhysicsObj::set_state`] rather than written a second time. The
-    /// renderer's own object table (`dereth_client::world::SceneObject`) holds a
+    /// renderer's own object table (`dereth_scene::world_scene::SceneObject`) holds a
     /// `PhysicsState` that is *not* a [`PhysicsObj`] — the local body and every held object are
     /// drawn from a `PartArray` the physics world never sees — and it must react to the same three
     /// bits with the same rule. `PhysicsObj::set_state` is this function plus the assignment.

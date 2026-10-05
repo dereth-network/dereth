@@ -335,7 +335,7 @@ pub trait Presentation: std::fmt::Debug {
     fn preview_ensure(
         &mut self,
         id: PreviewSpace,
-        assets: &std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+        assets: &std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
     ) -> bool;
     fn preview_set_light(
         &mut self,
@@ -562,7 +562,7 @@ impl Presentation for NullPresentation {
     fn preview_ensure(
         &mut self,
         _id: PreviewSpace,
-        _assets: &std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+        _assets: &std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
     ) -> bool {
         self.counts.preview_calls += 1;
         false

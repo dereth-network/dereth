@@ -20,7 +20,7 @@ use dereth_client_runtime::net::ClientNetwork;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 
-use dereth_client_shell::platform::keys::MouseButton;
+use dereth_input::keys::MouseButton;
 
 use crate::frame;
 use crate::host::clock::{FramePaced, SystemClock};

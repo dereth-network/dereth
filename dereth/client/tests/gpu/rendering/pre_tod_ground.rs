@@ -15,15 +15,15 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::render_prefs::RegionStyle;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::render_prefs::RegionStyle;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime};
 use dereth_render::device::Gpu;
 use dereth_world_render::detail::DetailClass;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// The February 2005 world with the end-of-retail files beside it, or a failed test.
 fn older_world() -> Arc<RetailDatStore> {
@@ -48,7 +48,7 @@ fn cfg(ground: Option<RegionStyle>) -> SceneConfig {
         time_of_day: Some(0.5),
         game_time: Some(0.0),
         camera_height: 0.0,
-        render: dereth_client::render_prefs::RenderPreferences {
+        render: dereth_client_runtime::render_prefs::RenderPreferences {
             landscape_detail_textures: true,
             ground,
             ..SceneConfig::default().render
@@ -76,8 +76,8 @@ fn load_and_draw(
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) / 30.0),
             1.0 / 30.0,
         );
@@ -138,7 +138,7 @@ fn an_older_world_draws_the_hardware_ground_and_on_request_the_software_one() {
     assert!((land.tiling - 8.0).abs() < f32::EPSILON, "{}", land.tiling);
     assert_eq!(
         software.draw.detail_source_used(),
-        dereth_client::world::DetailSource::World
+        dereth_scene::world_scene::DetailSource::World
     );
     assert!(
         !software.terrain_composites().is_empty(),
@@ -198,7 +198,7 @@ fn the_later_ground_draws_an_older_world_with_the_later_land_surface_under_its_o
     );
     assert_eq!(
         later.draw.detail_source_used(),
-        dereth_client::world::DetailSource::Ground
+        dereth_scene::world_scene::DetailSource::Ground
     );
     let later_census = dereth_client_runtime::present::Scene::census(&later);
     assert_eq!(

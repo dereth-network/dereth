@@ -9,7 +9,7 @@
 //! `ALL` is this file's own list, concatenated with the other subjects' in `census.rs`, so a
 //! scenario that is written and not listed shows up as a shortfall rather than as a silent gap.
 
-use dereth_client::frame::FrameStep;
+use dereth_client_runtime::frame::FrameStep;
 use dereth_testkit::adapters_shell::{build_app, AppSpec};
 use dereth_testkit::{ClientSpec, HeadlessClient};
 
@@ -50,7 +50,7 @@ dereth_testkit::scenarios! {
 
 /// A quit request stops the frame where the window's messages are drained.
 pub fn a_quit_request_stops_the_frame_early() {
-    use dereth_client::app::AppState;
+    use dereth_client_runtime::app::AppState;
 
     let mut app = build_app(&AppSpec::default());
     // One whole frame first, so that "the frame stopped early" is measured against this client's
@@ -89,7 +89,7 @@ pub fn a_quit_request_stops_the_frame_early() {
 
 /// Told to run three frames, the client's own loop runs three and stops.
 pub fn a_bounded_run_draws_what_it_was_asked_for() {
-    use dereth_client::app::AppState;
+    use dereth_client_runtime::app::AppState;
 
     const WANT: u64 = 3;
 
@@ -120,8 +120,11 @@ pub fn a_bounded_run_draws_what_it_was_asked_for() {
 
 /// The shutdown sequence ends by waiting for the drawing surface.
 pub fn the_shutdown_waits_for_the_drawing_to_finish() {
-    use dereth_client::present::{NullPresentation, NullPresentationCounts};
-    use dereth_client::shutdown::{Outcome, Step};
+    use {
+        dereth_client_runtime::present::NullPresentation,
+        dereth_client_runtime::present::NullPresentationCounts,
+    };
+    use {dereth_client_runtime::shutdown::Outcome, dereth_client_runtime::shutdown::Step};
 
     let mut app = build_app(&AppSpec::default());
     assert!(app.frame());

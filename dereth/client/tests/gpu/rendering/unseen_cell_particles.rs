@@ -5,13 +5,13 @@
 //! shot; no network. `DERETH_TEST_UNSEEN_CELL_PARTICLES_DUMP=<dir>` writes each shot as a PNG.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::camera::FreeCamera;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::camera::FreeCamera;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 fn shot(particles: bool, inside: bool) -> Vec<u8> {
     const W: u32 = 800;
@@ -41,7 +41,7 @@ fn shot(particles: bool, inside: bool) -> Vec<u8> {
     // The villa's front gate, viewed from outside through a constructed stationary camera; the
     // inside shot stands a body in the lit room 0x9DAF0127.
     if inside {
-        let region = dereth_client::world::load_region(&store).expect("region");
+        let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
         scene
             .attach_character(&store, &region, &mut gpu)
             .expect("body");
@@ -71,7 +71,7 @@ fn shot(particles: bool, inside: bool) -> Vec<u8> {
             1.0 / 30.0,
         );
         if inside {
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 &mut scene,
                 Default::default(),
                 LocalTime(f64::from(frame) / 30.0),

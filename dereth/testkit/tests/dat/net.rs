@@ -12,15 +12,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dereth_client::ddd::{drain_cache_misses, DddPatcher, OverlayTarget};
-use dereth_client::land_source::DatLandSource;
 use dereth_client_net::client_session::testing::MockTransport;
 use dereth_client_net::client_session::Session;
+use dereth_client_runtime::ddd::{drain_cache_misses, DddPatcher, OverlayTarget};
 use dereth_dat::write::DatWriter;
 use dereth_dat::{DatFile, RetailDatStore};
 use dereth_physics::source::LandSource;
 use dereth_primitives::{DataId, LandblockId, NetQueue};
 use dereth_testkit::HeadlessClient;
+use dereth_world_data::land_source::DatLandSource;
 
 // -------------------------------------------------------------------------------------------
 // Disposable copies, and the proof the originals were not touched.
@@ -188,7 +188,7 @@ fn feed_answer(p: &mut DddPatcher, blob: &[u8]) {
 /// A land source over a cell dat with one landblock record removed.
 fn land_without_the_block(cell: &Path) -> DatLandSource {
     let store = Arc::new(store_with_cell_copy(cell));
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     DatLandSource::new(store, &region).expect("the land source comes up")
 }
 
@@ -423,12 +423,15 @@ pub fn a_record_that_is_present_but_unreadable_is_not_asked_for() {
 
 use std::net::SocketAddr;
 
-use dereth_client::net::{link_status_holder, ClientNetwork, LinkStatus};
 use dereth_client_net::linkstatus::{HEARTBEAT_INTERVAL, INITIAL_PACKET_LOSS};
 use dereth_primitives::LocalTime;
 use dereth_testkit::ClientSpec;
 use dereth_transport::wire::{OutPacket, PacketFlags, ProtoHeader};
 use dereth_transport::CryptoSystem;
+use {
+    dereth_client_runtime::net::link_status_holder, dereth_client_runtime::net::ClientNetwork,
+    dereth_client_runtime::net::LinkStatus,
+};
 
 const LINK_RECIPIENT: u16 = 0x000B;
 const LINK_PEER: &str = "127.0.0.1:19000";
@@ -763,8 +766,12 @@ fn refusal(code: dereth_transport::conn::NetErrorCode) -> Vec<u8> {
 
 /// The connection-error table's id in the shipped dats: what table 8 resolves to.
 fn connection_error_table(store: &RetailDatStore) -> DataId {
-    dereth_assets::did_by_enum(store, dereth_client::connect_failure::STRING_TABLE_GROUP, 8)
-        .expect("table 8 resolves in the shipped dats")
+    dereth_assets::did_by_enum(
+        store,
+        dereth_client_runtime::connect_failure::STRING_TABLE_GROUP,
+        8,
+    )
+    .expect("table 8 resolves in the shipped dats")
 }
 
 /// A wrong client version, refused before the link is up, is one Game Error box quoting table
@@ -807,7 +814,7 @@ pub fn a_wrong_version_refusal_is_an_error_box_and_then_the_client_exits() {
     eprintln!("{}: {}", failure.popup.caption, failure.popup.text);
     let the_right_box = failure.popup.caption == "Game Error"
         && failure.popup.text == expected
-        && failure.popup.style == dereth_client::connect_failure::ERROR_BOX_STYLE
+        && failure.popup.style == dereth_client_runtime::connect_failure::ERROR_BOX_STYLE
         && failure.code == NetErrorCode::NetVersionMismatch;
     // And it stays ended: the next frame does not come back to life.
     let still_ended = !c.app_mut().frame();
@@ -918,7 +925,7 @@ pub fn every_refusal_reads_its_own_sentence() {
     ];
     let mut wrong = Vec::new();
     for (code, sentence) in rows {
-        let got = dereth_client::connect_failure::connect_failure(*code, &*store)
+        let got = dereth_client_runtime::connect_failure::connect_failure(*code, &*store)
             .popup
             .text;
         let want = format!(
@@ -930,7 +937,7 @@ pub fn every_refusal_reads_its_own_sentence() {
             wrong.push(format!("{code:?}: {got:?}"));
         }
     }
-    let crypto = dereth_client::connect_failure::connect_failure(E::CantCrypto, &*store)
+    let crypto = dereth_client_runtime::connect_failure::connect_failure(E::CantCrypto, &*store)
         .popup
         .text;
     let crypto_says_why =

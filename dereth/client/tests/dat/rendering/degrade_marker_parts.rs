@@ -12,11 +12,13 @@
 use std::collections::BTreeSet;
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo, Surface};
-use dereth_client::env_cells::{cell_statics, EnvCellLoader};
-use dereth_client::models::{draws_at_near_band, resolve_parts};
-use dereth_client::textures::TextureStore;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
+use dereth_scene::textures::TextureStore;
+use {
+    dereth_client_runtime::models::draws_at_near_band, dereth_client_runtime::models::resolve_parts,
+};
+use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
 
 /// The first Holtburg starter area's first instantiation cell's landblock -- the block of the
 /// room a new Holtburg character wakes up in, and the room the marker stands in.

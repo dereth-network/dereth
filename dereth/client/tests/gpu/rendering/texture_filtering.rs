@@ -6,13 +6,13 @@
 //! synthetic viewports and preference profiles (not retail captures).
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::{anim_assets::DatAnimAssets, preview::PreviewSpace};
 use dereth_primitives::{DataId, Vec3};
 use dereth_render::{
     device::{DeviceConfig, Gpu},
     Viewport,
 };
 use std::sync::Arc;
+use {dereth_scene::preview::PreviewSpace, dereth_world_data::anim_assets::DatAnimAssets};
 
 #[test]
 /// Behaviour: rendering.textures.the-sharp-flag-sharpens-minified-samples
@@ -101,8 +101,8 @@ fn actual_dat_preview_sharp_flag_changes_minified_samples() {
 
 #[test]
 fn app_owns_texture_preference_requests_and_does_not_reload_on_shell_rebuild() {
-    use dereth_client::{app::App, config::Config};
     use dereth_ui_screens::{options::store, PrefValue, UiRequest};
+    use {dereth_client::app::App, dereth_client_runtime::config::Config};
     let cfg = Config {
         dat_dir: dereth_dat::testing::dat_dir(),
         headless: true,
@@ -178,7 +178,7 @@ fn app_owns_texture_preference_requests_and_does_not_reload_on_shell_rebuild() {
         store::inq_value("Render.TextureFiltering"),
         Some(PrefValue::Int(3))
     );
-    let left = dereth_client::render_prefs::apply_preference_requests(
+    let left = dereth_client_shell::render_prefs::apply_preference_requests(
         app.renderer_mut(),
         vec![
             UiRequest::SetPreference("Render.TextureFiltering", PrefValue::Bool(false)),
@@ -192,8 +192,8 @@ fn app_owns_texture_preference_requests_and_does_not_reload_on_shell_rebuild() {
 #[test]
 /// Behaviour: rendering.textures.the-filtering-preference-is-read-before-the-first-draw
 fn app_loads_the_configured_choice_name_before_first_draw_without_writing_the_profile() {
-    use dereth_client::{app::App, config::Config};
     use std::io::Write;
+    use {dereth_client::app::App, dereth_client_runtime::config::Config};
     // Newly created synthetic OS-temp profile, never the owner's file or a repository fixture.
     let path = std::env::temp_dir().join(format!("dereth-render-prefs-{}.ini", std::process::id()));
     let mut file = std::fs::OpenOptions::new()

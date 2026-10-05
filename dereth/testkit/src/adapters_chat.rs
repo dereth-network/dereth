@@ -15,10 +15,10 @@
 //! It is `Assets::Retail` only, with the shell up: the input manager and the chat entry are both
 //! part of it.
 
-use dereth_client::platform::keys::{Key, MouseButton};
-use dereth_client::pump::{Pump, Win32Message};
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
+use {dereth_input::keys::Key, dereth_input::keys::MouseButton};
 
 use crate::HeadlessClient;
 
@@ -165,7 +165,7 @@ impl Hand {
     ///
     /// It takes the host's own resolved key -- the virtual key and the scan code -- rather than a
     /// name, because naming a key is the window layer's job and this crate must not take a second
-    /// opinion on it. A scenario gets one from `dereth_client::platform::window::key_from_key_code`.
+    /// opinion on it. A scenario gets one from `dereth_desktop::platform::window::key_from_key_code`.
     pub fn key(&mut self, c: &mut HeadlessClient, key: Key, pressed: bool) {
         self.time += 10;
         let m = self.pump.key_message_for_key(key, pressed, self.time);
@@ -361,7 +361,7 @@ pub fn recorded_private_messages() -> &'static [(String, Vec<u8>)] {
                 .unwrap_or_else(|e| panic!("the recording {name} does not parse: {e}"));
             let sequence =
                 dereth_headless::capture::connection_sequence_number(&records).unwrap_or(0);
-            let mut net = dereth_client::net::ClientNetwork::new(
+            let mut net = dereth_client_runtime::net::ClientNetwork::new(
                 &dereth_client_net::client_session::testing::capture::peer(0).to_string(),
                 7304,
                 "dereth-testkit",
@@ -369,7 +369,7 @@ pub fn recorded_private_messages() -> &'static [(String, Vec<u8>)] {
                 sequence,
             )
             .expect("the replay endpoint");
-            let mut objects = dereth_client::objects::ObjectStream::new();
+            let mut objects = dereth_client_runtime::objects::ObjectStream::new();
             let mut entered = false;
             for r in &records {
                 let now = dereth_primitives::LocalTime(r.t);

@@ -10,15 +10,15 @@
 use crate::common::client_dir_or_workspace_client as client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pump::{Pump, Win32Message};
-use dereth_client::world::SceneConfig;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_primitives::{CellId, Frame, Position, Quat, Vec3};
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::window::{ENTRY, LOG};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use winit::keyboard::KeyCode;
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 /// The pose read off a retail screenshot: Holtburg, cell `0xA9B4002A`.
 fn holtburg() -> Position {
@@ -336,7 +336,7 @@ fn the_screenshot_position_renders_as_the_screenshot_line() {
         "the position transcript read from a retail Holtburg screenshot"
     );
     assert_eq!(
-        dereth_client::interaction::position_to_string(&at),
+        dereth_client_runtime::interaction::position_to_string(&at),
         "0xA9B4002A [133.168503 27.490582 94.005005] -0.991022 0.000000 0.000000 -0.133696"
     );
 }

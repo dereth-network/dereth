@@ -20,7 +20,7 @@ struct LampShard {
 
 impl LampShard {
     fn attach(c: &mut HeadlessClient) -> Self {
-        let net = dereth_client::net::ClientNetwork::new(
+        let net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "acct0001",
@@ -39,7 +39,7 @@ impl LampShard {
         shard.echo_request(c);
         assert_eq!(
             c.replay_net_mut().expect("the endpoint").status(),
-            dereth_client::net::LinkStatus::Connected,
+            dereth_client_runtime::net::LinkStatus::Connected,
             "the scenario is worthless unless the link is genuinely up"
         );
         shard
@@ -222,21 +222,22 @@ pub(super) fn a_real_failure_takes_the_player_off_the_world() {
     let good_first = settle_the_lamp(&mut c, 200, 0.1) == media::GOOD;
     // The change is measured, so "the link is down" cannot be read off a link that was never up.
     let up = c.replay_net_mut().expect("the endpoint").status()
-        == dereth_client::net::LinkStatus::Connected;
+        == dereth_client_runtime::net::LinkStatus::Connected;
 
     shard.fail(&mut c);
     c.tick(1);
 
     let down = {
         let net = c.replay_net_mut().expect("the endpoint");
-        net.status() == dereth_client::net::LinkStatus::Disconnected && net.error().is_none()
+        net.status() == dereth_client_runtime::net::LinkStatus::Disconnected
+            && net.error().is_none()
     } && c.replay_net_mut().expect("the endpoint").session_state()
         == dereth_client_net::client_session::SessionState::Disconnected(
             dereth_client_net::client_session::DisconnectReason::ServerDied,
         );
     let holder_cleared = {
         let now = c.view().expect_app().clock().cur_time;
-        dereth_client::net::link_status_holder::connection_status(now).is_none()
+        dereth_client_runtime::net::link_status_holder::connection_status(now).is_none()
     };
     // And the world is gone with it: there is no lamp left to be red.
     let off_the_world = {

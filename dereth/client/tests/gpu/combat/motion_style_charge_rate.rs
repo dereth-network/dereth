@@ -12,8 +12,8 @@ use crate::common::client_dir;
 
 use dereth_animation::MotionCommand;
 use dereth_client::app::App;
-use dereth_client::config::Config;
 use dereth_client_model::combat::{CombatState, DUAL_WIELD_COMBAT_STYLE};
+use dereth_client_runtime::config::Config;
 use dereth_primitives::LocalTime;
 
 /// The rate, on its own. `POWER_BAR_SECONDS` is 1.000 and `_DUAL_WIELD` 0.800, and the only
@@ -77,11 +77,11 @@ fn the_local_bodys_motion_style_reaches_the_combat_system_and_changes_the_charge
     let mut app = App::new(cfg).unwrap_or_else(|e| panic!("the application must start: {e}"));
     app.start_shell()
         .unwrap_or_else(|e| panic!("the shell must come up: {e}"));
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s)
         .unwrap_or_else(|e| panic!("the static scene must load: {e}"));

@@ -11,17 +11,21 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use dereth_assets::Decode;
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, load_region, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
 use dereth_render::{PipelineKey, SurfaceContext, VertexFormat};
+use {
+    dereth_client_runtime::landblock::block_xy, dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()
@@ -244,7 +248,7 @@ fn a_session_reaches_a_small_fraction_of_the_ceiling_and_stops_growing() {
                 ));
             scene.follow_character_now();
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(0.0),
                 0.0,

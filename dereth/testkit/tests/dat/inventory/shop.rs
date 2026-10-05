@@ -727,7 +727,7 @@ fn choose_the_category(c: &mut HeadlessClient, p: &mut VendorPanel, view: &ShopV
 /// first of them.
 pub fn choosing_a_category_leaves_exactly_the_things_of_that_kind() {
     let w = a_shop_that_sells_food();
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     assert!(
         view.open && !view.stock.is_empty(),
         "the premise: a recorded shop with stock"
@@ -809,7 +809,7 @@ pub fn choosing_a_category_leaves_exactly_the_things_of_that_kind() {
 /// Two categories first, because a popup of two is where a second row gets clipped away under
 /// the first; then three, so the answer is not about that shape alone.
 pub fn every_category_is_a_row_the_player_can_actually_click() {
-    let full = dereth_client::vendor_view::shop(&a_shop_that_sells_food());
+    let full = dereth_client_runtime::vendor_view::shop(&a_shop_that_sells_food());
     let pair = full
         .type_filters
         .iter()
@@ -994,7 +994,7 @@ pub fn every_category_is_a_row_the_player_can_actually_click() {
 /// Nothing chosen is an empty shelf, and asking for one kind by name never consults the strip.
 pub fn a_shop_with_no_category_chosen_shows_nothing() {
     let w = a_shop_that_sells_food();
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let mut c = a_gameplay_client();
     let mut p = bound_vendor(c.app_mut());
     let (ui, _root) = gameplay_root(c.app_mut());
@@ -1035,7 +1035,7 @@ pub fn a_shop_with_no_category_chosen_shows_nothing() {
 /// The pick moves to the first row only when a shop opens.
 pub fn what_is_picked_moves_only_when_a_shop_opens() {
     let w = a_shop_that_sells_food();
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     assert!(
         view.open && !view.stock.is_empty(),
         "the premise: a recorded shop with stock"
@@ -1158,7 +1158,7 @@ pub fn what_is_picked_moves_only_when_a_shop_opens() {
 /// The shelf keeps its empty cells and never has anywhere to scroll to.
 pub fn the_list_that_keeps_nothing_still_has_no_room_to_scroll() {
     let w = a_shop_that_sells_food();
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let mut c = a_gameplay_client();
     let mut p = bound_vendor(c.app_mut());
     let (ui, _root) = gameplay_root(c.app_mut());
@@ -1214,7 +1214,7 @@ pub fn the_list_that_keeps_nothing_still_has_no_room_to_scroll() {
 /// neither.
 pub fn coming_back_to_the_stock_page_redraws_it_without_moving_what_is_picked() {
     let w = a_shop_that_sells_food();
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let mut c = a_gameplay_client();
     let mut p = bound_vendor(c.app_mut());
     let (ui, _root) = gameplay_root(c.app_mut());
@@ -1334,7 +1334,7 @@ pub fn a_thing_the_player_owns_keeps_its_own_kind_when_the_shop_advertises_it() 
         .all(|p| p.pwd.obj_type & ARMOUR == 0);
 
     // Arm 1 -- the client has never seen the thing.
-    let a = dereth_client::vendor_view::shop(&w);
+    let a = dereth_client_runtime::vendor_view::shop(&w);
     let unseen = a
         .stock
         .iter()
@@ -1356,7 +1356,7 @@ pub fn a_thing_the_player_owns_keeps_its_own_kind_when_the_shop_advertises_it() 
     };
     w.tables.weenies.insert(stock, wn);
     let nobody_owns_it = !w.is_owned_by_player(stock);
-    let b = dereth_client::vendor_view::shop(&w);
+    let b = dereth_client_runtime::vendor_view::shop(&w);
     let unowned = b
         .stock
         .iter()
@@ -1375,7 +1375,7 @@ pub fn a_thing_the_player_owns_keeps_its_own_kind_when_the_shop_advertises_it() 
         .pwd
         .container_id = Some(player);
     let the_player_owns_it = w.is_owned_by_player(stock);
-    let d = dereth_client::vendor_view::shop(&w);
+    let d = dereth_client_runtime::vendor_view::shop(&w);
     let owned = d
         .stock
         .iter()
@@ -1436,32 +1436,32 @@ pub fn a_fully_basketed_row_stays_on_the_shelf_until_purchase() {
     let mut c = a_gameplay_client();
     let target = a_food_row(&a_shop_that_sells_food());
     let tab = category_for(
-        &dereth_client::vendor_view::shop(&a_shop_that_sells_food()),
+        &dereth_client_runtime::vendor_view::shop(&a_shop_that_sells_food()),
         FOOD,
     );
 
     // Twelve advertised, nothing basketed: the row is there.
-    let view = dereth_client::vendor_view::shop(&a_shop_advertising(target, 12));
+    let view = dereth_client_runtime::vendor_view::shop(&a_shop_advertising(target, 12));
     let (p, with_an_empty_basket) = shelf_after_choosing(&mut c, &view, tab);
     let it_is_listed = with_an_empty_basket.contains(&target) && p.basket_drops == 0;
 
     // Twelve advertised, twelve basketed: membership and order stay unchanged.
     let mut w = a_shop_advertising(target, 12);
     w.shop.buy_list.push((target, 12));
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let (p, with_a_full_basket) = shelf_after_choosing(&mut c, &view, tab);
     let it_stays = with_a_full_basket == with_an_empty_basket && p.basket_drops == 0;
 
     // Neither a partial basket nor an overfilled saved basket hides advertised stock.
     let mut w = a_shop_advertising(target, 12);
     w.shop.buy_list.push((target, 11));
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let one_left_keeps_it = shelf.contains(&target) && p.basket_drops == 0;
 
     let mut w = a_shop_advertising(target, 12);
     w.shop.buy_list.push((target, 13));
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let more_than_all_keeps_it = shelf.contains(&target) && p.basket_drops == 0;
 
@@ -1469,7 +1469,7 @@ pub fn a_fully_basketed_row_stays_on_the_shelf_until_purchase() {
     let mut w = a_shop_advertising(target, 12);
     w.shop.buy_list.push((target, 6));
     w.shop.buy_list.push((target, 6));
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let really_two_entries = view.buy_list.iter().filter(|r| r.item == target).count() == 2;
     let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let two_helpings_keep_it = shelf.contains(&target) && p.basket_drops == 0;
@@ -1485,7 +1485,7 @@ pub fn a_fully_basketed_row_stays_on_the_shelf_until_purchase() {
         .find(|p| p.iid == sack)
         .expect("the row")
         .amount;
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let sack_tab = category_for(&view, CONTAINER);
     let it_is_in_containers = view.type_filters[sack_tab].0 == "Containers";
     let (_, shelf) = shelf_after_choosing(&mut c, &view, sack_tab);
@@ -1493,7 +1493,7 @@ pub fn a_fully_basketed_row_stays_on_the_shelf_until_purchase() {
 
     let mut w2 = w;
     let the_button_basketed_it = w2.add_to_buy_list(sack, 1) && w2.shop.buy_list == vec![(sack, 1)];
-    let view = dereth_client::vendor_view::shop(&w2);
+    let view = dereth_client_runtime::vendor_view::shop(&w2);
     let (p, shelf) = shelf_after_choosing(&mut c, &view, sack_tab);
     let the_recorded_row_stays = shelf.contains(&sack) && p.basket_drops == 0;
 
@@ -1521,7 +1521,7 @@ pub fn basket_quantities_do_not_change_advertised_shelf_membership() {
     let mut c = a_gameplay_client();
     let target = a_food_row(&a_shop_that_sells_food());
     let tab = category_for(
-        &dereth_client::vendor_view::shop(&a_shop_that_sells_food()),
+        &dereth_client_runtime::vendor_view::shop(&a_shop_that_sells_food()),
         FOOD,
     );
 
@@ -1541,7 +1541,7 @@ pub fn basket_quantities_do_not_change_advertised_shelf_membership() {
         if let Some(n) = basketed {
             w.shop.buy_list.push((target, n));
         }
-        let view = dereth_client::vendor_view::shop(&w);
+        let view = dereth_client_runtime::vendor_view::shop(&w);
         let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
         all_four &= shelf.contains(&target) == listed && p.basket_drops == u32::from(!listed);
     }
@@ -1569,7 +1569,7 @@ pub fn a_stackable_row_is_offered_in_the_biggest_stack_the_shop_can_sell() {
     let mut c = a_gameplay_client();
     let target = a_food_row(&a_shop_that_sells_food());
     let tab = category_for(
-        &dereth_client::vendor_view::shop(&a_shop_that_sells_food()),
+        &dereth_client_runtime::vendor_view::shop(&a_shop_that_sells_food()),
         FOOD,
     );
 
@@ -1583,7 +1583,7 @@ pub fn a_stackable_row_is_offered_in_the_biggest_stack_the_shop_can_sell() {
             // Every other row unstackable, so what was asked for is unambiguous.
             p.pwd.max_stack_size = Some(if p.iid == target { max } else { 0 });
         }
-        let view = dereth_client::vendor_view::shop(&w);
+        let view = dereth_client_runtime::vendor_view::shop(&w);
         let carried_across = view
             .stock
             .iter()
@@ -1621,7 +1621,7 @@ pub fn a_stackable_row_is_offered_in_the_biggest_stack_the_shop_can_sell() {
         if basketed != 0 {
             w.shop.buy_list.push((target, basketed));
         }
-        let view = dereth_client::vendor_view::shop(&w);
+        let view = dereth_client_runtime::vendor_view::shop(&w);
         let (_, shelf) = shelf_after_choosing(&mut c, &view, tab);
         countable &= shelf.contains(&target)
             && stacks_asked_for(&mut c) == want.map(|s| vec![(target, s)]).unwrap_or_default();
@@ -1639,7 +1639,7 @@ pub fn a_container_with_anything_in_it_is_not_on_the_shelf() {
     let mut c = a_gameplay_client();
     let target = a_food_row(&a_shop_that_sells_food());
     let tab = category_for(
-        &dereth_client::vendor_view::shop(&a_shop_that_sells_food()),
+        &dereth_client_runtime::vendor_view::shop(&a_shop_that_sells_food()),
         FOOD,
     );
 
@@ -1663,7 +1663,7 @@ pub fn a_container_with_anything_in_it_is_not_on_the_shelf() {
             &ids(items, 0x8000_1000),
             &ids(containers, 0x8000_2000),
         );
-        let view = dereth_client::vendor_view::shop(&w);
+        let view = dereth_client_runtime::vendor_view::shop(&w);
         let row = view
             .stock
             .iter()
@@ -1689,7 +1689,7 @@ pub fn a_container_with_anything_in_it_is_not_on_the_shelf() {
         p.pwd.max_stack_size = Some(if p.iid == target { 100 } else { 0 });
     }
     put_inside(&mut w, target, &[ObjectId(0x8000_BEEF)], &[]);
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let set_up_before_it_was_dropped = !shelf.contains(&target)
         && p.container_drops == 1
@@ -1779,7 +1779,7 @@ pub fn what_a_row_stacks_to_comes_from_the_same_place_its_kind_does() {
     let stock = w.shop.stock[0].iid;
     w.shop.stock[0].pwd.max_stack_size = Some(100);
     let row_max = |w: &World| {
-        dereth_client::vendor_view::shop(w)
+        dereth_client_runtime::vendor_view::shop(w)
             .stock
             .iter()
             .find(|r| r.item == stock)
@@ -1838,7 +1838,7 @@ pub fn the_picked_row_can_be_one_that_is_no_longer_on_the_shelf() {
 
     let mut w = a_shop_advertising(first_row, 5);
     put_inside(&mut w, first_row, &[ObjectId(0x8000_BEEF)], &[]);
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let tab = category_for(&view, FOOD);
     let (_, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let the_first_row_is_gone = !shelf.contains(&first_row);
@@ -1872,14 +1872,14 @@ pub fn the_shelf_never_scrolls_however_little_is_left_on_it() {
         .filter(|p| p.pwd.obj_type & FOOD != 0)
         .map(|p| p.iid)
         .collect();
-    let tab = category_for(&dereth_client::vendor_view::shop(&w0), FOOD);
+    let tab = category_for(&dereth_client_runtime::vendor_view::shop(&w0), FOOD);
 
     // Filled containers are excluded independently of basket membership.
     let mut w = a_shop_that_sells_food();
     for id in &food {
         put_inside(&mut w, *id, &[ObjectId(0x8000_BEEF)], &[]);
     }
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     let (p, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let every_row_was_dropped = shelf.is_empty()
         && usize::try_from(p.container_drops).expect("a small count") == food.len();
@@ -1888,7 +1888,7 @@ pub fn the_shelf_never_scrolls_however_little_is_left_on_it() {
 
     // The companion, so this is not simply "it always fires": the same category with an empty
     // basket keeps its rows and takes the branch for the ordinary reason.
-    let view = dereth_client::vendor_view::shop(&a_shop_that_sells_food());
+    let view = dereth_client_runtime::vendor_view::shop(&a_shop_that_sells_food());
     let (mut p, shelf) = shelf_after_choosing(&mut c, &view, tab);
     let a_full_shelf_counts_too = !shelf.is_empty() && p.scroll_restores == 1;
 

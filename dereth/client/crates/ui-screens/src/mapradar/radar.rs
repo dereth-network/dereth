@@ -99,7 +99,7 @@ pub mod semantic {
 
 /// The object bitfield bits the radar reads.
 ///
-/// Defined in [`dereth_client_contract::radar::bitfield`], because `dereth_client::hud` reads `PK`,
+/// Defined in [`dereth_client_contract::radar::bitfield`], because `dereth_client_shell::hud` reads `PK`,
 /// `PK_LITE` and `PLAYER` from here and both sides must name the same mask.
 pub use dereth_client_contract::radar::bitfield;
 
@@ -110,7 +110,7 @@ pub use dereth_client_contract::radar::bitfield;
 /// `RadarEnum`, the value an object's radar field carries.
 ///
 /// Defined in [`dereth_client_contract::radar::radar_enum`], beside [`bitfield`], for the same
-/// reason: `dereth_client::hud` reads `UNDEF`.
+/// reason: `dereth_client_shell::hud` reads `UNDEF`.
 pub use dereth_client_contract::radar::radar_enum;
 
 /// **The radar's filter**, and the reason a

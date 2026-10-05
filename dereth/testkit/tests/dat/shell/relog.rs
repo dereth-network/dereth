@@ -319,7 +319,7 @@ fn relog_held(c: &HeadlessClient) -> RelogHeld {
 /// The chat window's own filter, out of the retained settings.
 fn relog_chat_filter(c: &HeadlessClient, window: u32) -> Option<u64> {
     let module = c.view().world().player_system.module.as_ref()?;
-    dereth_client::hud::decode_chat_filters(module)
+    dereth_client_runtime::hud::decode_chat_filters(module)
         .into_iter()
         .find_map(|(w, m)| (w == window).then_some(m))
 }
@@ -327,7 +327,7 @@ fn relog_chat_filter(c: &HeadlessClient, window: u32) -> Option<u64> {
 /// Where the chat window sits, out of the retained settings.
 fn relog_window_x(c: &HeadlessClient, window: u32) -> Option<i32> {
     let module = c.view().world().player_system.module.as_ref()?;
-    dereth_client::hud::decode_placements(module)
+    dereth_client_runtime::hud::decode_placements(module)
         .get(window)
         .and_then(|p| p.x)
 }

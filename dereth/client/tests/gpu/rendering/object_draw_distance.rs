@@ -17,18 +17,21 @@
 
 use dereth_assets::motion::GfxObjDegradeInfo;
 use dereth_assets::Decode;
-use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
 use dereth_primitives::{DataId, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
 use dereth_render::device::Gpu;
 use dereth_world_render::objects::degrade::{get_degrade, DegradeGlobals, DegradeMode};
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::PLAYER_OBJECT_ID,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 800;
 const H: u32 = 600;
@@ -319,7 +322,8 @@ struct Bench {
 
 impl Bench {
     fn new(store: &std::sync::Arc<RetailDatStore>, mut gpu: Gpu, setup: u32) -> Self {
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             land_radius: 3,
@@ -436,7 +440,7 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,
@@ -445,9 +449,9 @@ impl Bench {
         // into `scene.camera`; without it the bench draws from the **debug chase camera**. See
         // [`real_eye`].
         if self.sweep {
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 scene,
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 LocalTime(self.now),
                 1.0 / 30.0,
             );

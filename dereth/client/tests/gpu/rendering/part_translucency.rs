@@ -11,13 +11,16 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::world::{SceneConfig, SceneStats, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::SceneStats,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// Required DAT inputs fail the test when missing; there is no skip path.
 fn store() -> Arc<RetailDatStore> {
@@ -92,14 +95,14 @@ struct Arm {
 fn render(store: &Arc<RetailDatStore>, gpu: &mut Gpu, material: bool, t: f32) -> Arm {
     let mut scene = WorldScene::load(store, gpu, populated(material)).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
     for i in 0..8u32 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );
@@ -461,14 +464,14 @@ fn the_hook_channel_ramps_to_invisible_and_comes_back() {
     let mut scene =
         WorldScene::load(&store, &mut gpu, populated(true)).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
     for i in 0..8u32 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );
@@ -617,7 +620,7 @@ fn the_hook_channel_ramps_to_invisible_and_comes_back() {
 
 /// Behaviour: rendering.translucency.first-person-hides-the-body
 /// Exercise the viewer-update function called by App::frame, rather than applying the fade
-/// directly as the preceding camera pairs do. dereth_client::camera::update_viewer updates the
+/// directly as the preceding camera pairs do. dereth_client_runtime::camera::update_viewer updates the
 /// camera, then calls scene.apply_camera_translucency(). Removing that call leaves the direct
 /// pairs green but fails this integration check. This is not a full App::frame invocation.
 ///
@@ -632,14 +635,14 @@ fn first_person_hides_the_body_through_the_frames_own_camera_call() {
     let mut scene =
         WorldScene::load(&store, &mut gpu, populated(true)).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
     for i in 0..8u32 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );
@@ -657,21 +660,21 @@ fn first_person_hides_the_body_through_the_frames_own_camera_call() {
         let c = scene.character.as_mut().expect("the body is attached");
         let cam = &mut c.camera;
         assert!(
-            !dereth_client::camera::CameraState::in_head(&cam.manager),
+            !dereth_client_runtime::camera::CameraState::in_head(&cam.manager),
             "already first person"
         );
         let (set, manager) = (&mut cam.set, &mut cam.manager);
         set.set_in_head(manager);
         assert!(
-            dereth_client::camera::CameraState::in_head(&cam.manager),
+            dereth_client_runtime::camera::CameraState::in_head(&cam.manager),
             "set_in_head did nothing"
         );
     }
 
     // The one call `App::frame` makes. Nothing else here touches the translucency.
-    dereth_client::camera::update_viewer(
+    dereth_client_runtime::camera::update_viewer(
         &mut scene,
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         LocalTime(0.4),
         0.05,
     );

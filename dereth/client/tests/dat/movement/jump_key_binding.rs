@@ -10,7 +10,7 @@ fn shipped_jump_binding_preserves_start_release_repeat_and_modifier_semantics() 
     use dereth_input::{ActionId, InputMapId};
     use winit::keyboard::KeyCode;
     let store = dereth_dat::testing::open_store().expect("required DATs");
-    let mut input = dereth_client::input::InputShell::new(&store, None).unwrap();
+    let mut input = dereth_client_shell::input::InputShell::new(&store, None).unwrap();
     let keys = input.keys_for_action(ActionId(0x31), InputMapId(4));
     eprintln!("Jump keys={keys:?}");
     assert_eq!(keys.len(), 1);
@@ -20,7 +20,7 @@ fn shipped_jump_binding_preserves_start_release_repeat_and_modifier_semantics() 
         keys[0].activation, 3,
         "press and release, no held/repeat binding"
     );
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     for modified in [false, true] {
         if modified {
             input.on_message(pump.key_message_for(KeyCode::ShiftLeft, true, 100).unwrap());
@@ -38,7 +38,7 @@ fn shipped_jump_binding_preserves_start_release_repeat_and_modifier_semantics() 
                 .count(),
             1
         );
-        input.on_message(dereth_client::pump::Win32Message {
+        input.on_message(dereth_input::win32::Win32Message {
             lparam: down.lparam | (1 << 30),
             ..down
         });

@@ -1,7 +1,7 @@
 //! What the identify window and the *world* half of the client have to agree about.
 //!
 //! `dereth_ui_screens::panels::examination` is 6 000 lines of appraisal panel; these seven items are
-//! the ones `dereth_client::hud` reads, at eleven sites, while it composes the `AppraisalView` the
+//! the ones `dereth_client_shell::hud` reads, at eleven sites, while it composes the `AppraisalView` the
 //! panel draws. Every one is a table or a pure function over numbers -- the property keys the two
 //! highlighting blocks ask about, the attribute and vital and skill name switches, the gear-rating
 //! rows, the portal bitmask, the four description keys and the gem pluraliser. Nothing here draws.

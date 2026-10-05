@@ -11,7 +11,7 @@ use super::*;
 /// this would hold on a strip that deleted everything at once. The strip is read off the
 /// **element tree** as well as off the model, which is what makes "it went away" a drawn result.
 pub(super) fn the_notice_bubble_clears_itself() {
-    use dereth_client::app::HEADLESS_STEP;
+    use dereth_client_runtime::platform::clock::HEADLESS_STEP;
     use dereth_ui_screens::hud::speech_bubbles::{BUBBLE_CHAT_TYPE, LIST_BOX};
 
     /// The bubble's own lifetime, off the shipped layout.
@@ -370,7 +370,7 @@ pub(super) fn a_swing_with_nothing_selected_says_so_on_the_strip() {
     let nothing_said_yet = c.view().expect_app().interaction().last_refusal.is_none();
 
     c.when(Player::Press(dereth_input::ActionId(
-        dereth_client::interaction::action::COMBAT_LOW_ATTACK,
+        dereth_client_runtime::interaction::action::COMBAT_LOW_ATTACK,
     )));
     c.tick(2);
 

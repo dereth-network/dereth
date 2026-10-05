@@ -1,5 +1,5 @@
-use dereth_client::interaction::TargetMode;
 use dereth_client_model::Request;
+use dereth_client_runtime::interaction::TargetMode;
 use dereth_primitives::ObjectId;
 use dereth_testkit::{ClientSpec, HeadlessClient, Inbound, Player, Target};
 use dereth_ui::ElemHandle;
@@ -118,8 +118,12 @@ fn is_the_recorded_use(c: &HeadlessClient, idx: usize) -> bool {
 /// The cursor the client is showing, as the shipped cursor list numbers them.
 fn cursor_is(c: &mut HeadlessClient, key: u32) -> bool {
     let store = std::sync::Arc::clone(c.dat_store().expect("the retail data is open"));
-    let want = dereth_client::assets::enum_did(&*store, dereth_client::cursor::UICURSOR_GROUP, key)
-        .expect("the shipped cursor list");
+    let want = dereth_client_runtime::assets::enum_did(
+        &*store,
+        dereth_client_shell::cursor::UICURSOR_GROUP,
+        key,
+    )
+    .expect("the shipped cursor list");
     let app = c.app_mut();
     app.current_cursor_did() == Some(want)
         && app.ui().expect("the shell").ui.last_cursor == Some((want, 14, 14))

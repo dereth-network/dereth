@@ -2161,7 +2161,7 @@ impl KeyBindingPage {
     ///
     /// The arm is raised as [`crate::UiRequest::SaveKeyMap`] rather than
     /// written here: the writer is the input manager's keymap save over the keymap file, which
-    /// lives in the host (`dereth_client::input::InputShell::save_keymap`) and not in a `Screen`.
+    /// lives in the host (`dereth_client_shell::input::InputShell::save_keymap`) and not in a `Screen`.
     /// The overwrite prompt the keymap save can raise belongs to the *Save Keymap As* path, which
     /// asks for it; this arm does not. The read-only refusal is not gated that way: retail checks
     /// that first on every save, so OK raises the can't-overwrite dialog too when the current

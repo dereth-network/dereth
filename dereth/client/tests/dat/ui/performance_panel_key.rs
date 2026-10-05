@@ -15,7 +15,7 @@ fn the_performance_panel_has_no_key_until_one_is_bound_and_then_fires_on_every_s
     use winit::keyboard::KeyCode;
     let perf = ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL);
     let store = dereth_dat::testing::open_store().expect("required DATs");
-    let mut input = dereth_client::input::InputShell::new(&store, None).unwrap();
+    let mut input = dereth_client_shell::input::InputShell::new(&store, None).unwrap();
     assert!(
         input
             .keys_for_action(perf, dereth_input::dereth::INPUT_MAP)
@@ -42,8 +42,8 @@ fn the_performance_panel_has_no_key_until_one_is_bound_and_then_fires_on_every_s
         }
     }
 
-    let mut pump = dereth_client::pump::Pump::new();
-    let mut press = |input: &mut dereth_client::input::InputShell, t: f64, serial: u32| {
+    let mut pump = dereth_desktop::pump::Pump::new();
+    let mut press = |input: &mut dereth_client_shell::input::InputShell, t: f64, serial: u32| {
         input.use_time(LocalTime(t));
         input.take_events();
         input.on_message(pump.key_message_for(KeyCode::F7, true, serial).unwrap());

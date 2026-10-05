@@ -83,7 +83,6 @@ use crate::particles::{
     StaticSlot,
 };
 use crate::textures::TextureStore;
-use dereth_client_runtime::anim_assets::DatAnimAssets;
 use dereth_client_runtime::audio::SoundTrigger;
 use dereth_client_runtime::character::RenderSpace;
 use dereth_client_runtime::models::{build_gfxobj, resolve_parts};
@@ -94,16 +93,17 @@ use dereth_client_runtime::world_build::{
 use dereth_client_runtime::world_objects;
 use dereth_client_runtime::world_state::WorldState;
 use dereth_client_runtime::world_step;
+use dereth_world_data::anim_assets::DatAnimAssets;
 
-use super::{
-    block_xy, load_region, EnvironmentOverrideState, RenderPrefWork, SceneConfig, WorldError,
-    DERETH_REGION,
-};
 #[cfg(test)]
-use super::{landblock_did, lbi_did};
+use dereth_client_runtime::camera::FreeCamera;
+use dereth_client_runtime::environment::EnvironmentOverrideState;
+use dereth_client_runtime::frame_events::RenderPrefWork;
+use dereth_client_runtime::landblock::{block_xy, load_region, WorldError, DERETH_REGION};
 #[cfg(test)]
-use crate::camera::FreeCamera;
+use dereth_client_runtime::landblock::{landblock_did, lbi_did};
 use dereth_client_runtime::render_prefs::{RegionStyle, RequiredFiles};
+use dereth_client_runtime::scene::SceneConfig;
 #[cfg(test)]
 use dereth_client_runtime::world_build::read_lbi;
 
@@ -837,7 +837,7 @@ pub struct SceneDraw {
     /// It compares each against the current preferences on **every frame**; only a field
     /// that differs does any work. [`SceneConfig::render`] holds the current values and this is the
     /// shadow bank, so [`WorldScene::update_from_preferences`] is the same poll.
-    render_shadow: crate::render_prefs::RenderPreferences,
+    render_shadow: dereth_client_runtime::render_prefs::RenderPreferences,
     /// The four generated detail surfaces and their tiling values.
     detail: dereth_world_render::detail::DetailTexturing,
     /// The device texture each generated detail surface wraps, loaded from database type
@@ -1094,7 +1094,7 @@ pub struct SceneDraw {
     /// selected", and the draw tests it before the id compare (`viewcone_check_object_id != 0`).
     viewcone_check_object_id: std::cell::Cell<u32>,
     /// Drawing's `selected_object_in_view = 1`, observed for the frame
-    /// and drained by `dereth_client::interaction::use_time` into
+    /// and drained by `dereth_client_runtime::interaction::use_time` into
     /// the selection visibility latch.
     ///
     /// Only the *observation* lives here, not the latch: retail has one global and this build
@@ -1431,7 +1431,7 @@ struct SceneObject {
     part_cypt: Vec<f32>,
 }
 
-/// The scene's own sound stash, as the hook drain's sink. `dereth_client::audio::SoundTrigger`
+/// The scene's own sound stash, as the hook drain's sink. `dereth_client_runtime::audio::SoundTrigger`
 /// is still this crate's, so the sink is the trait and this is its one implementor; the
 /// newtype is the orphan rule's, not a design choice.
 /// The frame simulation's counters, kept among the scene's own.
@@ -1922,7 +1922,7 @@ pub struct SceneStats {
     /// Draw batches the resident interior cells' baked objects cost, and what
     /// static registration made of them on the physics side.
     pub cell_static_batches: usize,
-    pub cell_statics: dereth_client_runtime::env_cells::CellStaticStats,
+    pub cell_statics: dereth_world_data::env_cells::CellStaticStats,
     /// Triangles the resident interior cells' baked objects **hold**, i.e. every
     /// level of every placement, the interior half of [`Self::object_triangles_resident`]:
     /// the resident figure for the furniture, beside the batch count.
@@ -2002,7 +2002,7 @@ pub struct SceneStats {
     ///
     /// `Character::camera.viewer` has exactly two writers — the sweep and
     /// the viewer reset performed by `Character::teleport` — so a loop
-    /// that drives `update` and never calls [`crate::camera::update_viewer`] leaves the
+    /// that drives `update` and never calls [`dereth_client_runtime::camera::update_viewer`] leaves the
     /// viewpoint wherever the last teleport put it, and `WorldScene::recenter` and
     /// `WorldScene::update_viewer_cell` then read a constant however far the body walks.
     /// A frozen viewpoint shows up only as a failure many frames downstream of the cause.
@@ -2221,10 +2221,10 @@ struct LandContext {
     /// work them out again.
     identity: Option<Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
     /// The environment-cell reader for the **draw** side. Physics has
-    /// its own inside [`dereth_client_runtime::land_source::DatLandSource`], because that one has to be
+    /// its own inside [`dereth_world_data::land_source::DatLandSource`], because that one has to be
     /// reachable from a `LandSource` behind an `Arc` and this one has to be reachable from the
     /// scene; they read the same records and share nothing else.
-    cells: dereth_client_runtime::env_cells::EnvCellLoader,
+    cells: dereth_world_data::env_cells::EnvCellLoader,
 }
 
 /// The world's objects drawn with another era's look (`[Render] Objects`).
@@ -2257,7 +2257,7 @@ pub(crate) struct ObjectLook {
     /// the world's.
     pub(crate) interiors: Option<Arc<RetailDatStore>>,
     /// The reader of [`Self::interiors`]' cell records and the environments they name.
-    cells: dereth_client_runtime::env_cells::EnvCellLoader,
+    cells: dereth_world_data::env_cells::EnvCellLoader,
     /// Which ids the look's records stand for the same object as the world's.
     pub(crate) identity: Arc<dereth_client_runtime::object_identity::ObjectIdentity>,
     /// The surfaces those records resolve to. Apart from the world's cache because the two
@@ -2680,7 +2680,7 @@ impl WorldScene {
     }
 
     /// [`SceneDraw::render_shadow`] on this scene.
-    pub const fn render_shadow(&self) -> crate::render_prefs::RenderPreferences {
+    pub const fn render_shadow(&self) -> dereth_client_runtime::render_prefs::RenderPreferences {
         self.draw.render_shadow()
     }
 
@@ -3575,7 +3575,7 @@ pub trait SceneReads: sealed::SceneHalves {
     }
 
     /// [`SceneDraw::render_shadow`] on the scene.
-    fn render_shadow(&self) -> crate::render_prefs::RenderPreferences {
+    fn render_shadow(&self) -> dereth_client_runtime::render_prefs::RenderPreferences {
         let (_, draw) = self.halves();
         draw.render_shadow()
     }
@@ -3975,7 +3975,7 @@ pub trait SceneWrites: sealed::SceneHalvesMut {
     /// [`SceneDraw::update`] on the scene.
     fn update(
         &mut self,
-        input: crate::camera::CameraInput,
+        input: dereth_client_runtime::camera::CameraInput,
         character: dereth_client_runtime::character::CharacterInput,
         now: dereth_primitives::LocalTime,
         dt: f32,
@@ -4109,7 +4109,7 @@ macro_rules! impl_scene_reads {
                 (g.auto_update_deg_mul, g.deg_mul, g.user_bias)
             }
 
-            fn render_preferences(&self) -> crate::render_prefs::RenderPreferences {
+            fn render_preferences(&self) -> dereth_client_runtime::render_prefs::RenderPreferences {
                 self.halves().1.cfg.render
             }
 
@@ -4177,7 +4177,7 @@ macro_rules! impl_scene_writes {
 
             fn update(
                 &mut self,
-                input: crate::camera::CameraInput,
+                input: dereth_client_runtime::camera::CameraInput,
                 character: dereth_client_runtime::character::CharacterInput,
                 now: dereth_primitives::LocalTime,
                 dt: f32,

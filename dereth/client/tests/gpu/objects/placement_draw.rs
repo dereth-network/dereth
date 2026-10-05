@@ -16,19 +16,23 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{retail_store, test_gpu};
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::models::{placement_frames, PLACEMENT_DEFAULT, PLACEMENT_RESTING};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, Frame, LocalTime, ObjectId, Vec3};
 use dereth_protocol::types::{
     physicsdesc::flags, ObjDesc, PhysicsDesc, PositionWire, PublicWeenieDesc,
 };
 use dereth_protocol::{write_body, Opcode};
+use {
+    dereth_client_runtime::models::placement_frames,
+    dereth_client_runtime::models::PLACEMENT_DEFAULT,
+    dereth_client_runtime::models::PLACEMENT_RESTING,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The corpus's anchor. Carries placement keys `0, 1, 2, 3, 4, 6, 52, 101, 103, 121..130`.
 const SETUP: u32 = 0x0200_0124;
@@ -114,8 +118,8 @@ fn part_frames_for(placement: Option<u32>) -> Option<(Vec<Frame>, Frame)> {
     // places every part from the current animation frame before anything is submitted. One step
     // with no input is what puts the placement frame into `parts[i].pos`.
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(0.0),
         0.0,
     );
@@ -293,8 +297,8 @@ fn a_later_position_event_reposes_an_object_already_on_screen() {
 
 fn step(scene: &mut WorldScene) {
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(0.0),
         0.0,
     );
@@ -346,7 +350,7 @@ fn the_named_placement_moves_pixels_and_only_where_the_object_is() {
     // the view axis by construction.
     let viewport = (800u32, 600u32);
     let mut shot = |placement: Option<u32>| -> Option<(Vec<u8>, u32, u32)> {
-        use dereth_client::pick::PickScene;
+        use dereth_client_runtime::pick::PickScene;
         let cfg = SceneConfig {
             landblock: LANDBLOCK,
             start_cell: Some(dereth_primitives::CellId(CELL)),

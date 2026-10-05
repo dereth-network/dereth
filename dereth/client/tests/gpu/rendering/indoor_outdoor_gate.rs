@@ -14,15 +14,15 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::CharacterInput;
-use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
+use {dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader};
 
 const W: u32 = 800;
 const H: u32 = 600;
@@ -113,9 +113,9 @@ fn outdoor_frame(store: &Arc<RetailDatStore>, gpu: &mut Gpu, gate: bool) -> Vec<
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
-            LocalTime(f64::from(i) * dereth_client::app::HEADLESS_STEP),
+            LocalTime(f64::from(i) * dereth_client_runtime::platform::clock::HEADLESS_STEP),
             1.0 / 30.0,
         );
         scene.stream(store, gpu).expect("stream");
@@ -200,7 +200,7 @@ fn outside_view_count_at(
     block: u16,
     cell: u32,
 ) -> Option<usize> {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: block,
         start_cell: Some(CellId(cell)),
@@ -225,21 +225,21 @@ fn outside_view_count_at(
     let mut stream = ObjectStream::new();
     let mut t = 0.0f64;
     for _ in 0..24 {
-        t += dereth_client::app::HEADLESS_STEP;
+        t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(t),
             1.0 / 30.0,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(t),
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         scene.stream(store, gpu).expect("stream");
         scene.reserve_upload_arena(gpu).expect("reserve the arena");

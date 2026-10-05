@@ -142,17 +142,17 @@ fn the_shipped_attack_cones() {
 
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 mod seam {
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
     use dereth_animation::{AnimAssets, MotionCommand};
-    use dereth_client::anim_assets::DatAnimAssets;
-    use dereth_client::character::CharacterInput;
-    use dereth_client::world::{SceneConfig, WorldScene};
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_dat::{DbType, RetailDatStore};
     use dereth_physics::geom::Sphere;
     use dereth_physics::{SetupGeometry, V3 as _};
     use dereth_primitives::{DataId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
+    use dereth_world_data::anim_assets::DatAnimAssets;
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
     /// The target body's object id. The attack gesture itself is found by playing the dat:
     /// [`an_attack_motion`] finds the motion table whose `ATTACK_MED1` raises an
@@ -170,7 +170,7 @@ mod seam {
         let assets: Arc<dyn AnimAssets> = Arc::new(DatAnimAssets::new(Arc::clone(store)));
         let setup = AnimAssets::setup(
             assets.as_ref(),
-            dereth_client::character::ALUVIAN_MALE_SETUP,
+            dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
         )
         .expect("the Aluvian male setup");
         for mt in store.ids_of(DbType::MTable) {
@@ -247,7 +247,7 @@ mod seam {
 
     struct Run {
         /// `SceneStats::attack`, after the swing.
-        stats: dereth_client::world::AttackStats,
+        stats: dereth_scene::world_scene::AttackStats,
         /// **The observable: particle emitters on the attacker.**
         /// Default-script playback queues the object's own script, and the selected script creates an
         /// emitter — which is what a brazier's smoke, a lamp's glow and an impact's flash are. Peak
@@ -264,7 +264,7 @@ mod seam {
     fn swing(with_target: bool, scripted: bool) -> Run {
         let mut gpu = crate::common::test_gpu(800, 600);
         let store = store();
-        let region = dereth_client::world::load_region(&store).expect("region");
+        let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
         let (mtable, cone) = an_attack_motion(&store);
         let (table_id, script_type) = a_particle_script(&store);
         eprintln!(
@@ -283,7 +283,7 @@ mod seam {
             for _ in 0..frames {
                 *t += 1.0 / 30.0;
                 scene.update(
-                    dereth_client::camera::CameraInput::default(),
+                    dereth_client_runtime::camera::CameraInput::default(),
                     CharacterInput::default(),
                     LocalTime(*t),
                     1.0 / 30.0,

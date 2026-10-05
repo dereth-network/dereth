@@ -3,7 +3,7 @@
 //!
 //! None of the three is presentation and none is a platform call — they are the *shape* of the
 //! answers a window gives, which `dereth_client_runtime::platform::window::WindowHost` returns and
-//! `dereth_client::platform::window::WinitWindow` fills in. They live here rather than in the
+//! `dereth_desktop::platform::window::WinitWindow` fills in. They live here rather than in the
 //! renderer because that trait is in a core crate, and a core crate may not name a renderer.
 //!
 //! `dereth_render::device::WindowHandles` and `dereth_render::window_proc::{Rect, ScreenMetrics}`

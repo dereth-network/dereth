@@ -11,17 +11,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::env_cells::{cell_statics, EnvCellLoader};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, LocalTime};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
 
 /// The first Holtburg starter area's first instantiation cell and its landblock -- the
 /// room a new Holtburg character wakes up in, and the room the marker stands in.
@@ -49,12 +49,12 @@ fn run(
     let mut t = 0.0f64;
     let mut rgba = Vec::new();
     for _ in 0..frames {
-        t += dereth_client::app::HEADLESS_STEP;
+        t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(t),
             1.0 / 30.0,
@@ -90,7 +90,7 @@ fn marker_green(p: &[u8; 4]) -> bool {
 fn the_library_draws_no_red_primitive() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let start = CellId(LIBRARY);
 
     // Stand where the offline client stands and face the marker, so that a marker that is drawn is

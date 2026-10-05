@@ -55,7 +55,7 @@ pub(super) fn current_screen(c: &HeadlessClient) -> Option<dereth_ui::UiMode> {
 fn inject(c: &mut HeadlessClient, action: u32, start: bool) {
     let e = dereth_input::InputEvent {
         action: dereth_input::ActionId(action),
-        input_map: dereth_client::ui::UI_INPUT_MAP,
+        input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,
         extent: 1.0,
         start,
@@ -72,7 +72,7 @@ fn inject(c: &mut HeadlessClient, action: u32, start: bool) {
 /// One character, through the message the client's own character gate reads, so all three of its
 /// gates apply.
 fn inject_character(c: &mut HeadlessClient, ch: u8) {
-    let m = dereth_client::pump::Win32Message::new(
+    let m = dereth_input::win32::Win32Message::new(
         dereth_input::win32::msg::WM_CHAR,
         ch as usize,
         0,

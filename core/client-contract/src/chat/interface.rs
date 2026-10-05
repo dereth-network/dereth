@@ -2,7 +2,7 @@
 //! attributes.
 //!
 //! Cut out of `dereth_ui_screens::chat::interface`, which keeps everything that routes, filters,
-//! scrolls or fades. What is here is what crosses the seam: `dereth_client::hud` composes a
+//! scrolls or fades. What is here is what crosses the seam: `dereth_client_shell::hud` composes a
 //! `ChatMessage` for every inbound final display string (the notice that carries a finished chat
 //! line into the UI is one of the three process globals the client owns), names `window::MAIN` when it seeds a placement, and
 //! reads `opacity_attr`'s two property ids off the retained `PlayerModule`. None of the three

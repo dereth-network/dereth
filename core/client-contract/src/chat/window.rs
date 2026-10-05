@@ -2,7 +2,7 @@
 //!
 //! Cut out of `dereth_ui_screens::chat::window`, which keeps `GamePlayScreen`'s chat window and its
 //! key handling. `ReplyTargets` is the one value in it the *world* half fills:
-//! `dereth_client::hud` answers the last-teller, last-monarch-speaker and last-patron-speaker
+//! `dereth_client_shell::hud` answers the last-teller, last-monarch-speaker and last-patron-speaker
 //! name queries out of `dereth_client_model`'s chat state, at two sites, and the window only
 //! reads it. Three `Option<String>`s.
 

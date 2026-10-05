@@ -15,7 +15,7 @@ pub const ITEMS: ElementId = ElementId(0x1000_006A);
 /// The two subscribed item notices, retained in their original relative order.
 ///
 /// Defined in [`dereth_client_contract::panels::external_container`], because it is the
-/// value `dereth_client::hud` queues and this panel drains.
+/// value `dereth_client_shell::hud` queues and this panel drains.
 pub use dereth_client_contract::panels::external_container::ExternalContainerNotice;
 
 #[derive(Debug, Clone, PartialEq)]

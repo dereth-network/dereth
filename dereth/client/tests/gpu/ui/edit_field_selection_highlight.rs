@@ -63,13 +63,13 @@ use crate::common::gpu_lock;
 use dereth_assets::ui::{ElementDesc, LayoutDesc, PropertyValue};
 use dereth_assets::Decode;
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pump::{Pump, Win32Message};
+use dereth_client_runtime::config::Config;
 use dereth_primitives::{AssetSource, DataId, ObjectId};
 use dereth_ui::framework::mode;
 use dereth_ui::region::Box2D;
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::screens::chargen::{CharGenScreen, NAME_FIELD, NAME_PROMPT};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 /// `0x100003BF` — the Aluvian heritage bullet, so the wizard is on a settled character.
 const ALUVIAN: u32 = 0x1000_03BF;

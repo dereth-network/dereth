@@ -339,15 +339,15 @@ pub(super) fn the_outline_comes_from_the_fonts_own_heavier_sheet() {
     use dereth_primitives::DataId;
 
     let s = the_data_files();
-    let textures = dereth_client::textures::TextureStore::new(&s);
+    let textures = dereth_scene::textures::TextureStore::new(&s);
     let fonts = s.ids_of(dereth_dat::DbType::Font);
     let the_shipped_font_set = fonts.len() == 49;
 
     let (mut with_bg, mut without_bg, mut checked) = (0_usize, 0_usize, 0_u64);
     let mut all_fit = true;
     for f in &fonts {
-        let font = dereth_client::ui_draw::load_font(&s, *f).expect("a shipped font loads");
-        let atlas = dereth_client::ui_draw::build_font_atlas(&s, *f).expect("and rasterises");
+        let font = dereth_client_shell::ui_draw::load_font(&s, *f).expect("a shipped font loads");
+        let atlas = dereth_client_shell::ui_draw::build_font_atlas(&s, *f).expect("and rasterises");
         // The two spreads survive into what the client draws from.
         all_fit &= atlas.num_horizontal_border_pixels == font.num_horizontal_border_pixels
             && atlas.num_vertical_border_pixels == font.num_vertical_border_pixels;
@@ -386,7 +386,7 @@ pub(super) fn the_outline_comes_from_the_fonts_own_heavier_sheet() {
     let the_split = (with_bg, without_bg) == (37, 12) && checked > 0;
 
     // And how much backing there is, on a refusal the strip really draws.
-    let font = dereth_client::ui_draw::load_font(&s, STRIP_FONT).expect("the strip's font");
+    let font = dereth_client_shell::ui_draw::load_font(&s, STRIP_FONT).expect("the strip's font");
     let fg = textures
         .bgra8(DataId(font.foreground_surface_data_id))
         .expect("the letters");

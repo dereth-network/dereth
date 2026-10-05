@@ -376,10 +376,10 @@ pub fn the_players_mark_is_laid_on_the_radar_element() {
         .presence(player)
         .and_then(|p| p.position)
         .expect("the player has a place");
-    let mut hud = dereth_client::hud::Hud::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
     hud.sync(
         &objects,
-        Some(dereth_client::hud::ViewerFrame {
+        Some(dereth_client_runtime::hud::ViewerFrame {
             position: pos,
             heading_degrees: 0.0,
         }),
@@ -613,7 +613,7 @@ pub fn the_range_follows_the_player_in_and_out() {
         .expect("the player has a place");
     let block = pos.cell.0 & 0xFFFF_0000;
 
-    let mut hud = dereth_client::hud::Hud::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
     // No player at all: the client's own answer is "not outside", which takes the short range.
     let nobody = !hud.player_outside()
         && (radar_range(hud.player_outside()) - world_support::INDOOR_RANGE).abs() < f32::EPSILON;
@@ -622,7 +622,7 @@ pub fn the_range_follows_the_player_in_and_out() {
     outdoor.cell = CellId(block | 0x0001);
     hud.sync(
         &objects,
-        Some(dereth_client::hud::ViewerFrame {
+        Some(dereth_client_runtime::hud::ViewerFrame {
             position: outdoor,
             heading_degrees: 0.0,
         }),
@@ -634,7 +634,7 @@ pub fn the_range_follows_the_player_in_and_out() {
     indoor.cell = CellId(block | world_support::ENV_CELL_FLOOR);
     hud.sync(
         &objects,
-        Some(dereth_client::hud::ViewerFrame {
+        Some(dereth_client_runtime::hud::ViewerFrame {
             position: indoor,
             heading_degrees: 0.0,
         }),
@@ -648,7 +648,7 @@ pub fn the_range_follows_the_player_in_and_out() {
 
     hud.sync(
         &objects,
-        Some(dereth_client::hud::ViewerFrame {
+        Some(dereth_client_runtime::hud::ViewerFrame {
             position: outdoor,
             heading_degrees: 0.0,
         }),
@@ -741,10 +741,10 @@ pub fn the_chat_sweep_uses_the_same_radius() {
     for cell in [CellId(block | 0x0001), recorded] {
         let mut p = pos;
         p.cell = cell;
-        let mut hud = dereth_client::hud::Hud::new();
+        let mut hud = dereth_client_shell::hud::Hud::new();
         hud.sync(
             &objects,
-            Some(dereth_client::hud::ViewerFrame {
+            Some(dereth_client_runtime::hud::ViewerFrame {
                 position: p,
                 heading_degrees: 0.0,
             }),
@@ -822,10 +822,10 @@ pub fn the_radar_zooms_when_the_player_goes_inside() {
          -> Arm {
             let mut p = pos;
             p.cell = cell;
-            let mut h = dereth_client::hud::Hud::new();
+            let mut h = dereth_client_shell::hud::Hud::new();
             h.sync(
                 &objects,
-                Some(dereth_client::hud::ViewerFrame {
+                Some(dereth_client_runtime::hud::ViewerFrame {
                     position: p,
                     heading_degrees: 0.0,
                 }),
@@ -986,10 +986,10 @@ pub fn the_padlock_works_the_same_at_either_range() {
 
         let mut p = pos;
         p.cell = CellId(block | idx);
-        let mut hud = dereth_client::hud::Hud::new();
+        let mut hud = dereth_client_shell::hud::Hud::new();
         hud.sync(
             &objects,
-            Some(dereth_client::hud::ViewerFrame {
+            Some(dereth_client_runtime::hud::ViewerFrame {
                 position: p,
                 heading_degrees: 0.0,
             }),
@@ -1330,7 +1330,7 @@ pub fn the_lock_is_one_bit_of_the_players_options() {
         } else {
             m.options2 & !LOCK
         };
-        let mut hud = dereth_client::hud::Hud::new();
+        let mut hud = dereth_client_shell::hud::Hud::new();
         hud.player_module = Some(m.clone());
         ok &= hud.lock_ui() == want;
 

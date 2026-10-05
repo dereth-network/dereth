@@ -11,18 +11,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::region::Region;
 use dereth_assets::world::{CellLandblock, LandblockInfo, Scene};
 use dereth_assets::{decode_any, Decode, DecodedAsset};
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
 use dereth_primitives::{DataId, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
@@ -32,6 +31,7 @@ use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
 use dereth_render::{PipelineKey, SurfaceContext, VertexFormat};
 use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table, Direction};
 use dereth_world_render::scenery::{generate_scenery, SceneryEnv};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -228,7 +228,7 @@ fn census(
             }
             let has_building = |c: u16| building_cells.contains(&c);
             let scenes_fn = |d: DataId| load(d);
-            let sphere_fn = |d: DataId| dereth_client::models::sorting_sphere(s, d);
+            let sphere_fn = |d: DataId| dereth_client_runtime::models::sorting_sphere(s, d);
             let env = SceneryEnv {
                 scenes: &scenes_fn,
                 has_building: &has_building,
@@ -440,7 +440,7 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,

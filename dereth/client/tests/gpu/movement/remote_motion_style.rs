@@ -12,22 +12,22 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::recorded_movement_events;
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{session_names, shared_session};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::movement::{movement_type, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::{Message, Opcode};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // ---------------------------------------------------------------------------------------------
 // 1. The retained capture corpus. A missing fixture directory is a broken checkout.
@@ -371,7 +371,7 @@ fn store() -> Arc<RetailDatStore> {
 /// The creature's pose: the animation ids its sequence holds, the node it is playing, the node it
 /// wraps back to, and the frame it is on. Named by the crate so this file and the accessor cannot
 /// drift apart.
-use dereth_client::world::ObjectPose as Pose;
+use dereth_scene::world_scene::ObjectPose as Pose;
 
 /// One `0xF74C` seen arriving at `sync_objects` for a **remote** object, with what that object's
 /// own driver held on either side of it.
@@ -481,7 +481,8 @@ fn drive(session: &str, limit: usize) -> (Vec<Station>, usize) {
                 ..SceneConfig::default()
             };
             let mut s = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);

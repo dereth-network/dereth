@@ -35,7 +35,7 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -43,9 +43,7 @@ use std::sync::Arc;
 use dereth_assets::region::Region;
 use dereth_assets::world::{CellLandblock, LandblockInfo, Scene};
 use dereth_assets::{decode_any, Decode, DecodedAsset};
-use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::{SetupGeometry, Sphere};
 use dereth_primitives::num::math;
@@ -53,6 +51,11 @@ use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Position, Qu
 use dereth_render::device::Gpu;
 use dereth_world_render::land::mesh::{generate_landblock_with_table, height_table, Direction};
 use dereth_world_render::scenery::{generate_scenery, SceneryEnv};
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::PLAYER_OBJECT_ID,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const W: u32 = 320;
 const H: u32 = 240;
@@ -105,7 +108,8 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu) -> Self {
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: BLOCK,
             land_radius: 2,
@@ -150,7 +154,7 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(*now),
             1.0 / 30.0,
@@ -276,16 +280,14 @@ impl Arms {
 fn geometry_of(
     s: &RetailDatStore,
     id: DataId,
-    stats: &mut dereth_client::object_physics::SetupPartStats,
+    stats: &mut dereth_client_runtime::object_physics::SetupPartStats,
 ) -> Option<SetupGeometry> {
     if id.0 >> 24 == 0x01 {
-        return dereth_client::object_physics::simple_setup_geometry(s, id, stats);
+        return dereth_client_runtime::object_physics::simple_setup_geometry(s, id, stats);
     }
     let b = s.read_typed(DbType::Setup, id).ok()?;
     let setup = dereth_assets::Setup::decode_payload(id, &b).ok()?;
-    Some(dereth_client::object_physics::setup_geometry_with_parts(
-        s, &setup, stats,
-    ))
+    Some(dereth_client_runtime::object_physics::setup_geometry_with_parts(s, &setup, stats))
 }
 
 /// Inspect geometry categories over 25 blocks using the production scenery generator and
@@ -321,7 +323,7 @@ fn the_scenery_census_says_which_pieces_retail_makes_solid() {
             })
             .clone()
     };
-    let mut part_stats = dereth_client::object_physics::SetupPartStats::default();
+    let mut part_stats = dereth_client_runtime::object_physics::SetupPartStats::default();
     let mut arms: BTreeMap<u32, (Arms, usize)> = BTreeMap::new();
     let mut total = 0usize;
     let mut solid_placements = 0usize;
@@ -357,7 +359,7 @@ fn the_scenery_census_says_which_pieces_retail_makes_solid() {
             }
             let has_building = |c: u16| building_cells.contains(&c);
             let scenes_fn = |d: DataId| load(d);
-            let sphere_fn = |d: DataId| dereth_client::models::sorting_sphere(&s, d);
+            let sphere_fn = |d: DataId| dereth_client_runtime::models::sorting_sphere(&s, d);
             let env = SceneryEnv {
                 scenes: &scenes_fn,
                 has_building: &has_building,

@@ -220,7 +220,7 @@ pub struct CharacterOptionRow {
     /// `PlayerModule`, this crate has no edge to `dereth-client-model`, and *Restore Defaults* has to be
     /// able to say "not available on this host" rather than write `false` into every check box.
     /// Its producer is [`GameView::player_option_default`], implemented by
-    /// `dereth_client::hud::HudView` over
+    /// `dereth_client_runtime::hud::HudView` over
     /// `dereth_client_model::player::options::default_option_value`, which *is* the client's.
     pub default: Option<bool>,
     /// What the toggle-label write's first id resolved to, or `None` when there is no string resolver.

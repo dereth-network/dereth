@@ -29,8 +29,6 @@
 //! not a pixel-perfect image or exact final position.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneReads;
-use dereth_client::{app::App, config::Config, net::ClientNetwork, world::SceneConfig};
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::{
     movement::{position_flags, MovementPositionEvent, PositionPack},
@@ -40,6 +38,11 @@ use dereth_protocol::{
         PhysicsDesc, PhysicsEventStamp, PhysicsTimestamps, PositionWire, PublicWeenieDesc,
     },
     Message,
+};
+use dereth_scene::world_scene::SceneReads;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork, dereth_client_runtime::scene::SceneConfig,
 };
 
 const REMOTE: ObjectId = ObjectId(0x5000_1F95);

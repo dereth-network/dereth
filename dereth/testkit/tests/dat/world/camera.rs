@@ -10,9 +10,9 @@ use super::*;
 /// type changed -- so the creature and the solid control are geometrically identical and the type
 /// is the only variable.
 pub fn the_camera_slides_through_a_creature_but_not_through_a_solid_twin() {
-    use dereth_client::camera::CameraInput;
     use dereth_client_net::client_session::testing::{Corpus, Direction};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::camera::CameraInput;
     use dereth_physics::math::V3 as _;
     use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
@@ -31,12 +31,13 @@ pub fn the_camera_slides_through_a_creature_but_not_through_a_solid_twin() {
     /// the obstacle.
     fn plain_body(
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
-    ) -> dereth_client::character::Character {
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
-        dereth_client::character::Character::new(
+    ) -> dereth_client_runtime::character::Character {
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
+        dereth_client_runtime::character::Character::new(
             store,
             &region,
-            dereth_client::world::DEFAULT_LANDBLOCK,
+            dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
             (96.0, 96.0),
         )
         .expect("the ordinary local body is created")
@@ -67,7 +68,7 @@ pub fn the_camera_slides_through_a_creature_but_not_through_a_solid_twin() {
     ) -> (Position, Position) {
         let mut character = plain_body(store);
         character.update_camera(CameraInput::default(), LocalTime(10.0), 1.0 / 30.0);
-        let pivot = dereth_client::camera::pivot_state(&character.world, character.handle)
+        let pivot = dereth_client_runtime::camera::pivot_state(&character.world, character.handle)
             .expect("the player has a body");
         let from = character.camera.manager.query_pivot_position(&pivot);
         let to = character.camera.sought;
@@ -132,7 +133,7 @@ pub fn the_camera_slides_through_a_creature_but_not_through_a_solid_twin() {
         let mut at = near;
         at.frame.origin.x += 10.0;
         at.frame.rotation = Quat::IDENTITY;
-        let mut stream = dereth_client::objects::ObjectStream::new();
+        let mut stream = dereth_client_runtime::objects::ObjectStream::new();
         stream.apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemCreateObject::OPCODE,
@@ -167,7 +168,7 @@ pub fn the_camera_slides_through_a_creature_but_not_through_a_solid_twin() {
         at.frame.origin = midpoint.sub(upper);
         at.frame.rotation = Quat::IDENTITY;
 
-        let mut stream = dereth_client::objects::ObjectStream::new();
+        let mut stream = dereth_client_runtime::objects::ObjectStream::new();
         stream.apply_event(
             &SessionEvent::WorldObject {
                 opcode: ItemCreateObject::OPCODE,
@@ -264,14 +265,14 @@ pub fn the_camera_against_a_wall_settles_the_same_at_any_tick_rate() {
     const RESIDUAL_WINDOW: f64 = 1.0;
 
     let store = std::sync::Arc::new(dereth_dat::testing::open_store_or_fail());
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let src = std::sync::Arc::new(
-        dereth_client::land_source::DatLandSource::new(std::sync::Arc::clone(&store), &region)
+        dereth_world_data::land_source::DatLandSource::new(std::sync::Arc::clone(&store), &region)
             .expect("the retail height table"),
     );
     src.load_block_cells(LandblockId(world_support::TRAINING_DUNGEON));
 
-    let mut loader = dereth_client::env_cells::EnvCellLoader::new();
+    let mut loader = dereth_world_data::env_cells::EnvCellLoader::new();
     let ids: Vec<CellId> = loader
         .load_block(&store, world_support::TRAINING_DUNGEON)
         .iter()

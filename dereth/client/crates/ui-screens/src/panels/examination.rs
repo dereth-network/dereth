@@ -853,7 +853,7 @@ impl ExaminationPanel {
     ///
     /// The *decision* is not here: retail makes it in the action handler, before it reads
     /// the world selection, so this build makes it in
-    /// `dereth_client::interaction`'s `0x1000002B` arm from a visibility answer pushed in by `App`.
+    /// `dereth_client_runtime::interaction`'s `0x1000002B` arm from a visibility answer pushed in by `App`.
     /// If it were made here, on the pull, the wire would be wrong — the examine-object path sends
     /// `0x00C8 Item_Appraise` on the way past, and retail's close-first leg sends nothing at all.
     ///
@@ -1533,7 +1533,7 @@ impl ExaminationPanel {
     /// the client's tail documented there.
     fn pull(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
         // The examine-object notice first: the examine **cursor** and the
-        // `0x2B` key raise it from `dereth_client::interaction`, which has no screen to call, so the
+        // `0x2B` key raise it from `dereth_client_runtime::interaction`, which has no screen to call, so the
         // notice is pulled off the view here. In the client this is a push and this line does not
         // exist; the serial is what makes a repeat examine of the same object a new notice. See
         // [`crate::view::GameView::examine_request`].
@@ -1606,7 +1606,7 @@ impl ExaminationPanel {
         }
         // Spell-examine notices are drained the same
         // way and for the same reason: its producer is the spellbook's or the spell bar's item
-        // list, which live on `dereth_client::hud::Hud` and cannot reach this panel. Unlike the
+        // list, which live on `dereth_client_shell::hud::Hud` and cannot reach this panel. Unlike the
         // object notice this one **fills and shows the panel immediately** — there is no reply to
         // wait for — so it runs after the object notice and before the appraisal is looked at, and
         // a spell examine on the same frame as an appraisal wins, which is the client's order too

@@ -10,14 +10,14 @@
 
 use dereth_animation::motion::moveto::distance;
 use dereth_animation::MotionCommand;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{Frame, LocalTime, ObjectId};
 use dereth_protocol::{Message, Opcode};
 use dereth_render::device::{DeviceConfig, Gpu};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const PLAYER: ObjectId = ObjectId(0x5000_000a);
 const MOVER: ObjectId = ObjectId(0x8000_09d2);
@@ -222,7 +222,7 @@ fn remote_approach_uses_real_dat_root_motion_and_publishes_achieved_position() {
         },
     )
     .expect("scene");
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("physics owner");

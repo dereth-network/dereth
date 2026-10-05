@@ -20,12 +20,12 @@ use dereth_dat::RetailDatStore;
 use dereth_physics::obj::{PhysicsState, StateSideEffects};
 use dereth_primitives::{DataId, Frame, ObjectId, Vec3};
 
-use crate::anim_assets::DatAnimAssets;
 use crate::movement::to_anim_objdesc;
 use crate::object_step::{ObjectSim, ObjectStepStats};
 use crate::objects::ObjectStream;
 use crate::scene::SceneConfig;
 use crate::world_state::{WorldObject, WorldState};
+use dereth_world_data::anim_assets::DatAnimAssets;
 
 /// What object dispatch counted. A presentation that keeps its own counters folds these in after
 /// each call.

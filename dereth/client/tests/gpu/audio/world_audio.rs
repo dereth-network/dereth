@@ -24,14 +24,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::audio::Audio;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::SceneWrites;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::audio::Audio;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime, Vec3};
 use dereth_render::device::Gpu;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 use crate::common::test_gpu;
 
@@ -48,7 +48,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 /// A silent `Audio`: no device, so `AudioSystem::mix` is called directly and the samples are the
-/// evidence. The seed is pinned rather than [`dereth_client::audio::ran2_seed`]'s `time(NULL)`, so
+/// evidence. The seed is pinned rather than [`dereth_client_runtime::audio::ran2_seed`]'s `time(NULL)`, so
 /// the ambient schedule is reproducible.
 fn audio(prefs: dereth_audio::Prefs) -> Audio {
     Audio::new(prefs, 1, false)
@@ -73,7 +73,7 @@ fn scene(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         ..SceneConfig::default()
     };
     let mut s = WorldScene::load(store, gpu, cfg).expect("the landscape loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     s.attach_character(store, &region, gpu)
         .expect("the body is created");
     s
@@ -87,18 +87,18 @@ fn run(
     audio: &mut Audio,
     t: &mut f64,
     frames: usize,
-    input: dereth_client::character::CharacterInput,
+    input: dereth_client_runtime::character::CharacterInput,
 ) {
     let mut stream = ObjectStream::new();
     // `world_use_time` also drains the server's `0xF750` queue from the stream and
     // resolves an object's setup-record default sound-table id through the animation-asset seam.
-    let anim = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(store));
+    let anim = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(store));
     for _ in 0..frames {
-        *t += dereth_client::app::HEADLESS_STEP;
+        *t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
-        dereth_client::audio::world_use_time(
+        dereth_client_runtime::audio::world_use_time(
             Some(audio),
             Some(scene),
             &mut stream,
@@ -107,7 +107,7 @@ fn run(
             LocalTime(*t),
         );
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(*t),
             1.0 / 30.0,
@@ -195,7 +195,7 @@ fn the_terrain_rescan_is_driven_by_movement_and_not_by_the_frame() {
 
     // Walking: the scan runs again as the listener crosses whole-metre boundaries, and far fewer
     // times than there are frames.
-    let walk = dereth_client::character::CharacterInput {
+    let walk = dereth_client_runtime::character::CharacterInput {
         forward: true,
         run: true,
         ..Default::default()
@@ -297,7 +297,7 @@ fn a_triggered_sound_is_attenuated_by_distance_and_panned_by_bearing() {
 
     let play_at = |a: &mut Audio, at: Vec3| -> (f32, f32) {
         listen(a);
-        a.play_trigger(dereth_client::audio::SoundTrigger::Wave {
+        a.play_trigger(dereth_client_runtime::audio::SoundTrigger::Wave {
             id: wave,
             at,
             volume: 1.0,
@@ -360,7 +360,7 @@ fn a_voice_ends_with_its_sample_rather_than_looping() {
     let mut a = audio(dereth_audio::Prefs::default());
     let wave = a_wave(&store, &mut a);
     a.set_listener(dereth_audio::Listener::default());
-    a.play_trigger(dereth_client::audio::SoundTrigger::Wave {
+    a.play_trigger(dereth_client_runtime::audio::SoundTrigger::Wave {
         id: wave,
         at: Vec3::ZERO,
         volume: 1.0,
@@ -410,7 +410,7 @@ fn the_seventeenth_concurrent_sound_is_dropped() {
     let wave = a_wave(&store, &mut a);
     a.set_listener(dereth_audio::Listener::default());
     for _ in 0..dereth_audio::NUM_VOICES + 4 {
-        a.play_trigger(dereth_client::audio::SoundTrigger::Wave {
+        a.play_trigger(dereth_client_runtime::audio::SoundTrigger::Wave {
             id: wave,
             at: Vec3::ZERO,
             volume: 1.0,
@@ -567,7 +567,7 @@ fn the_animation_sound_hooks_resolve_against_the_objects_own_table() {
         ambient_enabled: false,
         ..dereth_audio::Prefs::default()
     });
-    let walk = dereth_client::character::CharacterInput {
+    let walk = dereth_client_runtime::character::CharacterInput {
         forward: true,
         run: true,
         ..Default::default()
@@ -605,7 +605,7 @@ fn the_animation_sound_hooks_resolve_against_the_objects_own_table() {
 
     // And a `SoundType` it does carry goes all the way to samples, through the same entry point.
     a.set_listener(dereth_audio::Listener::default());
-    a.play_trigger(dereth_client::audio::SoundTrigger::Table {
+    a.play_trigger(dereth_client_runtime::audio::SoundTrigger::Table {
         table,
         stype: SOUND_WOUND1,
         at: Vec3::ZERO,
@@ -655,7 +655,7 @@ fn expected_effect_gain(volume: f32, distance: f32, effect_volume: f32) -> f32 {
 
 /// One positioned effect sound at the listener, peaked.
 fn effect_peak(a: &mut Audio, wave: DataId) -> f32 {
-    a.play_trigger(dereth_client::audio::SoundTrigger::Wave {
+    a.play_trigger(dereth_client_runtime::audio::SoundTrigger::Wave {
         id: wave,
         at: Vec3::ZERO,
         volume: 1.0,
@@ -678,9 +678,9 @@ fn interface_peak(a: &mut Audio, wave: DataId) -> f32 {
 }
 
 /// Write one preference the way the client writes it: as a `UiRequest::SetPreference` through
-/// `dereth_client::audio::apply_preference_requests`.
+/// `dereth_client_runtime::audio::apply_preference_requests`.
 fn set_pref(a: &mut Audio, name: &'static str, v: dereth_ui_screens::PrefValue) {
-    let left = dereth_client::audio::apply_preference_requests(
+    let left = dereth_client_runtime::audio::apply_preference_requests(
         Some(a),
         vec![dereth_ui_screens::UiRequest::SetPreference(name, v)],
     );
@@ -847,7 +847,7 @@ fn each_sound_pair_drives_only_its_own_category_through_the_request_seam() {
     );
 
     // A preference this subsystem does not own comes straight back out rather than disappearing.
-    let left = dereth_client::audio::apply_preference_requests(
+    let left = dereth_client_runtime::audio::apply_preference_requests(
         Some(&mut a),
         vec![dereth_ui_screens::UiRequest::SetPreference(
             "Render.FieldOfView",
@@ -906,7 +906,7 @@ fn restoring_the_option_page_defaults_puts_the_sound_preferences_back() {
         dereth_ui_screens::options::config::restore_default_values().len(),
         "the Defaults button raises one request per write"
     );
-    let left = dereth_client::audio::apply_preference_requests(Some(&mut a), requests);
+    let left = dereth_client_runtime::audio::apply_preference_requests(Some(&mut a), requests);
     // **Eight of them are `Sound.*`** -- the three volumes, the three `*Disabled` booleans,
     // `Sound.SoundFeatures` and `Sound.PlaySoundOnlyWhenActive`, i.e. the whole of `SOUND_KEYS`.
     // The rest belong to Render / Camera / Display / Input / UI and must come back out.
@@ -927,7 +927,7 @@ fn restoring_the_option_page_defaults_puts_the_sound_preferences_back() {
 /// **The `[Sound]` section of `UserPreferences.ini` reaches the mixer.**
 ///
 /// `App::start_shell` builds the sound preferences with
-/// [`dereth_client::audio::prefs_from_file`], which this drives, so the file's `[Sound]` values
+/// [`dereth_client_runtime::audio::prefs_from_file`], which this drives, so the file's `[Sound]` values
 /// are what the mixer uses.
 #[test]
 fn the_preferences_file_reaches_the_mixer() {
@@ -946,7 +946,7 @@ fn the_preferences_file_reaches_the_mixer() {
     )
     .expect("write the ini");
 
-    let prefs = dereth_client::audio::prefs_from_file(&path);
+    let prefs = dereth_client_runtime::audio::prefs_from_file(&path);
     assert_eq!(
         prefs.effect_volume, 0.5,
         "the file's Sound.SoundVolume did not reach Prefs"
@@ -971,7 +971,7 @@ fn the_preferences_file_reaches_the_mixer() {
 
     // A file that does not exist is not an error: initialization ignores a failed
     // preference-file load.
-    let missing = dereth_client::audio::prefs_from_file(&dir.join("no-such-file.ini"));
+    let missing = dereth_client_runtime::audio::prefs_from_file(&dir.join("no-such-file.ini"));
     assert_eq!(missing, dereth_audio::Prefs::default());
     let _ = std::fs::remove_file(&path);
 }
@@ -1025,7 +1025,7 @@ fn losing_focus_silences_the_output_and_the_preference_gates_new_sounds() {
         "Sound.PlaySoundOnlyWhenActive",
         PrefValue::Bool(false),
     );
-    a.play_trigger(dereth_client::audio::SoundTrigger::Wave {
+    a.play_trigger(dereth_client_runtime::audio::SoundTrigger::Wave {
         id: wave,
         at: Vec3::ZERO,
         volume: 1.0,

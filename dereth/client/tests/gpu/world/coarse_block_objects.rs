@@ -10,15 +10,15 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 400;
 const H: u32 = 300;
@@ -50,7 +50,8 @@ struct Bench {
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, scenery_radius: u32, guard: bool) -> Option<Self> {
         let mut gpu = crate::common::test_gpu(W, H);
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: HOLTBURG,
             land_radius: LAND_RADIUS,
@@ -102,7 +103,7 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,
@@ -111,9 +112,9 @@ impl Bench {
         // `CameraControl::viewer_cell` with the swept viewer and hands its resulting draw frame
         // to `scene.camera`. This file's subject is what the **LOD rings** hold, so the bearing
         // the pixels are taken on has to be the bearing retail draws.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,
         );

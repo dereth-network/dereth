@@ -47,7 +47,7 @@ fn lines_for(
 /// client performs as its first act on any line.
 fn composed(arm: dereth_ui_screens::chat::failure::Arm, text: &str) -> Option<String> {
     arm.render(text)
-        .map(|s| dereth_client::chat::add_text_to_scroll_trim(&s).to_owned())
+        .map(|s| dereth_client_model::chat::composition::add_text_to_scroll_trim(&s).to_owned())
 }
 
 /// A recall broken by moving says so, on the strip and not in the scrollback.

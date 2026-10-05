@@ -34,7 +34,7 @@ use dereth_input::{CallbackId, InputEvent, InputMapId};
 /// `0x10000005, 0x10000004, 0x10000003` (the last registered is walked first), so `MagicCombat`
 /// would win all five of the controls the three share — `DIK_INSERT`, `DIK_PRIOR`, `DIK_DELETE`,
 /// `DIK_END`, `DIK_NEXT` — and the `CombatLow`/`Medium`/`HighAttack` arms in
-/// `dereth_client::interaction::Interaction::on_action` could never receive a key. The swap is
+/// `dereth_client_runtime::interaction::Interaction::on_action` could never receive a key. The swap is
 /// [`InputShell::register_combat_input_maps`]; the shipped action-map conflict table is
 /// the independent second reading and it omits exactly those three pairs.
 ///
@@ -76,7 +76,7 @@ use dereth_input::{CallbackId, InputEvent, InputMapId};
 /// start-up owner at all: the original intro, credits and character-management constructors are
 /// its three registrants, so it is live only while one of those screens is
 /// up and goes away with the screen. It is mirrored on the mode edge instead, by
-/// [`InputShell::set_mode_input_maps`] from `dereth_client::ui::PREGAME_MODE_INPUT_MAPS`. Putting it in
+/// [`InputShell::set_mode_input_maps`] from `dereth_client_shell::ui::PREGAME_MODE_INPUT_MAPS`. Putting it in
 /// this table would register it for the whole session and give `DIK_RETURN` to
 /// `AcceptInput` in the game world, where retail gives it to `EnterChatMode`.
 /// The four input maps the text element registers **while it has focus**, in order:
@@ -128,7 +128,7 @@ pub const FOCUSED_TEXT_MAPS: [u32; 4] = [0x0A, 1, 7, 8];
 ///
 /// Named because two files need the same number for two different reasons: it is
 /// [`FOCUSED_TEXT_MAPS`]'s first entry here, and it is the one map besides
-/// `dereth_client::ui::UI_INPUT_MAP` whose events the UI shell answers itself — see
+/// `dereth_client_shell::ui::UI_INPUT_MAP` whose events the UI shell answers itself — see
 /// `UiShell::reaches_the_managers_on_action` for why that is a declared deviation rather than a
 /// transcription.
 pub const SCROLLABLE_INPUT_MAP: dereth_input::InputMapId = dereth_input::InputMapId(0x0A);
@@ -144,7 +144,7 @@ pub const TARGET_INPUT_MAP: dereth_input::InputMapId = dereth_input::InputMapId(
 /// See [`dereth_input::dispatch::priority::FOCUSED_UI_TEXT_BARRIER`].
 ///
 /// Keying on the map id rather than carrying a priority through
-/// `dereth_client::ui::UiShell::focused_input_maps` is exact **here** and only here: map 1 has exactly
+/// `dereth_client_shell::ui::UiShell::focused_input_maps` is exact **here** and only here: map 1 has exactly
 /// one registrant in this band — the text-map registration — while `DebugConsole` registers the same map at
 /// its own [`dereth_input::dispatch::priority::DEBUG_CONSOLE_BARRIER`] through a different callback
 /// and never through this function.
@@ -389,7 +389,7 @@ impl InputShell {
     /// scrollable, 1 and 7 only for an editable text box, 8 for an editable-or-selectable one — so
     /// it takes a set: a single "an editable text box has focus" flag would leave a focused list
     /// box or a selectable chat log registering nothing, with a dead wheel. The set is computed by
-    /// `dereth_client::ui::UiShell::focused_input_maps`, which carries both registration rules.
+    /// `dereth_client_shell::ui::UiShell::focused_input_maps`, which carries both registration rules.
     ///
     /// An empty slice is the focus change's lose arm. A non-empty one is the
     /// lose arm **and then** the gain arm, in that order, because the callback is dropped whole:
@@ -555,7 +555,7 @@ impl InputShell {
     /// and the new mode, which has already been assigned before the call.
     ///
     /// The production caller is
-    /// `dereth_client::interaction::Interaction::update_combat_input_map`, which polls once per frame.
+    /// `dereth_client_runtime::interaction::Interaction::update_combat_input_map`, which polls once per frame.
     ///
     /// Outside a character session there is no combat mode to follow: the combat maps are down
     /// (see [`Self::set_character_session_input_maps`]) and this changes nothing.
@@ -587,7 +587,7 @@ impl InputShell {
     /// [`Self::finish_session_retirement`], taking the combat and target maps with them. Until the next session
     /// begins, combat-mode and target-mode changes register nothing.
     ///
-    /// The production caller is `dereth_client::ui::UiShell`, which mirrors "the gameplay screen
+    /// The production caller is `dereth_client_shell::ui::UiShell`, which mirrors "the gameplay screen
     /// is up" into this on the edge, as it mirrors a pre-game screen's own maps.
     pub fn set_character_session_input_maps(&mut self, live: bool) -> bool {
         if self.character_session_input_maps == live {

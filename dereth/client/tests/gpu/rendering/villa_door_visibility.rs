@@ -4,16 +4,16 @@
 //! decoded from the recorded `house-purchase-and-trade` session, a WARP device and no socket.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::{Message, Reader};
 use dereth_render::device::{DeviceConfig, Gpu};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const BLOCK: u16 = 0x9DAF;
 
@@ -120,7 +120,7 @@ fn door_shot(no_draw: bool, interior: bool) -> Shot {
         },
     )
     .expect("D3D12 WARP required");
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let cfg = SceneConfig {
         landblock: BLOCK,
         time_of_day: Some(0.35),
@@ -181,7 +181,12 @@ fn door_shot(no_draw: bool, interior: bool) -> Shot {
             now,
             1.0 / 30.0,
         );
-        dereth_client::camera::update_viewer(&mut scene, Default::default(), now, 1.0 / 30.0);
+        dereth_client_runtime::camera::update_viewer(
+            &mut scene,
+            Default::default(),
+            now,
+            1.0 / 30.0,
+        );
         scene.stream(&store, &mut gpu).expect("stream");
         scene.reserve_upload_arena(&mut gpu).expect("arena");
         gpu.begin_frame().expect("begin");
@@ -308,7 +313,7 @@ fn a_continuous_villa_crossing_does_not_reuse_preclear_building_cells_after_dept
         },
     )
     .expect("D3D12 WARP required");
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let doors = recorded_doors();
     assert!(
         doors.len() > 4,
@@ -381,7 +386,12 @@ fn a_continuous_villa_crossing_does_not_reuse_preclear_building_cells_after_dept
                 now,
             );
             scene.update(Default::default(), input, now, 1.0 / 30.0);
-            dereth_client::camera::update_viewer(scene, Default::default(), now, 1.0 / 30.0);
+            dereth_client_runtime::camera::update_viewer(
+                scene,
+                Default::default(),
+                now,
+                1.0 / 30.0,
+            );
             scene.stream(&store, &mut gpu).expect("stream");
             scene.reserve_upload_arena(&mut gpu).expect("arena");
             gpu.begin_frame().expect("begin");

@@ -18,7 +18,7 @@
 //! re-export of this module.
 //!
 //! **The file I/O did not come with the types.** `ScreenLayout`'s `fopen` pair and the path
-//! builder its caller reaches through are `dereth_client::persist`, because opening a file is the
+//! builder its caller reaches through are `dereth_client_shell::persist`, because opening a file is the
 //! application's job and a contract crate that touches `std::fs` is not a contract any more. What
 //! is here is the shape of the data, the text format, and the parse/serialise pair either side of
 //! it — all of which a server, a tool or a test can use with no disk at all.

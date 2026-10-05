@@ -127,7 +127,7 @@ pub struct Net {
     last_time_sync: Option<f64>,
     /// Current game time, read **before** the client applies the server's update.
     ///
-    /// The clock itself lives in `dereth_client::app::Clock`; this crate cannot see it, so the
+    /// The clock itself lives in `dereth_client_runtime::platform::clock::Timer`; this crate cannot see it, so the
     /// frame's published value is pushed in with [`Net::set_cur_time`] the way retail publishes
     /// the global once per frame. Left at `0.0` by a caller that never
     /// pushes (every replay and every in-crate fixture), which is the "never synchronised" reading
@@ -367,7 +367,7 @@ impl Net {
     ///
     /// * the connection-request handler's tail, which copies
     ///   the `ConnectRequest`'s own cookie into the receiver. The request is
-    ///   parsed and answered in `dereth_client::net::NetLink::handle_connection_request`, so that
+    ///   parsed and answered in `dereth_client_runtime::net::NetLink::handle_connection_request`, so that
     ///   caller must make this call; see [`Net::set_referral_cookie`].
     /// * [`Net::handle_referral`]'s "the slot is already live" arm, which is in this crate.
     ///
@@ -625,7 +625,7 @@ impl Net {
     /// wire and then discarded by the clock. Past the gate, the correction is `external_offset =
     /// S - elapsed_time` if the server is ahead, and a rewind of `elapsed_time` if the local
     /// timer overshot, with a `1e-09` dead band on each. The consumer is
-    /// `dereth_client::app::Clock::set_time`, which transcribes all of it.
+    /// `dereth_client_runtime::platform::clock::Timer::set_time`, which transcribes all of it.
     pub fn take_time_sync(&mut self) -> Option<f64> {
         self.last_time_sync.take()
     }

@@ -45,7 +45,7 @@ use crate::common::client_dir;
 
 use std::path::{Path, PathBuf};
 
-use dereth_client::interaction::action as ia;
+use dereth_client_runtime::interaction::action as ia;
 
 /// A disposable directory standing in for the default preferences file's directory.
 fn scratch(tag: &str) -> PathBuf {
@@ -56,14 +56,14 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn app_in_gameplay(prefs_dir: &Path) -> dereth_client::app::App {
-    let cfg = dereth_client::config::Config {
+    let cfg = dereth_client_runtime::config::Config {
         ui: true,
         headless: true,
         sound: false,
         dat_dir: client_dir(),
         // The default preferences path is the *file*; the screenshot takes its directory.
         preferences_file: prefs_dir.join("dereth-client.ini"),
-        ..dereth_client::config::Config::default()
+        ..dereth_client_runtime::config::Config::default()
     };
     let mut app = dereth_client::app::App::new(cfg).expect("an application");
     app.start_shell().expect("the shell starts");
@@ -80,7 +80,7 @@ fn app_in_gameplay(prefs_dir: &Path) -> dereth_client::app::App {
 fn press_screenshot(app: &mut dereth_client::app::App) {
     let e = dereth_input::InputEvent {
         action: dereth_input::ActionId(ia::CAPTURE_SCREENSHOT),
-        input_map: dereth_client::ui::UI_INPUT_MAP,
+        input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,
         extent: 1.0,
         start: true,
@@ -117,7 +117,8 @@ fn the_shipped_numpad_star_resolves_to_capture_screenshot() {
     use dereth_input::{ActionId, InputMapId};
 
     let store = dereth_dat::testing::open_store().expect("the retail dats");
-    let shell = dereth_client::input::InputShell::new(&store, None).expect("the input tables");
+    let shell =
+        dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
     let km = &shell.manager.keymap;
     let ui_commands = InputMapId(0x1000_0009);
     let section = km.section(ui_commands).expect("the UICommands section");

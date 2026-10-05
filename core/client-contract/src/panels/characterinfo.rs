@@ -2,7 +2,7 @@
 //!
 //! Shared with `dereth_ui_screens::panels::characterinfo`, which keeps the panel and its string
 //! tokens. What is here is the list of ids the page needs:
-//! `dereth_client::hud` is what asks the qualities for them and what fills the view, and it names
+//! `dereth_client_shell::hud` is what asks the qualities for them and what fills the view, and it names
 //! `prop`, `LUMINANCE` and `AUGMENTATIONS` at eight sites while it does. Numbers and string
 //! tokens; nothing draws.
 

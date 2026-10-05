@@ -11,14 +11,18 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 const W: usize = 800;
 const H: usize = 600;
@@ -50,7 +54,7 @@ fn block_at(x: i32, y: i32) -> LandblockId {
 fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let cfg = SceneConfig::default();
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -109,7 +113,7 @@ fn go_to(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu, blo
 /// One `WorldScene::update` and nothing else: no teleport, no move, no clock.
 fn tick(scene: &mut WorldScene) {
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(0.0),
         0.0,
@@ -239,9 +243,9 @@ struct Trip {
     /// has nothing to do with re-baking. These two fields tell the two apart; without them the
     /// failure reads as a landscape defect.
     edges: (
-        dereth_client::character::GroundEdges,
-        dereth_client::character::GroundEdges,
-        dereth_client::character::GroundEdges,
+        dereth_client_runtime::character::GroundEdges,
+        dereth_client_runtime::character::GroundEdges,
+        dereth_client_runtime::character::GroundEdges,
     ),
     frames: (f64, f64, f64),
 }

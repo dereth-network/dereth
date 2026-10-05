@@ -5,13 +5,19 @@
 //! not reach the third and fourth halves at all: they are about what survives the ring being
 //! trimmed, which takes thousands of frames.
 
-use dereth_client::frame::{FrameRecorder, FrameStep};
-use dereth_client::frame_events::{
-    ActionRoute, ControlLossSite, FrameEvent, FrameEventKind, FrameEvents, NoBodyReason,
-    StreamStage, KIND_COUNT,
-};
-use dereth_client::world::RenderPrefWork;
+use dereth_client_runtime::frame_events::RenderPrefWork;
 use dereth_testkit::HeadlessClient;
+use {dereth_client_runtime::frame::FrameRecorder, dereth_client_runtime::frame::FrameStep};
+use {
+    dereth_client_runtime::frame_events::ActionRoute,
+    dereth_client_runtime::frame_events::ControlLossSite,
+    dereth_client_runtime::frame_events::FrameEvent,
+    dereth_client_runtime::frame_events::FrameEventKind,
+    dereth_client_runtime::frame_events::FrameEvents,
+    dereth_client_runtime::frame_events::NoBodyReason,
+    dereth_client_runtime::frame_events::StreamStage,
+    dereth_client_runtime::frame_events::KIND_COUNT,
+};
 
 /// The fourteen lines a frame that ran to the end produces, in order. This is the golden text a
 /// scenario diffs against.

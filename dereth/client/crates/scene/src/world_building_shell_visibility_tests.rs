@@ -1,5 +1,5 @@
 use super::*;
-use crate::world_scene::DEFAULT_LANDBLOCK;
+use dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
 
 // Exercise the production building-to-mesh path and its subset guard.
 // Real DAT materials and placements, with explicitly synthetic stationary draw geometry/camera.

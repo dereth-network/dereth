@@ -25,17 +25,16 @@
 //! datagram leaves the process), driven by a pointer press on the chat entry and one character
 //! message per character; the emote station logs in off `long-solo-play`'s recorded player create.
 
-use dereth_client::{
-    app::App,
-    config::Config,
-    pump::{Pump, Win32Message},
-};
 use dereth_client_model::Request;
 use dereth_client_net::client_session::{testing::MockTransport, Session};
 use dereth_client_runtime::requests::send_request;
 use dereth_primitives::NetQueue;
 use dereth_ui::{framework::mode, ElementId};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config, dereth_desktop::pump::Pump,
+    dereth_input::win32::Win32Message,
+};
 
 /// The main chat window's text entry and log element.
 const CHAT_ENTRY: ElementId = dereth_ui_screens::chat::window::ENTRY;
@@ -367,12 +366,15 @@ fn slash_wave_is_forwarded_and_the_only_local_refusal_comes_from_a_registered_ha
 #[test]
 fn a_typed_pose_reaches_the_local_body_and_the_wire() {
     use dereth_animation::MotionCommand;
-    use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
     use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
     use dereth_client_net::client_session::SessionEvent;
     use dereth_primitives::{LocalTime, ObjectId};
     use dereth_protocol::objects::ItemCreateObject;
     use dereth_protocol::{Message, Opcode};
+    use {
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig,
+    };
 
     /// long-solo-play's own character.
     const PLAYER: ObjectId = ObjectId(0x5000_000a);

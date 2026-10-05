@@ -14,13 +14,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dereth_assets::Decode;
-use dereth_client::land_source::DatLandSource;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::cell::{CellArray, CellResolver};
 use dereth_physics::geom::BBox;
 use dereth_physics::source::PhysicsPart;
 use dereth_physics::{landdefs, LandSource};
 use dereth_primitives::{CellId, Frame, LandblockId, Position, Quat, Vec3};
+use dereth_world_data::land_source::DatLandSource;
 
 use collision_probe::in_the_room;
 
@@ -41,7 +41,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn land(store: &Arc<RetailDatStore>) -> Arc<DatLandSource> {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     Arc::new(DatLandSource::new(Arc::clone(store), &region).expect("the retail height table"))
 }
 
@@ -53,7 +53,7 @@ fn land(store: &Arc<RetailDatStore>) -> Arc<DatLandSource> {
 /// This is deliberately *not* read back out of `DatLandSource`: an oracle taken from the subject
 /// asserts only that the subject is self-consistent.
 fn portals_from_the_records(store: &Arc<RetailDatStore>) -> BTreeMap<u32, BTreeSet<u32>> {
-    let lbi_id = dereth_client::world::lbi_did(HOLTBURG.0);
+    let lbi_id = dereth_client_runtime::landblock::lbi_did(HOLTBURG.0);
     let bytes = store
         .read_typed(DbType::Lbi, lbi_id)
         .expect("Holtburg's LBI");

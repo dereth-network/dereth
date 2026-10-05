@@ -10,12 +10,10 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::camera::{target, CameraInput, FreeCamera, GAMEPLAY_CAMERA_SCALE};
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, Vec3};
@@ -23,6 +21,12 @@ use dereth_render::camera::{
     compute_aspect_for_viewport, fov_y_from_preference, perspective_fov_lh, swap_forward_and_up,
     view_from_frame, AspectPreference, Viewport, DEFAULT_FOV_DEGREES, DEG_TO_RAD, ZFAR, ZNEAR,
 };
+use {
+    dereth_client_runtime::camera::target, dereth_client_runtime::camera::CameraInput,
+    dereth_client_runtime::camera::FreeCamera,
+    dereth_client_runtime::camera::GAMEPLAY_CAMERA_SCALE,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The pitch the retail constants demand: `atan(0.75 * 1.1 / (2.5 * 1.1))`, which is
 /// `atan(0.3)` and independent of the scale — the scale only decides whether
@@ -120,10 +124,10 @@ fn door_edges(cam: &FreeCamera, vp: Viewport, fov_y: f32, aspect: f32) -> (Edge,
 }
 
 /// Drive the real client for long enough that the smoother has settled, standing still.
-fn settled_camera() -> (FreeCamera, dereth_client::camera::CameraManager) {
+fn settled_camera() -> (FreeCamera, dereth_client_runtime::camera::CameraManager) {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -144,7 +148,7 @@ fn settled_camera() -> (FreeCamera, dereth_client::camera::CameraManager) {
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),

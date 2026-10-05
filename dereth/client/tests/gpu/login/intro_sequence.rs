@@ -13,7 +13,7 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui_screens::screens::intro::{self, IntroScreen};
 

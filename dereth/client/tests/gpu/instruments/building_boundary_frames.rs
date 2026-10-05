@@ -7,16 +7,16 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::env_cells::EnvCellLoader;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
+use dereth_world_data::env_cells::EnvCellLoader;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 use crate::rendering::building_boundary_draw::{
     door_shot, store, DOORWAY, DOOR_ROT, H, HOLTBURG, RECORDED_CELL, RECORDED_ORIGIN, RECORDED_ROT,
@@ -34,7 +34,7 @@ fn default_dir() -> &'static str {
 fn render_the_recorded_pose_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),
@@ -57,12 +57,12 @@ fn render_the_recorded_pose_frame() {
     let mut now = 0.0f64;
     let mut rgba = Vec::new();
     for _ in 0..6 {
-        now += dereth_client::app::HEADLESS_STEP;
+        now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(&store, &mut gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             1.0 / 30.0,
@@ -111,7 +111,7 @@ fn point_in(store: &RetailDatStore, cell: u32) -> Option<Vec3> {
         .load_block(store, block)
         .into_iter()
         .find(|d| d.id.0 == cell)?;
-    let g = dereth_client::env_cells::physics_geometry(&d);
+    let g = dereth_world_data::env_cells::physics_geometry(&d);
     let bsp = g.cell_bsp.as_ref()?;
     for zi in -24i32..=24 {
         for i in -40i32..=40 {
@@ -142,7 +142,7 @@ fn shot(
     tag: &str,
 ) -> Option<()> {
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),
@@ -163,7 +163,7 @@ fn shot(
     let mut now = 0.0f64;
     let mut rgba = Vec::new();
     for _ in 0..6 {
-        now += dereth_client::app::HEADLESS_STEP;
+        now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, &mut gpu, &mut stream)
             .expect("sync_objects");
@@ -174,7 +174,7 @@ fn shot(
             stream.sync_physics_at(store, &mut c.world, LocalTime(now));
         }
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             1.0 / 30.0,
@@ -183,9 +183,9 @@ fn shot(
         // after the world update and records `CameraControl::viewer_cell`. If the viewer update
         // is omitted here, `WorldScene::viewer_cell` falls back to the body's cell, which
         // measures the doorway from the body rather than from the swept camera.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             1.0 / 30.0,
         );

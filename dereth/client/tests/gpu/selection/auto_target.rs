@@ -22,24 +22,27 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::character::PLAYER_OBJECT_ID;
-use dereth_client::interaction::{action as ia, Interaction};
-use dereth_client::objects::ObjectStream;
-use dereth_client::selection_geometry::SceneSelectionPhysics;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_model::combat::CombatMode;
 use dereth_client_model::qualities::{StatKey, StatType, StatValue};
 use dereth_client_model::range::RADAR_RADIUS_OUTDOORS;
 use dereth_client_model::selection::LAST_ATTACKER_IID;
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::selection_geometry::SceneSelectionPhysics;
 use dereth_dat::RetailDatStore;
 use dereth_input::{ActionId, InputMapId};
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
+use {
+    dereth_client_runtime::interaction::action as ia,
+    dereth_client_runtime::interaction::Interaction,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The map the ids are dispatched in. `on_actions` does not read it.
 const MAP: InputMapId = InputMapId(0x1000_0007);
@@ -73,7 +76,8 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,
@@ -246,7 +250,7 @@ impl Bench {
 
     fn frame(&mut self, actions: Vec<dereth_client_runtime::actions::Action>) -> usize {
         self.now += 1.0;
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             Some(&self.scene),
@@ -942,7 +946,7 @@ fn the_boundary_is_exclusive_and_has_no_minus_one() {
 fn neither_shipped_binding_for_use_or_examine_is_a_hold() {
     let store = dereth_dat::testing::open_store().expect("the shipped ActionMap is in the dats");
     let shell =
-        dereth_client::input::InputShell::new(&store, None).expect("the input tables decode");
+        dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables decode");
     let mut examined = 0;
     for a in [ia::USE, ia::SELECTION_EXAMINE] {
         let t = shell.manager.action_map.toggle_type(MAP, ActionId(a));
@@ -1048,24 +1052,24 @@ mod defender_notification {
     //! stamps through a notification and then calls the world's target-selection routine directly
     //! at a later time.
 
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::character::PLAYER_OBJECT_ID;
-    use dereth_client::interaction::Interaction;
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::selection_geometry::SceneSelectionPhysics;
-    use dereth_client::world::{SceneConfig, WorldScene};
     use dereth_client_model::combat::CombatMode;
     use dereth_client_model::qualities::{StatKey, StatType, StatValue};
     use dereth_client_model::range::RADAR_RADIUS_OUTDOORS;
     use dereth_client_model::selection::LAST_ATTACKER_IID;
     use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+    use dereth_client_runtime::interaction::Interaction;
+    use dereth_client_runtime::objects::ObjectStream;
+    use dereth_client_runtime::selection_geometry::SceneSelectionPhysics;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::Message;
     use dereth_render::device::{DeviceConfig, Gpu};
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
     /// `PLAYER_OPTIONS[13] = ("AutoTarget", ...)` — the option read by automatic targeting.
     const AUTO_TARGET_OPTION: usize = dereth_client_model::player::options::option::AUTO_TARGET;
@@ -1169,7 +1173,8 @@ mod defender_notification {
                 ..DeviceConfig::default()
             };
             let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             let cfg = SceneConfig {
                 cell_statics: false,
                 mesh_collision: false,
@@ -1331,12 +1336,12 @@ mod defender_notification {
         /// net blob drain, which records the notification) and then `interaction::use_time` (which
         /// runs the tail, because that is where the selection geometry exists).
         fn deliver(&mut self, e: &SessionEvent) {
-            dereth_client::interaction::apply_events(
+            dereth_client_runtime::interaction::apply_events(
                 &mut self.inter,
                 std::slice::from_ref(e),
                 &mut self.objects.world,
             );
-            let (unowned, left) = dereth_client::interaction::use_time(
+            let (unowned, left) = dereth_client_runtime::interaction::use_time(
                 &mut self.inter,
                 &self.store,
                 Some(&self.scene),
@@ -1782,8 +1787,12 @@ mod defender_notification {
         b.make_attackable_compass_item(NEAR);
 
         let events = [Handler::Defender.event(), Handler::Evasion.event()];
-        dereth_client::interaction::apply_events(&mut b.inter, &events, &mut b.objects.world);
-        let (unowned, left) = dereth_client::interaction::use_time(
+        dereth_client_runtime::interaction::apply_events(
+            &mut b.inter,
+            &events,
+            &mut b.objects.world,
+        );
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut b.inter,
             &b.store,
             Some(&b.scene),
@@ -1840,24 +1849,27 @@ mod selection_change {
     //! doing anything when the selected id already equals the requested id, and even a forced call
     //! skips the notice if the id did not change. So every deselect below first holds a target.
 
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::character::PLAYER_OBJECT_ID;
-    use dereth_client::interaction::{action as ia, Interaction};
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::selection_geometry::SceneSelectionPhysics;
-    use dereth_client::world::{SceneConfig, WorldScene};
     use dereth_client_model::combat::CombatMode;
     use dereth_client_model::qualities::{StatKey, StatType, StatValue};
     use dereth_client_model::selection::LAST_ATTACKER_IID;
     use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+    use dereth_client_runtime::objects::ObjectStream;
+    use dereth_client_runtime::selection_geometry::SceneSelectionPhysics;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::Message;
     use dereth_render::device::{DeviceConfig, Gpu};
     use dereth_ui_screens::view::UiRequest;
+    use {
+        dereth_client_runtime::interaction::action as ia,
+        dereth_client_runtime::interaction::Interaction,
+    };
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
     const AUTO_TARGET_OPTION: usize = dereth_client_model::player::options::option::AUTO_TARGET;
     const AUTO_REPEAT_OPTION: usize =
@@ -1900,7 +1912,8 @@ mod selection_change {
                 ..DeviceConfig::default()
             };
             let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             let scfg = SceneConfig {
                 cell_statics: false,
                 mesh_collision: false,
@@ -2064,7 +2077,7 @@ mod selection_change {
 
         /// One `App::frame` worth of `interaction::use_time`, with whatever was queued.
         fn frame(&mut self) {
-            let (unowned, left) = dereth_client::interaction::use_time(
+            let (unowned, left) = dereth_client_runtime::interaction::use_time(
                 &mut self.inter,
                 &self.store,
                 Some(&self.scene),
@@ -2107,7 +2120,7 @@ mod selection_change {
                 .to_le_bytes()
                 .to_vec();
             blob.extend(dereth_protocol::write_body(&msg).expect("encode"));
-            dereth_client::interaction::apply_events(
+            dereth_client_runtime::interaction::apply_events(
                 &mut self.inter,
                 &[SessionEvent::UiEvent {
                     opcode: dereth_protocol::combat::DefenderNotification::OPCODE,
@@ -2437,7 +2450,7 @@ mod selection_change {
             extent: 1.0,
             repeats: 0,
         };
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut b.inter,
             &b.store,
             Some(&b.scene),

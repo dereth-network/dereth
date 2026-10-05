@@ -1,4 +1,3 @@
-use dereth_client::character::{Character, CharacterInput, MovementCommands};
 use dereth_client_net::client_session::testing::MockTransport;
 use dereth_client_net::client_session::{PositionReporter, Session, SessionEvent};
 use dereth_physics::math::V3 as _;
@@ -7,6 +6,10 @@ use dereth_protocol::actions::unpack_action;
 use dereth_protocol::movement::{MoveTimestamps, MovementAutonomousPosition};
 use dereth_protocol::types::PositionWire;
 use dereth_protocol::Message;
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::MovementCommands,
+};
 
 use super::support::{create_event, store, PLAYER};
 
@@ -68,11 +71,11 @@ fn owner_position() -> Position {
 fn settled_on_the_owner_spot(
     store: &std::sync::Arc<dereth_dat::RetailDatStore>,
 ) -> (Character, Position) {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client::world::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the ordinary local body is created");
@@ -122,7 +125,7 @@ pub fn teleport_onto(scene: Scene) -> (Arrival, Position) {
     );
 
     // The local half, as the connected client gets it.
-    let mut stream = dereth_client::objects::ObjectStream::new();
+    let mut stream = dereth_client_runtime::objects::ObjectStream::new();
     stream.apply_event(&SessionEvent::PlayerCreated(LOCAL), LocalTime(1.0));
     stream.apply_event(
         &create_event(LOCAL, None, scene.local, "Me"),
@@ -180,7 +183,7 @@ pub fn teleport_onto(scene: Scene) -> (Arrival, Position) {
     // The arrival: the production call an accepted teleport reaches.
     let mut movement = MovementCommands::default();
     let mut input = CharacterInput::default();
-    dereth_client::app::complete_player_teleport_at(
+    dereth_client_runtime::app::complete_player_teleport_at(
         destination,
         &mut c,
         &mut movement,
@@ -199,7 +202,7 @@ pub fn teleport_onto(scene: Scene) -> (Arrival, Position) {
     let mut reporter = PositionReporter::new(0.0);
     reporter.active = true;
     let mut session = Session::new(MockTransport::new());
-    let motion = dereth_client::app::body_motion(&c, MoveTimestamps::default());
+    let motion = dereth_client_runtime::app::body_motion(&c, MoveTimestamps::default());
     assert!(
         motion.contact,
         "a settled arrival must be in contact or nothing is reported"

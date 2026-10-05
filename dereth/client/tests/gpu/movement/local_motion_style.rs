@@ -10,22 +10,22 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::recorded_movement_events;
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{session_names, shared_session};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{movement_type, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::{Message, Opcode};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // ---------------------------------------------------------------------------------------------
 // 1. The retained capture corpus. A missing fixture directory is a broken checkout.
@@ -294,7 +294,8 @@ fn drive(session: &str, limit: usize) -> (Vec<Station>, ObjectId, bool, u64) {
                 ..SceneConfig::default()
             };
             let mut s = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);

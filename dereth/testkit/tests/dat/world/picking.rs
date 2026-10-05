@@ -9,22 +9,22 @@ use super::*;
 /// The pair is the point: arming writes "nothing, and no part either", and the answer has to *move*
 /// the second half from that to "nothing".
 pub fn a_scene_less_click_reports_nothing_picked() {
-    use dereth_client::interaction::{self, Interaction};
     use dereth_primitives::{LocalTime, ObjectId, ServerTime};
     use dereth_ui_screens::view::{DropTarget, UiRequest};
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
     const PLAYER_ID: ObjectId = ObjectId(0x5000_0449);
 
     struct Host {
         store: std::sync::Arc<dereth_dat::RetailDatStore>,
-        objects: dereth_client::objects::ObjectStream,
+        objects: dereth_client_runtime::objects::ObjectStream,
         inter: Interaction,
         clock: f64,
     }
 
     impl Host {
         fn new(store: &std::sync::Arc<dereth_dat::RetailDatStore>) -> Self {
-            let mut objects = dereth_client::objects::ObjectStream::new();
+            let mut objects = dereth_client_runtime::objects::ObjectStream::new();
             objects.world.player = Some(PLAYER_ID);
             objects.world.tables.inventories.insert(
                 PLAYER_ID,
@@ -150,7 +150,7 @@ pub fn a_scene_less_click_reports_nothing_picked() {
 /// The second half is the one that matters and it is invisible to a single-drop measurement: a
 /// reason that stays parked refuses the next viewport press outright.
 pub fn a_drop_armed_with_nothing_drawn_is_answered() {
-    use dereth_client::interaction::SearchReason;
+    use dereth_client_runtime::interaction::SearchReason;
     use dereth_primitives::{ObjectId, ServerTime};
     use dereth_ui_screens::view::{DropTarget, UiRequest};
 
@@ -209,8 +209,8 @@ pub fn a_drop_armed_with_nothing_drawn_is_answered() {
 /// A click and a double-click armed on a frame that drew no world are answered too, so the
 /// gestures whose own gates they would otherwise block still work.
 pub fn a_click_with_nothing_drawn_is_answered_too() {
-    use dereth_client::interaction::SearchReason;
-    use dereth_client::ui::UiMouseEvent;
+    use dereth_client_runtime::interaction::SearchReason;
+    use dereth_client_shell::ui::UiMouseEvent;
     use dereth_ui_screens::screens::gameplay::window;
 
     let store = support::store();
@@ -270,8 +270,8 @@ pub fn a_click_with_nothing_drawn_is_answered_too() {
 /// This is the control for the two above: an arm that always fired would satisfy every "it
 /// fired" assertion they make.
 pub fn a_frame_with_nothing_armed_answers_nothing() {
-    use dereth_client::interaction::SearchReason;
-    use dereth_client::ui::UiMouseEvent;
+    use dereth_client_runtime::interaction::SearchReason;
+    use dereth_client_shell::ui::UiMouseEvent;
     use dereth_primitives::ObjectId;
     use dereth_ui_screens::screens::gameplay::window;
     use dereth_ui_screens::view::{DropTarget, UiRequest};
@@ -322,7 +322,7 @@ pub fn a_frame_with_nothing_armed_answers_nothing() {
 /// The answer a scene-less frame gives names nothing, so a dropped item takes the ground leg
 /// rather than being handed to whatever the last sweep found.
 pub fn the_scene_less_answer_names_nothing() {
-    use dereth_client::interaction::SearchReason;
+    use dereth_client_runtime::interaction::SearchReason;
     use dereth_primitives::{ObjectId, ServerTime};
     use dereth_ui_screens::view::{DropTarget, UiRequest};
 

@@ -10,9 +10,9 @@ use dereth_ui_screens::panels::vendor::{VendorPanel, BTN_ADD_TO_LIST};
 #[test]
 fn the_rendered_split_quantity_reaches_the_live_and_frozen_buy_basket() {
     let (mut ui, mut screen) = shipped_gameplay();
-    let hud = dereth_client::hud::Hud::new();
-    let mut objects = dereth_client::objects::ObjectStream::new();
-    let mut interaction = dereth_client::interaction::Interaction::new();
+    let hud = dereth_client_shell::hud::Hud::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
+    let mut interaction = dereth_client_runtime::interaction::Interaction::new();
     let item = ObjectId(0x8000_0010);
     let vendor = ObjectId(0x8000_0001);
     let mut object = Weenie::new(item);
@@ -117,9 +117,9 @@ fn changed_stack_receipts_reseed_before_the_app_projects_the_toolbar() {
 #[test]
 fn selling_one_item_removes_the_drawn_sale_marker_without_removing_its_cart_row() {
     let (mut ui, mut screen) = shipped_gameplay();
-    let hud = dereth_client::hud::Hud::new();
-    let mut objects = dereth_client::objects::ObjectStream::new();
-    let mut interaction = dereth_client::interaction::Interaction::new();
+    let hud = dereth_client_shell::hud::Hud::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
+    let mut interaction = dereth_client_runtime::interaction::Interaction::new();
     let player = ObjectId(1);
     let item = ObjectId(2);
     let world = &mut objects.world;

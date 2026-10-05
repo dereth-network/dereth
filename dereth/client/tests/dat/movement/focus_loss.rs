@@ -36,7 +36,7 @@ use crate::common::sim_app::{app_with_recorded_body as setup, frames, position};
 
 use dereth_client::app::App;
 
-use dereth_client::pump::Pump;
+use dereth_desktop::pump::Pump;
 
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{LocalTime, Position};
@@ -121,7 +121,7 @@ fn server_move_to(app: &mut App, metres: f32) -> Position {
 /// then every `Win32Message` the pump maps it to, fed to the input manager. `Focused(false)` maps
 /// to `WM_ACTIVATEAPP(0)`, `WM_ACTIVATE(0)` and `WM_KILLFOCUS`, which is the retail triple.
 fn lose_focus(app: &mut App, time: u32) {
-    let event = dereth_client::platform::window::HostEvent::Focused(false);
+    let event = dereth_input::host::HostEvent::Focused(false);
     app.note_flycam_input(&event);
     let mut pump = Pump::new();
     pump.state.is_ready = true;
@@ -148,7 +148,7 @@ fn movement_key(app: &mut App, action: dereth_input::ActionId, down: bool, time:
     ]
     .into_iter()
     .find(|keycode| {
-        dereth_client::pump::scan_code_from_key_code(*keycode)
+        dereth_desktop::pump::scan_code_from_key_code(*keycode)
             .is_some_and(|scan| (scan & 0xff) as u32 == (binding.control.offset() & 0x7f) as u32)
     })
     .expect("known physical movement key for this retail DAT");

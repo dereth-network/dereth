@@ -9,8 +9,8 @@ use crate::common::client_dir;
 
 use dereth_chargen::CgVerification;
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::present::NullPresentation;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::present::NullPresentation;
 use dereth_primitives::ObjectId;
 use dereth_ui::framework::mode;
 use dereth_ui::ElementId;

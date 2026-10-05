@@ -9,8 +9,8 @@ use super::*;
 
 /// Readiness is the body's own motion queue, in both directions, and it is not ground contact.
 pub(super) fn ready_is_the_bodys_own_motion_queue() {
-    use dereth_client::character::CharacterInput;
-    use dereth_client::interaction::Interaction;
+    use dereth_client_runtime::character::CharacterInput;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_primitives::LocalTime;
 
     let store = store();
@@ -91,14 +91,14 @@ pub(super) fn ready_is_the_bodys_own_motion_queue() {
 
 /// A stance change the body is not ready for is parked, and nothing is built or sent.
 pub(super) fn a_stance_change_the_body_refuses_is_queued() {
-    use dereth_client::interaction::{self, Interaction};
     use dereth_client_model::combat::CombatMode;
     use dereth_primitives::LocalTime;
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
     let store = store();
     let (body, _) = settled(&store);
     let mut inter = Interaction::new();
-    let mut objects = dereth_client::objects::ObjectStream::default();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::default();
     objects.world = world_in(CombatMode::NonCombat, true);
 
     // Note a ready body first, so the frame is shown to overwrite it rather than to have found
@@ -138,9 +138,9 @@ pub(super) fn a_stance_change_the_body_refuses_is_queued() {
 
 /// One body, one world, one instant: the swing is allowed and the stance change is not.
 pub(super) fn the_two_flavours_disagree_on_one_body() {
-    use dereth_client::character::CharacterInput;
-    use dereth_client::interaction::Interaction;
     use dereth_client_model::combat::CombatMode;
+    use dereth_client_runtime::character::CharacterInput;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_primitives::LocalTime;
 
     let store = store();
@@ -195,8 +195,8 @@ pub(super) fn the_two_flavours_disagree_on_one_body() {
 
 /// No combat table on the wielded weapon and the lenient flavour refuses too.
 pub(super) fn a_melee_swing_needs_the_weapons_combat_table() {
-    use dereth_client::interaction::Interaction;
     use dereth_client_model::combat::CombatMode;
+    use dereth_client_runtime::interaction::Interaction;
 
     let store = store();
     let (body, _) = settled(&store);
@@ -221,8 +221,8 @@ pub(super) fn a_melee_swing_needs_the_weapons_combat_table() {
 
 /// The missile arm wants the stance up **and** the body standing in its ready command.
 pub(super) fn a_missile_swing_needs_the_stance_and_the_ready_command() {
-    use dereth_client::interaction::Interaction;
     use dereth_client_model::combat::{CombatMode, MISSILE_READY_STYLES};
+    use dereth_client_runtime::interaction::Interaction;
 
     let store = store();
     let (body, _) = settled(&store);
@@ -250,10 +250,10 @@ pub(super) fn a_missile_swing_needs_the_stance_and_the_ready_command() {
 /// The window's button, the keyboard's frame slot and the shard's acknowledgement all ask the
 /// body, and all three refuse the same state.
 pub(super) fn all_three_attack_arms_consume_the_produced_flavour() {
-    use dereth_client::interaction::{self, Interaction};
     use dereth_client_model::combat::{CombatMode, MISSILE_READY_STYLES};
     use dereth_primitives::{LocalTime, ServerTime};
     use dereth_ui_screens::view::UiRequest;
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
     let store = store();
 
@@ -274,7 +274,7 @@ pub(super) fn all_three_attack_arms_consume_the_produced_flavour() {
     let by_key = |mode: CombatMode, style: u32| -> bool {
         let mut w = world_in(mode, true);
         w.combat.current_style = style;
-        let mut objects = dereth_client::objects::ObjectStream::default();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::default();
         objects.world = w;
         let mut inter = Interaction::new();
         let _ = interaction::use_time(
@@ -307,7 +307,7 @@ pub(super) fn all_three_attack_arms_consume_the_produced_flavour() {
     // arrives rather than carrying the answer from the press.
     let mut w = world_in(CombatMode::Missile, true);
     w.combat.current_style = DOWN;
-    let mut objects = dereth_client::objects::ObjectStream::default();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::default();
     objects.world = w;
     let mut inter = Interaction::new();
     let _ = interaction::use_time(

@@ -24,7 +24,7 @@ fn a_character_set() -> dereth_ui::persist::CharacterSet {
         name: name.into(),
         seconds_greyed_out: 0,
     };
-    dereth_client::ui::character_set_from_login(&dereth_protocol::login::LoginCharacterSet {
+    dereth_client_shell::ui::character_set_from_login(&dereth_protocol::login::LoginCharacterSet {
         status: 0,
         characters: vec![
             named(0x5000_0001, "Zoranth"),
@@ -369,7 +369,7 @@ pub(super) fn the_shards_log_off_answer_does_not_end_a_client_with_screens() {
         still_running &= c.app_mut().frame();
     }
     let not_shutting_down =
-        c.view().expect_app().state() != dereth_client::app::AppState::ShuttingDown;
+        c.view().expect_app().state() != dereth_client_runtime::app::AppState::ShuttingDown;
     c.shutdown();
 
     // With none: the same answer ends the run, because there is nothing to return to and nothing

@@ -17,7 +17,7 @@
 //! [`IconBits::rgba`] is the same picture as straight RGBA with the mask folded into the alpha.
 //! They are the part that can be wrong invisibly (a mask polarity, an off-by-one row, a clamp), so
 //! they are testable with no window, no device and no dat. Turning the picture into a system
-//! cursor and putting it on the window is the host's (`dereth_client::cursor`).
+//! cursor and putting it on the window is the host's (`dereth_desktop::cursor`).
 
 /// The fixed size of a Windows cursor, and what the icon is rendered into regardless of how
 /// small the source surface is.
@@ -98,7 +98,7 @@ pub enum CursorError {
 /// The client's icon-from-surface path, without the GDI.
 ///
 /// `pixels` is the decoded surface in **BGRA** order, top-down, `width * height` entries — which is
-/// exactly what `dereth_client::textures::TextureStore::bgra8` yields for a `0x06xxxxxx` id.
+/// exactly what `dereth_scene::textures::TextureStore::bgra8` yields for a `0x06xxxxxx` id.
 ///
 /// The client's own sequence, for the record: refuse anything wider or taller than 32 pixels,
 /// make a transparent 32x32 A8R8G8B8 scratch surface, blit the source into its top-left corner,

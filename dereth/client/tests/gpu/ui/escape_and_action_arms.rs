@@ -4,7 +4,7 @@
 //! with nothing selected asks for the gameplay options panel; the screenshot key records a request
 //! and writes a chat line; help, plugin manager and radar keys reach their arms. Fixture: a
 //! software D3D12 device, a `WorldScene` with an attached body, the retail dats, and actions handed
-//! to `dereth_client::interaction::use_time`; the three host halves (screenshot, stopping the
+//! to `dereth_client_runtime::interaction::use_time`; the three host halves (screenshot, stopping the
 //! body, panel visibility) also run through a whole `App::frame` on the shipped layout.
 //!
 //! # The arms
@@ -32,21 +32,25 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::client_dir;
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 
 use std::sync::Arc;
 
-use dereth_client::character::PLAYER_OBJECT_ID;
-use dereth_client::interaction::{action as ia, Interaction, TargetMode};
-use dereth_client::objects::ObjectStream;
-use dereth_client::ui::UiMouseEvent;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_model::combat::PowerBarMode;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::ui::UiMouseEvent;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use dereth_ui_screens::view::UiRequest;
+use {
+    dereth_client_runtime::interaction::action as ia,
+    dereth_client_runtime::interaction::Interaction,
+    dereth_client_runtime::interaction::TargetMode,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const AUTO_REPEAT_OPTION: usize = dereth_client_model::player::options::option::AUTO_REPEAT_ATTACK;
 
@@ -75,7 +79,8 @@ impl Bench {
                 .expect("the retail dats are `use_time`'s own argument: set DERETH_TEST_DAT_DIR"),
         );
         let mut gpu = crate::common::test_gpu(800, 600);
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let scfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,
@@ -175,7 +180,7 @@ impl Bench {
                 repeats: 0,
             })
             .collect();
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             Some(&self.scene),
@@ -234,7 +239,7 @@ impl Bench {
         );
     }
 
-    fn s(&self) -> dereth_client::interaction::InteractionStats {
+    fn s(&self) -> dereth_client_runtime::interaction::InteractionStats {
         self.inter.stats
     }
 }
@@ -757,21 +762,21 @@ fn app_in_gameplay(frames: u32) -> dereth_client::app::App {
             let _ = std::fs::remove_file(d.join(format!("ScreenShot{n:05}.png")));
         }
     }
-    let cfg = dereth_client::config::Config {
+    let cfg = dereth_client_runtime::config::Config {
         ui: true,
         headless: true,
         sound: false,
         dat_dir: client_dir(),
         preferences_file: prefs,
-        ..dereth_client::config::Config::default()
+        ..dereth_client_runtime::config::Config::default()
     };
     let mut app = dereth_client::app::App::new(cfg).expect("an application");
     app.start_shell().expect("the shell starts");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("a static scene");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
@@ -784,7 +789,7 @@ fn app_in_gameplay(frames: u32) -> dereth_client::app::App {
 fn inject(app: &mut dereth_client::app::App, action: u32) {
     let e = dereth_input::InputEvent {
         action: dereth_input::ActionId(action),
-        input_map: dereth_client::ui::UI_INPUT_MAP,
+        input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,
         extent: 1.0,
         start: true,

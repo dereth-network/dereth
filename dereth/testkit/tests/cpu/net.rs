@@ -13,7 +13,6 @@
 
 use std::net::SocketAddr;
 
-use dereth_client::net::{ClientNetwork, LinkStatus};
 use dereth_client_net::client_session::testing::capture;
 use dereth_client_net::client_session::{DisconnectReason, SessionState};
 use dereth_client_net::RecipientId;
@@ -22,6 +21,7 @@ use dereth_testkit::{HeadlessClient, Inbound};
 use dereth_transport::conn::{ConnectRequest, ConnectionState, NetErrorCode};
 use dereth_transport::wire::{OutPacket, PacketFlags, ParsedPacket, ProtoHeader};
 use dereth_transport::CryptoSystem;
+use {dereth_client_runtime::net::ClientNetwork, dereth_client_runtime::net::LinkStatus};
 
 /// The id the shard gives this client. Non-zero: zero is the client's own "this slot is free"
 /// sentinel, so a scenario that used it would be asserting against the empty case.

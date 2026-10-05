@@ -14,12 +14,12 @@ use crate::common::client_dir;
 use crate::common::recorded_world_sessions;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::{session_names, shared_session};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::LocalTime;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
@@ -82,11 +82,11 @@ pub(crate) fn app_in_gameplay(ui: bool, frames: u32) -> App {
     let mut app = App::new(cfg).unwrap_or_else(|e| panic!("the application must start: {e}"));
     app.start_shell()
         .unwrap_or_else(|e| panic!("the shell must come up: {e}"));
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s)
         .unwrap_or_else(|e| panic!("the static scene must load: {e}"));
@@ -504,7 +504,7 @@ fn the_vitals_show_what_the_recorded_server_sent() {
         use dereth_assets::Decode as _;
         use dereth_primitives::AssetSource as _;
         let store = dereth_dat::RetailDatStore::open_dir(&client_dir()).expect("dats");
-        let id = dereth_client::hud::ATTRIBUTE_2ND_TABLE;
+        let id = dereth_client_runtime::hud::ATTRIBUTE_2ND_TABLE;
         let filter_id = dereth_primitives::DataId(0x0E01_0001);
         (
             dereth_assets::tables::Attribute2ndTable::decode_payload(
@@ -761,7 +761,7 @@ fn the_window_placement_blob_decodes_and_addresses_real_windows() {
         let Some(desc) = player_description(&events) else {
             panic!("{session} never reached 0x0013")
         };
-        let p = dereth_client::hud::decode_placements(&desc.player_module);
+        let p = dereth_client_runtime::hud::decode_placements(&desc.player_module);
         by_session.push((session.clone(), p.rows.len()));
         if best.is_none() || p.rows.len() > best_rows {
             best_rows = p.rows.len();

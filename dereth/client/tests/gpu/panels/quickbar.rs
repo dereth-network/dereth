@@ -16,12 +16,12 @@ use crate::common::client_dir;
 use std::collections::BTreeSet;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::shared_session;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::login::ShortCutData;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
@@ -61,11 +61,11 @@ fn app_in_gameplay(frames: u32) -> Option<App> {
     let mut app = App::new(cfg).unwrap_or_else(|e| panic!("a headless App: {e}"));
     app.start_shell()
         .unwrap_or_else(|e| panic!("the headless App's UI shell: {e}"));
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s)
         .unwrap_or_else(|e| panic!("the static scene: {e}"));

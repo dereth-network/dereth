@@ -6,11 +6,11 @@
 //! presentation crate, and neither does `NullWindow`, which is nothing but this trait's
 //! defaults with an extent.
 //!
-//! `winit` is named in `dereth_client::platform::window` and `dereth_client::pump` and nowhere else.
+//! `winit` is named in `dereth_desktop::platform::window` and `dereth_desktop::pump` and nowhere else.
 //! The events the pump hands back are `HostEvent`s: plain data, no windowing type in any field.
 //! [`crate::pump`] maps them onto the messages the window procedure would have seen.
 //!
-//! `dereth_client::platform::window` re-exports everything here, and
+//! `dereth_desktop::platform::window` re-exports everything here, and
 //! keeps `WinitWindow`, `open_window`, the monitor enumeration and the `winit` event mapping.
 
 use dereth_client_contract::options::store::DisplayMode;
@@ -187,7 +187,7 @@ impl WindowHost for NullWindow {
 /// The virtual desktop a **headless** run is placed on.
 ///
 /// A headless run has no window handle and no monitor, so `GetSystemMetrics(SM_CXSCREEN)` and
-/// `SM_CYSCREEN` have no answer at all — `dereth_client::platform::window::monitor_metrics` is
+/// `SM_CYSCREEN` have no answer at all — `dereth_desktop::platform::window::monitor_metrics` is
 /// never even called on that path,
 /// because `App::new`'s headless arm skips the whole window block. This is the screen the
 /// placement arithmetic is given instead, so that

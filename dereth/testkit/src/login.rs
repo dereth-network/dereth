@@ -87,7 +87,11 @@ pub(crate) fn model_login(m: &mut Model, session: &str, character: Option<&str>)
             m.shell.as_mut().map(|s| &mut s.ui.ui.requests),
             &mut |_, _| {},
         );
-        dereth_client::interaction::apply_events(&mut m.interaction, &events, &mut m.objects.world);
+        dereth_client_runtime::interaction::apply_events(
+            &mut m.interaction,
+            &events,
+            &mut m.objects.world,
+        );
         for e in &events {
             if let SessionEvent::CharacterSet(set) = e {
                 if !entered && character.is_some() {

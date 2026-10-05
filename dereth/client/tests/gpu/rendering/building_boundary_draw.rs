@@ -10,14 +10,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 pub(crate) const W: u32 = 1200;
 pub(crate) const H: u32 = 900;
@@ -188,7 +188,7 @@ fn door_shot_inner(
     tag: &str,
 ) -> Option<DoorShot> {
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),
@@ -219,7 +219,7 @@ fn door_shot_inner(
     }
     let mut rgba = Vec::new();
     for _ in 0..6 {
-        now += dereth_client::app::HEADLESS_STEP;
+        now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, &mut gpu, &mut stream)
             .expect("sync_objects");
@@ -230,7 +230,7 @@ fn door_shot_inner(
             stream.sync_physics_at(store, &mut c.world, LocalTime(now));
         }
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             1.0 / 30.0,
@@ -239,9 +239,9 @@ fn door_shot_inner(
         // after the world update and records `CameraControl::viewer_cell`. If the viewer update
         // is omitted here, `WorldScene::viewer_cell` falls back to the body's cell, which
         // measures the doorway from the body rather than from the swept camera.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             1.0 / 30.0,
         );

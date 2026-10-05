@@ -15,10 +15,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use dereth_assets::{Decode, GfxObj};
-use dereth_client::land_source::DatLandSource;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::source::{BuildingGeometry, EnvCellGeometry};
 use dereth_physics::transition::collide;
@@ -30,6 +29,7 @@ use dereth_primitives::num::math;
 use dereth_primitives::{
     CellId, DataId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3,
 };
+use dereth_world_data::land_source::DatLandSource;
 
 /// Holtburg, whose landblock-info record supplies the twelve building entries checked below.
 const HOLTBURG: LandblockId = LandblockId(0xA9B4);
@@ -40,7 +40,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn land(store: &Arc<RetailDatStore>) -> Arc<DatLandSource> {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     Arc::new(DatLandSource::new(Arc::clone(store), &region).expect("the retail height table"))
 }
 
@@ -83,7 +83,7 @@ fn every_holtburg_building_reaches_the_land_cell_its_origin_falls_in_at_its_own_
     let src = land(&s);
     src.load_block_cells(HOLTBURG);
 
-    let lbi_id = dereth_client::world::lbi_did(HOLTBURG.0);
+    let lbi_id = dereth_client_runtime::landblock::lbi_did(HOLTBURG.0);
     let bytes = s.read_typed(DbType::Lbi, lbi_id).expect("Holtburg's LBI");
     let lbi = dereth_assets::world::LandblockInfo::decode_payload(lbi_id, &bytes).expect("decodes");
     assert_eq!(
@@ -160,7 +160,7 @@ fn every_holtburg_building_reaches_the_land_cell_its_origin_falls_in_at_its_own_
             .read_typed(DbType::GfxObj, b.id)
             .expect("the building's GfxObj");
         let gfx = GfxObj::decode_payload(b.id, &bytes).expect("the GfxObj decodes");
-        let want = dereth_client::env_cells::gfxobj_physics_bsp(&gfx).expect("a physics BSP");
+        let want = dereth_world_data::env_cells::gfxobj_physics_bsp(&gfx).expect("a physics BSP");
         let got = part
             .physics_bsp
             .as_ref()
@@ -426,7 +426,7 @@ fn a_body_walking_into_a_holtburg_wall_is_stopped_only_when_the_client_registers
     let src = land(&s);
     src.load_block_cells(HOLTBURG);
 
-    let lbi_id = dereth_client::world::lbi_did(HOLTBURG.0);
+    let lbi_id = dereth_client_runtime::landblock::lbi_did(HOLTBURG.0);
     let bytes = s.read_typed(DbType::Lbi, lbi_id).expect("Holtburg's LBI");
     let lbi = dereth_assets::world::LandblockInfo::decode_payload(lbi_id, &bytes).expect("decodes");
 
@@ -783,7 +783,8 @@ fn a_corpus_object_stops_a_body_that_would_otherwise_walk_through_it() {
     for (id, at, radius) in candidates {
         let sum = radius + 0.5;
         let offset = 0.64 * sum;
-        let mut only_this: BTreeMap<ObjectId, dereth_client::objects::Presence> = BTreeMap::new();
+        let mut only_this: BTreeMap<ObjectId, dereth_client_runtime::objects::Presence> =
+            BTreeMap::new();
         only_this.insert(id, stream.presence(id).expect("just enumerated").clone());
 
         for k in 0..8_i8 {
@@ -811,7 +812,7 @@ fn a_corpus_object_stops_a_body_that_would_otherwise_walk_through_it() {
             let trial = |with_object: bool| -> f32 {
                 let mut w = PhysicsWorld::new(Arc::clone(&src) as Arc<dyn LandSource>);
                 if with_object {
-                    let mut phys = dereth_client::object_physics::ObjectPhysics::new();
+                    let mut phys = dereth_client_runtime::object_physics::ObjectPhysics::new();
                     phys.sync(
                         &s,
                         &mut w,
@@ -892,11 +893,11 @@ fn a_carried_object_has_no_body_and_a_dropped_one_gains_it() {
     let src = land(&s);
     src.load_block_cells(HOLTBURG);
     let mut w = PhysicsWorld::new(Arc::clone(&src) as Arc<dyn LandSource>);
-    let mut phys = dereth_client::object_physics::ObjectPhysics::new();
+    let mut phys = dereth_client_runtime::object_physics::ObjectPhysics::new();
 
-    let mut map: BTreeMap<ObjectId, dereth_client::objects::Presence> = BTreeMap::new();
+    let mut map: BTreeMap<ObjectId, dereth_client_runtime::objects::Presence> = BTreeMap::new();
     let id = ObjectId(0x5000_1234);
-    let carried = dereth_client::objects::Presence {
+    let carried = dereth_client_runtime::objects::Presence {
         setup_id: Some(DataId(0x0200_0001)),
         scale: 1.0,
         // A presence keeps the received target (`server_position`) apart from the achieved body
@@ -906,7 +907,7 @@ fn a_carried_object_has_no_body_and_a_dropped_one_gains_it() {
         // achieved pose would create no body.
         position: None,
         server_position: None,
-        ..dereth_client::objects::Presence::default()
+        ..dereth_client_runtime::objects::Presence::default()
     };
     map.insert(id, carried.clone());
     phys.sync(&s, &mut w, &map, &dereth_client_model::World::new(), None);

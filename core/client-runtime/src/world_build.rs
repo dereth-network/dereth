@@ -30,11 +30,11 @@ use dereth_terrain::land::mesh::LandblockMesh;
 use dereth_terrain::scenery::{generate_scenery, outside_cell_index, PlacedScenery, SceneryEnv};
 
 use crate::camera::FreeCamera;
-use crate::env_cells::{CellStatic, DecodedCell};
 use crate::environment::EnvironmentOverrideState;
 use crate::landblock::{landblock_did, lbi_did};
 use crate::scene::SceneConfig;
 use crate::world_state::WorldState;
+use {dereth_world_data::env_cells::CellStatic, dereth_world_data::env_cells::DecodedCell};
 
 impl WorldState {
     /// The world as a scene starts it: no body, no objects, nothing resident yet, the calendar
@@ -66,7 +66,7 @@ impl WorldState {
             entering_world: Vec::new(),
             sweeps_seen: None,
             character: None,
-            cell_static_objects: crate::env_cells::CellStaticObjects::new(),
+            cell_static_objects: dereth_world_data::env_cells::CellStaticObjects::new(),
             restricted_cells: 0,
             objects: BTreeMap::new(),
             pending_sound: Vec::new(),
@@ -277,7 +277,7 @@ pub fn interior_content(
         .iter()
         .map(|d| {
             if want_statics {
-                crate::env_cells::cell_statics(d)
+                dereth_world_data::env_cells::cell_statics(d)
             } else {
                 Vec::new()
             }
@@ -485,11 +485,11 @@ pub fn stand_at_start_cell(ws: &mut WorldState, store: &RetailDatStore, cfg: &Sc
     // `--no-cell-statics` looks at the *same* room from the same angle: a control that also
     // turned the camera would not be one.
     let block = u16::try_from(cell.0 >> 16).unwrap_or(0);
-    let heading = crate::env_cells::EnvCellLoader::new()
+    let heading = dereth_world_data::env_cells::EnvCellLoader::new()
         .load_block(store, block)
         .iter()
         .filter(|d| d.id == cell)
-        .flat_map(crate::env_cells::cell_statics)
+        .flat_map(dereth_world_data::env_cells::cell_statics)
         .map(|s| (s.frame.origin.x - p.x, s.frame.origin.y - p.y))
         .max_by(|a, b| {
             dereth_primitives::num::math::hypotf(a.0, a.1)
@@ -650,7 +650,7 @@ struct ResidentBlock {
 pub struct BlockResidency {
     region: Region,
     table: [f32; dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN],
-    cells: crate::env_cells::EnvCellLoader,
+    cells: dereth_world_data::env_cells::EnvCellLoader,
     pending: BTreeMap<(i32, i32), BlockWork>,
     blocks: BTreeMap<(i32, i32), ResidentBlock>,
 }
@@ -662,7 +662,7 @@ impl BlockResidency {
         Self {
             region,
             table,
-            cells: crate::env_cells::EnvCellLoader::new(),
+            cells: dereth_world_data::env_cells::EnvCellLoader::new(),
             pending: BTreeMap::new(),
             blocks: BTreeMap::new(),
         }

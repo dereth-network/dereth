@@ -9,10 +9,10 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_dat::RetailDatStore;
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// The retail store, or **fail**: a missing oracle must not read as a pass.
 fn store() -> RetailDatStore {
@@ -101,7 +101,7 @@ fn every_sky_object_the_region_names_resolves_to_triangles() {
 #[test]
 fn the_shipped_region_does_use_the_sky_object_property_bits() {
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let sky = region.sky_info.as_ref().expect("the region has sky info");
     let mut seen = std::collections::BTreeMap::<u32, usize>::new();
     for g in &sky.day_groups {
@@ -224,8 +224,8 @@ fn advancing_the_clock_relights_the_world_from_inside_the_frame_loop() {
     for _ in 0..50 {
         now += step;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             dereth_primitives::LocalTime(now),
             #[allow(clippy::cast_possible_truncation)]
             {
@@ -276,7 +276,7 @@ fn the_landscape_sun_vector_keeps_its_brightness() {
     let store = store();
     let mut gpu = crate::common::test_gpu(400, 300);
     let store = std::sync::Arc::new(store);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
 
     for t in [0.02f32, 0.25, 0.5, 0.75] {
         let scene = scene_at(&store, &mut gpu, t);
@@ -318,7 +318,7 @@ fn the_landscape_sun_vector_keeps_its_brightness() {
 fn the_sky_is_drawn_with_four_times_the_far_plane() {
     assert_eq!(dereth_world_render::sky::SKY_ZFAR_MULTIPLIER, 4.0);
     let world = dereth_render::ViewParams::default();
-    let sky = dereth_client::sky::SkyScene::view_params(&world);
+    let sky = dereth_scene::sky::SkyScene::view_params(&world);
     assert!((sky.zfar - world.zfar * 4.0).abs() < 1e-3);
     // And nothing else about the projection changed: znear in particular stays 0.1.
     assert_eq!(sky.znear, world.znear);
@@ -360,8 +360,8 @@ fn the_sky_scrolls_by_elapsed_time_and_not_by_frame_count() {
         let mut scene = WorldScene::load(&store, gpu, cfg()).expect("the landscape loads");
         for _ in 0..frames {
             scene.update(
-                dereth_client::camera::CameraInput::default(),
-                dereth_client::character::CharacterInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
+                dereth_client_runtime::character::CharacterInput::default(),
                 dereth_primitives::LocalTime(0.0),
                 dt,
             );

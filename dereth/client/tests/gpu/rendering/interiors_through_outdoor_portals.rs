@@ -11,14 +11,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -52,8 +52,8 @@ fn frame(store: &Arc<RetailDatStore>, gpu: &mut Gpu, scene: &mut WorldScene, t: 
         .sync_objects(store, gpu, &mut stream)
         .expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
     );
@@ -243,14 +243,14 @@ fn an_interior_appears_through_the_window_and_nowhere_else() {
             &store,
             &mut gpu,
             &mut scene,
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         stand_outside_an_opening(&mut scene, OPENING, 5.0);
         let rgba = frame(
             &store,
             &mut gpu,
             &mut scene,
-            2.0 * dereth_client::app::HEADLESS_STEP,
+            2.0 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         let polys = scene.building_portal_screen_polygons(W, H);
         Some((rgba, polys))
@@ -459,7 +459,7 @@ fn edge_distance(poly: &[(f32, f32)], x: f32, y: f32) -> f32 {
 fn the_indoor_path_follows_the_camera_and_not_the_body() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     // A body, and with it a `CameraControl`. `cfg` has `character: false`, so ask for one.
     scene
@@ -524,16 +524,16 @@ fn nothing_changes_when_no_opening_is_on_the_screen() {
             &store,
             &mut gpu,
             &mut scene,
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         stand_outside_an_opening(&mut scene, OPENING, 5.0);
         // Straight up at the sky, over the roofline.
-        scene.camera.pitch = dereth_client::camera::PITCH_LIMIT;
+        scene.camera.pitch = dereth_client_runtime::camera::PITCH_LIMIT;
         let rgba = frame(
             &store,
             &mut gpu,
             &mut scene,
-            2.0 * dereth_client::app::HEADLESS_STEP,
+            2.0 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         let polys = scene.building_portal_screen_polygons(W, H);
         Some((rgba, polys))

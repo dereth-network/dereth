@@ -8,18 +8,27 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::camera::{pivot_state, CameraManager, CameraState, CameraTick};
-use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
-use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::RetailDatStore;
 use dereth_physics::math::V3;
 use dereth_physics::source::EnvCellGeometry;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
+use {
+    dereth_client_runtime::camera::pivot_state, dereth_client_runtime::camera::CameraManager,
+    dereth_client_runtime::camera::CameraState, dereth_client_runtime::camera::CameraTick,
+};
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::PLAYER_OBJECT_ID,
+};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
+use {dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader};
 
 /// The camera's per-tick inputs (current time, frame rate, the mouse-turning preference),
 /// supplied as the frame loop supplies them.
@@ -105,7 +114,7 @@ fn in_cell_space(g: &EnvCellGeometry, at: CellId, p: Position) -> Vec3 {
 fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let found = rooms(&store, 20);
     assert!(
         found.len() >= 20,
@@ -157,14 +166,14 @@ fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
             for _ in 0..60 {
                 now += step;
                 scene.update(
-                    dereth_client::camera::CameraInput::default(),
+                    dereth_client_runtime::camera::CameraInput::default(),
                     CharacterInput::default(),
                     LocalTime(now),
                     dtf,
                 );
-                dereth_client::camera::update_viewer(
+                dereth_client_runtime::camera::update_viewer(
                     &mut scene,
-                    dereth_client::camera::CameraInput::default(),
+                    dereth_client_runtime::camera::CameraInput::default(),
                     LocalTime(now),
                     step,
                 );
@@ -249,7 +258,7 @@ fn the_swept_camera_stays_in_the_room_the_unswept_one_leaves() {
 fn the_swept_camera_does_not_sink_into_a_hillside() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -277,14 +286,14 @@ fn the_swept_camera_does_not_sink_into_a_hillside() {
     for _ in 0..5 {
         now += step;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             step,
         );
@@ -357,14 +366,14 @@ fn the_swept_camera_does_not_sink_into_a_hillside() {
             walk.turn_left = true;
         }
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             walk,
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             step,
         );
@@ -455,7 +464,7 @@ fn the_swept_camera_does_not_sink_into_a_hillside() {
 fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -469,21 +478,21 @@ fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
     for _ in 0..120 {
         now += step;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             step,
         );
     }
 
     let c = scene.character.as_ref().expect("a body");
-    let s = dereth_client::camera::GAMEPLAY_CAMERA_SCALE;
+    let s = dereth_client_runtime::camera::GAMEPLAY_CAMERA_SCALE;
     let shipped = Vec3::new(0.0, -2.5 * s, 0.75 * s);
     assert_eq!(c.camera.manager.viewer_offset, shipped);
     assert_eq!(
@@ -518,7 +527,7 @@ fn the_settled_camera_sits_at_the_shipped_third_person_offset() {
 fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
     scene
@@ -533,14 +542,14 @@ fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
     for _ in 0..120 {
         now += step;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             step,
         );
@@ -555,7 +564,7 @@ fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
         .viewer_offset;
     for i in 1..=5 {
         now += step;
-        dereth_client::camera::mouse_look(&mut scene, 60.0, 0.0, LocalTime(now));
+        dereth_client_runtime::camera::mouse_look(&mut scene, 60.0, 0.0, LocalTime(now));
         let off = scene
             .character
             .as_ref()
@@ -569,7 +578,7 @@ fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
         );
     }
     now += step;
-    dereth_client::camera::mouse_look(&mut scene, 60.0, 0.0, LocalTime(now));
+    dereth_client_runtime::camera::mouse_look(&mut scene, 60.0, 0.0, LocalTime(now));
     let after = scene
         .character
         .as_ref()
@@ -598,7 +607,7 @@ fn mouse_look_only_moves_the_camera_from_the_sixth_frame() {
 fn a_frame_from_inside_a_holtburg_room_is_of_the_room() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let (inside, g) = rooms(&store, 1)
         .into_iter()
         .next()
@@ -625,14 +634,14 @@ fn a_frame_from_inside_a_holtburg_room_is_of_the_room() {
     for _ in 0..60 {
         now += step;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             step,
         );

@@ -400,7 +400,7 @@ pub fn every_recorded_pickup_is_reproduced_with_the_recordings_own_ids() {
         // stream, and at the moment of each ask that world is asked whether the thing was
         // lying in the 3-D world -- which is the one fact that makes a move a pickup rather
         // than a drag from one container into another.
-        let mut replayed = dereth_client::objects::ObjectStream::new();
+        let mut replayed = dereth_client_runtime::objects::ObjectStream::new();
         let mut at = 0usize;
         for ask in dereth_testkit::Outbound::all(session)
             .into_iter()
@@ -478,8 +478,8 @@ pub fn every_recorded_pickup_is_reproduced_with_the_recordings_own_ids() {
 
             // The shard's own answer, byte for byte as recorded, through the client's own
             // apply path.
-            let mut inter = dereth_client::interaction::Interaction::new();
-            dereth_client::interaction::apply_events(
+            let mut inter = dereth_client_runtime::interaction::Interaction::new();
+            dereth_client_runtime::interaction::apply_events(
                 &mut inter,
                 &[SessionEvent::UiEvent {
                     opcode: ItemServerSaysContainId::OPCODE,

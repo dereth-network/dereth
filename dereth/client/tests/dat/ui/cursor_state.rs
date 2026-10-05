@@ -15,12 +15,14 @@ use crate::common::client_dir;
 
 use std::collections::BTreeMap;
 
-use dereth_client::cursor::{
-    self, cursor_enum, update_cursor_state, CursorInputs, CursorSystem, TargetMode, UICURSOR_GROUP,
-};
 use dereth_client_model::combat::CombatMode;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
+use {
+    dereth_client_shell::cursor::cursor_enum, dereth_client_shell::cursor::update_cursor_state,
+    dereth_client_shell::cursor::CursorInputs, dereth_client_shell::cursor::CursorSystem,
+    dereth_client_shell::cursor::TargetMode, dereth_client_shell::cursor::UICURSOR_GROUP,
+};
 
 /// **An `expect`, never a skip.** The shipped mapper is this file's only oracle; without it there
 /// is nothing to assert, so a missing mapper must fail the test rather than pass without evidence.
@@ -43,8 +45,8 @@ fn cursor_names(store: &RetailDatStore) -> Vec<(u32, String)> {
 
     let s: &dyn AssetSource = store;
     let master = dereth_assets::DidMapper::decode_payload(
-        dereth_client::assets::MASTER_DID_MAPPER,
-        &s.read(dereth_client::assets::MASTER_DID_MAPPER)
+        dereth_client_runtime::assets::MASTER_DID_MAPPER,
+        &s.read(dereth_client_runtime::assets::MASTER_DID_MAPPER)
             .expect("the master DidMapper reads"),
     )
     .expect("the master DidMapper decodes");
@@ -84,7 +86,7 @@ fn all_forty_one_shipped_cursors_resolve_through_the_enum_seam() {
 
     let mut resolved = 0;
     for (k, name) in &names {
-        let did = dereth_client::assets::enum_did(s, UICURSOR_GROUP, *k)
+        let did = dereth_client_runtime::assets::enum_did(s, UICURSOR_GROUP, *k)
             .unwrap_or_else(|| panic!("UICURSOR {k} ({name}) resolves"));
         assert_eq!(
             did.0 >> 24,
@@ -140,12 +142,12 @@ fn all_forty_one_shipped_cursors_resolve_through_the_enum_seam() {
 fn every_shipped_cursor_decodes_to_a_surface_the_icon_builder_accepts() {
     let store = store();
     let s: &dyn dereth_primitives::AssetSource = &store;
-    let tex = dereth_client::textures::TextureStore::new(&store);
+    let tex = dereth_scene::textures::TextureStore::new(&store);
 
     let mut built = 0;
     let mut sizes = std::collections::BTreeSet::new();
     for (k, name) in cursor_names(&store) {
-        let did = dereth_client::assets::enum_did(s, UICURSOR_GROUP, k).expect("resolves");
+        let did = dereth_client_runtime::assets::enum_did(s, UICURSOR_GROUP, k).expect("resolves");
         let img = tex
             .bgra8(did)
             .unwrap_or_else(|e| panic!("UICURSOR {k} ({name}) {did:?} decodes: {e}"));
@@ -266,7 +268,7 @@ fn each_of_the_nine_states_pushes_the_did_and_hotspot_the_client_pushes() {
             .iter()
             .find(|(_, n)| n == want)
             .expect("a shipped cursor name");
-        dereth_client::assets::enum_did(s, UICURSOR_GROUP, *k).expect("resolves")
+        dereth_client_runtime::assets::enum_did(s, UICURSOR_GROUP, *k).expect("resolves")
     };
 
     let mut checked = 0;
@@ -345,7 +347,7 @@ fn the_legal_and_illegal_targeting_cursors_are_different_surfaces_and_the_right_
             .iter()
             .find(|(_, n)| n == want)
             .expect("a shipped cursor name");
-        dereth_client::assets::enum_did(s, UICURSOR_GROUP, *k).expect("resolves")
+        dereth_client_runtime::assets::enum_did(s, UICURSOR_GROUP, *k).expect("resolves")
     };
 
     let legal = id_of("TargetedUse_OverObject");
@@ -386,8 +388,8 @@ fn the_legal_and_illegal_targeting_cursors_are_different_surfaces_and_the_right_
 #[test]
 fn the_cursor_state_machine_runs_once_per_frame_and_settles_on_the_default_cursor() {
     use dereth_client::app::App;
-    use dereth_client::config::Config;
-    use dereth_client::present::NullPresentation;
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::present::NullPresentation;
 
     let dat_dir = client_dir();
     assert!(
@@ -426,7 +428,8 @@ fn the_cursor_state_machine_runs_once_per_frame_and_settles_on_the_default_curso
     let store = store();
     let s: &dyn dereth_primitives::AssetSource = &store;
     let default_did =
-        dereth_client::assets::enum_did(s, UICURSOR_GROUP, cursor_enum::DEFAULT).expect("resolves");
+        dereth_client_runtime::assets::enum_did(s, UICURSOR_GROUP, cursor_enum::DEFAULT)
+            .expect("resolves");
     assert_eq!(
         app.current_cursor_did(),
         Some(default_did),
@@ -519,22 +522,22 @@ fn the_compatibility_test_reads_the_fields_it_claims_to_read() {
     }
 
     assert!(
-        cursor::is_target_compatible_with_targeting_object(&w, WAND, ROCK),
+        dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, ROCK),
         "a TYPE_MISC target the wand declares it can be used on"
     );
     // The player is TYPE_CREATURE, which the wand does not declare.
-    assert!(!cursor::is_target_compatible_with_targeting_object(
-        &w, WAND, PLAYER
-    ));
+    assert!(
+        !dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, PLAYER)
+    );
     // Put the rock on the trade window and it stops being a legal target.
     w.weenie_mut(ROCK).expect("the rock exists").trade_state = 1;
-    assert!(!cursor::is_target_compatible_with_targeting_object(
-        &w, WAND, ROCK
-    ));
+    assert!(
+        !dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, ROCK)
+    );
     w.weenie_mut(ROCK).expect("the rock exists").trade_state = 0;
-    assert!(cursor::is_target_compatible_with_targeting_object(
-        &w, WAND, ROCK
-    ));
+    assert!(
+        dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, ROCK)
+    );
     // Widening the wand's target type to include `TYPE_CREATURE` is **not** enough to make the
     // player a legal target: aiming at yourself needs `USEABLE_SELF` in the *target* half of
     // `_useability` as well: aimed at the player with the self-target bit clear, the check refuses.
@@ -542,18 +545,18 @@ fn the_compatibility_test_reads_the_fields_it_claims_to_read() {
     // the whole not-owned-by-the-player block was skipped.
     w.weenie_mut(WAND).expect("the wand exists").pwd.target_type = Some(0x90);
     assert!(
-        !cursor::is_target_compatible_with_targeting_object(&w, WAND, PLAYER),
+        !dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, PLAYER),
         "the type masks intersect, but the wand cannot be used on the self"
     );
     // Set that bit and it becomes legal.
     w.weenie_mut(WAND).expect("the wand exists").pwd.useability = Some(((32 | 2) << 16) | 32);
-    assert!(cursor::is_target_compatible_with_targeting_object(
-        &w, WAND, PLAYER
-    ));
+    assert!(
+        dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, PLAYER)
+    );
     // ... and the rock, which is not the player, is unaffected either way.
-    assert!(cursor::is_target_compatible_with_targeting_object(
-        &w, WAND, ROCK
-    ));
+    assert!(
+        dereth_client_shell::cursor::is_target_compatible_with_targeting_object(&w, WAND, ROCK)
+    );
 }
 
 // The aliased cursor keys
@@ -613,7 +616,7 @@ fn reachable() -> BTreeMap<u32, (i32, i32)> {
 }
 
 fn did_of(s: &RetailDatStore, key: u32) -> Option<DataId> {
-    dereth_client::assets::enum_did(s, UICURSOR_GROUP, key)
+    dereth_client_runtime::assets::enum_did(s, UICURSOR_GROUP, key)
 }
 
 /// Behaviour: ui.cursor.aliased-cursor-keys-share-one-hotspot
@@ -687,7 +690,7 @@ fn every_aliased_pair_of_reachable_cursor_keys_shares_one_hotspot() {
 /// so the two ids `cursor.rs` names in prose are stated here as independent numbers.
 #[test]
 fn the_alias_pairs_the_module_comment_claims_are_in_the_shipped_mapper() {
-    use dereth_client::cursor::cursor_enum;
+    use dereth_client_shell::cursor::cursor_enum;
     let s = store();
 
     let examine = did_of(&s, cursor_enum::EXAMINE).expect("Examine resolves");

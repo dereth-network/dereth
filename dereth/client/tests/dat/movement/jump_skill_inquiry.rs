@@ -14,12 +14,13 @@ use dereth_primitives::{AssetSource, LocalTime};
 #[test]
 fn recorded_jump_quality_inputs_and_real_filter_are_explicit() {
     let store = dereth_dat::testing::open_store().expect("required DATs");
-    let skills_id = dereth_client::assets::enum_did(&store, 2, 4).expect("retail SkillTable enum");
+    let skills_id =
+        dereth_client_runtime::assets::enum_did(&store, 2, 4).expect("retail SkillTable enum");
     let skills = SkillTable::decode_payload(skills_id, &store.read(skills_id).unwrap()).unwrap();
-    let filter_id =
-        dereth_client::assets::enum_did(&store, 3, 0x1000_0002).expect("quality filter enum");
+    let filter_id = dereth_client_runtime::assets::enum_did(&store, 3, 0x1000_0002)
+        .expect("quality filter enum");
     let filter = QualityFilter::decode_payload(filter_id, &store.read(filter_id).unwrap()).unwrap();
-    assert_eq!(skills_id, dereth_client::hud::SKILL_TABLE);
+    assert_eq!(skills_id, dereth_client_runtime::hud::SKILL_TABLE);
     assert_eq!(
         store.ids_of(dereth_dat::DbType::QualityFilter).first(),
         Some(&filter_id),

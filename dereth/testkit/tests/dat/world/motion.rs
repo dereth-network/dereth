@@ -3,12 +3,8 @@ use std::sync::Arc;
 use dereth_animation::data::AnimAssets;
 use dereth_animation::motion::{InterpretedMotionState, MoveToRequest, MovementParameters};
 use dereth_animation::{MotionCommand, MotionDriver};
-use dereth_client::anim_assets::DatAnimAssets;
-use dereth_client::character::{
-    Character, ALUVIAN_MALE_MOTION_TABLE, ALUVIAN_MALE_SCALE, ALUVIAN_MALE_SETUP,
-};
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_physics::math::V3 as _;
 use dereth_physics::pmanager::FALLBACK_SPEED;
@@ -16,6 +12,13 @@ use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::movement::{position_flags, MovementPositionEvent, PositionPack};
 use dereth_protocol::Message;
 use dereth_testkit::HeadlessClient;
+use dereth_world_data::anim_assets::DatAnimAssets;
+use {
+    dereth_client_runtime::character::Character,
+    dereth_client_runtime::character::ALUVIAN_MALE_MOTION_TABLE,
+    dereth_client_runtime::character::ALUVIAN_MALE_SCALE,
+    dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
+};
 
 use super::support::{body_origin, create_event, fresh_local_body, settled_at, store, DT, PLAYER};
 
@@ -561,13 +564,16 @@ pub fn a_creature_the_shard_said_nothing_about_walks_at_the_default() {
 // =======================================================================================
 
 use dereth_animation::motion::flags as move_flags;
-use dereth_client::character::{CharacterInput, MovementCommands};
 use dereth_primitives::{Frame, Position as Pos};
 use dereth_protocol::movement::{
     movement_type, MoveToArm, MovementBody, MovementParameters as WireParams,
     MovementSetObjectMovement,
 };
 use dereth_protocol::Opcode;
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::MovementCommands,
+};
 
 /// The thing the player used, and a second one for the scenario that replaces an approach.
 const TARGET: ObjectId = ObjectId(0x8000_0997);
@@ -575,11 +581,11 @@ const OTHER_TARGET: ObjectId = ObjectId(0x8000_0998);
 
 /// A settled local body on the default landblock, as every approach scenario starts from.
 fn local_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client::world::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the body is created");
@@ -1165,11 +1171,11 @@ const FLAT_GROUND: (f32, f32) = (20.0, 52.0);
 const CONTACT_TOLERANCE: f32 = 0.10;
 
 fn walking_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client::world::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         FLAT_GROUND,
     )
     .expect("a body on real terrain");
@@ -1402,11 +1408,11 @@ fn playing(c: &Character) -> MotionCommand {
 }
 
 fn settled_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c = Character::new(
         store,
         &region,
-        dereth_client::world::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the body");
@@ -1615,7 +1621,7 @@ pub fn a_body_in_the_air_turns_but_does_not_walk() {
     use dereth_animation::motion::MotionInterp;
 
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut c = Character::new(&store, &region, 0x7f03, (96.0, 96.0))
         .expect("a body in the training academy's landblock");
 

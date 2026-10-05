@@ -15,19 +15,22 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::character::CharacterInput;
-use dereth_client::env_cells::{cell_statics, physics_geometry, EnvCellLoader};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::V3;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, DataId, Frame, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {
+    dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::physics_geometry,
+    dereth_world_data::env_cells::EnvCellLoader,
+};
 
 /// The first instantiation cell of character-generation starter area 0, "Holtburg": the academy
 /// a new Holtburg character wakes up in.
@@ -138,12 +141,12 @@ fn run(
     let mut t = 0.0f64;
     let mut rgba = Vec::new();
     for _ in 0..frames {
-        t += dereth_client::app::HEADLESS_STEP;
+        t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(t),
             1.0 / 30.0,
@@ -342,7 +345,7 @@ fn a_dungeon_door_is_a_server_weenie_and_not_one_of_these_statics() {
 fn standing_in_the_training_dungeon_draws_its_furniture() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
 
     // Where the body stands, and which of that cell's baked objects it faces. Both come out of
     // the dat: `standable_point` asks the cell's own `cell_bsp`, and the target is the furthest
@@ -544,7 +547,7 @@ fn dinner_walk(
     for _ in 0..120 {
         now += step;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(now),
             dt,
@@ -696,8 +699,9 @@ fn collision_top(store: &RetailDatStore, frame: &Frame, id: u32) -> (f32, f32) {
         .map(|s| s.center.z + s.radius)
         .fold(f32::MIN, f32::max);
 
-    let mut stats = dereth_client::object_physics::SetupPartStats::default();
-    let g = dereth_client::object_physics::setup_geometry_with_parts(store, &su, &mut stats);
+    let mut stats = dereth_client_runtime::object_physics::SetupPartStats::default();
+    let g =
+        dereth_client_runtime::object_physics::setup_geometry_with_parts(store, &su, &mut stats);
     let pos = Position::new(CellId(0), *frame);
     let mut mesh = f32::MIN;
     for i in 0..g.parts.len() {
@@ -735,7 +739,7 @@ fn collision_top(store: &RetailDatStore, frame: &Frame, id: u32) -> (f32, f32) {
 fn a_holtburg_dinnertable_answers_a_body_walking_into_it_and_an_unregistered_one_does_not() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
 
     let room = CellId(HOLTBURG_DINING_ROOM);
     let table = placement(&store, HOLTBURG_DINING_ROOM, DINNERTABLE)
@@ -853,7 +857,7 @@ fn a_holtburg_dinnertable_answers_a_body_walking_into_it_and_an_unregistered_one
 fn the_setups_step_height_says_which_of_two_statics_can_be_climbed() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
 
     // 1. The step height, read from the player's own setup rather than assumed.
     let player = setup(&store, DataId(PLAYER_SETUP)).expect("the Aluvian male setup decodes");
@@ -988,7 +992,7 @@ fn the_setups_step_height_says_which_of_two_statics_can_be_climbed() {
 fn the_training_dungeons_braziers_run_their_default_scripts() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: TRAINING_DUNGEON,
         start_cell: Some(CellId(0x8602_0102)),
@@ -1030,7 +1034,7 @@ fn the_training_dungeons_braziers_run_their_default_scripts() {
 fn every_training_dungeon_placement_is_accounted_for() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: TRAINING_DUNGEON,
         start_cell: Some(CellId(0x8602_0102)),

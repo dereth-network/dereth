@@ -11,7 +11,7 @@ use crate::common::client_dir;
 use super::icon_bench::*;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::Screen;
 use dereth_ui::region::IconRecipe;
 use dereth_ui::{Box2D, ElementId, UiSystem};
@@ -40,11 +40,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = App::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);

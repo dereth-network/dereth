@@ -2,7 +2,7 @@
 //! focused-text maps and the keyboard barrier (pseudo-map 1, `MAP_BLOCK_KEYBOARD`) at 2990, ten
 //! below the 3000 of the focused-text maps, so a typed `w` inserts text and does not walk the
 //! character; losing focus removes them again. The map walk itself is asserted in
-//! `dereth_client::input` (`the_typing_barrier_stops_w_walking_only_while_a_text_box_has_focus`);
+//! `dereth_client_shell::input` (`the_typing_barrier_stops_w_walking_only_while_a_text_box_has_focus`);
 //! this module adds the half that needs a live element tree: clicking the entry registers the maps
 //! and blurring it takes them away.
 //!
@@ -13,7 +13,7 @@ use crate::common::sim_app::app_in_gameplay;
 
 use dereth_client::app::App;
 
-use dereth_client::pump::{Pump, Win32Message};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::window::ENTRY;

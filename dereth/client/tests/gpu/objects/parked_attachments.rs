@@ -6,8 +6,8 @@
 //!
 //! Fixture: the retail dats (setups and an academy interior cell) with explicitly constructed
 //! packet and time ordering; no capture timing is claimed. The one App case needs a GPU device.
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::{
     objects::{ItemCreateObject, ItemDeleteObject, ItemParentEvent, ObjectCreatePayload},
@@ -423,10 +423,10 @@ fn source_cell_transitions_enter_only_initialized_children_and_do_not_reenter_la
 
 #[test]
 fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reenters() {
-    use dereth_client::land_source::DatLandSource;
     use dereth_physics::{EnvCellGeometry, LandSource, LandblockCollision, PhysicsWorld};
     use dereth_primitives::{CellId, LandblockId, Vec3};
     use dereth_protocol::types::PositionWire;
+    use dereth_world_data::land_source::DatLandSource;
     use std::sync::atomic::{AtomicBool, Ordering};
     // Explicit synthetic cell-lifetime failure over the real dat source. One visibility lookup
     // succeeds, but releases that cell registry before placement's next lookup. This tests the
@@ -451,7 +451,7 @@ fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reente
         }
     }
     let store = Arc::new(dereth_dat::testing::open_store().unwrap());
-    let region = dereth_client::world::load_region(&store).unwrap();
+    let region = dereth_client_runtime::landblock::load_region(&store).unwrap();
     let land = Arc::new(DatLandSource::new(Arc::clone(&store), &region).unwrap());
     let block = LandblockId(0x7F03);
     let cell = CellId(0x7F03_0100);
@@ -692,9 +692,12 @@ fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reente
 #[test]
 fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation_work() {
     use dereth_assets::Decode;
-    use dereth_client::{app::App, config::Config, world::SceneConfig};
     use dereth_primitives::{DataId, Quat, Vec3};
     use dereth_protocol::types::{Frame as WireFrame, PositionWire};
+    use {
+        dereth_client::app::App, dereth_client_runtime::config::Config,
+        dereth_client_runtime::scene::SceneConfig,
+    };
     let mut app = App::new(Config {
         headless: true,
         sound: false,
@@ -762,7 +765,7 @@ fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation
     )
     .unwrap();
     let holding = setup.holding_locations[&1];
-    let expected = dereth_client::models::child_frame(
+    let expected = dereth_client_runtime::models::child_frame(
         &parent_frame,
         &parent_parts,
         &dereth_animation::data::LocationEntry {

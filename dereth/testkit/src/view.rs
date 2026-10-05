@@ -12,12 +12,12 @@
 use std::sync::Arc;
 
 use dereth_client::app::App;
-use dereth_client::frame_events::FrameEvents;
-use dereth_client::hud::Hud;
-use dereth_client::interaction::Interaction;
-use dereth_client::objects::ObjectStream;
 use dereth_client_contract::{GameSnapshot, UiRequest};
 use dereth_client_model::{Notice, Request, World};
+use dereth_client_runtime::frame_events::FrameEvents;
+use dereth_client_runtime::interaction::Interaction;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::hud::Hud;
 use dereth_dat::RetailDatStore;
 use dereth_ui_screens::chat::interface::ChatMessage;
 

@@ -1,11 +1,11 @@
-use dereth_client::platform::keys::MouseButton;
-use dereth_client::pump::{Pump, Win32Message};
+use dereth_input::keys::MouseButton;
 use dereth_primitives::{DataId, ObjectId};
 use dereth_testkit::{ClientSpec, HeadlessClient, Inbound};
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::panels::examination;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::view::SpellEntry;
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 pub const PRIMARY: MouseButton = MouseButton::Left;
 /// The button the whole of this family is about. `dereth_testkit::Player::Click` is the primary

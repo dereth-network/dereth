@@ -4,7 +4,7 @@
 //! **Depends on** the runtime it draws (`dereth-client-runtime`) and the crates the drawing is
 //! built from: `dereth-render` (the device), `dereth-world-render` (what the world draws and in what
 //! order), `dereth-primitives`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
-//! `dereth-audio` and `dereth-protocol`, the target projection from the contract
+//! `dereth-audio`, `dereth-protocol` and `dereth-world-data`, the target projection from the contract
 //! (`dereth-client-contract`) and character creation's model (`dereth-chargen`). **Used by** the client shell
 //! (`dereth-client-shell`), the desktop client (`dereth-client`) and the browser client
 //! (`dereth-web`).
@@ -16,15 +16,15 @@
 //!
 //! | Module | What it owns |
 //! |---|---|
-//! | [`world_scene`] (also [`world`]) | the landblock window, its objects and how a frame draws them |
+//! | [`world_scene`] | the landblock window, its objects and how a frame draws them |
 //! | [`gpu`] | the device with the world and the preview spaces on it, and the first-pixel quad |
 //! | [`sky`], [`particles`] | the sky dome and the particle emitters |
 //! | [`preview`] | the creature-mode preview spaces |
 //! | [`textures`], [`mip_worker`] | the dat texture lookup, and compressed mip chains built off thread |
 //! | [`render_prefs`] | the `Render.*` owners on the device and on the scene |
-//! | [`camera`] | the free camera, at its old path |
+//! | [`camera`] | camera comparisons against the renderer's view matrix |
 
-/// The camera: `dereth_client_runtime::camera`, at its old path.
+/// Compare runtime cameras against the renderer's view matrix.
 pub mod camera;
 /// The device with the drawn world and the preview spaces on it.
 pub mod gpu;
@@ -48,7 +48,3 @@ pub mod textures;
 /// The drawn world. The simulation and the residency window are `dereth-client-runtime`'s; this
 /// is the presentation half, and the type it exists for is `WorldScene`.
 pub mod world_scene;
-
-/// `world_scene` at its short path: every `crate::world::…` and `dereth_client::world::…` path
-/// resolves through this one line.
-pub use world_scene as world;

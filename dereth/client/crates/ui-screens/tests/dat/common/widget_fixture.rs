@@ -77,7 +77,7 @@ pub(crate) fn pump(
 }
 
 /// The shipped gameplay screen with `RemainingPanels` bound off its root, the way
-/// `dereth_client::hud::Hud::drive` binds it.
+/// `dereth_client_shell::hud::Hud::drive` binds it.
 pub(crate) fn screen(view: &dyn GameView) -> (UiSystem, GamePlayScreen, RemainingPanels) {
     let mut ui = env();
     let mut s = GamePlayScreen::default();

@@ -7,10 +7,10 @@
 //! and an object selected; actions are injected through the production input manager in their
 //! own input maps, a combat key in its combat mode. Nothing opens a socket.
 
-use dereth_client::{app::App, config::Config};
 use dereth_client_model::combat::CombatMode;
 use dereth_input::{ActionId, InputEvent, InputMapId, ToggleType};
 use dereth_primitives::ObjectId;
+use {dereth_client::app::App, dereth_client_runtime::config::Config};
 
 fn frames(app: &mut App, n: usize) {
     for _ in 0..n {
@@ -34,15 +34,15 @@ fn in_the_world() -> App {
     })
     .expect("required retail DATs and a simulated presentation");
     app.start_shell().expect("the UI shell");
-    let scene = dereth_client::world::SceneConfig {
-        landblock: dereth_client::world::DEFAULT_LANDBLOCK,
+    let scene = dereth_client_runtime::scene::SceneConfig {
+        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 1,
         scenery_radius: 0,
         cell_statics: false,
         mesh_collision: false,
         particles: false,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(scene)
         .expect("the static scene loads");

@@ -1,7 +1,7 @@
 //! The spell-range calculation's two halves.
 //!
 //! Cut out of `dereth_ui_screens::panels::spell_examine`, which keeps the panel. These three are
-//! the arithmetic `dereth_client::hud` has to do for itself, because the range depends on the
+//! the arithmetic `dereth_client_shell::hud` has to do for itself, because the range depends on the
 //! player's skills and only the world half has them: the school's skill, the five skills the
 //! fallback takes the maximum of, and the clamped affine range.
 

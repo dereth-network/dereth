@@ -754,7 +754,7 @@ pub struct Hud {
     pub trace_plus_ten_last: Option<String>,
 
     /// The `(1, 10)` draw that picks which of
-    /// [`crate::chat::OLTHOI_TEXT`] / [`crate::chat::HUMAN_TEXT`] a garbled line shows.
+    /// [`dereth_client_model::chat::composition::OLTHOI_TEXT`] / [`dereth_client_model::chat::composition::HUMAN_TEXT`] a garbled line shows.
     ///
     /// `None` until the first garbled line, then seeded from [`crate::audio::ran2_seed`] — which
     /// is `(long)time(NULL)`, the same value seeds the random generator.

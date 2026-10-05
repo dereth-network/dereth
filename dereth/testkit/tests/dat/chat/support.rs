@@ -240,8 +240,8 @@ pub(super) fn open_the_options_page(
 // the same character lands in the box.
 
 /// The key the host resolves a named key to.
-pub(super) fn key_of(code: winit::keyboard::KeyCode) -> dereth_client::platform::keys::Key {
-    dereth_client::platform::window::key_from_key_code(code)
+pub(super) fn key_of(code: winit::keyboard::KeyCode) -> dereth_input::keys::Key {
+    dereth_desktop::platform::window::key_from_key_code(code)
         .expect("the host has a scan code for this key")
 }
 

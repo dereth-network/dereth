@@ -10,14 +10,18 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeSet;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;
 use dereth_world_render::consts::BLOCK_LENGTH;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The retail store, or **fail**. The return type offers no skip, so no caller can turn a missing
 /// oracle into a green line.
@@ -58,8 +62,8 @@ fn step(scene: &mut WorldScene, store: &RetailDatStore, gpu: &mut Gpu, dx: f32, 
     scene.camera.position.x += dx;
     scene.camera.position.y += dy;
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(0.0),
         0.0,
     );
@@ -333,7 +337,7 @@ fn a_walking_body_carries_the_window_with_it() {
     let store = std::sync::Arc::new(store);
     let mut scene =
         WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("the scene loads");
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -364,10 +368,10 @@ fn a_walking_body_carries_the_window_with_it() {
     assert_eq!(spawn.cell.landblock().x(), 0xA9);
 
     // `MIN_QUANTUM` per frame, exactly as `--headless` steps the clock, and the run key held.
-    let input = dereth_client::character::CharacterInput {
+    let input = dereth_client_runtime::character::CharacterInput {
         forward: true,
         run: true,
-        ..dereth_client::character::CharacterInput::default()
+        ..dereth_client_runtime::character::CharacterInput::default()
     };
     let step_s = dereth_physics::globals::MIN_QUANTUM;
     let mut now = 0.0f64;
@@ -386,7 +390,7 @@ fn a_walking_body_carries_the_window_with_it() {
     for _ in 0..3_000 {
         now += step_s;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(now),
             dt,
@@ -397,9 +401,9 @@ fn a_walking_body_carries_the_window_with_it() {
         // `Character::camera.viewer` stays where the teleport's viewer initialization left it, the
         // viewpoint never advances, and the window never re-centres however far the body runs.
         // The other tests here step by teleporting, which re-attaches the camera.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
             step_s,
         );

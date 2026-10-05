@@ -7,7 +7,6 @@
 //! ordered-reply and teardown scenarios replay the recorded corpus through the client's own
 //! endpoint. No data file is opened.
 
-use dereth_client::dropped::{self, Site};
 use dereth_client_model::{
     Notice, NullSink, RecordingRequests, RecordingSink, Request, Weenie, World,
 };
@@ -19,6 +18,7 @@ use dereth_protocol::types::PublicWeenieDesc;
 use dereth_protocol::types::{AnimPartChange, ContentProfile, ObjDesc, Origin, PositionWire};
 use dereth_protocol::Opcode;
 use dereth_testkit::{HeadlessClient, Inbound};
+use {dereth_client_runtime::dropped, dereth_client_runtime::dropped::Site};
 
 // =============================================================================================
 // 1. objects.dangling-reference.is-asked-about-once-and-then-dropped
@@ -553,14 +553,14 @@ fn set_state_with(id: u32, state: u32, event: u16) -> Vec<u8> {
 }
 
 /// Hand one encoded body to the object stream on the smart-box queue, as the session does.
-fn feed_body(s: &mut dereth_client::objects::ObjectStream, opcode: Opcode, body: Vec<u8>) {
+fn feed_body(s: &mut dereth_client_runtime::objects::ObjectStream, opcode: Opcode, body: Vec<u8>) {
     s.apply_event(
         &SessionEvent::WorldObject { opcode, body },
         dereth_primitives::LocalTime(0.0),
     );
 }
 
-fn is_visible(s: &dereth_client::objects::ObjectStream, id: u32) -> bool {
+fn is_visible(s: &dereth_client_runtime::objects::ObjectStream, id: u32) -> bool {
     s.world.tables.visible.contains(&ObjectId(id))
 }
 
@@ -573,7 +573,7 @@ fn is_visible(s: &dereth_client::objects::ObjectStream, id: u32) -> bool {
 /// The calibration first -- the sweep has to be shown answering **both** ways from a create word
 /// alone, or "it is not in the list" and "this bench never lists anything" are the same reading.
 pub fn a_second_create_carries_the_new_word() {
-    use dereth_client::objects::ObjectStream;
+    use dereth_client_runtime::objects::ObjectStream;
 
     const PLAIN: u32 = 0x7000_0001;
     const STATIC: u32 = 0x7000_0002;
@@ -621,7 +621,7 @@ pub fn a_second_create_carries_the_new_word() {
 
 /// The gate on both sides of the half-period, and the create's own stamp as its starting value.
 pub fn a_state_change_that_is_not_newer_is_refused() {
-    use dereth_client::objects::ObjectStream;
+    use dereth_client_runtime::objects::ObjectStream;
 
     let word = |s: &ObjectStream, id: u32| s.physics_state(ObjectId(id));
     let seeded = |id: u32, state_ts: u16| -> ObjectStream {
@@ -769,9 +769,9 @@ fn item_in(world: &mut World, id: ObjectId, parent: ObjectId) {
 
 /// The item leaves the pack at once and the object itself is only scheduled to go.
 pub fn a_removal_detaches_the_item_and_defers_the_deletion() {
-    use dereth_client::interaction::{self, Interaction};
     use dereth_client_model::inventory::requests::InventoryRequest;
     use dereth_client_model::objects::ObjectInventory;
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
     let blobs = recorded_removals();
     let mut every_one = true;
@@ -1055,8 +1055,8 @@ fn instance_descriptor(id: ObjectId, instance: u16) -> ObjectCreatePayload {
 
 /// Only a newer instance replaces, and everything the replaced one had pending goes with it.
 pub fn a_newer_instance_replaces_and_the_old_ones_traffic_is_dropped() {
-    use dereth_client::objects::ObjectStream;
     use dereth_client_net::client_session::testing::MockTransport;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_primitives::{LocalTime, NetQueue};
     use dereth_protocol::events::pack_event;
     use dereth_protocol::objects::{
@@ -1407,8 +1407,8 @@ struct Replayed {
     excluded: usize,
     /// Per opcode, the bodies that reached the interaction layer, in delivery order.
     bodies: std::collections::BTreeMap<u32, Vec<Vec<u8>>>,
-    stats: dereth_client::interaction::InteractionStats,
-    hud_stats: dereth_client::hud::HudStats,
+    stats: dereth_client_runtime::interaction::InteractionStats,
+    hud_stats: dereth_client_runtime::hud::HudStats,
     chat: Vec<dereth_ui_screens::chat::interface::ChatMessage>,
     /// Per container reply, in arrival order: what the shard named and what the grid held on the
     /// frame it landed.
@@ -1437,11 +1437,11 @@ impl Replayed {
 
 #[allow(clippy::too_many_lines)]
 fn replay_one(session: &'static str) -> Replayed {
-    use dereth_client::hud::Hud;
-    use dereth_client::interaction::{self, Interaction};
-    use dereth_client::objects::ObjectStream;
+    use dereth_client_runtime::objects::ObjectStream;
+    use dereth_client_shell::hud::Hud;
     use dereth_protocol::Message as _;
     use dereth_ui_screens::view::GameView;
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
     let records = recording(session);
     let all = shard_ordered_stream(&records);
@@ -1475,8 +1475,8 @@ fn replay_one(session: &'static str) -> Replayed {
         sent,
         excluded,
         bodies: std::collections::BTreeMap::new(),
-        stats: dereth_client::interaction::InteractionStats::default(),
-        hud_stats: dereth_client::hud::HudStats::default(),
+        stats: dereth_client_runtime::interaction::InteractionStats::default(),
+        hud_stats: dereth_client_runtime::hud::HudStats::default(),
         chat: Vec::new(),
         filled_on_arrival: Vec::new(),
         closed_on_arrival: Vec::new(),

@@ -8,8 +8,12 @@
 //! retail data and are in `tests/dat/shell.rs`. `ALL` is this file's own list, concatenated with
 //! the other subjects' in `census.rs`.
 
-use dereth_client::pump::window_proc::{placement, Placement, Rect, ScreenMetrics, WS_POPUP};
 use dereth_testkit::HeadlessClient;
+use {
+    dereth_client_contract::window_proc::placement, dereth_client_contract::window_proc::Placement,
+    dereth_client_contract::window_proc::Rect, dereth_client_contract::window_proc::ScreenMetrics,
+    dereth_client_contract::window_proc::WS_POPUP,
+};
 
 // The desktop's own frame bits, by the names a player would use for them. They are the host's
 // numbers and not this client's, which is why they are written out here rather than imported: a
@@ -335,8 +339,8 @@ const INSET: Viewport = Viewport {
 const INSET_MIDDLE: (i32, i32) = (240 + 199, 90 + 149);
 
 /// One press on the world, over no part of the interface.
-fn a_world_press(x: i32, y: i32) -> dereth_client::ui::UiMouseEvent {
-    dereth_client::ui::UiMouseEvent {
+fn a_world_press(x: i32, y: i32) -> dereth_client_shell::ui::UiMouseEvent {
+    dereth_client_shell::ui::UiMouseEvent {
         action: dereth_ui::focus::action::PRIMARY_CLICK,
         start: true,
         x,
@@ -361,7 +365,7 @@ pub fn a_press_outside_the_view_is_refused_though_it_is_inside_the_window() {
         (799, 599),                // the window's own last pixel
     ];
 
-    let mut refused = dereth_client::pick::WorldPicker::new();
+    let mut refused = dereth_client_runtime::pick::WorldPicker::new();
     let all_refused = outside
         .iter()
         .all(|(x, y)| !refused.find_object(*x, *y, INSET));
@@ -369,7 +373,7 @@ pub fn a_press_outside_the_view_is_refused_though_it_is_inside_the_window() {
 
     // The control: every one of those five is inside the window, and a full-window view takes
     // them all.
-    let mut taken = dereth_client::pick::WorldPicker::new();
+    let mut taken = dereth_client_runtime::pick::WorldPicker::new();
     let all_taken = outside
         .iter()
         .all(|(x, y)| taken.find_object(*x, *y, WHOLE));
@@ -388,13 +392,13 @@ pub fn a_press_outside_the_view_is_refused_though_it_is_inside_the_window() {
 
 /// The value that is *used*, not the one that was handed over.
 pub fn the_armed_point_is_measured_from_the_views_own_corner() {
-    let mut p = dereth_client::pick::WorldPicker::new();
+    let mut p = dereth_client_runtime::pick::WorldPicker::new();
     let armed = p.find_object(INSET_MIDDLE.0, INSET_MIDDLE.1, INSET);
     let from_the_views_corner = armed && p.selection_cursor() == Some((199.0, 149.0));
 
     // The control: with the whole window as the view the two corners are one, which is exactly
     // what every reader of this number used to be able to assume.
-    let mut q = dereth_client::pick::WorldPicker::new();
+    let mut q = dereth_client_runtime::pick::WorldPicker::new();
     let same_press = q.find_object(INSET_MIDDLE.0, INSET_MIDDLE.1, WHOLE);
     let from_the_windows_corner = same_press && q.selection_cursor() == Some((439.0, 239.0));
 
@@ -412,7 +416,7 @@ pub fn the_armed_point_is_measured_from_the_views_own_corner() {
 /// The seam itself: three clients, one with the view pushed in and pressed inside it, one pressed
 /// outside it, and one with nothing pushed in at all.
 pub fn a_world_press_is_measured_against_the_view_the_frame_pushed_in() {
-    use dereth_client::interaction::{self, Interaction};
+    use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
 
     let mut inside = Interaction::new();
     inside.note_game_viewport(Some(INSET));

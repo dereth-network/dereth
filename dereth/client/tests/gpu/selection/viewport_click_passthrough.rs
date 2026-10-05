@@ -47,11 +47,10 @@
 use crate::common::app::{frames, position};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pick::PickScene;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::pick::PickScene;
 use dereth_client_runtime::pick_geometry::selection_ray;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
@@ -60,6 +59,9 @@ use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
 use dereth_ui::{ElemHandle, UiSystem};
 use winit::event::MouseButton;
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 const SCREEN: (u32, u32) = (800, 600);
 const TELEPORT_UNHIDE_STATE: u32 = 0x0040_0408;
@@ -446,7 +448,7 @@ fn open_the_inventory_page(app: &mut App) {
 /// Send normalized motion/down/up messages through Pump and the input manager, then allow
 /// three frames for UI dispatch and selection. This is not OS mouse injection.
 fn press_at(app: &mut App, x: i32, y: i32, stamp: u32) {
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
     let messages = [

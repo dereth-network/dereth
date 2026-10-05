@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use dereth_client::input::InputShell;
-use dereth_client::interaction::{action as ia, Interaction};
+use dereth_client_shell::input::InputShell;
 use dereth_input::fire::ControlType;
 use dereth_input::spec::ControlChord;
 use dereth_input::{ActionId, InputMapId};
@@ -11,6 +10,10 @@ use dereth_primitives::{AssetSource, DataId, LocalTime, ObjectId};
 use dereth_ui::{Delivery, ElemHandle, ElementMessage, Screen as _, UiSystem};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::view::{CombatBar, GameView, MagicNotice, PlayerOption, SpellEntry};
+use {
+    dereth_client_runtime::interaction::action as ia,
+    dereth_client_runtime::interaction::Interaction,
+};
 
 const PLAYER: ObjectId = ObjectId(0x5410_1002);
 const MONSTER: ObjectId = ObjectId(0x8410_1777);
@@ -238,13 +241,13 @@ impl Driver {
 /// The client's own interaction slot over a character standing in the casting stance.
 pub struct Bench {
     inter: Interaction,
-    objects: dereth_client::objects::ObjectStream,
+    objects: dereth_client_runtime::objects::ObjectStream,
     store: Arc<dereth_dat::RetailDatStore>,
 }
 
 impl Bench {
     pub fn new() -> Self {
-        let mut objects = dereth_client::objects::ObjectStream::default();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::default();
         objects.world = a_world();
         Self {
             inter: Interaction::new(),
@@ -259,7 +262,7 @@ impl Bench {
     }
 
     pub fn drive(&mut self, actions: Vec<dereth_client_runtime::actions::Action>, now: f64) {
-        let _ = dereth_client::interaction::use_time(
+        let _ = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,

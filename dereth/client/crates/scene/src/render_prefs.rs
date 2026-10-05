@@ -2,7 +2,7 @@
 //!
 //! The model half of this module -- `RenderPreferences`, the fourteen names, the choice decodes
 //! and `texture_filtering` -- is [`dereth_client_runtime::render_prefs`], glob-re-exported here,
-//! so `dereth_client::render_prefs::RenderPreferences` and every one of its siblings resolve here
+//! so `dereth_client_runtime::render_prefs::RenderPreferences` and every one of its siblings resolve here
 //! too.
 //!
 //! What this module adds is the options page's Apply for the two names whose owner *is* the device
@@ -13,7 +13,7 @@
 
 pub use dereth_client_runtime::render_prefs::*;
 
-/// The `Render.*` names whose owner is [`crate::world::SceneConfig::render`] rather than the
+/// The `Render.*` names whose owner is [`dereth_client_runtime::scene::SceneConfig::render`] rather than the
 /// device: the projection pair, multi-pass alpha, the detail levels and the two degrade knobs.
 pub fn apply_scene_preference_requests(
     prefs: &mut RenderPreferences,

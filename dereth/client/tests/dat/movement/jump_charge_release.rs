@@ -9,12 +9,6 @@
 
 use crate::common::sim_app::{body, frames, key, movement_key, player_description};
 
-use dereth_client::{
-    app::App,
-    config::Config,
-    pump::Pump,
-    world::{SceneConfig, DEFAULT_LANDBLOCK},
-};
 use dereth_client_model::combat::PowerBarMode;
 use dereth_client_net::client_session::{
     testing::{Corpus, Direction},
@@ -24,6 +18,11 @@ use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::objects::{physics_state, ItemSetState};
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_desktop::pump::Pump,
+};
 
 fn setup() -> App {
     let mut app = crate::common::sim_app::new(Config {
@@ -237,8 +236,9 @@ mod bound_wire {
 
     impl Wire {
         fn observe(&mut self, app: &mut App) {
-            let observed_time =
-                LocalTime(app.frames_drawn() as f64 * dereth_client::app::HEADLESS_STEP);
+            let observed_time = LocalTime(
+                app.frames_drawn() as f64 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
+            );
             let datagrams = app
                 .replay_network_mut()
                 .expect("explicit replay endpoint")
@@ -343,7 +343,7 @@ mod bound_wire {
             );
         frames(&mut app, 4); // Complete the recorded description's existing UI consumers.
 
-        let mut net = dereth_client::net::ClientNetwork::new(
+        let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "jump-wire-station",
@@ -416,7 +416,7 @@ mod bound_wire {
             .unwrap();
         app.input_manager_mut()
             .unwrap()
-            .on_message(dereth_client::pump::Win32Message {
+            .on_message(dereth_input::win32::Win32Message {
                 lparam: repeated.lparam | (1 << 30),
                 ..repeated
             });
@@ -1111,7 +1111,7 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         .unwrap();
     app.input_manager_mut()
         .unwrap()
-        .on_message(dereth_client::pump::Win32Message {
+        .on_message(dereth_input::win32::Win32Message {
             lparam: repeated.lparam | (1 << 30),
             ..repeated
         });

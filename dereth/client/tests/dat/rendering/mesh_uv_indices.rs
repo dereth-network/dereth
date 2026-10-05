@@ -5,9 +5,9 @@
 use dereth_assets::common::{BspTree, Polygon, SwVertex, VertexArray};
 use dereth_assets::geometry::CellStruct;
 use dereth_assets::{Decode, Environment, GfxObj};
-use dereth_client::models::{triangulate, triangulate_cell};
 use dereth_dat::DbType;
 use dereth_primitives::{DataId, Vec3};
+use {dereth_client_runtime::models::triangulate, dereth_client_runtime::models::triangulate_cell};
 
 /// Behaviour: rendering.mesh.a-polygon-without-uv-indices-uses-each-vertexs-first-uv
 #[test]

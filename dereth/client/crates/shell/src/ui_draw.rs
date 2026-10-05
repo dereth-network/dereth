@@ -640,12 +640,12 @@ pub fn composite(
 /// # Errors
 /// The image's id chain does not resolve or its payload does not decode.
 pub fn derive_plain(
-    chrome: &crate::textures::TextureStore<'_>,
-    content: &crate::textures::TextureStore<'_>,
+    chrome: &dereth_scene::textures::TextureStore<'_>,
+    content: &dereth_scene::textures::TextureStore<'_>,
     id: DataId,
     op: Option<SurfaceOp>,
     source: ImageSource,
-) -> Result<dereth_primitives::TextureData, crate::textures::TextureError> {
+) -> Result<dereth_primitives::TextureData, dereth_scene::textures::TextureError> {
     // A picture the world names is an icon (an item's, a spell's, a skill's, an effect's or a
     // component's), read as an icon layer: on a world of the files before Throne of Destiny its
     // black is the transparent colour around it. The interface's own art draws its black.
@@ -908,7 +908,7 @@ pub fn build_font_atlas(
 ) -> Result<FontAtlas, FontError> {
     let font = load_font(store, did)?;
     let sheet_id = DataId(font.foreground_surface_data_id);
-    let textures = crate::textures::TextureStore::new(store);
+    let textures = dereth_scene::textures::TextureStore::new(store);
     let sheet = textures
         .bgra8(sheet_id)
         .map_err(|e| FontError::Sheet(did, sheet_id, e.to_string()))?;

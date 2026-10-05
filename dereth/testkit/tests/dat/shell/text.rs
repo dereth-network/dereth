@@ -49,7 +49,7 @@ pub(super) fn middle_of(c: &HeadlessClient, h: dereth_ui::ElemHandle) -> (i32, i
 
 /// Press the left button at a point and run the frame that acts on it, with no release.
 pub(super) fn press_at(c: &mut HeadlessClient, hands: &mut Hands, x: i32, y: i32) {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
     hands.move_to(c, x, y);
     let m = hands.button_message(MouseButton::Left, true);
     hands.send(c, m);
@@ -58,7 +58,7 @@ pub(super) fn press_at(c: &mut HeadlessClient, hands: &mut Hands, x: i32, y: i32
 
 /// Let it go.
 pub(super) fn release(c: &mut HeadlessClient, hands: &mut Hands) {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
     let m = hands.button_message(MouseButton::Left, false);
     hands.send(c, m);
     c.tick(1);
@@ -1337,7 +1337,7 @@ pub(super) fn the_how_many_box_takes_digits_only() {
 /// The client writes no input method of its own: it offers every composition message on and lets
 /// the desktop drive it.
 pub(super) fn every_composition_message_is_handed_to_the_desktop() {
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
 
@@ -1353,13 +1353,13 @@ pub(super) fn every_composition_message_is_handed_to_the_desktop() {
     ];
     let mut all_offered = true;
     for m in eight {
-        let r = pump.dispatch(dereth_client::pump::Win32Message::new(m, 0, 0, 1_000));
+        let r = pump.dispatch(dereth_input::win32::Win32Message::new(m, 0, 0, 1_000));
         all_offered &= r.effects == vec![Effect::ForwardToBrowser] && !r.handled && r.result == 0;
     }
 
     // The control: an ordinary typed character takes the other road -- offered on, and then given
     // to the client's own input. Without it the eight above would prove nothing about the arm.
-    let r = pump.dispatch(dereth_client::pump::Win32Message::new(
+    let r = pump.dispatch(dereth_input::win32::Win32Message::new(
         win_msg::WM_CHAR,
         u32::from('a') as usize,
         0,
@@ -1464,9 +1464,14 @@ pub(super) fn a_paste_puts_the_clipboard_in_once_and_not_a_letter_with_it() {
 /// Pasting several lines into a one-line box leaves one line, and that is what is said.
 pub(super) fn line_breaks_in_what_was_pasted_never_reach_the_shard() {
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(8));
-    let mut net =
-        dereth_client::net::ClientNetwork::new("127.0.0.1:19000", 7304, "paste", "unused", 0)
-            .expect("a socket-free endpoint");
+    let mut net = dereth_client_runtime::net::ClientNetwork::new(
+        "127.0.0.1:19000",
+        7304,
+        "paste",
+        "unused",
+        0,
+    )
+    .expect("a socket-free endpoint");
     net.session.transport.add_connection(
         0xB,
         0,

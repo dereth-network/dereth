@@ -27,7 +27,7 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::DataId;
 use dereth_render::font::{FontAtlas, GlyphSheet};
 use dereth_ui::framework::mode;
@@ -76,9 +76,9 @@ fn every_retail_font_rasterises_and_the_range_and_texture_size_are_stated() {
     let mut texture_bytes = 0usize;
     let mut widest = (DataId(0), (0u32, 0u32));
     for did in &ids {
-        let font = dereth_client::ui_draw::load_font(&store, *did)
+        let font = dereth_client_shell::ui_draw::load_font(&store, *did)
             .unwrap_or_else(|e| panic!("{did:?} is a Font object: {e}"));
-        let atlas = dereth_client::ui_draw::build_font_atlas(&store, *did)
+        let atlas = dereth_client_shell::ui_draw::build_font_atlas(&store, *did)
             .unwrap_or_else(|e| panic!("{did:?} rasterises: {e}"));
 
         // The texture is the font's own foreground sheet, not a 256x256 bake.
@@ -112,7 +112,7 @@ fn every_retail_font_rasterises_and_the_range_and_texture_size_are_stated() {
 
         // ...and the client's own bake, unchanged, on the same font.
         let sheet_id = DataId(font.foreground_surface_data_id);
-        let textures = dereth_client::textures::TextureStore::new(&store);
+        let textures = dereth_scene::textures::TextureStore::new(&store);
         let sheet = textures
             .bgra8(sheet_id)
             .unwrap_or_else(|e| panic!("{sheet_id:?}: {e}"));
@@ -163,9 +163,9 @@ fn the_two_fonts_the_wizard_names_are_the_ones_that_overflowed() {
     let store = dereth_dat::RetailDatStore::open_dir(&client_dir()).expect("the retail dats open");
     for (did, max_h) in [(0x4000_0024u32, 42u32), (0x4000_0014, 48)] {
         let did = DataId(did);
-        let font = dereth_client::ui_draw::load_font(&store, did).expect("the font reads");
+        let font = dereth_client_shell::ui_draw::load_font(&store, did).expect("the font reads");
         assert_eq!(font.max_char_height, max_h, "{did:?}'s line height");
-        let atlas = dereth_client::ui_draw::build_font_atlas(&store, did)
+        let atlas = dereth_client_shell::ui_draw::build_font_atlas(&store, did)
             .unwrap_or_else(|e| panic!("{did:?} rasterises: {e}"));
         // The sheet is far larger than 256 in at least one axis, which is why the bake could never
         // have held it.
@@ -299,7 +299,7 @@ fn the_finish_buttons_font_is_the_one_that_used_to_overflow() {
     assert_eq!(font, Some(DataId(0x4000_0024)), "the caption's font");
     let store = dereth_dat::RetailDatStore::open_dir(&client_dir()).expect("the retail dats open");
     assert!(
-        dereth_client::ui_draw::build_font_atlas(&store, DataId(0x4000_0024)).is_ok(),
+        dereth_client_shell::ui_draw::build_font_atlas(&store, DataId(0x4000_0024)).is_ok(),
         "and it rasterises"
     );
     app.shutdown();

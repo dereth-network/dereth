@@ -23,11 +23,11 @@ use crate::common::client_dir_or_workspace_client as client_dir;
 use std::path::{Path, PathBuf};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
 use dereth_client_model::chat::text_type;
 use dereth_client_model::player::options::option::{DISPLAY_TIME_STAMPS, FILTER_LANGUAGE};
 use dereth_client_net::client_session::testing::Corpus;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::ObjectId;
 use dereth_protocol::{Message as _, Opcode};
 use dereth_ui::framework::mode;
@@ -133,11 +133,11 @@ fn app_in_gameplay(stamps: bool, filter: bool, log: Option<&Path>) -> App {
     let mut app =
         crate::common::sim_app::new(connected_config()).expect("the application comes up headless");
     app.start_shell().expect("the UI shell comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.apply_hud_events(&[SessionEvent::PlayerDescription(Box::default())]);
@@ -156,7 +156,7 @@ fn app_in_gameplay(stamps: bool, filter: bool, log: Option<&Path>) -> App {
                 world
                     .scroll
                     .start_copy_output_to_file(&path.to_string_lossy(), 0, || {
-                        dereth_client::platform::text::open_chat_log(path)
+                        dereth_client_runtime::platform::text::open_chat_log(path)
                     }),
                 "the temp chat log opens"
             );

@@ -11,14 +11,14 @@
 
 #![cfg(windows)]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::dispatch::world_objects::{dispatch, InstanceTable};
 use dereth_client_net::client_session::ordering::ParkedBlobs;
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{
     IncomingMessage, LocalTime, NetBlobId, NetQueue, ObjectId, RecipientId, Vec3,
 };
@@ -673,8 +673,11 @@ fn a_position_and_movement_event_whose_tail_is_not_a_buffer_is_counted() {
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #[test]
 fn the_recorded_vector_update_reaches_the_physics_body() {
-    use dereth_client::world::{load_region, SceneConfig, WorldScene};
     use dereth_render::device::{DeviceConfig, Gpu};
+    use {
+        dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
+        dereth_scene::world_scene::WorldScene,
+    };
 
     let id = ObjectId(0x5000_000A);
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());

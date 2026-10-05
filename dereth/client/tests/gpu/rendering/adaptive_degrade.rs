@@ -31,7 +31,7 @@
 //!
 //! The governor responds to frame duration, so uncontrolled wall time would make it machine
 //! dependent. Its timing input is the simulation-clock delta; `--headless` advances that clock
-//! by [`dereth_client::app::HEADLESS_STEP`], so a headless frame measures a number
+//! by [`dereth_client_runtime::platform::clock::HEADLESS_STEP`], so a headless frame measures a number
 //! that depends on the frame *count* and not on elapsed time. The reproducibility test asserts
 //! exactly that: three runs of the identical series produce identical captures and identical bias
 //! trajectories, **with the loop on**.
@@ -57,16 +57,16 @@
 
 use dereth_assets::motion::GfxObjDegradeInfo;
 use dereth_assets::Decode;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_client_runtime::camera::FrameRate;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use dereth_world_render::degrade_loop::{DegradeGovernor, DegradeLevel, FramerateTargets};
 use std::collections::HashMap;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// The retail store, or **fail**: absent dats are a missing oracle, not a reason to pass, so the
 /// type offers no way to skip.
@@ -122,8 +122,8 @@ impl Harness {
         // LINT-OK: the frame delta the binary itself narrows on the line above `world.update`.
         let dt32 = dt as f32;
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(self.now),
             dt32,
         );
@@ -140,7 +140,7 @@ impl Harness {
 ///
 /// Three phases of 60 frames, chosen against the retail targets rather than against taste:
 ///
-/// * **cheap** — `1/30 s`, which is [`dereth_client::app::HEADLESS_STEP`] itself. The window then
+/// * **cheap** — `1/30 s`, which is [`dereth_client_runtime::platform::clock::HEADLESS_STEP`] itself. The window then
 ///   reads 30 fps, past `g = max_framerate * 1.25 = 25` and therefore in `wg`'s saturated arm,
 ///   where the step is exactly `+0.10`. This illustrates the timing hazard: even 30 fps is
 ///   already above the fast-response threshold of retail's curve, whose ideal is 10.
@@ -153,7 +153,7 @@ impl Harness {
 /// `1/5 s` — because `dt` is also the simulation's step, so an implausibly slow frame would make
 /// the differential a comparison of two differently-simulated worlds rather than of two biases.
 const PHASE: usize = 60;
-const CHEAP_DT: f64 = dereth_client::app::HEADLESS_STEP;
+const CHEAP_DT: f64 = dereth_client_runtime::platform::clock::HEADLESS_STEP;
 const EXPENSIVE_DT: f64 = 1.0 / 8.0;
 
 fn series() -> Vec<f64> {
@@ -880,7 +880,12 @@ fn the_headless_path_is_reproducible_with_the_loop_live() {
         for _ in 0..30 {
             // The real headless quantum, not the synthetic series: this is what
             // `--headless --frames n` actually pushes.
-            rgba = h.frame(&store, gpu, &mut scene, dereth_client::app::HEADLESS_STEP);
+            rgba = h.frame(
+                &store,
+                gpu,
+                &mut scene,
+                dereth_client_runtime::platform::clock::HEADLESS_STEP,
+            );
             trace.push(scene.draw.degrade.governor.deg_mul);
         }
         // Hand the scene's texture descriptors back before dropping it: three scenes with their
@@ -1078,7 +1083,7 @@ fn the_overhead_camera_mode_disables_degrades() {
         ..cfg(true)
     };
     let mut scene = WorldScene::load(&store, &mut gpu, scene_cfg).expect("the landscape loads");
-    let region = dereth_client::world::load_region(&store).expect("the region loads");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region loads");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the character attaches");

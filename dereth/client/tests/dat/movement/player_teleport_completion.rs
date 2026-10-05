@@ -10,15 +10,20 @@ use std::sync::Arc;
 
 use dereth_animation::motion::{MoveToRequest, MovementParameters};
 use dereth_animation::MotionCommand;
-use dereth_client::app::{
-    apply_player_teleport, body_motion, complete_player_teleport, player_timestamps,
-};
-use dereth_client::character::{Character, CharacterInput, MovementCommands};
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction, MockTransport};
 use dereth_client_net::client_session::{PositionReporter, Session, SessionEvent};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client_runtime::app::apply_player_teleport, dereth_client_runtime::app::body_motion,
+    dereth_client_runtime::app::complete_player_teleport,
+    dereth_client_runtime::app::player_timestamps,
+};
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::MovementCommands,
+};
 
 const TARGET: ObjectId = ObjectId(0x8000_0997);
 
@@ -118,7 +123,7 @@ fn before_teleport() -> (ObjectStream, Position, CorpusBlob) {
 
 fn body_at(pos: Position, id: ObjectId) -> Character {
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let block = pos.cell.landblock();
     let mut c = Character::new(
         &store,
@@ -430,8 +435,8 @@ fn teleport_tail_sends_even_with_autorun_already_off_and_preserves_a_held_key_wh
 /// Behaviour: movement.teleport.every-drawn-frame-applies-a-teleport-before-it-reports-a-position
 #[test]
 fn actual_app_teleport_step_clears_autorun_and_the_old_move_to() {
-    use dereth_client::config::Config;
-    use dereth_client::world::SceneConfig;
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::scene::SceneConfig;
     let (objects, origin, edge) = before_teleport();
     let mut app = crate::common::sim_app::new(Config {
         headless: true,
@@ -533,11 +538,11 @@ fn actual_app_teleport_step_clears_autorun_and_the_old_move_to() {
 /// a command accepted afterward is not.
 #[test]
 fn actual_app_preserves_accepted_movement_and_teleport_order_in_one_batch() {
-    use dereth_client::{config::Config, world::SceneConfig};
     use dereth_protocol::movement::{
         movement_type, MoveToArm, MovementBody, MovementBuffer, MovementPositionEvent,
         MovementSetObjectMovement,
     };
+    use {dereth_client_runtime::config::Config, dereth_client_runtime::scene::SceneConfig};
     for movement_after in [false, true] {
         let (objects, origin, edge) = before_teleport();
         let mut app = crate::common::sim_app::new(Config {
@@ -752,7 +757,7 @@ fn stamped_movement(objects: &ObjectStream) -> SessionEvent {
     }
 }
 fn lifecycle_app(origin: Position) -> dereth_client::app::App {
-    use dereth_client::{config::Config, world::SceneConfig};
+    use {dereth_client_runtime::config::Config, dereth_client_runtime::scene::SceneConfig};
     let mut app = crate::common::sim_app::new(Config {
         headless: true,
         frames: None,
@@ -864,8 +869,11 @@ fn lifecycle_movement(
 }
 #[test]
 fn actual_app_prepares_a_same_batch_player_create_before_its_movement() {
-    use dereth_client::character::{ALUVIAN_MALE_MOTION_TABLE, ALUVIAN_MALE_SETUP};
     use dereth_protocol::objects::ItemCreateObject;
+    use {
+        dereth_client_runtime::character::ALUVIAN_MALE_MOTION_TABLE,
+        dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
+    };
     let (_, origin, _) = before_teleport();
     let mut app = lifecycle_app(origin);
     let player = ObjectId(0x7000_0001);
@@ -1249,7 +1257,7 @@ fn actual_app_cancels_create_embedded_approach_before_later_teleport() {
 
 #[test]
 fn accepted_journal_keeps_each_teleports_position_and_echo_stamps_until_exactly_once_drain() {
-    use dereth_client::objects::PlayerMotionDispatch;
+    use dereth_client_runtime::objects::PlayerMotionDispatch;
     use dereth_protocol::movement::MovementPositionEvent;
     let (mut objects, origin, edge) = before_teleport();
     let _ = objects.take_player_motion_dispatches(); // initial recorded create is before this station
@@ -1311,7 +1319,7 @@ fn accepted_journal_keeps_each_teleports_position_and_echo_stamps_until_exactly_
         );
         // The production accepted-edge completion/sender seam, isolated from movement here to
         // inspect its two distinct position/stamp echoes. The App test above proves interleaving.
-        dereth_client::app::complete_player_teleport_at(
+        dereth_client_runtime::app::complete_player_teleport_at(
             position,
             &mut c,
             &mut commands,

@@ -3,8 +3,8 @@
 //! like per-cell patches with no blending), and a palettised `PFID_INDEX16` surface decodes to real
 //! colour rather than solid black. Fixture: the retail dats (a missing install fails).
 
-use dereth_client::textures::TextureStore;
-use dereth_client::world::load_region;
+use dereth_client_runtime::landblock::load_region;
+use dereth_scene::textures::TextureStore;
 
 /// Behaviour: rendering.terrain.the-alpha-map-mask-blends-between-textures
 #[test]

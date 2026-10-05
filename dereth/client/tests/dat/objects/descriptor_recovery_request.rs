@@ -7,12 +7,15 @@
 //! socket-free `App` endpoint so session admission, the duplicate-create merge and the Control
 //! sender all run.
 
-use dereth_client::{app::App, config::Config, net::ClientNetwork};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::Message;
 use dereth_transport::wire::ParsedPacket;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork,
+};
 
 const SACK: ObjectId = ObjectId(0x8000_0997);
 const FORCE_OBJDESC: [u8; 4] = [0xEA, 0xF6, 0x00, 0x00];
@@ -205,7 +208,7 @@ fn duplicate_drop_create_queues_descriptor_recovery_at_its_message_boundary() {
 #[test]
 fn sessionless_component_does_not_replay_descriptor_ask_later() {
     let [login, drop] = sack_creates();
-    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
     for (time, create) in [(1.0, login), (2.0, drop)] {
         objects.apply_event(
             &dereth_client_net::client_session::SessionEvent::WorldObject {

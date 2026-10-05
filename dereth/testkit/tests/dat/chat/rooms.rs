@@ -296,7 +296,7 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
     // measuring against it would make the claim depend on the locale of whatever ran it. Naming
     // the code page here is the same claim without that.
     c.world_mut().chat.text_conversion = dereth_client_model::HostText::new(std::sync::Arc::new(
-        dereth_client::platform::text::HostAcp::for_ansi_code_page(code_page),
+        dereth_client_runtime::platform::text::HostAcp::for_ansi_code_page(code_page),
     ));
     room_list(&mut c);
     to_gameplay(&mut c);

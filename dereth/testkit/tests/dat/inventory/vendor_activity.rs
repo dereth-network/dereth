@@ -615,26 +615,26 @@ pub(super) fn a_basket_is_counted_in_things_and_not_in_rows() {
     let mut w = a_player_with_coin(Some(1_000_000));
     open_the_grocer(&mut w);
     let stock = w.shop.stock[0].iid;
-    let empty = dereth_client::vendor_view::shop(&w);
+    let empty = dereth_client_runtime::vendor_view::shop(&w);
     let mut counts = empty.buy_items == 0 && empty.sell_items == 0;
 
     w.shop.stock[0].pwd.stack_size = Some(1);
     w.shop.buy_list = vec![(stock, 3)];
-    counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
+    counts &= dereth_client_runtime::vendor_view::shop(&w).buy_items == 3;
 
     // The selected quantity is already in the basket, independent of the stock stack size.
     w.shop.stock[0].pwd.stack_size = Some(20);
-    counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
+    counts &= dereth_client_runtime::vendor_view::shop(&w).buy_items == 3;
 
     // A thing with no count of its own, or a count of nothing, counts as one.
     w.shop.stock[0].pwd.stack_size = None;
-    counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
+    counts &= dereth_client_runtime::vendor_view::shop(&w).buy_items == 3;
     w.shop.stock[0].pwd.stack_size = Some(0);
-    counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
+    counts &= dereth_client_runtime::vendor_view::shop(&w).buy_items == 3;
 
     // A basket row naming something the client does not hold contributes nothing.
     w.shop.buy_list = vec![(stock, 3), (ObjectId(0xDEAD_BEEF), 5)];
-    counts &= dereth_client::vendor_view::shop(&w).buy_items == 3;
+    counts &= dereth_client_runtime::vendor_view::shop(&w).buy_items == 3;
 
     // …and the selling side reads the thing's own count.
     let arrow = ObjectId(0x8000_0A6E);
@@ -646,7 +646,7 @@ pub(super) fn a_basket_is_counted_in_things_and_not_in_rows() {
     };
     w.tables.weenies.insert(arrow, wn);
     w.shop.sell_list = vec![(arrow, 1)];
-    counts &= dereth_client::vendor_view::shop(&w).sell_items == 250;
+    counts &= dereth_client_runtime::vendor_view::shop(&w).sell_items == 250;
 
     c.assert_behaviour(
         "vendor.money.a-basket-is-counted-in-things-and-not-in-rows",
@@ -661,7 +661,7 @@ pub(super) fn the_filter_strip_follows_the_stock() {
 
     let mut w = World::new();
     open_the_grocer(&mut w);
-    let view = dereth_client::vendor_view::shop(&w);
+    let view = dereth_client_runtime::vendor_view::shop(&w);
     assert!(
         view.open && !view.stock.is_empty(),
         "the premise: the recorded shop has stock"
@@ -800,7 +800,7 @@ pub(super) fn the_purse_is_filled_from_the_players_own_coin() {
         dereth_primitives::ServerTime(1.0),
     ) == Ok(true)
         && req.0.len() == 1
-        && dereth_client::vendor_view::shop(&w).total_value == 1_000_000;
+        && dereth_client_runtime::vendor_view::shop(&w).total_value == 1_000_000;
 
     c.assert_behaviour(
         "vendor.purse.is-filled-from-the-players-own-coin-when-the-shop-opens",
@@ -875,7 +875,7 @@ pub(super) fn the_picked_stock_row_writes_its_name_and_its_cost() {
 
     // The oracle for both strings is the seam, which is a different path from the panel's own.
     let (name, price) = {
-        let view = dereth_client::vendor_view::shop(c.view().world());
+        let view = dereth_client_runtime::vendor_view::shop(c.view().world());
         let row = view
             .stock
             .iter()

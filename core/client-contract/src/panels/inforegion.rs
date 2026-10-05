@@ -2,7 +2,7 @@
 //!
 //! It lives here rather than in `dereth_ui_screens::panels::inforegion` because its entire
 //! production surface is `dereth_primitives::num` and plain arithmetic -- it names no `dereth_ui`
-//! type -- and `dereth_client::hud` calls `apply_vitae` and `vitae_modifier` when it composes the
+//! type -- and `dereth_client_shell::hud` calls `apply_vitae` and `vitae_modifier` when it composes the
 //! skill and vital rows.
 //!
 //! **Timers are rebased on receipt.** Enchantment and skill timers are rebased when they arrive, so

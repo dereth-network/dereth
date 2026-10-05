@@ -22,10 +22,10 @@ use crate::common::client_dir_or_workspace_client as client_dir;
 use std::path::PathBuf;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
 use dereth_client_model::chat::text_type;
 use dereth_client_net::client_session::testing::Corpus;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::ObjectId;
 use dereth_protocol::{Message as _, Opcode};
 use dereth_ui::framework::mode;
@@ -144,11 +144,11 @@ fn app_in_gameplay() -> App {
     let mut app =
         crate::common::sim_app::new(connected_config()).expect("the application comes up headless");
     app.start_shell().expect("the UI shell comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     // `0x0013 Login_PlayerDescription`: the chat windows take their stored filters off it, and

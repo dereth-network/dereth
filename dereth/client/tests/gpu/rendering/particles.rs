@@ -8,14 +8,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// The retail store, or **fail**: a missing oracle must not read as a pass.
 fn store() -> Arc<RetailDatStore> {
@@ -50,15 +50,15 @@ fn run(
     let mut t = 0.0f64;
     let mut rgba = Vec::new();
     for _ in 0..frames {
-        // The headless step is `dereth_client::app::HEADLESS_STEP`, one physics quantum per frame, which is what
+        // The headless step is `dereth_client_runtime::platform::clock::HEADLESS_STEP`, one physics quantum per frame, which is what
         // makes a capture after n frames the state after n sub-steps.
-        t += dereth_client::app::HEADLESS_STEP;
+        t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(t),
             1.0 / 30.0,
         );
@@ -118,9 +118,9 @@ fn the_scripted_statics_around_holtburg_become_live_emitters() {
     );
 
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
-        LocalTime(dereth_client::app::HEADLESS_STEP),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
+        LocalTime(dereth_client_runtime::platform::clock::HEADLESS_STEP),
         1.0 / 30.0,
     );
     let s = scene.draw.stats;

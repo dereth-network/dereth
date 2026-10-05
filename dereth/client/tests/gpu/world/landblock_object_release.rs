@@ -13,13 +13,12 @@
 //! * `outdoor_objects`: objects in a departed block's outdoor cells are released by the scroll.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, WorldSceneRef, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{
@@ -27,6 +26,11 @@ use dereth_primitives::{
 };
 use dereth_protocol::Message;
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene, dereth_scene::world_scene::WorldSceneRef,
+};
 
 /// A realistic non-static state word, the one the corpus carries for an opened door; the same
 /// literal `world::landblock_object_release::outdoor_objects` uses, so the two modules share one station.
@@ -132,8 +136,8 @@ struct ReplayPeer {
 }
 
 impl ReplayPeer {
-    fn new() -> (Self, dereth_client::net::ClientNetwork) {
-        let mut net = dereth_client::net::ClientNetwork::new(
+    fn new() -> (Self, dereth_client_runtime::net::ClientNetwork) {
+        let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "rapid-teleport-station",
@@ -333,7 +337,7 @@ fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -394,7 +398,7 @@ fn settle(
     t: f64,
 ) {
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
@@ -755,8 +759,8 @@ fn an_outdoor_parent_returning_with_its_block_rescues_its_held_child_from_the_ol
 #[test]
 fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
     use dereth_client::app::App;
-    use dereth_client::character::ALUVIAN_MALE_SETUP;
-    use dereth_client::config::Config;
+    use dereth_client_runtime::character::ALUVIAN_MALE_SETUP;
+    use dereth_client_runtime::config::Config;
 
     let mut app = App::new(Config {
         headless: true,
@@ -1095,13 +1099,16 @@ fn an_actual_short_player_teleport_releases_and_rebuilds_the_whole_window() {
 /// admitted by the session, and consumed by `App::deliver_session_events` in one `App::frame`.
 #[test]
 fn rapid_teleports_preserve_the_final_local_and_remote_arrivals() {
-    use dereth_client::{app::App, character::ALUVIAN_MALE_SETUP, config::Config};
     use dereth_protocol::{
         objects::{ItemCreateObject, ItemSetState, LoginCreatePlayer, ObjectCreatePayload},
         types::{
             physicsdesc::flags, ObjDesc, PhysicsDesc, PhysicsEventStamp, PhysicsTimestamps,
             PublicWeenieDesc,
         },
+    };
+    use {
+        dereth_client::app::App, dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
+        dereth_client_runtime::config::Config,
     };
 
     let mut app = App::new(Config {
@@ -1349,17 +1356,20 @@ mod outdoor_objects {
         block_at, doomed, embodied, feed, store, DESTRUCTION_TIME, DOOR_OPEN, PORTAL, PORTAL_2,
         SETUP,
     };
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::character::CharacterInput;
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{block_xy, WorldScene, DEFAULT_LANDBLOCK};
+    use dereth_client_runtime::character::CharacterInput;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{
         CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3,
     };
     use dereth_render::device::Gpu;
+    use {
+        dereth_client_runtime::landblock::block_xy,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_scene::world_scene::WorldScene,
+    };
 
     /// STATIC_PS is state bit 0, the shared release filter's static-object exclusion.
     const STATIC_PS: u32 = 0x0000_0001;
@@ -1450,7 +1460,7 @@ mod outdoor_objects {
         }
         scene.follow_character_now();
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(0.0),
             0.0,
@@ -1583,7 +1593,7 @@ mod outdoor_objects {
         // is a known difference, not retail pixels remaining for 25 s. This station checks stored
         // frames and eventual deletion, not draw submissions.
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(1.0),
             1.0 / 30.0,
@@ -1626,7 +1636,7 @@ mod outdoor_objects {
             .sync_objects(&store, &mut gpu, &mut stream)
             .expect("the removal drains");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(dead),
             1.0 / 30.0,

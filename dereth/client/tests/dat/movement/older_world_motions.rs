@@ -11,13 +11,16 @@ use std::sync::Arc;
 use dereth_animation::command::CommandNumbering;
 use dereth_animation::data::AnimAssets;
 use dereth_animation::MotionCommand;
-use dereth_client::character::Character;
-use dereth_client::world::{load_region, DEFAULT_LANDBLOCK};
 use dereth_client_runtime::actions::emote::INPUT_ACTION_COMMANDS;
+use dereth_client_runtime::character::Character;
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime};
 use dereth_protocol::movement::{InterpretedMotionState, MotionAction};
+use {
+    dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+};
 
 /// The human motion table, which every human uses.
 const HUMAN_MOTION_TABLE: DataId = DataId(0x0900_0001);
@@ -76,7 +79,7 @@ fn logout_plays(store: &Arc<RetailDatStore>) -> (CommandNumbering, u16, Vec<u32>
     let stream = ObjectStream::with_store(Arc::clone(store));
     let n = stream.command_numbering();
     let wire = logout_on_the_wire(n);
-    let state = dereth_client::movement::interpreted_state_in(&wire, n);
+    let state = dereth_client_runtime::movement::interpreted_state_in(&wire, n);
     assert_eq!(state.actions.len(), 1);
     assert_eq!(state.actions[0].action, MotionCommand::LOG_OUT, "{n:?}");
     let mut c = body(store);
@@ -113,7 +116,7 @@ fn on_an_older_world_the_servers_logout_plays_the_departure_its_files_give_it() 
 #[test]
 fn every_emote_key_animates_the_february_2005_human_body() {
     let store = older();
-    let assets = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(&store));
+    let assets = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store));
     let mt = assets
         .motion_table(HUMAN_MOTION_TABLE)
         .expect("the human table");
@@ -163,7 +166,8 @@ fn on_an_older_world_the_client_sends_its_motion_state_in_its_files_numbering() 
         forward_command: MotionCommand::SIT_STATE,
         ..Default::default()
     };
-    let then = dereth_client::app::raw_motion_state_to_wire_in(&raw, CommandNumbering::Before2015);
+    let then =
+        dereth_client_runtime::app::raw_motion_state_to_wire_in(&raw, CommandNumbering::Before2015);
     assert_eq!(
         then.current_style,
         Some(0x8000_0138),
@@ -174,8 +178,12 @@ fn on_an_older_world_the_client_sends_its_motion_state_in_its_files_numbering() 
         Some(0x4300_013A),
         "the older SitState"
     );
-    let now = dereth_client::app::raw_motion_state_to_wire_in(&raw, CommandNumbering::Final);
-    assert_eq!(now, dereth_client::app::raw_motion_state_to_wire(&raw));
+    let now =
+        dereth_client_runtime::app::raw_motion_state_to_wire_in(&raw, CommandNumbering::Final);
+    assert_eq!(
+        now,
+        dereth_client_runtime::app::raw_motion_state_to_wire(&raw)
+    );
     assert_eq!(now.current_style, Some(MotionCommand::ATLATL_COMBAT.0));
     assert_eq!(now.forward_command, Some(MotionCommand::SIT_STATE.0));
 }

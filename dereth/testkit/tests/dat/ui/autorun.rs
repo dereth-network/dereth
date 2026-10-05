@@ -62,8 +62,8 @@ fn release_and_frame(
     c.tick(1);
 }
 
-fn the_key(code: winit::keyboard::KeyCode) -> dereth_client::platform::keys::Key {
-    dereth_client::platform::window::key_from_key_code(code).expect("the host names this key")
+fn the_key(code: winit::keyboard::KeyCode) -> dereth_input::keys::Key {
+    dereth_desktop::platform::window::key_from_key_code(code).expect("the host names this key")
 }
 
 /// Turning the run lock on or off says so in the message window.

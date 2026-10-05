@@ -206,7 +206,7 @@ impl<S: Shell> App<S> {
         let started_sync_to_refresh = cfg.display.sync_to_refresh;
 
         // Built before the struct literal because `store` is moved into it.
-        let anim_assets = std::sync::Arc::new(crate::anim_assets::DatAnimAssets::new(
+        let anim_assets = std::sync::Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
             std::sync::Arc::clone(&store),
         ));
 

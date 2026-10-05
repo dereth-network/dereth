@@ -44,6 +44,7 @@ retail-dats = []
 # The product composes the desktop host and application shell. Tests additionally exercise
 # their shared subsystems directly.
 [dependencies]
+dereth-client-runtime.workspace = true
 dereth-primitives.workspace = true
 dereth-render = { workspace = true, features = ["mock"] }
 dereth-client-shell.workspace = true

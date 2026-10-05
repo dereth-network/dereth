@@ -104,13 +104,13 @@ pub const PAPER_DOLL_VIEWPORT: ElementId = ElementId(0x1000_01D5);
 /// on the body itself.
 ///
 /// It lives in [`dereth_client_contract::panels::inventory`], because
-/// `dereth_client::interaction` makes the other side of the drop-target comparison.
+/// `dereth_client_runtime::interaction` makes the other side of the drop-target comparison.
 pub use dereth_client_contract::panels::inventory::PAPER_DOLL_DRAG_MASK;
 
 /// The paper doll panel's refusal when it will not accept a dragged object.
 ///
 /// It lives in [`dereth_client_contract::panels::inventory`], because
-/// `dereth_client::interaction` is what speaks it. Verbatim, apostrophe included.
+/// `dereth_client_runtime::interaction` is what speaks it. Verbatim, apostrophe included.
 pub use dereth_client_contract::panels::inventory::CANNOT_PUT_THAT_ITEM_THERE;
 
 /// The *Slots* checkbox under the doll.
@@ -423,13 +423,13 @@ pub mod paper_doll {
 
 /// The paper doll panel's constructor's last step — the doll's animation is enum
 /// `0x10000005`, the `UIASSET` group's
-/// `PaperDollAnimation`. Resolved by the host through `dereth_client::assets::enum_did`; this crate
+/// `PaperDollAnimation`. Resolved by the host through `dereth_client_runtime::assets::enum_did`; this crate
 /// carries the enum because the client does.
 pub const PAPER_DOLL_ANIMATION_ENUM: u32 = 0x1000_0005;
 
 /// `PropertyInt 0xBC` — `HeritageGroup`.
 ///
-/// It lives in [`dereth_client_contract::panels::inventory`]; `dereth_client::hud` reads
+/// It lives in [`dereth_client_contract::panels::inventory`]; `dereth_client_shell::hud` reads
 /// the property off the qualities.
 pub use dereth_client_contract::panels::inventory::HERITAGE_GROUP_PROPERTY;
 

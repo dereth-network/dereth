@@ -20,11 +20,10 @@ use crate::common::sim_app::frames;
 use dereth_animation::motion::HoldKey;
 use dereth_animation::MotionCommand;
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pump::Pump;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_desktop::pump::Pump;
 use dereth_primitives::{LocalTime, ObjectId, Position};
 use dereth_protocol::actions::unpack_action;
 use dereth_protocol::movement::{
@@ -35,6 +34,9 @@ use dereth_protocol::objects::{physics_state, ItemCreateObject, ItemSetState};
 use dereth_protocol::{Message, Opcode};
 use dereth_ui::framework::mode;
 use winit::keyboard::KeyCode;
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 const REMOTE: ObjectId = ObjectId(0x5000_0F98);
 
@@ -241,7 +243,7 @@ struct Wire {
 
 impl Wire {
     fn attach(app: &mut App) -> Self {
-        let mut net = dereth_client::net::ClientNetwork::new(
+        let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "remote-turn-station",
@@ -274,7 +276,9 @@ impl Wire {
 
     fn observe(&mut self, app: &mut App) {
         #[allow(clippy::cast_precision_loss)]
-        let now = LocalTime(app.frames_drawn() as f64 * dereth_client::app::HEADLESS_STEP);
+        let now = LocalTime(
+            app.frames_drawn() as f64 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
+        );
         for (bytes, _) in app
             .replay_network_mut()
             .expect("replay endpoint")

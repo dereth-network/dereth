@@ -62,8 +62,8 @@ pub(super) fn one_set_of_keys_means_three_different_things() {
 }
 
 pub(super) fn every_height_key_moves_the_height_in_both_modes() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::{AttackHeight, CombatMode};
+    use dereth_client_runtime::interaction::action as ia;
 
     // The calibration: the driver produces an action and the arm moves the world.
     let calibrated = keys::the_driver_and_the_arm_both_work();
@@ -146,8 +146,8 @@ pub(super) fn every_height_key_moves_the_height_in_both_modes() {
 }
 
 pub(super) fn the_gauge_keys_step_by_a_sixth_in_both_modes() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::CombatMode;
+    use dereth_client_runtime::interaction::action as ia;
 
     let sixth = 1.0_f32 / 6.0;
     let mut both_modes_hold = true;
@@ -174,7 +174,7 @@ pub(super) fn the_gauge_keys_step_by_a_sixth_in_both_modes() {
 
         let mut step = |a: u32,
                         bench: &mut keys::Bench,
-                        shell: &mut dereth_client::input::InputShell,
+                        shell: &mut dereth_client_shell::input::InputShell,
                         d: &mut maps::Driver,
                         now: &mut f64| {
             let qc = maps::the_shipped_control(shell, imap.0, a);
@@ -309,8 +309,8 @@ pub(super) fn holding_a_height_key_refuses_once_and_not_once_per_repeat() {
 }
 
 pub(super) fn at_peace_no_combat_key_reaches_an_arm() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::{AttackHeight, CombatMode};
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut shell = maps::shell();
     shell.set_combat_input_maps(dereth_input::combat::mode::MELEE);
@@ -409,7 +409,7 @@ pub(super) fn every_control_in_the_combat_window_does_what_the_client_does() {
 
     // And the bit reaches the character's options and is queued for the shard. The one whose
     // default is off, so that setting it is a change and not a no-op.
-    let ordinal = dereth_client::hud::option_ordinal(PlayerOption::ViewCombatTarget);
+    let ordinal = dereth_client_runtime::hud::option_ordinal(PlayerOption::ViewCombatTarget);
     let starts_off = !w.world().player_system.options.get(ordinal);
     let queued_before = w.option_changes_queued();
     w.run(
@@ -516,7 +516,7 @@ pub(super) fn the_frames_own_pass_drives_the_combat_windows_read_backs() {
         ..keys::StubView::default()
     };
     let wrote = p.update(&mut ui, &b)
-        + dereth_client::hud::deliver_power_bar_notices(
+        + dereth_client_shell::hud_drive::deliver_power_bar_notices(
             &mut ui,
             &mut p,
             [dereth_client_model::combat::PowerBarNotice::SetLevel {

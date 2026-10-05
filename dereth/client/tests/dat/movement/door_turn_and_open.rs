@@ -72,7 +72,7 @@ fn recorded_academy_station_is_a_successful_nonsticky_door_turn_and_open() {
 
 #[test]
 fn recorded_academy_cell_collision_supports_grounded_walk_without_scene_objects() {
-    use dereth_client::character::Character;
+    use dereth_client_runtime::character::Character;
     use dereth_physics::LandSource;
     use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
     use std::sync::Arc;
@@ -100,7 +100,7 @@ fn recorded_academy_cell_collision_supports_grounded_walk_without_scene_objects(
         ),
     );
     let store = Arc::new(dereth_dat::testing::open_store().unwrap());
-    let region = dereth_client::world::load_region(&store).unwrap();
+    let region = dereth_client_runtime::landblock::load_region(&store).unwrap();
     let mut c = Character::new(&store, &region, 0x7f03, (96.0, 96.0)).unwrap();
     c.land().load_block_cells(origin.cell.landblock());
     let cell = c.land().env_cell(origin.cell).unwrap();
@@ -137,7 +137,7 @@ fn recorded_academy_cell_collision_supports_grounded_walk_without_scene_objects(
 fn academy_cell_extents_probe_the_default_streaming_window_margin() {
     use dereth_physics::V3;
     let store = dereth_dat::testing::open_store().unwrap();
-    let mut loader = dereth_client::env_cells::EnvCellLoader::new();
+    let mut loader = dereth_world_data::env_cells::EnvCellLoader::new();
     for block in [0x7f03, 0x8602, 0x8c04] {
         let cells = loader.load_block(&store, block);
         let mut lo = dereth_primitives::Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
@@ -181,10 +181,13 @@ fn academy_cell_extents_probe_the_default_streaming_window_margin() {
 }
 mod actual_app {
     use super::*;
-    use dereth_client::{app::App, config::Config, world::SceneConfig};
     use dereth_client_net::client_session::{testing::CorpusBlob, SessionEvent};
     use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
     use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+    use {
+        dereth_client::app::App, dereth_client_runtime::config::Config,
+        dereth_client_runtime::scene::SceneConfig,
+    };
 
     fn row(rows: &[CorpusBlob], index: usize) -> &CorpusBlob {
         rows.iter()

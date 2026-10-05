@@ -14,12 +14,15 @@ use dereth_client_model::chat::{ChatState, TalkFocus, TalkFocusNotice};
 use dereth_client_model::World;
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 
-use crate::app::{App, EnterWorldScript, HostState};
 use crate::config::Config;
 use crate::interaction::{TargetMode, UiMouseEvent};
 use crate::objects::ObjectStream;
 use crate::present::{Presentation, Scene};
 use crate::shell::Shell;
+use {
+    crate::app::App, crate::app::EnterWorldScript,
+    dereth_client_contract::pregame::PregameView as HostState,
+};
 
 /// One step's view of the game for front end `S`. See the module documentation.
 pub struct UiContext<'a, S: Shell> {
@@ -53,7 +56,7 @@ impl<'a, S: Shell> UiContext<'a, S> {
 
     /// The animation assets the preview spaces build their objects from.
     #[must_use]
-    pub fn anim_assets(&self) -> &Arc<crate::anim_assets::DatAnimAssets> {
+    pub fn anim_assets(&self) -> &Arc<dereth_world_data::anim_assets::DatAnimAssets> {
         &self.app.anim_assets
     }
 

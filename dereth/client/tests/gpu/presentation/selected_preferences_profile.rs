@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use dereth_client::app::App;
-use dereth_client::config::{Config, FORCED_LOGIN_SIZE};
+use {dereth_client_runtime::config::Config, dereth_client_runtime::config::FORCED_LOGIN_SIZE};
 
 struct TempDir(dereth_dat::testing::ScratchDir);
 

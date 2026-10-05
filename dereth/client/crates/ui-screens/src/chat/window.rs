@@ -598,7 +598,7 @@ impl ChatWindow {
 
 /// The three names the reply aliases can address.
 ///
-/// Defined in [`dereth_client_contract::chat::window`], because `dereth_client::hud` is what
+/// Defined in [`dereth_client_contract::chat::window`], because `dereth_client_shell::hud` is what
 /// fills it.
 pub use dereth_client_contract::chat::window::ReplyTargets;
 

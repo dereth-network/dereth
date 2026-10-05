@@ -40,15 +40,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::Decode;
-use dereth_client::camera::CameraInput;
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::camera::CameraInput;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
@@ -56,6 +55,7 @@ use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::types::{PhysicsDesc, PublicWeenieDesc};
 use dereth_protocol::Message;
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const W: u32 = 800;
 const H: u32 = 600;
@@ -176,7 +176,7 @@ fn walk(
     metres: f32,
     play: bool,
 ) -> (WorldScene, Vec3, Vec<u8>) {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
     scene
         .attach_character(store, &region, gpu)
@@ -216,7 +216,7 @@ fn walk(
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),

@@ -884,8 +884,10 @@ fn a_thing_to_look_at(c: &mut HeadlessClient) {
 /// One press of the assess key, through the client's own input manager and one whole frame.
 fn press_the_key(c: &mut HeadlessClient) {
     let e = dereth_input::InputEvent {
-        action: dereth_input::ActionId(dereth_client::interaction::action::SELECTION_EXAMINE),
-        input_map: dereth_client::ui::UI_INPUT_MAP,
+        action: dereth_input::ActionId(
+            dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+        ),
+        input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,
         extent: 1.0,
         start: true,

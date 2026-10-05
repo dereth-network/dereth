@@ -15,12 +15,15 @@ use std::sync::Arc;
 
 use crate::common::sim::SimWorld;
 
-use dereth_client::camera::CameraInput;
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, SceneConfig, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::camera::CameraInput;
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 /// `BLOCK_LENGTH`.
 const BLOCK: f32 = 192.0;

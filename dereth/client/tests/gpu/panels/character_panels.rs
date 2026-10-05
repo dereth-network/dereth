@@ -16,12 +16,12 @@ use crate::common::client_dir;
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::{session_names, shared_session};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::LocalTime;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::panels::skills::SkillGroup;
@@ -59,11 +59,11 @@ fn app_in_gameplay(frames: u32) -> Option<App> {
     let mut app = App::new(cfg).unwrap_or_else(|e| panic!("a headless App: {e}"));
     app.start_shell()
         .unwrap_or_else(|e| panic!("the headless App's UI shell: {e}"));
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s)
         .unwrap_or_else(|e| panic!("the static scene: {e}"));
@@ -365,7 +365,7 @@ fn the_skills_page_draws_the_captures_own_skills_with_their_names_and_values() {
     // lookup as the panel, so nothing about a name is written above.
     let skill_table = {
         use dereth_assets::Decode;
-        let id = dereth_client::hud::SKILL_TABLE;
+        let id = dereth_client_runtime::hud::SKILL_TABLE;
         let bytes = app.assets().read(id).expect("SkillTable 0x0E000004");
         dereth_assets::tables::SkillTable::decode_payload(id, &bytes).expect("SkillTable decodes")
     };
@@ -435,7 +435,7 @@ fn an_untrained_skill_the_data_gates_falls_into_the_fourth_group_on_screen() {
         .collect();
     let skill_table = {
         use dereth_assets::Decode;
-        let id = dereth_client::hud::SKILL_TABLE;
+        let id = dereth_client_runtime::hud::SKILL_TABLE;
         let bytes = app.assets().read(id).expect("SkillTable");
         dereth_assets::tables::SkillTable::decode_payload(id, &bytes).expect("decodes")
     };
@@ -519,7 +519,7 @@ fn the_spellbook_draws_the_captures_own_spells_with_their_names_and_icons() {
 
     let spell_table = {
         use dereth_assets::Decode;
-        let id = dereth_client::hud::SPELL_TABLE;
+        let id = dereth_client_runtime::hud::SPELL_TABLE;
         let bytes = app.assets().read(id).expect("SpellTable 0x0E00000E");
         dereth_assets::tables::SpellTable::decode_payload(id, &bytes).expect("SpellTable decodes")
     };
@@ -743,7 +743,7 @@ fn only_the_fellowship_recordings_carry_fellowship_traffic() {
 /// over `One` over `Three`), so the allegiance page has version/empty-tree controls and populated
 /// roster examples.
 ///
-/// The arm that applies these is `dereth_client::interaction::apply_events`' `0x0020` case, and the
+/// The arm that applies these is `dereth_client_runtime::interaction::apply_events`' `0x0020` case, and the
 /// handler under it is the world allegiance-update handler.
 #[test]
 fn every_recorded_allegiance_update_decodes_and_its_member_count_agrees_with_its_roster() {
@@ -1180,7 +1180,7 @@ fn the_login_description_answers_before_the_players_own_row_exists() {
 
     // No `0xF746`/`0xF745` is replayed here **on purpose**: this is exactly the window the park
     // exists for, and asserting the premise is what stops the test passing for the wrong reason.
-    let mut hud = dereth_client::hud::Hud::default();
+    let mut hud = dereth_client_shell::hud::Hud::default();
     let mut world = dereth_client_model::World::new();
     hud.apply_events(events_in_world(&events), &mut world);
     assert!(

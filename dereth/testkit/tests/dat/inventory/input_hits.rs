@@ -139,9 +139,12 @@ fn cursor_is_over(c: &mut HeadlessClient) -> Option<ElemHandle> {
 /// could have picked even if something asked for one.
 pub(super) fn no_cursor_the_client_ships_is_chosen_by_a_drag() {
     use dereth_assets::Decode;
-    use dereth_client::cursor::{self, cursor_enum, CursorInputs, TargetMode, UICURSOR_GROUP};
     use dereth_client_model::combat::CombatMode;
     use dereth_primitives::AssetSource;
+    use {
+        dereth_client_shell::cursor::cursor_enum, dereth_client_shell::cursor::CursorInputs,
+        dereth_client_shell::cursor::TargetMode, dereth_client_shell::cursor::UICURSOR_GROUP,
+    };
 
     let c = HeadlessClient::new(ClientSpec::retail());
 
@@ -151,9 +154,9 @@ pub(super) fn no_cursor_the_client_ships_is_chosen_by_a_drag() {
         let store = c.view().dat_store().clone();
         let source: &dyn AssetSource = store.as_ref();
         let master = dereth_assets::DidMapper::decode_payload(
-            dereth_client::assets::MASTER_DID_MAPPER,
+            dereth_client_runtime::assets::MASTER_DID_MAPPER,
             &source
-                .read(dereth_client::assets::MASTER_DID_MAPPER)
+                .read(dereth_client_runtime::assets::MASTER_DID_MAPPER)
                 .expect("the master table reads"),
         )
         .expect("the master table decodes");
@@ -196,13 +199,14 @@ pub(super) fn no_cursor_the_client_ships_is_chosen_by_a_drag() {
             ] {
                 for hovering in [false, true] {
                     for usable in [false, true] {
-                        let picked = cursor::update_cursor_state(CursorInputs {
-                            busy,
-                            target_mode: aiming,
-                            combat_mode: stance,
-                            hovering,
-                            target_compatible: usable,
-                        });
+                        let picked =
+                            dereth_client_shell::cursor::update_cursor_state(CursorInputs {
+                                busy,
+                                target_mode: aiming,
+                                combat_mode: stance,
+                                hovering,
+                                target_compatible: usable,
+                            });
                         reachable.insert(picked.enum_value);
                         runs += 1;
                     }

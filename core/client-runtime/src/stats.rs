@@ -872,7 +872,7 @@ pub struct HudStats {
     /// A UI-queue opcode this module recognises but could not decode.
     pub undecodable: u64,
     /// `0x02BB` / `0x02BC` / `0x02BD` lines composed through one of
-    /// [`crate::chat`]'s templates and pushed. Zero here with a non-zero
+    /// [`dereth_client_model::chat::composition`]'s templates and pushed. Zero here with a non-zero
     /// [`Self::speech_lines_not_addressed_to_us`] would mean every tell was somebody else's; zero
     /// in both means no speech arrived at all. Two counters, not one.
     pub speech_lines_composed: u64,
@@ -923,9 +923,9 @@ pub struct HudStats {
     /// counted rather than inferred from a missing line.
     pub soul_emote_self_echoes_discarded: u64,
     /// Emote lines that were actually garbled: **`0x01E0` / `0x01E2` lines** composed by
-    /// [`crate::chat::garbled_line`] from a random 1-to-10 phrase
-    /// ([`crate::chat::OLTHOI_TEXT`] / [`crate::chat::HUMAN_TEXT`]) instead of by
-    /// [`crate::chat::hear_emote_line`]. A garbled line is *also* counted in
+    /// [`dereth_client_model::chat::composition::garbled_line`] from a random 1-to-10 phrase
+    /// ([`dereth_client_model::chat::composition::OLTHOI_TEXT`] / [`dereth_client_model::chat::composition::HUMAN_TEXT`]) instead of by
+    /// [`dereth_client_model::chat::composition::hear_emote_line`]. A garbled line is *also* counted in
     /// [`Self::emote_lines_composed`], because it is a line that was drawn.
     ///
     /// It is zero on every recorded session: the arm needs a

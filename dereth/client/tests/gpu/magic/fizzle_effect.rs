@@ -11,16 +11,15 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #![allow(clippy::pedantic)]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::{Decode, HookData};
-use dereth_client::audio::SoundTrigger;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{EmitterOwner, SceneConfig, WorldScene};
 use dereth_client_net::client_session::dispatch::world_objects::{dispatch, InstanceTable};
 use dereth_client_net::client_session::ordering::ParkedBlobs;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::audio::SoundTrigger;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{
     DataId, IncomingMessage, LocalTime, NetBlobId, NetQueue, ObjectId, RecipientId,
@@ -31,6 +30,10 @@ use dereth_protocol::objects::{
 use dereth_protocol::types::{PhysicsDesc, PublicWeenieDesc};
 use dereth_protocol::Message;
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::EmitterOwner,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// `PlayScript::Fizzle` — `ACE.Entity/Enum/PlayScript.cs:86`.
 const PS_FIZZLE: u32 = 0x51;
@@ -332,7 +335,7 @@ fn cfg() -> SceneConfig {
 
 fn scene(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let mut s = WorldScene::load(store, gpu, cfg()).expect("the landscape loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     s.attach_character(store, &region, gpu)
         .expect("the body is created");
     s
@@ -349,13 +352,13 @@ fn step(
     t: &mut f64,
     sounds: &mut Vec<SoundTrigger>,
 ) {
-    *t += dereth_client::app::HEADLESS_STEP;
+    *t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
     scene
         .sync_objects(store, gpu, stream)
         .expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(*t),
         1.0 / 30.0,
     );
@@ -409,7 +412,7 @@ fn log_in(scene: &WorldScene, wire: &mut Wire, stream: &mut ObjectStream) {
     );
 }
 
-fn body_emitters(scene: &WorldScene) -> Vec<dereth_client::world::EmitterDegrade> {
+fn body_emitters(scene: &WorldScene) -> Vec<dereth_scene::world_scene::EmitterDegrade> {
     scene
         .emitter_degrade_probe()
         .into_iter()

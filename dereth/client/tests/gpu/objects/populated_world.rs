@@ -30,21 +30,21 @@ use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::{recorded_enter_world_requests, recorded_world_sessions};
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, Vec3};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::Message;
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The captures whose character actually reaches the world, **measured rather than named**.
 ///
@@ -108,7 +108,7 @@ struct Replayed {
     /// a clean logout, and the end-of-session teardown empties the object model.
     last_populated: usize,
     /// The player's id and its `0xF745`, captured when they arrive rather than read at the end.
-    player: Option<(ObjectId, dereth_client::objects::Presence)>,
+    player: Option<(ObjectId, dereth_client_runtime::objects::Presence)>,
 }
 
 /// Drive a whole capture through the transport, the session and the object stream — the same three
@@ -144,7 +144,7 @@ fn replay_upto(session: &str, limit: usize) -> Replayed {
     let mut max_objects = 0usize;
     let mut last_populated = 0usize;
     let mut consistent = true;
-    let mut player: Option<(ObjectId, dereth_client::objects::Presence)> = None;
+    let mut player: Option<(ObjectId, dereth_client_runtime::objects::Presence)> = None;
 
     for (index, r) in records.iter().enumerate() {
         if index >= limit {
@@ -468,8 +468,8 @@ fn a_movement_buffer_animates_the_object_it_names() {
         .filter_map(|id| scene.server_object_motion(*id).map(|(f, _)| (*id, f)))
         .collect();
 
-    let input = dereth_client::camera::CameraInput::default();
-    let ci = dereth_client::character::CharacterInput::default();
+    let input = dereth_client_runtime::camera::CameraInput::default();
+    let ci = dereth_client_runtime::character::CharacterInput::default();
     let mut t = 0.0f64;
     for _ in 0..60 {
         t += 1.0 / 30.0;

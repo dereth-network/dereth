@@ -15,8 +15,11 @@ use super::*;
 
 /// What the client hands its position reporter is the body's own state, field for field.
 pub fn the_reported_state_is_the_bodys_own() {
-    use dereth_client::app::{body_motion, raw_motion_state_to_wire};
     use dereth_protocol::movement::MoveTimestamps;
+    use {
+        dereth_client_runtime::app::body_motion,
+        dereth_client_runtime::app::raw_motion_state_to_wire,
+    };
 
     let store = support::store();
     let c = world_support::settled_body(&store);
@@ -51,9 +54,9 @@ pub fn the_reported_state_is_the_bodys_own() {
 /// Walking forward turns the reported motion state into the one the recordings carry, and
 /// letting go turns it back.
 pub fn walking_forward_reports_the_state_the_recordings_carry() {
-    use dereth_client::app::raw_motion_state_to_wire;
-    use dereth_client::character::CharacterInput;
     use dereth_client_net::client_session::testing::{Corpus, Direction};
+    use dereth_client_runtime::app::raw_motion_state_to_wire;
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_primitives::LocalTime;
 
     /// The command a walk forward reports, as a literal: reading it back through the client's
@@ -131,8 +134,8 @@ pub fn walking_forward_reports_the_state_the_recordings_carry() {
 ///
 /// The pair is the claim: a producer that fired every frame would satisfy the first half alone.
 pub fn a_walking_body_reports_where_it_is_and_a_still_one_falls_silent() {
-    use dereth_client::app::body_motion;
-    use dereth_client::character::CharacterInput;
+    use dereth_client_runtime::app::body_motion;
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_primitives::LocalTime;
     use dereth_protocol::movement::{
         MoveTimestamps, MovementAutonomousPosition, MovementMoveToState,
@@ -299,9 +302,12 @@ pub fn every_drawn_frame_reaches_the_position_reporter() {
 
 /// A jump puts the body's own position and speed on the wire.
 pub fn a_jump_reports_the_bodys_own_position_and_speed() {
-    use dereth_client::app::body_motion;
-    use dereth_client::character::{CharacterInput, FULL_JUMP_EXTENT};
+    use dereth_client_runtime::app::body_motion;
     use dereth_protocol::movement::{MoveTimestamps, MovementJump};
+    use {
+        dereth_client_runtime::character::CharacterInput,
+        dereth_client_runtime::character::FULL_JUMP_EXTENT,
+    };
 
     let store = support::store();
     let mut c = world_support::settled_body(&store);
@@ -356,9 +362,12 @@ pub fn a_jump_reports_the_bodys_own_position_and_speed() {
 
 /// A second jump while the body is still in the air is refused, and nothing goes out for it.
 pub fn a_second_jump_in_mid_air_sends_nothing() {
-    use dereth_client::app::body_motion;
-    use dereth_client::character::{CharacterInput, FULL_JUMP_EXTENT};
+    use dereth_client_runtime::app::body_motion;
     use dereth_protocol::movement::MoveTimestamps;
+    use {
+        dereth_client_runtime::character::CharacterInput,
+        dereth_client_runtime::character::FULL_JUMP_EXTENT,
+    };
 
     let store = support::store();
     let mut c = world_support::settled_body(&store);
@@ -406,7 +415,7 @@ pub fn a_second_jump_in_mid_air_sends_nothing() {
 /// The body is turned first, which is the whole point: facing north the two frames coincide and
 /// the measurement cannot tell them apart.
 pub fn a_running_jump_carries_its_speed_in_the_bodys_own_frame() {
-    use dereth_client::character::CharacterInput;
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_primitives::LocalTime;
 
     let store = support::store();

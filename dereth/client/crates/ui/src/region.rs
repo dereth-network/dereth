@@ -373,7 +373,7 @@ impl SurfaceOp {
             Self::Colorize(c) => Self::colorize(texel, c),
             // A composite is a function of **several** surfaces and cannot be a function of one
             // texel. The host recognises this variant before it reaches here; see
-            // `dereth_client::ui_draw::composite`. Returning the texel unchanged keeps a caller that
+            // `dereth_client_shell::ui_draw::composite`. Returning the texel unchanged keeps a caller that
             // does not from corrupting the base image, which is what a `todo!()` here would not.
             Self::Icon(_) => texel,
         }

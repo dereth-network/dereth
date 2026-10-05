@@ -767,7 +767,7 @@ fn a_player_with_two_things(c: &mut HeadlessClient) {
 fn snapshot(c: &HeadlessClient) -> Fixture {
     let w = c.view().world();
     let mut f = Fixture {
-        trade: dereth_client::trade_view::trade(w),
+        trade: dereth_client_runtime::trade_view::trade(w),
         ..Fixture::default()
     };
     for id in [CONFIRMED, REFUSED, PARTNER] {
@@ -876,7 +876,8 @@ pub(super) fn a_shard_failure_takes_the_optimistic_row_off() {
             reason: 9,
         },
     ));
-    let carried = dereth_client::trade_view::trade(c.view().world()).self_removed == vec![REFUSED];
+    let carried =
+        dereth_client_runtime::trade_view::trade(c.view().world()).self_removed == vec![REFUSED];
     let (rows, cleared, button, light) = redraw(&mut c, &mut p);
 
     c.assert_behaviour(
@@ -913,7 +914,7 @@ pub(super) fn a_withdrawal_names_a_side() {
             side: 2,
         },
     ));
-    let theirs_carried = dereth_client::trade_view::trade(c.view().world())
+    let theirs_carried = dereth_client_runtime::trade_view::trade(c.view().world())
         .self_removed
         .is_empty();
     let (rows_after_theirs, ..) = redraw(&mut c, &mut p);
@@ -926,7 +927,7 @@ pub(super) fn a_withdrawal_names_a_side() {
         },
     ));
     let yours_carried =
-        dereth_client::trade_view::trade(c.view().world()).self_removed == vec![REFUSED];
+        dereth_client_runtime::trade_view::trade(c.view().world()).self_removed == vec![REFUSED];
     let (rows, cleared, button, light) = redraw(&mut c, &mut p);
 
     c.assert_behaviour(
@@ -966,7 +967,7 @@ pub(super) fn a_plain_inventory_refusal_leaves_the_row() {
             reason: 0x01E,
         },
     ));
-    let not_carried = dereth_client::trade_view::trade(c.view().world())
+    let not_carried = dereth_client_runtime::trade_view::trade(c.view().world())
         .self_removed
         .is_empty();
     let (rows_after, ..) = redraw(&mut c, &mut p);

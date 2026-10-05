@@ -11,13 +11,16 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::world::{SceneConfig, SceneStats, WorldScene};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::SceneStats,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// Missing DAT inputs fail; they do not turn this test into a passing skip.
 fn store() -> Arc<RetailDatStore> {
@@ -70,14 +73,14 @@ fn render(
     };
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the landscape loads");
     scene.set_weather_enabled(false);
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
     for i in 0..8u32 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );

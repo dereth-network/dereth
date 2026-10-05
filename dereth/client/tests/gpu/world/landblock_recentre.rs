@@ -16,14 +16,18 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 const W: usize = 800;
 const H: usize = 600;
@@ -53,7 +57,7 @@ fn block_at(x: i32, y: i32) -> LandblockId {
 fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let cfg = SceneConfig::default();
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -65,7 +69,7 @@ fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
 /// construction and a differential between them cannot be about the idle cycle.
 fn tick(scene: &mut WorldScene) {
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(0.0),
         0.0,
@@ -319,14 +323,13 @@ mod frame_writers {
     //! Holtburg. Fails when the retail dats are absent or a device is absent.
 
     use super::{block_at, first_part, store, BLOCK};
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::camera::CameraInput;
-    use dereth_client::character::CharacterInput;
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::camera::CameraInput;
+    use dereth_client_runtime::character::CharacterInput;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::num::math;
     use dereth_primitives::{Frame, LocalTime, ObjectId, Position, Quat, Vec3};
@@ -337,6 +340,11 @@ mod frame_writers {
     };
     use dereth_protocol::{write_body, Opcode};
     use dereth_render::device::Gpu;
+    use {
+        dereth_client_runtime::landblock::block_xy,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    };
 
     /// A server object stood in the home block, so that [`WorldScene::advance_objects`], the *other*
     /// writer of a drawn frame, has something to place.
@@ -416,7 +424,8 @@ mod frame_writers {
     fn settled(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> Option<(Scene, Vec3, (i32, i32))> {
         let mut scene =
             WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");

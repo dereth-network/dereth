@@ -1,7 +1,7 @@
 //! The Dereth calendar clock — the game time the sky, the lighting and the map panel's date read.
 //!
 //! It is the simulation's clock rather than anything that draws: the world state
-//! (`crate::world_state::WorldState`) owns it, and `dereth_client::sky::GameClock` re-exports it.
+//! (`crate::world_state::WorldState`) owns it, and `dereth_scene::sky::GameClock` re-exports it.
 //! Nothing in it names a device.
 //!
 //! The calendar arithmetic is transcribed minimally, in the spirit of [`crate::models`]. The

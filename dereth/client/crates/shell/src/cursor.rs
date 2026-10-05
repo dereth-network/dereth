@@ -72,7 +72,7 @@ use dereth_primitives::DataId;
 /// The master `DidMapper`'s group for `UICURSOR` — second-level mapper `0x2500000F`, 41 entries.
 ///
 /// The master `DidMapper` provides this group. Reached through
-/// [`crate::assets::enum_did`], the same seam `UIASSET` (group 7) uses: **never
+/// [`dereth_client_runtime::assets::enum_did`], the same seam `UIASSET` (group 7) uses: **never
 /// hard-code a cursor's `DataID`**, a DDD patch can move any of them.
 pub const UICURSOR_GROUP: u32 = 6;
 
@@ -110,13 +110,13 @@ pub enum TargetMode {
     UseTarget = 3,
 }
 
-impl From<crate::interaction::TargetMode> for TargetMode {
-    fn from(m: crate::interaction::TargetMode) -> Self {
+impl From<dereth_client_runtime::interaction::TargetMode> for TargetMode {
+    fn from(m: dereth_client_runtime::interaction::TargetMode) -> Self {
         match m {
-            crate::interaction::TargetMode::None => Self::None,
-            crate::interaction::TargetMode::Use => Self::Use,
-            crate::interaction::TargetMode::Examine => Self::Examine,
-            crate::interaction::TargetMode::UseTarget => Self::UseTarget,
+            dereth_client_runtime::interaction::TargetMode::None => Self::None,
+            dereth_client_runtime::interaction::TargetMode::Use => Self::Use,
+            dereth_client_runtime::interaction::TargetMode::Examine => Self::Examine,
+            dereth_client_runtime::interaction::TargetMode::UseTarget => Self::UseTarget,
         }
     }
 }
@@ -532,7 +532,8 @@ impl CursorSystem {
     ) -> CursorChoice {
         self.stats.updates += 1;
         let choice = update_cursor_state(inputs);
-        let did = crate::assets::enum_did(assets, UICURSOR_GROUP, choice.enum_value);
+        let did =
+            dereth_client_runtime::assets::enum_did(assets, UICURSOR_GROUP, choice.enum_value);
         if did.is_none() {
             self.stats.failures += 1;
         }
@@ -617,7 +618,7 @@ impl CursorSystem {
         hx: i32,
         hy: i32,
     ) -> Option<dereth_render::cursor::IconBits> {
-        let tex = crate::textures::TextureStore::new(store);
+        let tex = dereth_scene::textures::TextureStore::new(store);
         let img = tex.bgra8(did).ok()?;
         dereth_render::cursor::build(
             img.width,

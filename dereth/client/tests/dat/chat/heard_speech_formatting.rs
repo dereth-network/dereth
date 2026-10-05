@@ -1,5 +1,5 @@
 //! Heard speech: the three "hear" messages (`0x02BB` speech, `0x02BC` ranged speech, `0x02BD`
-//! tells) are composed by `dereth_client::chat` through the real `Hud` and drawn on the shipped
+//! tells) are composed by `dereth_client_model::chat::composition` through the real `Hud` and drawn on the shipped
 //! chat log in their channel's colour, and the stay-in-chat-mode option reaches the chat entry.
 //!
 //! The whole line -- name, verb, comma and quotes -- is the message body; the prefix slot is
@@ -38,16 +38,16 @@ use crate::common::sim_app::gameplay;
 use crate::common::client_dir_or_workspace_client as client_dir;
 
 use dereth_client::app::App;
-use dereth_client::chat;
-use dereth_client::config::Config;
-use dereth_client::hud::Hud;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
+use dereth_client_model::chat::composition as chat;
 use dereth_client_model::player::options::option::{DISPLAY_TIME_STAMPS, STAY_IN_CHAT_MODE};
 use dereth_client_model::scroll;
 use dereth_client_net::client_session::testing::capture::{shared_session, Datagram};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::hud::Hud;
 use dereth_primitives::LocalTime;
 use dereth_protocol::comms::{
     CommunicationHearDirectSpeech, CommunicationHearRangedSpeech, CommunicationHearSpeech,
@@ -491,11 +491,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = crate::common::sim_app::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(mode::GAME_PLAY);
@@ -1048,13 +1048,13 @@ fn the_option_word_decides_whether_enter_keeps_the_focus() {
 // ---------------------------------------------------------------------------------------------
 
 struct Hand {
-    pump: dereth_client::pump::Pump,
+    pump: dereth_desktop::pump::Pump,
     time_ms: u32,
 }
 
 impl Hand {
     fn new() -> Self {
-        let mut pump = dereth_client::pump::Pump::new();
+        let mut pump = dereth_desktop::pump::Pump::new();
         pump.state.is_ready = true;
         pump.state.is_active_app = true;
         Self {
@@ -1063,7 +1063,7 @@ impl Hand {
         }
     }
 
-    fn send(&mut self, app: &mut App, m: dereth_client::pump::Win32Message) {
+    fn send(&mut self, app: &mut App, m: dereth_input::win32::Win32Message) {
         self.pump.dispatch(m);
         if let Some(input) = app.input_manager_mut() {
             input.on_message(m);
@@ -1088,7 +1088,7 @@ impl Hand {
 
     fn character(&mut self, app: &mut App, ch: char) {
         self.time_ms += 10;
-        let m = dereth_client::pump::Win32Message::new(
+        let m = dereth_input::win32::Win32Message::new(
             dereth_input::win32::msg::WM_CHAR,
             ch as usize,
             0,

@@ -41,7 +41,7 @@ fn key_bound_to(c: &mut HeadlessClient, action: u32, map: u32) -> winit::keyboar
     CANDIDATES
         .into_iter()
         .find(|k| {
-            dereth_client::pump::scan_code_from_key_code(*k)
+            dereth_desktop::pump::scan_code_from_key_code(*k)
                 .is_some_and(|s| s & 0x7F == binding.control.offset() & 0x7F)
         })
         .unwrap_or_else(|| panic!("no candidate key carries that scan code"))
@@ -92,7 +92,7 @@ pub fn a_key_bound_to_a_pose_moves_the_body() {
     // that has one first: an empty answer from a lookup that never resolves anything is not
     // evidence of anything.
     let resolves = key_bound_to(&mut c, WAVE_ACTION, EMOTES_MAP) == KeyCode::KeyJ;
-    let v_scan = dereth_client::pump::scan_code_from_key_code(KeyCode::KeyV)
+    let v_scan = dereth_desktop::pump::scan_code_from_key_code(KeyCode::KeyV)
         .expect("that key has a scan code");
     let mut bound_to_v: Vec<u32> = Vec::new();
     for map in [MOVEMENT_COMMANDS, EMOTES_MAP] {

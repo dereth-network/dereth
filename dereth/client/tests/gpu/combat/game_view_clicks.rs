@@ -10,14 +10,14 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::interaction::SearchReason;
-use dereth_client::pump::{Pump, Win32Message};
 use dereth_client_model::inventory::SplitState;
 use dereth_client_model::{RecordingRequests, Request};
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::interaction::SearchReason;
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_ui::ElementId;
 use winit::event::MouseButton;
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 // ---------------------------------------------------------------------------------------------
 // Harness
@@ -100,11 +100,11 @@ fn app_in_gameplay(frames: u32) -> App {
     })
     .expect("an App with the UI up: retail dats and a WARP device");
     app.start_shell().expect("the shell starts");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);

@@ -15,9 +15,9 @@ use super::icon_bench::*;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dereth_client::textures::TextureStore;
-use dereth_client::ui_draw::composite;
+use dereth_client_shell::ui_draw::composite;
 use dereth_primitives::{AssetSource, DataId, TextureData, TextureFormat};
+use dereth_scene::textures::TextureStore;
 use dereth_ui::region::{IconRecipe, SurfaceOp};
 use dereth_ui_screens::items::widget::{icon_background, spell_recipe, ItemSlot};
 
@@ -1485,8 +1485,8 @@ fn _type_check(_: &ItemSlot) {}
 #[test]
 fn spell_bar_backgrounds_use_runtime_raw_power_before_display_level_collapse() {
     let store = open_store();
-    let mut hud = dereth_client::hud::Hud::new();
-    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
     hud.load_tables(&store, &objects.world);
     let ids: Vec<_> = [0x6e, 0x70, 0xc0, 0xc1]
         .into_iter()

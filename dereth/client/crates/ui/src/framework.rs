@@ -364,7 +364,7 @@ impl std::fmt::Debug for GameCx<'_> {
 /// Screen registration takes a bare `fn() -> Box<dyn Screen>`, mirroring the original no-argument
 /// factory, so there is nowhere to pass a host handle in. Naming [`std::any::Any`] as a supertrait costs no implementor anything
 /// (every screen is a `'static` concrete type) and lets the host upcast and downcast at the one
-/// place that needs it; see `dereth_client::ui`.
+/// place that needs it; see `dereth_client_shell::ui`.
 pub trait Screen: std::fmt::Debug + std::any::Any {
     /// The screen's constructor body: build the root elements. `DataPatchScreen`,
     /// `CharacterManagementScreen` and `GamePlayScreen` all do this synchronously here rather than

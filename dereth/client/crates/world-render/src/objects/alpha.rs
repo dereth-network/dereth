@@ -122,7 +122,7 @@ impl AlphaLists {
     /// Split out of [`Self::flush`]. `flush` submits through
     /// [`RenderBackend`], this crate's seam; the client's own object pass draws through a
     /// `PipelineKey` and a dynamic vertex buffer, which that seam cannot express, so
-    /// `dereth_client::world`'s alpha pass takes the entries and submits them itself. Splitting is
+    /// `dereth_scene::world_scene`'s alpha pass takes the entries and submits them itself. Splitting is
     /// what keeps **one** statement of the threshold and **one** of the order, rather than a
     /// second copy on the caller's side.
     ///

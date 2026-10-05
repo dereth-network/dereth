@@ -50,11 +50,10 @@
 use crate::common::app::{frames, position};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pick::PickScene;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::pick::PickScene;
 use dereth_client_runtime::pick_geometry::selection_ray;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId, Vec3};
@@ -64,6 +63,9 @@ use dereth_protocol::{Message, Opcode};
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::hud::target::Projection;
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// The visible-state word that un-hides a login's hidden create.
@@ -352,7 +354,7 @@ fn aim(app: &App, world: Vec3) -> (i32, i32) {
 /// A synthesized Win32 pointer press at a screen point (move, button down, button up), through
 /// the headless input manager.
 fn press_at(app: &mut App, x: i32, y: i32, at: u32) {
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
     let messages = [

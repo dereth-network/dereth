@@ -16,14 +16,14 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_assets::{Decode, EnvCell};
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 400;
 const H: u32 = 300;
@@ -59,7 +59,7 @@ fn station(
     cell: u32,
     gate: bool,
 ) -> (usize, Option<(i32, i32)>) {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock,
         start_cell: Some(CellId(cell)),
@@ -74,12 +74,12 @@ fn station(
     let mut stream = ObjectStream::new();
     let mut painted = 0;
     for i in 0..6 {
-        let t = f64::from(i + 1) * dereth_client::app::HEADLESS_STEP;
+        let t = f64::from(i + 1) * dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(t),
             1.0 / 30.0,
@@ -233,7 +233,8 @@ fn an_outdoor_viewer_still_re_centres() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
     let mut run = |gate: bool| -> (Option<(i32, i32)>, Option<(i32, i32)>) {
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             indoor_viewpoint_gate: gate,
             ..SceneConfig::default()
@@ -242,12 +243,12 @@ fn an_outdoor_viewer_still_re_centres() {
         scene
             .attach_character(&store, &region, &mut gpu)
             .expect("the body is created");
-        let home = dereth_client::world::DEFAULT_LANDBLOCK;
+        let home = dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
         let (hx, hy) = block_xy(home);
         let sim = |scene: &mut WorldScene, n: u32| {
             for i in 0..n {
                 scene.update(
-                    dereth_client::camera::CameraInput::default(),
+                    dereth_client_runtime::camera::CameraInput::default(),
                     CharacterInput::default(),
                     LocalTime(f64::from(i + 1) / 30.0),
                     0.0,
@@ -319,7 +320,8 @@ fn the_gate_is_seen_outside_and_not_merely_indoors() {
     );
 
     let mut run = |gate: bool| -> Option<(i32, i32)> {
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: SEEN_OUTSIDE_BLOCK,
             start_cell: Some(CellId(SEEN_OUTSIDE_CELL)),
@@ -332,7 +334,7 @@ fn the_gate_is_seen_outside_and_not_merely_indoors() {
             .expect("the body is created");
         for i in 0..8 {
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(f64::from(i + 1) / 30.0),
                 0.0,
@@ -374,15 +376,17 @@ mod teleport_into_a_dungeon {
 
     use super::{block_xy, store, H, W};
     use dereth_assets::Decode;
-    use dereth_client::character::CharacterInput;
-    use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{SceneConfig, WorldScene};
-    use dereth_client::world::{SceneReads, SceneWrites};
+    use dereth_client_runtime::character::CharacterInput;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::{DbType, RetailDatStore};
     use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
     use dereth_render::device::Gpu;
     use std::sync::Arc;
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+    use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
+    use {
+        dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader,
+    };
 
     /// **Drudge Hideout.** `weenie 2068`'s destination in the ACE world database is
     /// `0x019E0114 @ (10, -40, 0)` -- a dungeon, on its own landblock, authored at `y = -40` and so
@@ -511,7 +515,8 @@ mod teleport_into_a_dungeon {
         cell: u32,
         base: SceneConfig,
     ) -> Arrival {
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: from,
             start_cell: start_cell.map(CellId),
@@ -594,12 +599,12 @@ mod teleport_into_a_dungeon {
         stream: &mut ObjectStream,
         now: &mut f64,
     ) -> Vec<u8> {
-        *now += dereth_client::app::HEADLESS_STEP;
+        *now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, gpu, stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(*now),
             1.0 / 30.0,
@@ -609,11 +614,11 @@ mod teleport_into_a_dungeon {
         // selection falls back to the body, and `Arrival::eye` reports the debug chase camera instead.
         // This file tests the normal-mode branch on the **viewer's** cell; the body's cell would be
         // the wrong input.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(*now),
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         scene.stream(store, gpu).expect("stream");
         scene.reserve_upload_arena(gpu).expect("reserve the arena");

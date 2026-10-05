@@ -11,12 +11,15 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 
-use dereth_client::{app::App, config::Config, net::ClientNetwork};
 use dereth_primitives::{AssetSource, DataId, LocalTime, ObjectId};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::Message;
 use dereth_ui::framework::{DidMapperResolver, LayoutEnum, LayoutEnumResolver as _};
 use dereth_ui::ElementId;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork,
+};
 
 const PLAYER: ObjectId = ObjectId(0x5000_0001);
 use dereth_ui_screens::panels::barber::{APPLY, CANCEL, NEXT, OPTION1, PART_ROWS};
@@ -113,7 +116,7 @@ fn setup() -> (App, Peer) {
     })
     .expect("app");
     app.start_shell().expect("shell");
-    app.load_static_scene(dereth_client::world::SceneConfig {
+    app.load_static_scene(dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
@@ -150,8 +153,8 @@ fn setup() -> (App, Peer) {
     let mut q = dereth_client_model::Qualities::new();
     q.ints = Some(
         [
-            (dereth_client::hud::HERITAGE_GROUP, 1),
-            (dereth_client::hud::GENDER, 1),
+            (dereth_client_runtime::hud::HERITAGE_GROUP, 1),
+            (dereth_client_runtime::hud::GENDER, 1),
         ]
         .into(),
     );
@@ -279,8 +282,8 @@ fn shadowbound_no_crown_runs_the_local_effect_then_sends_the_exact_finish() {
     let mut player = dereth_client_model::Qualities::new();
     player.ints = Some(
         [
-            (dereth_client::hud::HERITAGE_GROUP, 5),
-            (dereth_client::hud::GENDER, 1),
+            (dereth_client_runtime::hud::HERITAGE_GROUP, 5),
+            (dereth_client_runtime::hud::GENDER, 1),
         ]
         .into(),
     );
@@ -524,8 +527,8 @@ fn penumbraen_female_crown_and_no_crown_take_their_exact_apply_paths() {
     let mut player = dereth_client_model::Qualities::new();
     player.ints = Some(
         [
-            (dereth_client::hud::HERITAGE_GROUP, 10),
-            (dereth_client::hud::GENDER, 2),
+            (dereth_client_runtime::hud::HERITAGE_GROUP, 10),
+            (dereth_client_runtime::hud::GENDER, 2),
         ]
         .into(),
     );
@@ -721,8 +724,8 @@ fn undead_female_zombie_flame_and_no_flame_take_their_exact_apply_paths() {
     let mut player = dereth_client_model::Qualities::new();
     player.ints = Some(
         [
-            (dereth_client::hud::HERITAGE_GROUP, 11),
-            (dereth_client::hud::GENDER, 2),
+            (dereth_client_runtime::hud::HERITAGE_GROUP, 11),
+            (dereth_client_runtime::hud::GENDER, 2),
         ]
         .into(),
     );
@@ -949,8 +952,8 @@ fn empyrean_option_changes_the_local_motion_table_before_exact_finish() {
     let mut player = dereth_client_model::Qualities::new();
     player.ints = Some(
         [
-            (dereth_client::hud::HERITAGE_GROUP, 9),
-            (dereth_client::hud::GENDER, 2),
+            (dereth_client_runtime::hud::HERITAGE_GROUP, 9),
+            (dereth_client_runtime::hud::GENDER, 2),
         ]
         .into(),
     );
@@ -1149,10 +1152,10 @@ fn both_special_heritages_accept_either_incoming_no_crown_setup_id() {
         player.ints = Some(
             [
                 (
-                    dereth_client::hud::HERITAGE_GROUP,
+                    dereth_client_runtime::hud::HERITAGE_GROUP,
                     i32::try_from(heritage).expect("heritage"),
                 ),
-                (dereth_client::hud::GENDER, gender),
+                (dereth_client_runtime::hud::GENDER, gender),
             ]
             .into(),
         );
@@ -1201,10 +1204,10 @@ fn shadow_no_crown_preview_survives_physical_hair_next() {
         player.ints = Some(
             [
                 (
-                    dereth_client::hud::HERITAGE_GROUP,
+                    dereth_client_runtime::hud::HERITAGE_GROUP,
                     i32::try_from(heritage).expect("heritage"),
                 ),
-                (dereth_client::hud::GENDER, 2),
+                (dereth_client_runtime::hud::GENDER, 2),
             ]
             .into(),
         );

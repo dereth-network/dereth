@@ -24,10 +24,10 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::ui::{HostState, UiShell};
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui::UiMode;
+use {dereth_client_contract::pregame::PregameView as HostState, dereth_client_shell::ui::UiShell};
 
 /// The retail store, or a failed test: a skipped test and a passing test would be the same
 /// green line.
@@ -366,7 +366,7 @@ type Capture = (
     u32,
     Vec<u8>,
     Vec<dereth_ui::UiDrawCmd>,
-    dereth_client::ui_draw::UiTextureStats,
+    dereth_client_shell::ui_draw::UiTextureStats,
 );
 
 /// Oracle: the frame itself. Two runs of the *same* scene from the *same* dats, one with `--ui` and
@@ -396,12 +396,12 @@ fn a_ui_element_rasterises_over_the_world_and_only_where_it_said_it_would() {
             ..base_config()
         };
         let mut app = headless(cfg);
-        let s = dereth_client::world::SceneConfig {
+        let s = dereth_client_runtime::scene::SceneConfig {
             landblock: app.config().landblock,
             land_radius: app.config().land_radius,
             scenery_radius: app.config().scenery_radius,
             character: false,
-            ..dereth_client::world::SceneConfig::default()
+            ..dereth_client_runtime::scene::SceneConfig::default()
         };
         if let Err(e) = app.load_static_scene(s) {
             panic!("the static scene must load: {e}");
@@ -514,7 +514,7 @@ fn a_window_message_reaches_the_input_manager_through_the_frame_and_fires_its_ac
         .expect("the first-pixel surface decodes");
 
     // The `MSG` a `winit` `Numpad4` press produces, with the `GetMessageTime()` the pump carries.
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     let down = pump
         .key_message_for(winit::keyboard::KeyCode::Numpad4, true, 12_345)
         .expect("winit maps Numpad4 to a virtual key and a scan code");

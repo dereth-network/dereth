@@ -10,13 +10,13 @@
 //! the recordings are the list `dereth_client_net::client_session::testing::session_index()` names,
 //! and every denominator is read off them at run time.
 
-use dereth_client::net::{ClientNetwork, LinkStatus};
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::capture::{self, Datagram};
 use dereth_client_net::client_session::{DisconnectReason, SessionEvent, SessionState};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, NetQueue};
 use dereth_testkit::{Given, HeadlessClient};
 use dereth_transport::wire::{PacketFlags, ParsedPacket};
+use {dereth_client_runtime::net::ClientNetwork, dereth_client_runtime::net::LinkStatus};
 
 /// The recording whose client half is compared against this client's, and the stand-in credential
 /// it carries.

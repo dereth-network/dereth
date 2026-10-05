@@ -24,6 +24,7 @@ d3d12 = ["dereth-render/d3d12"]
 retail-dats = []
 
 [dependencies]
+dereth-world-data.workspace = true
 dereth-primitives.workspace = true
 # The simulation the scene draws: the world state, the object stream, the models, the movement,
 # the landblock window's residency, and the presentation seam the scene implements.

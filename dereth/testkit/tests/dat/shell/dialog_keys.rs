@@ -115,7 +115,7 @@ fn registered_mode_maps(c: &HeadlessClient) -> Vec<u32> {
 fn character_screen_maps() -> Vec<u32> {
     vec![
         dereth_input::MAP_DIALOG_BOXES.0,
-        dereth_client::ui::CHARACTER_SCREEN_SCROLL_MAP,
+        dereth_client_shell::ui::CHARACTER_SCREEN_SCROLL_MAP,
     ]
 }
 
@@ -259,7 +259,7 @@ pub(super) fn enter_advances_the_opening_sequence_and_escape_leaves_it() {
     use dereth_ui_screens::screens::intro;
 
     let mut c = a_client_on_the_intro();
-    let maps_registered = registered_mode_maps(&c) == dereth_client::ui::INTRO_INPUT_MAPS;
+    let maps_registered = registered_mode_maps(&c) == dereth_client_shell::ui::INTRO_INPUT_MAPS;
     // The dialog map outranks the in-game chat map that used to win this key, which is the whole
     // of why the screen never heard it.
     let enter_arrives = dialog_key_resolves_to(&mut c, ACCEPT_INPUT)

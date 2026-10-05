@@ -36,20 +36,23 @@ use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{load_region, SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::objects::physics_state::HIDDEN_PS;
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 // ---------------------------------------------------------------------------------------------
 // The replay: the capture through the client's network and object stream.
@@ -62,7 +65,7 @@ struct Replayed {
     /// census taken at the end of the replay would count nothing; it is taken while the objects
     /// exist.
     last_populated: usize,
-    player: Option<(ObjectId, dereth_client::objects::Presence)>,
+    player: Option<(ObjectId, dereth_client_runtime::objects::Presence)>,
 }
 
 fn replay_upto(session: &str, limit: usize) -> Replayed {
@@ -301,8 +304,8 @@ fn player_only_stream(session: &str) -> ObjectStream {
 fn settle(scene: &mut WorldScene, from: u32) {
     for i in from..from + 8 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );
@@ -407,7 +410,7 @@ fn the_corpus_players_are_not_all_one_setup() {
     assert!(
         setups
             .keys()
-            .any(|s| *s != dereth_client::character::ALUVIAN_MALE_SETUP.0),
+            .any(|s| *s != dereth_client_runtime::character::ALUVIAN_MALE_SETUP.0),
         "no capture's player is anything but the Aluvian male"
     );
 }
@@ -472,14 +475,14 @@ fn every_captures_body_is_built_from_the_setup_the_server_named() {
         let undressed_triangles = scene.draw.stats.character_triangles;
         assert_eq!(
             scene.character.as_ref().expect("a body").setup_id(),
-            dereth_client::character::ALUVIAN_MALE_SETUP,
+            dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
             "{name}: the offline body is not built from the documented constant"
         );
         assert_eq!(
             undressed_built_from,
             baked_ids(
                 &store,
-                &setup_of(&store, dereth_client::character::ALUVIAN_MALE_SETUP).parts
+                &setup_of(&store, dereth_client_runtime::character::ALUVIAN_MALE_SETUP).parts
             ),
             "{name}: the offline body's baked parts are not what the graphics-object loading map builds from the \
              Aluvian male's own"
@@ -540,7 +543,8 @@ fn every_captures_body_is_built_from_the_setup_the_server_named() {
         // Three states, not two: a rebuild that happened, a rebuild that was not needed because the
         // server named the setup the body already had, and a body that was never asked. The last
         // is indistinguishable from the second unless the counter counts *rebuilds*.
-        let want_rebuild = u64::from(setup_id != dereth_client::character::ALUVIAN_MALE_SETUP);
+        let want_rebuild =
+            u64::from(setup_id != dereth_client_runtime::character::ALUVIAN_MALE_SETUP);
         assert_eq!(
             body.stats.setup_changes, want_rebuild,
             "{name}: {} rebuild(s) for a server setup of {:#010X}",
@@ -713,7 +717,7 @@ fn the_non_aluvian_players_are_dressed_rather_than_left_in_the_loincloth() {
             .unwrap_or_else(|| panic!("{name}: no player"))
             .clone();
         let setup_id = p.setup_id.expect("the player has a setup record");
-        if setup_id == dereth_client::character::ALUVIAN_MALE_SETUP {
+        if setup_id == dereth_client_runtime::character::ALUVIAN_MALE_SETUP {
             continue;
         }
         sessions += 1;
@@ -729,7 +733,7 @@ fn the_non_aluvian_players_are_dressed_rather_than_left_in_the_loincloth() {
         };
         let expected = swap_map(&p.objdesc);
         let female = setup_of(&store, setup_id).parts;
-        let male = setup_of(&store, dereth_client::character::ALUVIAN_MALE_SETUP).parts;
+        let male = setup_of(&store, dereth_client_runtime::character::ALUVIAN_MALE_SETUP).parts;
 
         let mut render = |dressed: bool| -> (
             Frame,
@@ -840,7 +844,7 @@ fn the_non_aluvian_players_are_dressed_rather_than_left_in_the_loincloth() {
              bounding box {bbox:?}",
             setup_id.0,
             female.len(),
-            dereth_client::character::ALUVIAN_MALE_SETUP.0,
+            dereth_client_runtime::character::ALUVIAN_MALE_SETUP.0,
             male.len(),
         );
     }
@@ -877,7 +881,7 @@ fn re_offering_the_same_setup_does_not_rebuild_the_body() {
                 .player
                 .as_ref()
                 .and_then(|(_, p)| p.setup_id)
-                .is_some_and(|s| s != dereth_client::character::ALUVIAN_MALE_SETUP)
+                .is_some_and(|s| s != dereth_client_runtime::character::ALUVIAN_MALE_SETUP)
         })
         .cloned()
         .expect("a capture whose player is not an Aluvian male");
@@ -956,7 +960,7 @@ fn a_setup_the_dat_does_not_hold_leaves_the_body_alone() {
     let region = load_region(&store).expect("the region decodes");
     let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
-        landblock: dereth_client::world::DEFAULT_LANDBLOCK,
+        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 0,
         scenery_radius: 0,
@@ -980,7 +984,7 @@ fn a_setup_the_dat_does_not_hold_leaves_the_body_alone() {
         .expect_err("a missing setup record must not build");
     assert_eq!(
         body.setup_id(),
-        dereth_client::character::ALUVIAN_MALE_SETUP,
+        dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
         "the body took a setup that does not exist"
     );
     assert_eq!(
@@ -1147,7 +1151,7 @@ fn no_player_description_in_the_corpus_is_refused() {
 fn a_rebuilt_body_takes_the_new_setups_collision_half() {
     let store = retail_store();
     let region = load_region(&store).expect("the region decodes");
-    let male = setup_of(&store, dereth_client::character::ALUVIAN_MALE_SETUP);
+    let male = setup_of(&store, dereth_client_runtime::character::ALUVIAN_MALE_SETUP);
 
     // Scan for a setup that actually differs, so the assertion below can fail.
     let mut found: Option<Setup> = None;
@@ -1175,7 +1179,7 @@ fn a_rebuilt_body_takes_the_new_setups_collision_half() {
 
     let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
-        landblock: dereth_client::world::DEFAULT_LANDBLOCK,
+        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 0,
         scenery_radius: 0,
@@ -1235,7 +1239,7 @@ fn a_motion_table_the_dat_does_not_hold_leaves_the_body_alone() {
     let region = load_region(&store).expect("the region decodes");
     let mut gpu = test_gpu(640, 640);
     let cfg = SceneConfig {
-        landblock: dereth_client::world::DEFAULT_LANDBLOCK,
+        landblock: dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         character: true,
         land_radius: 0,
         scenery_radius: 0,
@@ -1265,7 +1269,7 @@ fn a_motion_table_the_dat_does_not_hold_leaves_the_body_alone() {
         .expect_err("a missing motion table must not build");
     assert_eq!(
         body.setup_id(),
-        dereth_client::character::ALUVIAN_MALE_SETUP,
+        dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
         "the setup was installed even though the motion table was refused"
     );
     assert_eq!(body.stats.setup_changes, 0, "a refused rebuild was counted");

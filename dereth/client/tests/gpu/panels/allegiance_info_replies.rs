@@ -9,7 +9,7 @@ use crate::common::gpu_lock;
 use crate::net::late_receivers::{chat, settle, setup};
 
 use dereth_client::app::App;
-use dereth_client::dropped;
+use dereth_client_runtime::dropped;
 use dereth_primitives::ObjectId;
 use dereth_protocol::social as wire;
 use dereth_protocol::Opcode;

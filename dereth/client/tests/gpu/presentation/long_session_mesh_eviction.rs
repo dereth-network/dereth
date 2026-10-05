@@ -60,19 +60,19 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::capture;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::{DescriptorUsage, DeviceConfig, Gpu};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // ---------------------------------------------------------------------------------------------
 // The device.
@@ -245,7 +245,8 @@ fn replay(session: &str, store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> Replayed
                 ..SceneConfig::default()
             };
             let mut s = WorldScene::load(store, gpu, cfg).expect("the landscape loads");
-            let region = dereth_client::world::load_region(store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
             s.attach_character(store, &region, gpu)
                 .expect("the body is created");
             scene = Some(s);

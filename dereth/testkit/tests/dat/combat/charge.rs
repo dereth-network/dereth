@@ -9,8 +9,8 @@ use super::*;
 
 /// A click starts a charge; the swing comes on the frame the bar reaches the gauge setting.
 pub(super) fn one_click_charges_the_bar_and_swings_when_it_fills() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::PowerBarMode;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = Bench::new();
     let gauge_starts_half_way = (b.combat().ui_requested_power - 0.5).abs() < 1e-9;
@@ -65,8 +65,8 @@ pub(super) fn one_click_charges_the_bar_and_swings_when_it_fills() {
 
 /// Held, the bar charges past the gauge to full and fires nothing; the release swings.
 pub(super) fn a_held_control_charges_to_full_and_swings_on_release() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::AttackHeight;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = Bench::new();
     b.frame(vec![key(ia::COMBAT_LOW_ATTACK, true)], 50.0);
@@ -96,8 +96,8 @@ pub(super) fn a_held_control_charges_to_full_and_swings_on_release() {
 
 /// The window's two messages and the key's two edges start the very same charge.
 pub(super) fn the_button_and_the_key_start_the_same_charge() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::AttackHeight;
+    use dereth_client_runtime::interaction::action as ia;
     use dereth_ui_screens::view::UiRequest;
 
     let by_key = {

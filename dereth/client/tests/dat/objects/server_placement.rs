@@ -13,9 +13,9 @@ use crate::common::workspace_root_buf as repo_root;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use dereth_client::net::ClientNetwork;
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram};
 use dereth_client_net::recording;
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_primitives::LocalTime;
 
 /// The sorted JSONL recordings in `fixtures/packet-captures/`. A session need not end in a clean
@@ -77,11 +77,14 @@ fn server_blobs(path: &Path) -> Vec<(u32, Vec<u8>)> {
 // ------------------------------------------------------------------------------------------------
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::models::{
-    placement_frames, resolve_parts_at, PLACEMENT_DEFAULT, PLACEMENT_RESTING,
-};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
+use {
+    dereth_client_runtime::models::placement_frames,
+    dereth_client_runtime::models::resolve_parts_at,
+    dereth_client_runtime::models::PLACEMENT_DEFAULT,
+    dereth_client_runtime::models::PLACEMENT_RESTING,
+};
 
 /// The retail store, or **fail**: a missing install is a failure, never a skip.
 fn store() -> RetailDatStore {
@@ -159,7 +162,7 @@ fn the_part_array_and_models_resolve_the_same_placement() {
 
     let store = store();
     let store = Arc::new(store);
-    let assets = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(&store));
+    let assets = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store));
 
     let ids = block_setup_ids(&store);
     let mut every_key: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -232,7 +235,7 @@ fn the_part_array_and_models_resolve_the_same_placement() {
 /// Distinct setup-space IDs found in the loaded training-dungeon environment-cell statics.
 /// This re-derives the population for both tests; decoder/load behavior determines membership.
 fn block_setup_ids(store: &RetailDatStore) -> Vec<u32> {
-    use dereth_client::env_cells::{cell_statics, EnvCellLoader};
+    use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
     let mut loader = EnvCellLoader::new();
     let mut out: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     for d in loader.load_block(store, 0x8602) {
@@ -478,7 +481,7 @@ fn replay_objects(path: &Path) -> Option<Sampled> {
         connection_sequence_number(&records),
     )
     .ok()?;
-    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
     let mut entered = false;
     let mut out = Sampled {
         peak_presences: 0,

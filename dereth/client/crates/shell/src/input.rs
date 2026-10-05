@@ -160,7 +160,7 @@ pub struct InputShell {
     /// from here.
     mouse_frame: dereth_input::mouse::MouseFrameAction,
     /// A `WM_MOUSELEAVE` arrived: its message row calls the leave handler directly, and the
-    /// input manager cannot reach the UI, so the message is recorded here and `dereth_client::ui::UiShell` makes the call.
+    /// input manager cannot reach the UI, so the message is recorded here and `dereth_client_shell::ui::UiShell` makes the call.
     mouse_left_window: bool,
     /// The keymap filename, resolved to a full path.
     ///
@@ -450,7 +450,7 @@ impl InputShell {
     /// Process one `MSG`, with its `GetMessageTime()`.
     ///
     /// Returns whether the input manager consumed it.
-    pub fn on_message(&mut self, m: crate::pump::Win32Message) -> bool {
+    pub fn on_message(&mut self, m: dereth_input::win32::Win32Message) -> bool {
         self.stats.messages_offered += 1;
 
         // The auto-repeat / no-scan-code case, counted before the manager sees it so the number
@@ -535,7 +535,7 @@ impl InputShell {
     /// Set text mode.
     ///
     /// In the client this is called by the text element's message 0x2F
-    /// arm; `UiSystem` has no route to the input manager, so `dereth_client::ui::UiShell::frame`
+    /// arm; `UiSystem` has no route to the input manager, so `dereth_client_shell::ui::UiShell::frame`
     /// mirrors the focus element into it instead. The ignore-next-character latch inside is what
     /// stops the key that opened chat from becoming the line's first character.
     pub fn set_text_mode(&mut self, on: bool) {
@@ -715,8 +715,8 @@ impl InputShell {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::keys::Key;
     use dereth_client_runtime::actions::movement::action;
+    use dereth_input::keys::Key;
     use dereth_input::win32::msg;
     use dereth_input::{InputManager, InputMapId};
 
@@ -877,7 +877,7 @@ mod tests {
         assert_eq!((own[0].map, own[0].priority), (TARGET_INPUT_MAP, 2000));
         let mut pump = crate::pump::Pump::new();
         let press = pump
-            .button_message(crate::platform::keys::MouseButton::Left, true, 1000)
+            .button_message(dereth_input::keys::MouseButton::Left, true, 1000)
             .unwrap();
         assert!(shell.on_message(press));
         let events = shell.manager.take_events();
@@ -1309,7 +1309,7 @@ mod tests {
         // a character for the focused text element to insert.
         shell.set_text_mode(true);
         t.set(t.get() + 100);
-        shell.on_message(crate::pump::Win32Message::new(
+        shell.on_message(dereth_input::win32::Win32Message::new(
             msg::WM_CHAR,
             'w' as usize,
             0,
@@ -1408,7 +1408,7 @@ mod tests {
         // The same map and the same two actions, through the mouse. The `wParam` packing is
         // `Pump::map_window_event`'s own: WHEEL_DELTA 120 in the high word.
         t += 100;
-        shell.on_message(crate::pump::Win32Message::new(
+        shell.on_message(dereth_input::win32::Win32Message::new(
             msg::WM_MOUSEWHEEL,
             (120u32 << 16) as usize,
             0,
@@ -1431,7 +1431,7 @@ mod tests {
         // which is what `-Wheel 2` measured live as 0 px after the box was unfocused.
         shell.set_focused_input_maps(&[]);
         t += 100;
-        shell.on_message(crate::pump::Win32Message::new(
+        shell.on_message(dereth_input::win32::Win32Message::new(
             msg::WM_MOUSEWHEEL,
             (120u32 << 16) as usize,
             0,
@@ -1460,8 +1460,13 @@ mod tests {
             let mut shell = InputShell::new(&store, None).expect("the input tables load");
             let t0 = 500_000u32;
             for t in [t0, t0 + gap] {
-                shell.on_message(crate::pump::Win32Message::new(msg::WM_LBUTTONDOWN, 0, 0, t));
-                shell.on_message(crate::pump::Win32Message::new(
+                shell.on_message(dereth_input::win32::Win32Message::new(
+                    msg::WM_LBUTTONDOWN,
+                    0,
+                    0,
+                    t,
+                ));
+                shell.on_message(dereth_input::win32::Win32Message::new(
                     msg::WM_LBUTTONUP,
                     0,
                     0,
@@ -1509,7 +1514,7 @@ mod tests {
     fn only_the_messages_the_table_forwards_reach_the_input_manager() {
         let store = store();
         let mut shell = InputShell::new(&store, None).expect("the input tables load");
-        let m = |message, wparam| crate::pump::Win32Message::new(message, wparam, 0, 1);
+        let m = |message, wparam| dereth_input::win32::Win32Message::new(message, wparam, 0, 1);
         assert!(!shell.on_message(m(msg::WM_SYSCOMMAND, msg::SC_SCREENSAVE)));
         assert!(!shell.on_message(m(msg::WM_SYSCOMMAND, msg::SC_MONITORPOWER)));
         assert!(
@@ -1523,7 +1528,7 @@ mod tests {
         // `WndProcDisposition::Forward`, and the message handler sets its handled flag up front and
         // clears it only in the default case.
         assert!(shell.on_message(m(msg::WM_SETFOCUS, 0)));
-        let move_msg = crate::pump::Win32Message::new(msg::WM_MOUSEMOVE, 0, 0x0064_0064, 2);
+        let move_msg = dereth_input::win32::Win32Message::new(msg::WM_MOUSEMOVE, 0, 0x0064_0064, 2);
         assert!(shell.on_message(move_msg));
         assert_eq!(
             shell.manager.mouse_pos(),

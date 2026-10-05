@@ -1,7 +1,7 @@
-//! The camera: `dereth_client_runtime`'s, at its old path, and the two tests whose oracle is the
-//! renderer's own view matrix.
+//! Camera comparisons against the renderer's view matrix.
 
-pub use dereth_client_runtime::camera::*;
+#[cfg(test)]
+use dereth_client_runtime::camera::*;
 
 #[cfg(test)]
 mod tests {

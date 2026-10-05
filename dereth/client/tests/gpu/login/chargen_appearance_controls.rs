@@ -13,7 +13,7 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId, StateId};
 use dereth_ui_screens::screens::chargen::{self, appearance, CharGenScreen, EcgProgress};

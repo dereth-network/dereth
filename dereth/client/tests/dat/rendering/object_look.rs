@@ -13,10 +13,13 @@
 
 use dereth_animation::parts::{PaletteRange, PhysicsPart, SurfaceOverrides};
 use dereth_assets::{Decode, Palette, PaletteSet, Setup, Surface};
-use dereth_client::models::{colours_for_look, parts_for_look, surface_textures};
-use dereth_client::object_identity::ObjectIdentity;
+use dereth_client_runtime::object_identity::ObjectIdentity;
 use dereth_dat::{ContainerEra, DbType, RetailDatStore};
 use dereth_primitives::DataId;
+use {
+    dereth_client_runtime::models::colours_for_look, dereth_client_runtime::models::parts_for_look,
+    dereth_client_runtime::models::surface_textures,
+};
 
 /// The February 2005 world with the end-of-retail files beside it.
 fn older_world() -> RetailDatStore {
@@ -287,8 +290,10 @@ fn a_building_shell_takes_the_older_look_only_where_its_geometry_is_the_worlds()
 /// 447,201 of the February 2005 world's 455,641.
 #[test]
 fn an_interior_takes_the_other_eras_room_only_where_it_is_the_same_room_in_the_same_place() {
-    use dereth_client_runtime::env_cells::{building_cells, EnvCellLoader};
     use dereth_primitives::CellId;
+    use {
+        dereth_world_data::env_cells::building_cells, dereth_world_data::env_cells::EnvCellLoader,
+    };
     let world = end_of_retail_world();
     let interiors = world
         .interior_files(ContainerEra::PreTod)

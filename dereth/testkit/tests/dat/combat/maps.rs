@@ -1,8 +1,8 @@
-use dereth_client::input::{InputShell, BASE_MAP_REGISTRATIONS};
 use dereth_input::fire::ControlType;
 use dereth_input::spec::ControlChord;
 use dereth_input::{ActionId, InputMapId};
 use dereth_testkit::HeadlessClient;
+use {dereth_client_shell::input::InputShell, dereth_client_shell::input::BASE_MAP_REGISTRATIONS};
 
 /// The three sets of keys a combat mode chooses between, and the one that belongs to combat
 /// itself. Ids of shipped data, which is what the client's own table names them by.

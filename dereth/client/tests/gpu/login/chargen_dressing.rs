@@ -5,7 +5,7 @@
 //! re-baking; the summary page wears the same; and the heritage's environment setup is a second
 //! object that paints inside the viewport. Geometry is read from `PreviewObject::built_from`
 //! (what was baked), palettes from the per-part surface overrides, and
-//! `dereth_client::preview::ChargenDressStats` counts each stage.
+//! `dereth_scene::preview::ChargenDressStats` counts each stage.
 //! Fixture: the retail dats and an offline headless App at 800x600 on the wizard (Aluvian,
 //! Holtburg); the list-rule and palette-index tests use synthetic inputs and no device.
 
@@ -15,10 +15,10 @@ use crate::common::client_dir;
 
 use dereth_animation::parts::{AnimPartChange, ObjDesc, PaletteRange, TextureMapChange};
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::gpu::PreviewId;
-use dereth_client::preview::pal_set_palette_id;
+use dereth_client_runtime::config::Config;
+use dereth_client_shell::gpu::PreviewId;
 use dereth_primitives::DataId;
+use dereth_scene::preview::pal_set_palette_id;
 use dereth_ui::framework::mode;
 use dereth_ui::ElementId;
 use dereth_ui_screens::screens::chargen::{appearance, CharGenScreen, EParts, EcgProgress};
@@ -254,8 +254,8 @@ fn the_dressed_model_draws_different_geometry_from_the_naked_setup() {
         .expect("the model")
         .setup;
 
-    let store =
-        dereth_client::assets::open_data_files(&client_dir()).expect("the retail dats open");
+    let store = dereth_client_runtime::assets::open_data_files(&client_dir())
+        .expect("the retail dats open");
     let i = app
         .renderer_mut()
         .add_preview_object(PreviewId::CharGen, &store, setup)
@@ -652,7 +652,7 @@ fn build_obj_desc_emits_the_part_texture_and_palette_changes() {
     };
     let mut sets = |_: DataId| vec![DataId(0x0400_0010), DataId(0x0400_0011)];
     let mut od = ObjDesc::default();
-    assert!(dereth_client::preview::build_obj_desc(
+    assert!(dereth_scene::preview::build_obj_desc(
         &table,
         DataId(0x0200_0001),
         7,
@@ -687,7 +687,7 @@ fn build_obj_desc_emits_the_part_texture_and_palette_changes() {
 
     // `template_key == 0` is "no dye": the object and texture changes only.
     let mut plain = ObjDesc::default();
-    assert!(dereth_client::preview::build_obj_desc(
+    assert!(dereth_scene::preview::build_obj_desc(
         &table,
         DataId(0x0200_0001),
         0,
@@ -701,7 +701,7 @@ fn build_obj_desc_emits_the_part_texture_and_palette_changes() {
     // This table lacks the requested setup. The client retries per-race/sex defaults; that
     // fallback is not implemented here, so this build reports failure without applying data.
     let mut miss = ObjDesc::default();
-    assert!(!dereth_client::preview::build_obj_desc(
+    assert!(!dereth_scene::preview::build_obj_desc(
         &table,
         DataId(0x0200_9999),
         7,
@@ -723,7 +723,10 @@ fn build_obj_desc_emits_the_part_texture_and_palette_changes() {
 /// full palette, so synthetic inputs below exercise the replacement and full-palette cases.
 #[test]
 fn the_three_objdesc_list_rules_are_the_clients() {
-    use dereth_client::preview::{add_anim_part_change, add_subpalette, add_texture_map_change};
+    use {
+        dereth_scene::preview::add_anim_part_change, dereth_scene::preview::add_subpalette,
+        dereth_scene::preview::add_texture_map_change,
+    };
     let r = |offset, length| PaletteRange {
         palette_set: DataId(offset + 1),
         offset,

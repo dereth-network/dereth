@@ -8,14 +8,17 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::input::{InputShell, BASE_MAP_REGISTRATIONS, WHOLE_RUN_INPUT_MAPS};
-use dereth_client::platform::keys::Key;
-use dereth_client::platform::window::HostEvent;
-use dereth_client::present::NullPresentation;
+use dereth_client_runtime::config::Config;
 use dereth_client_runtime::interaction::TargetMode;
+use dereth_client_runtime::present::NullPresentation;
+use dereth_input::host::HostEvent;
+use dereth_input::keys::Key;
 use dereth_input::{ActionId, InputMapId};
 use dereth_ui::framework::mode;
+use {
+    dereth_client_shell::input::InputShell, dereth_client_shell::input::BASE_MAP_REGISTRATIONS,
+    dereth_client_shell::input::WHOLE_RUN_INPUT_MAPS,
+};
 
 /// `SelectionExamine` and `UseSelected`, both in the UI-commands map.
 const SELECTION_EXAMINE: ActionId = ActionId(0x1000_002B);
@@ -63,7 +66,7 @@ fn settle_on(app: &mut App, m: dereth_ui::UiMode) {
 
 /// Feed one key press and release straight into the input manager and return what it resolved to.
 fn resolve(app: &mut App, key: Key, t: &mut u32) -> Vec<(u32, u32, bool)> {
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     let input = app.input_manager_mut().expect("the input manager is up");
     input.manager.take_events();
     for pressed in [true, false] {

@@ -12,18 +12,18 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
-use dereth_client::world::SceneReads;
+use dereth_scene::world_scene::SceneReads;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pick::PickScene;
-use dereth_client::world::SceneConfig;
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::pick::PickScene;
 use dereth_client_runtime::pick_geometry::selection_ray;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemDeleteObject, ItemSetState};
@@ -77,14 +77,14 @@ fn points_in(store: &dereth_dat::RetailDatStore, cell: u32) -> Vec<Vec3> {
 fn sample_points_in(store: &dereth_dat::RetailDatStore, cell: u32) -> Vec<Vec3> {
     #[allow(clippy::cast_possible_truncation)] // a cell id's top 16 bits are its landblock
     let block = (cell >> 16) as u16;
-    let Some(d) = dereth_client::env_cells::EnvCellLoader::new()
+    let Some(d) = dereth_world_data::env_cells::EnvCellLoader::new()
         .load_block(store, block)
         .into_iter()
         .find(|d| d.id.0 == cell)
     else {
         return Vec::new();
     };
-    let g = dereth_client::env_cells::physics_geometry(&d);
+    let g = dereth_world_data::env_cells::physics_geometry(&d);
     let Some(bsp) = g.cell_bsp.as_ref() else {
         return Vec::new();
     };
@@ -412,7 +412,7 @@ fn delete_the_corpus_chest(app: &mut App, id: ObjectId, at: f64) {
 }
 
 fn move_pointer_to(app: &mut App, x: i32, y: i32, at: u32) {
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
     let message = pump.mouse_move_message(f64::from(x), f64::from(y), at);

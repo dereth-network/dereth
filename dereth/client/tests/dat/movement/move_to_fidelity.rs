@@ -30,17 +30,21 @@ use dereth_animation::frame::V3;
 use dereth_animation::motion::moveto::TargetSnapshot;
 use dereth_animation::motion::{MoveToRequest, MovementParameters};
 use dereth_client::app::App;
-use dereth_client::camera::IN_HEAD_OFFSET;
-use dereth_client::character::{Character, CharacterInput};
-use dereth_client::config::Config;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::camera::IN_HEAD_OFFSET;
+use dereth_client_runtime::config::Config;
 use dereth_client_runtime::{sim_present::SimPresentation, world_state::WorldState};
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::movement::{MoveToArm, MovementBody, MovementSetObjectMovement};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 /// long-solo-play's own character.
 const PLAYER: ObjectId = ObjectId(0x5000_000a);
@@ -599,7 +603,7 @@ fn a_moving_targets_interpolated_position_leads_by_its_velocity_times_the_quantu
 /// A `Character` on real Holtburg terrain, with no GPU required.
 fn character() -> Character {
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let mut c = Character::new(&store, &region, DEFAULT_LANDBLOCK, (20.0, 52.0))
         .expect("a body on real Holtburg terrain");
     let mut t = 0.0;

@@ -692,7 +692,7 @@ impl DddPatcher {
     /// Asynchronous-get failure takes the request out of the pending-gets list, but
     /// that on its own only lets a *new* get be issued -- something still has to ask. Here the
     /// asker is a cache that remembers the miss, so the caller has to tell it to forget:
-    /// [`crate::land_source::DatLandSource::forget_blocks`].
+    /// [`dereth_world_data::land_source::DatLandSource::forget_blocks`].
     #[must_use]
     pub fn take_failed_gets(&mut self) -> Vec<DataId> {
         std::mem::take(&mut self.failed)
@@ -1236,7 +1236,7 @@ pub fn request_message(resource_type: u32, resource_id: DataId) -> DddRequestDat
 ///   may request from the network?          ask other sources -> 0xF7E3
 /// ```
 ///
-/// [`crate::land_source::DatLandSource::take_missing`] is the "neither" arm: a record the store
+/// [`dereth_world_data::land_source::DatLandSource::take_missing`] is the "neither" arm: a record the store
 /// does not carry, found while a landblock was being built. The two conditions this adds are
 /// native's own:
 ///
@@ -1256,7 +1256,7 @@ pub fn request_message(resource_type: u32, resource_id: DataId) -> DddRequestDat
 ///
 /// Returns how many requests went out.
 pub fn drain_cache_misses<T: dereth_primitives::Transport>(
-    land: &crate::land_source::DatLandSource,
+    land: &dereth_world_data::land_source::DatLandSource,
     patcher: &mut DddPatcher,
     session: &mut dereth_client_net::client_session::Session<T>,
 ) -> usize {

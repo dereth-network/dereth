@@ -2767,7 +2767,7 @@ pub fn a_press_on_a_slot_selects_examines_or_uses_the_thing_in_that_slot() {
 /// The far end is asserted for a real click: the armed pointer has to reach the part of the
 /// client the next click reads, which is the only thing that writes it.
 pub fn the_two_buttons_act_on_what_is_selected_or_arm_the_pointer_when_nothing_is() {
-    use dereth_client::interaction::TargetMode as ArmedWith;
+    use dereth_client_runtime::interaction::TargetMode as ArmedWith;
     use dereth_ui_screens::toolbar::target_mode::{EXAMINE_BUTTON, USE_BUTTON};
     use dereth_ui_screens::view::TargetMode as Asked;
 
@@ -2934,8 +2934,8 @@ pub fn the_shards_refusal_lets_go_of_the_one_at_a_time_hold_as_well_as_the_grey(
 /// wrong answer. The line between them is the client's own -- three pixels of hand-shake is
 /// still a click and four is a turn.
 pub fn turning_the_camera_with_the_right_button_is_not_an_appraisal() {
-    use dereth_client::interaction::SearchReason;
-    use dereth_client::ui::UiMouseEvent;
+    use dereth_client_runtime::interaction::SearchReason;
+    use dereth_client_shell::ui::UiMouseEvent;
 
     /// The right button, as the pointer table names it.
     const RIGHT: u32 = 8;
@@ -2950,7 +2950,7 @@ pub fn turning_the_camera_with_the_right_button_is_not_an_appraisal() {
                 y: 300,
                 over: None,
             };
-            let world_click = dereth_client::interaction::is_world_click(e.over);
+            let world_click = dereth_client_runtime::interaction::is_world_click(e.over);
             c.interaction_mut()
                 .wrapper_mouse(e, (800, 600), world_click);
         }

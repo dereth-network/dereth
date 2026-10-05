@@ -29,7 +29,7 @@
 //! # The pointer
 //!
 //! [`Player::Click`] and [`Player::Drag`] are the gestures most inventory and panel scenarios are
-//! written in, and each needs the same four Win32 messages. They are built here once, through [`dereth_client::pump::Pump`] -- the
+//! written in, and each needs the same four Win32 messages. They are built here once, through [`dereth_desktop::pump::Pump`] -- the
 //! client's **own** message mapper, so the scenario exercises the same mapping as the client --
 //! and dispatched both to the pump's state and to the real input manager, which is what the
 //! window loop does with them.
@@ -74,8 +74,8 @@ use dereth_ui::ElementId;
 
 pub use dereth_headless::script::Direction;
 
-use dereth_client::app::HEADLESS_STEP;
 use dereth_client_contract::UiRequest;
+use dereth_client_runtime::platform::clock::HEADLESS_STEP;
 
 use crate::client::{Backend, HeadlessClient, Step};
 
@@ -355,8 +355,8 @@ fn at(client: &mut HeadlessClient, target: Target) -> (i32, i32) {
 /// the real input manager.
 pub(crate) fn deliver(
     client: &mut HeadlessClient,
-    pump: &mut dereth_client::pump::Pump,
-    m: dereth_client::pump::Win32Message,
+    pump: &mut dereth_desktop::pump::Pump,
+    m: dereth_input::win32::Win32Message,
 ) {
     pump.dispatch(m);
     client
@@ -367,19 +367,19 @@ pub(crate) fn deliver(
 }
 
 /// A pump with the two flags the window loop sets while the client is up.
-pub(crate) fn pointer_pump() -> dereth_client::pump::Pump {
-    let mut p = dereth_client::pump::Pump::new();
+pub(crate) fn pointer_pump() -> dereth_desktop::pump::Pump {
+    let mut p = dereth_desktop::pump::Pump::new();
     p.state.is_ready = true;
     p.state.is_active_app = true;
     p
 }
 
 fn button(
-    pump: &mut dereth_client::pump::Pump,
+    pump: &mut dereth_desktop::pump::Pump,
     down: bool,
     t: u32,
-) -> dereth_client::pump::Win32Message {
-    pump.button_message(dereth_client::platform::keys::MouseButton::Left, down, t)
+) -> dereth_input::win32::Win32Message {
+    pump.button_message(dereth_input::keys::MouseButton::Left, down, t)
         .expect("the left button is one of the messages the client's table names")
 }
 
@@ -499,7 +499,7 @@ fn double_click(client: &mut HeadlessClient, id: ObjectId) {
             // being sent twice; a scenario whose steps all happened at time zero would silently
             // lose every gesture after the first. One step of the client's own clock per gesture
             // is what a player at a keyboard cannot help doing.
-            m.now += dereth_client::app::HEADLESS_STEP;
+            m.now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
             let now = ServerTime(m.now);
             let mut req = RecordingRequests::default();
             let mut sink = RecordingSink::default();
@@ -523,7 +523,7 @@ fn ui(client: &mut HeadlessClient, requests: Vec<UiRequest>) {
     match client.backend_mut() {
         Backend::Model(m) => {
             // See `double_click`: one step of the client's own clock per gesture.
-            m.now += dereth_client::app::HEADLESS_STEP;
+            m.now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
             let now = ServerTime(m.now);
             m.interaction.queue(Vec::new(), requests);
             // **The second argument is the HUD's own flag, as `App::frame` passes it.** A fresh

@@ -15,9 +15,9 @@ use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::Opcode;
@@ -261,11 +261,11 @@ fn setup(tag: &str) -> (App, Peer) {
     })
     .expect("an application");
     app.start_shell().expect("the shell starts");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("a static scene");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);

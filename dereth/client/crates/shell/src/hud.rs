@@ -10,7 +10,7 @@
 
 use dereth_ui_screens::panels::remaining::RemainingPanels;
 
-pub use dereth_client_runtime::hud::*;
+use dereth_client_runtime::hud::*;
 
 pub use crate::hud_drive::{deliver_power_bar_notices, talk_focus_notice};
 

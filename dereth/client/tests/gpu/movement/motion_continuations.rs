@@ -5,26 +5,26 @@
 //! `Movement_SetObjectMovement 0xF74C` messages; the retail dats.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;
-use dereth_client::world::load_region;
+use dereth_client_runtime::landblock::load_region;
 use dereth_primitives::{LocalTime, ObjectId};
 
 /// Behaviour: movement.sticky.animation-done-unsticks-before-manual-motion
 #[test]
 fn remote_action_completion_clears_owned_stick_and_subscription_in_both_animation_owners() {
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{SceneConfig, WorldScene};
     use dereth_client_net::client_session::testing::{Corpus, Direction};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_protocol::movement::{
         motion_flags, InterpretedMotionState, MotionAction, MovementBody, MovementBuffer,
         MovementSetObjectMovement,
     };
     use dereth_protocol::Opcode;
     use dereth_render::device::Gpu;
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
     // Recorded player creation/position/state, rendered as a remote object (no local binding).
     // The wave with a sticky target, and the walk and release after it, are constructed 0xF74C

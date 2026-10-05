@@ -13,8 +13,8 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
 use dereth_client_net::client_session::testing::{session_names, shared_session};
+use dereth_client_runtime::config::Config;
 use dereth_primitives::{DataId, ObjectId};
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId, MessageId};
@@ -215,12 +215,12 @@ fn glyph_pixels(
     let mut mask = vec![false; (fb.0 * fb.1) as usize];
     let mut inked = 0usize;
     for cmd in list {
-        let Some(clip) = dereth_client::ui_draw::visible_box(cmd, fb) else {
+        let Some(clip) = dereth_client_shell::ui_draw::visible_box(cmd, fb) else {
             continue;
         };
         for g in &cmd.glyphs {
             let font = fonts.entry(g.font).or_insert_with(|| {
-                dereth_client::ui_draw::load_font(store, g.font).expect("a font")
+                dereth_client_shell::ui_draw::load_font(store, g.font).expect("a font")
             });
             let Some(d) = font.get_char_desc(g.ch) else {
                 continue;
@@ -675,7 +675,7 @@ fn the_wizard_builds_a_character_ace_will_accept() {
     };
 
     // Everything ACE checks, checked here.
-    let mut msg = dereth_client::app::chargen_result_to_wire(result);
+    let mut msg = dereth_client_runtime::app::chargen_result_to_wire(result);
     msg.checksum_value = msg.checksum();
     assert_eq!(msg.name, "Tarinell");
     assert_eq!(msg.version, 1);
@@ -807,7 +807,11 @@ fn rebuilding_the_character_list_does_not_leak_descriptor_slots() {
 
 /// One Windows message, through the pump and into the input shell, as the window procedure
 /// delivers it.
-fn send(pump: &mut dereth_client::pump::Pump, app: &mut App, m: dereth_client::pump::Win32Message) {
+fn send(
+    pump: &mut dereth_desktop::pump::Pump,
+    app: &mut App,
+    m: dereth_input::win32::Win32Message,
+) {
     pump.dispatch(m);
     app.input_manager_mut()
         .expect("the input shell exists in a UI build")
@@ -820,8 +824,8 @@ fn send(pump: &mut dereth_client::pump::Pump, app: &mut App, m: dereth_client::p
 /// Windows drives it, `WM_MOUSEWHEEL` detents with the pointer over the text and nothing focused.
 #[test]
 fn the_mouse_wheel_scrolls_the_worlds_message_with_nothing_focused() {
-    use dereth_client::pump::{Pump, Win32Message};
     use dereth_ui_screens::screens::screen_message::TEXT;
+    use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
     let _gpu = gpu_lock();
     have_dats();

@@ -2,12 +2,12 @@
 //!
 //! Behaviour: none (device-free application fixture and its presentation boundary)
 
-use dereth_client::{
-    app::{App, Platform, StartupError},
-    config::Config,
-};
 use dereth_client_runtime::sim_present::SimPresentation;
 use dereth_client_shell::platform::host::Host;
+use {
+    dereth_client::app::App, dereth_client_runtime::app::Platform,
+    dereth_client_runtime::app::StartupError, dereth_client_runtime::config::Config,
+};
 
 #[path = "../../common/app.rs"]
 #[allow(dead_code)]
@@ -50,8 +50,11 @@ pub fn app_with_recorded_body() -> App {
 
 #[test]
 fn simulated_ui_operations_are_counted_without_a_graphics_device() {
-    use dereth_client::present::{ClientPresentation, UiReleaseReport};
     use dereth_primitives::{DataId, ObjectId, TextureData, TextureFormat, Viewport};
+    use {
+        dereth_client_shell::present::ClientPresentation,
+        dereth_client_shell::present::UiReleaseReport,
+    };
     let store = dereth_dat::testing::open_store_or_fail();
     let mut sim = SimPresentation::new(320, 240);
     let rect = Viewport {
@@ -88,7 +91,7 @@ fn simulated_ui_operations_are_counted_without_a_graphics_device() {
 
 #[test]
 fn the_real_shell_frames_and_resizes_its_simulated_world() {
-    use dereth_client::{config::Preferences, world::SceneConfig};
+    use {dereth_client_runtime::config::Preferences, dereth_client_runtime::scene::SceneConfig};
     let scratch = dereth_dat::testing::ScratchDir::new("simulated-shell").unwrap();
     let mut cfg = Config {
         headless: true,

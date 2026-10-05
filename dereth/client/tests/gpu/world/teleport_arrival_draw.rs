@@ -11,18 +11,18 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
-use dereth_client::world::SceneConfig;
-use dereth_client::world::SceneReads;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{CellId, LocalTime, ObjectId, Vec3};
 use dereth_protocol::movement::{MovementPositionEvent, PositionPack};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::types::{physicsdesc, Origin, PositionWire};
 use dereth_protocol::Opcode;
+use dereth_scene::world_scene::SceneReads;
 use std::sync::Arc;
+use {dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader};
 
 const W: u32 = 400;
 const H: u32 = 300;

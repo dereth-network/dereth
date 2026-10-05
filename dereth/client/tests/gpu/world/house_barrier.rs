@@ -52,17 +52,15 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dereth_assets::world::{EnvCell, LandblockInfo};
 use dereth_assets::{decode_any, DecodedAsset};
-use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
@@ -71,6 +69,11 @@ use dereth_protocol::trade::HouseUpdateRestrictions;
 use dereth_protocol::types::PublicWeenieDesc;
 use dereth_protocol::{Message, Opcode, Reader};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::PLAYER_OBJECT_ID,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const W: u32 = 320;
 const H: u32 = 240;
@@ -215,7 +218,8 @@ struct Bench {
 
 impl Bench {
     fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu, player: ObjectId) -> Self {
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let cfg = SceneConfig {
             landblock: BLOCK,
             land_radius: 1,
@@ -344,7 +348,7 @@ impl Bench {
             objects.sync_physics_at(store, &mut c.world, LocalTime(*now));
         }
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             input,
             LocalTime(*now),
             1.0 / 30.0,

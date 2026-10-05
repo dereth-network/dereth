@@ -1,8 +1,8 @@
-use dereth_client::hud::Hud;
-use dereth_client::interaction::Interaction;
-use dereth_client::objects::ObjectStream;
 use dereth_client_model::combat::CombatMode;
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
+use dereth_client_runtime::interaction::Interaction;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::hud::Hud;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_ui::{Delivery, ElemHandle, ElementId, Screen as _, UiSystem};
 use dereth_ui_screens::bind::{attr, attr_float};
@@ -145,9 +145,13 @@ impl Bench {
         let notices = self.objects.world.combat.take_power_bar_notices();
         self.hud
             .drive(&mut self.ui, &mut self.screen, self.serial, &self.objects);
-        dereth_client::hud::deliver_power_bar_notices(&mut self.ui, &mut self.hud.panels, notices);
+        dereth_client_shell::hud_drive::deliver_power_bar_notices(
+            &mut self.ui,
+            &mut self.hud.panels,
+            notices,
+        );
         self.deliver();
-        let _ = dereth_client::interaction::use_time(
+        let _ = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,

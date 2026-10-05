@@ -1278,7 +1278,7 @@ impl crate::World {
     ///
     /// **This is [`crate::Weenie::trade_state`]'s first production writer.** It is read by
     /// the inventory drop and merge checks, by
-    /// `use_object`'s give arm, by `dereth_client::cursor`'s target-compatibility test and by the
+    /// `use_object`'s give arm, by `dereth_desktop::cursor`'s target-compatibility test and by the
     /// item widget's overlay.
     pub fn set_trade_state(&mut self, item: dereth_primitives::ObjectId, v: u32) -> bool {
         match self.weenie_mut(item) {

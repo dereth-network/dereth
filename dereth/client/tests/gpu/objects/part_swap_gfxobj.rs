@@ -18,16 +18,13 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::{retail_store, test_gpu};
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
 use dereth_animation::data::{AnimAssets, GfxObjLookup, NoAssets};
 use dereth_animation::parts::ObjDesc as AnimObjDesc;
-use dereth_client::anim_assets::DatAnimAssets;
-use dereth_client::objects::ObjectStream;
-use dereth_client::preview::{PreviewObject, PreviewSpace};
-use dereth_client::world::{load_region, SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::objects::{ItemCreateObject, ItemObjDescEvent, ObjectCreatePayload};
@@ -38,6 +35,12 @@ use dereth_protocol::types::{
 };
 use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
+use dereth_world_data::anim_assets::DatAnimAssets;
+use {
+    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
+use {dereth_scene::preview::PreviewObject, dereth_scene::preview::PreviewSpace};
 
 /// The Aluvian male body: the setup `Character::new` builds and the one every assertion below
 /// dresses. 34 parts.
@@ -86,7 +89,7 @@ fn wire_swap(index: u8, to: DataId) -> ProtocolObjDesc {
 /// The same change in the animation crate's shape, for the preview, which takes no wire types.
 fn anim_swap(index: u8, to: DataId) -> AnimObjDesc {
     let mut od = AnimObjDesc::default();
-    dereth_client::preview::add_anim_part_change(
+    dereth_scene::preview::add_anim_part_change(
         &mut od,
         dereth_animation::parts::AnimPartChange {
             part_index: u32::from(index),

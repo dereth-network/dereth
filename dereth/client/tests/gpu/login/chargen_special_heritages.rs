@@ -14,7 +14,7 @@ use crate::common::gpu_lock;
 
 use dereth_chargen::{HERITAGE_GEAR_KNIGHT, HERITAGE_OLTHOI, HERITAGE_OLTHOI_ACID};
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::screens::chargen::{self, appearance, CharGenScreen, EcgProgress};

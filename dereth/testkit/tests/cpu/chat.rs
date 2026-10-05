@@ -10,11 +10,11 @@
 //!
 //! [`HeadlessClient::assert_behaviour`]: dereth_testkit::HeadlessClient::assert_behaviour
 
-use dereth_client::hud::ViewerFrame;
 use dereth_client_contract::{PlayerOption, UiRequest};
 use dereth_client_model::chat::{text_type, SquelchEntry, TalkFocus};
 use dereth_client_model::Request;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::hud::ViewerFrame;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::archive::PackedHash;
@@ -788,7 +788,7 @@ enum Table {
 }
 
 /// Drive one message through a client holding `table`, and report the lines it drew.
-fn heard_with(table: Table, event: SessionEvent) -> (usize, dereth_client::hud::HudStats) {
+fn heard_with(table: Table, event: SessionEvent) -> (usize, dereth_client_runtime::hud::HudStats) {
     let mut c = HeadlessClient::model();
     c.hud_mut().player = Some(ME);
     // `player_body` is the gate the three speech handlers open with; set here rather than by a
@@ -969,7 +969,7 @@ fn death(
 fn death_lines(
     player: Option<ObjectId>,
     m: &dereth_protocol::combat::CombatHandlePlayerDeathEvent,
-) -> (Vec<String>, dereth_client::hud::HudStats) {
+) -> (Vec<String>, dereth_client_runtime::hud::HudStats) {
     let mut c = HeadlessClient::model();
     c.world_mut().player = player;
     // The scroll is drained at the head of the next batch, so the frame after the message is
@@ -1166,7 +1166,7 @@ fn ranged_scene(
     outside: bool,
     range: f32,
     placed: bool,
-) -> (usize, dereth_client::hud::HudStats) {
+) -> (usize, dereth_client_runtime::hud::HudStats) {
     let origin = Vec3::new(100.0, 100.0, 0.0);
     let cell = if outside { OUTDOOR_CELL } else { 0xA9B4_0100 };
     let mut c = HeadlessClient::model();
@@ -1786,7 +1786,11 @@ fn a_placed_speaker() -> dereth_protocol::objects::ItemCreateObject {
 
 /// A speaker whose tongue the character does not share is drawn as his name and a noise.
 pub fn a_speaker_you_cannot_understand_is_a_name_and_a_noise() {
-    use dereth_client::chat::{garbled_line, HUMAN_TEXT, OLTHOI_TEXT};
+    use {
+        dereth_client_model::chat::composition::garbled_line,
+        dereth_client_model::chat::composition::HUMAN_TEXT,
+        dereth_client_model::chat::composition::OLTHOI_TEXT,
+    };
 
     // A human hearing a speaker the shard has marked as speaking the other tongue.
     let mut c = a_listener_of(0, 7);
@@ -1858,7 +1862,7 @@ pub fn a_speaker_you_cannot_understand_is_a_name_and_a_noise() {
 
 /// A private message the character cannot understand is drawn even when it was for somebody else.
 pub fn a_garbled_tell_is_drawn_even_when_it_was_not_for_you() {
-    use dereth_client::chat::OLTHOI_TEXT;
+    use dereth_client_model::chat::composition::OLTHOI_TEXT;
     let somebody_else = ObjectId(0x5000_0003);
 
     let mut mine = a_listener_of(0, 3);
@@ -1913,7 +1917,7 @@ pub fn a_garbled_tell_is_drawn_even_when_it_was_not_for_you() {
 
 /// An acted emote garbles; a pose and a line shouted with a range never do.
 pub fn an_acted_emote_garbles_where_a_pose_and_a_shout_do_not() {
-    use dereth_client::chat::OLTHOI_TEXT;
+    use dereth_client_model::chat::composition::OLTHOI_TEXT;
     let acted = dereth_protocol::Opcode::COMMUNICATION_HEAR_EMOTE;
     let pose = dereth_protocol::Opcode::COMMUNICATION_HEAR_SOUL_EMOTE;
 
@@ -2773,7 +2777,7 @@ const ANOTHER_PLAYER: u32 = 0x5000_ABCD;
 /// The newlines the client's own wording leaves on a line are taken off both ends -- and only the
 /// newlines are.
 pub fn the_newlines_are_trimmed_from_both_ends() {
-    use dereth_client::chat::add_text_to_scroll_trim as trim;
+    use dereth_client_model::chat::composition::add_text_to_scroll_trim as trim;
     let holds = trim("Bob says, \"hi\"\n") == "Bob says, \"hi\""
         && trim("\nwelcome\n") == "welcome"
         && trim("\n\nwelcome\n\n") == "welcome"
@@ -2792,7 +2796,7 @@ pub fn the_newlines_are_trimmed_from_both_ends() {
 /// A spoken line is the speaker's name, then the client's own verb, then what he said in quotes --
 /// and the player's own line comes back to him in a different form again.
 pub fn a_spoken_line_is_the_name_the_verb_and_the_words() {
-    use dereth_client::chat::hear_speech_line as line;
+    use dereth_client_model::chat::composition::hear_speech_line as line;
 
     let remote = line(
         NOT_A_PLAYER,
@@ -2821,7 +2825,7 @@ pub fn a_spoken_line_is_the_name_the_verb_and_the_words() {
 /// A private message is drawn only when it was addressed to the player, one he sent to himself is
 /// drawn as a thought, and one he merely overheard draws nothing at all.
 pub fn a_private_message_is_drawn_only_when_it_was_for_you() {
-    use dereth_client::chat::hear_direct_speech_line as line;
+    use dereth_client_model::chat::composition::hear_direct_speech_line as line;
     const SOMEBODY_ELSE: u32 = 0x5000_9999;
     const AN_NPC: u32 = 0x77F0_0042;
 
@@ -2859,7 +2863,10 @@ pub fn a_private_message_is_drawn_only_when_it_was_for_you() {
 /// A line spoken with a range on it has no form of its own for the player's own words: his own
 /// line comes back to him as any other speaker's would, with his name clickable.
 pub fn a_line_with_a_range_on_it_has_no_echo_of_your_own() {
-    use dereth_client::chat::{hear_ranged_speech_line as ranged, hear_speech_line as ordinary};
+    use {
+        dereth_client_model::chat::composition::hear_ranged_speech_line as ranged,
+        dereth_client_model::chat::composition::hear_speech_line as ordinary,
+    };
 
     let ordinary_echoes = ordinary(A_PLAYER, Some(A_PLAYER), "Lark", "W") == "You say, \"W\"";
     let ranged_does_not = ranged(A_PLAYER, "Lark", "W")
@@ -2878,8 +2885,10 @@ pub fn a_line_with_a_range_on_it_has_no_echo_of_your_own() {
 /// exclusive at both ends -- an error of one either way is a name that silently cannot be clicked,
 /// or a creature that can.
 pub fn only_a_player_has_a_clickable_name() {
-    let clickable =
-        |id: u32| dereth_client::chat::hear_speech_line(id, None, "X", "y").starts_with("<Tell:");
+    let clickable = |id: u32| {
+        dereth_client_model::chat::composition::hear_speech_line(id, None, "X", "y")
+            .starts_with("<Tell:")
+    };
     let holds = !clickable(0x5000_0000)
         && clickable(0x5000_0001)
         && clickable(0x6FFF_FFFF)
@@ -2916,7 +2925,7 @@ pub fn every_recorded_spoken_line_is_drawn_with_the_verb() {
                 >(&b.payload[4..]) else {
                     continue;
                 };
-                let line = dereth_client::chat::hear_direct_speech_line(
+                let line = dereth_client_model::chat::composition::hear_direct_speech_line(
                     m.sender_id.0,
                     m.target_id.0,
                     Some(m.target_id.0),
@@ -2924,7 +2933,9 @@ pub fn every_recorded_spoken_line_is_drawn_with_the_verb() {
                     &m.message,
                 )
                 .expect("one addressed to the player is drawn");
-                let want = if dereth_client::chat::CLICKABLE_PLAYER_IDS.contains(&m.sender_id.0) {
+                let want = if dereth_client_model::chat::composition::CLICKABLE_PLAYER_IDS
+                    .contains(&m.sender_id.0)
+                {
                     format!(
                         "<Tell:IIDString:{}:{n}>{n}<\\Tell> tells you, \"{}\"",
                         m.sender_id.0,
@@ -2946,7 +2957,7 @@ pub fn every_recorded_spoken_line_is_drawn_with_the_verb() {
                 >(&b.payload[4..]) else {
                     continue;
                 };
-                let line = dereth_client::chat::hear_speech_line(
+                let line = dereth_client_model::chat::composition::hear_speech_line(
                     m.sender_id.0,
                     None,
                     &m.sender_name,
@@ -2954,7 +2965,9 @@ pub fn every_recorded_spoken_line_is_drawn_with_the_verb() {
                 );
                 // Both forms are counted apart, because one check that only asked whether the
                 // words were in there would have passed on either.
-                let holds = if dereth_client::chat::CLICKABLE_PLAYER_IDS.contains(&m.sender_id.0) {
+                let holds = if dereth_client_model::chat::composition::CLICKABLE_PLAYER_IDS
+                    .contains(&m.sender_id.0)
+                {
                     says.1 += 1;
                     line == format!(
                         "<Tell:IIDString:{}:{n}>{n}<\\Tell> says, \"{}\"",

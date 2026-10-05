@@ -9,7 +9,10 @@
 use dereth_client_runtime::pick::{LocalBody, LocalBodyPart, PickScene};
 use dereth_primitives::{Frame, ObjectId};
 
-use crate::world::{SceneHalves, WorldScene, WorldSceneMut, WorldSceneRef};
+use {
+    crate::world_scene::SceneHalves, crate::world_scene::WorldScene,
+    crate::world_scene::WorldSceneMut, crate::world_scene::WorldSceneRef,
+};
 
 /// One impl text over the three ways the scene is held: whole, and as the shared
 /// or mutable view of the application's world state and the presentation's drawing half.

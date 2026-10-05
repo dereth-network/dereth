@@ -28,15 +28,15 @@ use crate::common::sim_app::app_in_gameplay;
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::platform::keys::Key;
-use dereth_client::pump::{Pump, Win32Message};
+use dereth_client_runtime::config::Config;
+use dereth_input::keys::Key;
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::window::ENTRY;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use winit::event::MouseButton;
 use winit::keyboard::KeyCode;
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 /// The same application with **no body**, which is the only configuration in which the residual
 /// flycam of [`App::flycam_key`] can move anything at all: `WorldScene::update` runs
@@ -58,12 +58,12 @@ fn app_in_gameplay_without_a_body(frames: u32) -> App {
     };
     let mut app = crate::common::sim_app::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
         character: false,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(mode::GAME_PLAY);
@@ -108,7 +108,7 @@ fn entry_text(app: &mut App) -> String {
 }
 
 /// Whether a keyboard barrier is standing right now: the state
-/// [`dereth_client::input::InputShell::keyboard_blocked`] reports, read here off the map stack so
+/// [`dereth_client_shell::input::InputShell::keyboard_blocked`] reports, read here off the map stack so
 /// the test does not trust the helper it is also exercising.
 fn barrier_registered(app: &mut App) -> bool {
     app.input_manager_mut()
@@ -193,7 +193,7 @@ impl Hand {
         app: &mut App,
         code: KeyCode,
         frames: u32,
-        read: fn(dereth_client::character::CharacterInput) -> bool,
+        read: fn(dereth_client_runtime::character::CharacterInput) -> bool,
     ) -> bool {
         self.key(app, code, true);
         let mut ever = false;
@@ -328,7 +328,7 @@ fn the_shipped_bindings_drive_the_five_other_motion_slots() {
     let cases: [(
         KeyCode,
         &str,
-        fn(dereth_client::character::CharacterInput) -> bool,
+        fn(dereth_client_runtime::character::CharacterInput) -> bool,
     ); 5] = [
         (KeyCode::KeyX, "DIK_X -> 0x2A Move Backward", |c| c.back),
         (KeyCode::KeyZ, "DIK_Z -> 0x2D Strafe Left", |c| c.step_left),
@@ -595,7 +595,7 @@ fn the_intro_still_skips_on_a_character_with_the_barrier_standing() {
     // being satisfied by an intro that registered nothing whatsoever.
     assert_eq!(
         app.ui().expect("a shell").registered_mode_maps(),
-        dereth_client::ui::INTRO_INPUT_MAPS,
+        dereth_client_shell::ui::INTRO_INPUT_MAPS,
         "the intro screen registers input maps 9 and 3, both at priority 0xBB8"
     );
 
@@ -631,7 +631,7 @@ fn the_numpad_camera_keys_reach_the_look_flags_and_the_barrier_gates_them() {
     let cases: [(
         KeyCode,
         &str,
-        fn(dereth_client::camera::CameraInput) -> bool,
+        fn(dereth_client_runtime::camera::CameraInput) -> bool,
     ); 4] = [
         (
             KeyCode::Numpad4,

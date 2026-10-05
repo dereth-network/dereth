@@ -9,9 +9,12 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use dereth_assets::{CharGen, Decode, GfxObj, Setup};
-use dereth_client::object_physics::{setup_geometry_with_parts, SetupPartStats};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
+use {
+    dereth_client_runtime::object_physics::setup_geometry_with_parts,
+    dereth_client_runtime::object_physics::SetupPartStats,
+};
 
 const CHARGEN: DataId = DataId(0x0E00_0002);
 
@@ -116,7 +119,7 @@ fn every_reachable_player_setup_uses_the_same_two_sphere_arm_with_or_without_par
         }
         total_parts += setup.parts.len();
 
-        let simple = dereth_client::character::setup_geometry(&setup);
+        let simple = dereth_world_data::setup::setup_geometry(&setup);
         let mut stats = SetupPartStats::default();
         let complete = setup_geometry_with_parts(&store, &setup, &mut stats);
         assert!(

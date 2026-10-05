@@ -1,6 +1,6 @@
-use dereth_client::hud::Hud;
-use dereth_client::interaction::Interaction;
 use dereth_client_model::combat::{CombatMode, PowerBarMode};
+use dereth_client_runtime::interaction::Interaction;
+use dereth_client_shell::hud::Hud;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_ui::UiSystem;
 use dereth_ui_screens::bind::{attr, attr_float};
@@ -50,7 +50,7 @@ pub fn the_readback_can_produce_a_non_zero() -> bool {
 
 pub struct Bench {
     inter: Interaction,
-    objects: dereth_client::objects::ObjectStream,
+    objects: dereth_client_runtime::objects::ObjectStream,
     store: std::sync::Arc<dereth_dat::RetailDatStore>,
     hud: Hud,
     ui: UiSystem,
@@ -90,7 +90,7 @@ impl Bench {
                  `never written` and `written with a nought` two different readings"
         );
 
-        let mut objects = dereth_client::objects::ObjectStream::default();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::default();
         objects.world = seed_world();
         Self {
             inter: Interaction::new(),
@@ -110,9 +110,12 @@ impl Bench {
         let view = self.hud.view(&self.objects);
         let _ = self.panels.update(&mut self.ui, &view);
         drop(view);
-        let _ =
-            dereth_client::hud::deliver_power_bar_notices(&mut self.ui, &mut self.panels, notices);
-        let _ = dereth_client::interaction::use_time(
+        let _ = dereth_client_shell::hud_drive::deliver_power_bar_notices(
+            &mut self.ui,
+            &mut self.panels,
+            notices,
+        );
+        let _ = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,

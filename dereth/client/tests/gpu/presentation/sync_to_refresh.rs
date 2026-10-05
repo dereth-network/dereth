@@ -11,8 +11,8 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::{Config, Preferences};
 use dereth_ui_screens::{PrefValue, UiRequest};
+use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
 
 const SYNC: &str = "Display.SyncToRefresh";
 
@@ -167,8 +167,9 @@ fn a_real_hidden_swap_chain_presents_with_the_configured_interval() {
     let mut invisible = Invisible(None);
     event_loop.pump_app_events(Some(std::time::Duration::ZERO), &mut invisible);
     let window = invisible.0.expect("the running loop made the window");
-    let handles = dereth_client::platform::window::window_handles(&window).expect("window handles");
-    let mut renderer = dereth_client::gpu::Renderer::new(Some(handles), 800, 600)
+    let handles =
+        dereth_desktop::platform::window::window_handles(&window).expect("window handles");
+    let mut renderer = dereth_client_shell::gpu::Renderer::new(Some(handles), 800, 600)
         .expect("a real swap-chain renderer");
 
     renderer.set_presentation_sync(true, true);

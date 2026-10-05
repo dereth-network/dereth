@@ -55,16 +55,15 @@
 //! The census reads every recorded session's creates.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
 use dereth_physics::math::V3 as _;
 use dereth_physics::{PhysicsState, TransientState};
+use dereth_scene::world_scene::SceneWrites;
 
 use super::common::{retail_store, test_gpu};
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
@@ -72,6 +71,7 @@ use dereth_protocol::types::physicsdesc::flags;
 use dereth_protocol::types::{PhysicsDesc, PositionWire, PublicWeenieDesc};
 use dereth_protocol::{Message, Opcode};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The bolt. A guid in the non-player range, like every server-created object.
 const BOLT: ObjectId = ObjectId(0x8000_0F27);
@@ -160,7 +160,7 @@ fn physics_scene(
         },
     )
     .expect("the recorded block loads");
-    let region = dereth_client::world::load_region(store).expect("the region");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region");
     scene
         .attach_character(store, &region, gpu)
         .expect("a physics owner");

@@ -12,14 +12,14 @@
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 use dereth_scene::world_scene::SceneReads;
 
-pub use dereth_client_runtime::app::*;
+use dereth_client_runtime::app::*;
 
 use dereth_primitives::{AssetSource, DataId};
 
 use crate::front_end::{flycam_key, route_host_event};
 pub use crate::front_end::{ClientShell, KeyBindingStats};
 use crate::platform::host::Host;
-use crate::{config::Config, present::ClientPresentation};
+use {crate::present::ClientPresentation, dereth_client_runtime::config::Config};
 
 /// The runtime's application with this executable's front end in it.
 pub type CoreApp<H> = dereth_client_runtime::app::App<ClientShell<H>>;
@@ -68,7 +68,7 @@ impl<H: Host> App<H> {
     /// The same bring-up with the presentation supplied.
     ///
     /// This is the ungated constructor: it is what a headless `App` is built with
-    /// ([`crate::present::NullPresentation`]), and it is what a second backend is handed to.
+    /// ([`dereth_client_runtime::present::NullPresentation`]), and it is what a second backend is handed to.
     /// [`App::new`] is this function with the device presentation built for it.
     ///
     /// # Errors
@@ -131,9 +131,9 @@ impl<H: Host> App<H> {
                 )))]
                 None => {
                     let _ = (window, cfg);
-                    Ok(Box::new(crate::present::NullPresentation::new(
-                        client_w, client_h,
-                    )))
+                    Ok(Box::new(
+                        dereth_client_runtime::present::NullPresentation::new(client_w, client_h),
+                    ))
                 }
             },
         )
@@ -150,7 +150,7 @@ impl<H: Host> App<H> {
         window_events: crate::platform::window::WindowEvents,
         platform: impl FnOnce(&Config) -> Result<Platform, StartupError>,
         present: impl FnOnce(
-            &dyn crate::platform::window::WindowHost,
+            &dyn dereth_client_runtime::platform::window::WindowHost,
             u32,
             u32,
             &Config,
@@ -181,8 +181,8 @@ impl<H: Host> App<H> {
         self.core.start_shell(&mut self.shell)
     }
 
-    /// Run the normal cleanup path, in [`crate::shutdown::Step::ORDER`].
-    pub fn shutdown(self) -> crate::shutdown::CleanupLog {
+    /// Run the normal cleanup path, in [`dereth_client_runtime::shutdown::Step::ORDER`].
+    pub fn shutdown(self) -> dereth_client_runtime::shutdown::CleanupLog {
         let Self { core, mut shell } = self;
         core.shutdown(&mut shell)
     }
@@ -227,24 +227,20 @@ impl<H: Host> App<H> {
     /// [`StartupError::Device`] when the region, the landblock or a device resource is unavailable.
     pub fn load_static_scene(
         &mut self,
-        cfg: crate::world::SceneConfig,
+        cfg: dereth_client_runtime::scene::SceneConfig,
     ) -> Result<(), StartupError> {
         self.core.load_static_scene(cfg)
     }
 
     /// One host event, as the event loop consumes it: a lifecycle event reaches the runtime's
     /// window procedure, a device event this client's input.
-    pub fn handle_window_event(
-        &mut self,
-        event: &crate::platform::window::HostEvent,
-        time_ms: u32,
-    ) {
+    pub fn handle_window_event(&mut self, event: &dereth_input::host::HostEvent, time_ms: u32) {
         route_host_event(&mut self.core.ui_context(), &mut self.shell, event, time_ms);
     }
 
     /// Queue a host event as the window would; the next frame routes it to whichever interface
     /// is shown. For in-process drivers and tests.
-    pub fn queue_window_event(&mut self, event: crate::platform::window::HostEvent) {
+    pub fn queue_window_event(&mut self, event: dereth_input::host::HostEvent) {
         self.shell.queue_window_event(event);
     }
 
@@ -262,12 +258,12 @@ impl<H: Host> App<H> {
     /// One key transition of the residual flycam: `Space` raises it and `C` lowers it, unless a
     /// keyboard barrier stands (a focused text box stops these two keys for the same reason it
     /// stops every other one). Every other key is not the flycam's.
-    pub fn flycam_key(&mut self, key: crate::platform::keys::Key, down: bool) {
+    pub fn flycam_key(&mut self, key: dereth_input::keys::Key, down: bool) {
         flycam_key(&mut self.core.ui_context(), &self.shell, key, down);
     }
 
     /// The runtime's own focus-loss latches, for a lifecycle event; a device event has none.
-    pub fn note_flycam_input(&mut self, event: &crate::platform::window::HostEvent) {
+    pub fn note_flycam_input(&mut self, event: &dereth_input::host::HostEvent) {
         if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
             self.core.note_flycam_input(&lifecycle);
         }
@@ -277,7 +273,7 @@ impl<H: Host> App<H> {
     /// presentation preferences it needs before anything draws.
     #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
     fn device_presentation(
-        window: &dyn crate::platform::window::WindowHost,
+        window: &dyn dereth_client_runtime::platform::window::WindowHost,
         client_w: u32,
         client_h: u32,
         cfg: &Config,
@@ -286,9 +282,9 @@ impl<H: Host> App<H> {
         let mut renderer = Self::device_on_selected_backend(handles, client_w, client_h, cfg)?;
         // Startup registers the render variable over preloaded preference shadows. Apply
         // the configured profile before any world/UI draw; no owner settings are written.
-        renderer.set_texture_filtering(crate::render_prefs::texture_filtering_from_file(
-            &cfg.preferences_file,
-        ));
+        renderer.set_texture_filtering(
+            dereth_client_runtime::render_prefs::texture_filtering_from_file(&cfg.preferences_file),
+        );
         // `Render.ScreenBrightness` reaches the gamma update routine.
         // `cfg.render` is the profile `Config::apply_preferences` already read, so this is the
         // same file and not a second read of it. Nothing is written back.
@@ -362,7 +358,7 @@ impl<H: Host> App<H> {
     /// # Errors
     /// [`StartupError::Device`] when the object is missing or will not decode.
     pub fn load_first_pixel_scene(&mut self) -> Result<(), StartupError> {
-        let id = DataId(crate::gpu::FIRST_PIXEL_SURFACE);
+        let id = DataId(dereth_client_runtime::assets::FIRST_PIXEL_SURFACE);
         let assets: &dyn AssetSource = &*self.core.store;
         self.core
             .present
@@ -449,7 +445,7 @@ impl<H: Host> App<H> {
 
     /// Access to the renderer, for the capture the acceptance gate takes.
     ///
-    /// `App` holds a [`crate::present::Presentation`], so this is a downcast of it and is gated on the device feature exactly as the renderer itself is. It panics if the
+    /// `App` holds a [`dereth_client_runtime::present::Presentation`], so this is a downcast of it and is gated on the device feature exactly as the renderer itself is. It panics if the
     /// presentation is not the device one, which is the same contract the field access had: a
     /// caller of this function has already decided it is driving a real device.
     #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
@@ -466,7 +462,7 @@ impl<H: Host> App<H> {
     /// ran. A descriptor can legitimately be empty (a wizard with no heritage yet); this is how a
     /// test tells that apart from a block that never ran.
     #[must_use]
-    pub fn chargen_dress(&self) -> crate::preview::ChargenDressStats {
+    pub fn chargen_dress(&self) -> dereth_scene::preview::ChargenDressStats {
         self.shell.modern.chargen_dress
     }
 
@@ -493,9 +489,9 @@ impl<H: Host> App<H> {
     /// half, reading as a whole `WorldScene` did. Gated and asserting like [`App::renderer`].
     #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
     #[must_use]
-    pub fn world_scene(&self) -> Option<crate::world::WorldSceneRef<'_>> {
+    pub fn world_scene(&self) -> Option<dereth_scene::world_scene::WorldSceneRef<'_>> {
         let draw = self.renderer().world()?;
-        Some(crate::world::WorldSceneRef {
+        Some(dereth_scene::world_scene::WorldSceneRef {
             world: self.core.world.as_ref()?,
             draw,
         })
@@ -503,7 +499,7 @@ impl<H: Host> App<H> {
 
     /// …and writable, both halves.
     #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
-    pub fn world_scene_mut(&mut self) -> Option<crate::world::WorldSceneMut<'_>> {
+    pub fn world_scene_mut(&mut self) -> Option<dereth_scene::world_scene::WorldSceneMut<'_>> {
         let draw = self
             .core
             .present
@@ -511,7 +507,7 @@ impl<H: Host> App<H> {
             .downcast_mut::<crate::gpu::Renderer>()
             .expect("App::world_scene_mut on a presentation that is not the device")
             .world_mut()?;
-        Some(crate::world::WorldSceneMut {
+        Some(dereth_scene::world_scene::WorldSceneMut {
             world: self.core.world.as_mut()?,
             draw,
         })
@@ -859,7 +855,7 @@ impl<H: Host> App<H> {
 mod tests {
     use super::*;
     use crate::platform::host::NullHost;
-    use crate::platform::window::HostEvent;
+    use dereth_input::host::HostEvent;
 
     /// The host's physical resize reaches both the real backbuffer and the UI coordinate space, so
     /// the picture is the window's real pixels at any desktop scaling (retail runs DPI-unaware and

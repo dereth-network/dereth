@@ -652,7 +652,7 @@ impl SceneDraw {
     ///   `clamp(1 - (0.2 - d) / -0.24999999, 0, 1)` and is applied to the whole hierarchy.
     /// * Otherwise a latched value above 0 is reset to 0 and applied.
     ///
-    /// [`crate::camera::CameraControl::player_translucency`] is that value; applying it is the
+    /// [`dereth_client_runtime::camera::CameraControl::player_translucency`] is that value; applying it is the
     /// whole of the wire.
     ///
     /// **The latch is load-bearing, not an optimisation.** The client only issues the `0.0`

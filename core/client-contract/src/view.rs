@@ -634,7 +634,7 @@ pub struct CharacterInfo {
 /// The target-cursor mode.
 ///
 /// The original client keeps this in shared UI state. The host stores it in
-/// `dereth_client::interaction::Interaction`; the toolbar reads it through this seam
+/// `dereth_client_runtime::interaction::Interaction`; the toolbar reads it through this seam
 /// without needing to know that storage location.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TargetMode {
@@ -720,7 +720,7 @@ pub enum DropTarget {
     /// translated element ids into object ids.
     ///
     /// [`Self::ItemList`] carries a list element and a slot number, which
-    /// `dereth_client::interaction` cannot map to anything. Converting it to a bare
+    /// `dereth_client_runtime::interaction` cannot map to anything. Converting it to a bare
     /// [`Self::Container`] would **lose the slot index altogether**: every drag into a pack would
     /// be sent as a put-item-in-container of `(item, container, 0)` — the head of the list,
     /// whatever slot the player aimed at — and a drop onto a plain item as a put-into-*that-item*,
@@ -907,7 +907,7 @@ impl PlayerOption {
     /// [`GameView::player_option`] and [`GameView::player_option_default`] for *all* of them:
     /// the two methods are keyed by this enum and an owned snapshot has no other way to
     /// enumerate the keys. The order is the declaration order and carries no wire meaning --
-    /// the wire ordinal is `dereth_client::hud::option_ordinal`, which is a different number.
+    /// the wire ordinal is `dereth_client_runtime::hud::option_ordinal`, which is a different number.
     pub const ALL: [Self; 52] = [
         Self::ViewCombatTarget,
         Self::SalvageMultiple,
@@ -1295,7 +1295,7 @@ pub enum UiRequest {
     /// at bit 24 and no option-set mask exceeds `0x01000000`.
     ///
     /// `crate::options::character::CharacterSettingsPage::apply` emits it and
-    /// `dereth_client::interaction` consumes it.
+    /// `dereth_client_runtime::interaction` consumes it.
     SetPlayerOption(PlayerOption, bool),
     /// Query object health with event `0x01BF`.
     ///
@@ -1327,7 +1327,7 @@ pub enum UiRequest {
     /// The client's body sets the keymap file name, saves the keymap in its directory, updates the
     /// filename label, and saves preferences. With its prompt flag false and the current file name,
     /// the file-name assignment and dialogs are no-ops, so what is left for the host is the write —
-    /// `dereth_client::input::InputShell::save_keymap`, the same writer the client's exit
+    /// `dereth_client_shell::input::InputShell::save_keymap`, the same writer the client's exit
     /// clean-up uses.
     ///
     /// This is a request because the host owns the input manager and keymap writer;
@@ -1726,7 +1726,7 @@ pub enum UiRequest {
     /// that makes the combat window's three attack-height buttons do anything.
     ///
     /// Raised by `crate::hud::combat_window::CombatWindow::on_element_message`'s `0x1C`
-    /// (mouse-press) arm and by `dereth_client::Interaction::on_actions`' `CombatLow/Medium/High
+    /// (mouse-press) arm and by `dereth_client_shell::Interaction::on_actions`' `CombatLow/Medium/High
     /// Attack` and `CombatAimLow/Medium/High` keys, which are the same act: the combat action
     /// handler and the combat window's element-message handler call the one function.
     ///
@@ -2554,14 +2554,14 @@ pub trait GameView: std::fmt::Debug {
     }
     /// A character option bit read by the Character Options page.
     ///
-    /// `dereth_client::hud::HudView` implements it. With the trait's `false` as the only answer,
+    /// `dereth_client_runtime::hud::HudView` implements it. With the trait's `false` as the only answer,
     /// all 50 rows of the Character Options page would open unticked whatever the server had
     /// sent, which is why `crate::options::character::CharacterSettingsPage::values_seen`
     /// exists.
     ///
     /// The default is still `false` rather than an `Option`, because that is what the *page* can
     /// use; a host that wants to tell "off" from "not asked" apart asks
-    /// `dereth_client::hud::Hud::character_option`, which answers `Option<bool>`.
+    /// `dereth_client_shell::hud::Hud::character_option`, which answers `Option<bool>`.
     fn player_option(&self, _o: PlayerOption) -> bool {
         false
     }
@@ -2579,7 +2579,7 @@ pub trait GameView: std::fmt::Debug {
     /// every option off" are different numbers.
     ///
     /// The table is `dereth_client_model::player::options::DEFAULT_TRUE_ORDINALS`, and this crate has no
-    /// edge to `dereth-client-model`; `dereth_client::hud::HudView` does, and is the implementor.
+    /// edge to `dereth-client-model`; `dereth_client_runtime::hud::HudView` does, and is the implementor.
     fn player_option_default(&self, _o: PlayerOption) -> Option<bool> {
         None
     }
@@ -2639,7 +2639,7 @@ pub trait GameView: std::fmt::Debug {
     /// `(date, time-of-day name)`, already formatted, for the map panel's first
     /// block.
     ///
-    /// `dereth_client::sky::GameClock` drives the sky off that object, and this seam is how the
+    /// `dereth_scene::sky::GameClock` drives the sky off that object, and this seam is how the
     /// map panel asks it: the element is one retail updates unconditionally every five seconds.
     ///
     /// `None` is retail's no-current-game-time arm, which is **not** a blank
@@ -2653,7 +2653,7 @@ pub trait GameView: std::fmt::Debug {
     /// The is-player-outside test, which is
     /// also what picks the radar's 75-vs-25 range and the chat sweep's radius.
     ///
-    /// `dereth_client::hud::HudView` implements it off the player's own `objcell_id`. With the
+    /// `dereth_client_runtime::hud::HudView` implements it off the player's own `objcell_id`. With the
     /// trait's `true` as the only answer, the radar would draw at the outdoor 75 inside every
     /// building and every dungeon.
     ///
@@ -2833,7 +2833,7 @@ pub trait GameView: std::fmt::Debug {
     /// The journal path builder's three globals.
     ///
     /// The settings directory, current world name, and local player's singular object name — the same
-    /// three `dereth_client::ui::UiShell::screen_layout_path` needs for
+    /// three `dereth_client_shell::ui::UiShell::screen_layout_path` needs for
     /// the screen-layout path builder, which is the precedent this follows. None of them is
     /// reachable from this crate, and the journal is the one panel whose model outlives the
     /// process.
@@ -2984,7 +2984,7 @@ pub trait GameView: std::fmt::Debug {
     /// id-only pull cannot see that. It is the counterpart of [`AppraisalView::delivery`] in the
     /// other direction and is a seam artefact of the pull model, declared as that one is.
     ///
-    /// Three of the four routes that examine something live in `dereth_client::interaction`, which
+    /// Three of the four routes that examine something live in `dereth_client_runtime::interaction`, which
     /// has no screen to call: the examine **cursor**'s pick, the examine cursor's second click, and
     /// the `0x2B SELECTION_EXAMINE` key. The fourth, the toolbar's identify button, reaches the
     /// panel on the screen directly as well — the examine notice handler is idempotent for the same
@@ -3156,8 +3156,8 @@ pub trait GameView: std::fmt::Debug {
     ///
     /// It is an accessor and not a constant because the answer depends on the instant: a house
     /// bought in January and one bought in July are an hour apart in the same zone. Hosts that
-    /// cannot answer return `0` and render in UTC; `dereth_client::hud::HudView` implements it off
-    /// `dereth_client::platform::local_utc_offset_secs`.
+    /// cannot answer return `0` and render in UTC; `dereth_client_runtime::hud::HudView` implements it off
+    /// `dereth_desktop::platform::local_utc_offset_secs`.
     ///
     /// The default is `0` rather than a panic because a screen must draw for a host that knows
     /// nothing — [`EmptyGameView`] is exactly that host.
@@ -3173,7 +3173,7 @@ pub trait GameView: std::fmt::Debug {
 
     /// Secure-trade state. The default is a closed window, as for a host
     /// without an open negotiation. The model is `dereth_client_model::trade`;
-    /// `dereth_client::trade_view::trade` converts it.
+    /// `dereth_client_runtime::trade_view::trade` converts it.
     fn trade(&self) -> TradeView {
         TradeView::default()
     }
@@ -4330,7 +4330,7 @@ pub struct ShopRow {
     /// the amount is capped at the maximum stack size.
     ///
     /// Read off the same object [`Self::obj_type`] is read off, through the same
-    /// `dereth_client::vendor_view` fork, because retail reads both out of the one
+    /// `dereth_client_runtime::vendor_view` fork, because retail reads both out of the one
     /// object lookup of `profile.iid`. An absent maximum stack size on the wire is 0,
     /// which is the "no stack size to set" arm and not a neutral default.
     pub max_stack_size: u32,

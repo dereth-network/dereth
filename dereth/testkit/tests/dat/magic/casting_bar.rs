@@ -45,7 +45,7 @@ pub fn every_shipped_magic_key_raises_its_own_instruction() {
     // The ones that name a numbered slot each name their own, counting from the first.
     let slots_are_their_own = [0_usize, 4, 8].iter().all(|n| {
         bar::the_instruction_for(
-            dereth_client::interaction::action::USE_SPELL_SLOT_FIRST
+            dereth_client_runtime::interaction::action::USE_SPELL_SLOT_FIRST
                 + u32::try_from(*n).expect("a small slot"),
         ) == MagicNotice::CastQuickslotSpell { slot: *n }
     });
@@ -211,7 +211,7 @@ pub fn the_frames_own_pass_delivers_what_was_queued_in_order() {
 }
 
 pub fn a_real_key_press_moves_the_selection_the_ring_and_the_scroll() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
     use dereth_ui_screens::view::UiRequest;
 
     let (mut ui, screen) = bar::gameplay();

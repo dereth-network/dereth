@@ -93,7 +93,7 @@ fn strip_failure_lines(msgs: &[(u32, Vec<u8>)]) -> Vec<String> {
             let (ty, arm) = dereth_ui_screens::chat::failure::arm_for(code)?;
             (ty == dereth_ui_screens::hud::speech_bubbles::BUBBLE_CHAT_TYPE).then_some(())?;
             arm.render(&text)
-                .map(|s| dereth_client::chat::add_text_to_scroll_trim(&s).to_owned())
+                .map(|s| dereth_client_model::chat::composition::add_text_to_scroll_trim(&s).to_owned())
         })
         .collect()
 }

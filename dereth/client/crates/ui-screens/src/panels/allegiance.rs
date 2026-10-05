@@ -297,7 +297,7 @@ pub struct AllegiancePanel {
     /// non-zero; this build's panels raise requests into a one-way queue and are never told that a
     /// dialog closed, so a latch stored here would arm on the first press and never disarm —
     /// the button would work exactly once per screen rebuild. The guard therefore lives where the
-    /// dialog does, in `dereth_client::target_confirmation`, which is where the two guards of the
+    /// dialog does, in `dereth_client_shell::target_confirmation`, which is where the two guards of the
     /// same shape that already exist for the vendor and the server's five gameplay-confirmation
     /// types live.
     pub confirmations: [u32; 3],

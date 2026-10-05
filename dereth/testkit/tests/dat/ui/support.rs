@@ -132,7 +132,10 @@ fn the_support_page(ui: &UiSystem) -> ElemHandle {
 
 /// Both buttons, each to its form, and neither to the desktop's browser.
 pub(super) fn each_support_button_opens_its_in_game_form() {
-    use dereth_client::app::{apply_open_url_requests, record_shell_calls};
+    use {
+        dereth_client_runtime::app::apply_open_url_requests,
+        dereth_client_runtime::app::record_shell_calls,
+    };
 
     let (mut ui, mut s, mut panels) = a_shipped_tree();
     let page = the_support_page(&ui);
@@ -175,8 +178,10 @@ pub(super) fn each_support_button_opens_its_in_game_form() {
 
 /// The other half: a desktop that refuses.
 pub(super) fn a_browser_that_will_not_open_says_so_in_a_box_with_the_address_in_it() {
-    use dereth_client::app::{
-        apply_open_url_requests, record_shell_calls_answering, shell_error_text, ShellCall,
+    use {
+        dereth_client_runtime::app::apply_open_url_requests,
+        dereth_client_runtime::app::record_shell_calls_answering,
+        dereth_client_runtime::app::shell_error_text, dereth_client_runtime::app::ShellCall,
     };
 
     const URL: &str = "https://example.invalid/support";
@@ -238,7 +243,7 @@ const HELP_ME: [u8; 28] = [
 
 /// The whole window, from the warning page to the datagram.
 pub(super) fn the_urgent_assistance_report_goes_out_on_the_help_channel() {
-    use dereth_client::interaction::Interaction;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_client_runtime::requests::send_request;
 
     let (mut ui, mut s, mut panels) = a_shipped_tree();
@@ -307,7 +312,7 @@ pub(super) fn the_urgent_assistance_report_goes_out_on_the_help_channel() {
 /// what makes asking for help a command rather than a channel -- and the window is the one thing
 /// in the client that is allowed to send on it.
 pub(super) fn the_refusal_for_a_typed_command_does_not_apply_to_the_window() {
-    use dereth_client::interaction::Interaction;
+    use dereth_client_runtime::interaction::Interaction;
 
     let still_refused = !dereth_client_model::chat::channel_command_broadcasts_on(0x0400);
 

@@ -33,7 +33,7 @@
 //!
 //! Play physics script `0x73` with the computed modifier on the **player's own** physics object
 //! is queued here rather than played, because `dereth_client_model` has no scene: the request is drained by
-//! `dereth_client::world_scene::WorldScene` beside `ObjectStream`'s own script events, which is the one
+//! `dereth_scene::world_scene::WorldScene` beside `ObjectStream`'s own script events, which is the one
 //! place in this build that holds a physics object.
 
 use crate::world::World;
@@ -123,7 +123,7 @@ impl World {
     /// The two warnings request portal-storm physics script `0x73`, with their computed modifier,
     /// on the player's own physics object and in arrival order.
     ///
-    /// `dereth_client_model` has no scene, so the call is queued and `dereth_client::world_scene::WorldScene` drains
+    /// `dereth_client_model` has no scene, so the call is queued and `dereth_scene::world_scene::WorldScene` drains
     /// it beside `ObjectStream`'s own script events — the same split, and for the same reason,
     /// that `crate::objects::ScriptEvent` already has.
     pub fn take_portal_storm_scripts(&mut self) -> Vec<f32> {

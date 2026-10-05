@@ -1,7 +1,7 @@
 //! A landscape whose compressed textures' mip chains are built off the main thread ends up exactly
 //! the landscape that builds them in the upload.
 //!
-//! With a streaming budget the scene asks `dereth_client::mip_worker` for each chain; a block whose
+//! With a streaming budget the scene asks `dereth_scene::mip_worker` for each chain; a block whose
 //! bake wanted one that was not ready is handed back, kept as terrain alone, and baked again once
 //! the chain is done. Streamed until nothing is left queued, it must hold the same blocks,
 //! scenery, buildings, statics and triangles as the same window baked synchronously -- and the
@@ -12,14 +12,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::present::Scene as _;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::present::Scene as _;
 use dereth_dat::RetailDatStore;
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 fn store() -> Arc<RetailDatStore> {
     crate::common::dats()

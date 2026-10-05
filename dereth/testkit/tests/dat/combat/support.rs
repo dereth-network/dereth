@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
-use dereth_client::character::Character;
-use dereth_client::interaction::Interaction;
-use dereth_client::world::{load_region, DEFAULT_LANDBLOCK};
 use dereth_client_model::combat::{CombatMode, COMBAT_TABLE_DID};
 use dereth_client_model::Request;
+use dereth_client_runtime::character::Character;
+use dereth_client_runtime::interaction::Interaction;
 use dereth_dat::RetailDatStore;
 use dereth_input::spec::ControlChord;
 use dereth_input::{ActionId, InputMapId};
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_testkit::{ClientSpec, HeadlessClient};
+use {
+    dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+};
 
 /// The combat table every character is born carrying.
 const A_COMBAT_TABLE: u32 = 0x3000_0021;
@@ -163,7 +166,7 @@ pub fn fire(c: &mut HeadlessClient, qc: ControlChord, down: bool, t: u32) {
 /// drives the production frame slot directly.
 pub struct Bench {
     inter: Interaction,
-    objects: dereth_client::objects::ObjectStream,
+    objects: dereth_client_runtime::objects::ObjectStream,
     store: Arc<RetailDatStore>,
     /// Accumulated, because the frame's outbox is replaced every pass: reading it directly
     /// would make "one swing, five frames ago" and "no swing at all" the same observation.
@@ -172,7 +175,7 @@ pub struct Bench {
 
 impl Bench {
     pub fn new() -> Self {
-        let mut objects = dereth_client::objects::ObjectStream::default();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::default();
         objects.world = world_in(CombatMode::Melee, true);
         Self {
             inter: Interaction::new(),
@@ -184,7 +187,7 @@ impl Bench {
 
     /// One frame of the interaction slot, at `t`, carrying `actions`.
     pub fn frame(&mut self, actions: Vec<dereth_client_runtime::actions::Action>, t: f64) {
-        let _ = dereth_client::interaction::use_time(
+        let _ = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,
@@ -341,7 +344,7 @@ impl AppBench {
     pub fn one_real_attack(&mut self) {
         let k = self.control(
             dereth_input::combat::MELEE_COMBAT_MAP,
-            ActionId(dereth_client::interaction::action::COMBAT_MEDIUM_ATTACK),
+            ActionId(dereth_client_runtime::interaction::action::COMBAT_MEDIUM_ATTACK),
         );
         let mut sent = self.press(k, true, 1);
         sent.extend(self.press(k, false, 1));
@@ -398,7 +401,7 @@ impl AppBench {
         self.c.view().chat_lines().len()
     }
 
-    pub fn char_input(&self) -> dereth_client::character::CharacterInput {
+    pub fn char_input(&self) -> dereth_client_runtime::character::CharacterInput {
         self.c.view().expect_app().probe().char_input()
     }
 

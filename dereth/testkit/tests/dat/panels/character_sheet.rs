@@ -227,7 +227,7 @@ pub(super) fn the_born_line_is_the_day_and_time_the_character_was_made() {
         "You were born on {}.",
         dereth_ui_screens::ctime::strftime_c(
             i64::from(CHARACTER_SHEET_CORPUS_CREATED),
-            dereth_client::platform::local_utc_offset_secs(i64::from(
+            dereth_desktop::platform::local_utc_offset_secs(i64::from(
                 CHARACTER_SHEET_CORPUS_CREATED
             )),
         )

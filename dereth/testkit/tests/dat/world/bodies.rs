@@ -6,9 +6,12 @@ use super::*;
 
 /// Running moves the body at run speed and is reported as walking with the run key held.
 pub fn running_reports_walk_with_the_run_hold_key() {
-    use dereth_client::character::{Character, CharacterInput};
-    use dereth_client::world::DEFAULT_LANDBLOCK;
+    use dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
     use dereth_primitives::LocalTime;
+    use {
+        dereth_client_runtime::character::Character,
+        dereth_client_runtime::character::CharacterInput,
+    };
 
     /// The middle of the default landblock, where every movement scenario spawns.
     const SPAWN: (f32, f32) = (96.0, 96.0);
@@ -24,7 +27,8 @@ pub fn running_reports_walk_with_the_run_hold_key() {
 
     c.assert_behaviour("movement.run.reports-walk-with-the-run-hold-key", |v| {
         let store = v.dat_store();
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         let settled = |store: &_, region: &_| {
             let mut ch = Character::new(store, region, DEFAULT_LANDBLOCK, SPAWN)
                 .expect("the body is created");
@@ -72,7 +76,7 @@ pub fn running_reports_walk_with_the_run_hold_key() {
         // The calibration: the body really is running.
         let faster = ran > walked * 1.5;
         // The measurement: what it reports is a walk with the run key held.
-        let s = dereth_client::app::raw_motion_state_to_wire(
+        let s = dereth_client_runtime::app::raw_motion_state_to_wire(
             &runner.driver().movement.interp.raw_state,
         );
         faster
@@ -93,10 +97,10 @@ pub fn running_reports_walk_with_the_run_hold_key() {
 pub fn enter_world_refuses_a_body_inside_a_building() {
     use std::sync::Arc;
 
-    use dereth_client::land_source::DatLandSource;
     use dereth_physics::source::SetupGeometry;
     use dereth_physics::{LandSource, PhysicsWorld};
     use dereth_primitives::{CellId, Frame, LandblockId, ObjectId, Position, Quat, Vec3};
+    use dereth_world_data::land_source::DatLandSource;
 
     /// The landblock the house stands in.
     const BLOCK: u16 = 0xA9B4;
@@ -112,7 +116,8 @@ pub fn enter_world_refuses_a_body_inside_a_building() {
         "physics.enter-world.refuses-a-body-inside-a-building",
         |v| {
             let store = Arc::clone(v.dat_store());
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             let land =
                 Arc::new(DatLandSource::new(store, &region).expect("the height table validates"));
             land.load_block_cells(LandblockId(BLOCK));
@@ -168,9 +173,12 @@ pub fn enter_world_refuses_a_body_inside_a_building() {
 /// The whole measurement is one arrival: settle a body, note the ground-true destination, stand the
 /// scene's bodies on it, move the local body away, then run the production teleport back onto it.
 pub fn a_teleport_onto_another_player_is_deflected_only_by_a_creature() {
-    use dereth_client::character::{CharacterInput, MovementCommands};
     use dereth_physics::math::V3 as _;
     use dereth_primitives::{LocalTime, ObjectId, Position};
+    use {
+        dereth_client_runtime::character::CharacterInput,
+        dereth_client_runtime::character::MovementCommands,
+    };
 
     const VICTIM: ObjectId = ObjectId(0x8000_1114);
     const MONSTER: ObjectId = ObjectId(0x8000_1115);
@@ -212,7 +220,7 @@ pub fn a_teleport_onto_another_player_is_deflected_only_by_a_creature() {
             "the body did not actually leave the destination"
         );
 
-        let mut stream = dereth_client::objects::ObjectStream::new();
+        let mut stream = dereth_client_runtime::objects::ObjectStream::new();
         if scene.victim {
             stream.apply_event(
                 &create_event(VICTIM, Some(destination), PLAYER, "Victim"),
@@ -274,7 +282,7 @@ pub fn a_teleport_onto_another_player_is_deflected_only_by_a_creature() {
         // The production arrival, which is what an accepted teleport reaches.
         let mut movement = MovementCommands::default();
         let mut input = CharacterInput::default();
-        dereth_client::app::complete_player_teleport_at(
+        dereth_client_runtime::app::complete_player_teleport_at(
             destination,
             &mut c,
             &mut movement,
@@ -453,8 +461,8 @@ fn occupied_scene(
     victim: dereth_primitives::ObjectId,
     monster: dereth_primitives::ObjectId,
 ) -> (
-    dereth_client::character::Character,
-    dereth_client::objects::ObjectStream,
+    dereth_client_runtime::character::Character,
+    dereth_client_runtime::objects::ObjectStream,
     dereth_primitives::Position,
 ) {
     use dereth_primitives::LocalTime;
@@ -468,7 +476,7 @@ fn occupied_scene(
     away.frame.origin.x -= 12.0;
     c.teleport(away);
 
-    let mut stream = dereth_client::objects::ObjectStream::new();
+    let mut stream = dereth_client_runtime::objects::ObjectStream::new();
     let mut monster_at = destination;
     monster_at.frame.origin.x += 0.25;
     stream.apply_event(
@@ -557,7 +565,7 @@ pub fn a_create_onto_an_occupied_spot_is_put_down_beside_it() {
     away.frame.origin.x -= 12.0;
     c.teleport(away);
 
-    let mut stream = dereth_client::objects::ObjectStream::new();
+    let mut stream = dereth_client_runtime::objects::ObjectStream::new();
     let mut monster_at = destination;
     monster_at.frame.origin.x += 0.25;
     stream.apply_event(
@@ -583,7 +591,7 @@ pub fn a_create_onto_an_occupied_spot_is_put_down_beside_it() {
     let mut away2 = empty;
     away2.frame.origin.x -= 12.0;
     c2.teleport(away2);
-    let mut stream2 = dereth_client::objects::ObjectStream::new();
+    let mut stream2 = dereth_client_runtime::objects::ObjectStream::new();
     stream2.apply_event(
         &create_event(VICTIM, Some(empty), PLAYER, "Victim"),
         LocalTime(9.0),
@@ -620,8 +628,8 @@ fn glide_scene(
     id: dereth_primitives::ObjectId,
     tick_it: bool,
 ) -> (
-    dereth_client::character::Character,
-    dereth_client::objects::ObjectStream,
+    dereth_client_runtime::character::Character,
+    dereth_client_runtime::objects::ObjectStream,
     f64,
     dereth_primitives::Position,
 ) {
@@ -635,7 +643,7 @@ fn glide_scene(
     // Out of the way: a local body standing on either spot would be collided with.
     let _ = settled_at(&mut c, 96.0, 84.0, &mut t);
 
-    let mut stream = dereth_client::objects::ObjectStream::new();
+    let mut stream = dereth_client_runtime::objects::ObjectStream::new();
     stream.apply_event(
         &create_event(id, Some(start), PLAYER, "Victim"),
         LocalTime(t),
@@ -923,7 +931,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
 
     const VICTIM: ObjectId = ObjectId(0x8000_1140);
     /// The block the local body starts in, and the only one the scene loads.
-    const HOME: u16 = dereth_client::world::DEFAULT_LANDBLOCK;
+    const HOME: u16 = dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
     /// Its neighbour along the y axis, which the scene may or may not load.
     const NEXT: u16 = HOME + 1;
     /// Where the body stands: two metres short of the seam, on a column where the terrain runs
@@ -939,7 +947,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
         CellId((u32::from(block) << 16) | (cx * 8 + cy + 1))
     }
 
-    fn ground(c: &dereth_client::character::Character, block: u16, x: f32, y: f32) -> f32 {
+    fn ground(c: &dereth_client_runtime::character::Character, block: u16, x: f32, y: f32) -> f32 {
         c.land()
             .ground_height(LandblockId(block), x, y)
             .unwrap_or_else(|| panic!("that block has no terrain under ({x}, {y})"))
@@ -947,7 +955,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
 
     /// Park the body at a landblock-relative point and let it settle.
     fn settle(
-        c: &mut dereth_client::character::Character,
+        c: &mut dereth_client_runtime::character::Character,
         block: u16,
         x: f32,
         y: f32,
@@ -977,8 +985,8 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
         store: &std::sync::Arc<dereth_dat::RetailDatStore>,
         prefetch_next: bool,
     ) -> (
-        dereth_client::character::Character,
-        dereth_client::objects::ObjectStream,
+        dereth_client_runtime::character::Character,
+        dereth_client_runtime::objects::ObjectStream,
         f64,
         Position,
     ) {
@@ -1000,7 +1008,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
             "the block the body is standing in must be loaded"
         );
 
-        let mut stream = dereth_client::objects::ObjectStream::new();
+        let mut stream = dereth_client_runtime::objects::ObjectStream::new();
         stream.apply_event(
             &create_event(VICTIM, Some(start), PLAYER, "Victim"),
             LocalTime(t),
@@ -1032,7 +1040,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
 
     /// A destination `dy` metres past the seam, named in the neighbouring block.
     fn across_the_seam(
-        c: &dereth_client::character::Character,
+        c: &dereth_client_runtime::character::Character,
         from: &Position,
         dy: f32,
     ) -> Position {
@@ -1191,7 +1199,7 @@ pub fn a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world() {
 
 /// Walking forward with running off reports a walk and no modifier, and releasing reports nothing.
 pub fn walking_forward_reports_a_walk_with_no_hold_key() {
-    use dereth_client::character::CharacterInput;
+    use dereth_client_runtime::character::CharacterInput;
     use run_forward::{hold, settled_character, wire, HOLD, WALK_FORWARD};
 
     let store = store();
@@ -1227,11 +1235,11 @@ pub fn walking_forward_reports_a_walk_with_no_hold_key() {
 
 /// A live running body's report is byte for byte a recorded one, and it really goes out.
 pub fn a_running_bodys_report_is_the_retail_clients_own() {
-    use dereth_client::character::CharacterInput;
     use dereth_client_net::client_session::testing::MockTransport;
     use dereth_client_net::client_session::{
         ContactPlane, PlayerMotion, PositionReporter, Session,
     };
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_primitives::LocalTime;
     use dereth_protocol::actions::unpack_action;
     use dereth_protocol::movement::{MoveTimestamps, MovementMoveToState};
@@ -1304,7 +1312,7 @@ pub fn a_running_bodys_report_is_the_retail_clients_own() {
         c.update(LocalTime(now));
         rep.use_time(
             now,
-            &dereth_client::app::body_motion(&c, MoveTimestamps::default()),
+            &dereth_client_runtime::app::body_motion(&c, MoveTimestamps::default()),
             &mut session,
         );
     }
@@ -1320,7 +1328,7 @@ pub fn a_running_bodys_report_is_the_retail_clients_own() {
         c.update(LocalTime(now));
         rep.use_time(
             now,
-            &dereth_client::app::body_motion(&c, MoveTimestamps::default()),
+            &dereth_client_runtime::app::body_motion(&c, MoveTimestamps::default()),
             &mut session,
         );
     }
@@ -1350,7 +1358,7 @@ pub fn a_running_bodys_report_is_the_retail_clients_own() {
 
 /// Turning running on part way through a walk speeds the body up and changes the report.
 pub fn turning_run_on_mid_walk_speeds_the_body_and_changes_the_report() {
-    use dereth_client::character::CharacterInput;
+    use dereth_client_runtime::character::CharacterInput;
     use run_forward::{hold, settled_character, wire, HOLD, HOLD_KEY_RUN, WALK_FORWARD};
 
     let store = store();

@@ -1,7 +1,7 @@
 //! What the main chat window's auto-target sweep asks the world.
 //!
 //! Cut out of `dereth_ui_screens::chat::mainchat`, which keeps the window, the menu and the sweep
-//! itself. These two are the sweep's *question* and its *answer* as values: `dereth_client::hud`
+//! itself. These two are the sweep's *question* and its *answer* as values: `dereth_client_shell::hud`
 //! builds an `AutoTargetWorld` once a second out of the object table and the radar radius, and
 //! selection receives the `SpeakableTarget` `AutoTargetWorld::adopted` makes from it.
 //! Plain data and one constructor; nothing here draws.

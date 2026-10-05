@@ -670,7 +670,7 @@ impl Hud {
             // Each one composes its whole line with one fixed formatting template and hands it to
             // the scroll as a **single body**; the notice's `prefix` argument is the
             // timestamp, never the speaker. The templates and the branch order live in
-            // [`crate::chat`], pinned as literals against the retail client.
+            // [`dereth_client_model::chat::composition`], pinned as literals against the retail client.
             //
             // There is no separator from a string table between name and message — there are seven
             // fixed format strings, and putting the bare name in `prefix` and the bare message in
@@ -717,7 +717,7 @@ impl Hud {
                             // never used.
                             chat.push(speech(
                                 m.text_type,
-                                crate::chat::hear_speech_line(
+                                dereth_client_model::chat::composition::hear_speech_line(
                                     m.sender_id.0,
                                     self.player.map(|p| p.0),
                                     &m.sender_name,
@@ -734,14 +734,17 @@ impl Hud {
                             // trailing = 1, marker)`; the trimmed name is what the
                             // `says` templates are given, so a shard that marks a name does not
                             // render `Bob^ says, "…"`.
-                            let (marker, name) = crate::chat::language_marker(&m.sender_name);
+                            let (marker, name) =
+                                dereth_client_model::chat::composition::language_marker(
+                                    &m.sender_name,
+                                );
                             let name = name.to_owned();
                             let line = match self.garbled_or_plain(marker, &name, world) {
                                 Some(g) => {
                                     self.stats.speech_lines_untranslated += 1;
                                     g
                                 }
-                                None => crate::chat::hear_speech_line(
+                                None => dereth_client_model::chat::composition::hear_speech_line(
                                     m.sender_id.0,
                                     self.player.map(|p| p.0),
                                     &name,
@@ -799,7 +802,7 @@ impl Hud {
                         }
                         chat.push(speech(
                             m.text_type,
-                            crate::chat::hear_ranged_speech_line(
+                            dereth_client_model::chat::composition::hear_ranged_speech_line(
                                 m.sender_id.0,
                                 &m.sender_name,
                                 &m.message,
@@ -1045,7 +1048,8 @@ impl Hud {
                         // language gate, so a self-tell
                         // is never garbled either.
                         let self_tell = m.sender_id == m.target_id;
-                        let (marker, name) = crate::chat::language_marker(&m.sender_name);
+                        let (marker, name) =
+                            dereth_client_model::chat::composition::language_marker(&m.sender_name);
                         let name = name.to_owned();
                         let garbled = if self_tell {
                             None
@@ -1074,7 +1078,7 @@ impl Hud {
                         // first would point a reply at a speaker whose words were never
                         // shown.
                         self.note_last_teller(world, &m);
-                        match crate::chat::hear_direct_speech_line(
+                        match dereth_client_model::chat::composition::hear_direct_speech_line(
                             m.sender_id.0,
                             m.target_id.0,
                             self.player.map(|p| p.0),
@@ -1132,7 +1136,9 @@ impl Hud {
                             self.stats.soul_emote_self_echoes_discarded += 1;
                             return;
                         }
-                        let marked = crate::chat::soul_emote_sender_name(&m.sender_name);
+                        let marked = dereth_client_model::chat::composition::soul_emote_sender_name(
+                            &m.sender_name,
+                        );
                         self.hear_emote(world, chat, m.sender, &marked, &m.text);
                     }
                     Err(_) => self.stats.undecodable += 1,
@@ -1150,7 +1156,7 @@ impl Hud {
             // **The function's other half, the formatted line.**
             // The formatting operands and the per-branch
             // text types are
-            // represented by [`crate::chat::channel_broadcast_line`]. The order here is the
+            // represented by [`dereth_client_model::chat::composition::channel_broadcast_line`]. The order here is the
             // client's: the user-name store sits inside the format branch, then the line is
             // finished, then `is_squelched(0, "", type)` gates adding it to the chat scroll as
             // `(line, 0, type, 1)`. So a squelched line still arms `@pr` / `@mr`, exactly as in
@@ -1163,11 +1169,12 @@ impl Hud {
                 match comms::CommunicationChannelBroadcastRecv::read(&mut r) {
                     Ok(m) => {
                         self.note_at_channel_speaker(&m, world);
-                        let (ty, line) = crate::chat::channel_broadcast_line(
-                            m.channel,
-                            &m.sender_name,
-                            &m.message,
-                        );
+                        let (ty, line) =
+                            dereth_client_model::chat::composition::channel_broadcast_line(
+                                m.channel,
+                                &m.sender_name,
+                                &m.message,
+                            );
                         // A scroll entry `(0, "", type)`: character 0 has no
                         // entry, so only the global per-type table can answer "yes" — and only
                         // for a type `IsLegalChannel` accepts, which of this handler's seven is
@@ -1178,7 +1185,8 @@ impl Hud {
                         }
                         chat.push(speech(
                             ty,
-                            crate::chat::add_text_to_scroll_trim(&line).to_owned(),
+                            dereth_client_model::chat::composition::add_text_to_scroll_trim(&line)
+                                .to_owned(),
                         ));
                         self.stats.channel_broadcast_lines_composed += 1;
                     }
@@ -1272,7 +1280,7 @@ impl Hud {
             // **And the chat line each one of them ends in**, the Fellowship panel's own
             // scroll insertion; without it a fellowship could be created, opened, closed and left
             // without the log saying a word. The sentences and their conditions are in
-            // [`crate::chat`]'s fellowship section.
+            // [`dereth_client_model::chat::composition`]'s fellowship section.
             Opcode::FELLOWSHIP_FULL_UPDATE => {
                 match dereth_protocol::social::FellowshipFullUpdate::read(&mut r) {
                     Ok(m) => {
@@ -1296,13 +1304,15 @@ impl Hud {
                         if let Some(f) = world.fellowship.as_ref() {
                             let leader_name =
                                 f.members.get(&f.leader).map_or("", |l| l.name.as_str());
-                            if let Some(line) = crate::chat::fellowship_update_line(
-                                table_was_empty,
-                                world.is_the_player(f.leader),
-                                &f.name,
-                                f.open_fellow,
-                                leader_name,
-                            ) {
+                            if let Some(line) =
+                                dereth_client_model::chat::composition::fellowship_update_line(
+                                    table_was_empty,
+                                    world.is_the_player(f.leader),
+                                    &f.name,
+                                    f.open_fellow,
+                                    leader_name,
+                                )
+                            {
                                 chat.push(fellowship_ui_line(line));
                                 self.stats.fellowship_lines_composed += 1;
                             }
@@ -1320,9 +1330,11 @@ impl Hud {
                             self.stats.fellows_added += 1;
                             // Once the update adds a previously absent member, the client looks up
                             // that member and composes `"%hs is now a member of your Fellowship.\n"`.
-                            chat.push(fellowship_ui_line(crate::chat::fellow_added_line(
-                                &m.fellow.name,
-                            )));
+                            chat.push(fellowship_ui_line(
+                                dereth_client_model::chat::composition::fellow_added_line(
+                                    &m.fellow.name,
+                                ),
+                            ));
                             self.stats.fellowship_lines_composed += 1;
                         }
                         // The refusal branch: retail would have dereferenced a null
@@ -1356,10 +1368,11 @@ impl Hud {
                         if let Some(f) = world.fellowship.as_ref() {
                             let leader_name =
                                 f.members.get(&f.leader).map_or("", |l| l.name.as_str());
-                            let line = crate::chat::fellowship_disbanded_line(
-                                world.is_the_player(f.leader),
-                                leader_name,
-                            );
+                            let line =
+                                dereth_client_model::chat::composition::fellowship_disbanded_line(
+                                    world.is_the_player(f.leader),
+                                    leader_name,
+                                );
                             chat.push(fellowship_ui_line(line));
                             self.stats.fellowship_lines_composed += 1;
                         }
@@ -1381,12 +1394,14 @@ impl Hud {
                         if let Some(f) = world.fellowship.as_ref() {
                             let fellow_name =
                                 f.members.get(&m.member).map_or("", |l| l.name.as_str());
-                            if let Some(line) = crate::chat::fellow_quit_line(
-                                world.is_the_player(m.member),
-                                f.is_fellow(m.member),
-                                &f.name,
-                                fellow_name,
-                            ) {
+                            if let Some(line) =
+                                dereth_client_model::chat::composition::fellow_quit_line(
+                                    world.is_the_player(m.member),
+                                    f.is_fellow(m.member),
+                                    &f.name,
+                                    fellow_name,
+                                )
+                            {
                                 chat.push(fellowship_ui_line(line));
                                 self.stats.fellowship_lines_composed += 1;
                             }
@@ -1412,13 +1427,15 @@ impl Hud {
                             let name_of = |id: dereth_primitives::ObjectId| {
                                 f.members.get(&id).map_or("", |l| l.name.as_str())
                             };
-                            if let Some(line) = crate::chat::fellow_dismissed_line(
-                                world.is_the_player(m.target),
-                                f.is_fellow(m.target),
-                                world.is_the_player(f.leader),
-                                name_of(f.leader),
-                                name_of(m.target),
-                            ) {
+                            if let Some(line) =
+                                dereth_client_model::chat::composition::fellow_dismissed_line(
+                                    world.is_the_player(m.target),
+                                    f.is_fellow(m.target),
+                                    world.is_the_player(f.leader),
+                                    name_of(f.leader),
+                                    name_of(m.target),
+                                )
+                            {
                                 chat.push(fellowship_ui_line(line));
                                 self.stats.fellowship_lines_composed += 1;
                             }

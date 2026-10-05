@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use dereth_client::character::{Character, ALUVIAN_MALE_SETUP};
-use dereth_client::world::{load_region, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_dat::RetailDatStore;
 use dereth_physics::pmanager::FALLBACK_SPEED;
@@ -11,6 +9,14 @@ use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::types::physicsdesc::flags;
 use dereth_protocol::types::{PhysicsDesc, PositionWire, PublicWeenieDesc};
 use dereth_protocol::Message;
+use {
+    dereth_client_runtime::character::Character,
+    dereth_client_runtime::character::ALUVIAN_MALE_SETUP,
+};
+use {
+    dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+};
 
 /// The description type every body below carries. A player and a monster both have it.
 pub const CREATURE: u32 = 0x0000_0010;
@@ -213,9 +219,9 @@ pub fn xy_gap(a: &Position, b: &Position) -> f32 {
     (d.x * d.x + d.y * d.y).sqrt()
 }
 
-use dereth_client::character::CharacterInput;
 use dereth_client_net::client_session::testing::{Corpus, Direction, MockTransport};
 use dereth_client_net::client_session::{PositionReporter, Session};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_protocol::actions::unpack_action;
 
 /// `0xF61C`, the state edge a client reports when what it is doing changes.
@@ -233,7 +239,7 @@ const SPAWN: (f32, f32) = (96.0, 96.0);
 /// The settle is not a nicety: an unsettled body has no contact plane, and a measurement
 /// taken over one would be measuring the drop.
 pub fn settled_body(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c =
         Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created");
     for i in 1..=60 {
@@ -282,10 +288,10 @@ pub fn jump_frame(
     now: f64,
     input: CharacterInput,
 ) -> (bool, dereth_protocol::types::Vec3) {
-    let left_before = dereth_client::app::jump_edge_sample(c);
+    let left_before = dereth_client_runtime::app::jump_edge_sample(c);
     c.input = input;
     c.update(LocalTime(now));
-    dereth_client::app::body_jump(c, left_before)
+    dereth_client_runtime::app::body_jump(c, left_before)
 }
 
 /// Every jump the recordings carry, as `(extent, upward speed)`, read off the corpus.
@@ -336,8 +342,8 @@ pub const MID_AIR: &str = "You cannot do that in mid air";
 /// data, with the frame's own interaction step driven with no world under it.
 pub struct SceneLess {
     store: Arc<RetailDatStore>,
-    pub objects: dereth_client::objects::ObjectStream,
-    pub inter: dereth_client::interaction::Interaction,
+    pub objects: dereth_client_runtime::objects::ObjectStream,
+    pub inter: dereth_client_runtime::interaction::Interaction,
     player: dereth_primitives::ObjectId,
     pub clock: f64,
 }
@@ -345,7 +351,7 @@ pub struct SceneLess {
 impl SceneLess {
     pub fn new(store: &Arc<RetailDatStore>) -> Self {
         use dereth_primitives::ObjectId;
-        let mut objects = dereth_client::objects::ObjectStream::new();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::new();
         let player = ObjectId(0x5000_0415);
         objects.world.player = Some(player);
         objects.world.tables.inventories.insert(
@@ -359,7 +365,7 @@ impl SceneLess {
         let mut h = Self {
             store: Arc::clone(store),
             objects,
-            inter: dereth_client::interaction::Interaction::new(),
+            inter: dereth_client_runtime::interaction::Interaction::new(),
             player,
             clock: 1.0,
         };
@@ -370,7 +376,7 @@ impl SceneLess {
     /// One interaction step with **no world**, which is what a frame that drew nothing runs.
     pub fn drive(&mut self) {
         self.clock += 1.0;
-        let _ = dereth_client::interaction::use_time(
+        let _ = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,
@@ -402,7 +408,7 @@ impl SceneLess {
 
     /// A left press in the middle of the viewport, and how many picks it armed.
     pub fn viewport_left_press(&mut self) -> u64 {
-        use dereth_client::ui::UiMouseEvent;
+        use dereth_client_shell::ui::UiMouseEvent;
         use dereth_ui_screens::screens::gameplay::window;
         let armed = self.inter.pick.stats.requests;
         self.inter.wrapper_mouse(
@@ -454,7 +460,7 @@ pub const DOUBLING: dereth_primitives::DataId = dereth_primitives::DataId(0x3300
 /// both arms of a delayed call test.
 pub fn script_driver(store: &Arc<RetailDatStore>) -> dereth_animation::MotionDriver {
     let assets: Arc<dyn dereth_animation::AnimAssets> = Arc::new(
-        dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(store)),
+        dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(store)),
     );
     let mut d = dereth_animation::MotionDriver::new(assets);
     d.env.in_cell = true;
@@ -723,14 +729,16 @@ impl CameraRun {
 }
 
 pub fn run_camera(
-    src: &Arc<dereth_client::land_source::DatLandSource>,
+    src: &Arc<dereth_world_data::land_source::DatLandSource>,
     wall: &Wall,
     dt: f64,
 ) -> CameraRun {
-    use dereth_client::camera::{CameraControl, CameraInput};
-    use dereth_client::character::PLAYER_OBJECT_ID;
+    use dereth_client_runtime::character::PLAYER_OBJECT_ID;
     use dereth_physics::math::V3 as _;
     use dereth_primitives::{Frame, Position, Vec3};
+    use {
+        dereth_client_runtime::camera::CameraControl, dereth_client_runtime::camera::CameraInput,
+    };
 
     let mut w =
         dereth_physics::PhysicsWorld::new(Arc::clone(src) as Arc<dyn dereth_physics::LandSource>);
@@ -788,7 +796,7 @@ pub fn run_camera(
 /// Every interior room of the block that has an approach whose control run really presses
 /// the camera into a wall -- at most one heading per room, and at most `want` rooms.
 pub fn find_walls(
-    src: &Arc<dereth_client::land_source::DatLandSource>,
+    src: &Arc<dereth_world_data::land_source::DatLandSource>,
     cells: &[dereth_primitives::CellId],
     want: usize,
 ) -> Vec<(Wall, CameraRun)> {
@@ -1019,7 +1027,7 @@ pub struct Run {
 /// second.
 pub fn drive(
     c: &mut Character,
-    mc: &mut dereth_client::character::MovementCommands,
+    mc: &mut dereth_client_runtime::character::MovementCommands,
     input: &mut CharacterInput,
     from: u32,
     frames: u32,
@@ -1101,13 +1109,13 @@ fn movement_event(
 /// Running is the default on every shipped character, so the key walks you.
 pub fn running_body() -> (
     Character,
-    dereth_client::character::MovementCommands,
+    dereth_client_runtime::character::MovementCommands,
     CharacterInput,
 ) {
     use dereth_client_runtime::actions::movement::{action, on_action};
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
     let c = settled_body(&store);
-    let mut mc = dereth_client::character::MovementCommands::default();
+    let mut mc = dereth_client_runtime::character::MovementCommands::default();
     let mut input = CharacterInput::default();
     mc.ui_toggles_run = true;
     assert!(mc.on_action(
@@ -1126,7 +1134,7 @@ pub fn running_body() -> (
 /// body-side half of taking control back. Both halves, in that order, are what a frame does.
 pub fn key(
     c: &mut Character,
-    mc: &mut dereth_client::character::MovementCommands,
+    mc: &mut dereth_client_runtime::character::MovementCommands,
     input: &mut CharacterInput,
     a: dereth_input::ActionId,
     down: bool,
@@ -1147,7 +1155,7 @@ pub fn key(
 /// control. Nothing is synthesised; the buffer came off a recording.
 pub fn server_takes_control(
     c: &Character,
-    mc: &mut dereth_client::character::MovementCommands,
+    mc: &mut dereth_client_runtime::character::MovementCommands,
     input: &mut CharacterInput,
     buf: &dereth_protocol::movement::MovementBuffer,
 ) {
@@ -1170,7 +1178,7 @@ pub fn server_takes_control(
 /// ground, and a landing assertion alone cannot tell that apart from a real fall.
 pub fn hop(
     c: &mut Character,
-    mc: &mut dereth_client::character::MovementCommands,
+    mc: &mut dereth_client_runtime::character::MovementCommands,
     input: &mut CharacterInput,
     dz: f32,
 ) {
@@ -1337,7 +1345,7 @@ pub fn replay_teleports(
     // shared one.
     let recs = dereth_testkit::replay::records(session);
     let mut net = dereth_testkit::replay::recorded_endpoint(&recs);
-    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
     let mut entered = false;
     let mut out: Vec<Teleported> = Vec::new();
     let mut body: Option<Character> = None;
@@ -1375,7 +1383,7 @@ pub fn replay_teleports(
         }
         // The client's own teleport step, once per frame.
         let applied = match body.as_mut() {
-            Some(c) => dereth_client::app::apply_player_teleport(&mut objects, c),
+            Some(c) => dereth_client_runtime::app::apply_player_teleport(&mut objects, c),
             None => objects.take_player_teleport(),
         };
         if let Some(pos) = applied {
@@ -1396,7 +1404,7 @@ pub fn replay_teleports(
 /// Stand a body up the way the client does at world entry: build it in the piece of land the
 /// shard named and put it on the shard's own position.
 fn body_at(store: &Arc<RetailDatStore>, pos: dereth_primitives::Position) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     #[allow(clippy::cast_possible_truncation)]
     // LINT-OK: a cell id's top sixteen bits are its piece of land. Not a float cast.
     let landblock = (pos.cell.0 >> 16) as u16;
@@ -1547,7 +1555,7 @@ fn recorded_door() -> (
 /// interpreter that drives it.
 pub struct DoorRig {
     pub c: Character,
-    pub mc: dereth_client::character::MovementCommands,
+    pub mc: dereth_client_runtime::character::MovementCommands,
     pub input: CharacterInput,
     t: u32,
     pub door_pos: dereth_primitives::Position,
@@ -1558,7 +1566,8 @@ impl DoorRig {
         use dereth_client_runtime::actions::movement::{action, on_action};
         let (player, door_pos, _) = recorded_door();
         let store = Arc::new(dereth_dat::testing::open_store_or_fail());
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let mut c =
             Character::new(&store, &region, ACADEMY, (96.0, 96.0)).expect("the body is created");
         c.land().load_block_cells(player.cell.landblock());
@@ -1571,7 +1580,7 @@ impl DoorRig {
             c.on_ground(),
             "the recorded spot the player stood at must support a body"
         );
-        let mut mc = dereth_client::character::MovementCommands::default();
+        let mut mc = dereth_client_runtime::character::MovementCommands::default();
         let mut input = CharacterInput::default();
         mc.ui_toggles_run = true;
         assert!(mc.on_action(
@@ -1798,10 +1807,12 @@ impl DoorRig {
             .read_typed(dereth_dat::DbType::Setup, DOOR_SETUP)
             .expect("the door's shipped setup");
         let s = Setup::decode_payload(DOOR_SETUP, &bytes).expect("it decodes");
-        let mut stats = dereth_client::object_physics::SetupPartStats::default();
-        let g = Arc::new(dereth_client::object_physics::setup_geometry_with_parts(
-            &store, &s, &mut stats,
-        ));
+        let mut stats = dereth_client_runtime::object_physics::SetupPartStats::default();
+        let g = Arc::new(
+            dereth_client_runtime::object_physics::setup_geometry_with_parts(
+                &store, &s, &mut stats,
+            ),
+        );
         let h = self.c.world.create(DOOR, g, true);
         self.c.world.enter_cell(h, at.cell);
         if let Some(o) = self.c.world.get_mut(h) {
@@ -2139,7 +2150,7 @@ pub fn marker_oracle(
 ///
 /// **The feed loop is [`replay_teleports`]'s**, which is `dereth_testkit::login`'s, narrowed
 /// again. Nothing here binds a socket.
-pub fn replay_objects_at_peak(session: &str) -> dereth_client::objects::ObjectStream {
+pub fn replay_objects_at_peak(session: &str) -> dereth_client_runtime::objects::ObjectStream {
     let peak = feed(session, None).1;
     feed(session, Some(peak)).0
 }
@@ -2166,8 +2177,8 @@ pub fn scene_at(
     session: &str,
     stop: usize,
 ) -> (
-    dereth_client::objects::ObjectStream,
-    dereth_client::hud::Hud,
+    dereth_client_runtime::objects::ObjectStream,
+    dereth_client_shell::hud::Hud,
 ) {
     let objects = feed(session, Some(stop)).0;
     let player = objects.world.player.expect("the recording named a player");
@@ -2175,10 +2186,10 @@ pub fn scene_at(
         .presence(player)
         .and_then(|p| p.position)
         .expect("the player has a place");
-    let mut hud = dereth_client::hud::Hud::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
     hud.sync(
         &objects,
-        Some(dereth_client::hud::ViewerFrame {
+        Some(dereth_client_runtime::hud::ViewerFrame {
             position: pos,
             heading_degrees: 0.0,
         }),
@@ -2191,7 +2202,12 @@ pub fn scene_at(
 fn feed(
     session: &str,
     stop: Option<usize>,
-) -> (dereth_client::objects::ObjectStream, usize, usize, Stations) {
+) -> (
+    dereth_client_runtime::objects::ObjectStream,
+    usize,
+    usize,
+    Stations,
+) {
     use dereth_client_net::client_session::testing::capture::peer;
     use dereth_client_net::client_session::SessionEvent;
 
@@ -2199,7 +2215,7 @@ fn feed(
     // this scenario's.
     let recs = dereth_testkit::replay::records(session);
     let mut net = dereth_testkit::replay::recorded_endpoint(&recs);
-    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
     let mut entered = false;
     let mut best = (0usize, 0usize);
     let mut st = Stations::default();
@@ -2295,7 +2311,7 @@ pub fn recordings_with_a_world() -> &'static [&'static str] {
     })
 }
 
-fn replay_objects_at_peak_uncached(session: &str) -> dereth_client::objects::ObjectStream {
+fn replay_objects_at_peak_uncached(session: &str) -> dereth_client_runtime::objects::ObjectStream {
     let peak = feed(session, None).1;
     feed(session, Some(peak)).0
 }
@@ -2312,17 +2328,17 @@ pub fn radar_geometry() -> dereth_ui_screens::mapradar::radar::RadarGeometry {
 
 /// The radar list a recorded scene produces, with the player's own place as the viewer.
 pub fn radar_list(
-    objects: &dereth_client::objects::ObjectStream,
+    objects: &dereth_client_runtime::objects::ObjectStream,
 ) -> Vec<dereth_ui_screens::view::RadarEntry> {
     let player = objects.world.player.expect("the recording named a player");
     let pos = objects
         .presence(player)
         .and_then(|p| p.position)
         .expect("the player has a place");
-    let mut hud = dereth_client::hud::Hud::new();
+    let mut hud = dereth_client_shell::hud::Hud::new();
     hud.sync(
         objects,
-        Some(dereth_client::hud::ViewerFrame {
+        Some(dereth_client_runtime::hud::ViewerFrame {
             position: pos,
             heading_degrees: 0.0,
         }),
@@ -2497,8 +2513,8 @@ pub fn click_at(ui: &mut dereth_ui::UiSystem, x: i32, y: i32) {
 pub fn radar_blips(
     ui: &mut dereth_ui::UiSystem,
     screen: &mut Box<dyn dereth_ui::framework::Screen>,
-    objects: &dereth_client::objects::ObjectStream,
-    hud: &dereth_client::hud::Hud,
+    objects: &dereth_client_runtime::objects::ObjectStream,
+    hud: &dereth_client_shell::hud::Hud,
 ) -> Vec<dereth_ui_screens::mapradar::radar::Blip> {
     let g = as_gameplay(screen);
     let view = hud.view(objects);
@@ -2521,8 +2537,8 @@ pub fn radar_blips(
 /// here from the recording's own descriptions rather than by asking the client, so that the
 /// two can disagree.
 pub fn expected_blip_map(
-    objects: &dereth_client::objects::ObjectStream,
-    hud: &dereth_client::hud::Hud,
+    objects: &dereth_client_runtime::objects::ObjectStream,
+    hud: &dereth_client_shell::hud::Hud,
     screen: &mut Box<dyn dereth_ui::framework::Screen>,
 ) -> Vec<((i32, i32), dereth_primitives::ObjectId)> {
     let g = as_gameplay(screen);

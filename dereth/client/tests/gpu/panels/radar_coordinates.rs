@@ -13,9 +13,9 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::world::SceneConfig;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_primitives::ObjectId;
 use dereth_protocol::login::LoginEnterGameServerReady;
 use dereth_protocol::movement::{MovementPositionEvent, PositionPack};
@@ -342,12 +342,12 @@ fn walking_across_a_land_cell_boundary_moves_the_radar_read_out() {
 
     // Feed normalized Q down/up through Pump and InputManager to toggle autorun. This uses
     // the application's message path directly, not OS keyboard dispatch or a physical key.
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
     let mut t = 300_000u32;
     let mut key =
-        |app: &mut App, code: KeyCode, down: bool, pump: &mut dereth_client::pump::Pump| {
+        |app: &mut App, code: KeyCode, down: bool, pump: &mut dereth_desktop::pump::Pump| {
             t += 10;
             let m = pump
                 .key_message_for(code, down, t)
@@ -419,21 +419,23 @@ fn walking_across_a_land_cell_boundary_moves_the_radar_read_out() {
 #[test]
 fn the_read_out_is_right_for_the_cell_the_shard_sent() {
     assert_eq!(
-        dereth_client::hud::player_coords(dereth_primitives::CellId(0xA9B4_0022)),
+        dereth_client_runtime::hud::player_coords(dereth_primitives::CellId(0xA9B4_0022)),
         Some((42.2, 33.7)),
         "the cell of the recorded teleport destination"
     );
     assert_eq!(
-        dereth_client::hud::player_coords(dereth_primitives::CellId(0xA9B4_002A)),
+        dereth_client_runtime::hud::player_coords(dereth_primitives::CellId(0xA9B4_002A)),
         Some((42.2, 33.8)),
         "the cell of the retail @loc reading, whose strip read 42.2N, 33.8E"
     );
     // One land cell east is `+0.1E` and one land cell north is `+0.1N`: the read-out's resolution
     // is 24 m, which is the whole of why a teleport inside one cell cannot move it.
     let (n0, e0) =
-        dereth_client::hud::player_coords(dereth_primitives::CellId(0xA9B4_0022)).expect("cell");
+        dereth_client_runtime::hud::player_coords(dereth_primitives::CellId(0xA9B4_0022))
+            .expect("cell");
     let (n1, e1) =
-        dereth_client::hud::player_coords(dereth_primitives::CellId(0xA9B4_0023)).expect("cell");
+        dereth_client_runtime::hud::player_coords(dereth_primitives::CellId(0xA9B4_0023))
+            .expect("cell");
     assert!(
         (n1 - n0 - 0.1).abs() < 1e-4,
         "cell +1 in the low three bits is one cell north"

@@ -1,10 +1,10 @@
 //! The option *data*: the preference value store, the choice tables and the two const tables the
 //! store registers from.
 //!
-//! It lives here because the client's state modules need it: `dereth_client::config` reads
+//! It lives here because the client's state modules need it: `dereth_client_runtime::config` reads
 //! `store::display_choice`,
-//! `dereth_client::render_prefs` reads `store::enum_choices` and `store::set_value`, and
-//! `dereth_client::platform::window` names `store::DisplayMode` — none of which is presentation.
+//! `dereth_client_shell::render_prefs` reads `store::enum_choices` and `store::set_value`, and
+//! `dereth_desktop::platform::window` names `store::DisplayMode` — none of which is presentation.
 //!
 //! The split is data / panel. What is here is the value store and the tables it is built from;
 //! what stays in `dereth_ui_screens::options` is the page — `PlayerOptionPage`, the rows, the

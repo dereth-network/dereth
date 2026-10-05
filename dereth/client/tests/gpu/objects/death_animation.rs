@@ -27,15 +27,15 @@
 //! into a live scene. No datagram leaves this process.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::SceneWrites;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::Opcode;
 use dereth_render::device::Gpu;
+use dereth_scene::world_scene::SceneWrites;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 use super::common::{retail_store, test_gpu};
 
@@ -141,7 +141,7 @@ impl Station {
             },
         )
         .expect("scene");
-        let region = dereth_client::world::load_region(&store).expect("region");
+        let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
         scene
             .attach_character(&store, &region, &mut gpu)
             .expect("physics owner");

@@ -15,22 +15,24 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use crate::common::app::{frames, position};
-use dereth_client::world::SceneReads;
+use dereth_scene::world_scene::SceneReads;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::interaction;
-use dereth_client::pick::PickScene;
-use dereth_client::ui::UiMouseEvent;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::interaction;
+use dereth_client_runtime::pick::PickScene;
 use dereth_client_runtime::pick_geometry::selection_ray;
+use dereth_client_shell::ui::UiMouseEvent;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState};
 use dereth_protocol::types::PhysicsEventStamp;
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 const SCREEN: (u32, u32) = (800, 600);
 /// Visible-state word applied after the hidden login create; the test constructs the update and

@@ -12,24 +12,24 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use super::common::recorded_movement_events;
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{session_names, shared_session};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId, Position};
 use dereth_protocol::movement::{
     motion_flags, movement_type, MovementBody, MovementSetObjectMovement,
 };
 use dereth_protocol::{Message, Opcode};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // ---------------------------------------------------------------------------------------------
 // 1. The corpus.
@@ -342,7 +342,8 @@ fn drive(session: &str) -> Run {
                 ..SceneConfig::default()
             };
             let mut s = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);
@@ -387,7 +388,7 @@ fn drive(session: &str) -> Run {
                     let recorded = if id == player {
                         s.character
                             .as_ref()
-                            .and_then(dereth_client::character::Character::sticky_target)
+                            .and_then(dereth_client_runtime::character::Character::sticky_target)
                     } else {
                         s.server_object_sticky(id)
                     };
@@ -593,7 +594,8 @@ fn a_stuck_creature_is_pulled_toward_what_it_is_stuck_to() {
                 ..SceneConfig::default()
             };
             let mut s = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);
@@ -602,8 +604,8 @@ fn a_stuck_creature_is_pulled_toward_what_it_is_stuck_to() {
         s.sync_objects(&store, &mut gpu, &mut stream)
             .expect("objects sync");
         s.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             now,
             1.0 / 30.0,
         );
@@ -617,7 +619,7 @@ fn a_stuck_creature_is_pulled_toward_what_it_is_stuck_to() {
         let body = s
             .character
             .as_ref()
-            .map(dereth_client::character::Character::position);
+            .map(dereth_client_runtime::character::Character::position);
         for id in &stuck {
             ever_stuck.insert(*id);
             if s.server_object_sticky_initialized(*id) {

@@ -14,7 +14,7 @@ impl SceneDraw {
     /// numbers the client's last-frame-times ring holds at the same moment.
     ///
     /// **The headless gate.** The whole of the loop's input is this `dt`, and this
-    /// `dt` is a difference of frame timestamps, which `dereth_client_runtime::app::Clock::fixed_step` makes
+    /// `dt` is a difference of frame timestamps, which `dereth_client_runtime::platform::clock::Timer::fixed_step` makes
     /// a fixed quantum under `--headless`. So a headless frame measures exactly
     /// `20 / (k * HEADLESS_STEP)` for the *k*th frame on every machine, the loop's trajectory
     /// is a function of the frame **count** and not of elapsed time, and the capture stays

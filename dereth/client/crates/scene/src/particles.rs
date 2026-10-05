@@ -34,7 +34,7 @@ use dereth_world_render::objects::degrade::{
     calc_draw_frame, get_degrade, DegradeGlobals, DegradeMode,
 };
 
-use crate::world::{world_constants_scaled, PartMesh};
+use {crate::world_scene::world_constants_scaled, crate::world_scene::PartMesh};
 
 /// Maximum degrade distance when the graphics object has no degrade record.
 ///
@@ -80,7 +80,7 @@ pub(crate) struct ParticleGfx {
 ///   (the graphics-object record stores no material, which is why [`dereth_assets::GfxObj`]
 ///   has no such field). The absent-material path binds the default material and selects
 ///   the vertex as the diffuse and ambient colour source, so both come
-///   from the vertex colour — which [`crate::world::build_meshes`] writes white.
+///   from the vertex colour — which [`dereth_scene::world_scene::build_meshes`] writes white.
 /// * Past zero it uses a cloned material. Its initialization clears the lighting values and then
 ///   writes ones to the diffuse and ambient components:
 ///   **Diffuse and Ambient white, Specular and Emissive zero**. The material path then
@@ -204,7 +204,7 @@ pub(crate) struct EmitterPlacement {
     /// the two halves in different modules, so the index is carried instead of implied — **by
     /// construction**, at the one place both are pushed, never by matching positions afterwards.
     pub(crate) slot: StaticSlot,
-    /// The body [`dereth_client_runtime::env_cells::CellStaticObjects::init`] made for [`Self::slot`], once it has
+    /// The body [`dereth_world_data::env_cells::CellStaticObjects::init`] made for [`Self::slot`], once it has
     /// run. `None` until then, and `None` for ever for a placement that produced no body at all —
     /// the client's own null entry for that placement.
     pub(crate) body: Option<PhysHandle>,
@@ -343,7 +343,7 @@ pub(crate) fn collect(
     }
 }
 
-/// What one draw pass reported, for [`crate::world::SceneStats`].
+/// What one draw pass reported, for [`dereth_scene::world_scene::SceneStats`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ParticleStats {
     /// Emitters alive across every object this frame.
@@ -528,7 +528,7 @@ pub(crate) fn prepare(
 /// satisfies `(alphaBlend && !alphaTest)` and so keeps its `ONE / ONE` — which is what makes glows
 /// and magic effects look right.
 ///
-/// **It comes from [`PartMesh::key_material_alpha`]**, which `crate::world::resolve_surface`
+/// **It comes from [`PartMesh::key_material_alpha`]**, which `dereth_scene::world_scene::resolve_surface`
 /// gets from `PipelineKey::state_from_surface` with
 /// `SurfaceContext::material_has_alpha = Some(true)` — the renderer's own table, so the particle
 /// and animated-part paths share the same row of it.
@@ -546,14 +546,14 @@ pub(crate) fn draw_one(
     gpu: &mut Gpu,
     per_frame: &PerFrameConstants,
     r: &Prepared,
-    m: &crate::world::PartMesh,
+    m: &crate::world_scene::PartMesh,
     lit: bool,
     force_alpha: bool,
     stats: &mut ParticleStats,
 ) -> Result<(), RenderError> {
     // The same keys every animated part picks between. A particle whose
     // `1 - t` is not 0xFF is a part whose material has alpha enabled.
-    let key = *crate::world::part_subset_key(m, r.texture_factor >> 24 != 0xFF, force_alpha);
+    let key = *crate::world_scene::part_subset_key(m, r.texture_factor >> 24 != 0xFF, force_alpha);
     if let Some(slot) = m.texture {
         gpu.bind_texture(slot, m.sampler);
     }
@@ -579,7 +579,7 @@ pub(crate) fn draw_one(
         } else {
             PARTICLE_MATERIAL_LIGHTING[0]
         };
-        crate::world::bind_lights(&mut world, &r.lights, emissive, false);
+        crate::world_scene::bind_lights(&mut world, &r.lights, emissive, false);
     }
     gpu.draw_dynamic(
         &key,
@@ -1003,7 +1003,7 @@ mod tests {
             };
             PipelineKey::from_surface(&s, ctx).0
         };
-        let mesh = |t: u32| crate::world::PartMesh {
+        let mesh = |t: u32| crate::world_scene::PartMesh {
             key: key(t, false),
             surface_type: t,
             key_material_alpha: key(t, false),
@@ -1019,13 +1019,13 @@ mod tests {
         };
         let clip_type = surface_type::BASE1_IMAGE | surface_type::BASE1_CLIPMAP;
         let clip = mesh(clip_type);
-        let first = *crate::world::part_subset_key(&clip, false, false);
+        let first = *crate::world_scene::part_subset_key(&clip, false, false);
         assert!(
             first.alpha_test && first.z_write,
             "the first pass is the cut-out"
         );
         for material_alpha in [false, true] {
-            let second = *crate::world::part_subset_key(&clip, material_alpha, true);
+            let second = *crate::world_scene::part_subset_key(&clip, material_alpha, true);
             assert!(second.alpha_blend, "the second pass blends");
             assert!(!second.alpha_test, "the second pass is not alpha-tested");
             assert!(!second.z_write, "the second pass writes no depth");

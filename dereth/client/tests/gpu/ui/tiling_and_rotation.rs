@@ -60,7 +60,7 @@ use crate::common::gpu_lock;
 use std::collections::BTreeMap;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::{AssetSource, DataId};
 use dereth_render::ui::pixel_rules::{
     graphic_draw_tiles, ui_surface_address_mode, ui_surface_sampler, TEXADDRESS_CLAMP,
@@ -301,7 +301,7 @@ fn the_shipped_layouts_author_no_tiling_element() {
 fn the_shipped_screens_exercise_both_arms_of_graphic_draw() {
     let _gpu = gpu_lock();
     let store = store();
-    let tex = dereth_client::textures::TextureStore::new(&store);
+    let tex = dereth_scene::textures::TextureStore::new(&store);
     let mut totals = (0usize, 0usize, 0usize);
     for (name, m) in [
         ("char-gen", mode::CHAR_GEN),
@@ -373,7 +373,7 @@ fn the_shipped_screens_exercise_both_arms_of_graphic_draw() {
 fn some_shipped_repeats_move_pixels_and_the_rest_are_uniform_along_their_axis() {
     let _gpu = gpu_lock();
     let store = store();
-    let tex = dereth_client::textures::TextureStore::new(&store);
+    let tex = dereth_scene::textures::TextureStore::new(&store);
     let mut tiled = 0usize;
     let mut moves: Vec<String> = Vec::new();
     let mut pictures: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -524,7 +524,7 @@ fn differing(cap: &[u8], want: &[[u8; 4]], fb: (u32, u32), r: (i32, i32, i32, i3
 fn a_tiled_element_repeats_its_picture_at_every_seam() {
     let _gpu = gpu_lock();
     let store = store();
-    let tex = dereth_client::textures::TextureStore::new(&store);
+    let tex = dereth_scene::textures::TextureStore::new(&store);
     let src = tex
         .texture_data(STRIP)
         .expect("the shipped border strip decodes");
@@ -682,7 +682,7 @@ fn a_tiled_element_repeats_its_picture_at_every_seam() {
 fn a_tiling_offset_scrolls_the_repeat_rather_than_smearing_the_last_column() {
     let _gpu = gpu_lock();
     let store = store();
-    let tex = dereth_client::textures::TextureStore::new(&store);
+    let tex = dereth_scene::textures::TextureStore::new(&store);
     let src = tex.texture_data(STRIP).expect("the strip decodes");
     let mut app = app_on(mode::GAME_PLAY);
     let fb = (800u32, 600u32);

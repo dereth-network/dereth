@@ -671,7 +671,7 @@ pub(super) fn a_refused_world_drop_names_the_thing_as_the_player_sees_it() {
     // The same real request and the same recorded refusal, with the thing described with a
     // material in its name.
     let mut c = a_client_played_to(FOCI_DROP_AT - 1);
-    let mapper_knows_it = dereth_client::hud::material_name_of(
+    let mapper_knows_it = dereth_client_runtime::hud::material_name_of(
         c.view().expect_app().hud().material_names.as_ref(),
         0x3A,
     )

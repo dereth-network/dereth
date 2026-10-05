@@ -11,13 +11,13 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The shipped script whose first hook is `SCALE end = 2.0, time = 0`; the scale-hook behavior in
 /// `dereth/testkit/tests/dat/world.rs` asserts that shape against the dat.
@@ -35,7 +35,7 @@ fn store() -> Arc<RetailDatStore> {
 fn a_scale_hook_fired_inside_the_frame_reaches_the_physics_object() {
     let mut gpu = crate::common::test_gpu(800, 600);
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
 
     let mut scene = WorldScene::load(&store, &mut gpu, SceneConfig::default()).expect("loads");
     scene
@@ -46,7 +46,7 @@ fn a_scale_hook_fired_inside_the_frame_reaches_the_physics_object() {
         for _ in 0..frames {
             *t += 1.0 / 30.0;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(*t),
                 1.0 / 30.0,

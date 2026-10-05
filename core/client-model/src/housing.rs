@@ -852,7 +852,7 @@ impl crate::world::World {
     /// one answers `Option` rather than `bool`.
     ///
     /// Position validation, outside-cell lookup and landscape conversion live in `dereth-physics`, which this crate does not
-    /// depend on; the caller supplies them. `dereth_client::hud` is that caller.
+    /// depend on; the caller supplies them. `dereth_client_shell::hud` is that caller.
     #[must_use]
     pub fn house_location(
         &self,

@@ -17,16 +17,20 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_physics::LandSource;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The retail dats, or a failed test: a test that returned early without them would read as a
 /// pass that tested nothing.
@@ -107,7 +111,7 @@ fn body_halves(scene: &WorldScene) -> (usize, usize) {
     let (mut interior, mut outdoor) = (0usize, 0usize);
     for cell in scene.cell_static_cells() {
         let n = scene.cell_static_handles(cell).len();
-        if cell.0 & 0xFFFF >= dereth_client::env_cells::FIRST_ENV_CELL {
+        if cell.0 & 0xFFFF >= dereth_world_data::env_cells::FIRST_ENV_CELL {
             interior += n
         } else {
             outdoor += n
@@ -150,7 +154,7 @@ fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu, release: bool) -> WorldS
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -175,7 +179,7 @@ fn go_to(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu, blo
     }
     scene.follow_character_now();
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(0.0),
         0.0,
@@ -1121,7 +1125,7 @@ fn the_walls_of_a_released_block_no_longer_stop_a_body() {
         for _ in 0..300 {
             now += step;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 input,
                 LocalTime(now),
                 dt,
@@ -1413,18 +1417,22 @@ mod interior_cell_objects {
     //! retail dats (fails without them) and a software device.
 
     use super::{block_at, store};
-    use dereth_client::world::SceneWrites;
+    use dereth_scene::world_scene::SceneWrites;
     use std::sync::Arc;
 
-    use dereth_client::character::CharacterInput;
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{block_xy, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::character::CharacterInput;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{
         CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3,
     };
     use dereth_render::device::Gpu;
+    use {
+        dereth_client_runtime::landblock::block_xy,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    };
 
     // =================================================================================================
     // The constants, as literals
@@ -1596,7 +1604,8 @@ mod interior_cell_objects {
             ..SceneConfig::default()
         };
         let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-        let region = dereth_client::world::load_region(store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
         scene
             .attach_character(store, &region, gpu)
             .expect("the body is created");
@@ -1624,7 +1633,7 @@ mod interior_cell_objects {
         }
         scene.follow_character_now();
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(0.0),
             0.0,

@@ -14,9 +14,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::common::recorded_sessions;
-use dereth_client::interaction::Interaction;
 use dereth_client_model::{RecordingRequests, RecordingSink, Request, World};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
+use dereth_client_runtime::interaction::Interaction;
 use dereth_primitives::{ObjectId, ServerTime};
 use dereth_protocol::Opcode;
 use dereth_ui_screens::view::UiRequest;
@@ -1265,8 +1265,8 @@ fn a_test_outside_magic_mode_or_without_a_target_is_refused_and_never_sent() {
 /// Behaviour: magic.research.confirmed-success-clears-the-tested-formula
 #[test]
 fn research_confirmation_requires_matching_update_and_successful_completion() {
-    use dereth_client::hud::Hud;
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_shell::hud::Hud;
     use dereth_protocol::Message;
     fn event<M: Message>(m: &M) -> SessionEvent {
         let mut blob = M::OPCODE.0.to_le_bytes().to_vec();
@@ -1304,7 +1304,7 @@ fn research_confirmation_requires_matching_update_and_successful_completion() {
         let mut events: Vec<_> = updates.into_iter().map(update).collect();
         events.push(done(failure));
         // Actual delivery applies the Interaction batch before the Hud batch.
-        dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+        dereth_client_runtime::interaction::apply_events(&mut inter, &events, &mut world);
         hud.apply_events(&events, &mut world);
         assert_eq!(world.magic.research_success.is_some(), successful);
         if successful {
@@ -1315,7 +1315,7 @@ fn research_confirmation_requires_matching_update_and_successful_completion() {
             let learned = world.magic.last_learned_spell;
             let receipt = world.magic.research_success.clone();
             let snapshot = dereth_client_contract::snapshot::GameSnapshot::from_view(
-                &dereth_client::hud::HudView {
+                &dereth_client_runtime::hud::HudView {
                     hud: &hud,
                     world: &world,
                 },
@@ -1330,7 +1330,7 @@ fn research_confirmation_requires_matching_update_and_successful_completion() {
             assert_eq!(world.magic.research_success, receipt, "no pending test");
             test_formula(&mut world, &mut inter, laid.clone());
             let events = [update(FLAME_BOLT), done(0)];
-            dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+            dereth_client_runtime::interaction::apply_events(&mut inter, &events, &mut world);
             hud.apply_events(&events, &mut world);
             assert_eq!(
                 world.magic.research_success.as_ref().unwrap().serial,

@@ -16,7 +16,7 @@ use std::time::Duration;
 ///
 /// Three readings and nothing else: the monotonic one `Timer` is driven by, the wall-clock one
 /// the six `localtime` surfaces and the two RNG seeds read, and the local zone's shift for a given
-/// instant (which is `dereth_client::platform::clock::local_utc_offset_secs`).
+/// instant (which is `dereth_desktop::platform::clock::local_utc_offset_secs`).
 ///
 /// `App` holds one of these as a `Box<dyn Clock>` and hands it to the timer update once
 /// per frame. That update takes the only monotonic reading, and every consumer reads
@@ -48,7 +48,7 @@ pub trait Clock {
     /// The shift from UTC that the CRT's `localtime` would apply to `at`.
     ///
     /// Required, with no default body: the natural default,
-    /// `dereth_client::platform::clock::local_utc_offset_secs`, is the
+    /// `dereth_desktop::platform::clock::local_utc_offset_secs`, is the
     /// `windows::Globalization::Calendar` call, and a default body naming the `windows` crate
     /// would tie this trait to `dereth-client`. Both implementations call that function; an
     /// implementation that wants UTC has to say so.
@@ -56,7 +56,7 @@ pub trait Clock {
 
     /// The simulated step a `--headless` run advances by, or `None` on the
     /// windowed path, which reads the real clock. See
-    /// `dereth_client::platform::clock::FixedStepClock`.
+    /// `dereth_client_runtime::platform::clock::FixedStepClock`.
     fn fixed_step(&self) -> Option<f64> {
         None
     }

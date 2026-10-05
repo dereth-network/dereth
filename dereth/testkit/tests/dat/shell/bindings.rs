@@ -385,13 +385,13 @@ fn kb_tap(c: &mut dereth_client::app::App, hand: &mut KeyHand, code: KeyCode) {
 /// The keyboard, driven the way the window loop drives it: the client's own pump builds each
 /// message and the real input shell receives it.
 pub(super) struct KeyHand {
-    pub(super) pump: dereth_client::pump::Pump,
+    pub(super) pump: dereth_desktop::pump::Pump,
     pub(super) time_ms: u32,
 }
 
 impl KeyHand {
     pub(super) fn new() -> Self {
-        let mut pump = dereth_client::pump::Pump::new();
+        let mut pump = dereth_desktop::pump::Pump::new();
         pump.state.is_ready = true;
         pump.state.is_active_app = true;
         Self {
@@ -1321,7 +1321,7 @@ pub(super) fn restoring_the_defaults_gives_back_the_shipped_keys() {
 impl KeyHand {
     /// One press of the button at a point, with the frames the gesture needs.
     pub(super) fn click_at(&mut self, app: &mut dereth_client::app::App, at: (i32, i32)) {
-        use dereth_client::platform::keys::MouseButton;
+        use dereth_input::keys::MouseButton;
         self.time_ms += 10;
         let m = self
             .pump
@@ -1342,7 +1342,7 @@ impl KeyHand {
     pub(super) fn send(
         &mut self,
         app: &mut dereth_client::app::App,
-        m: dereth_client::pump::Win32Message,
+        m: dereth_input::win32::Win32Message,
     ) {
         self.pump.dispatch(m);
         if let Some(input) = app.input_manager_mut() {
@@ -1355,7 +1355,7 @@ impl KeyHand {
     pub(super) fn type_units(&mut self, app: &mut dereth_client::app::App, units: &[u16]) {
         for u in units {
             self.time_ms += 10;
-            let m = dereth_client::pump::Win32Message::new(
+            let m = dereth_input::win32::Win32Message::new(
                 win_msg::WM_CHAR,
                 *u as usize,
                 0,

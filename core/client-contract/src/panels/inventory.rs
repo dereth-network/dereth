@@ -1,9 +1,9 @@
 //! The three inventory names the world half spells.
 //!
 //! `dereth_ui_screens::panels::inventory` keeps the paper doll and the slot machinery. These three
-//! cross the seam: `dereth_client::interaction` compares a drop target against
+//! cross the seam: `dereth_client_runtime::interaction` compares a drop target against
 //! `PAPER_DOLL_DRAG_MASK` and speaks `CANNOT_PUT_THAT_ITEM_THERE` on the refusal, and
-//! `dereth_client::hud` reads `HERITAGE_GROUP_PROPERTY` off the qualities. An element id, a
+//! `dereth_client_shell::hud` reads `HERITAGE_GROUP_PROPERTY` off the qualities. An element id, a
 //! retail literal and a property key.
 
 use crate::ids::ElementId;

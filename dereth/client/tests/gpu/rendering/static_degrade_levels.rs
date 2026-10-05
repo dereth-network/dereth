@@ -10,18 +10,18 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo};
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use dereth_world_render::objects::degrade::{get_degrade, DegradeGlobals};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// Holtburg. The worked example throughout the knowledge base and the block every other capture
 /// in this crate is taken over.
@@ -58,7 +58,7 @@ fn frame(store: &Arc<RetailDatStore>, gpu: &mut Gpu, scene: &mut WorldScene, t: 
         .sync_objects(store, gpu, &mut stream)
         .expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
@@ -523,7 +523,7 @@ fn the_triangle_count_over_a_fixed_walk_falls_with_the_switch_on() {
 fn map_mode_puts_every_placement_back_on_level_zero() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region loads");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region loads");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         scenery_radius: 1,
@@ -717,7 +717,7 @@ fn the_furniture_beside_the_player_takes_the_level_its_distance_from_the_eye_sel
     use dereth_primitives::{CellId, Frame, Position, Quat};
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    let region = dereth_client::world::load_region(&store).expect("the region loads");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region loads");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         scenery_radius: 0,
@@ -744,22 +744,22 @@ fn the_furniture_beside_the_player_takes_the_level_its_distance_from_the_eye_sel
     for (distance, stool_level, table_level) in [(0.0, 0, 0), (50.0, 0, 0), (100.0, 0, 0)] {
         scene.draw.cfg.render.degrade_distance = distance;
         for _ in 0..6 {
-            now += dereth_client::app::HEADLESS_STEP;
+            now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
             scene
                 .sync_objects(&store, &mut gpu, &mut stream)
                 .expect("sync_objects");
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(now),
                 1.0 / 30.0,
             );
             // The production camera, as the application places it after the scene update.
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 &mut scene,
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 LocalTime(now),
-                dereth_client::app::HEADLESS_STEP,
+                dereth_client_runtime::platform::clock::HEADLESS_STEP,
             );
             scene.stream(&store, &mut gpu).expect("stream");
             scene

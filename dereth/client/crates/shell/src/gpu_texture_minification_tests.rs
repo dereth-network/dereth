@@ -12,7 +12,7 @@ fn texture_minification_keeps_real_ui_font_and_movie_owners_single_level() {
     let store = dereth_dat::testing::open_store().expect("required pristine retail DATs");
     let id = DataId(0x0600_7576); // real character-screen JPEG, with encoded (not DAT-header) extent.
     let font = DataId(0x4000_0001);
-    let texture = crate::textures::TextureStore::new(&store)
+    let texture = dereth_scene::textures::TextureStore::new(&store)
         .texture_data(id)
         .expect("retail UI JPEG");
     assert!(texture.width > 1 && texture.height > 1);

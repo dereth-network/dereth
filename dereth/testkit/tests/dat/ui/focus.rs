@@ -310,7 +310,7 @@ pub(super) fn dragging_the_stack_slider_moves_the_thumb_and_the_quantity_follows
     let mut hands = Hands::new();
     // The near end of the track: nothing moved, one item.
     hands.move_to(&mut c, sb.x0, y);
-    let m = hands.button_message(dereth_client::platform::keys::MouseButton::Left, true);
+    let m = hands.button_message(dereth_input::keys::MouseButton::Left, true);
     hands.send(&mut c, m);
     c.tick(1);
     let at_the_near_end = position(&c) == Some(0.0) && thumb_x(&c) == 0 && split(&mut c) == 1;
@@ -328,7 +328,7 @@ pub(super) fn dragging_the_stack_slider_moves_the_thumb_and_the_quantity_follows
     let clamped = position(&c) == Some(1.0) && thumb_x(&c) == 73 && split(&mut c) == 20;
 
     // ...and the drag ends when the button does.
-    let m = hands.button_message(dereth_client::platform::keys::MouseButton::Left, false);
+    let m = hands.button_message(dereth_input::keys::MouseButton::Left, false);
     hands.send(&mut c, m);
     c.tick(1);
     hands.move_to(&mut c, sb.x0, y);

@@ -237,6 +237,6 @@ use dereth_ui::props::{attr, UiObjectMode};
 
 use dereth_ui_screens::hud::indicators;
 
-use dereth_client::platform::local_utc_offset_secs;
+use dereth_desktop::platform::local_utc_offset_secs;
 use dereth_ui_screens::ctime::strftime_c;
 use dereth_ui_screens::panels::{characterinfo, house};

@@ -8,9 +8,12 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneReads;
-use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_dat::RetailDatStore;
+use dereth_scene::world_scene::SceneReads;
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The retail store, or **fail**: absent dats are a missing oracle, not a reason to pass, so the
 /// type offers no way to skip.

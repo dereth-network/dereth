@@ -15,7 +15,7 @@
 //! headless, browser or non-Windows build answer with the table instead.
 //!
 //! The default is the table (`dereth_protocol::cp1252::Cp1252`), because a crate with no platform
-//! cannot have the host's ACP for a default. `dereth_client::platform::text::install` puts the
+//! cannot have the host's ACP for a default. `dereth_client_runtime::platform::text::install` puts the
 //! `kernel32` arm on the production `World`, so nothing about the shipped client changes.
 
 use std::sync::Arc;

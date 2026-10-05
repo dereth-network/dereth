@@ -1,6 +1,6 @@
 //! An **owned** [`GameView`], produced once per frame.
 //!
-//! `dereth_client::hud::HudView` is the right idea with the wrong lifetime for a real boundary:
+//! `dereth_client_runtime::hud::HudView` is the right idea with the wrong lifetime for a real boundary:
 //! it is `{ hud: &Hud, world: &World }`, so every `&str` and `&[T]` it hands back
 //! points into the caller's own live state. In process that is free. Out of process, across a C
 //! ABI, or one frame behind, it cannot exist at all.

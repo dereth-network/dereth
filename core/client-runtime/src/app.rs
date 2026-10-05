@@ -903,7 +903,7 @@ pub struct App<S: Shell> {
 
     /// The `AnimAssets` a preview space builds its objects through. One per process, because it
     /// memoises every setup record and animation record it decodes.
-    pub anim_assets: std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+    pub anim_assets: std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
 
     /// The object identity verdicts, worked out a few milliseconds a frame from start-up when
     /// another era's files are beside the world and the scene waits for them

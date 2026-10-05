@@ -13,13 +13,11 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::audio::{Audio, SoundTrigger};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::objects::EffectsSoundEvent;
@@ -28,6 +26,8 @@ use dereth_protocol::types::{
 };
 use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::audio::Audio, dereth_client_runtime::audio::SoundTrigger};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 use crate::common::test_gpu;
 
@@ -120,7 +120,7 @@ struct Rig {
     scene: WorldScene,
     stream: ObjectStream,
     audio: Audio,
-    anim: dereth_client::anim_assets::DatAnimAssets,
+    anim: dereth_world_data::anim_assets::DatAnimAssets,
 }
 
 fn rig() -> Rig {
@@ -153,7 +153,7 @@ fn rig() -> Rig {
         1,
         false,
     );
-    let anim = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(&store));
+    let anim = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store));
     Rig {
         store,
         _gpu: gpu,
@@ -167,7 +167,7 @@ fn rig() -> Rig {
 impl Rig {
     /// Invoke the world_use_time audio seam used by App::frame, without running a full app frame.
     fn frame(&mut self, t: f64) {
-        dereth_client::audio::world_use_time(
+        dereth_client_runtime::audio::world_use_time(
             Some(&mut self.audio),
             Some(&mut self.scene),
             &mut self.stream,
@@ -468,7 +468,7 @@ fn the_sound_event_queue_is_drained_without_an_audio_device() {
             .apply_event(&sound_event(1.0), LocalTime(f64::from(i)));
     }
     assert_eq!(r.stream.stats.sound_events, 8);
-    dereth_client::audio::world_use_time(
+    dereth_client_runtime::audio::world_use_time(
         None,
         Some(&mut r.scene),
         &mut r.stream,

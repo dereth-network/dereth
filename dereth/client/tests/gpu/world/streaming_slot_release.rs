@@ -14,13 +14,12 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{block_xy, load_region, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ItemObjDescEvent, ObjectCreatePayload};
@@ -30,6 +29,11 @@ use dereth_protocol::types::{
 };
 use dereth_protocol::{write_body, Opcode};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::block_xy, dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 // ---------------------------------------------------------------------------------------------
 // Fixtures
@@ -157,7 +161,7 @@ fn go_to(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu, blo
     }
     scene.follow_character_now();
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(0.0),
         0.0,
@@ -788,14 +792,18 @@ mod terrain_surfaces {
     //! diagonally out of Holtburg and home twice. Fails without the dats or a device is absent.
 
     use super::{block_at, store, LAP, LAPS};
-    use dereth_client::world::{SceneReads, SceneWrites};
     use std::sync::Arc;
+    use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-    use dereth_client::character::CharacterInput;
-    use dereth_client::world::{block_xy, load_region, SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+    use dereth_client_runtime::character::CharacterInput;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
     use dereth_render::device::Gpu;
+    use {
+        dereth_client_runtime::landblock::block_xy, dereth_client_runtime::landblock::load_region,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene,
+    };
 
     // ---------------------------------------------------------------------------------------------
     // Fixtures: the same shapes `world::streaming_slot_release` uses, so the two are comparable.
@@ -876,7 +884,7 @@ mod terrain_surfaces {
         }
         scene.follow_character_now();
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(0.0),
             0.0,

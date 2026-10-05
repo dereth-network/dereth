@@ -33,7 +33,7 @@
 //! | `0x12……` / `0x13……` | action + emote (+ persistent) | wave, `0x13000087` | a one-shot emote |
 //!
 //! So none of them can be projected onto the six direction bools of
-//! `dereth_client::character::CharacterInput`; they are calls, which is
+//! `dereth_client_runtime::character::CharacterInput`; they are calls, which is
 //! exactly what the action handler's tail does with them
 //! (`DoMotion(player, cmd, params, 1)` on the press, `StopMotion` on the release, with
 //! `action_stamp++` for the `0x10000000` class).

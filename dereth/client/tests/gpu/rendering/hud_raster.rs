@@ -20,7 +20,7 @@ type Shot = (
     u32,
     Vec<u8>,
     Vec<dereth_ui::UiDrawCmd>,
-    dereth_client::ui_draw::UiTextureStats,
+    dereth_client_shell::ui_draw::UiTextureStats,
 );
 
 type VitalShot = ((u32, u32), Vec<u8>, u32, u32);
@@ -165,7 +165,7 @@ fn recorded_series(
     let table = {
         use dereth_assets::Decode as _;
         use dereth_primitives::AssetSource as _;
-        let id = dereth_client::hud::ATTRIBUTE_2ND_TABLE;
+        let id = dereth_client_runtime::hud::ATTRIBUTE_2ND_TABLE;
         dereth_assets::tables::Attribute2ndTable::decode_payload(id, &store.read(id).expect("read"))
             .expect("Attribute2ndTable")
     };
@@ -177,7 +177,7 @@ fn recorded_series(
             .expect("QualityFilter")
     };
     let (cur, max) = which.stats();
-    let mut hud = dereth_client::hud::Hud::default();
+    let mut hud = dereth_client_shell::hud::Hud::default();
     // `apply_events` takes the object tables (`0x0013`'s two inventory lists land in them); this
     // loop cares only about the qualities, which live in that world too, on the player's own
     // weenie. The description belongs only to the identified player object, so this scratch

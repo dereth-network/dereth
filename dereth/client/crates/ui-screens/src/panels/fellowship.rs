@@ -640,7 +640,7 @@ pub const ID_FELLOWSHIP_REQUEST: &str = "ID_Fellowship_FellowshipRequest";
 /// invitation can sit on screen while the player carries on.
 ///
 /// The one-at-a-time slot itself lives with the dialog machinery in
-/// `dereth_client::target_confirmation`, which is where this build's `DialogController` is; a second
+/// `dereth_client_shell::target_confirmation`, which is where this build's `DialogController` is; a second
 /// copy here could only disagree with it.
 #[must_use]
 pub fn fellowship_request_prompt(ui: &UiSystem, player: &str) -> String {

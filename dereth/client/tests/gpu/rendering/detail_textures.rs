@@ -12,11 +12,11 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneConfig;
-use dereth_client::world::{SceneReads, SceneWrites};
-use dereth_client::{app::App, config::Config};
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_ui_screens::{PrefValue, UiRequest};
 use dereth_world_render::detail::DetailClass;
+use {dereth_client::app::App, dereth_client_runtime::config::Config};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// The Holtburg yard used by the other camera and landscape stations. Its landblock contains the
 /// building content that this preference actually reaches.
@@ -327,7 +327,7 @@ fn still_frame(on: bool) -> Option<(u64, Vec<u8>)> {
         character: false,
         time_of_day: Some(0.5),
         game_time: Some(0.0),
-        render: dereth_client::render_prefs::RenderPreferences {
+        render: dereth_client_runtime::render_prefs::RenderPreferences {
             environment_detail_textures: on,
             ..base.render
         },
@@ -358,7 +358,7 @@ fn still_frame(on: bool) -> Option<(u64, Vec<u8>)> {
 #[test]
 fn the_preference_is_still_polled_and_counted() {
     assert!(
-        dereth_client::world::DETAIL_TEXTURE_PASS,
+        dereth_scene::world_scene::DETAIL_TEXTURE_PASS,
         "the detail-texture pass exists; if this is false the pass has been removed"
     );
     let Some(mut app) = app() else { return };
@@ -415,9 +415,9 @@ fn landscape_frame(
     Vec<u8>,
     Option<dereth_world_render::detail::DetailSurface>,
 ) {
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::WorldScene;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_primitives::LocalTime;
+    use dereth_scene::world_scene::WorldScene;
     let store = crate::common::dats();
     let mut gpu = crate::common::test_gpu(640, 480);
     let base = scene();
@@ -427,7 +427,7 @@ fn landscape_frame(
         time_of_day: Some(0.5),
         game_time: Some(0.0),
         camera_height: 0.0,
-        render: dereth_client::render_prefs::RenderPreferences {
+        render: dereth_client_runtime::render_prefs::RenderPreferences {
             landscape_detail_textures: on,
             environment_detail_textures: false,
             ..base.render
@@ -449,8 +449,8 @@ fn landscape_frame(
             .sync_objects(&store, &mut gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) / 30.0),
             1.0 / 30.0,
         );

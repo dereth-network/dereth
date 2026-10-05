@@ -77,7 +77,7 @@
 //! ```
 //!
 //! The literals keep their trailing newline here, as `0x474`'s does; the scroll trims it as its
-//! first act (`dereth_client::chat::add_text_to_scroll_trim`), and the `hud.rs`
+//! first act (`dereth_client_model::chat::composition::add_text_to_scroll_trim`), and the `hud.rs`
 //! arms apply that trim on the way to the scroll.
 //!
 //! # The whole function, and what a miss does
@@ -245,7 +245,7 @@ pub enum Arm {
 impl Arm {
     /// The line this arm composes from the server's string, or `None` when it draws none.
     /// The trailing newline many literals carry is retail's own; the scroll
-    /// trims it as its first act (`dereth_client::chat::add_text_to_scroll_trim`), which the
+    /// trims it as its first act (`dereth_client_model::chat::composition::add_text_to_scroll_trim`), which the
     /// `hud.rs` arms apply on the way to the scroll.
     #[must_use]
     pub fn render(self, text: &str) -> Option<String> {

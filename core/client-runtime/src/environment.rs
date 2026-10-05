@@ -1,6 +1,6 @@
 //! The process-owned landscape presets an admin environment command writes.
 //!
-//! It lives in this crate because `dereth_client::present::Scene`'s
+//! It lives in this crate because `dereth_client_runtime::present::Scene`'s
 //! `set_environment_override_state` names `EnvironmentOverrideState`, and the trait cannot sit
 //! below the type it names. Nothing here draws, holds a device or makes an OS call — it is a
 //! seven-field record behind a shared handle and the table that fills it.
@@ -13,7 +13,7 @@
 //! * neither method is gated on a device feature: this crate has none, and the type itself is
 //!   ungated.
 //!
-//! `dereth_client::world::EnvironmentOverrideState` resolves to it through a `pub use`.
+//! `dereth_client_runtime::environment::EnvironmentOverrideState` resolves to it through a `pub use`.
 
 use std::cell::RefCell;
 use std::rc::Rc;

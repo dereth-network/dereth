@@ -7,10 +7,10 @@
 //! (`DERETH_TEST_DAT_DIR`) beside them. A missing input fails.
 
 use dereth_assets::Decode;
-use dereth_client::textures::TextureStore;
-use dereth_client::ui_draw::derive_plain;
+use dereth_client_shell::ui_draw::derive_plain;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::DataId;
+use dereth_scene::textures::TextureStore;
 use dereth_ui::region::SurfaceOp;
 use dereth_ui::ImageSource;
 

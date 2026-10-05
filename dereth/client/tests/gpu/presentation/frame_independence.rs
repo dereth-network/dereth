@@ -31,18 +31,21 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #![allow(clippy::pedantic)]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{load_region, SceneConfig, WorldScene};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{MovementPositionEvent, PositionPack};
 use dereth_protocol::{write_body, Opcode};
+use {
+    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// The four refresh rates in play. 60 and 120 are the two that sit *on* `MIN_QUANTUM` (two and
 /// four frames respectively land on 1/30 s in exact arithmetic, so the accumulated clock decides
@@ -81,7 +84,7 @@ fn run(store: &Arc<RetailDatStore>, hz: f64) -> Vec<Shot> {
     for _ in 0..settle {
         t += 1.0 / hz;
         scene.update(Default::default(), input, LocalTime(t), dtf);
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             Default::default(),
             LocalTime(t),
@@ -103,7 +106,7 @@ fn run(store: &Arc<RetailDatStore>, hz: f64) -> Vec<Shot> {
     for _ in 0..n {
         t += 1.0 / hz;
         scene.update(Default::default(), input, LocalTime(t), dtf);
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             Default::default(),
             LocalTime(t),

@@ -11,14 +11,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::CharacterInput;
-use dereth_client::env_cells::{physics_geometry, EnvCellLoader};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, Position, Quat, Vec3};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
+use {dereth_world_data::env_cells::physics_geometry, dereth_world_data::env_cells::EnvCellLoader};
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -159,7 +159,7 @@ fn indoor_shot_with(
     pixels: bool,
 ) -> Shot {
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),
@@ -185,12 +185,12 @@ fn indoor_shot_with(
     let mut rgba = Vec::new();
     let mut stamps = 0;
     for i in 0..6 {
-        now += dereth_client::app::HEADLESS_STEP;
+        now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(store, &mut gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
             LocalTime(now),
             1.0 / 30.0,
@@ -199,11 +199,11 @@ fn indoor_shot_with(
         // replaces the temporary debug chase camera placed by the scene update with the production
         // camera, `(0, -2.75, 0.825)` behind the pivot and pitched down 16.699 degrees, so the depth
         // clear and the stamp are photographed from where a player's camera actually is.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             LocalTime(now),
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         scene.stream(store, &mut gpu).expect("stream");
         scene
@@ -269,9 +269,9 @@ fn outdoor_shot(store: &Arc<RetailDatStore>, z_clear: bool) -> Vec<u8> {
             .sync_objects(store, &mut gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
             CharacterInput::default(),
-            LocalTime(f64::from(i) * dereth_client::app::HEADLESS_STEP),
+            LocalTime(f64::from(i) * dereth_client_runtime::platform::clock::HEADLESS_STEP),
             1.0 / 30.0,
         );
         scene.stream(store, &mut gpu).expect("stream");

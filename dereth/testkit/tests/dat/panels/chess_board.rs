@@ -447,21 +447,21 @@ pub(super) fn every_chess_message_reaches_a_receiver_or_a_sender() {
     let mut received = Vec::new();
     let mut dropped = Vec::new();
     for op in INBOUND {
-        dereth_client::dropped::clear();
+        dereth_client_runtime::dropped::clear();
         let mut blob = op.0.to_le_bytes().to_vec();
         blob.extend(std::iter::repeat_n(0_u8, 64));
         let events =
             [dereth_client_net::client_session::SessionEvent::UiEvent { opcode: op, blob }];
 
         let mut world = dereth_client_model::World::new();
-        let mut hud = dereth_client::hud::Hud::new();
+        let mut hud = dereth_client_shell::hud::Hud::new();
         hud.apply_events(&events, &mut world);
 
         let mut world = dereth_client_model::World::new();
-        let mut inter = dereth_client::interaction::Interaction::new();
-        dereth_client::interaction::apply_events(&mut inter, &events, &mut world);
+        let mut inter = dereth_client_runtime::interaction::Interaction::new();
+        dereth_client_runtime::interaction::apply_events(&mut inter, &events, &mut world);
 
-        if dereth_client::dropped::unreceived(op) {
+        if dereth_client_runtime::dropped::unreceived(op) {
             dropped.push(op);
         } else {
             received.push(op);

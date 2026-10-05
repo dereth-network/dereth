@@ -13,7 +13,7 @@
 //! **The two things the drain needs that are not simulation** — where a sound raised by an
 //! object is heard, and which object sound table a `SoundType` hook resolves against — arrive through
 //! `HookObject`, because both are fields of the scene's own object and neither is read by the
-//! step. The sink is a trait for the same reason: `dereth_client::audio::SoundTrigger` is
+//! step. The sink is a trait for the same reason: `dereth_client_runtime::audio::SoundTrigger` is
 //! `dereth-client`'s, so this crate names the two pushes rather than
 //! the enum.
 
@@ -38,7 +38,7 @@ pub trait HookObject: AsObjectSim {
 
 /// Where the drain puts the sound hooks it cannot play itself.
 ///
-/// The client's implementor pushes `dereth_client::audio::SoundTrigger::Wave` and `::Table`; a
+/// The client's implementor pushes `dereth_client_runtime::audio::SoundTrigger::Wave` and `::Table`; a
 /// headless consumer can count them or drop them.
 pub trait HookSounds {
     /// `SoundHook` / `SoundTweakedHook` — a direct wave id.

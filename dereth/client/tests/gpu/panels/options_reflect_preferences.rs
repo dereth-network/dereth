@@ -11,7 +11,6 @@
 // This suite drives a real `App` through either Vulkan or Windows D3D12.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::{app::App, config::Config};
 use dereth_ui_screens::{
     options::{
         preferences::UI_PREFERENCES,
@@ -19,6 +18,7 @@ use dereth_ui_screens::{
     },
     PrefValue,
 };
+use {dereth_client::app::App, dereth_client_runtime::config::Config};
 
 /// A newly created OS-temp profile, removed on drop. Never a repository fixture and never a
 /// user's file.

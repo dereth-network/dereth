@@ -10,9 +10,9 @@
 //! Behaviour: none (a census of the shipped surfaces and cells, not a client behaviour).
 
 use dereth_assets::{Decode, Surface};
-use dereth_client::env_cells::EnvCellLoader;
-use dereth_client::textures::TextureStore;
 use dereth_dat::DbType;
+use dereth_scene::textures::TextureStore;
+use dereth_world_data::env_cells::EnvCellLoader;
 use std::collections::BTreeMap;
 
 /// The indoor grey, as a colour word and as a BGRA texel.

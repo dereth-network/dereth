@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use dereth_client::input::InputShell;
-use dereth_client::interaction::Interaction;
 use dereth_client_model::combat::CombatMode;
+use dereth_client_runtime::interaction::Interaction;
+use dereth_client_shell::input::InputShell;
 use dereth_input::spec::ControlChord;
 use dereth_input::{ActionId, InputMapId};
 use dereth_primitives::{DataId, LocalTime, ObjectId, ServerTime};
@@ -48,7 +48,7 @@ pub fn shared_controls(shell: &InputShell) -> Vec<ControlChord> {
 /// **The calibration**, which every silence below rests on: the driver can produce an action
 /// and the arm can move the world. The known positive is the key that toggles combat itself.
 pub fn the_driver_and_the_arm_both_work() -> bool {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut shell = maps::shell();
     let mut d = maps::Driver::new();
@@ -143,13 +143,13 @@ pub fn height_of(r: &dereth_client_model::Request) -> Option<u32> {
 /// counted, never sent.
 pub struct Bench {
     inter: Interaction,
-    objects: dereth_client::objects::ObjectStream,
+    objects: dereth_client_runtime::objects::ObjectStream,
     store: std::sync::Arc<dereth_dat::RetailDatStore>,
 }
 
 impl Bench {
     pub fn new(mode: CombatMode) -> Self {
-        let mut objects = dereth_client::objects::ObjectStream::default();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::default();
         objects.world = a_world(mode);
         Self {
             inter: Interaction::new(),
@@ -159,7 +159,7 @@ impl Bench {
     }
 
     pub fn drive(&mut self, actions: Vec<dereth_client_runtime::actions::Action>, now: f64) {
-        let _ = dereth_client::interaction::use_time(
+        let _ = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,
@@ -218,7 +218,7 @@ pub struct WindowBench {
     p: RemainingPanels,
     view: StubView,
     inter: Interaction,
-    objects: dereth_client::objects::ObjectStream,
+    objects: dereth_client_runtime::objects::ObjectStream,
 }
 
 impl WindowBench {
@@ -227,7 +227,7 @@ impl WindowBench {
         let root = screen.root().expect("the gameplay root");
         let mut p = RemainingPanels::default();
         p.post_init(&mut ui, root);
-        let mut objects = dereth_client::objects::ObjectStream::default();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::default();
         objects.world = a_world(mode);
         Self {
             ui,

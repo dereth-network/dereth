@@ -19,7 +19,7 @@ struct Client {
 }
 impl Client {
     fn new() -> Self {
-        let cfg = crate::config::Config {
+        let cfg = dereth_client_runtime::config::Config {
             headless: true,
             connect: false,
             sound: false,

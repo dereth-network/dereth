@@ -48,7 +48,7 @@ fn find(ui: &UiSystem, s: &GamePlayScreen, id: ElementId) -> ElemHandle {
         .unwrap_or_else(|| panic!("{:#010X} is not in the shipped tree", id.0))
 }
 
-/// The panel bound exactly as `dereth_client::hud::Hud::drive` binds it: off the inventory page.
+/// The panel bound exactly as `dereth_client_shell::hud::Hud::drive` binds it: off the inventory page.
 fn bound() -> (UiSystem, GamePlayScreen, InventoryPanels) {
     let (mut ui, s) = gameplay();
     let page = find(&ui, &s, INVENTORY_PAGE);

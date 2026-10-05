@@ -1,6 +1,6 @@
 //! The `Render.*` preference owners, over the scene's: every item of
 //! [`dereth_scene::render_prefs`] is glob-re-exported here, so
-//! `dereth_client::render_prefs::RenderPreferences` and its siblings resolve here too. What this
+//! `dereth_client_runtime::render_prefs::RenderPreferences` and its siblings resolve here too. What this
 //! module adds is the Apply over the whole renderer, which holds both owners.
 
 pub use dereth_scene::render_prefs::*;
@@ -12,7 +12,7 @@ pub use dereth_scene::render_prefs::*;
 /// cached overall graphics quality; the next frame's preference poll performs the work.
 /// So the page writes the variable and the renderer
 /// notices — which is what this does: the gpu-owned names land on the device, the scene-owned
-/// ones land on [`dereth_scene::world::SceneConfig::render`], and `view_params` and the part pass read
+/// ones land on [`dereth_client_runtime::scene::SceneConfig::render`], and `view_params` and the part pass read
 /// them on the next frame.
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 pub fn apply_preference_requests(

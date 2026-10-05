@@ -34,7 +34,7 @@ use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -42,11 +42,9 @@ use std::sync::Arc;
 use dereth_animation::data::AnimAssets;
 use dereth_animation::parts::{AnimPartChange, ObjDesc, PaletteRange, PartArray, TextureMapChange};
 use dereth_assets::{Decode, Setup};
-use dereth_client::anim_assets::DatAnimAssets;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{load_region, SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_protocol::objects::physics_state::HIDDEN_PS;
@@ -54,6 +52,11 @@ use dereth_protocol::objects::{
     ItemCreateObject, ItemObjDescEvent, ItemSetState, ItemUpdateObject,
 };
 use dereth_render::device::Gpu;
+use dereth_world_data::anim_assets::DatAnimAssets;
+use {
+    dereth_client_runtime::landblock::load_region, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 // ---------------------------------------------------------------------------------------------
 // The replay: the capture through the client's network and object stream.
@@ -64,7 +67,7 @@ struct Replayed {
     /// The index of the last datagram after which the client still held objects; every recording
     /// ends with a clean logout and the end-of-session teardown empties the object model.
     last_populated: usize,
-    player: Option<(ObjectId, dereth_client::objects::Presence)>,
+    player: Option<(ObjectId, dereth_client_runtime::objects::Presence)>,
 }
 
 fn replay_upto(session: &str, limit: usize) -> Replayed {
@@ -154,7 +157,7 @@ fn setup_of(store: &RetailDatStore, id: DataId) -> Setup {
 }
 
 fn triangles(store: &RetailDatStore, gfxobj: DataId) -> usize {
-    dereth_client::models::build_gfxobj(store, gfxobj)
+    dereth_client_runtime::models::build_gfxobj(store, gfxobj)
         .iter()
         .map(|g| g.vertices.len() / 3)
         .sum()
@@ -318,9 +321,11 @@ fn the_capture_swaps_the_two_feet_and_the_two_lower_legs_of_its_players_body() {
     let (_, p) = r.player.as_ref().expect("the capture creates a player");
     let setup_id = p.setup_id.expect("the player has a setup record");
     let setup = setup_of(&store, setup_id);
-    let frames =
-        dereth_client::models::placement_frames(&setup, dereth_client::models::PLACEMENT_RESTING)
-            .expect("the human setup carries a placement");
+    let frames = dereth_client_runtime::models::placement_frames(
+        &setup,
+        dereth_client_runtime::models::PLACEMENT_RESTING,
+    )
+    .expect("the human setup carries a placement");
     assert_eq!(frames.len(), setup.parts.len(), "one frame per part");
 
     // Rank the parts by height. The feet are the two lowest; the lower legs are the next two.
@@ -821,8 +826,8 @@ fn fresh_array(
 fn settle(scene: &mut WorldScene, from: u32) {
     for i in from..from + 8 {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(f64::from(i) * 0.05),
             0.05,
         );

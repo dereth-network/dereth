@@ -15,7 +15,7 @@
 //! # The two ids the client never writes down, and where they came from
 //!
 //! Preview initialization resolves enums `0x10000001` and `0x10000002` through the object cache.
-//! That is [`dereth_client::assets::enum_did`](dereth_client_runtime::assets::enum_did)'s two-level
+//! That is [`dereth_client_runtime::assets::enum_did`](dereth_client_runtime::assets::enum_did)'s two-level
 //! lookup, and the **group is 7, `UIASSET`** -- the same group the UI sound table
 //! (`0x10000003`) comes from, which is what pins it. In this dat build the master `DidMapper`
 //! `0x25000000` sends group 7 to `0x25000010`, and that mapper's own enum-to-name table names
@@ -659,9 +659,10 @@ mod imp {
     use dereth_world_render::creature_mode::{CreatureMode, PreviewProjection};
     use dereth_world_render::lighting::LightType;
 
-    use crate::world::{
-        build_meshes, material_lighting, material_texture_factor, world_constants_scaled,
-        BakeCache, PartMesh,
+    use {
+        crate::world_scene::build_meshes, crate::world_scene::material_lighting,
+        crate::world_scene::material_texture_factor, crate::world_scene::world_constants_scaled,
+        crate::world_scene::BakeCache, crate::world_scene::PartMesh,
     };
 
     /// One physics body inside a preview space.
@@ -781,7 +782,7 @@ mod imp {
         /// Total triangles, so a test can say the space drew *something* without a frame capture.
         ///
         /// **Mind the divisor.** A [`PartMesh`] is an *object* mesh — the FVF `0x152` layout
-        /// [`crate::world::OBJECT_VERTEX_STRIDE`] describes, 36 bytes a vertex. Dividing by
+        /// [`dereth_scene::world_scene::OBJECT_VERTEX_STRIDE`] describes, 36 bytes a vertex. Dividing by
         /// the client shell's UI vertex size, `UI_VERTEX_BYTES` (24), instead would report exactly 1.5 times the
         /// truth, and a caller that asks only whether the count is positive would not notice.
         #[must_use]
@@ -789,7 +790,7 @@ mod imp {
             self.meshes
                 .iter()
                 .flatten()
-                .map(|m| m.vertices.len() / crate::world::OBJECT_VERTEX_STRIDE / 3)
+                .map(|m| m.vertices.len() / crate::world_scene::OBJECT_VERTEX_STRIDE / 3)
                 .sum()
         }
     }
@@ -803,7 +804,7 @@ mod imp {
         /// The surfaces of the parts drawn with another era's look (`[Render] Objects`), apart
         /// from [`Self::cache`] because the two eras hold different records under the same ids.
         look_cache: BakeCache,
-        assets: Arc<dereth_client_runtime::anim_assets::DatAnimAssets>,
+        assets: Arc<dereth_world_data::anim_assets::DatAnimAssets>,
     }
 
     // `BakeCache` and `DatAnimAssets` are decode memos with no `Debug`, which is why this is
@@ -824,7 +825,7 @@ mod imp {
         /// Construct the current preview space and initialize its private cell, preserving the
         /// original construction-then-initialization order.
         #[must_use]
-        pub fn new(assets: Arc<dereth_client_runtime::anim_assets::DatAnimAssets>) -> Self {
+        pub fn new(assets: Arc<dereth_world_data::anim_assets::DatAnimAssets>) -> Self {
             let mut mode = CreatureMode::new();
             mode.initialize_scene();
             Self {
@@ -1239,7 +1240,7 @@ mod imp {
                             } else {
                                 clone
                             };
-                            crate::world::bind_lights(&mut lit, &set, emissive, false);
+                            crate::world_scene::bind_lights(&mut lit, &set, emissive, false);
                             gpu.draw_dynamic(
                                 key,
                                 &DrawConstants {
@@ -1274,7 +1275,7 @@ mod imp {
         /// loading fills the array from `degrades[i].gfxobj_id`. The part's own id, on the player
         /// body (setup `0x02000001`), is level **1** for 16 of its 34 parts — baking from it would
         /// draw the doll with 417 triangles where the same body in the world, built level by level
-        /// by [`crate::world::WorldScene`], draws 772: a lower-detail model one step down the
+        /// by [`dereth_scene::world_scene::WorldScene`], draws 772: a lower-detail model one step down the
         /// ladder rather than its bottom level.
         ///
         /// The world path's degrade guard is **not** applied here: `draws_at_near_band` asks `get_degrade` with `degrades_disabled = 0`, which for

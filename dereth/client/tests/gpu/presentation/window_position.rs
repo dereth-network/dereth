@@ -20,11 +20,11 @@ mod wired {
     use std::path::PathBuf;
 
     use dereth_client::app::App;
-    use dereth_client::config::{Config, Preferences};
     use dereth_render::window_proc::Rect;
     use dereth_ui::framework::mode;
     use dereth_ui_screens::options::store;
     use dereth_ui_screens::{PrefValue, UiRequest};
+    use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
 
     const RESOLUTION: &str = "Display.Resolution";
 

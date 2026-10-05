@@ -352,7 +352,7 @@ impl<T: std::fmt::Debug + dereth_primitives::AssetSource> LayoutAssets for T {
 }
 
 /// The input seam is [`dereth_client_contract::input`]'s, so that
-/// `dereth_client::input::InputShell` can implement it: with the type in one crate and the
+/// `dereth_client_shell::input::InputShell` can implement it: with the type in one crate and the
 /// trait in another, the impl would have nowhere legal to live. Both resolve here too.
 pub use dereth_client_contract::input::{InputPump, NullInputPump};
 

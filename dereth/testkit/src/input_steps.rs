@@ -18,19 +18,19 @@
 //!
 //! # The messages are the client's own
 //!
-//! A key press is built through [`dereth_client::pump::Pump`] -- the client's *own* Windows message
+//! A key press is built through [`dereth_desktop::pump::Pump`] -- the client's *own* Windows message
 //! mapper -- and delivered where the window loop delivers it: to the pump's state and to the real
 //! input manager. A character is a `WM_CHAR`, which is what the message loop produces *after*
 //! translation, because that is the message an edit box reads.
 
-use dereth_client::platform::keys::Key;
-use dereth_client::pump::Win32Message;
+use dereth_input::keys::Key;
+use dereth_input::win32::Win32Message;
 
 use crate::client::HeadlessClient;
 use crate::player::{self, Target};
 
 /// The input map a UI action is dispatched on -- the client's own, not a second opinion on it.
-pub use dereth_client::ui::UI_INPUT_MAP;
+pub use dereth_client_shell::ui::UI_INPUT_MAP;
 
 /// One bound action, one-shot, as pressing the key it is bound to does.
 ///
@@ -79,7 +79,7 @@ pub fn press_on_map(
 /// `USE` -- the action the shipped keymap binds to `R`, and the one a player presses to use what
 /// is selected. The use-feedback and interaction scenarios drive it.
 pub const USE: dereth_input::ActionId =
-    dereth_input::ActionId(dereth_client::interaction::action::USE);
+    dereth_input::ActionId(dereth_client_runtime::interaction::action::USE);
 
 /// The input map the UI commands live on, which is the one `USE` is bound in.
 pub const UI_COMMANDS: dereth_input::InputMapId = dereth_input::InputMapId(0x1000_0009);
@@ -116,7 +116,7 @@ pub fn bound_scan_code(
 /// difference is the point.
 ///
 /// `key` is the host's own resolved key -- the virtual key and the scan code -- which a scenario
-/// gets from `dereth_client::platform::window::key_from_key_code(KeyCode::KeyR)`. Naming a key is
+/// gets from `dereth_desktop::platform::window::key_from_key_code(KeyCode::KeyR)`. Naming a key is
 /// the window layer's job and this crate must not take a second opinion on it; `winit` is a
 /// dev-dependency here for exactly that reason. The scan code is **asserted against the shipped
 /// binding**, low seven bits, so a scenario that names the wrong key fails saying so rather than
@@ -160,7 +160,7 @@ pub const SETTLE_FRAMES: u64 = 6;
 ///
 /// It takes the host's own resolved key -- the virtual key and the scan code -- rather than a
 /// name, because naming a key is the window layer's job and this crate must not take a second
-/// opinion on it. A scenario gets one from `dereth_client::platform::window::key_from_key_code`.
+/// opinion on it. A scenario gets one from `dereth_desktop::platform::window::key_from_key_code`.
 ///
 /// No frame is run: the two edges of a tap are often wanted in one frame, and [`tap`] is the pair.
 ///

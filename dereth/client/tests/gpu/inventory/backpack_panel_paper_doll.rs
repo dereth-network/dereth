@@ -17,13 +17,13 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::gpu::PreviewId;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::shared_session;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::gpu::PreviewId;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
 use dereth_ui::framework::Screen;
 use dereth_ui::{Box2D, ElemHandle, ElementId, UiSystem};
@@ -46,7 +46,7 @@ fn store() -> Arc<dereth_dat::RetailDatStore> {
         "the retail dats are this test's oracle: none at {} -- set DERETH_TEST_DAT_DIR",
         d.display()
     );
-    Arc::new(dereth_client::assets::open_data_files(&d).expect("the retail dats open"))
+    Arc::new(dereth_client_runtime::assets::open_data_files(&d).expect("the retail dats open"))
 }
 
 /// The capture's server half replayed into an [`ObjectStream`], up to record `limit` inclusive.
@@ -168,7 +168,7 @@ fn capture_player(objects: &ObjectStream) -> (ObjectId, DataId, dereth_animation
     let setup = p
         .setup_id
         .expect("the capture's player create carries a setup record");
-    let od = dereth_client::world::to_anim_objdesc(&p.objdesc);
+    let od = dereth_client_runtime::movement::to_anim_objdesc(&p.objdesc);
     assert!(
         !od.part_changes.is_empty() || !od.texture_changes.is_empty(),
         "the capture's player wears nothing, so this test has no oracle for 'the right gear'"
@@ -195,11 +195,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = App::new(cfg).expect("the D3D12 device and the shipped UI");
     app.start_shell().expect("the shell starts");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
@@ -368,11 +368,11 @@ fn the_paper_doll_animation_resolves_through_the_uiasset_group_to_an_animation()
     assert_eq!(PAPER_DOLL_ANIMATION_ENUM, 0x1000_0005);
     assert_eq!(
         PAPER_DOLL_ANIMATION_ENUM,
-        dereth_client::preview::ENUM_PAPERDOLL_ANIMATION
+        dereth_scene::preview::ENUM_PAPERDOLL_ANIMATION
     );
-    let id = dereth_client::assets::enum_did(
+    let id = dereth_client_runtime::assets::enum_did(
         assets,
-        dereth_client::preview::UIASSET_GROUP,
+        dereth_scene::preview::UIASSET_GROUP,
         PAPER_DOLL_ANIMATION_ENUM,
     )
     .expect("UIASSET 0x10000005 (PaperDollAnimation) resolves");
@@ -517,11 +517,12 @@ fn doll_space(
     store: &Arc<dereth_dat::RetailDatStore>,
     setup: DataId,
     objdesc: Option<&dereth_animation::parts::ObjDesc>,
-) -> dereth_client::gpu::Renderer {
-    let mut r = dereth_client::gpu::Renderer::new(None, 256, 256).expect("a WARP device comes up");
-    let assets = Arc::new(dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(
-        store,
-    )));
+) -> dereth_client_shell::gpu::Renderer {
+    let mut r =
+        dereth_client_shell::gpu::Renderer::new(None, 256, 256).expect("a WARP device comes up");
+    let assets = Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+        Arc::clone(store),
+    ));
     assert!(
         r.ensure_preview(PreviewId::PaperDoll, &assets),
         "the space is created once"
@@ -667,7 +668,7 @@ fn the_paper_doll_draws_inside_its_viewport_and_nowhere_else() {
         assert_eq!(
             app.renderer_mut()
                 .preview(PreviewId::PaperDoll)
-                .map(dereth_client::preview::PreviewSpace::object_count),
+                .map(dereth_scene::preview::PreviewSpace::object_count),
             Some(1),
             "one doll, not one per frame"
         );
@@ -759,9 +760,9 @@ fn dressing_the_doll_changes_the_pixels_inside_the_viewport() {
         if !dress {
             let store = store();
             let a: &dyn dereth_primitives::AssetSource = &*store;
-            let anim = dereth_client::assets::enum_did(
+            let anim = dereth_client_runtime::assets::enum_did(
                 a,
-                dereth_client::preview::UIASSET_GROUP,
+                dereth_scene::preview::UIASSET_GROUP,
                 PAPER_DOLL_ANIMATION_ENUM,
             )
             .expect("PaperDollAnimation resolves");
@@ -794,7 +795,7 @@ fn dressing_the_doll_changes_the_pixels_inside_the_viewport() {
             .renderer_mut()
             .preview(PreviewId::PaperDoll)
             .and_then(|s| s.object(0))
-            .map(dereth_client::preview::PreviewObject::drawn_parts)
+            .map(dereth_scene::preview::PreviewObject::drawn_parts)
             .expect("a doll either way");
         assert!(n > 10, "the doll drew {n} parts");
         app.shutdown();
@@ -849,9 +850,9 @@ fn the_doll_holds_frame_one_because_its_framerate_is_zero() {
     let (_, setup, od) = capture_player(&objects);
     let mut r = doll_space(&store, setup, Some(&od));
     let a: &dyn dereth_primitives::AssetSource = &*store;
-    let anim = dereth_client::assets::enum_did(
+    let anim = dereth_client_runtime::assets::enum_did(
         a,
-        dereth_client::preview::UIASSET_GROUP,
+        dereth_scene::preview::UIASSET_GROUP,
         PAPER_DOLL_ANIMATION_ENUM,
     )
     .expect("PaperDollAnimation resolves");
@@ -905,7 +906,7 @@ fn the_doll_is_not_built_or_drawn_while_the_backpack_is_closed() {
     assert_eq!(
         app.renderer_mut()
             .preview(PreviewId::PaperDoll)
-            .map(dereth_client::preview::PreviewSpace::object_count),
+            .map(dereth_scene::preview::PreviewSpace::object_count),
         Some(1),
         "opening the backpack builds the doll"
     );

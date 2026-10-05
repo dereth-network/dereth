@@ -13,15 +13,15 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, ServerTime, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 1200;
 const H: u32 = 900;
@@ -100,7 +100,7 @@ struct Reading {
 /// carried, `ROOM_CELL` the interior cell that contains the same point.
 fn run(store: &Arc<RetailDatStore>, cell: u32, early: f64, late: f64) -> (Reading, Reading) {
     let mut gpu = crate::common::test_gpu(W, H);
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         landblock: HOLTBURG,
         time_of_day: Some(0.35),
@@ -131,7 +131,7 @@ fn run(store: &Arc<RetailDatStore>, cell: u32, early: f64, late: f64) -> (Readin
     // a fixed 1/30-second delta, and three drawn samples then advance beyond it by three headless
     // steps before it is read. The sampled times are therefore near the requested durations, not
     // exact transition frames.
-    let step = dereth_client::app::HEADLESS_STEP;
+    let step = dereth_client_runtime::platform::clock::HEADLESS_STEP;
     let frame =
         |scene: &mut WorldScene, gpu: &mut Gpu, stream: &mut ObjectStream, now: f64, draw: bool| {
             scene
@@ -145,14 +145,14 @@ fn run(store: &Arc<RetailDatStore>, cell: u32, early: f64, late: f64) -> (Readin
                 None,
             );
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(now),
                 1.0 / 30.0,
             );
-            dereth_client::camera::update_viewer(
+            dereth_client_runtime::camera::update_viewer(
                 scene,
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 LocalTime(now),
                 1.0 / 30.0,
             );

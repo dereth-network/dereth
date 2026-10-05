@@ -25,13 +25,13 @@ use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,
 };
 use crate::common::recorded_world_sessions;
-use dereth_client::world::{SceneReads, SceneWrites};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{DataId, LocalTime, ObjectId};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // ---------------------------------------------------------------------------------------------
 // The replay: the capture through the client's network and object stream.
@@ -61,7 +61,7 @@ struct Replayed {
     /// The index of the last datagram after which the client still held objects. Every recording
     /// ends with a clean logout, and ending the character session empties the object model.
     last_populated: usize,
-    player: Option<(ObjectId, dereth_client::objects::Presence)>,
+    player: Option<(ObjectId, dereth_client_runtime::objects::Presence)>,
 }
 
 fn replay_upto(session: &str, limit: usize) -> Replayed {
@@ -203,7 +203,7 @@ fn a_wire_subpalette_changes_exactly_the_ranges_it_names() {
         "the capture's player has no sub-palettes"
     );
 
-    let textures = dereth_client::textures::TextureStore::new(&store);
+    let textures = dereth_scene::textures::TextureStore::new(&store);
     let base = textures
         .palette(DataId(od.palette_id))
         .unwrap_or_else(|| panic!("base palette {:#010X} is not in the dat", od.palette_id));
@@ -245,10 +245,10 @@ fn a_wire_subpalette_changes_exactly_the_ranges_it_names() {
 
     // And the shift reaches the decode: a body part's INDEX16 texture is different pixels.
     let setup = p.setup_id.expect("the player has a setup");
-    let parts = dereth_client::models::resolve_parts(&store, setup);
+    let parts = dereth_client_runtime::models::resolve_parts(&store, setup);
     let mut compared = 0usize;
     for part in parts.iter().take(8) {
-        for g in dereth_client::models::build_gfxobj(&store, part.gfxobj) {
+        for g in dereth_client_runtime::models::build_gfxobj(&store, part.gfxobj) {
             let Some(sid) = g.surface else { continue };
             if !textures.is_palettised(sid).unwrap_or(false) {
                 continue;
@@ -407,7 +407,7 @@ fn the_players_own_body_wears_his_objdesc() {
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
     // Attach the local character after loading the world, as the application does.
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");

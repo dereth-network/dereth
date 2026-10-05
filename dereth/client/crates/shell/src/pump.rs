@@ -15,8 +15,8 @@
 use dereth_client_contract::window_proc::WndProcResult;
 use dereth_client_runtime::pump::WindowMessage;
 
-use crate::platform::keys::{Key, MouseButton};
-use crate::platform::window::HostEvent;
+use dereth_input::host::HostEvent;
+use {dereth_input::keys::Key, dereth_input::keys::MouseButton};
 
 /// The window procedure model, re-exported for test-support crates that may not name the
 /// render crate. A re-export adds no dependency and changes no behaviour.

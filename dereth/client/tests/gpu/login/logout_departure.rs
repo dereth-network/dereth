@@ -14,11 +14,9 @@
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;
-use dereth_client::world::SceneReads;
+use dereth_scene::world_scene::SceneReads;
 
 use dereth_animation::MotionCommand;
-use dereth_client::world::{EmitterOwner, SceneConfig};
-use dereth_client::{app::App, config::Config, net::ClientNetwork};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_primitives::{LocalTime, ObjectId};
@@ -35,6 +33,11 @@ use dereth_protocol::{Message, Opcode};
 use dereth_ui::framework::mode;
 use dereth_ui_screens::screens::gameplay::{logout, GamePlayScreen};
 use dereth_ui_screens::screens::teleport::TeleportAnimState;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::EmitterOwner};
 
 /// The five recorded sessions that reach the world and then leave it. (`login-account-booted` is a bad
 /// password and `ddd-interrogation-only` never enters.)
@@ -72,7 +75,7 @@ const PLAYER: ObjectId = ObjectId(0x5000_0F60);
 const FPS: f64 = 30.0;
 
 /// A log-off request sets the local fade deadline to current time + 3.0 seconds.
-const LOG_OFF_DELAY: f64 = dereth_client::teleport::LOG_OFF_DELAY_SECONDS;
+const LOG_OFF_DELAY: f64 = dereth_client_runtime::teleport::LOG_OFF_DELAY_SECONDS;
 
 /// `ACE.Server/Network/Session.cs:152` — `logOffRequestTime.AddSeconds(6)`. The window is a
 /// **server constant**, not the animation's length.
@@ -426,13 +429,13 @@ fn click(app: &mut App, id: dereth_ui::ElementId) {
 
 /// Keyboard messages through the production pump and the shipped input maps.
 struct Keys {
-    pump: dereth_client::pump::Pump,
+    pump: dereth_desktop::pump::Pump,
     time_ms: u32,
 }
 
 impl Keys {
     fn new() -> Self {
-        let mut pump = dereth_client::pump::Pump::new();
+        let mut pump = dereth_desktop::pump::Pump::new();
         pump.state.is_ready = true;
         pump.state.is_active_app = true;
         Self {

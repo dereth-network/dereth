@@ -15,13 +15,13 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::audio::SoundTrigger;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::audio::SoundTrigger;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::LocalTime;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// One second of simulated time per cycle, so the series is readable in seconds.
 const FRAMES_PER_CYCLE: u32 = 30;
@@ -55,8 +55,8 @@ fn a_landblock_statics_event_queue_stays_bounded_over_a_long_session() {
         for _ in 0..FRAMES_PER_CYCLE {
             *t += 1.0 / 30.0;
             scene.update(
-                dereth_client::camera::CameraInput::default(),
-                dereth_client::character::CharacterInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
+                dereth_client_runtime::character::CharacterInput::default(),
                 LocalTime(*t),
                 1.0 / 30.0,
             );

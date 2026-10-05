@@ -35,14 +35,19 @@
 
 /// The runtime's window seam, the shared event, its lifecycle half and the window's event queue:
 /// the client shell's, which every platform shares.
-pub use dereth_client_shell::platform::window::{
-    headless_screen_metrics, lifecycle, HostEvent, NullWindow, PumpedEvents, WindowEvents,
-    WindowHost, STANDARD_DISPLAY_MODES,
+pub use {
+    dereth_client_runtime::platform::window::headless_screen_metrics,
+    dereth_client_runtime::platform::window::NullWindow,
+    dereth_client_runtime::platform::window::PumpedEvents,
+    dereth_client_runtime::platform::window::WindowHost,
+    dereth_client_runtime::platform::window::STANDARD_DISPLAY_MODES,
+    dereth_client_shell::platform::window::lifecycle,
+    dereth_client_shell::platform::window::WindowEvents, dereth_input::host::HostEvent,
 };
 
-use crate::platform::keys::{Key, MouseButton};
 use dereth_client_contract::options::store::DisplayMode;
 use dereth_render::window_proc::{Rect, ScreenMetrics};
+use {dereth_input::keys::Key, dereth_input::keys::MouseButton};
 
 /// `GetSystemMetrics(SM_CXSCREEN / SM_CYSCREEN)` plus the monitor's own
 /// origin and usable rectangle, out of `winit` and dereth-render's safe Win32 wrapper — this crate is
@@ -1067,7 +1072,7 @@ fn host_event(event: &winit::event::WindowEvent) -> Option<HostEvent> {
                 pressed: event.state == ElementState::Pressed,
                 // `KeyEvent::text` intentionally removes Control before it translates the key.
                 // That is useful for shortcut lookup and wrong for `TranslateMessage`, so the
-                // supplement is what is carried; see `crate::pump::key_text_messages`.
+                // supplement is what is carried; see `dereth_input::pump::key_text_messages`.
                 text: event.text_with_all_modifiers().map(str::to_owned),
             }
         }

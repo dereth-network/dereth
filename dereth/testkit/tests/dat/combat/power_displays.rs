@@ -239,8 +239,8 @@ pub(super) fn a_notice_with_no_panel_to_hear_it_is_dropped() {
 }
 
 pub(super) fn the_power_bar_follows_the_clock_at_one_full_charge_a_second() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::PowerBarMode;
+    use dereth_client_runtime::interaction::action as ia;
 
     let readable = bars::the_readback_can_produce_a_non_zero();
     let mut b = bars::Bench::new();
@@ -277,7 +277,7 @@ pub(super) fn the_power_bar_follows_the_clock_at_one_full_charge_a_second() {
 }
 
 pub(super) fn a_two_handed_style_charges_a_quarter_faster() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = bars::Bench::new();
     b.enter_advanced_combat();
@@ -300,8 +300,8 @@ pub(super) fn a_two_handed_style_charges_a_quarter_faster() {
 }
 
 pub(super) fn exactly_one_of_the_two_power_displays_is_live() {
-    use dereth_client::interaction::action as ia;
     use dereth_client_model::combat::PowerBarMode;
+    use dereth_client_runtime::interaction::action as ia;
     use dereth_ui_screens::hud::powerbar as pb;
 
     let readable = bars::the_readback_can_produce_a_non_zero();
@@ -371,7 +371,7 @@ pub(super) fn exactly_one_of_the_two_power_displays_is_live() {
 }
 
 pub(super) fn the_power_bar_is_shown_when_a_charge_begins_and_emptied_when_it_ends() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
     use dereth_ui_screens::hud::powerbar as pb;
 
     let mut b = bars::Bench::new();
@@ -472,7 +472,7 @@ pub(super) fn the_power_drag_is_continuous_and_lands_between_the_notches() {
 }
 
 pub(super) fn the_notch_and_the_fill_are_different_things() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = bars::Bench::new();
     b.set_requested_power_from_a_drag(833);
@@ -493,7 +493,7 @@ pub(super) fn the_notch_and_the_fill_are_different_things() {
 }
 
 pub(super) fn the_display_holds_the_level_the_swing_went_out_at() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
     use dereth_primitives::LocalTime;
 
     let mut b = bars::Bench::new();

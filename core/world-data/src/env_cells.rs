@@ -758,7 +758,7 @@ impl CellStaticObjects {
 
     /// Release the bodies of every cell in one landblock when the cells go.
     ///
-    /// Called from `dereth_client::world::WorldScene::release_block_interiors`, the middle step of
+    /// Called from `dereth_scene::world_scene::WorldScene::release_block_interiors`, the middle step of
     /// releasing an
     /// entire land block.
     ///

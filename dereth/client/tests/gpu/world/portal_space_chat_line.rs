@@ -15,12 +15,16 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::teleport::{TeleportAnimState, PORTAL_SPACE_CHAT_TYPE, PORTAL_SPACE_MESSAGE};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::num::rng::CrtRand;
 use dereth_primitives::ObjectId;
 use dereth_protocol::Opcode;
+use {
+    dereth_client_runtime::teleport::TeleportAnimState,
+    dereth_client_runtime::teleport::PORTAL_SPACE_CHAT_TYPE,
+    dereth_client_runtime::teleport::PORTAL_SPACE_MESSAGE,
+};
 
 // ---------------------------------------------------------------------------------------------
 // The application station.
@@ -91,11 +95,11 @@ fn app_in_world() -> App {
     );
     let mut app = App::new(base_config()).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);

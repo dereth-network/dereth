@@ -25,13 +25,16 @@
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Decode;
-use dereth_client::world::SceneReads;
-use dereth_client::world::{block_xy, landblock_did, load_region};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::num::math;
+use dereth_scene::world_scene::SceneReads;
 use dereth_world_render::land::mesh::{generate_landblock_with_table, Direction};
 use dereth_world_render::land::order::{block_orient, side_cell_count};
 use dereth_world_render::LandblockMesh;
+use {
+    dereth_client_runtime::landblock::block_xy, dereth_client_runtime::landblock::landblock_did,
+    dereth_client_runtime::landblock::load_region,
+};
 
 /// Holtburg, the landblock every station here stands on.
 const HOLTBURG: u16 = 0xA9B4;
@@ -330,17 +333,20 @@ fn the_outward_edge_of_a_stitched_block_is_exactly_its_coarser_neighbours_polyli
 /// **No datagram leaves this process.** `ObjectStream::apply_event` is handed an encoded body
 /// directly; nothing opens a socket.
 mod bench {
-    use dereth_client::character::{CharacterInput, PLAYER_OBJECT_ID};
-    use dereth_client::objects::ObjectStream;
-    use dereth_client::world::{SceneConfig, WorldScene};
-    use dereth_client::world::{SceneReads, SceneWrites};
     use dereth_client_model::weenie::{bitfield, item_type};
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
     use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
     use dereth_render::device::Gpu;
     use std::sync::Arc;
+    use {
+        dereth_client_runtime::character::CharacterInput,
+        dereth_client_runtime::character::PLAYER_OBJECT_ID,
+    };
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+    use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
     pub const W: u32 = 800;
     pub const H: u32 = 600;
@@ -375,7 +381,8 @@ mod bench {
 
     impl Bench {
         pub fn new(store: &Arc<RetailDatStore>, mut gpu: Gpu, land_radius: u32) -> Self {
-            let region = dereth_client::world::load_region(store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
             let cfg = SceneConfig {
                 landblock: HOLTBURG,
                 land_radius,
@@ -494,7 +501,7 @@ mod bench {
                 .sync_objects(store, gpu, objects)
                 .expect("sync_objects");
             scene.update(
-                dereth_client::camera::CameraInput::default(),
+                dereth_client_runtime::camera::CameraInput::default(),
                 CharacterInput::default(),
                 LocalTime(self.now),
                 1.0 / 30.0,
@@ -631,7 +638,7 @@ fn a_request_to_bury_an_object_is_discarded_so_it_cannot_be_a_leak_floor() {
 fn the_shipped_scenery_radius_selects_exactly_the_full_detail_blocks() {
     // `scenery_radius == 1` selects exactly the blocks `block_orient` gives full detail, over a
     // window far wider than either rule needs.
-    let shipped = dereth_client::world::SceneConfig::default().scenery_radius;
+    let shipped = dereth_client_runtime::scene::SceneConfig::default().scenery_radius;
     assert_eq!(
         shipped, 1,
         "scenery_radius no longer ships 1, so the equality below is about a different knob"

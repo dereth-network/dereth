@@ -496,7 +496,7 @@ impl LandContext {
     /// traversal reaches that cell (cell drawing's second loop,
     /// the per-cell object draw) — dropping them into `BlockDraw::opaque` would draw
     /// a dungeon's whole furniture through every wall. The frames are **not** composed with
-    /// the cell's own: see [`dereth_client_runtime::env_cells::CellStatic`].
+    /// the cell's own: see [`dereth_world_data::env_cells::CellStatic`].
     ///
     /// With another era's look ([`ObjectLook`]), a room the verdicts say is the same draws
     /// from that era's record of it unless it belongs to one of `shells`' buildings whose
@@ -522,7 +522,7 @@ impl LandContext {
     ) -> Result<
         (
             Vec<EnvCellDraw>,
-            Vec<dereth_client_runtime::env_cells::CellStatic>,
+            Vec<dereth_world_data::env_cells::CellStatic>,
             Vec<CellLightObj>,
         ),
         WorldError,
@@ -548,7 +548,7 @@ impl LandContext {
         });
         let held: HashSet<u32> = if interiors.is_some() {
             let (buildings, takes) = shells;
-            dereth_client_runtime::env_cells::building_cells(block, buildings, &decoded)
+            dereth_world_data::env_cells::building_cells(block, buildings, &decoded)
                 .into_iter()
                 .zip(takes)
                 .filter(|(_, takes)| !**takes)
@@ -558,7 +558,7 @@ impl LandContext {
             HashSet::new()
         };
         let mut out = Vec::with_capacity(decoded.len());
-        let mut all_statics: Vec<dereth_client_runtime::env_cells::CellStatic> = Vec::new();
+        let mut all_statics: Vec<dereth_world_data::env_cells::CellStatic> = Vec::new();
         let mut all_lights: Vec<CellLightObj> = Vec::new();
         // Per static id, decoded once per block -- a dungeon
         // stands the same wall torch forty times.
@@ -678,7 +678,7 @@ impl LandContext {
             let mut statics_blended = Vec::new();
             let mut cell_degrade = Vec::new();
             for side_look in [false, true] {
-                let mine: Vec<&dereth_client_runtime::env_cells::CellStatic> = statics
+                let mine: Vec<&dereth_world_data::env_cells::CellStatic> = statics
                     .iter()
                     .filter(|s| {
                         let takes = from_look

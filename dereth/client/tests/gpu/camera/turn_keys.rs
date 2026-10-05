@@ -15,16 +15,18 @@ use crate::common::app::{frames, position, unhide_recorded_player as unhide_the_
 
 use dereth_animation::MotionCommand;
 use dereth_client::app::App;
-use dereth_client::camera::IN_HEAD_OFFSET;
-use dereth_client::config::Config;
-use dereth_client::world::{SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::camera::IN_HEAD_OFFSET;
+use dereth_client_runtime::config::Config;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::actions::unpack_action;
 use dereth_protocol::movement::{MovementAutonomousPosition, MovementMoveToState};
 use dereth_protocol::objects::ItemCreateObject;
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 /// Degrees, with 0 north and values increasing **clockwise**, matching the first-person arm's
 /// 8-degree increment.
@@ -61,7 +63,7 @@ fn camera_yaw_degrees(app: &App) -> f32 {
     let f = c
         .camera_render_frame()
         .expect("the sweep placed the camera");
-    dereth_client::camera::FreeCamera::from_frame(&f)
+    dereth_client_runtime::camera::FreeCamera::from_frame(&f)
         .yaw
         .to_degrees()
 }
@@ -231,7 +233,7 @@ struct Wire {
 
 impl Wire {
     fn attach(app: &mut App) -> Self {
-        let mut net = dereth_client::net::ClientNetwork::new(
+        let mut net = dereth_client_runtime::net::ClientNetwork::new(
             "127.0.0.1:19000",
             7304,
             "turn-keys-station",
@@ -260,7 +262,9 @@ impl Wire {
 
     fn observe(&mut self, app: &mut App) {
         #[allow(clippy::cast_precision_loss)]
-        let now = LocalTime(app.frames_drawn() as f64 * dereth_client::app::HEADLESS_STEP);
+        let now = LocalTime(
+            app.frames_drawn() as f64 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
+        );
         for (bytes, _) in app
             .replay_network_mut()
             .expect("replay endpoint")

@@ -123,8 +123,9 @@ fn a_recorded_speaker_name() -> String {
 /// something to click and the rest of the line in the colour that kind of line is drawn in.
 pub fn a_recorded_broadcast_that_names_its_speaker_is_drawn() {
     let (channel, sender, message) = a_recorded_named_broadcast();
-    let (ty, line) = dereth_client::chat::channel_broadcast_line(channel, &sender, &message);
-    let trimmed = dereth_client::chat::add_text_to_scroll_trim(&line);
+    let (ty, line) =
+        dereth_client_model::chat::composition::channel_broadcast_line(channel, &sender, &message);
+    let trimmed = dereth_client_model::chat::composition::add_text_to_scroll_trim(&line);
     let visible = without_tell_markup(&trimmed);
 
     let mut c = a_client_listening();
@@ -183,11 +184,14 @@ pub fn every_channel_draws_its_own_line_in_its_own_colour() {
     for (channel, word, want_ty) in cases {
         // A body unique to this channel, so a lookup cannot read another line's run.
         let message = format!("channel {word} body");
-        let (ty, line) = dereth_client::chat::channel_broadcast_line(channel, &who, &message);
+        let (ty, line) =
+            dereth_client_model::chat::composition::channel_broadcast_line(channel, &who, &message);
         let kind = ty == want_ty;
         let before = colour_runs(&mut c).len();
         hear_on_a_channel(&mut c, channel, &who, &message);
-        let visible = without_tell_markup(&dereth_client::chat::add_text_to_scroll_trim(&line));
+        let visible = without_tell_markup(
+            &dereth_client_model::chat::composition::add_text_to_scroll_trim(&line),
+        );
         let reached = colour_runs(&mut c).len() > before;
         let (joined, colour) = drawn_line(&mut c, &message);
         let want = OPAQUE
@@ -330,7 +334,8 @@ fn two_recorded_lines_of_different_kinds() -> [dereth_protocol::comms::Communica
             if m.message.is_empty() || m.sender_name.is_empty() {
                 continue;
             }
-            let is_player = dereth_client::chat::CLICKABLE_PLAYER_IDS.contains(&m.sender_id.0);
+            let is_player = dereth_client_model::chat::composition::CLICKABLE_PLAYER_IDS
+                .contains(&m.sender_id.0);
             if is_player {
                 if clickable.is_none() {
                     clickable = Some(m);
@@ -366,13 +371,13 @@ fn two_recorded_lines_of_different_kinds() -> [dereth_protocol::comms::Communica
 /// for everything.
 pub fn two_recorded_channels_draw_in_two_different_colours() {
     let [plain, clickable] = two_recorded_lines_of_different_kinds();
-    let plain_body = dereth_client::chat::hear_speech_line(
+    let plain_body = dereth_client_model::chat::composition::hear_speech_line(
         plain.sender_id.0,
         None,
         &plain.sender_name,
         &plain.message,
     );
-    let clickable_body = dereth_client::chat::hear_speech_line(
+    let clickable_body = dereth_client_model::chat::composition::hear_speech_line(
         clickable.sender_id.0,
         None,
         &clickable.sender_name,
@@ -483,8 +488,13 @@ pub fn your_own_echo_and_a_remote_speaker_are_drawn_apart() {
     let kind = u8::try_from(dereth_client_model::chat::text_type::SPEECH).expect("a kind of line");
     let want = OPAQUE | dereth_ui_screens::chat::colors::color_for_type(kind).hex;
 
-    let echo = dereth_client::chat::hear_speech_line(ME_HERE, Some(ME_HERE), "Lark", "W");
-    let remote = dereth_client::chat::hear_speech_line(
+    let echo = dereth_client_model::chat::composition::hear_speech_line(
+        ME_HERE,
+        Some(ME_HERE),
+        "Lark",
+        "W",
+    );
+    let remote = dereth_client_model::chat::composition::hear_speech_line(
         NOT_A_PLAYER,
         Some(ME_HERE),
         "Sparring Golem",

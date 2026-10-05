@@ -17,11 +17,10 @@
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::pump::{Pump, Win32Message};
-use dereth_client::world::SceneConfig;
 use dereth_client_model::Request;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_primitives::ObjectId;
 use dereth_protocol::comms::{CommunicationHearSpeech, CommunicationTextboxString};
 use dereth_protocol::login::LoginEnterGameServerReady;
@@ -32,6 +31,7 @@ use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::interface::window as chatwin;
 use dereth_ui_screens::hud::floaty::{WindowPlacement, WindowPlacements};
 use dereth_ui_screens::screens::gameplay::{GamePlayScreen, PlayerSettingsView};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 /// The chat log element `0x10000011`, where final-string notices append their glyph text.
 const LOG: ElementId = ElementId(0x1000_0011);

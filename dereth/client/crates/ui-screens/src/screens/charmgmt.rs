@@ -1333,7 +1333,7 @@ impl Screen for CharacterManagementScreen {
         // does anything.
         ui.register_for_element_messages(root, ME);
         // No `KEY_DOWN_UNCONSUMED` registration here. The constructor's closing registration of
-        // input map 9 at priority 3000 is made by `dereth_client::ui::PREGAME_MODE_INPUT_MAPS` and
+        // input map 9 at priority 3000 is made by `dereth_client_shell::ui::PREGAME_MODE_INPUT_MAPS` and
         // answered by `UiShell::mode_on_action`. `CharacterManagementScreen` registers for **no**
         // global message at all — the retail screen registers for none and has no global-message
         // handler.

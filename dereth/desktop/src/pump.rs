@@ -29,9 +29,12 @@
 
 use winit::keyboard::KeyCode;
 
-pub use dereth_client_shell::pump::{
-    from_window, key_lparam, key_text_messages, lparam_bits, make_lparam, mouse_message,
-    window_message, window_proc, DeviceMessages, Win32Message,
+pub use {
+    dereth_client_contract::window_proc, dereth_client_shell::pump::from_window,
+    dereth_client_shell::pump::window_message, dereth_input::pump::key_lparam,
+    dereth_input::pump::key_text_messages, dereth_input::pump::lparam_bits,
+    dereth_input::pump::make_lparam, dereth_input::pump::mouse_message,
+    dereth_input::pump::DeviceMessages, dereth_input::win32::Win32Message,
 };
 
 /// Resolve a host key through the shared physical-key table.
@@ -107,8 +110,8 @@ impl Pump {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platform::window::HostEvent;
     use dereth_client_contract::window_proc::{msg, Effect};
+    use dereth_input::host::HostEvent;
 
     fn ready() -> Pump {
         let mut p = Pump::new();

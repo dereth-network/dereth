@@ -21,19 +21,19 @@
 //! | Send | element `0x10000019`, message 1, processes the entry command |
 //!
 //! Fixture: headless Apps with no shard link over the shipped layout; pointer and key messages
-//! are built through [`dereth_client::pump::Pump`] and pushed through the application's own
+//! are built through [`dereth_desktop::pump::Pump`] and pushed through the application's own
 //! window procedure, and every fixture path is an `expect`.
 
 use crate::common::client_dir;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::pump::{Pump, Win32Message};
+use dereth_client_runtime::config::Config;
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::chat::interface::ChatMessage;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use winit::event::MouseButton;
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 fn base_config() -> Config {
     Config {
@@ -60,11 +60,11 @@ fn app_in_gameplay(frames: u32) -> App {
     };
     let mut app = crate::common::sim_app::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(mode::GAME_PLAY);
@@ -893,8 +893,8 @@ fn a_chat_line_is_classified_and_offered_to_the_wire() {
         ("@help", false, 1),      // a registered handler: local, and never spoken
         ("", false, 0),           // empty input stops before command classification
     ] {
-        let mut inter = dereth_client::interaction::Interaction::new();
-        let mut objects = dereth_client::objects::ObjectStream::new();
+        let mut inter = dereth_client_runtime::interaction::Interaction::new();
+        let mut objects = dereth_client_runtime::objects::ObjectStream::new();
         inter.queue(
             Vec::new(),
             vec![dereth_ui_screens::view::UiRequest::ChatLine {
@@ -902,7 +902,7 @@ fn a_chat_line_is_classified_and_offered_to_the_wire() {
                 window: 8,
             }],
         );
-        let (unowned, _) = dereth_client::interaction::use_time(
+        let (unowned, _) = dereth_client_runtime::interaction::use_time(
             &mut inter,
             &store,
             None,

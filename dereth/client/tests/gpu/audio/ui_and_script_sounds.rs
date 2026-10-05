@@ -41,19 +41,19 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 use crate::common::test_gpu;
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 
 use std::sync::Arc;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::objects::ObjectStream;
-use dereth_client::pump::{Pump, Win32Message};
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{DataId, LocalTime, Vec3};
 use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, StateId};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 /// One second of interleaved stereo at the client's own primary-buffer rate.
 const BLOCK: usize = (dereth_audio::MIX_RATE as usize) * 2;
@@ -321,10 +321,10 @@ fn the_shipped_layouts_ask_for_exactly_one_ui_sound_and_it_is_the_button_press()
         "the shipped layouts' sound media records: {found:?}"
     );
 
-    let ui_table = dereth_client::assets::enum_did(
+    let ui_table = dereth_client_runtime::assets::enum_did(
         &*store,
-        dereth_client::audio::UI_SOUND_TABLE_GROUP,
-        dereth_client::audio::UI_SOUND_TABLE_ENUM,
+        dereth_client_runtime::audio::UI_SOUND_TABLE_GROUP,
+        dereth_client_runtime::audio::UI_SOUND_TABLE_ENUM,
     )
     .expect("the client UI sound-table enum resolves");
     for (layout, elem, state, file, stype) in &found {
@@ -334,7 +334,7 @@ fn the_shipped_layouts_ask_for_exactly_one_ui_sound_and_it_is_the_button_press()
         );
         assert_eq!(
             *stype,
-            dereth_client::audio::SOUND_UI_BUTTON_PRESS,
+            dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
             "layout {layout:?} element {elem:#010X} names {stype}, not the button-press sound"
         );
         assert_eq!(
@@ -380,7 +380,7 @@ fn a_real_button_press_plays_the_layouts_own_click_sound() {
          the assertions below would be vacuous"
     );
     let (h, elem, table, stype) = controls[0];
-    assert_eq!(stype, dereth_client::audio::SOUND_UI_BUTTON_PRESS);
+    assert_eq!(stype, dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS);
     eprintln!(
         "{declared} control(s) carry the click sound, {} of them pressable; pressing {elem:#010X} \
          (table {table:?}, stype {stype:#04X})",
@@ -504,20 +504,26 @@ fn a_press_on_a_control_with_no_sound_media_plays_nothing() {
 #[test]
 fn the_click_sound_still_obeys_the_three_shipped_bugs() {
     let store = store();
-    let mut a = dereth_client::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
-    let table = dereth_client::assets::enum_did(
+    let mut a = dereth_client_runtime::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
+    let table = dereth_client_runtime::assets::enum_did(
         &*store,
-        dereth_client::audio::UI_SOUND_TABLE_GROUP,
-        dereth_client::audio::UI_SOUND_TABLE_ENUM,
+        dereth_client_runtime::audio::UI_SOUND_TABLE_GROUP,
+        dereth_client_runtime::audio::UI_SOUND_TABLE_ENUM,
     )
     .expect("the UI sound table resolves");
 
     // 12.3, on the shipped rows: `row_index` never answers `n - 1` for `n >= 2`.
-    a.play_media_sound(&store, table, dereth_client::audio::SOUND_UI_BUTTON_PRESS);
+    a.play_media_sound(
+        &store,
+        table,
+        dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
+    );
     let rows = a
         .assets()
         .table(table)
-        .and_then(|t| dereth_audio::table::lookup(t, dereth_client::audio::SOUND_UI_BUTTON_PRESS))
+        .and_then(|t| {
+            dereth_audio::table::lookup(t, dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS)
+        })
         .expect("the button-press sound is in the UI table")
         .len();
     if rows >= 2 {
@@ -534,7 +540,11 @@ fn the_click_sound_still_obeys_the_three_shipped_bugs() {
 
     // 12.2: the seventeenth simultaneous click is dropped, not stolen.
     for _ in 0..dereth_audio::NUM_VOICES + 4 {
-        a.play_media_sound(&store, table, dereth_client::audio::SOUND_UI_BUTTON_PRESS);
+        a.play_media_sound(
+            &store,
+            table,
+            dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
+        );
     }
     assert_eq!(dereth_audio::NUM_VOICES, 16);
     assert_eq!(a.active_voices(), 16, "the pool grew past sixteen voices");
@@ -555,7 +565,7 @@ fn the_click_sound_still_obeys_the_three_shipped_bugs() {
 ///
 /// `0x330003CC` is one of the 153 shipped `0x33` scripts whose leading hook is a sound hook:
 /// a tweaked sound hook for wave `0x0A00058A` at t = 0. Driving it through
-/// [`dereth_client::audio::world_use_time`] is the same hop `collision_scripts` takes on the frame
+/// [`dereth_client_runtime::audio::world_use_time`] is the same hop `collision_scripts` takes on the frame
 /// a body walks into something.
 #[test]
 fn a_physics_scripts_sound_hook_reaches_the_mixer() {
@@ -568,7 +578,7 @@ fn a_physics_scripts_sound_hook_reaches_the_mixer() {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
@@ -580,9 +590,9 @@ fn a_physics_scripts_sound_hook_reaches_the_mixer() {
         ambient_enabled: false,
         ..dereth_audio::Prefs::default()
     };
-    let mut audio = dereth_client::audio::Audio::new(silent_beds, 1, false);
+    let mut audio = dereth_client_runtime::audio::Audio::new(silent_beds, 1, false);
     let mut stream = ObjectStream::new();
-    let anim = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(&store));
+    let anim = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store));
     let mut t = 0.0_f64;
 
     // The body's own physics object, reached by handle and not by id. The scene's player-object
@@ -600,11 +610,11 @@ fn a_physics_scripts_sound_hook_reaches_the_mixer() {
 
     let mut voices = 0;
     for _ in 0..60 {
-        t += dereth_client::app::HEADLESS_STEP;
+        t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(&store, &mut gpu, &mut stream)
             .expect("sync_objects");
-        dereth_client::audio::world_use_time(
+        dereth_client_runtime::audio::world_use_time(
             Some(&mut audio),
             Some(&mut scene),
             &mut stream,
@@ -674,16 +684,17 @@ fn the_listener_follows_the_camera_every_frame() {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
 
-    let mut audio = dereth_client::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
+    let mut audio =
+        dereth_client_runtime::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
     let mut stream = ObjectStream::new();
-    let anim = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(&store));
+    let anim = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store));
     let mut t = 0.0_f64;
-    let walk = dereth_client::character::CharacterInput {
+    let walk = dereth_client_runtime::character::CharacterInput {
         forward: true,
         run: true,
         ..Default::default()
@@ -691,11 +702,11 @@ fn the_listener_follows_the_camera_every_frame() {
 
     let mut seen: Vec<Vec3> = Vec::new();
     for _ in 0..90 {
-        t += dereth_client::app::HEADLESS_STEP;
+        t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
         scene
             .sync_objects(&store, &mut gpu, &mut stream)
             .expect("sync_objects");
-        dereth_client::audio::world_use_time(
+        dereth_client_runtime::audio::world_use_time(
             Some(&mut audio),
             Some(&mut scene),
             &mut stream,
@@ -748,27 +759,28 @@ fn running_into_new_terrain_swaps_the_ambient_set() {
         ..SceneConfig::default()
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("the landscape loads");
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     scene
         .attach_character(&store, &region, &mut gpu)
         .expect("the body is created");
 
-    let mut audio = dereth_client::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
+    let mut audio =
+        dereth_client_runtime::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
     let mut stream = ObjectStream::new();
-    let anim = dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(&store));
+    let anim = dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store));
     let mut t = 0.0_f64;
 
-    let mut run = |audio: &mut dereth_client::audio::Audio,
+    let mut run = |audio: &mut dereth_client_runtime::audio::Audio,
                    scene: &mut WorldScene,
                    t: &mut f64,
                    frames: usize,
-                   input: dereth_client::character::CharacterInput| {
+                   input: dereth_client_runtime::character::CharacterInput| {
         for _ in 0..frames {
-            *t += dereth_client::app::HEADLESS_STEP;
+            *t += dereth_client_runtime::platform::clock::HEADLESS_STEP;
             scene
                 .sync_objects(&store, &mut gpu, &mut stream)
                 .expect("sync_objects");
-            dereth_client::audio::world_use_time(
+            dereth_client_runtime::audio::world_use_time(
                 Some(audio),
                 Some(scene),
                 &mut stream,
@@ -790,7 +802,7 @@ fn running_into_new_terrain_swaps_the_ambient_set() {
     );
     let scans_at_start = audio.world_stats().position_scans;
 
-    let walk = dereth_client::character::CharacterInput {
+    let walk = dereth_client_runtime::character::CharacterInput {
         forward: true,
         run: true,
         ..Default::default()
@@ -834,16 +846,20 @@ fn running_into_new_terrain_swaps_the_ambient_set() {
 #[test]
 fn losing_focus_mutes_the_output_and_suppresses_new_sounds() {
     let store = store();
-    let mut a = dereth_client::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
-    let table = dereth_client::assets::enum_did(
+    let mut a = dereth_client_runtime::audio::Audio::new(dereth_audio::Prefs::default(), 1, false);
+    let table = dereth_client_runtime::assets::enum_did(
         &*store,
-        dereth_client::audio::UI_SOUND_TABLE_GROUP,
-        dereth_client::audio::UI_SOUND_TABLE_ENUM,
+        dereth_client_runtime::audio::UI_SOUND_TABLE_GROUP,
+        dereth_client_runtime::audio::UI_SOUND_TABLE_ENUM,
     )
     .expect("the UI sound table resolves");
 
     // A voice already running, and audible.
-    a.play_media_sound(&store, table, dereth_client::audio::SOUND_UI_BUTTON_PRESS);
+    a.play_media_sound(
+        &store,
+        table,
+        dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
+    );
     assert!(a.active_voices() > 0);
     let mut buf = vec![0.0f32; BLOCK / 100];
     a.mix(&mut buf);
@@ -865,7 +881,11 @@ fn losing_focus_mutes_the_output_and_suppresses_new_sounds() {
     // Mechanism 1: a new sound does not start either, with the default preference.
     let started = a.stats.sounds_started;
     let voices = a.active_voices();
-    a.play_media_sound(&store, table, dereth_client::audio::SOUND_UI_BUTTON_PRESS);
+    a.play_media_sound(
+        &store,
+        table,
+        dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
+    );
     assert!(
         a.stats.sounds_started > started,
         "the call itself is still made"
@@ -879,7 +899,11 @@ fn losing_focus_mutes_the_output_and_suppresses_new_sounds() {
     // And back.
     a.set_focus(true);
     let before = a.active_voices();
-    a.play_media_sound(&store, table, dereth_client::audio::SOUND_UI_BUTTON_PRESS);
+    a.play_media_sound(
+        &store,
+        table,
+        dereth_client_runtime::audio::SOUND_UI_BUTTON_PRESS,
+    );
     assert!(
         a.active_voices() > before,
         "regaining focus did not let a sound start again"

@@ -8,12 +8,12 @@
 
 use std::sync::Arc;
 
-use dereth_client::camera::CameraInput;
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::SceneConfig;
+use dereth_client_runtime::camera::CameraInput;
+use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::object_step::ObjectStepStats;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_client_runtime::present::{Presentation, SceneMut};
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_client_runtime::sim_present::SimPresentation;
 use dereth_client_runtime::world_state::WorldState;
 use dereth_dat::RetailDatStore;
@@ -95,7 +95,7 @@ impl SimWorld {
     /// The swept camera's step, which follows the simulation step in `App::frame`.
     pub fn update_viewer(&mut self, input: CameraInput, now: LocalTime, dt: f64) {
         let mut scene = self.scene_mut();
-        dereth_client::camera::update_viewer(&mut *scene, input, now, dt);
+        dereth_client_runtime::camera::update_viewer(&mut *scene, input, now, dt);
     }
 
     /// Build the blocks the window has queued.

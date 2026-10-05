@@ -8,7 +8,6 @@
 //! gameplay `App` with the retail dats; no server and no fabricated answers.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::{app::App, config::Config};
 use dereth_client_model::Request;
 use dereth_client_net::client_session::{
     testing::{Corpus, CorpusBlob, Direction},
@@ -19,6 +18,7 @@ use dereth_protocol::Opcode;
 use dereth_ui::{ElemHandle, ElementId};
 use dereth_ui_screens::panels::external_container::{ExternalContainerPanel, CLOSE};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {dereth_client::app::App, dereth_client_runtime::config::Config};
 
 const CORPSE: ObjectId = ObjectId(0x8000_0a96);
 const PLAYER: ObjectId = ObjectId(0x5000_000a);
@@ -194,7 +194,7 @@ fn pointer_click(app: &mut App, source: ElemHandle, at: u32) -> Vec<Request> {
         hit == source || ui.is_ancestor_of(source, hit),
         "loot row must be hittable, not merely visible"
     );
-    let mut pump = dereth_client::pump::Pump::new();
+    let mut pump = dereth_desktop::pump::Pump::new();
     pump.state.is_ready = true;
     pump.state.is_active_app = true;
     let messages = [
@@ -607,7 +607,7 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
     use dereth_client_model::range::RangeHandler;
     let rows = corpus();
     let mut app = app();
-    app.load_static_scene(dereth_client::world::SceneConfig {
+    app.load_static_scene(dereth_client_runtime::scene::SceneConfig {
         land_radius: 0,
         scenery_radius: 0,
         particles: false,
@@ -618,7 +618,7 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
     // Copy recorded weenie facts, then express a descriptor that omitted UseRadius on the wire.
     // Descriptor initialization has already materialized that omission as the float 0.0
     // by the time the external-container panel reads the object's use radius.
-    let mut recorded = dereth_client::objects::ObjectStream::new();
+    let mut recorded = dereth_client_runtime::objects::ObjectStream::new();
     for r in rows
         .iter()
         .filter(|r| r.idx < 6586 && r.dir == Direction::ServerToClient && r.opcode == 0xf745)

@@ -27,9 +27,6 @@
 //! the test.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneReads;
-use dereth_client::world::{EmitterOwner, SceneConfig};
-use dereth_client::{app::App, config::Config};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_physics::V3;
 use dereth_primitives::{DataId, LocalTime, ObjectId, Position, Quat, Vec3};
@@ -37,6 +34,9 @@ use dereth_protocol::movement::{MovementPositionEvent, PositionPack};
 use dereth_protocol::objects::{ItemCreateObject, ItemSetState, ObjectCreatePayload};
 use dereth_protocol::types::{PhysicsDesc, PhysicsEventStamp, PhysicsTimestamps, PublicWeenieDesc};
 use dereth_protocol::Message;
+use dereth_scene::world_scene::SceneReads;
+use {dereth_client::app::App, dereth_client_runtime::config::Config};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::EmitterOwner};
 
 /// Aluvian male setup and ordinary player motion table. The recorded player's script table
 /// carries fourteen hidden-state emitters (see `objects::hidden_state`). This test supplies that
@@ -95,7 +95,7 @@ fn viewer_cell(app: &App) -> u32 {
     viewer_cell_of(app.world_scene().expect("a scene"))
 }
 
-fn viewer_cell_of(s: dereth_client::world::WorldSceneRef<'_>) -> u32 {
+fn viewer_cell_of(s: dereth_scene::world_scene::WorldSceneRef<'_>) -> u32 {
     let block = s.viewer_block().expect("a resident block");
     (u32::try_from(block.0).expect("x") << 24) | (u32::try_from(block.1).expect("y") << 16) | 1
 }

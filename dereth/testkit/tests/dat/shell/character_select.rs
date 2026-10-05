@@ -73,7 +73,7 @@ pub(super) fn charmgmt_row(
 /// A press and a release with **no frame after them**, so the caller can run the frame itself and
 /// read what the screen asked for before the client drops it.
 fn press_without_a_frame(c: &mut HeadlessClient, hands: &mut Hands, h: dereth_ui::ElemHandle) {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
     let (x, y) = middle_of(c, h);
     hands.move_to(c, x, y);
     for down in [true, false] {
@@ -99,7 +99,7 @@ impl dereth_ui::InputPump for ActionRelay {
     fn use_time(&mut self, _now: dereth_primitives::LocalTime) {}
 }
 
-impl dereth_client::ui::UiInput for ActionRelay {
+impl dereth_client_shell::ui::UiInput for ActionRelay {
     fn as_pump(&mut self) -> &mut dyn dereth_ui::InputPump {
         self
     }
@@ -122,7 +122,7 @@ impl dereth_client::ui::UiInput for ActionRelay {
 }
 
 fn frame_taking_character_actions(c: &mut HeadlessClient) -> Vec<CharacterAction> {
-    use dereth_client::ui::UiInput;
+    use dereth_client_shell::ui::UiInput;
     let now = dereth_primitives::LocalTime(1.0);
     let mut relay = ActionRelay::default();
     {
@@ -575,7 +575,7 @@ pub(super) fn restoring_raises_a_box_with_no_buttons_that_the_next_list_takes_do
 
 /// One press picks a character; two press in.
 pub(super) fn a_double_press_raises_the_waiting_box_before_it_asks_to_log_on() {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
 
     let mut c = a_character_list();
     let mut hands = Hands::new();
@@ -790,7 +790,7 @@ fn press_the_list_button(c: &mut HeadlessClient, hands: &mut Hands, id: ElementI
 /// The row pressed is the **last** one, which the list did not choose for itself, so the choice
 /// changing is evidence rather than a coincidence.
 pub(super) fn one_press_on_a_character_picks_it_and_two_takes_them_into_the_world() {
-    use dereth_client::platform::keys::MouseButton;
+    use dereth_input::keys::MouseButton;
 
     let mut c = a_client_on_character_select();
     let rows = with_charmgmt_screen(&mut c, |s| s.rows.clone());

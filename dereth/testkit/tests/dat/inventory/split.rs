@@ -863,7 +863,7 @@ pub fn only_a_suitable_thing_goes_in_and_the_first_one_fixes_the_material() {
         && c.view().expect_app().hud().panels.salvage.drops_refused > refused_before;
 
     // Another material, with the player not having asked for more than one.
-    let one_material_only = dereth_client::hud::character_option(
+    let one_material_only = dereth_client_runtime::hud::character_option(
         c.view().world(),
         dereth_ui_screens::view::PlayerOption::SalvageMultiple,
     )
@@ -940,7 +940,7 @@ pub fn the_second_material_only_goes_in_when_the_player_asked_for_it() {
         seed_the_rest_of_the_bench(w);
         // The option the player's own description would have carried.
         w.player_system.options.set(
-            dereth_client::hud::option_ordinal(
+            dereth_client_runtime::hud::option_ordinal(
                 dereth_ui_screens::view::PlayerOption::SalvageMultiple,
             ),
             true,
@@ -1314,7 +1314,7 @@ pub fn a_bag_of_salvage_says_what_it_is_made_of() {
     c.tick(2);
 
     // The instrument can look: the shipped table has the row this depends on.
-    let named = dereth_client::hud::material_name_of(
+    let named = dereth_client_runtime::hud::material_name_of(
         c.view().expect_app().hud().material_names.as_ref(),
         BRONZE,
     );
@@ -1649,7 +1649,7 @@ fn things_to_select() -> Selectable {
             stack = Some((p.id, n, b.idx));
         }
         if creature.is_none()
-            && w.obj_type & dereth_client::hud::ITEM_TYPE_CREATURE != 0
+            && w.obj_type & dereth_client_runtime::hud::ITEM_TYPE_CREATURE != 0
             && w.stack_size.is_none()
         {
             creature = Some((p.id, b.idx));
@@ -2022,7 +2022,7 @@ pub fn the_split_key_puts_the_caret_in_the_quantity_and_does_nothing_else() {
 
 /// The key the shipped keymap binds to "split the stack I have picked".
 fn press_the_split_key(c: &mut HeadlessClient) {
-    let key = dereth_client::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyT)
+    let key = dereth_desktop::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyT)
         .expect("the host names this key");
     dereth_testkit::input_steps::press_bound(
         c,
@@ -2568,7 +2568,7 @@ pub fn escape_in_the_box_changes_nothing_and_cancel_puts_the_taken_quantity_back
 
 /// The escape key, as a key rather than as an action.
 fn press_escape(c: &mut HeadlessClient) {
-    let key = dereth_client::platform::window::key_from_key_code(winit::keyboard::KeyCode::Escape)
+    let key = dereth_desktop::platform::window::key_from_key_code(winit::keyboard::KeyCode::Escape)
         .expect("the host names this key");
     dereth_testkit::input_steps::key(c, key, true);
     c.tick(1);

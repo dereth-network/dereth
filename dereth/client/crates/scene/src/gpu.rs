@@ -61,7 +61,7 @@ mod imp {
         scene: Option<FullScreenQuad>,
         /// The scene's drawing half. Its world state is the application's, and
         /// every method here that reads the world is handed it.
-        world: Option<crate::world::SceneDraw>,
+        world: Option<crate::world_scene::SceneDraw>,
         /// Set while the teleport tunnel is up. [`SceneRenderer::draw_scene`] returns early
         /// while it is set.
         world_hidden: bool,
@@ -177,18 +177,18 @@ mod imp {
         /// resets and closes the frame command list, so a texture created between `begin_frame` and
         /// `end_frame` would discard the frame's recorded commands. That is also why the dynamic
         /// upload arena is reserved here rather than grown on demand — see
-        /// [`crate::world::WorldScene::upload_reservation`].
+        /// [`dereth_scene::world_scene::WorldScene::upload_reservation`].
         ///
         /// # Errors
-        /// [`crate::world::WorldError`] when the region, the landblock or a device resource is
+        /// [`dereth_client_runtime::landblock::WorldError`] when the region, the landblock or a device resource is
         /// unavailable.
         pub fn load_world(
             &mut self,
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
-            cfg: crate::world::SceneConfig,
+            cfg: dereth_client_runtime::scene::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
-            let (mut scene, mut ws) = crate::world::SceneDraw::load_with_identity(
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
+            let (mut scene, mut ws) = crate::world_scene::SceneDraw::load_with_identity(
                 store,
                 &mut self.gpu,
                 cfg,
@@ -198,12 +198,12 @@ mod imp {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is
                 // worth more than the read. It is the world's own region.
-                let region = crate::world::world_region(store)?;
+                let region = crate::world_scene::world_region(store)?;
                 scene.attach_character(&mut ws, store, &region, &mut self.gpu)?;
             }
             scene
                 .reserve_upload_arena(&mut self.gpu)
-                .map_err(|e| crate::world::WorldError::Render(e.to_string()))?;
+                .map_err(|e| dereth_client_runtime::landblock::WorldError::Render(e.to_string()))?;
             self.scene = None;
             self.world = Some(scene);
             *world = Some(ws);
@@ -216,13 +216,13 @@ mod imp {
         /// [`SceneRenderer::load_world`] is: creating a texture runs a command list of its own.
         ///
         /// # Errors
-        /// [`crate::world::WorldError`] when a device resource cannot be created.
+        /// [`dereth_client_runtime::landblock::WorldError`] when a device resource cannot be created.
         pub fn sync_objects(
             &mut self,
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             stream: &mut dereth_client_runtime::objects::ObjectStream,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(());
             };
@@ -233,7 +233,7 @@ mod imp {
         ///
         /// The viewport handler uses the region's x, y, width, and height with depth disabled;
         /// this is the same call, deferred to the scene because in this build the viewport reaches
-        /// the device inside [`crate::world::WorldScene::draw`]'s own bracket rather than as
+        /// the device inside [`dereth_scene::world_scene::WorldScene::draw`]'s own bracket rather than as
         /// standing device state.
         ///
         /// A no-op with no world loaded, which is the char-gen and intro case: those screens draw
@@ -265,7 +265,7 @@ mod imp {
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
             stream: &mut dereth_client_runtime::objects::ObjectStream,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(());
             };
@@ -279,12 +279,12 @@ mod imp {
         /// landblock boundary.
         ///
         /// # Errors
-        /// [`crate::world::WorldError`] when a device resource cannot be created.
+        /// [`dereth_client_runtime::landblock::WorldError`] when a device resource cannot be created.
         pub fn stream_world(
             &mut self,
             store: &dereth_dat::RetailDatStore,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
                 return Ok(());
             };
@@ -295,14 +295,17 @@ mod imp {
         /// moved, which is every frame but the one after an options-page Apply.
         ///
         /// # Errors
-        /// [`crate::world::WorldError`] when the rebuild a changed preference asks for fails.
+        /// [`dereth_client_runtime::landblock::WorldError`] when the rebuild a changed preference asks for fails.
         pub fn update_render_preferences(
             &mut self,
             store: &dereth_dat::RetailDatStore,
             ws: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<crate::world::RenderPrefWork, crate::world::WorldError> {
+        ) -> Result<
+            dereth_client_runtime::frame_events::RenderPrefWork,
+            dereth_client_runtime::landblock::WorldError,
+        > {
             let (Some(world), Some(ws)) = (self.world.as_mut(), ws) else {
-                return Ok(crate::world::RenderPrefWork::default());
+                return Ok(dereth_client_runtime::frame_events::RenderPrefWork::default());
             };
             world.update_from_preferences(ws, store, &mut self.gpu)
         }
@@ -315,8 +318,8 @@ mod imp {
         /// flushes the ambient sound tables.
         ///
         /// Here the landblock window, the resident blocks, the interior cells and the body are all
-        /// [`crate::world::WorldScene`], so the whole scene is what goes. **The textures are
-        /// handed back first** through [`crate::world::WorldScene::release_textures`]: more than
+        /// [`dereth_scene::world_scene::WorldScene`], so the whole scene is what goes. **The textures are
+        /// handed back first** through [`dereth_scene::world_scene::WorldScene::release_textures`]: more than
         /// four scenes on one device exhaust the descriptor heap, so a second login that simply
         /// built a second scene would leak a whole world of descriptors.
         ///
@@ -334,7 +337,7 @@ mod imp {
         }
 
         /// The scene, for the camera.
-        pub fn world_mut(&mut self) -> Option<&mut crate::world::SceneDraw> {
+        pub fn world_mut(&mut self) -> Option<&mut crate::world_scene::SceneDraw> {
             self.world.as_mut()
         }
 
@@ -352,15 +355,17 @@ mod imp {
 
         /// The scene, for the startup log line and the tests.
         #[must_use]
-        pub fn world(&self) -> Option<&crate::world::SceneDraw> {
+        pub fn world(&self) -> Option<&crate::world_scene::SceneDraw> {
             self.world.as_ref()
         }
 
         /// The same disjoint pair, with the scene **mutable**: the `Render.*` preferences
-        /// whose owner is [`crate::world::SceneConfig::render`] live on the scene, and the device's
+        /// whose owner is [`dereth_client_runtime::scene::SceneConfig::render`] live on the scene, and the device's
         /// two (`Render.TextureFiltering`, `Render.ScreenBrightness`) live on the `Gpu`, so one
         /// options-page Apply touches both.
-        pub fn world_mut_and_gpu(&mut self) -> (Option<&mut crate::world::SceneDraw>, &mut Gpu) {
+        pub fn world_mut_and_gpu(
+            &mut self,
+        ) -> (Option<&mut crate::world_scene::SceneDraw>, &mut Gpu) {
             (self.world.as_mut(), &mut self.gpu)
         }
 
@@ -563,7 +568,7 @@ mod imp {
         pub fn ensure_preview(
             &mut self,
             id: PreviewId,
-            assets: &std::sync::Arc<dereth_client_runtime::anim_assets::DatAnimAssets>,
+            assets: &std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
         ) -> bool {
             if self.previews.contains_key(&id) {
                 return false;
@@ -624,7 +629,7 @@ mod imp {
             let look = self
                 .world
                 .as_ref()
-                .and_then(crate::world::SceneDraw::object_look);
+                .and_then(crate::world_scene::SceneDraw::object_look);
             match self.previews.get_mut(&id) {
                 Some(space) => space.add_object_dressed_in_look(
                     store,

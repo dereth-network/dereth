@@ -7,9 +7,9 @@
 //! folder of the test's own.
 
 use dereth_classic_ui::keystore::{KeyStoreRequest, Scheme};
-use dereth_client::input::{InputShell, CLASSIC_KEYMAP_FILE};
 use dereth_input::binding::DO_NOTHING;
 use dereth_input::{ActionId, InputMapId};
+use {dereth_client_shell::input::InputShell, dereth_client_shell::input::CLASSIC_KEYMAP_FILE};
 
 /// The scan codes of Q, W and F7.
 const Q: u16 = 0x10;
@@ -36,7 +36,7 @@ fn shell(dir: &std::path::Path) -> InputShell {
     let store = dereth_dat::testing::open_store().expect("required DATs");
     InputShell::new(
         &store,
-        Some(&dir.join(dereth_client::input::DEFAULT_KEYMAP_FILE)),
+        Some(&dir.join(dereth_client_shell::input::DEFAULT_KEYMAP_FILE)),
     )
     .expect("the input tables")
 }
@@ -112,14 +112,14 @@ fn each_interface_keeps_its_own_key_map_and_its_own_saved_ones() {
     });
     assert_eq!(
         input.save_keymap_as("bananas", false).expect("written"),
-        Some(dereth_client::input::SaveKeymapAs::Saved)
+        Some(dereth_client_shell::input::SaveKeymapAs::Saved)
     );
     assert!(dir.join("bananas-classic.keymap").is_file());
     assert!(dir.join("bananas-modern.keymap").is_file());
     assert_eq!(input.classic_keys().files, ["bananas"]);
     assert_eq!(
         input
-            .scheme_names(dereth_client::input::MODERN_SLUG)
+            .scheme_names(dereth_client_shell::input::MODERN_SLUG)
             .expect("listed"),
         ["bananas"]
     );

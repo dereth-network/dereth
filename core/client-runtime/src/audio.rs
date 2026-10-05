@@ -1408,7 +1408,7 @@ pub enum SoundTrigger {
 
 /// The client generator's seed from a wall-clock reading: `(long)time(NULL)`, a signed 32-bit
 /// truncation of the 64-bit time, with an unreadable clock answering 1 (the generator's own
-/// default). The host's clock-taking form is `dereth_client::audio::ran2_seed`.
+/// default). The host's clock-taking form is `dereth_client_runtime::audio::ran2_seed`.
 #[must_use]
 pub fn ran2_seed_at(unix_time: Option<std::time::Duration>) -> i32 {
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]

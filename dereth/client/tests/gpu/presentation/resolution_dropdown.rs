@@ -315,13 +315,13 @@ mod wired {
     use std::path::PathBuf;
 
     use dereth_client::app::App;
-    use dereth_client::config::{Config, Preferences};
-    use dereth_client::pump::Pump;
+    use dereth_desktop::pump::Pump;
     use dereth_ui::{ElemHandle, ElementId, UiSystem};
     use dereth_ui_screens::options::store;
     use dereth_ui_screens::screens::gameplay::GamePlayScreen;
     use dereth_ui_screens::{PrefValue, UiRequest};
     use winit::event::MouseButton;
+    use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
 
     use super::RESOLUTION;
 
@@ -957,7 +957,7 @@ mod wired {
 
     /// **The drop-down the running client builds is not empty either.** `App::start_shell`
     /// initializes the display choices from the modes reported by the machine. In headless runs
-    /// there is no monitor, so the declared `dereth_client::app::STANDARD_DISPLAY_MODES` table stands
+    /// there is no monitor, so the declared `dereth_client_runtime::platform::window::STANDARD_DISPLAY_MODES` table stands
     /// in. Either source yields rows that satisfy the original filter and include the fallback,
     /// never an empty list.
     #[test]

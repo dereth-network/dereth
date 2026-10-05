@@ -16,12 +16,12 @@ use crate::common::client_dir;
 use std::net::SocketAddr;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::shared_session;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::LocalTime;
 use dereth_transport::wire::ParsedPacket;
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
@@ -57,11 +57,11 @@ fn app_in_gameplay(frames: u32) -> App {
         );
         assert!(w.set_player(CAPTURE_PLAYER), "the identity is adopted once");
     }
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
@@ -236,7 +236,7 @@ fn set_available_xp(app: &mut App, n: i64) {
         q.set(
             dereth_client_model::StatKey::new(
                 dereth_client_model::StatType::Int64,
-                dereth_client::hud::AVAILABLE_EXPERIENCE
+                dereth_client_runtime::hud::AVAILABLE_EXPERIENCE
             ),
             dereth_client_model::StatValue::Int64(n),
         ),
@@ -252,7 +252,7 @@ fn available_xp(app: &App) -> i64 {
         .expect("the player descriptor");
     match q.get(dereth_client_model::StatKey::new(
         dereth_client_model::StatType::Int64,
-        dereth_client::hud::AVAILABLE_EXPERIENCE,
+        dereth_client_runtime::hud::AVAILABLE_EXPERIENCE,
     )) {
         Some(dereth_client_model::StatValue::Int64(n)) => n,
         other => panic!("AvailableExperience is an Int64, got {other:?}"),
@@ -552,15 +552,15 @@ fn install_owner_figures(app: &mut App) {
     let int = |k| dereth_client_model::StatKey::new(dereth_client_model::StatType::Int, k);
     let int64 = |k| dereth_client_model::StatKey::new(dereth_client_model::StatType::Int64, k);
     assert!(q.set(
-        int(dereth_client::hud::LEVEL),
+        int(dereth_client_runtime::hud::LEVEL),
         dereth_client_model::StatValue::Int(OWNER_LEVEL)
     ));
     assert!(q.set(
-        int64(dereth_client::hud::TOTAL_EXPERIENCE),
+        int64(dereth_client_runtime::hud::TOTAL_EXPERIENCE),
         dereth_client_model::StatValue::Int64(OWNER_TOTAL_XP)
     ));
     assert!(q.set(
-        int64(dereth_client::hud::AVAILABLE_EXPERIENCE),
+        int64(dereth_client_runtime::hud::AVAILABLE_EXPERIENCE),
         dereth_client_model::StatValue::Int64(OWNER_AVAILABLE_XP)
     ));
     // Strength Self VI-shaped: a single-stat additive attribute enchantment on key 1.
@@ -771,14 +771,14 @@ fn install_owner_attribute_and_level(app: &mut App) {
     assert!(q.set(
         dereth_client_model::StatKey::new(
             dereth_client_model::StatType::Int,
-            dereth_client::hud::LEVEL
+            dereth_client_runtime::hud::LEVEL
         ),
         dereth_client_model::StatValue::Int(OWNER_LEVEL)
     ));
     assert!(q.set(
         dereth_client_model::StatKey::new(
             dereth_client_model::StatType::Int64,
-            dereth_client::hud::TOTAL_EXPERIENCE
+            dereth_client_runtime::hud::TOTAL_EXPERIENCE
         ),
         dereth_client_model::StatValue::Int64(OWNER_TOTAL_XP)
     ));
@@ -823,7 +823,7 @@ fn a_runtime_available_experience_update_relights_the_plus_ten() {
         assert!(q.set(
             dereth_client_model::StatKey::new(
                 dereth_client_model::StatType::Int64,
-                dereth_client::hud::AVAILABLE_EXPERIENCE
+                dereth_client_runtime::hud::AVAILABLE_EXPERIENCE
             ),
             dereth_client_model::StatValue::Int64(100)
         ));
@@ -844,7 +844,7 @@ fn a_runtime_available_experience_update_relights_the_plus_ten() {
     // The server grants the experience at runtime.
     let _ = app.apply_hud_events(&[int64_answer(
         1,
-        dereth_client::hud::AVAILABLE_EXPERIENCE,
+        dereth_client_runtime::hud::AVAILABLE_EXPERIENCE,
         OWNER_AVAILABLE_XP,
     )]);
     for _ in 0..3 {

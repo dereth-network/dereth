@@ -291,7 +291,7 @@ fn a_character_with_credits_to_spend() -> HeadlessClient {
         .len();
     let mut c = HeadlessClient::new(ClientSpec::gameplay_in_world(4));
     let mut net =
-        dereth_client::net::ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0)
+        dereth_client_runtime::net::ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0)
             .expect("a socket-free endpoint");
     net.session.transport.add_connection(
         0xB,

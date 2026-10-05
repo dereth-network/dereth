@@ -53,7 +53,7 @@ pub fn create_journal_path(
 }
 
 // The elapsed-time formatter and its four divisors, shared with
-// `dereth_ui_screens::panels::journal`. `dereth_client::hud` formats the house-purchase countdown
+// `dereth_ui_screens::panels::journal`. `dereth_client_shell::hud` formats the house-purchase countdown
 // with it, which is a number the world half owns; the function is arithmetic and `format!`.
 
 /// One second in the client's timer units, and the four divisors the elapsed-time formatter uses:

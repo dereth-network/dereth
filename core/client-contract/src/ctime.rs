@@ -56,7 +56,7 @@
 //!
 //! Both formatters here therefore take `utc_offset_secs` as a **parameter rather than reading a
 //! clock**, so that a test can pin a zone instead of inheriting the machine's, and so that no
-//! call site can forget to say which zone it means. `dereth_client::platform` is what supplies the
+//! call site can forget to say which zone it means. `dereth_desktop::platform` is what supplies the
 //! real number; see its note.
 
 /// The shift from UTC that `localtime` would apply, in seconds, for a **particular instant**.

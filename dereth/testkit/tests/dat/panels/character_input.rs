@@ -24,7 +24,7 @@ fn set_available_experience(c: &mut HeadlessClient, n: i64) {
         q.set(
             dereth_client_model::StatKey::new(
                 dereth_client_model::StatType::Int64,
-                dereth_client::hud::AVAILABLE_EXPERIENCE,
+                dereth_client_runtime::hud::AVAILABLE_EXPERIENCE,
             ),
             dereth_client_model::StatValue::Int64(n),
         ),
@@ -823,8 +823,8 @@ pub(super) fn the_character_pages_numbers_carry_the_shipped_separator() {
             other => panic!("the recorded description carries no Int64 {k}: {other:?}"),
         }
     };
-    let available = int64(dereth_client::hud::AVAILABLE_EXPERIENCE);
-    let total = int64(dereth_client::hud::TOTAL_EXPERIENCE);
+    let available = int64(dereth_client_runtime::hud::AVAILABLE_EXPERIENCE);
+    let total = int64(dereth_client_runtime::hud::TOTAL_EXPERIENCE);
     let four_digit_numbers_to_read = available >= 1_000 && total >= 1_000;
 
     let header = c

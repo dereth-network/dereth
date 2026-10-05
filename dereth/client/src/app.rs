@@ -1,11 +1,11 @@
 //! The application on the desktop: the client shell's [`dereth_client_shell::app::App`] on the
 //! [`Desktop`](crate::Desktop) host.
 //!
-//! Every other item of the shell's `app` module is re-exported here at its old path.
+//! Shared application types are named through the runtime.
 
-pub use dereth_client_shell::app::*;
+use dereth_client_runtime::app::{Platform, StartupError};
 
-use crate::Config;
+use dereth_client_runtime::config::Config;
 
 /// The application, on the desktop.
 pub type App = dereth_client_shell::app::App<crate::Desktop>;
@@ -23,7 +23,7 @@ pub type CoreApp = dereth_client_shell::app::CoreApp<crate::Desktop>;
 /// [`StartupError::Device`] when the event loop or the window cannot be created.
 pub fn open_platform(
     cfg: &Config,
-    events: crate::platform::window::WindowEvents,
+    events: dereth_client_shell::platform::window::WindowEvents,
 ) -> Result<Platform, StartupError> {
     dereth_desktop::launch::open_platform::<crate::Dereth>(cfg, events)
 }

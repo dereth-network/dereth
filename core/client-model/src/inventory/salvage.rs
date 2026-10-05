@@ -4,7 +4,7 @@
 //!
 //! | half | who calls it |
 //! |---|---|
-//! | [`is_item_suitable`] | `dereth_client::hud`'s `GameView::salvage_item_suitable`, for `dereth_ui_screens::panels::salvage` |
+//! | [`is_item_suitable`] | `dereth_client_shell::hud`'s `GameView::salvage_item_suitable`, for `dereth_ui_screens::panels::salvage` |
 //! | the line builder | the salvage-operation result receiver |
 //! | tinkering-tool request | the panel's Salvage button |
 //!

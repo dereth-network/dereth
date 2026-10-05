@@ -34,11 +34,11 @@
 //! Partly, and the honest answer is what makes this a defect rather than a tidy-up.
 //!
 //! * The **write** direction has a consumer: `UiRequest::SetPreference` reaches
-//!   `dereth_client::audio::apply_preference_requests` and `dereth_audio::Prefs::set_named`, which is
+//!   `dereth_client_runtime::audio::apply_preference_requests` and `dereth_audio::Prefs::set_named`, which is
 //!   the address binding for the eight `Sound.*` names.
 //! * The eight `Sound.*` values *are* readable in the running client — `dereth_audio::Prefs` holds
 //!   them and `Prefs::from_ini` seeds them from `UserPreferences.ini` — and the four `Display.*`
-//!   are readable from `dereth_client::config::Preferences`, which is a full by-name reader over the
+//!   are readable from `dereth_client_runtime::config::Preferences`, which is a full by-name reader over the
 //!   same file. **Neither is reachable from this crate**, and the remaining 22 attached
 //!   preferences have no store at all in this build.
 //! * So `PlayerOptionPage` seeded current = saved = default and its own snapshot stood in
@@ -642,7 +642,7 @@ impl EnumChoices {
     ///    fourth choice `High` and lands as **11**; the value 3 is what `VeryLow` lands as. Retail
     ///    only ever writes the label, so this arm is reached by a hand-edited file.
     /// 2. **An index that is negative or past the end selects 0**, per the conversion's own bounds
-    ///    check — the same reading `dereth_client::render_prefs::filtering_choice`
+    ///    check — the same reading `dereth_client_runtime::render_prefs::filtering_choice`
     ///    already took for `Render.TextureFiltering`.
     ///
     /// Resolve a stored value back to its choice index, the half
@@ -999,7 +999,7 @@ pub fn choice_rows(name: &str) -> Option<Vec<Choice>> {
 
 /// `KW_TRUE` / `KW_FALSE` are the literals `"True"` and `"False"`, and the numeric spelling is
 /// accepted too — the same way `dereth_audio::Prefs::from_ini` and
-/// `dereth_client::config::Preferences::bool` resolve it.
+/// `dereth_client_runtime::config::Preferences::bool` resolve it.
 ///
 /// **The write side is settled**: the value-to-string conversion's boolean
 /// arm writes "False" unless the stored byte is 1, and "True" otherwise, from two string

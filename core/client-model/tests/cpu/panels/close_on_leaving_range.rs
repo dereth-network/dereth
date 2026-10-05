@@ -18,7 +18,7 @@ const BOOK: ObjectId = ObjectId(0x8000_0004);
 
 const USE_RADIUS: f32 = 3.0;
 
-/// A distance table standing in for [`dereth_client::object_range::SceneRangeGeometry`].
+/// A distance table standing in for [`dereth_client_runtime::object_range::SceneRangeGeometry`].
 ///
 /// `dereth-client-model` holds no positions, so the geometry is a trait; this is the same trait the client
 /// implements over `dereth_physics::math`. A missing entry is a missing physics body, which

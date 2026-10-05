@@ -16,14 +16,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::render_prefs::{RegionStyle, RequiredFiles};
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {
+    dereth_client_runtime::render_prefs::RegionStyle,
+    dereth_client_runtime::render_prefs::RequiredFiles,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 /// The end-of-retail world with the February 2005 `portal.dat` beside it for presentation, or a
 /// failed test.
@@ -62,7 +65,7 @@ fn cfg(objects: Option<RegionStyle>) -> SceneConfig {
         time_of_day: Some(0.5),
         game_time: Some(0.0),
         camera_height: 0.0,
-        render: dereth_client::render_prefs::RenderPreferences {
+        render: dereth_client_runtime::render_prefs::RenderPreferences {
             objects,
             ..SceneConfig::default().render
         },
@@ -74,7 +77,7 @@ fn cfg(objects: Option<RegionStyle>) -> SceneConfig {
 /// a still view of buildings, statics, scenery and the body.
 fn load(store: &Arc<RetailDatStore>, gpu: &mut Gpu, cfg: SceneConfig) -> WorldScene {
     let mut scene = WorldScene::load(store, gpu, cfg).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -95,8 +98,8 @@ fn draw(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> V
             .sync_objects(store, gpu, &mut stream)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(0.0),
             0.0,
         );
@@ -368,14 +371,14 @@ fn an_object_mode_without_its_files_is_refused_and_the_world_keeps_its_own() {
 /// its data files from the one folder `dat_dir` (the older set beside the later one when it holds
 /// both) and `set_at` settings made part way through, as `--dat-dir` and `--set-at` make them.
 fn client(dat_dir: std::path::PathBuf, set_at: Vec<(u64, String)>) -> dereth_client::app::App {
-    let config = dereth_client::config::Config {
+    let config = dereth_client_runtime::config::Config {
         headless: true,
         sound: false,
         ui: false,
         preferences_file: std::env::temp_dir().join("dereth-object-modes-not-created/prefs.ini"),
         dat_dir,
         set_at,
-        ..dereth_client::config::Config::default()
+        ..dereth_client_runtime::config::Config::default()
     };
     let mut app = dereth_client::app::App::new(config)
         .unwrap_or_else(|e| panic!("the headless client did not start: {e}"));
@@ -453,8 +456,8 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
 /// with the world's own look it is built from the world's.
 #[test]
 fn the_paper_doll_wears_the_look_the_body_wears_in_the_world() {
-    use dereth_client::anim_assets::DatAnimAssets;
-    use dereth_client::preview::PreviewSpace;
+    use dereth_scene::preview::PreviewSpace;
+    use dereth_world_data::anim_assets::DatAnimAssets;
     let store = end_of_retail_with_legacy_files();
     let mut gpu = crate::common::test_gpu(320, 240);
     let scene = load(&store, &mut gpu, cfg(Some(RegionStyle::LegacyHardware)));
@@ -640,7 +643,7 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
     store::init();
     // The cache goes to a store in memory on this thread, never the player's own folder.
     dereth_client_runtime::platform::files::install(memory_files::HOST);
-    let config = dereth_client::config::Config {
+    let config = dereth_client_runtime::config::Config {
         headless: true,
         sound: false,
         ui: false,
@@ -648,7 +651,7 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
         dat_dir: dereth_dat::testing::both_sets_dir(),
         set_at: vec![(3, "Render.Objects=Legacy".to_string())],
         object_identity_ms: Some(3),
-        ..dereth_client::config::Config::default()
+        ..dereth_client_runtime::config::Config::default()
     };
     let mut app = dereth_client::app::App::new(config)
         .unwrap_or_else(|e| panic!("the headless client did not start: {e}"));

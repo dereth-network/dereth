@@ -25,8 +25,8 @@
 
 use std::ops::Range;
 
-use dereth_client::net::ClientNetwork;
 use dereth_client_net::client_session::testing::capture::{self, peer};
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_primitives::ObjectId;
 
 use crate::client::HeadlessClient;

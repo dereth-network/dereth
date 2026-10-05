@@ -11,10 +11,7 @@
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
 use dereth_client::app::App;
-use dereth_client::config::{Config, Preferences};
-use dereth_client::render_prefs::RenderPreferences;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::render_prefs::RenderPreferences;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{AssetSource, DataId};
 use dereth_render::device::Gpu;
@@ -26,6 +23,9 @@ use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::{PrefValue, UiRequest};
 use std::rc::Rc;
 use std::sync::Arc;
+use {dereth_client_runtime::config::Config, dereth_client_runtime::config::Preferences};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 800;
 const H: u32 = 600;
@@ -433,14 +433,14 @@ fn drag(ui: &mut UiSystem, preference: &str, frac: f32) -> f32 {
 ///
 /// The element outbox is drained into each screen, then the global requests are taken exactly as
 /// the application dispatch takes them and handed to the same owner it uses,
-/// (`dereth_client::render_prefs::apply_preference_requests`).
+/// (`dereth_client_shell::render_prefs::apply_preference_requests`).
 #[test]
 fn the_options_pages_apply_changes_the_picture_live() {
     let gpu = crate::common::test_gpu(W, H);
     drop(gpu); // the renderer below creates its own device; this was only the availability probe.
     let store = store();
     let mut renderer =
-        dereth_client::gpu::Renderer::new(None, W, H).expect("a headless GPU renderer");
+        dereth_client_shell::gpu::Renderer::new(None, W, H).expect("a headless GPU renderer");
     let (_, cfg) = config_from("");
     let mut world = None;
     renderer
@@ -479,7 +479,8 @@ fn the_options_pages_apply_changes_the_picture_live() {
             .any(|r| matches!(r, UiRequest::SetPreference(n, _) if *n == "Render.FieldOfView")),
         "the page emitted no Render.FieldOfView write: {requests:?}"
     );
-    let left = dereth_client::render_prefs::apply_preference_requests(&mut renderer, requests);
+    let left =
+        dereth_client_shell::render_prefs::apply_preference_requests(&mut renderer, requests);
     for r in &left {
         if let UiRequest::SetPreference(n, _) = r {
             assert!(
@@ -774,7 +775,8 @@ fn change(app: &mut App, r: UiRequest) -> u64 {
 fn second_pass_census(app: &App) -> (usize, usize) {
     use std::collections::BTreeSet;
     let trace = app.world_scene().expect("a world").drawn_part_order();
-    let key = |d: &dereth_client::world::PartSubsetDraw| (d.object.map(|o| o.0), d.part, d.subset);
+    let key =
+        |d: &dereth_scene::world_scene::PartSubsetDraw| (d.object.map(|o| o.0), d.part, d.subset);
     let deferred: BTreeSet<_> = trace
         .iter()
         .filter(|d| d.list == Some(dereth_world_render::objects::alpha::AlphaList::Clip))
@@ -1180,7 +1182,7 @@ fn environment_detail_textures_is_polled_and_reaches_no_subsystem_in_this_build(
     // "unreachable" and "not polled" cannot print alike. The subsystem is asserted in
     // `rendering/detail_textures.rs`; this keeps the poll half.
     assert!(
-        dereth_client::world::DETAIL_TEXTURE_PASS,
+        dereth_scene::world_scene::DETAIL_TEXTURE_PASS,
         "the detail-texture pass has been removed again; `Render.BuildingDetailTextures` has \
          nowhere to go and `rendering/detail_textures.rs` is the file to reconcile with"
     );

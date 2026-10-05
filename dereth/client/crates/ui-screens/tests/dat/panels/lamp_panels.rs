@@ -52,7 +52,7 @@ fn pump(ui: &mut UiSystem, s: &mut GamePlayScreen) {
 }
 
 /// The shipped gameplay screen, pumped to quiescence, with `RemainingPanels` bound off its root
-/// the way `dereth_client::hud::Hud::drive` binds it.
+/// the way `dereth_client_shell::hud::Hud::drive` binds it.
 fn screen() -> (UiSystem, GamePlayScreen, RemainingPanels) {
     let mut ui = env();
     let mut s = GamePlayScreen::default();
@@ -93,7 +93,7 @@ fn click(ui: &mut UiSystem, s: &mut GamePlayScreen, h: ElemHandle) {
 
 /// A `GameView` carrying nothing but the enchantment list the effects panels read.
 ///
-/// The entries are the shape `dereth_client::hud::HudView::active_effects` produces from the
+/// The entries are the shape `dereth_client_runtime::hud::HudView::active_effects` produces from the
 /// player's own enchantment registry joined to the shipped `SpellTable`: a spell id, its name,
 /// its `_bitfield & 4`, and `(start + duration) - cur_time` already rebased on receipt.
 #[derive(Debug, Default)]
@@ -872,7 +872,7 @@ mod description_scroll {
         }
 
         /// The screen **and** `RemainingPanels` both see every element message, exactly as
-        /// `dereth_client::hud::Hud::drive` arranges.
+        /// `dereth_client_shell::hud::Hud::drive` arranges.
         fn pump(&mut self) {
             for _ in 0..16 {
                 let batch = self.ui.drain_outbox();

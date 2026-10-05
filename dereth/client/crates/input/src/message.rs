@@ -420,7 +420,7 @@ mod tests {
         // producer rather than simulate it, and would pass even where the ignore-next-char flag
         // cannot be armed in a running client. It drives the production bracket
         // [`InputManager::begin_action_dispatch`] / [`InputManager::end_action_dispatch`] — the
-        // same two calls `dereth_client::ui::UiShell::route_input` makes around every event — and the
+        // same two calls `dereth_client_shell::ui::UiShell::route_input` makes around every event — and the
         // key-down context comes off the event the manager itself produced rather than being
         // asserted into place.
         assert!(

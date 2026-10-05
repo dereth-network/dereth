@@ -56,15 +56,16 @@ use crate::common::sim_app::{
     body, frames, movement_key, player_description, unhide_player as unhide_the_player,
 };
 
-use dereth_client::{
-    app::{App, HEADLESS_STEP},
-    config::Config,
-    world::{SceneConfig, DEFAULT_LANDBLOCK},
-};
 use dereth_client_net::client_session::{testing::Corpus, SessionEvent};
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+    dereth_client_runtime::platform::clock::HEADLESS_STEP,
+    dereth_client_runtime::scene::SceneConfig,
+};
 
 /// **Landblock-global** metres. `Character::render_frame` is relative to `viewer_block`, which the
 /// re-centre moves; a speed measured through it would step by 192 m when it does.

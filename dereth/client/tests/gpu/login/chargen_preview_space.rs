@@ -15,16 +15,17 @@ use crate::common::client_dir;
 use std::sync::Arc;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::gpu::PreviewId;
-use dereth_client::preview::{
-    ENUM_PORTALSPACE_ANIMATION, ENUM_PORTALSPACE_BACKGROUND, UIASSET_GROUP,
-};
+use dereth_client_runtime::config::Config;
+use dereth_client_shell::gpu::PreviewId;
 use dereth_primitives::{AssetSource as _, DataId};
 use dereth_ui::framework::mode;
 use dereth_ui::ElementId;
 use dereth_ui_screens::screens::chargen::{appearance, CharGenScreen, EcgProgress};
 use dereth_ui_screens::screens::teleport::{in_exit_window, portal_space, timing};
+use {
+    dereth_scene::preview::ENUM_PORTALSPACE_ANIMATION,
+    dereth_scene::preview::ENUM_PORTALSPACE_BACKGROUND, dereth_scene::preview::UIASSET_GROUP,
+};
 
 /// Every fixture path is an `expect`: a missing dat or device fails the test.
 fn store() -> Arc<dereth_dat::RetailDatStore> {
@@ -34,7 +35,7 @@ fn store() -> Arc<dereth_dat::RetailDatStore> {
         "the retail dats are required at {} -- set DERETH_TEST_DAT_DIR",
         d.display()
     );
-    Arc::new(dereth_client::assets::open_data_files(&d).expect("the retail dats open"))
+    Arc::new(dereth_client_runtime::assets::open_data_files(&d).expect("the retail dats open"))
 }
 
 /// Broadcast a button-click message as `(element, 1, 7, 0)`.
@@ -67,10 +68,12 @@ fn the_portal_space_ids_resolve_through_the_uiasset_group() {
     let store = store();
     let assets: &dyn dereth_primitives::AssetSource = &*store;
 
-    let obj = dereth_client::assets::enum_did(assets, UIASSET_GROUP, ENUM_PORTALSPACE_BACKGROUND)
-        .expect("UIASSET 0x10000001 (portalspace_background) resolves");
-    let anim = dereth_client::assets::enum_did(assets, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
-        .expect("UIASSET 0x10000002 (portalspace_animation) resolves");
+    let obj =
+        dereth_client_runtime::assets::enum_did(assets, UIASSET_GROUP, ENUM_PORTALSPACE_BACKGROUND)
+            .expect("UIASSET 0x10000001 (portalspace_background) resolves");
+    let anim =
+        dereth_client_runtime::assets::enum_did(assets, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
+            .expect("UIASSET 0x10000002 (portalspace_animation) resolves");
 
     assert_eq!(
         obj,
@@ -97,16 +100,16 @@ fn the_portal_space_ids_resolve_through_the_uiasset_group() {
     for (name, e, space) in [
         (
             "PaperDollAnimation",
-            dereth_client::preview::ENUM_PAPERDOLL_ANIMATION,
+            dereth_scene::preview::ENUM_PAPERDOLL_ANIMATION,
             0x03,
         ),
         (
             "CharGenAnimation",
-            dereth_client::preview::ENUM_CHARGEN_ANIMATION,
+            dereth_scene::preview::ENUM_CHARGEN_ANIMATION,
             0x03,
         ),
     ] {
-        let id = dereth_client::assets::enum_did(assets, UIASSET_GROUP, e)
+        let id = dereth_client_runtime::assets::enum_did(assets, UIASSET_GROUP, e)
             .unwrap_or_else(|| panic!("UIASSET {e:#010X} ({name}) resolves"));
         assert_eq!(id.0 >> 24, space, "{name} is in the {space:#04X} id space");
     }
@@ -140,18 +143,20 @@ fn the_portal_camera_constants_are_the_floats_in_post_init() {
 
 /// A preview space holding the portal object with its sequence started, exactly as portal
 /// initialization and its per-frame update build it.
-fn portal_renderer(store: &Arc<dereth_dat::RetailDatStore>) -> dereth_client::gpu::Renderer {
-    let mut r = dereth_client::gpu::Renderer::new(None, 64, 64).expect("a WARP device comes up");
-    let assets = Arc::new(dereth_client::anim_assets::DatAnimAssets::new(Arc::clone(
-        store,
-    )));
+fn portal_renderer(store: &Arc<dereth_dat::RetailDatStore>) -> dereth_client_shell::gpu::Renderer {
+    let mut r =
+        dereth_client_shell::gpu::Renderer::new(None, 64, 64).expect("a WARP device comes up");
+    let assets = Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+        Arc::clone(store),
+    ));
     assert!(
         r.ensure_preview(PreviewId::Portal, &assets),
         "the space is created once"
     );
     let a: &dyn dereth_primitives::AssetSource = &**store;
-    let obj = dereth_client::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_BACKGROUND)
-        .expect("portalspace_background resolves");
+    let obj =
+        dereth_client_runtime::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_BACKGROUND)
+            .expect("portalspace_background resolves");
     let i = r
         .add_preview_object(PreviewId::Portal, store, obj)
         .expect("the object is built")
@@ -173,8 +178,9 @@ fn the_portal_sequence_advances_at_forty_frames_a_second_of_elapsed_time() {
     let store = store();
     let mut r = portal_renderer(&store);
     let a: &dyn dereth_primitives::AssetSource = &*store;
-    let anim = dereth_client::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
-        .expect("portalspace_animation resolves");
+    let anim =
+        dereth_client_runtime::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
+            .expect("portalspace_animation resolves");
 
     let space = r
         .preview_mut(PreviewId::Portal)
@@ -209,8 +215,9 @@ fn the_portal_sequence_advances_at_forty_frames_a_second_of_elapsed_time() {
 fn the_same_duration_at_two_frame_rates_reaches_the_same_frame() {
     let store = store();
     let a: &dyn dereth_primitives::AssetSource = &*store;
-    let anim = dereth_client::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
-        .expect("portalspace_animation resolves");
+    let anim =
+        dereth_client_runtime::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
+            .expect("portalspace_animation resolves");
 
     let run = |steps: u32, seconds: f64| {
         let mut r = portal_renderer(&store);
@@ -248,8 +255,9 @@ fn the_same_duration_at_two_frame_rates_reaches_the_same_frame() {
 fn the_exit_window_is_reachable_only_once_the_sequence_animation_has_started() {
     let store = store();
     let a: &dyn dereth_primitives::AssetSource = &*store;
-    let anim = dereth_client::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
-        .expect("portalspace_animation resolves");
+    let anim =
+        dereth_client_runtime::assets::enum_did(a, UIASSET_GROUP, ENUM_PORTALSPACE_ANIMATION)
+            .expect("portalspace_animation resolves");
 
     // Without the sequence: the counter never leaves 0 and the window is never open.
     let mut r = portal_renderer(&store);
@@ -657,11 +665,11 @@ fn app_in_world() -> App {
     };
     let mut app = App::new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("Holtburg loads");
     app.queue_ui_mode(mode::GAME_PLAY);

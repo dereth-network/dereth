@@ -45,7 +45,10 @@ mod imp {
     use dereth_world_render::sky::{self, SkyPass, SKY_ZFAR_MULTIPLIER};
 
     use crate::textures::TextureStore;
-    use crate::world::{build_meshes, world_constants, BakeCache, PartMesh};
+    use {
+        crate::world_scene::build_meshes, crate::world_scene::world_constants,
+        crate::world_scene::BakeCache, crate::world_scene::PartMesh,
+    };
 
     /// The absolute height a weather object's origin is dropped to, in the viewer's landblock
     /// space — i.e. the crate's render space, whose `z` is the world height.
@@ -493,12 +496,12 @@ mod imp {
                 // Object drawing opens by binding the object's own material, so
                 // every one of this object's
                 // subsets is drawn under the clone `use_time` left on it. The three channels are
-                // exactly the ones `crate::world` already binds for a body part: the texture
+                // exactly the ones `dereth_scene::world_scene` already binds for a body part: the texture
                 // factor carries `1 - translucency` as the diffuse source
                 // (diffuse colour sourced from the material, `draw_params.w`), and
                 // `material_lighting` carries `Emissive` and `Diffuse`.
-                let factor = crate::world::material_texture_factor(o.material);
-                let lighting = crate::world::material_lighting(o.material);
+                let factor = crate::world_scene::material_texture_factor(o.material);
+                let lighting = crate::world_scene::material_lighting(o.material);
                 for m in o.meshes.iter() {
                     let mut world = base;
                     world.material_lighting = lighting;
@@ -512,7 +515,7 @@ mod imp {
                     } else {
                         lighting[0]
                     };
-                    crate::world::bind_lights(&mut world, lights, emissive, false);
+                    crate::world_scene::bind_lights(&mut world, lights, emissive, false);
                     if let Some(slot) = m.texture {
                         gpu.bind_texture(slot, m.sampler);
                     }
@@ -561,9 +564,9 @@ mod imp {
         }
     }
 
-    /// [`crate::world::OBJECT_VERTEX_STRIDE`], the FVF `0x152` layout every graphics-object mesh
+    /// [`dereth_scene::world_scene::OBJECT_VERTEX_STRIDE`], the FVF `0x152` layout every graphics-object mesh
     /// in this crate is built in (the sky's included: `build_meshes` is one bake).
-    const LAND_VERTEX_STRIDE: usize = crate::world::OBJECT_VERTEX_STRIDE;
+    const LAND_VERTEX_STRIDE: usize = crate::world_scene::OBJECT_VERTEX_STRIDE;
 
     /// Every graphics-object or setup id any day group of this region can ask for: each `SkyObject`'s
     /// `default_gfx_object`, plus every `SkyObjectReplace::gfx_obj_id` that can override one.

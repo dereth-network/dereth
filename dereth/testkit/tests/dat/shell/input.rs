@@ -5,7 +5,7 @@ use super::*;
 ///
 /// # Panics
 /// Panics on a key the host has no scan code for, which is not a key this client could ever see.
-pub(super) fn key(code: KeyCode) -> dereth_client::platform::keys::Key {
+pub(super) fn key(code: KeyCode) -> dereth_input::keys::Key {
     key_from_key_code(code).expect("the host names this key")
 }
 
@@ -287,8 +287,8 @@ pub(super) fn a_rebound_key_walks_the_body_and_the_old_one_stops() {
 /// `HeadlessClient::shutdown` takes the client by value and drops the log it answers with. See
 /// `dereth_testkit::adapters_shell::AppSpec`; that is a gap in the harness, not in the client.
 pub(super) fn a_rebind_is_written_beside_the_preferences() {
-    use dereth_client::shutdown::{Outcome, Step};
     use dereth_input::binding::Capture;
+    use {dereth_client_runtime::shutdown::Outcome, dereth_client_runtime::shutdown::Step};
 
     let prefs = scratch_preferences("shell-saved");
     let mut app = build_app(&AppSpec {
@@ -371,10 +371,13 @@ const SYSTEM_KEYS: dereth_input::InputMapId = dereth_input::InputMapId(0x10);
 
 /// The four are bound last of all and swallowed without doing anything.
 pub(super) fn the_desktops_four_are_taken_last_and_do_nothing() {
-    use dereth_client::interaction::{action as ia, Interaction};
-    use dereth_client::objects::ObjectStream;
+    use dereth_client_runtime::objects::ObjectStream;
     use dereth_input::ActionId;
     use dereth_primitives::{LocalTime, ObjectId};
+    use {
+        dereth_client_runtime::interaction::action as ia,
+        dereth_client_runtime::interaction::Interaction,
+    };
 
     const THE_FOUR: [u32; 4] = [
         ia::SYSTEM_ALT_TAB,
@@ -388,7 +391,8 @@ pub(super) fn the_desktops_four_are_taken_last_and_do_nothing() {
 
     // 1. The shipped data binds all four, in that map, and the map is walked last.
     let (all_bound, last_in_the_walk) = {
-        let shell = dereth_client::input::InputShell::new(&store, None).expect("the input tables");
+        let shell =
+            dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
         let section = shell
             .manager
             .keymap
@@ -408,8 +412,8 @@ pub(super) fn the_desktops_four_are_taken_last_and_do_nothing() {
     // 2. Each of the four is consumed and changes nothing at all.
     let press = |action: u32| -> (
         usize,
-        dereth_client::interaction::InteractionStats,
-        dereth_client::interaction::InteractionStats,
+        dereth_client_runtime::interaction::InteractionStats,
+        dereth_client_runtime::interaction::InteractionStats,
         Option<ObjectId>,
     ) {
         let mut objects = ObjectStream::new();
@@ -422,7 +426,7 @@ pub(super) fn the_desktops_four_are_taken_last_and_do_nothing() {
             extent: 1.0,
             repeats: 0,
         };
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut inter,
             &store,
             None,
@@ -796,7 +800,7 @@ pub(super) fn one_backspace_deletes_one_character_and_a_hold_repeats() {
     // Held, with no release: what each frame takes out of the box over about two seconds, and how
     // long the client thought it had been held when it took it.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let frames = (2.0 / dereth_client::app::HEADLESS_STEP).round() as u64;
+    let frames = (2.0 / dereth_client_runtime::platform::clock::HEADLESS_STEP).round() as u64;
     let mut per_frame: Vec<(f64, usize)> = Vec::new();
     let mut prev = after_press;
     for _ in 0..frames {
@@ -872,7 +876,7 @@ pub(super) fn a_backspace_tap_deletes_one_and_nothing_follows() {
 // The action bench
 //
 // Three scenarios here drive one input action straight through the frame's own tail --
-// `dereth_client::interaction::use_time`, which is what the action handler's caller uses here --
+// `dereth_client_runtime::interaction::use_time`, which is what the action handler's caller uses here --
 // and read the model back. They need no screen and no element tree, only the shipped tables, so
 // they are stood up directly rather than through a whole client; the claim is booked at the end
 // through a model client, the shape the login scenarios use for a scenario whose subject is not the
@@ -882,8 +886,8 @@ pub(super) fn a_backspace_tap_deletes_one_and_nothing_follows() {
 /// One press of one action, through the frame's own tail.
 struct ActionBench {
     store: dereth_dat::RetailDatStore,
-    objects: dereth_client::objects::ObjectStream,
-    inter: dereth_client::interaction::Interaction,
+    objects: dereth_client_runtime::objects::ObjectStream,
+    inter: dereth_client_runtime::interaction::Interaction,
     now: f64,
 }
 
@@ -892,8 +896,8 @@ impl ActionBench {
         Self {
             store: dereth_dat::testing::open_store()
                 .expect("the frame's tail takes the retail data files: set DERETH_TEST_DAT_DIR"),
-            objects: dereth_client::objects::ObjectStream::new(),
-            inter: dereth_client::interaction::Interaction::new(),
+            objects: dereth_client_runtime::objects::ObjectStream::new(),
+            inter: dereth_client_runtime::interaction::Interaction::new(),
             now: 1.0,
         }
     }
@@ -908,7 +912,7 @@ impl ActionBench {
             extent: 1.0,
             repeats: 0,
         };
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             None,
@@ -948,7 +952,7 @@ const ITEM_SELECTION: dereth_input::InputMapId = dereth_input::InputMapId(0x1000
 /// What a live press of `qc` resolves to over the shipped registration stack -- the client's own
 /// map walk, presented the way a key going down is presented to it.
 fn resolves_to(
-    shell: &dereth_client::input::InputShell,
+    shell: &dereth_client_shell::input::InputShell,
     qc: &dereth_input::ControlChord,
 ) -> Option<(dereth_input::InputMapId, dereth_input::ActionId)> {
     use dereth_input::spec::{activation, ControlChord, DeviceType};
@@ -970,7 +974,7 @@ fn resolves_to(
 /// Panics when the shipped map binds none or several, which would make every claim below about a
 /// binding this scenario had chosen rather than one the client has.
 fn the_only_binding(
-    shell: &dereth_client::input::InputShell,
+    shell: &dereth_client_shell::input::InputShell,
     map: dereth_input::InputMapId,
     action: u32,
 ) -> dereth_input::ControlChord {
@@ -1011,7 +1015,8 @@ pub(super) fn a_modified_number_uses_a_quick_slot_and_not_the_chat_window() {
 
     let store = dereth_dat::testing::open_store()
         .expect("the shipped key maps live in the retail data files");
-    let shell = dereth_client::input::InputShell::new(&store, None).expect("the input tables");
+    let shell =
+        dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
 
     // 1. The shipped map really does bind one identical control to both actions, which is the
     //    input on which the tie rule applies at all.
@@ -1026,7 +1031,7 @@ pub(super) fn a_modified_number_uses_a_quick_slot_and_not_the_chat_window() {
 
     // 2. The two maps are registered at one priority, in the client's own order, and the later of
     //    the two is therefore walked first.
-    let regs: Vec<(u32, i32)> = dereth_client::input::BASE_MAP_REGISTRATIONS
+    let regs: Vec<(u32, i32)> = dereth_client_shell::input::BASE_MAP_REGISTRATIONS
         .iter()
         .map(|(_, m, p)| (*m, *p))
         .collect();
@@ -1275,11 +1280,12 @@ fn a_fellowship(members: &[dereth_primitives::ObjectId]) -> ActionBench {
 
 /// One key walks the fellowship forward and the other back, both wrapping.
 pub(super) fn the_two_keys_walk_the_fellowship_both_ways_and_wrap() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     // The shipped keys really reach the two actions, rather than the scenario naming them.
     let store = dereth_dat::testing::open_store().expect("the retail data files");
-    let shell = dereth_client::input::InputShell::new(&store, None).expect("the input tables");
+    let shell =
+        dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
     let mut both_bound = true;
     for action in [ia::SELECTION_NEXT_FELLOW, ia::SELECTION_PREVIOUS_FELLOW] {
         let qc = the_only_binding(&shell, ITEM_SELECTION, action);
@@ -1321,7 +1327,7 @@ pub(super) fn the_two_keys_walk_the_fellowship_both_ways_and_wrap() {
 
 /// An outsider starts the walk at one end, and with no fellowship nothing moves.
 pub(super) fn an_outsider_starts_at_one_end_and_no_fellowship_moves_nothing() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut ends = Vec::new();
     for (action, want) in [
@@ -1362,7 +1368,7 @@ pub(super) fn an_outsider_starts_at_one_end_and_no_fellowship_moves_nothing() {
 
 /// The cycle follows the order the fellowship panel shows.
 pub(super) fn the_fellow_cycle_follows_the_panels_order() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     // The members arrive in an order that is not the panel's, so a reader that walked the message
     // rather than the model would answer the other way round.
@@ -1413,11 +1419,12 @@ fn three_targets() -> ActionBench {
 
 /// The key that goes back selects the one before, and is a toggle rather than a stack.
 pub(super) fn the_key_that_goes_back_is_a_toggle_and_not_a_stack() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     // The shipped key really reaches the action.
     let store = dereth_dat::testing::open_store().expect("the retail data files");
-    let shell = dereth_client::input::InputShell::new(&store, None).expect("the input tables");
+    let shell =
+        dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
     let qc = the_only_binding(&shell, ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
     let bound = qc.meta_mode == 0
         && resolves_to(&shell, &qc)
@@ -1464,7 +1471,7 @@ pub(super) fn the_key_that_goes_back_is_a_toggle_and_not_a_stack() {
 
 /// With nothing behind it, the key selects nothing.
 pub(super) fn with_nothing_behind_it_the_key_selects_nothing() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = three_targets();
     let nothing_yet = b.objects.world.prev_selected.is_none();
@@ -1489,7 +1496,7 @@ pub(super) fn with_nothing_behind_it_the_key_selects_nothing() {
 
 /// A target that was cleared comes back.
 pub(super) fn a_cleared_target_comes_back() {
-    use dereth_client::interaction::action as ia;
+    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = three_targets();
     b.select(Some(TARGET_A));
@@ -1546,27 +1553,27 @@ pub(super) fn the_left_button_and_the_wheel_each_belong_to_one_shipped_map() {
     // map nothing registers can bind whatever it likes and never win. So the interface's own
     // filter cannot be what kept a real press out.
     let left = binders(&mut c, 0x0C);
-    let two_binders = left == vec![0x1000_000B, dereth_client::ui::UI_INPUT_MAP.0];
-    let only_one_registered: Vec<u32> = dereth_client::input::BASE_MAP_REGISTRATIONS
+    let two_binders = left == vec![0x1000_000B, dereth_client_shell::ui::UI_INPUT_MAP.0];
+    let only_one_registered: Vec<u32> = dereth_client_shell::input::BASE_MAP_REGISTRATIONS
         .iter()
         .map(|(_, m, _)| *m)
         .filter(|m| left.contains(m))
         .collect();
-    let the_interfaces_own = only_one_registered == vec![dereth_client::ui::UI_INPUT_MAP.0];
+    let the_interfaces_own = only_one_registered == vec![dereth_client_shell::ui::UI_INPUT_MAP.0];
 
     // The wheel: exactly one shipped map binds it, and it is not one the client registers at
     // start-up -- it goes in when something takes the keyboard, which is what the wheel scenarios
     // are about.
     let wheel = binders(&mut c, 0x08);
     let one_binder = wheel == vec![0x0A]
-        && !dereth_client::input::BASE_MAP_REGISTRATIONS
+        && !dereth_client_shell::input::BASE_MAP_REGISTRATIONS
             .iter()
             .any(|(_, m, _)| *m == 0x0A);
 
     // And what a real press really produces carries that map and that action.
     let mut hands = Hands::new();
     hands.move_to(&mut c, 100, 100);
-    let m = hands.button_message(dereth_client::platform::keys::MouseButton::Left, true);
+    let m = hands.button_message(dereth_input::keys::MouseButton::Left, true);
     hands.send(&mut c, m);
     let (map, action) = {
         let input = c
@@ -1581,7 +1588,7 @@ pub(super) fn the_left_button_and_the_wheel_each_belong_to_one_shipped_map() {
             .expect("a press produces one action");
         (click.input_map, click.action.0)
     };
-    let the_press_carries_it = map == dereth_client::ui::UI_INPUT_MAP && action == 7;
+    let the_press_carries_it = map == dereth_client_shell::ui::UI_INPUT_MAP && action == 7;
 
     c.assert_behaviour(
         "pointer.the-left-button-and-the-wheel-each-belong-to-one-shipped-map",

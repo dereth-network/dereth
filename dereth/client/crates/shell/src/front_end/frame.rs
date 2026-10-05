@@ -448,7 +448,7 @@ impl<H: Host> Ui<'_, '_, H> {
                 // A newly constructed subscriber did not exist when this batch was emitted.
                 // Its `post_init` state remains authoritative until a subsequent notice arrives.
                 if !screen_changed {
-                    let writes = u64::from(crate::hud::deliver_power_bar_notices(
+                    let writes = u64::from(crate::hud_drive::deliver_power_bar_notices(
                         &mut shell.ui,
                         &mut hud.panels,
                         power_bar_notices,

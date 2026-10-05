@@ -4047,7 +4047,7 @@ impl CharGenScreen {
     /// palette-set type `0x18`), and the runtime descriptor the part array consumes is
     /// `dereth_animation::parts::ObjDesc`, which this crate does not depend on -- the same reason
     /// the colour wheel's [`CgColorSource`] is a seam. See
-    /// `dereth_client::preview::chargen_objdesc`, which reproduces the block, and
+    /// `dereth_scene::preview::chargen_objdesc`, which reproduces the block, and
     /// [`Cg3dView::bg_setup`], which is the half of it that does fit here.
     pub fn refresh_view(&mut self, _ui: &mut UiSystem) {
         self.view3d.initialize(&self.state);

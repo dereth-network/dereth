@@ -13,7 +13,7 @@
 //!
 //! The two are joined by [`dereth_primitives::MotionSource`], which the animation crate
 //! implements and the physics crate consumes. This crate supplies the three things neither owns:
-//! a `LandSource` ([`crate::land_source`]), an `AnimAssets` ([`crate::anim_assets`]), and the
+//! a `LandSource` ([`dereth_world_data::land_source`]), an `AnimAssets` ([`dereth_world_data::anim_assets`]), and the
 //! once-per-frame call order below.
 //!
 //! ## The frame
@@ -58,8 +58,10 @@ use dereth_primitives::{
     CellId, DataId, Frame, LandblockId, LocalTime, MotionSource, ObjectId, Position, Quat, Vec3,
 };
 
-use crate::anim_assets::DatAnimAssets;
-use crate::land_source::{DatLandSource, LandSourceError};
+use dereth_world_data::anim_assets::DatAnimAssets;
+use {
+    dereth_world_data::land_source::DatLandSource, dereth_world_data::land_source::LandSourceError,
+};
 
 /// The Aluvian male's setup from the chargen table: `setup = 0x02000001`.
 ///
@@ -1984,7 +1986,7 @@ impl Character {
         self.apply_effects();
     }
 
-    /// One frame. `now` is the current timer value, sampled once per frame by [`crate::app::Clock`].
+    /// One frame. `now` is the current timer value, sampled once per frame by [`dereth_client_runtime::platform::clock::Timer`].
     ///
     /// Returns true when the 30 Hz gate opened, which is what returns.
     pub fn update(&mut self, now: LocalTime) -> bool {

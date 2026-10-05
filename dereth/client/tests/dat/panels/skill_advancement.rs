@@ -15,10 +15,10 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use dereth_client::app::App;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_model::qualities::update as qupdate;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::Message as _;
 use dereth_transport::wire::ParsedPacket;
@@ -274,7 +274,7 @@ const CAPTURE_PLAYER: dereth_primitives::ObjectId = dereth_primitives::ObjectId(
 /// This is the whole of links 3 and 4: the requests go in as [`dereth_ui_screens::view::UiRequest`]s
 /// and come out as datagrams.
 fn route_and_send(
-    inter: &mut dereth_client::interaction::Interaction,
+    inter: &mut dereth_client_runtime::interaction::Interaction,
     store: &dereth_dat::RetailDatStore,
     objects: &mut ObjectStream,
     net: &mut ClientNetwork,
@@ -289,7 +289,7 @@ fn route_and_send(
         None => objects.world.clear_player_desc(),
     }
     inter.queue(Vec::new(), requests);
-    let (unowned, _) = dereth_client::interaction::use_time(
+    let (unowned, _) = dereth_client_runtime::interaction::use_time(
         inter,
         store,
         None,
@@ -771,7 +771,7 @@ fn every_captured_request_asks_for_the_amount_this_client_would_have_asked_for()
         // loopback session: nothing is sent to anything.
         let (mut net, _events) = replay(&session, true);
         let mut objects = ObjectStream::new();
-        let mut inter = dereth_client::interaction::Interaction::new();
+        let mut inter = dereth_client_runtime::interaction::Interaction::new();
 
         let mut q = dereth_client_model::Qualities::default();
         let mut stamper = dereth_client_model::qualities::PropertySequenceGate::default();
@@ -1424,7 +1424,7 @@ fn a_raise_leaves_the_panel_and_lands_on_the_wire_as_0x0046() {
     let q = capture_qualities(&events);
     let store = dat_store();
     let mut objects = ObjectStream::new();
-    let mut inter = dereth_client::interaction::Interaction::new();
+    let mut inter = dereth_client_runtime::interaction::Interaction::new();
 
     // The capture's own first trained-or-specialised skill, and its own cost to raise.
     let skills = player_description(&events)
@@ -1558,7 +1558,7 @@ fn the_train_request_is_0x0047_and_the_two_gates_refuse_each_others_work() {
     let q = capture_qualities(&events);
     let store = dat_store();
     let mut objects = ObjectStream::new();
-    let mut inter = dereth_client::interaction::Interaction::new();
+    let mut inter = dereth_client_runtime::interaction::Interaction::new();
 
     let untrained = skill_table
         .skills
@@ -1666,7 +1666,7 @@ fn the_spellbook_filter_write_back_reaches_the_wire() {
     let q = capture_qualities(&events);
     let store = dat_store();
     let mut objects = ObjectStream::new();
-    let mut inter = dereth_client::interaction::Interaction::new();
+    let mut inter = dereth_client_runtime::interaction::Interaction::new();
 
     const MASK: u32 = 0x0000_2AAA;
     let (sent, unowned) = route_and_send(

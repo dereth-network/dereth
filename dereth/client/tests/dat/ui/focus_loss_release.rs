@@ -37,16 +37,15 @@
 
 use crate::common::sim_app::{body, frames, key, movement_key, unhide_player as unhide_the_player};
 
-use dereth_client::{
-    app::App,
-    config::Config,
-    pump::Pump,
-    world::{SceneConfig, DEFAULT_LANDBLOCK},
-};
 use dereth_client_net::client_session::{testing::Corpus, SessionEvent};
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::{Message, Opcode};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_desktop::pump::Pump,
+};
 
 fn setup() -> App {
     let mut app = crate::common::sim_app::new(Config {
@@ -167,7 +166,7 @@ fn viewer_offset(app: &App) -> dereth_primitives::Vec3 {
 
 /// Exactly the pair `App::run_event_loop` performs for one `WindowEvent`: the direct arm first,
 /// then every `Win32Message` the pump maps it to, fed to the input manager.
-fn window_event(app: &mut App, event: &dereth_client::platform::window::HostEvent, time: u32) {
+fn window_event(app: &mut App, event: &dereth_input::host::HostEvent, time: u32) {
     app.note_flycam_input(event);
     let mut pump = Pump::new();
     pump.state.is_ready = true;
@@ -178,11 +177,7 @@ fn window_event(app: &mut App, event: &dereth_client::platform::window::HostEven
 }
 
 fn lose_focus(app: &mut App, time: u32) {
-    window_event(
-        app,
-        &dereth_client::platform::window::HostEvent::Focused(false),
-        time,
-    );
+    window_event(app, &dereth_input::host::HostEvent::Focused(false), time);
 }
 
 // -------------------------------------------------------------------------------------------

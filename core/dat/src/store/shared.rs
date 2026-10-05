@@ -16,7 +16,7 @@
 //!
 //! An entry is reused only while the file on disk still has the length and mtime it had when the
 //! walk ran, checked on both sides of the walk so that a file edited *during* it is never
-//! entered. That is the rule `dereth_client::App::invalidate_after_ddd` depends on: it reopens the
+//! entered. That is the rule `dereth_client_shell::App::invalidate_after_ddd` depends on: it reopens the
 //! store precisely because a patch landed, and a patch changes at least one of the two.
 //! [`forget`] closes the remaining gap — a writer that rewrote a record in place inside one
 //! filesystem timestamp tick — by dropping the entry as soon as [`crate::write::DatWriter`] opens

@@ -14,18 +14,18 @@
 use crate::common::client_dir;
 use crate::common::gpu_lock;
 
-use dereth_client::app::{App, AppState};
-use dereth_client::config::Config;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::shared_session;
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::config::Config;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::LocalTime;
 use dereth_ui::framework::mode;
 use dereth_ui_screens::screens::disconnected::{self, DisconnectedScreen};
 use dereth_ui_screens::screens::epilogue::EpilogueScreen;
 use dereth_ui_screens::screens::gameplay::logout;
+use {dereth_client::app::App, dereth_client_runtime::app::AppState};
 
 // ---------------------------------------------------------------------------------------------
 // Harness
@@ -143,7 +143,7 @@ fn shipped_row(app: &App, id: &str) -> Option<String> {
     )
     .expect("the string-table group resolves")
     .resolve(dereth_ui::framework::LayoutEnum(
-        dereth_client::ui::PATCH_STRING_TABLE_ENUM,
+        dereth_client_shell::ui::PATCH_STRING_TABLE_ENUM,
     ))
     .expect("string-table enum 0x10000002 resolves to a shipped table");
     app.ui()
@@ -368,7 +368,7 @@ fn a_timed_ban_names_the_expiry_and_a_permanent_one_names_no_date() {
     let admissible: Vec<String> = (before..=after)
         .map(|now| {
             let at = disconnected::ban_expiry_epoch(7_200, now);
-            let off = dereth_client::platform::local_utc_offset_secs(at);
+            let off = dereth_desktop::platform::local_utc_offset_secs(at);
             disconnected::account_banned_message(7_200, " - testing", now, off)
         })
         .collect();

@@ -6,11 +6,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{baked_normal, normal_scale, world_constants, world_constants_scaled};
 use dereth_primitives::{Frame, Quat, TextureData, TextureFormat, Vec3};
 use dereth_render::device::{Gpu, PerDrawConstants, PerFrameConstants};
 use dereth_render::pso::{Blend, Cull, PipelineKey, ZFunc};
 use dereth_render::{DrawConstants, StageOps, VertexFormat};
+use {
+    dereth_scene::world_scene::baked_normal, dereth_scene::world_scene::normal_scale,
+    dereth_scene::world_scene::world_constants, dereth_scene::world_scene::world_constants_scaled,
+};
 
 const N: u32 = 64;
 

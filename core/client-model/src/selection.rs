@@ -37,10 +37,10 @@
 //! `0x10000038 - 0x1000002A = 0x0E` selects case `0x0D`).
 //!
 //! The producer of that action is
-//! `dereth_client::interaction::Interaction::on_actions`'s `action::SELECTION_LAST_ATTACKER`, beside
+//! `dereth_client_runtime::interaction::Interaction::on_actions`'s `action::SELECTION_LAST_ATTACKER`, beside
 //! the sixteen `select_next` arms and the `SELECTION_EXAMINE` and `USE` arms; it
 //! resolves the attacker's player-space offset through the same
-//! `dereth_client::selection_geometry::SceneSelectionPhysics` snapshot the cycle uses, because
+//! `dereth_client_runtime::selection_geometry::SceneSelectionPhysics` snapshot the cycle uses, because
 //! last-attacker selection starts with an id and needs its geometry resolved.
 //! This is asserted through the wire on both sides of the range in the client's CPU selection tests.
 
@@ -291,7 +291,7 @@ pub fn farther(a: (f64, ObjectId), b: (f64, ObjectId)) -> bool {
 
 /// The geometry and physics-state facts needed to select one object.
 ///
-/// This is the same seam `dereth_client::object_range` is for the range watch and
+/// This is the same seam `dereth_client_runtime::object_range` is for the range watch and
 /// `Hud::speaker_player_space` is for chat hearing, in the shape this function needs: it is
 /// asked once per member of the `visible_object_table` and once for the reference object.
 ///
@@ -306,7 +306,7 @@ pub struct SelectionPhysics {
     /// `state & `[`CLOAKED_PS`].
     ///
     /// **This bit has a producer.** The seam,
-    /// `dereth_client::selection_geometry::SceneSelectionPhysics`, reads the live physics-state
+    /// `dereth_client_runtime::selection_geometry::SceneSelectionPhysics`, reads the live physics-state
     /// word and passes the real bit;
     /// [`objects::PhysicsPresence::state`](crate::objects::PhysicsPresence::state) carries the
     /// whole word, is the single source that `0xF74B Item_SetState` writes, and is the **only**
@@ -521,7 +521,7 @@ impl World {
     /// # The wire — declared, not forgotten
     ///
     /// **Every caller exists.** The sixteen action arms below are
-    /// `dereth_client::interaction::Interaction::on_actions`'s, and the client tests assert them
+    /// `dereth_client_runtime::interaction::Interaction::on_actions`'s, and the client tests assert them
     /// one arm at a time; the twenty-seventh call site is the automatic-target fallback, whose
     /// production caller is at the end of the combat-mode change.
     ///

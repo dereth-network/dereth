@@ -10,14 +10,14 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, Vec3};
 use dereth_render::device::Gpu;
 use std::sync::Arc;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -47,8 +47,8 @@ fn frame(store: &Arc<RetailDatStore>, gpu: &mut Gpu, scene: &mut WorldScene, t: 
         .sync_objects(store, gpu, &mut stream)
         .expect("sync_objects");
     scene.update(
-        dereth_client::camera::CameraInput::default(),
-        dereth_client::character::CharacterInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
+        dereth_client_runtime::character::CharacterInput::default(),
         LocalTime(t),
         1.0 / 30.0,
     );
@@ -207,7 +207,7 @@ fn counted_shot(
         store,
         &mut gpu,
         &mut scene,
-        dereth_client::app::HEADLESS_STEP,
+        dereth_client_runtime::platform::clock::HEADLESS_STEP,
     );
     stand(&mut scene, opening, back, pitch);
     let (s0, d0) = (gpu.portal_stamps(), gpu.draw_calls());
@@ -215,7 +215,7 @@ fn counted_shot(
         store,
         &mut gpu,
         &mut scene,
-        2.0 * dereth_client::app::HEADLESS_STEP,
+        2.0 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
     );
     let polys = scene.building_portal_screen_polygons(W, H);
     Some((rgba, polys, gpu.portal_stamps() - s0, gpu.draw_calls() - d0))
@@ -236,7 +236,7 @@ fn shot_with(
         store,
         &mut gpu,
         &mut scene,
-        dereth_client::app::HEADLESS_STEP,
+        dereth_client_runtime::platform::clock::HEADLESS_STEP,
     );
     stand(&mut scene, opening, back, pitch);
     let before = gpu.portal_stamps();
@@ -244,7 +244,7 @@ fn shot_with(
         store,
         &mut gpu,
         &mut scene,
-        2.0 * dereth_client::app::HEADLESS_STEP,
+        2.0 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
     );
     let polys = scene.building_portal_screen_polygons(W, H);
     let stamps = gpu.portal_stamps() - before;
@@ -295,7 +295,7 @@ const PITCH_DOWN: f32 = 0.35;
 /// **Omitting the stamp is not safe.** The interiors are drawn before the block's opaque batches
 /// and before every nearer block, but that does not make everything already in the depth buffer
 /// at an opening farther away than the interior behind it, because
-/// [`WorldScene::draw`](dereth_client::world::WorldScene::draw) draws **this block's own terrain
+/// [`WorldScene::draw`](dereth_scene::world_scene::WorldScene::draw) draws **this block's own terrain
 /// cells immediately before** its buildings' interiors — so the ground the building stands on is
 /// already in the depth buffer at the opening, at very nearly the depth of the interior floor
 /// behind it. The stamp changes pixels at both stations below, the level one included.
@@ -447,7 +447,7 @@ fn an_opening_that_leaves_the_viewport_is_clipped_away_entirely() {
     let store = store();
 
     // Straight up at the sky, over the roofline, where the openings close again.
-    let up = dereth_client::camera::PITCH_LIMIT;
+    let up = dereth_client_runtime::camera::PITCH_LIMIT;
     let sky = |clip: bool, portals: bool| -> Option<Shot> {
         let mut gpu = crate::common::test_gpu(W, H);
         let mut c = cfg(clip, true);
@@ -457,7 +457,7 @@ fn an_opening_that_leaves_the_viewport_is_clipped_away_entirely() {
             &store,
             &mut gpu,
             &mut scene,
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         stand(&mut scene, OPENING, BACK, 0.0);
         scene.camera.pitch = up;
@@ -466,7 +466,7 @@ fn an_opening_that_leaves_the_viewport_is_clipped_away_entirely() {
             &store,
             &mut gpu,
             &mut scene,
-            2.0 * dereth_client::app::HEADLESS_STEP,
+            2.0 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         let polys = scene.building_portal_screen_polygons(W, H);
         Some((rgba, polys, gpu.portal_stamps() - before))
@@ -654,14 +654,14 @@ fn the_interior_is_still_drawn_with_the_clip_and_the_stamp_on() {
             &store,
             &mut gpu,
             &mut scene,
-            dereth_client::app::HEADLESS_STEP,
+            dereth_client_runtime::platform::clock::HEADLESS_STEP,
         );
         stand(&mut scene, OPENING, BACK, PITCH_DOWN);
         frame(
             &store,
             &mut gpu,
             &mut scene,
-            2.0 * dereth_client::app::HEADLESS_STEP,
+            2.0 * dereth_client_runtime::platform::clock::HEADLESS_STEP,
         )
     };
     let (on, polys, _) = shot(&store, true, true, OPENING, BACK, PITCH_DOWN)

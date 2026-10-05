@@ -1,7 +1,7 @@
 //! The one named flag type the client's state structs share.
 //!
 //! It lives here because `character.rs` names it for its own `enabled` field.
-//! `dereth_client::interaction::StartsTrue` is a `pub use` of this type.
+//! `dereth_client_runtime::interaction::StartsTrue` is a `pub use` of this type.
 
 /// A `bool` whose zero value is `true`.
 ///

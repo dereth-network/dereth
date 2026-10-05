@@ -2,12 +2,6 @@
 //!
 //! Behaviour: none (shared fixtures)
 
-use dereth_client::{
-    app::{App, StartupError},
-    config::Config,
-    pump::Pump,
-    world::{SceneConfig, DEFAULT_LANDBLOCK},
-};
 use dereth_client_net::client_session::{
     testing::{Corpus, Direction},
     SessionEvent,
@@ -16,6 +10,11 @@ use dereth_primitives::{LocalTime, ObjectId, Position};
 use dereth_protocol::{objects::ItemCreateObject, Message, Opcode};
 use dereth_ui::{framework::mode, UiSystem};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {
+    dereth_client::app::App, dereth_client_runtime::app::StartupError,
+    dereth_client_runtime::config::Config, dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+    dereth_client_runtime::scene::SceneConfig, dereth_desktop::pump::Pump,
+};
 
 use crate::common::client_dir;
 
@@ -37,7 +36,7 @@ pub fn position(app: &App) -> Position {
 }
 
 /// The application's real character.
-pub fn body(app: &App) -> &dereth_client::character::Character {
+pub fn body(app: &App) -> &dereth_client_runtime::character::Character {
     app.world_state().unwrap().character.as_ref().unwrap()
 }
 
@@ -65,7 +64,7 @@ pub fn movement_key(app: &mut App, action: dereth_input::ActionId, down: bool, t
     ]
     .into_iter()
     .find(|keycode| {
-        dereth_client::pump::scan_code_from_key_code(*keycode)
+        dereth_desktop::pump::scan_code_from_key_code(*keycode)
             .is_some_and(|scan| (scan & 0xff) as u32 == (binding.control.offset() & 0x7f) as u32)
     })
     .expect("known physical movement key for this retail DAT");
@@ -160,11 +159,11 @@ pub fn app_in_gameplay_with(
     };
     let mut app = new(cfg).expect("the application comes up");
     app.start_shell().expect("the UI comes up");
-    let s = dereth_client::world::SceneConfig {
+    let s = dereth_client_runtime::scene::SceneConfig {
         landblock: app.config().landblock,
         land_radius: app.config().land_radius,
         scenery_radius: app.config().scenery_radius,
-        ..dereth_client::world::SceneConfig::default()
+        ..dereth_client_runtime::scene::SceneConfig::default()
     };
     app.load_static_scene(s).expect("the static scene loads");
     app.queue_ui_mode(mode::GAME_PLAY);

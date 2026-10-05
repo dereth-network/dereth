@@ -8,12 +8,12 @@
 
 use std::rc::Rc;
 
-use dereth_client::hud::Hud;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::testing::{session_names, shared_session};
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_net::recording::connection_sequence_number;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_shell::hud::Hud;
 use dereth_primitives::{AssetSource, DataId, LocalTime, ObjectId};
 use dereth_ui::framework::Screen;
 use dereth_ui::region::IconRecipe;

@@ -31,7 +31,7 @@ pub mod book;
 pub mod camera;
 /// The chat seam shared with `dereth_ui_screens::chat`: the failure table,
 /// `ChatMessage`, the window ids and opacity attributes, the reply targets and the auto-target
-/// question. `dereth_client::hud` fills every one of them.
+/// question. `dereth_client_shell::hud` fills every one of them.
 pub mod chat;
 pub mod combat_mode;
 /// The skill the combat window's melee arm gates its meter on.
@@ -45,13 +45,13 @@ pub mod disconnect;
 pub mod era;
 pub mod examination;
 /// `PlayerModule`'s window-placement blob, shared with `dereth_ui_screens::hud::floaty`.
-/// `dereth_client::hud` owns the blob.
+/// `dereth_client_shell::hud` owns the blob.
 pub mod floaty;
 /// The gameplay screen's 3D viewport element id.
 pub mod gameplay;
 pub mod ids;
 /// `InputPump` and `NullInputPump`, which `dereth_ui` re-exports. `dereth-ui` calls the trait and
-/// `dereth_client::input` implements it, so it belongs under both rather than in one of them.
+/// `dereth_client_shell::input` implements it, so it belongs under both rather than in one of them.
 pub mod input;
 pub mod journal;
 pub mod linkstatus;

@@ -52,8 +52,8 @@ pub fn every_recorded_teleport_is_applied_and_no_other_position_is() {
 /// through, and the walk away from where it landed -- which is what makes the second report, the
 /// one that would have carried a stale position, exist at all.
 pub fn a_recorded_teleport_moves_the_body_and_the_reports_follow() {
-    use dereth_client::app::{body_motion, player_timestamps};
     use dereth_primitives::LocalTime;
+    use {dereth_client_runtime::app::body_motion, dereth_client_runtime::app::player_timestamps};
 
     let store = support::store();
     let (session, _) = world_support::a_recording_with_a_teleport();
@@ -378,11 +378,11 @@ pub fn a_placement_inside_a_building_takes_and_raises_its_footing_change() {
     let store = support::store();
 
     // 1. The placement itself, outdoors and indoors, at a spot the body demonstrably stands on.
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
-    let mut out = dereth_client::character::Character::new(
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
+    let mut out = dereth_client_runtime::character::Character::new(
         &store,
         &region,
-        dereth_client::world::DEFAULT_LANDBLOCK,
+        dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
         (96.0, 96.0),
     )
     .expect("the outdoor body is created");

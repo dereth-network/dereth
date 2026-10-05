@@ -126,7 +126,7 @@ fn answer_the_question(c: &mut HeadlessClient, yes: bool) {
 
 /// Press the key the **shipped keymap** binds to *use*.
 pub(super) fn press_the_use_key(c: &mut HeadlessClient) {
-    let key = dereth_client::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyR)
+    let key = dereth_desktop::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyR)
         .expect("the host names this key");
     dereth_testkit::input_steps::press_use(c, key);
 }
@@ -220,7 +220,7 @@ const SELECTION_COMMANDS: dereth_input::InputMapId = dereth_input::InputMapId(0x
 
 /// Press the key the **shipped keymap** binds to picking up what is picked.
 fn press_the_pick_up_key(c: &mut HeadlessClient) {
-    let key = dereth_client::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyF)
+    let key = dereth_desktop::platform::window::key_from_key_code(winit::keyboard::KeyCode::KeyF)
         .expect("the host names this key");
     dereth_testkit::input_steps::press_bound(c, PICK_UP, SELECTION_COMMANDS, key);
 }

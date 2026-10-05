@@ -4,7 +4,7 @@
 //! this crate's own `framework.rs` read them, so they cannot live *up* in `dereth-client`, where
 //! the files they describe are read and written, without making dependency cycles.
 //! `dereth-client-contract` sits below every one of those readers; the file reading and writing
-//! is `dereth_client::persist`.
+//! is `dereth_client_shell::persist`.
 //!
 //! Everything in the contract module resolves through this one. One item lives here instead,
 //! because it names something a crate whose only dependency is `dereth-primitives` cannot name:
@@ -36,7 +36,7 @@ pub mod preferences {
 
 pub mod screen_layout {
     //! [`dereth_client_contract::persist::screen_layout`], under the path it was written at. The `fopen`
-    //! pair and the `layout_path` branch that were here are `dereth_client::persist`.
+    //! pair and the `layout_path` branch that were here are `dereth_client_shell::persist`.
     pub use dereth_client_contract::persist::screen_layout::*;
 }
 

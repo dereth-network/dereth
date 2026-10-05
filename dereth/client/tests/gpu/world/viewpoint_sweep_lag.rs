@@ -11,16 +11,19 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::camera::CameraInput;
-use dereth_client::character::CharacterInput;
-use dereth_client::world::{SceneConfig, WorldScene, DEFAULT_LANDBLOCK};
+use dereth_client_runtime::camera::CameraInput;
+use dereth_client_runtime::character::CharacterInput;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::num::math;
 use dereth_primitives::{Frame, LandblockId, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
+use {
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+    dereth_scene::world_scene::WorldScene,
+};
 
 /// `BLOCK_LENGTH`.
 const BLOCK: f64 = 192.0;
@@ -36,7 +39,7 @@ fn store() -> Arc<RetailDatStore> {
 
 fn embodied(store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> WorldScene {
     let mut scene = WorldScene::load(store, gpu, SceneConfig::default()).expect("the scene loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     scene
         .attach_character(store, &region, gpu)
         .expect("the body is created");
@@ -195,7 +198,7 @@ fn measure(store: &Arc<RetailDatStore>, st: &Station) -> Reading {
             LocalTime(now),
             dt,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),
@@ -230,7 +233,7 @@ fn measure(store: &Arc<RetailDatStore>, st: &Station) -> Reading {
         scene.update(CameraInput::default(), input, LocalTime(now), dt);
         // `App::frame`'s next line, and this loop needs it: the camera sweep is the only thing that
         // moves `Character::camera.viewer` during ordinary frame progression.
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),
@@ -516,7 +519,7 @@ fn world_scene_update_does_not_move_the_viewpoint_which_is_why_the_lag_is_exactl
         if ticked {
             ticked_frames += 1;
         }
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),

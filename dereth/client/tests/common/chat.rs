@@ -2,14 +2,13 @@
 //!
 //! Behaviour: none (shared fixtures)
 
-use dereth_client::{
-    app::App,
-    config::Config,
-    pump::{Pump, Win32Message},
-};
 use dereth_client_model::Request;
 use dereth_ui::{framework::mode, ElemHandle, ElementId};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config, dereth_desktop::pump::Pump,
+    dereth_input::win32::Win32Message,
+};
 
 /// The main-chat text entry.
 const CHAT_ENTRY: ElementId = ElementId(0x1000_0016);

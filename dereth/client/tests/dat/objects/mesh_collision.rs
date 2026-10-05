@@ -14,14 +14,17 @@ use crate::common::collision_probe;
 use std::sync::Arc;
 
 use dereth_assets::{Decode, Setup};
-use dereth_client::env_cells::{cell_statics, EnvCellLoader};
-use dereth_client::land_source::DatLandSource;
-use dereth_client::object_physics::{setup_geometry_with_parts, SetupPartStats};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::source::EnvCellGeometry;
 use dereth_physics::{LandSource, PhysHandle, PhysicsWorld, SetupGeometry, Sphere, V3};
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, DataId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
+use dereth_world_data::land_source::DatLandSource;
+use {
+    dereth_client_runtime::object_physics::setup_geometry_with_parts,
+    dereth_client_runtime::object_physics::SetupPartStats,
+};
+use {dereth_world_data::env_cells::cell_statics, dereth_world_data::env_cells::EnvCellLoader};
 
 /// The shared collision-walk probe: `inside_object` is the primitive the sampled frames-in-mesh
 /// judgment uses.
@@ -259,7 +262,7 @@ fn approaches(cell: &EnvCellGeometry, origin: Vec3, z: f32) -> Vec<Approach> {
 #[test]
 fn a_bsp_only_dungeon_object_stops_a_body_that_used_to_walk_through_it() {
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -288,7 +291,7 @@ fn a_bsp_only_dungeon_object_stops_a_body_that_used_to_walk_through_it() {
             }
             // The control is the same object built with no parts, so derived part-tree
             // availability is false and the sphere arm runs over an empty sphere list.
-            let without = Arc::new(dereth_client::character::setup_geometry(&decoded));
+            let without = Arc::new(dereth_world_data::setup::setup_geometry(&decoded));
             assert!(!without.caches_physics_bsp() && without.spheres.is_empty());
 
             let pos = Position::new(d.id, s.frame);
@@ -458,7 +461,7 @@ fn a_standable_point(cell: &EnvCellGeometry) -> Option<Vec3> {
 #[test]
 fn a_body_walking_into_a_retail_door_is_stopped_by_it() {
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));
@@ -467,7 +470,7 @@ fn a_body_walking_into_a_retail_door_is_stopped_by_it() {
     let decoded = setup(&store, did).expect("the door setup decodes");
     let mut stats = SetupPartStats::default();
     let with_parts = Arc::new(setup_geometry_with_parts(&store, &decoded, &mut stats));
-    let without = Arc::new(dereth_client::character::setup_geometry(&decoded));
+    let without = Arc::new(dereth_world_data::setup::setup_geometry(&decoded));
     assert!(
         without.spheres.is_empty() && !without.caches_physics_bsp(),
         "the control is inert"
@@ -719,7 +722,7 @@ fn the_training_dungeons_cylsphere_placements_and_which_arm_each_takes() {
 #[test]
 fn a_cylsphere_only_dungeon_object_stops_a_body_that_used_to_walk_through_it() {
     let store = store();
-    let region = dereth_client::world::load_region(&store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
     let src =
         Arc::new(DatLandSource::new(Arc::clone(&store), &region).expect("the retail height table"));
     src.load_block_cells(dereth_primitives::LandblockId(TRAINING_DUNGEON));

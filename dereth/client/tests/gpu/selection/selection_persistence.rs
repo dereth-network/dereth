@@ -4,7 +4,7 @@
 //! world click lowers the in-view latch and the next draw raises it; a driven run keeps the
 //! selection across every range exit once drawn; and the range edge is the radar radius. Fixture:
 //! a software GPU device, retail data and a `WorldScene` with a real body in a real cell; tests
-//! call `dereth_client::interaction::use_time` with constructed events and optionally run the
+//! call `dereth_client_runtime::interaction::use_time` with constructed events and optionally run the
 //! scene sync/update/stream/draw helper in `App::frame`'s order (no OS input, no full app frame).
 //! Objects sit on 3/4/5 headings, and every placement asserts the offset it actually landed at.
 //!
@@ -33,23 +33,26 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
-use dereth_client::character::PLAYER_OBJECT_ID;
-use dereth_client::interaction::{action as ia, Interaction};
-use dereth_client::objects::ObjectStream;
-use dereth_client::selection_geometry::SceneSelectionPhysics;
-use dereth_client::ui::UiMouseEvent;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_model::range::RADAR_RADIUS_OUTDOORS;
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::selection_geometry::SceneSelectionPhysics;
+use dereth_client_shell::ui::UiMouseEvent;
 use dereth_dat::RetailDatStore;
 use dereth_input::ActionId;
 use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, ServerTime, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
+use {
+    dereth_client_runtime::interaction::action as ia,
+    dereth_client_runtime::interaction::Interaction,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 // Three monsters on a 53.13° heading at 3 m, 9 m and 30 m — non-cardinal throughout.
 const NEAR: ObjectId = ObjectId(0x8300_0001);
@@ -100,7 +103,8 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a software GPU device");
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             cell_statics: false,
             mesh_collision: false,
@@ -415,7 +419,7 @@ impl Bench {
     /// *earlier* frame.
     fn frame(&mut self, events: Vec<dereth_client_runtime::actions::Action>) -> usize {
         self.now += 1.0;
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             Some(&self.scene),
@@ -451,8 +455,8 @@ impl Bench {
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(self.now),
             1.0 / 30.0,
         );

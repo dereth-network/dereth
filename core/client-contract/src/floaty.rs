@@ -1,7 +1,7 @@
 //! `PlayerModule`'s window-placement blob.
 //!
 //! Window-placement rows read by floating windows from the retained `PlayerModule`. They live here
-//! rather than in `dereth_ui_screens::hud::floaty` because `dereth_client::hud` *owns* the blob --
+//! rather than in `dereth_ui_screens::hud::floaty` because `dereth_client_shell::hud` *owns* the blob --
 //! it is one of the three process globals the client owns -- and reading it should not make the
 //! world half name the crate that draws the windows. Plain data: six `Option`s and a `BTreeMap`,
 //! and [`ChatWindowTitle`](crate::view::ChatWindowTitle) is already this crate's.

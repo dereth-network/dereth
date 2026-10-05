@@ -148,8 +148,8 @@ pub fn the_scroll_keys_move_the_log_and_the_history_keys_fill_the_entry() {
 /// it produced.
 fn line_with_focus(focus: u32, text: &str) -> Vec<dereth_client_model::Request> {
     let store = dereth_dat::testing::open_store().expect("the retail data is the client's own");
-    let mut inter = dereth_client::interaction::Interaction::new();
-    let mut objects = dereth_client::objects::ObjectStream::new();
+    let mut inter = dereth_client_runtime::interaction::Interaction::new();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::new();
     inter.queue(
         Vec::new(),
         vec![
@@ -160,7 +160,7 @@ fn line_with_focus(focus: u32, text: &str) -> Vec<dereth_client_model::Request> 
             },
         ],
     );
-    let (unowned, _) = dereth_client::interaction::use_time(
+    let (unowned, _) = dereth_client_runtime::interaction::use_time(
         &mut inter,
         &store,
         None,

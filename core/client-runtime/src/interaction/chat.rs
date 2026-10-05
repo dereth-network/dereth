@@ -149,11 +149,11 @@ impl Interaction {
                 self.stats.soul_emotes_sent += 1;
             }
             if let Some(text) = &p.my_emote {
-                let name = crate::chat::soul_emote_sender_name(
+                let name = dereth_client_model::chat::composition::soul_emote_sender_name(
                     dereth_client_model::emotes::LOCAL_ECHO_NAME,
                 );
-                let (_, trimmed) = crate::chat::language_marker(&name);
-                let line = crate::chat::hear_emote_line(trimmed, text);
+                let (_, trimmed) = dereth_client_model::chat::composition::language_marker(&name);
+                let line = dereth_client_model::chat::composition::hear_emote_line(trimmed, text);
                 game.scroll.add_feedback_to_scroll(
                     &line,
                     dereth_client_model::chat::text_type::EMOTE,
@@ -285,7 +285,9 @@ impl Interaction {
                 .player_qualities()
                 .or_else(|| game.login_player_desc())
                 .map_or(0, |q| q.inq_int(0xBC));
-            game.enable_chat_talk_focuses(crate::chat::is_olthoi(heritage));
+            game.enable_chat_talk_focuses(dereth_client_model::chat::composition::is_olthoi(
+                heritage,
+            ));
         }
         for (ordinal, value) in &change.sends {
             dereth_client_model::RequestSink::send(
@@ -1012,7 +1014,9 @@ impl Interaction {
                                 )
                             {
                                 game.scroll.add_feedback_to_scroll(
-                                    crate::chat::add_text_to_scroll_trim(&m.body),
+                                    dereth_client_model::chat::composition::add_text_to_scroll_trim(
+                                        &m.body,
+                                    ),
                                     u32::from(m.ty),
                                     true,
                                     0,
@@ -1598,7 +1602,9 @@ impl Interaction {
                 if change.moved() && matches!(ordinal, 35 | 36 | 37 | 38 | 46) {
                     let heritage = Self::player_desc(game, player_desc_received)
                         .map_or(0, |q| q.inq_int(0xBC));
-                    game.enable_chat_talk_focuses(crate::chat::is_olthoi(heritage));
+                    game.enable_chat_talk_focuses(
+                        dereth_client_model::chat::composition::is_olthoi(heritage),
+                    );
                     chat_focus(&mut game.chat);
                 }
                 for (ordinal, value) in &change.sends {

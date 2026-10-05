@@ -33,23 +33,26 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;
 
-use dereth_client::character::PLAYER_OBJECT_ID;
-use dereth_client::interaction::{action as ia, Interaction};
-use dereth_client::objects::ObjectStream;
-use dereth_client::selection_geometry::SceneSelectionPhysics;
-use dereth_client::world::{SceneConfig, WorldScene};
 use dereth_client_model::selection::{CLOAKED_PS, REPORT_COLLISIONS_AS_ENVIRONMENT_PS};
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::PLAYER_OBJECT_ID;
+use dereth_client_runtime::objects::ObjectStream;
+use dereth_client_runtime::selection_geometry::SceneSelectionPhysics;
 use dereth_dat::RetailDatStore;
 use dereth_input::{ActionId, InputMapId};
 use dereth_physics::LandSource;
 use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
+use {
+    dereth_client_runtime::interaction::action as ia,
+    dereth_client_runtime::interaction::Interaction,
+};
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// `ItemSelectionCommands`, the map every one of the sixteen is bound in. The value only has to
 /// be a map; `on_actions` does not look at it, and which map dispatches these ids is the action
@@ -85,7 +88,8 @@ impl Bench {
             ..DeviceConfig::default()
         };
         let mut gpu = Gpu::new(None, &cfg).expect("a D3D12 WARP device");
-        let region = dereth_client::world::load_region(&store).expect("the region decodes");
+        let region =
+            dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
         // The cheapest scene that still produces a body. Nothing in this file touches terrain,
         // statics or collision: `use_time` reads exactly one thing off the scene for the selection
         // cycle -- `character.position()` -- and the geometry seam is fed from the object stream.
@@ -205,7 +209,7 @@ impl Bench {
 
     /// The same create with **no `POSITION` flag** — `PhysicsDesc.position` absent, which is what
     /// a contained or wielded object's `0xF745` carries and what
-    /// `dereth_client::objects::Presence::position`'s own doc calls "`None` for a contained or
+    /// `dereth_client_runtime::objects::Presence::position`'s own doc calls "`None` for a contained or
     /// wielded object, which has no position of its own".
     ///
     /// The player-space conversion fails when the object has no cell, and the selection cycle
@@ -320,7 +324,7 @@ impl Bench {
             extent: 1.0,
             repeats: 0,
         };
-        let (unowned, left) = dereth_client::interaction::use_time(
+        let (unowned, left) = dereth_client_runtime::interaction::use_time(
             &mut self.inter,
             &self.store,
             Some(&self.scene),
@@ -488,7 +492,7 @@ fn with_no_body_the_snapshot_is_empty_and_the_counter_says_so() {
     assert_eq!(empty.get(NEAR), None);
 
     // Driven through the frame with `world = None`, which is what a headless frame passes.
-    let (unowned, left) = dereth_client::interaction::use_time(
+    let (unowned, left) = dereth_client_runtime::interaction::use_time(
         &mut b.inter,
         &b.store,
         None,
@@ -1000,7 +1004,7 @@ fn each_kind_selects_its_own_and_no_other() {
 fn no_shipped_binding_for_the_sixteen_is_a_hold() {
     let store = dereth_dat::testing::open_store().expect("the shipped ActionMap is in the dats");
     let shell =
-        dereth_client::input::InputShell::new(&store, None).expect("the input tables decode");
+        dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables decode");
     let sixteen = [
         ia::SELECTION_CLOSEST_COMPASS_ITEM,
         ia::SELECTION_PREVIOUS_COMPASS_ITEM,
@@ -1055,7 +1059,7 @@ fn a_release_event_runs_the_cycle_because_the_action_handler_never_reads_the_sta
         extent: 0.0,
         repeats: 0,
     };
-    let (_, left) = dereth_client::interaction::use_time(
+    let (_, left) = dereth_client_runtime::interaction::use_time(
         &mut b.inter,
         &b.store,
         Some(&b.scene),

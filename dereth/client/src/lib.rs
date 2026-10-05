@@ -4,7 +4,7 @@
 //! **Depends on** the client shell (`dereth-client-shell`), scene (`dereth-scene`) and desktop
 //! host (`dereth-desktop`), with renderer backend selection (`dereth-render`), the UI
 //! (`dereth-ui`), host input replay (`dereth-input`), shared types (`dereth-primitives`) and
-//! console (`dereth-console`). On Linux, `dereth-launch` registers its desktop entry.
+//! console (`dereth-console`) and shared application state (`dereth-client-runtime`). On Linux, `dereth-launch` registers its desktop entry.
 //! **Used by** nothing but the client's test kit (`dereth-testkit`).
 //!
 //! **Must never** do another crate's work: if something here starts decoding an asset, transforming
@@ -14,18 +14,15 @@
 //!
 //! The frame loop is the runtime's and the application is the client shell's, generic over its
 //! host. The host is the desktop's ([`dereth_desktop`]), and what this crate adds is the product
-//! itself, [`Dereth`]: its name, its settings folder, its icon. Every module of the shell and of
-//! the desktop host is re-exported here at its old path, with [`app::App`] and
-//! [`app::ClientShell`] on the [`Desktop`] host.
+//! itself, [`Dereth`]: its name, its settings folder, its icon, with [`app::App`] and
+//! [`app::ClientShell`] specialized on the [`Desktop`] host.
 //!
 //! ```text
 //! dereth-client -- --headless --frames 1 --capture out.png
 //! ```
 
-pub use dereth_client_shell::*;
-
 pub mod app;
-pub use dereth_desktop::{audio, clipboard, cursor, folders, platform, pump};
+
 // The HUD, with the desktop's platform answers.
 pub mod hud;
 
@@ -36,7 +33,7 @@ pub struct Dereth;
 impl dereth_desktop::Product for Dereth {
     const BINARY_NAME: &'static str = "dereth-client";
     const BUILD_ID: &'static str = concat!("dereth-client ", env!("CARGO_PKG_VERSION"));
-    const SETTINGS_DIR_NAME: &'static str = folders::CLIENT_DIR_NAME;
+    const SETTINGS_DIR_NAME: &'static str = dereth_desktop::folders::CLIENT_DIR_NAME;
     const TITLE: &'static str = "Dereth";
     const ICON_PNG: &'static [u8] = include_bytes!("../assets/dereth-256.png");
     /// `dereth_launch::desktop::CLIENT_APP_ID`, which the launcher writes the entry under too.

@@ -12,7 +12,7 @@
 //! | the character-error → string-token table | the 25-code mapping in `character_error_string_id`, resolved against shipped string table `0x23000002` |
 //! | the credits are the credits | table `0x23000008`: count 2,345, the first and last rows, and the missing next row; scrolling duration and seven picture IDs are separate controls |
 //! | the epilogue logs off and quits | the OK-button mode edge and the shipped epilogue layout's own message media entry `0x10000002` |
-//! | the teardown order | [`dereth_client::shutdown::Step::ORDER`], the emitted cleanup log, and three explicitly load-bearing orderings |
+//! | the teardown order | [`dereth_client_runtime::shutdown::Step::ORDER`], the emitted cleanup log, and three explicitly load-bearing orderings |
 //!
 //! **One exception.** The credits test injects one `InputEvent` for action `0x27` on input map 9 into the real `InputShell`.
 //! It then follows `UiShell::mode_on_action` and the production first-refusal path. The injection
@@ -25,13 +25,13 @@ use crate::common::client_dir;
 use crate::common::gpu_lock;
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::shutdown::{Outcome, Step};
+use dereth_client_runtime::config::Config;
 use dereth_primitives::DataId;
 use dereth_ui::framework::{mode, Screen as _};
 use dereth_ui_screens::screens::credits::{self, CreditsScreen};
 use dereth_ui_screens::screens::disconnected::{self, DisconnectedScreen};
 use dereth_ui_screens::screens::epilogue::EpilogueScreen;
+use {dereth_client_runtime::shutdown::Outcome, dereth_client_runtime::shutdown::Step};
 
 /// Missing dats fail the test; they never skip it. A test that returns early is counted as a pass
 /// and is invisible in the summary line; if the retail dats are not where `$DERETH_TEST_DAT_DIR`
@@ -138,7 +138,7 @@ fn screen<T: 'static>(app: &mut App) -> &mut T {
 #[test]
 fn every_documented_character_error_token_is_a_row_of_the_shipped_string_table() {
     let store = store();
-    let shell = dereth_client::ui::UiShell::new(&store, (800, 600))
+    let shell = dereth_client_shell::ui::UiShell::new(&store, (800, 600))
         .unwrap_or_else(|e| panic!("the UI shell must come up over the retail dats: {e}"));
     // Resolve through the same string-table path as the shell. This test deliberately pins the
     // shipped table's concrete DataId `0x23000002`; it does not independently test enum indirection.
@@ -230,12 +230,12 @@ fn glyph_pixels(
     let mut mask = vec![false; (fb.0 * fb.1) as usize];
     let mut inked = 0usize;
     for cmd in list {
-        let Some(clip) = dereth_client::ui_draw::visible_box(cmd, fb) else {
+        let Some(clip) = dereth_client_shell::ui_draw::visible_box(cmd, fb) else {
             continue;
         };
         for g in &cmd.glyphs {
             let font = fonts.entry(g.font).or_insert_with(|| {
-                dereth_client::ui_draw::load_font(store, g.font).expect("a font")
+                dereth_client_shell::ui_draw::load_font(store, g.font).expect("a font")
             });
             let Some(d) = font.get_char_desc(g.ch) else {
                 continue;
@@ -318,7 +318,7 @@ fn assert_two_outline_arms(
     assert_eq!(fids.len(), 49, "the shipped font set");
     let (mut sheet, mut neighbourhood) = (Vec::new(), Vec::new());
     for f in &fids {
-        let font = dereth_client::ui_draw::load_font(store, *f).expect("a font");
+        let font = dereth_client_shell::ui_draw::load_font(store, *f).expect("a font");
         if font.background_surface_data_id == 0 {
             neighbourhood.push(*f);
         } else {
@@ -375,7 +375,7 @@ fn assert_two_outline_arms(
             (1, 1, 1, 1),
         ),
     ] {
-        let font = dereth_client::ui_draw::load_font(store, fid).expect("a font");
+        let font = dereth_client_shell::ui_draw::load_font(store, fid).expect("a font");
         assert_eq!(
             (
                 font.num_horizontal_border_pixels,

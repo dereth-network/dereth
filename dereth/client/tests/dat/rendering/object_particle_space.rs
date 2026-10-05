@@ -12,15 +12,18 @@ use std::sync::Arc;
 
 use crate::common::sim::SimWorld;
 
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{block_xy, SceneConfig, DEFAULT_LANDBLOCK};
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::objects::{ItemCreateObject, ObjectCreatePayload};
 use dereth_protocol::types::{PhysicsDesc, PublicWeenieDesc};
 use dereth_protocol::Message;
+use {
+    dereth_client_runtime::landblock::block_xy,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK, dereth_client_runtime::scene::SceneConfig,
+};
 
 /// The campfire's setup: all three of its default script's emitters hang on the object itself.
 const CAMPFIRE: u32 = 0x0200_05AE;
@@ -95,7 +98,7 @@ fn frame(scene: &mut SimWorld, stream: &mut ObjectStream, t: &mut f64, draw_part
     scene.sync_objects(stream).expect("object dispatch");
     #[allow(clippy::cast_possible_truncation)] // one frame's step
     scene.update(
-        dereth_client::camera::CameraInput::default(),
+        dereth_client_runtime::camera::CameraInput::default(),
         CharacterInput::default(),
         LocalTime(*t),
         STEP as f32,

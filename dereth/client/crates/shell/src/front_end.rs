@@ -73,7 +73,7 @@ fn dispatch_ui_owner_requests<H: Host>(
     serial: u64,
     now: dereth_primitives::LocalTime,
 ) -> Vec<dereth_ui_screens::view::UiRequest> {
-    use crate::interaction::TargetMode;
+    use dereth_client_runtime::interaction::TargetMode;
     use dereth_ui_screens::screens::gameplay_host::GameCall;
     use dereth_ui_screens::view::UiRequest;
     targeted_dialogs.service_with(cx, Some(shell), now);
@@ -105,7 +105,7 @@ fn dispatch_ui_owner_requests<H: Host>(
             if let Some(request) = request {
                 unowned.extend(cx.run_request(request, now, &mut |focus, notice| {
                     crate::hud_drive::game_screen(&mut shell.flow).is_some_and(|screen| {
-                        crate::hud::talk_focus_notice(&mut shell.ui, screen, focus, notice)
+                        crate::hud_drive::talk_focus_notice(&mut shell.ui, screen, focus, notice)
                     })
                 }));
             }
@@ -215,7 +215,7 @@ pub(crate) struct ModernFrontEnd {
     pub(crate) key_binding_stats: KeyBindingStats,
     /// Time at the previous character-generation preview tick. Preview animations advance from
     /// **elapsed seconds** and accumulate nothing per frame; see
-    /// [`crate::preview::PreviewSpace::use_time`].
+    /// [`dereth_scene::preview::PreviewSpace::use_time`].
     preview_last_time: f64,
     /// Time at the previous paper-doll preview tick.
     paper_doll_last_time: f64,
@@ -236,24 +236,24 @@ pub(crate) struct ModernFrontEnd {
     preview_chargen: Option<ChargenPreviewKey>,
     /// Palette-set answers memoised across repaints -- the one dat read the
     /// `ObjDesc` block makes. The client looks up `(id, 0x18)` and lets the object cache absorb it.
-    chargen_pal_sets: crate::preview::PaletteSetCache,
+    chargen_pal_sets: dereth_scene::preview::PaletteSetCache,
     /// What the last `chargen_objdesc` reached, so a test can assert the block ran
     /// rather than inferring it from an empty descriptor. See
-    /// [`crate::preview::ChargenDressStats`].
-    pub(crate) chargen_dress: crate::preview::ChargenDressStats,
+    /// [`dereth_scene::preview::ChargenDressStats`].
+    pub(crate) chargen_dress: dereth_scene::preview::ChargenDressStats,
     /// What the paper doll was last built for: the player's
     /// setup record and the `ObjDesc` used to redress the creature.
     ///
     /// The client keeps the clone for ever and reapplies only descriptor changes when the
     /// appearance changes; here the descriptor is part of the key because the part meshes are
     /// baked from the dressed array (see
-    /// [`crate::preview::PreviewSpace::add_object_dressed`]), so a redress is a rebuild. The
+    /// [`dereth_scene::preview::PreviewSpace::add_object_dressed`]), so a redress is a rebuild. The
     /// flag is whether it wears another era's look (`[Render] Objects`), so switching the look
     /// rebuilds it too.
     paper_doll_built: Option<(DataId, dereth_animation::parts::ObjDesc, bool)>,
     /// The paper-doll panel's flip count, next-flip time, and selection mask —
-    /// the doll's selection blink. See [`crate::preview::PaperDollSelectionLighting`].
-    paper_doll_lighting: crate::preview::PaperDollSelectionLighting,
+    /// the doll's selection blink. See [`dereth_scene::preview::PaperDollSelectionLighting`].
+    paper_doll_lighting: dereth_scene::preview::PaperDollSelectionLighting,
     /// The selection last observed by the paper doll. `dereth_client_model` records selection broadcasts
     /// instead of raising them directly, so this edge is delivered with the same one-frame delay
     /// as the other subscriber. Re-selecting the unchanged id broadcasts without an edge and does
@@ -276,7 +276,7 @@ pub(crate) struct FrontEndServices<H: Host> {
     pub(crate) input: Option<crate::input::InputShell>,
     /// The device half of the message mapping: the Alt state and the pointer position the button
     /// messages carry.
-    devices: crate::pump::DeviceMessages,
+    devices: dereth_input::pump::DeviceMessages,
     /// The window's queue of events, routed at the event-loop step.
     window_events: crate::platform::window::WindowEvents,
     /// What every `release_ui_textures` has done so far. `unknown` is a double release and is
@@ -304,7 +304,7 @@ impl<H: Host> ClientShell<H> {
 
     /// Queue a host event as the window would, to be routed with the next frame's: the way an
     /// in-process driver gives the client real input.
-    pub fn queue_window_event(&self, event: crate::platform::window::HostEvent) {
+    pub fn queue_window_event(&self, event: dereth_input::host::HostEvent) {
         self.shared.window_events.borrow_mut().push(event);
     }
 
@@ -331,15 +331,15 @@ impl<H: Host> ClientShell<H> {
                 in_creation: false,
                 examine_3d_built: None,
                 preview_chargen: None,
-                chargen_pal_sets: crate::preview::PaletteSetCache::default(),
-                chargen_dress: crate::preview::ChargenDressStats::default(),
+                chargen_pal_sets: dereth_scene::preview::PaletteSetCache::default(),
+                chargen_dress: dereth_scene::preview::ChargenDressStats::default(),
                 paper_doll_built: None,
-                paper_doll_lighting: crate::preview::PaperDollSelectionLighting::default(),
+                paper_doll_lighting: dereth_scene::preview::PaperDollSelectionLighting::default(),
                 paper_doll_selection_seen: None,
             },
             shared: FrontEndServices {
                 input: None,
-                devices: crate::pump::DeviceMessages::default(),
+                devices: dereth_input::pump::DeviceMessages::default(),
                 window_events,
                 cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
                 clipboard: crate::clipboard::ClipboardBridge::default(),
@@ -384,15 +384,15 @@ trait FrontEnd<H: Host> {
         prefs: &std::path::Path,
         character: &str,
         world: &str,
-        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+        layout_commands: Vec<dereth_client_runtime::interaction::UiLayoutCommand>,
     );
     fn split_stack(
         &mut self,
-        view: &crate::hud::HudView<'_>,
+        view: &dereth_client_runtime::hud::HudView<'_>,
         selected: dereth_primitives::ObjectId,
     );
     fn dispatch_input_action(&mut self, action: u32) -> Option<bool>;
-    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip);
+    fn world_tooltip(&mut self, tooltip: dereth_client_runtime::interaction::WorldTooltip);
     fn chat_generation(&self) -> Option<u64>;
 
     fn in_gameplay(&self) -> bool;
@@ -496,7 +496,7 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
     ) -> bool {
         self.ui.as_mut().is_some_and(|shell| {
             crate::hud_drive::game_screen(&mut shell.flow).is_some_and(|screen| {
-                crate::hud::talk_focus_notice(&mut shell.ui, screen, talk_focus, notice)
+                crate::hud_drive::talk_focus_notice(&mut shell.ui, screen, talk_focus, notice)
             })
         })
     }
@@ -514,7 +514,7 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
         if !screen.is_game() {
             return;
         }
-        let writes = u64::from(crate::hud::deliver_power_bar_notices(
+        let writes = u64::from(crate::hud_drive::deliver_power_bar_notices(
             &mut shell.ui,
             &mut hud.panels,
             notices,
@@ -547,18 +547,18 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
         prefs: &std::path::Path,
         character: &str,
         world: &str,
-        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+        layout_commands: Vec<dereth_client_runtime::interaction::UiLayoutCommand>,
     ) {
         if let Some(shell) = self.ui.as_mut() {
             for command in layout_commands {
                 let result = match command {
-                    crate::interaction::UiLayoutCommand::Save(name) => shell
+                    dereth_client_runtime::interaction::UiLayoutCommand::Save(name) => shell
                         .screen_layout_path(&name, prefs, character, world)
                         .map(|path| shell.save_ui_layout(&path)),
-                    crate::interaction::UiLayoutCommand::Load(name) => shell
+                    dereth_client_runtime::interaction::UiLayoutCommand::Load(name) => shell
                         .screen_layout_path(&name, prefs, character, world)
                         .map(|path| shell.load_ui_layout(&path)),
-                    crate::interaction::UiLayoutCommand::SetLockUi(locked) => {
+                    dereth_client_runtime::interaction::UiLayoutCommand::SetLockUi(locked) => {
                         // Both `/lockui` and the radar request already ran the lock-UI setter, then
                         // OnChanged(51) in Interaction. Complete native's following global-0D
                         // visible cascade without constructing a second option write.
@@ -574,7 +574,7 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
     }
     fn split_stack(
         &mut self,
-        view: &crate::hud::HudView<'_>,
+        view: &dereth_client_runtime::hud::HudView<'_>,
         selected: dereth_primitives::ObjectId,
     ) {
         if let Some(shell) = self.ui.as_mut() {
@@ -593,7 +593,7 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
             .as_mut()
             .map(|shell| shell.ui.dispatch_input_action(action))
     }
-    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
+    fn world_tooltip(&mut self, tooltip: dereth_client_runtime::interaction::WorldTooltip) {
         if let Some(shell) = self.ui.as_mut() {
             apply_world_tooltip(shell, tooltip);
         }
@@ -734,13 +734,13 @@ impl<H: Host> FrontEnd<H> for dereth_classic_ui::runtime::ClassicUi {
         prefs: &std::path::Path,
         character: &str,
         world: &str,
-        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+        layout_commands: Vec<dereth_client_runtime::interaction::UiLayoutCommand>,
     ) {
         let _ = (prefs, character, world, layout_commands);
     }
     fn split_stack(
         &mut self,
-        view: &crate::hud::HudView<'_>,
+        view: &dereth_client_runtime::hud::HudView<'_>,
         selected: dereth_primitives::ObjectId,
     ) {
         let _ = (view, selected);
@@ -748,7 +748,7 @@ impl<H: Host> FrontEnd<H> for dereth_classic_ui::runtime::ClassicUi {
     fn dispatch_input_action(&mut self, action: u32) -> Option<bool> {
         self.dispatch_input_action(action)
     }
-    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
+    fn world_tooltip(&mut self, tooltip: dereth_client_runtime::interaction::WorldTooltip) {
         let _ = tooltip;
     }
     fn chat_generation(&self) -> Option<u64> {
@@ -1022,7 +1022,9 @@ impl<H: Host> Ui<'_, '_, H> {
                     )),
                 );
             }
-            crate::render_prefs::seed_ui_registry(self.cx.present().texture_filtering());
+            dereth_client_runtime::render_prefs::seed_ui_registry(
+                self.cx.present().texture_filtering(),
+            );
             // The data-movie loader's no-database-file path is "a plain file path, resolved
             // relative to the working directory". The client is started from its install directory;
             // this build takes the directory the dats came from, which is the same place.
@@ -1064,7 +1066,7 @@ impl<H: Host> Ui<'_, '_, H> {
         let world = self.cx.model();
         let mut state = VividTargetIndicator {
             enabled: self.cx.vivid_target_indicator(),
-            display_on: crate::hud::character_option(
+            display_on: dereth_client_runtime::hud::character_option(
                 world,
                 dereth_ui_screens::view::PlayerOption::VividTargetingIndicator,
             )
@@ -1127,9 +1129,9 @@ impl<H: Host> Ui<'_, '_, H> {
     /// | input | source | has a writer? |
     /// |---|---|---|
     /// | busy count | the world's busy count (`dereth_client_model::magic::MagicState::busy_count`) | yes |
-    /// | target mode | [`crate::interaction::Interaction::target_mode`] | yes, all four modes |
+    /// | target mode | [`dereth_client_runtime::interaction::Interaction::target_mode`] | yes, all four modes |
     /// | combat mode | `dereth_client_model::.combat_mode` | yes |
-    /// | found object id | [`crate::pick::WorldPicker::click_object`] | live mouse move / global loop: synchronous exact item-slot identity, or completed world-draw geometry pick |
+    /// | found object id | [`dereth_client_runtime::pick::WorldPicker::click_object`] | live mouse move / global loop: synchronous exact item-slot identity, or completed world-draw geometry pick |
     /// | target compatibility | [`crate::cursor::is_target_compatible_with_targeting_object`] | yes, |
     ///
     /// **The busy count** is one shared counter. A teleport (and the log-in's portal space, and a
@@ -1626,7 +1628,7 @@ impl<H: Host> Shell for ClientShell<H> {
         let events: Vec<_> = self.shared.window_events.borrow_mut().drain(..).collect();
         if self.classic.active {
             for event in &events {
-                use crate::platform::window::HostEvent;
+                use dereth_input::host::HostEvent;
                 if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
                     cx.window_event(self, &lifecycle, time_ms);
                     if let Some(input) = self.shared.input.as_mut() {
@@ -1995,7 +1997,7 @@ impl<H: Host> Shell for ClientShell<H> {
         prefs: &std::path::Path,
         character: &str,
         world: &str,
-        layout_commands: Vec<crate::interaction::UiLayoutCommand>,
+        layout_commands: Vec<dereth_client_runtime::interaction::UiLayoutCommand>,
     ) {
         self.front_and_services()
             .0
@@ -2004,7 +2006,7 @@ impl<H: Host> Shell for ClientShell<H> {
 
     fn split_stack(
         &mut self,
-        view: &crate::hud::HudView<'_>,
+        view: &dereth_client_runtime::hud::HudView<'_>,
         selected: dereth_primitives::ObjectId,
     ) {
         self.front_and_services().0.split_stack(view, selected)
@@ -2014,7 +2016,7 @@ impl<H: Host> Shell for ClientShell<H> {
         self.front_and_services().0.dispatch_input_action(action)
     }
 
-    fn world_tooltip(&mut self, tooltip: crate::interaction::WorldTooltip) {
+    fn world_tooltip(&mut self, tooltip: dereth_client_runtime::interaction::WorldTooltip) {
         self.front_and_services().0.world_tooltip(tooltip)
     }
 
@@ -2140,8 +2142,11 @@ impl<H: Host> Shell for ClientShell<H> {
 /// exists.** While a drag proxy is up the hover machinery is not running, so nothing would ever
 /// start the tooltip for the drop target under the cursor. With no drag, enabling the wrapper
 /// tooltip is enough: the hover handler starts it after the ordinary tooltip delay.
-fn apply_world_tooltip(shell: &mut crate::ui::UiShell, call: crate::interaction::WorldTooltip) {
-    use crate::interaction::WorldTooltip;
+fn apply_world_tooltip(
+    shell: &mut crate::ui::UiShell,
+    call: dereth_client_runtime::interaction::WorldTooltip,
+) {
+    use dereth_client_runtime::interaction::WorldTooltip;
     let Some(root) = shell
         .flow
         .current()
@@ -2260,10 +2265,10 @@ fn dispatch_object_panel_notice(
 pub(crate) fn route_host_event<H: Host>(
     cx: &mut Cx<'_, H>,
     shell: &mut ClientShell<H>,
-    event: &crate::platform::window::HostEvent,
+    event: &dereth_input::host::HostEvent,
     time_ms: u32,
 ) {
-    use crate::platform::window::HostEvent;
+    use dereth_input::host::HostEvent;
 
     if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
         cx.window_event(shell, &lifecycle, time_ms);
@@ -2279,7 +2284,7 @@ pub(crate) fn route_host_event<H: Host>(
     match event {
         HostEvent::KeyboardInput { key, pressed, .. } => flycam_key(cx, shell, *key, *pressed),
         HostEvent::MouseInput {
-            button: crate::platform::keys::MouseButton::Right,
+            button: dereth_input::keys::MouseButton::Right,
             pressed,
         } => cx.mouse_look_button(*pressed),
         HostEvent::CursorMoved { x, y } => cx.cursor_moved(*x, *y),
@@ -2306,10 +2311,10 @@ pub(crate) fn route_host_event<H: Host>(
 pub(crate) fn flycam_key<H: Host>(
     cx: &mut Cx<'_, H>,
     shell: &ClientShell<H>,
-    key: crate::platform::keys::Key,
+    key: dereth_input::keys::Key,
     down: bool,
 ) {
-    use crate::platform::keys::Key;
+    use dereth_input::keys::Key;
     if shell
         .shared
         .input

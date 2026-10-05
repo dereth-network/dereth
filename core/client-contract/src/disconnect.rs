@@ -121,7 +121,7 @@ pub use crate::ctime::asctime;
 /// the instant. Passing it in is what makes the arithmetic testable at all.
 ///
 /// **`utc_offset_secs` is what `localtime` would have added.**
-/// `dereth_client::platform::local_utc_offset_secs` reads the machine's zone for the instant
+/// `dereth_desktop::platform::local_utc_offset_secs` reads the machine's zone for the instant
 /// being formatted and `HudView` passes it; a constant `0` would render the expiry in UTC. It
 /// stays a parameter rather than a clock read so that a test
 /// can pin a zone instead of inheriting the machine's.

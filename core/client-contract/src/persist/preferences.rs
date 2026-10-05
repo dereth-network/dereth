@@ -106,7 +106,7 @@ impl UserPreferences {
     /// A key seen **before** any `[Section]` header keeps its bare name. Retail cannot reach that
     /// state at all — `GetPrivateProfileSection` only ever hands out keys that are under a header —
     /// so the choice is free, and keeping the bare name leaves the two other readers in this
-    /// workspace (`dereth_audio::Prefs::from_ini` and `dereth_client::config::Preferences::parse`, both
+    /// workspace (`dereth_audio::Prefs::from_ini` and `dereth_client_runtime::config::Preferences::parse`, both
     /// of which default the section to `Default`) as the *more* forgiving ones rather than this.
     pub fn parse(text: &str) -> Result<Self, PersistError> {
         let crlf = text.contains("\r\n");

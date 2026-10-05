@@ -171,7 +171,7 @@ pub const BUY_AFTER_ABANDON: &str =
 /// The client's constant, and the offset
 /// the purchase-time section adds to int quality `0xC7` — thirty days.
 ///
-/// Defined in [`dereth_client_contract::panels::house`], because `dereth_client::hud` is
+/// Defined in [`dereth_client_contract::panels::house`], because `dereth_client_shell::hud` is
 /// what adds it.
 pub use dereth_client_contract::panels::house::PURCHASE_WAIT_SECONDS;
 
@@ -507,7 +507,7 @@ impl HousePanel {
     /// The house panel's house-data update — copy the `HouseData` in, then redraw.
     ///
     /// The copy itself lives in
-    /// `house`, because the receiver is `dereth_client::hud` and this pane is
+    /// `house`, because the receiver is `dereth_client_shell::hud` and this pane is
     /// pulled; what arrives here is that copy projected through
     /// [`crate::view::GameView::house_data`].
     pub fn update_house_data(

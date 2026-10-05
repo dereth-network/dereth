@@ -13,7 +13,7 @@
 //! exists, `UiSystem::send_notice` has one production caller and `Screen::on_notice` has zero
 //! overrides, so every notice handler in the workspace is polled or hand-delivered instead.
 //!
-//! The producer here is `dereth_client::Interaction`, which holds `&mut dereth_client_model::World` and no
+//! The producer here is `dereth_client_shell::Interaction`, which holds `&mut dereth_client_model::World` and no
 //! `UiSystem`; the consumer is a panel bound to a subtree, driven once a frame with both a
 //! `UiSystem` and a `GameView`. So the notice is queued in the producer's frame slot and drained
 //! in the consumer's, one step later — the same one-step deferral `crate::requests`,
@@ -44,7 +44,7 @@ pub struct NoticeInbox {
     /// the spell-examine path when the row under the mouse is a *spell* row rather than an item
     /// row; the one consumer is the examination panel. Both ends are elements in the client;
     /// here the producer is a panel bound to
-    /// the spellbook or the spell bar, which live on `dereth_client::hud::Hud`, and the consumer is
+    /// the spellbook or the spell bar, which live on `dereth_client_shell::hud::Hud`, and the consumer is
     /// `ExaminationPanel`, which lives on `GamePlayScreen`. Neither can call the other, so the
     /// notice takes the same one-frame queue every other cross-owner hop in this crate takes.
     examine_spell: Vec<u32>,

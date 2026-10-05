@@ -88,24 +88,27 @@
 
 use super::common::client_dir;
 use super::common::workspace_root_buf as workspace_root;
-use dereth_client::world::SceneWrites;
+use dereth_scene::world_scene::SceneWrites;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dereth_animation::MotionCommand;
-use dereth_client::character::{Character, CharacterInput, MovementCommands};
-use dereth_client::net::ClientNetwork;
-use dereth_client::world::DEFAULT_LANDBLOCK;
 use dereth_client_net::client_session::testing::{shared_session, Datagram};
 use dereth_client_net::recording::connection_sequence_number;
 use dereth_client_runtime::actions::movement::{action, on_action};
+use dereth_client_runtime::landblock::DEFAULT_LANDBLOCK;
+use dereth_client_runtime::net::ClientNetwork;
 use dereth_dat::RetailDatStore;
 use dereth_input::ActionId;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::movement::{MovementBuffer, MovementSetObjectMovement};
 use dereth_protocol::{Message, Opcode};
 use dereth_transport::wire::ParsedPacket;
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+    dereth_client_runtime::character::MovementCommands,
+};
 
 /// The middle of Holtburg's own landblock.
 const SPAWN: (f32, f32) = (96.0, 96.0);
@@ -551,7 +554,7 @@ fn store() -> Arc<RetailDatStore> {
 }
 
 fn settled_character(store: &Arc<RetailDatStore>) -> Character {
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut c =
         Character::new(store, &region, DEFAULT_LANDBLOCK, SPAWN).expect("the character is created");
     for i in 1..=60 {
@@ -1011,8 +1014,8 @@ fn stance_resume_requires_all_four_conditions() {
 fn holtburg_scene(
     store: &Arc<RetailDatStore>,
     gpu: &mut dereth_render::device::Gpu,
-) -> dereth_client::world::WorldScene {
-    use dereth_client::world::{SceneConfig, WorldScene};
+) -> dereth_scene::world_scene::WorldScene {
+    use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
     let cfg = SceneConfig {
         landblock: DEFAULT_LANDBLOCK,
         character: true,
@@ -1021,7 +1024,7 @@ fn holtburg_scene(
         ..SceneConfig::default()
     };
     let mut s = WorldScene::load(store, gpu, cfg).expect("Holtburg's landscape loads");
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     s.attach_character(store, &region, gpu)
         .expect("the body is created");
     for i in 1..=60 {
@@ -1055,9 +1058,9 @@ fn holtburg_scene(
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 #[test]
 fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
-    use dereth_client::app::command_interpreter_control_transfer as transfer;
-    use dereth_client::objects::ObjectStream;
     use dereth_client_net::client_session::SessionEvent;
+    use dereth_client_runtime::app::command_interpreter_control_transfer as transfer;
+    use dereth_client_runtime::objects::ObjectStream;
 
     let store = store();
     let mut gpu = crate::common::test_gpu(320, 240);
@@ -1089,7 +1092,7 @@ fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
     let mut net =
         ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", csn).expect("a replay net");
     let mut stream = ObjectStream::new();
-    let mut scene: Option<dereth_client::world::WorldScene> = None;
+    let mut scene: Option<dereth_scene::world_scene::WorldScene> = None;
     let mut mc = MovementCommands::default();
     let mut input = CharacterInput::default();
     let mut entered = false;
@@ -1151,16 +1154,17 @@ fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
                 continue;
             };
             let block = pos.cell.landblock();
-            let cfg = dereth_client::world::SceneConfig {
+            let cfg = dereth_client_runtime::scene::SceneConfig {
                 landblock: (u16::from(block.x()) << 8) | u16::from(block.y()),
                 character: true,
                 land_radius: 1,
                 scenery_radius: 0,
-                ..dereth_client::world::SceneConfig::default()
+                ..dereth_client_runtime::scene::SceneConfig::default()
             };
-            let mut s = dereth_client::world::WorldScene::load(&store, &mut gpu, cfg)
+            let mut s = dereth_scene::world_scene::WorldScene::load(&store, &mut gpu, cfg)
                 .expect("the recording's landscape loads");
-            let region = dereth_client::world::load_region(&store).expect("the region decodes");
+            let region =
+                dereth_client_runtime::landblock::load_region(&store).expect("the region decodes");
             s.attach_character(&store, &region, &mut gpu)
                 .expect("the body is created");
             scene = Some(s);
@@ -1258,14 +1262,14 @@ fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
 /// transfer, then the body.
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 fn seam_frame(
-    scene: &mut dereth_client::world::WorldScene,
+    scene: &mut dereth_scene::world_scene::WorldScene,
     mc: &mut MovementCommands,
     input: &mut CharacterInput,
     t: &mut f64,
     at: &mut Vec<(f32, f32)>,
 ) -> bool {
     let (_, retook) =
-        dereth_client::app::command_interpreter_control_transfer(Some(scene), mc, input);
+        dereth_client_runtime::app::command_interpreter_control_transfer(Some(scene), mc, input);
     *t += 1.0 / 30.0;
     let c = scene.character.as_mut().expect("a body");
     c.input = *input;
@@ -1295,7 +1299,7 @@ fn speed(at: &[(f32, f32)], a: usize, b: usize) -> f32 {
 ///
 /// This is stations 1 and 2 re-run over the **application's** seam rather than over
 /// `MovementCommands` directly: the body is the one a `WorldScene` holds, and every frame goes
-/// through `dereth_client::app::command_interpreter_control_transfer`, which is the whole of what
+/// through `dereth_client_runtime::app::command_interpreter_control_transfer`, which is the whole of what
 /// `App::frame` does at this step. Both arms are built identically and differ only in whether the
 /// held movement is the **run lock** or a **key on the substate list** — which is the split
 /// server-control transition's auto-run cancellation creates.
@@ -1464,7 +1468,7 @@ fn the_seam_retakes_control_for_a_held_key_and_never_for_a_cancelled_auto_run() 
 #[test]
 fn the_frame_runs_the_control_transfer_step_once_per_frame() {
     use dereth_client::app::App;
-    use dereth_client::config::Config;
+    use dereth_client_runtime::config::Config;
 
     let dat_dir = client_dir();
     assert!(

@@ -157,7 +157,7 @@ pub fn info_region_color(success: bool, enchanted: Option<bool>) -> u8 {
 /// Every property the two highlighting blocks ask the enchantment-modifier reads about, with
 /// whether the question goes to the **float** table. `(key, is_float)`.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`], because `dereth_client::hud`
+/// It lives in [`dereth_client_contract::panels::examination`], because `dereth_client_shell::hud`
 /// walks it to decide which resolved values to send.
 pub use dereth_client_contract::panels::examination::HIGHLIGHTED_PROPERTIES;
 
@@ -245,7 +245,7 @@ pub mod equip {
 /// The skill system's attribute name read and the attribute2nd name read -- six
 /// wide literals each.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`]: `dereth_client::hud` names
+/// It lives in [`dereth_client_contract::panels::examination`]: `dereth_client_shell::hud` names
 /// both when it composes an enchantment line.
 pub use dereth_client_contract::panels::examination::{attribute_name, vital_name};
 
@@ -384,7 +384,7 @@ pub fn damage_type_to_string(mask: u32) -> String {
 
 /// The skill name read -- the 54-arm switch, in the client's order.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`], because `dereth_client::hud`
+/// It lives in [`dereth_client_contract::panels::examination`], because `dereth_client_shell::hud`
 /// is what resolves a spell's or an item's skill id to the identify panel's label. All 54 names
 /// are in the client's order.
 pub use dereth_client_contract::panels::examination::skill_to_string;
@@ -1626,7 +1626,7 @@ pub fn set_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 
 /// The thirteen gear-rating terms, in drawn order.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`]: `dereth_client::hud` walks
+/// It lives in [`dereth_client_contract::panels::examination`]: `dereth_client_shell::hud` walks
 /// the table to read the thirteen properties off the qualities.
 pub use dereth_client_contract::panels::examination::GEAR_RATING_ROWS;
 
@@ -2375,7 +2375,7 @@ pub fn rare_info_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 
 /// `PropertyInt.PortalBitmask` -- `0x6F`, decimal 111.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`]; `dereth_client::hud` reads
+/// It lives in [`dereth_client_contract::panels::examination`]; `dereth_client_shell::hud` reads
 /// the property.
 pub use dereth_client_contract::panels::examination::PORTAL_BITMASK;
 
@@ -2425,7 +2425,7 @@ pub fn portal_restriction_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 /// The three presence-gated int keys at the head of
 /// the item-examine panel's description block, and its fallback string key.
 ///
-/// It lives in [`dereth_client_contract::panels::examination`]; `dereth_client::hud` reads
+/// It lives in [`dereth_client_contract::panels::examination`]; `dereth_client_shell::hud` reads
 /// all four off the qualities.
 pub use dereth_client_contract::panels::examination::{
     CREATION_TIMESTAMP, LIFESPAN, REMAINING_LIFESPAN, SHORT_DESC,
@@ -2473,7 +2473,7 @@ pub fn lifespan_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 /// The appraisal system's pluralized gem name read.
 ///
 /// It lives in [`dereth_client_contract::panels::examination`], because the host supplies
-/// the singular name and `dereth_client::hud` is the host.
+/// the singular name and `dereth_client_shell::hud` is the host.
 pub use dereth_client_contract::panels::examination::pluralized_gem_name;
 
 /// The description block's LongDesc-only rewrite. In particular,

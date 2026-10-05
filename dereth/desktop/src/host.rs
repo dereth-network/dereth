@@ -22,7 +22,7 @@ impl<P: Product> Host for Desktop<P> {
 
     fn open_platform(
         cfg: &Config,
-        events: crate::platform::window::WindowEvents,
+        events: dereth_client_shell::platform::window::WindowEvents,
     ) -> Result<Platform, StartupError> {
         crate::launch::open_platform::<P>(cfg, events)
     }

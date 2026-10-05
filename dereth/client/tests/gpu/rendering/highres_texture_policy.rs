@@ -9,18 +9,18 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_assets::Decode;
-use dereth_client::camera::CameraInput;
-use dereth_client::character::CharacterInput;
-use dereth_client::objects::ObjectStream;
-use dereth_client::textures::TextureStore;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::camera::CameraInput;
+use dereth_client_runtime::character::CharacterInput;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{CellId, DataId, Frame, LocalTime, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
+use dereth_scene::textures::TextureStore;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 /// The near-room floor of the interior station: surface row `0x08000246` selects surface-texture row
 /// `0x050026A0`, whose two source levels are the high-res `0x06003AF6` (256x256, in
@@ -202,7 +202,7 @@ fn station_frame(store: &Arc<RetailDatStore>, detail: u32) -> Vec<u8> {
         ..SceneConfig::default()
     };
     scene_cfg.render.environment_texture_detail = detail;
-    let region = dereth_client::world::load_region(store).expect("the region decodes");
+    let region = dereth_client_runtime::landblock::load_region(store).expect("the region decodes");
     let mut scene = WorldScene::load(store, &mut gpu, scene_cfg).expect("the scene loads");
     scene
         .attach_character(store, &region, &mut gpu)
@@ -232,7 +232,7 @@ fn station_frame(store: &Arc<RetailDatStore>, detail: u32) -> Vec<u8> {
             LocalTime(now),
             dtf,
         );
-        dereth_client::camera::update_viewer(
+        dereth_client_runtime::camera::update_viewer(
             &mut scene,
             CameraInput::default(),
             LocalTime(now),
@@ -293,8 +293,8 @@ fn the_station_bakes_the_original_art_and_its_region_means_do_not_move() {
 #[test]
 fn the_interrogation_product_id_grants_the_high_res_dat() {
     use dereth_client::app::App;
-    use dereth_client::config::Config;
-    use dereth_client::net::ClientNetwork;
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::net::ClientNetwork;
     use dereth_protocol::admin::DddInterrogation;
 
     let dir = dereth_dat::testing::dat_dir();

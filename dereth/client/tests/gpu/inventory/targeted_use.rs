@@ -5,11 +5,11 @@
 //! busy count follows the send and the recorded use-done release.
 //! Fixture: the `long-solo-play` corpus (oil `0x80000A6F`, bow `0x800009A4`) applied to an
 //! `ObjectStream`; the `app_journey` tests drive a headless gameplay `App` with the retail dats.
-use dereth_client::objects::ObjectStream;
 use dereth_client_net::client_session::{
     testing::{Corpus, CorpusBlob, Direction},
     SessionEvent,
 };
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::Opcode;
 
@@ -37,7 +37,7 @@ fn recorded_world(before: usize) -> ObjectStream {
 #[test]
 fn recorded_oil_use_arms_the_distinct_targeted_mode_without_sending() {
     let mut objects = recorded_world(4315);
-    let mut inter = dereth_client::interaction::Interaction::default();
+    let mut inter = dereth_client_runtime::interaction::Interaction::default();
     inter.queue(
         Vec::new(),
         vec![dereth_ui_screens::view::UiRequest::Use(OIL)],
@@ -51,7 +51,7 @@ fn recorded_oil_use_arms_the_distinct_targeted_mode_without_sending() {
         .is_empty());
     assert_eq!(
         inter.target_mode(),
-        dereth_client::interaction::TargetMode::UseTarget
+        dereth_client_runtime::interaction::TargetMode::UseTarget
     );
     assert!(inter.pending_requests().is_empty());
     assert_eq!(objects.world.magic.busy_count, 0);
@@ -62,7 +62,7 @@ fn recorded_oil_use_arms_the_distinct_targeted_mode_without_sending() {
 fn generic_use_cursor_can_rearm_targeted_use_on_the_clicked_oil() {
     let mut objects = recorded_world(4315);
     objects.world.selected = None;
-    let mut inter = dereth_client::interaction::Interaction::default();
+    let mut inter = dereth_client_runtime::interaction::Interaction::default();
     inter.queue(
         Vec::new(),
         vec![dereth_ui_screens::view::UiRequest::SetTargetMode(
@@ -75,7 +75,7 @@ fn generic_use_cursor_can_rearm_targeted_use_on_the_clicked_oil() {
         dereth_primitives::ServerTime(572.0),
     );
     inter.wrapper_mouse(
-        dereth_client::ui::UiMouseEvent {
+        dereth_client_shell::ui::UiMouseEvent {
             action: 7,
             start: true,
             x: 30,
@@ -92,14 +92,14 @@ fn generic_use_cursor_can_rearm_targeted_use_on_the_clicked_oil() {
     );
     assert_eq!(
         inter.target_mode(),
-        dereth_client::interaction::TargetMode::UseTarget
+        dereth_client_runtime::interaction::TargetMode::UseTarget
     );
     assert!(inter.pending_requests().is_empty());
     assert_eq!(objects.world.selected, None);
 }
 
 fn arm(
-    inter: &mut dereth_client::interaction::Interaction,
+    inter: &mut dereth_client_runtime::interaction::Interaction,
     world: &mut dereth_client_model::World,
     item: ObjectId,
     now: f64,
@@ -116,13 +116,13 @@ fn arm(
 // This is the production WorldObjects notice boundary, NOT an assertion about 3D ray picking or
 // inventory input. The action bytes and response stream are independent recording oracles.
 fn acquire(
-    inter: &mut dereth_client::interaction::Interaction,
+    inter: &mut dereth_client_runtime::interaction::Interaction,
     world: &mut dereth_client_model::World,
     target: ObjectId,
     now: f64,
 ) {
     inter.wrapper_mouse(
-        dereth_client::ui::UiMouseEvent {
+        dereth_client_shell::ui::UiMouseEvent {
             action: 7,
             start: true,
             x: 30,
@@ -158,7 +158,7 @@ fn assert_recorded_request(requests: &[dereth_client_model::Request], index: usi
 #[test]
 fn retained_source_survives_selection_and_recorded_use_done_allows_a_second_request() {
     let mut objects = recorded_world(4315);
-    let mut inter = dereth_client::interaction::Interaction::default();
+    let mut inter = dereth_client_runtime::interaction::Interaction::default();
     arm(&mut inter, &mut objects.world, OIL, 573.0);
     assert_eq!(objects.world.targeting_object, OIL);
     objects.world.selected = Some(PLAYER); // Independent selection change after arming.
@@ -180,7 +180,7 @@ fn retained_source_survives_selection_and_recorded_use_done_allows_a_second_requ
                 &e,
                 LocalTime(std::time::Duration::from_micros(row.t_rel_micros).as_secs_f64()),
             );
-            dereth_client::interaction::apply_events(
+            dereth_client_runtime::interaction::apply_events(
                 &mut inter,
                 std::slice::from_ref(&e),
                 &mut objects.world,
@@ -214,7 +214,7 @@ fn retained_source_survives_selection_and_recorded_use_done_allows_a_second_requ
 #[test]
 fn incompatible_acquisition_consumes_source_without_sending_and_allows_a_fresh_arm() {
     let mut objects = recorded_world(4315);
-    let mut inter = dereth_client::interaction::Interaction::default();
+    let mut inter = dereth_client_runtime::interaction::Interaction::default();
     arm(&mut inter, &mut objects.world, OIL, 573.0);
     acquire(&mut inter, &mut objects.world, PLAYER, 573.01);
     assert!(inter.take_pending_requests().is_empty());
@@ -229,7 +229,7 @@ fn incompatible_acquisition_consumes_source_without_sending_and_allows_a_fresh_a
 fn first_use_busy_and_throttle_refusals_do_not_replace_the_retained_source() {
     use dereth_client_model::inventory::requests::InventoryRequest;
     let mut objects = recorded_world(4315);
-    let mut inter = dereth_client::interaction::Interaction::default();
+    let mut inter = dereth_client_runtime::interaction::Interaction::default();
     let second = ObjectId(0x8000_0a73);
     assert!(
         objects.world.weenie(second).is_some(),
@@ -274,12 +274,12 @@ fn generic_use_calls_use_object_on_clicked_door_not_use_with_selected_item() {
     let mut objects = recorded_world(4112);
     let door = ObjectId(0x77f0_3053);
     objects.world.selected = Some(PLAYER);
-    let mut inter = dereth_client::interaction::Interaction::default();
+    let mut inter = dereth_client_runtime::interaction::Interaction::default();
     // Source 0 enters the generic toolbar/USE action, rather than using a specific item.
     arm(&mut inter, &mut objects.world, ObjectId(0), 510.0);
     assert_eq!(
         inter.target_mode(),
-        dereth_client::interaction::TargetMode::Use
+        dereth_client_runtime::interaction::TargetMode::Use
     );
     acquire(&mut inter, &mut objects.world, door, 511.0);
     assert!(matches!(&inter.take_pending_requests()[..],
@@ -524,14 +524,13 @@ fn recorded_targeted_pairs_have_independent_source_and_target_descriptors() {
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 mod app_journey {
     use super::*;
-    use dereth_client::{
-        app::App,
-        config::Config,
-        pump::{Pump, Win32Message},
-    };
     use dereth_client_model::Request;
     use dereth_ui::{ElemHandle, ElementId};
     use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+    use {
+        dereth_client::app::App, dereth_client_runtime::config::Config, dereth_desktop::pump::Pump,
+        dereth_input::win32::Win32Message,
+    };
 
     fn frame(app: &mut App) -> Vec<Request> {
         assert!(app.frame());
@@ -561,7 +560,7 @@ mod app_journey {
         app.start_shell().expect("shell");
         app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
         if world {
-            app.load_static_scene(dereth_client::world::SceneConfig {
+            app.load_static_scene(dereth_client_runtime::scene::SceneConfig {
                 character: false,
                 cell_statics: false,
                 mesh_collision: false,
@@ -716,9 +715,12 @@ mod app_journey {
 
     fn assert_cursor(app: &App, key: u32, hot: (i32, i32)) {
         let store = dereth_dat::testing::open_store().unwrap();
-        let did =
-            dereth_client::assets::enum_did(&store, dereth_client::cursor::UICURSOR_GROUP, key)
-                .expect("retail cursor mapper");
+        let did = dereth_client_runtime::assets::enum_did(
+            &store,
+            dereth_client_shell::cursor::UICURSOR_GROUP,
+            key,
+        )
+        .expect("retail cursor mapper");
         assert_eq!(
             app.current_cursor_did(),
             Some(did),
@@ -745,7 +747,7 @@ mod app_journey {
 
     #[test]
     fn actual_toolbar_arms_targeted_cursor_and_escape_retains_source_for_a_fresh_operation() {
-        use dereth_client::interaction::TargetMode as T;
+        use dereth_client_runtime::interaction::TargetMode as T;
         let mut app = setup();
         let mut pump = pump();
         let source = slot(&app, OIL);
@@ -856,7 +858,7 @@ mod app_journey {
 
     #[test]
     fn actual_world_hover_then_click_uses_recorded_key_not_mutable_selection() {
-        use dereth_client::interaction::TargetMode as T;
+        use dereth_client_runtime::interaction::TargetMode as T;
         let key = ObjectId(0x8000_0a6d);
         let door = ObjectId(0x77f0_3053);
         let mut app = setup_before(4112, true);
@@ -882,7 +884,7 @@ mod app_journey {
         let hit = app.ui().unwrap().ui.hit_test_screen(400, 300);
         let over = hit.map(|h| app.ui().unwrap().ui.node(h).unwrap().element_id());
         assert!(
-            dereth_client::interaction::is_world_click(over),
+            dereth_client_runtime::interaction::is_world_click(over),
             "world pixel, got {over:?}"
         );
         // This delivery check supplies a real mouse-move event through the frame loop.

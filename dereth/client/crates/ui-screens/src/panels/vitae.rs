@@ -17,7 +17,7 @@
 //! **The three inputs.** `dereth_client_model::advancement::vitae_cp_pool_threshold` is the
 //! client's vitae CP-pool threshold. `GameView::vitae` is the vitae-value query that also drives
 //! the lamp. The two int qualities `VitaeCpPool` (129, `0x81`) and `DeathLevel` (139, `0x8B`) are
-//! named in `dereth_client::hud` beside `LEVEL` (25, `0x19`).
+//! named in `dereth_client_shell::hud` beside `LEVEL` (25, `0x19`).
 //!
 //! The threshold's constants are measured against **retail** rather than taken from ACE:
 //! `(long)((pow(level, 2.5) * 2.5 + 20.0) * pow(vitae, 5.0) + 0.5)`, with `level` unsigned and

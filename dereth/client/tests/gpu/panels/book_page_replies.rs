@@ -10,7 +10,7 @@ use crate::common::gpu_lock;
 use crate::net::late_receivers::{gameplay, recorded, settle, setup, Peer, PLAYER};
 
 use dereth_client::app::App;
-use dereth_client::dropped;
+use dereth_client_runtime::dropped;
 use dereth_primitives::ObjectId;
 use dereth_protocol::{Message, Opcode};
 

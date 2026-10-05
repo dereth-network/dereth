@@ -120,11 +120,14 @@ fn world_with(module: &dereth_protocol::login::PlayerModule) -> dereth_client_mo
 
 /// Every row of the page shows the setting the shard sent for it.
 pub(super) fn every_row_shows_the_setting_the_shard_sent() {
-    use dereth_client::hud::{character_option, option_ordinal, Hud};
     use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
     use dereth_client_model::player::options::PLAYER_OPTIONS;
     use dereth_ui_screens::options::character::option_name;
     use dereth_ui_screens::view::{GameView, PlayerOption};
+    use {
+        dereth_client_runtime::hud::character_option, dereth_client_runtime::hud::option_ordinal,
+        dereth_client_shell::hud::Hud,
+    };
 
     let record = the_record_of("first-login-walk-jump");
     let module = decode_module(&record.body);
@@ -140,7 +143,7 @@ pub(super) fn every_row_shows_the_setting_the_shard_sent() {
         }
     }
 
-    let mut objects = dereth_client::objects::ObjectStream::default();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::default();
     objects.world.player_system.apply_player_module(&module);
     let hud = Hud::default();
     let view = hud.view(&objects);
@@ -165,7 +168,7 @@ pub(super) fn every_row_shows_the_setting_the_shard_sent() {
     // The third answer, which a yes-or-no cannot carry: a client that has been told nothing says
     // it does not know. Without it "off" and "never asked" are the same reading, and the page
     // that opened blank read exactly like a page of things turned off.
-    let empty = dereth_client::objects::ObjectStream::default();
+    let empty = dereth_client_runtime::objects::ObjectStream::default();
     let unknown = character_option(&empty.world, PlayerOption::AutoTarget).is_none();
     let known = character_option(&objects.world, PlayerOption::AutoTarget).is_some();
 
@@ -189,7 +192,7 @@ pub(super) fn every_row_shows_the_setting_the_shard_sent() {
 
 /// A tick changes one setting of what the shard sent and nothing else.
 pub(super) fn a_tick_changes_only_that_setting() {
-    use dereth_client::interaction::Interaction;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_primitives::ServerTime;
     use dereth_ui_screens::view::{PlayerOption, UiRequest};
 
@@ -321,8 +324,8 @@ pub(super) fn the_settings_it_sends_back_are_byte_for_byte_the_recorded_ones() {
 
 /// One tick and one visit is one message with one setting moved.
 pub(super) fn one_tick_and_one_visit_sends_one_message() {
-    use dereth_client::interaction::Interaction;
     use dereth_client_model::Request;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_primitives::ServerTime;
     use dereth_ui_screens::view::{PlayerOption, UiRequest};
 
@@ -382,14 +385,14 @@ pub(super) fn one_tick_and_one_visit_sends_one_message() {
 
 /// A deferred change reaches the shard on the frame's own timer, once.
 pub(super) fn a_deferred_change_is_flushed_by_the_frame() {
-    use dereth_client::interaction::Interaction;
     use dereth_client_model::Request;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_primitives::{LocalTime, ServerTime};
     use dereth_ui_screens::view::{PlayerOption, UiRequest};
 
     let store = dereth_dat::testing::open_store().expect("the retail data files");
     let record = the_record_of("first-login-walk-jump");
-    let mut objects = dereth_client::objects::ObjectStream::default();
+    let mut objects = dereth_client_runtime::objects::ObjectStream::default();
     objects
         .world
         .player_system
@@ -412,20 +415,21 @@ pub(super) fn a_deferred_change_is_flushed_by_the_frame() {
     // **Driven from the frame's own entry point and not from the method.** A scenario that called
     // the timer directly would survive deleting its call site in the frame: it structurally could
     // not see the change.
-    let mut frame =
-        |inter: &mut Interaction, objects: &mut dereth_client::objects::ObjectStream, t: f64| {
-            dereth_client::interaction::use_time(
-                inter,
-                &store,
-                None,
-                objects,
-                None,
-                Vec::new(),
-                false,
-                (800, 600),
-                LocalTime(t),
-            );
-        };
+    let mut frame = |inter: &mut Interaction,
+                     objects: &mut dereth_client_runtime::objects::ObjectStream,
+                     t: f64| {
+        dereth_client_runtime::interaction::use_time(
+            inter,
+            &store,
+            None,
+            objects,
+            None,
+            Vec::new(),
+            false,
+            (800, 600),
+            LocalTime(t),
+        );
+    };
 
     frame(&mut inter, &mut objects, 479.0);
     let not_yet = inter.stats.player_modules_sent == 0;
@@ -447,7 +451,7 @@ pub(super) fn a_deferred_change_is_flushed_by_the_frame() {
 
 /// With no description nothing is sent and nothing is invented.
 pub(super) fn with_no_description_nothing_is_sent() {
-    use dereth_client::interaction::Interaction;
+    use dereth_client_runtime::interaction::Interaction;
     use dereth_primitives::ServerTime;
     use dereth_ui_screens::view::{PlayerOption, UiRequest};
 
@@ -615,7 +619,7 @@ pub(super) fn a_ticked_row_stays_ticked_and_unticking_still_works() {
             .world
             .player_system
             .options
-            .get(dereth_client::hud::option_ordinal(o))
+            .get(dereth_client_runtime::hud::option_ordinal(o))
     };
     // ...and still all three a good while later: the page re-reads every row from the settings on
     // every frame, so a row that lost the race would come back off on some later frame.
@@ -628,7 +632,7 @@ pub(super) fn a_ticked_row_stays_ticked_and_unticking_still_works() {
             .world
             .player_system
             .options
-            .get(dereth_client::hud::option_ordinal(o))
+            .get(dereth_client_runtime::hud::option_ordinal(o))
     };
 
     // On to off, on a different row so this is not the one just ticked.

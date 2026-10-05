@@ -14,7 +14,7 @@ impl ObjectLook {
         Self {
             files: Arc::new(files),
             interiors: interiors.map(Arc::new),
-            cells: dereth_client_runtime::env_cells::EnvCellLoader::new(),
+            cells: dereth_world_data::env_cells::EnvCellLoader::new(),
             identity,
             cache: BakeCache {
                 surface_translucency: like.surface_translucency,

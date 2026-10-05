@@ -290,10 +290,11 @@ pub(super) fn the_players_own_cell_draws_a_backpack_and_not_a_second_backdrop() 
     // real picture has a clear field, so it changes some and leaves the rest of the tile showing.
     // That count is the discriminator, and nothing else here is.
     let store = c.dat_store().expect("the retail dats are open").clone();
-    let textures = dereth_client::textures::TextureStore::new(&store);
+    let textures = dereth_scene::textures::TextureStore::new(&store);
     let f = |id: dereth_primitives::DataId| textures.texture_data(id).ok();
-    let composed = dereth_client::ui_draw::composite(recipe, &f).expect("the cell composites");
-    let tile_only = dereth_client::ui_draw::composite(
+    let composed =
+        dereth_client_shell::ui_draw::composite(recipe, &f).expect("the cell composites");
+    let tile_only = dereth_client_shell::ui_draw::composite(
         dereth_ui::region::IconRecipe::Object {
             background,
             effects: None,
@@ -466,10 +467,10 @@ pub(super) fn what_follows_the_cursor_is_the_icon_alone() {
     // The pixels: what follows the cursor is not the cell's picture, and it is clear somewhere,
     // which is what makes it read as a floating icon rather than as a lifted cell.
     let store = c.dat_store().expect("the retail dats are open").clone();
-    let textures = dereth_client::textures::TextureStore::new(&store);
+    let textures = dereth_scene::textures::TextureStore::new(&store);
     let f = |id: dereth_primitives::DataId| textures.texture_data(id).ok();
-    let cell_px = dereth_client::ui_draw::composite(cell, &f).expect("the cell composites");
-    let drag_px = dereth_client::ui_draw::composite(drag, &f).expect("the proxy composites");
+    let cell_px = dereth_client_shell::ui_draw::composite(cell, &f).expect("the cell composites");
+    let drag_px = dereth_client_shell::ui_draw::composite(drag, &f).expect("the proxy composites");
     let different_pixels = cell_px.levels.first() != drag_px.levels.first();
     let clear_somewhere = drag_px
         .levels

@@ -83,7 +83,7 @@ pub fn a_typed_emote_reaches_the_link_on_the_next_frame() {
     to_gameplay(&mut c);
 
     // A link with a connection on it and no socket behind it: nothing leaves this process.
-    let mut net = dereth_client::net::ClientNetwork::new(
+    let mut net = dereth_client_runtime::net::ClientNetwork::new(
         "127.0.0.1:19000",
         7304,
         "emote-scenario",

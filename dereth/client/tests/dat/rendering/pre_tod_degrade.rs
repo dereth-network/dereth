@@ -85,7 +85,7 @@ fn a_february_2005_torso_draws_its_records_nearest_level_up_close_on_either_worl
         assert_eq!(info.degrades.len(), 6, "{name}");
         assert_eq!(drawn(&info, DEFAULT, 1.0).0, TORSO_NEAR, "{name}");
         assert!(
-            dereth_client::models::draws_at_near_band(store, TORSO),
+            dereth_client_runtime::models::draws_at_near_band(store, TORSO),
             "{name}: the part draws at the near band"
         );
     }
@@ -171,5 +171,7 @@ fn the_portal_space_tunnel_draws_its_own_model_on_the_february_2005_world() {
         .portal()
         .contains(DataId(0x1100_080B)));
     assert_eq!(record(&older, TUNNEL).map(|(did, _)| did), None);
-    assert!(dereth_client::models::draws_at_near_band(&older, TUNNEL));
+    assert!(dereth_client_runtime::models::draws_at_near_band(
+        &older, TUNNEL
+    ));
 }

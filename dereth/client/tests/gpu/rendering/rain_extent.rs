@@ -5,14 +5,14 @@
 //! The sky update pins a weather object to the viewer in `x` and `y` and puts its origin at the
 //! absolute `z` of -120.0 unless the object's `properties` bit 3 is set; the rain curtain's own
 //! geometry runs `z ∈ [0.1, 814.9]` with nothing below its origin, so that floor is what carries
-//! the rain below the horizon (`dereth_client::sky`'s `WEATHER_FLOOR_Z`).
+//! the rain below the horizon (`dereth_scene::sky`'s `WEATHER_FLOOR_Z`).
 //! Fixture: the retail dats and a software device, drawn at midday of the offline clock's
 //! "Rainy" day group.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneConfig, WorldScene};
-use dereth_client::world::{SceneReads, SceneWrites};
 use dereth_render::device::Gpu;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -61,7 +61,7 @@ fn the_weather_layer_falls_across_the_whole_view() {
     };
     let mut scene = WorldScene::load(&store, &mut gpu, cfg).expect("loads");
     let (y, d, t) = scene.game_time();
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let group = dereth_world_render::sky::present_day_group(&region, y, d).expect("group");
     assert_eq!(
         group.day_name, "Rainy",
@@ -76,8 +76,8 @@ fn the_weather_layer_falls_across_the_whole_view() {
 
     let step = |scene: &mut WorldScene| {
         scene.update(
-            dereth_client::camera::CameraInput::default(),
-            dereth_client::character::CharacterInput::default(),
+            dereth_client_runtime::camera::CameraInput::default(),
+            dereth_client_runtime::character::CharacterInput::default(),
             dereth_primitives::LocalTime(0.0),
             0.0,
         );
@@ -141,7 +141,7 @@ fn the_rain_curtain_has_nothing_below_its_own_origin() {
             dereth_dat::testing::dat_dir().display()
         )
     });
-    let region = dereth_client::world::load_region(&store).expect("region");
+    let region = dereth_client_runtime::landblock::load_region(&store).expect("region");
     let info = region.sky_info.as_ref().expect("sky info");
     let mut checked = 0usize;
     for group in &info.day_groups {
@@ -152,8 +152,8 @@ fn the_rain_curtain_has_nothing_below_its_own_origin() {
                 if p.properties & 4 == 0 || p.properties & 8 != 0 || p.gfx_id.0 == 0 {
                     continue;
                 }
-                for part in dereth_client::models::resolve_parts(&store, p.gfx_id) {
-                    let groups = dereth_client::models::build_gfxobj(&store, part.gfxobj);
+                for part in dereth_client_runtime::models::resolve_parts(&store, p.gfx_id) {
+                    let groups = dereth_client_runtime::models::build_gfxobj(&store, part.gfxobj);
                     let mut lo = f32::MAX;
                     let mut hi = f32::MIN;
                     for g in &groups {

@@ -31,7 +31,7 @@ pub mod experience_type {
 pub use dereth_client_contract::confirmation::ConfirmationType;
 
 // The **client-side** caller of [`vitae_cp_pool_threshold`] is
-// `dereth_client::hud::HudView::vitae_display`.
+// `dereth_client_runtime::hud::HudView::vitae_display`.
 
 // ---------------------------------------------------------------------------------------------
 // The senders

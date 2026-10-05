@@ -10,13 +10,13 @@
 //! long-solo-play's remote human). No GUI, socket, owner settings, or injected expected delivery
 //! or model state.
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
-use dereth_client::{
-    app::{App, HEADLESS_STEP},
-    config::Config,
-    net::ClientNetwork,
-};
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::objects::{ItemCreateObject, ItemServerSaysRemove, ObjectCreatePayload};
+use {
+    dereth_client::app::App, dereth_client_runtime::config::Config,
+    dereth_client_runtime::net::ClientNetwork,
+    dereth_client_runtime::platform::clock::HEADLESS_STEP,
+};
 
 struct Peer {
     crypto: dereth_transport::CryptoSystem,
@@ -159,7 +159,7 @@ fn newly_received_ui_waits_for_next_entry_and_uses_pre_timer_clock() {
 #[test]
 fn replay_endpoint_is_explicit_and_does_not_claim_socket_sends() {
     let (_, net) = Peer::new();
-    let mut link = dereth_client::net::NetLink::replay(net);
+    let mut link = dereth_client_runtime::net::NetLink::replay(net);
     assert_eq!(link.local_addr(), None);
     link.tick(LocalTime(0.0));
     assert!(
@@ -809,7 +809,7 @@ fn recent_attacker_removal_dispatches_selection_while_old_weenie_is_being_remove
     // Establish the subscriber during the UI phase before the object phase loads a scene, as the
     // production frame does. World loading is not part of the query-tail stimulus below.
     assert!(app.frame());
-    app.load_static_scene(dereth_client::world::SceneConfig {
+    app.load_static_scene(dereth_client_runtime::scene::SceneConfig {
         character: true,
         cell_statics: false,
         mesh_collision: false,
@@ -819,7 +819,7 @@ fn recent_attacker_removal_dispatches_selection_while_old_weenie_is_being_remove
         ..Default::default()
     })
     .unwrap();
-    let player = dereth_client::character::PLAYER_OBJECT_ID;
+    let player = dereth_client_runtime::character::PLAYER_OBJECT_ID;
     let attacker = ObjectId(0x89000007);
     let survivor = ObjectId(0x89000008);
     // Explicit private player/option prerequisites, not an injected final selection or target.
@@ -1052,7 +1052,7 @@ fn two_remote_commands_complete_callbacks_without_coalescing_or_advancing_physic
     assert!(app.frame());
     let initial = app.objects().presence(id).unwrap().position.unwrap();
     let block = initial.cell.landblock();
-    app.load_static_scene(dereth_client::world::SceneConfig {
+    app.load_static_scene(dereth_client_runtime::scene::SceneConfig {
         landblock: (u16::from(block.x()) << 8) | u16::from(block.y()),
         character: true,
         land_radius: 1,

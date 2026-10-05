@@ -15,10 +15,10 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use dereth_client::app::App;
-use dereth_client::net::ClientNetwork;
-use dereth_client::objects::ObjectStream;
 use dereth_client_model::qualities::update as qupdate;
 use dereth_client_net::client_session::SessionEvent;
+use dereth_client_runtime::net::ClientNetwork;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_transport::wire::ParsedPacket;
 use dereth_ui::{ElemHandle, ElementId};
@@ -805,7 +805,7 @@ fn selecting_a_row_fills_the_footer_with_that_rows_own_numbers() {
         .player_qualities()
         .expect("the capture's 0x0013")
         .clone();
-    let credits = i64::from(q.inq_int(dereth_client::hud::AVAILABLE_SKILL_CREDITS));
+    let credits = i64::from(q.inq_int(dereth_client_runtime::hud::AVAILABLE_SKILL_CREDITS));
     let available = match q.get(dereth_client_model::StatKey::new(
         dereth_client_model::StatType::Int64,
         2,
@@ -1631,9 +1631,10 @@ fn the_header_shows_the_captures_own_heritage_line_and_pk_status() {
             .player_qualities()
             .expect("the capture's 0x0013")
             .clone();
-        let gender = u32::try_from(q.inq_int(dereth_client::hud::GENDER)).expect("a gender");
-        let heritage =
-            u32::try_from(q.inq_int(dereth_client::hud::HERITAGE_GROUP)).expect("a heritage");
+        let gender =
+            u32::try_from(q.inq_int(dereth_client_runtime::hud::GENDER)).expect("a gender");
+        let heritage = u32::try_from(q.inq_int(dereth_client_runtime::hud::HERITAGE_GROUP))
+            .expect("a heritage");
         assert!(
             gender != 0,
             "{session}: the capture carries PropertyInt 0x71"
@@ -1789,7 +1790,7 @@ fn the_luminance_pair_is_cleared_below_level_200_and_grouped_above_it() {
         .world
         .player_qualities()
         .expect("0x0013")
-        .inq_int(dereth_client::hud::LEVEL);
+        .inq_int(dereth_client_runtime::hud::LEVEL);
     assert!(
         level < 200,
         "short-play-with-training's character is level {level}, below the luminance gate"

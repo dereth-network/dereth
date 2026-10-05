@@ -20,13 +20,13 @@
 //! [`Hands::key`] takes the host's own resolved [`Key`] -- the virtual key and the scan code -- and
 //! not a name, for [`crate::adapters_chat`]'s reason: naming a key is the window layer's job and
 //! this crate must not take a second opinion on it. A scenario in the test tiers gets one from
-//! `dereth_client::platform::window::key_from_key_code`, which is where `winit` stops.
+//! `dereth_desktop::platform::window::key_from_key_code`, which is where `winit` stops.
 //!
 //! `Assets::Retail` with the shell up, always: the input manager is part of the shell.
 
-use dereth_client::platform::keys::Key;
-use dereth_client::pump::{Pump, Win32Message};
+use dereth_input::keys::Key;
 use dereth_ui::{ElemHandle, ElementId};
+use {dereth_desktop::pump::Pump, dereth_input::win32::Win32Message};
 
 use crate::HeadlessClient;
 
@@ -101,7 +101,7 @@ impl Hands {
         self.alt = down;
         self.time += 10;
         let msgs = self.pump.map_window_event(
-            &dereth_client::platform::window::HostEvent::ModifiersChanged { alt: down },
+            &dereth_input::host::HostEvent::ModifiersChanged { alt: down },
             self.time,
         );
         debug_assert!(msgs.is_empty(), "a modifier report is not itself a message");
@@ -186,7 +186,7 @@ impl Hands {
     pub fn wheel(&mut self, c: &mut HeadlessClient, notches: f32) {
         self.time += 10;
         let msgs = self.pump.map_window_event(
-            &dereth_client::platform::window::HostEvent::MouseWheel { notches },
+            &dereth_input::host::HostEvent::MouseWheel { notches },
             self.time,
         );
         assert_eq!(msgs.len(), 1, "one wheel report is one WM_MOUSEWHEEL");
@@ -334,9 +334,9 @@ impl AppSpec {
 /// oracle rather than a client in a state worth asserting over.
 #[must_use]
 pub fn build_app(spec: &AppSpec) -> dereth_client::app::App {
-    use dereth_client::app::{App, Platform};
-    use dereth_client::config::Config;
-    use dereth_client::present::NullPresentation;
+    use dereth_client_runtime::config::Config;
+    use dereth_client_runtime::present::NullPresentation;
+    use {dereth_client::app::App, dereth_client_runtime::app::Platform};
 
     let mut cfg = Config {
         headless: true,
@@ -364,11 +364,11 @@ pub fn build_app(spec: &AppSpec) -> dereth_client::app::App {
         app.start_shell().expect("the UI shell comes up");
     }
     if spec.static_scene {
-        let s = dereth_client::world::SceneConfig {
+        let s = dereth_client_runtime::scene::SceneConfig {
             landblock: app.config().landblock,
             land_radius: app.config().land_radius,
             scenery_radius: app.config().scenery_radius,
-            ..dereth_client::world::SceneConfig::default()
+            ..dereth_client_runtime::scene::SceneConfig::default()
         };
         app.load_static_scene(s).expect("the static scene loads");
     }
@@ -416,7 +416,7 @@ pub fn scratch_preferences(name: &str) -> std::path::PathBuf {
 pub struct BareKeyboard {
     pump: Pump,
     /// The client's own input shell over the shipped `ActionMap` and both key maps.
-    pub input: dereth_client::input::InputShell,
+    pub input: dereth_client_shell::input::InputShell,
     time: u32,
 }
 
@@ -436,7 +436,7 @@ impl BareKeyboard {
     pub fn new() -> Self {
         let store = dereth_dat::testing::open_store()
             .expect("the shipped key maps live in the retail data files: set DERETH_TEST_DAT_DIR");
-        let input = dereth_client::input::InputShell::new(&store, None)
+        let input = dereth_client_shell::input::InputShell::new(&store, None)
             .expect("the shipped action map and both key maps decode");
         let mut pump = Pump::new();
         pump.state.is_ready = true;
@@ -531,7 +531,7 @@ impl Hands {
     /// Panics on a button the client's own table does not name.
     pub fn button_message(
         &mut self,
-        button: dereth_client::platform::keys::MouseButton,
+        button: dereth_input::keys::MouseButton,
         pressed: bool,
     ) -> Win32Message {
         self.time += 10;
@@ -575,7 +575,7 @@ impl Hands {
     /// Click one point of the screen, with no hit test of its own -- for the gestures whose point
     /// is a position rather than an element, where the scenario has already proved what is there.
     pub fn click_at(&mut self, c: &mut HeadlessClient, x: i32, y: i32) {
-        use dereth_client::platform::keys::MouseButton;
+        use dereth_input::keys::MouseButton;
         self.time += 10;
         let m = self
             .pump

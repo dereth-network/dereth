@@ -10,17 +10,17 @@
 
 #![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
 
-use dereth_client::world::{SceneReads, SceneWrites};
 use std::sync::Arc;
+use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};
 
 use dereth_client::app::App;
-use dereth_client::config::Config;
-use dereth_client::world::{SceneConfig, WorldScene};
+use dereth_client_runtime::config::Config;
 use dereth_dat::RetailDatStore;
 use dereth_render::camera::Viewport;
 use dereth_render::device::Gpu;
 use dereth_ui::framework::mode;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
+use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 
 const W: u32 = 640;
 const H: u32 = 480;

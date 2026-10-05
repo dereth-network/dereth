@@ -12,12 +12,14 @@
 
 /// The retail surface the first-pixel quad draws, re-exported from
 /// [`dereth_client_runtime::assets`] -- it is a dat id and nothing else -- so that
-/// `dereth_client::gpu::FIRST_PIXEL_SURFACE` resolves too.
+/// `dereth_client_runtime::assets::FIRST_PIXEL_SURFACE` resolves too.
 pub use dereth_client_runtime::assets::FIRST_PIXEL_SURFACE;
 
 /// The preview-space id and the UI-texture release report, re-exported from
 /// [`crate::present`], whose trait names both.
-pub use crate::present::{PreviewId, UiReleaseReport};
+pub use {
+    crate::present::UiReleaseReport, dereth_client_contract::overlay::PreviewSpace as PreviewId,
+};
 
 /// The scene's half of the renderer, which [`Renderer`] holds and dereferences to.
 #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
@@ -216,8 +218,8 @@ mod imp {
             cmds: &[dereth_ui::UiDrawCmd],
         ) {
             let store = interface;
-            let chrome = crate::textures::TextureStore::new(interface);
-            let content = crate::textures::TextureStore::new(world);
+            let chrome = dereth_scene::textures::TextureStore::new(interface);
+            let content = dereth_scene::textures::TextureStore::new(world);
             for (id, op, source) in crate::ui_draw::images(cmds) {
                 if self.ui_textures.contains_key(&(id, op, source)) {
                     continue;
@@ -229,7 +231,7 @@ mod imp {
                 let decoded =
                     if let Some(r) = op.and_then(dereth_ui::region::SurfaceOp::icon_recipe) {
                         crate::ui_draw::composite(r, &|d| content.icon_data(d).ok())
-                            .ok_or(crate::textures::TextureError::NotATexture(id))
+                            .ok_or(dereth_scene::textures::TextureError::NotATexture(id))
                     } else {
                         // The blit-and-recolour the colour-spot and gradient-disk passes do into
                         // their own local surface, done once per distinct pair rather than once
@@ -856,7 +858,7 @@ mod imp {
     /// Every method is a forward to the inherent method above it; the trait exists so that `App`
     /// names a presentation rather than a device, and so that a sibling backend can take this
     /// place without `App` changing.
-    impl crate::present::Presentation for Renderer {
+    impl dereth_client_runtime::present::Presentation for Renderer {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
@@ -869,7 +871,7 @@ mod imp {
             SceneRenderer::prepare_graphics_device(self);
         }
 
-        fn start_frame(&mut self) -> Result<(), crate::present::PresentError> {
+        fn start_frame(&mut self) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::start_frame(self).map_err(crate::present::present_error)
         }
 
@@ -880,15 +882,15 @@ mod imp {
         fn draw_scene(
             &mut self,
             ws: Option<&dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::present::PresentError> {
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::draw_scene(self, ws).map_err(crate::present::present_error)
         }
 
-        fn end_frame(&mut self) -> Result<(), crate::present::PresentError> {
+        fn end_frame(&mut self) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::end_frame(self).map_err(crate::present::present_error)
         }
 
-        fn wait_idle(&mut self) -> Result<(), crate::present::PresentError> {
+        fn wait_idle(&mut self) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::wait_idle(self).map_err(crate::present::present_error)
         }
 
@@ -896,7 +898,11 @@ mod imp {
             SceneRenderer::size(self)
         }
 
-        fn resize(&mut self, width: u32, height: u32) -> Result<(), crate::present::PresentError> {
+        fn resize(
+            &mut self,
+            width: u32,
+            height: u32,
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::resize(self, width, height).map_err(crate::present::present_error)
         }
 
@@ -904,7 +910,10 @@ mod imp {
             SceneRenderer::set_presentation_sync(self, full_screen, sync_to_refresh);
         }
 
-        fn capture_png(&mut self, path: &Path) -> Result<(), crate::present::PresentError> {
+        fn capture_png(
+            &mut self,
+            path: &Path,
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::capture_png(self, path).map_err(crate::present::present_error)
         }
 
@@ -917,7 +926,7 @@ mod imp {
             requests: Vec<dereth_ui_screens::UiRequest>,
         ) -> Vec<dereth_ui_screens::UiRequest> {
             let (_, gpu) = self.world_mut_and_gpu();
-            crate::render_prefs::apply_gpu_preference_requests(gpu, requests)
+            dereth_scene::render_prefs::apply_gpu_preference_requests(gpu, requests)
         }
 
         fn apply_render_preference_requests(
@@ -931,7 +940,7 @@ mod imp {
             &mut self,
             assets: &dyn AssetSource,
             id: DataId,
-        ) -> Result<(), crate::present::PresentError> {
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::load_first_pixel_scene(self, assets, id)
                 .map_err(crate::present::present_error)
         }
@@ -939,9 +948,9 @@ mod imp {
         fn load_world(
             &mut self,
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
-            cfg: crate::world::SceneConfig,
+            cfg: dereth_client_runtime::scene::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             SceneRenderer::load_world(self, store, cfg, world)
         }
 
@@ -956,25 +965,25 @@ mod imp {
             &mut self,
             store: &dereth_dat::RetailDatStore,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             SceneRenderer::stream_world(self, store, world)
         }
 
         fn sync_objects(
             &mut self,
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
-            stream: &mut crate::objects::ObjectStream,
+            stream: &mut dereth_client_runtime::objects::ObjectStream,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             SceneRenderer::sync_objects(self, store, stream, world)
         }
 
         fn prepare_object_dispatch(
             &mut self,
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
-            stream: &mut crate::objects::ObjectStream,
+            stream: &mut dereth_client_runtime::objects::ObjectStream,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<(), crate::world::WorldError> {
+        ) -> Result<(), dereth_client_runtime::landblock::WorldError> {
             SceneRenderer::prepare_object_dispatch(self, store, stream, world)
         }
 
@@ -982,7 +991,10 @@ mod imp {
             &mut self,
             store: &dereth_dat::RetailDatStore,
             world: Option<&mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Result<crate::world::RenderPrefWork, crate::world::WorldError> {
+        ) -> Result<
+            dereth_client_runtime::frame_events::RenderPrefWork,
+            dereth_client_runtime::landblock::WorldError,
+        > {
             SceneRenderer::update_render_preferences(self, store, world)
         }
 
@@ -1001,7 +1013,7 @@ mod imp {
             &mut self,
             texture: OverlayTexture,
             data: &dereth_primitives::TextureData,
-        ) -> Result<(), crate::present::PresentError> {
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::overlay_upload(self, texture, data)
                 .map_err(crate::present::present_error)
         }
@@ -1013,14 +1025,14 @@ mod imp {
         fn draw_overlay(
             &mut self,
             items: &[OverlayItem],
-        ) -> Result<(), crate::present::PresentError> {
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             SceneRenderer::draw_overlay(self, items).map_err(crate::present::present_error)
         }
 
         fn preview_ensure(
             &mut self,
             id: PreviewId,
-            assets: &std::sync::Arc<crate::anim_assets::DatAnimAssets>,
+            assets: &std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
         ) -> bool {
             SceneRenderer::ensure_preview(self, id, assets)
         }
@@ -1100,7 +1112,7 @@ mod imp {
 
         fn objects_in_other_look(&self) -> bool {
             self.world()
-                .is_some_and(crate::world::SceneDraw::objects_from_other_files)
+                .is_some_and(dereth_scene::world_scene::SceneDraw::objects_from_other_files)
         }
 
         fn preview_add_object(
@@ -1108,7 +1120,7 @@ mod imp {
             id: PreviewId,
             store: &dereth_dat::RetailDatStore,
             setup: DataId,
-        ) -> Result<Option<usize>, crate::present::PresentError> {
+        ) -> Result<Option<usize>, dereth_client_runtime::present::PresentError> {
             SceneRenderer::add_preview_object(self, id, store, setup)
                 .map_err(crate::present::present_error)
         }
@@ -1119,7 +1131,7 @@ mod imp {
             store: &dereth_dat::RetailDatStore,
             setup: DataId,
             objdesc: Option<&dereth_animation::parts::ObjDesc>,
-        ) -> Result<Option<usize>, crate::present::PresentError> {
+        ) -> Result<Option<usize>, dereth_client_runtime::present::PresentError> {
             SceneRenderer::add_preview_object_dressed(self, id, store, setup, objdesc)
                 .map_err(crate::present::present_error)
         }
@@ -1193,17 +1205,23 @@ mod imp {
         fn scene<'a>(
             &'a self,
             world: Option<&'a dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<Box<dyn crate::present::Scene + 'a>> {
+        ) -> Option<Box<dyn dereth_client_runtime::present::Scene + 'a>> {
             let (draw, world) = (self.device.world()?, world?);
-            Some(Box::new(crate::world::WorldSceneRef { world, draw }))
+            Some(Box::new(dereth_scene::world_scene::WorldSceneRef {
+                world,
+                draw,
+            }))
         }
 
         fn scene_mut<'a>(
             &'a mut self,
             world: Option<&'a mut dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<Box<dyn crate::present::SceneMut + 'a>> {
+        ) -> Option<Box<dyn dereth_client_runtime::present::SceneMut + 'a>> {
             let (draw, world) = (self.device.world_mut()?, world?);
-            Some(Box::new(crate::world::WorldSceneMut { world, draw }))
+            Some(Box::new(dereth_scene::world_scene::WorldSceneMut {
+                world,
+                draw,
+            }))
         }
     }
 
@@ -1211,7 +1229,7 @@ mod imp {
         fn draw_ui(
             &mut self,
             cmds: &[dereth_ui::UiDrawCmd],
-        ) -> Result<(), crate::present::PresentError> {
+        ) -> Result<(), dereth_client_runtime::present::PresentError> {
             Renderer::draw_ui(self, cmds).map_err(crate::present::present_error)
         }
 

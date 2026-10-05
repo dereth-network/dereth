@@ -106,7 +106,7 @@ impl SceneDraw {
             // `Render.EnvironmentTextureDetail`, the same
             // `max(v, 1) - 1` the poll writes into.
             image_scale: dereth_render::texture::image_scale_from_shift(
-                crate::render_prefs::RenderPreferences::image_scale(
+                dereth_client_runtime::render_prefs::RenderPreferences::image_scale(
                     cfg.render.environment_texture_detail,
                 ),
             ),
@@ -175,7 +175,7 @@ impl SceneDraw {
             bake,
             identity,
             objects,
-            cells: dereth_client_runtime::env_cells::EnvCellLoader::new(),
+            cells: dereth_world_data::env_cells::EnvCellLoader::new(),
         };
 
         // The terrain pipeline state. Row 1 of the catalogue -- an opaque textured surface --
@@ -640,7 +640,7 @@ impl SceneDraw {
         }
         // Load each touched block's interior cells on the **physics** side. It is
         // here rather than inside `env_cell` because `env_cell` is a pure decoder and
-        // must never load (see [`dereth_client_runtime::land_source`]); "the same path that loads landblocks"
+        // must never load (see [`dereth_world_data::land_source`]); "the same path that loads landblocks"
         // is this one.
         if let Some(land) = ws.character.as_ref().map(|c| Arc::clone(c.land())) {
             for (bx, by) in touched {
@@ -802,7 +802,7 @@ impl SceneDraw {
             // The environment texture scale shared by clip-map, RGBA, and indexed uploads;
             // the preference poll copies this into the current scale used by texture creation.
             self.land.bake.image_scale = dereth_render::texture::image_scale_from_shift(
-                crate::render_prefs::RenderPreferences::image_scale(
+                dereth_client_runtime::render_prefs::RenderPreferences::image_scale(
                     live.environment_texture_detail,
                 ),
             );
@@ -2025,13 +2025,13 @@ impl SceneDraw {
     /// origins. The blocks it exposed are fetched by [`Self::stream`], which needs the device
     /// and therefore runs outside the frame bracket.
     ///
-    /// `now` is current time, sampled once per frame by [`dereth_client_runtime::app::Clock`]. It reaches
+    /// `now` is current time, sampled once per frame by [`dereth_client_runtime::platform::clock::Timer`]. It reaches
     /// physics unchanged: the 30 Hz gate is inside the physics update and
     /// is **not** a frame-rate cap, so nothing here may pre-filter or quantise it.
     pub fn update(
         &mut self,
         ws: &mut WorldState,
-        input: crate::camera::CameraInput,
+        input: dereth_client_runtime::camera::CameraInput,
         character: dereth_client_runtime::character::CharacterInput,
         now: dereth_primitives::LocalTime,
         dt: f32,

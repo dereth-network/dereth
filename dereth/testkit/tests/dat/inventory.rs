@@ -226,19 +226,24 @@ use dereth_ui_screens::view::{
 // The ground under a drop, the shop's own latch, and the salvage window's drag-out.
 // =============================================================================================
 
-use dereth_client::character::{Character, CharacterInput};
-use dereth_client::interaction::{self, Interaction};
-use dereth_client::objects::ObjectStream;
-use dereth_client::world::{load_region, DEFAULT_LANDBLOCK};
 use dereth_client_model::Request;
 use dereth_client_net::client_session::testing::{Corpus, MockTransport};
 use dereth_client_net::client_session::Session;
+use dereth_client_runtime::objects::ObjectStream;
 use dereth_primitives::ServerTime;
 use dereth_ui_screens::hud::speech_bubbles::LIST_BOX;
 use dereth_ui_screens::items::widget::{drag_flags, inq_drop_icon_info};
 use dereth_ui_screens::panels::salvage::{self, ButtonState as SalvageButton};
 use dereth_ui_screens::view::{DropTarget, UiRequest};
 use std::sync::Arc;
+use {
+    dereth_client_runtime::character::Character, dereth_client_runtime::character::CharacterInput,
+};
+use {dereth_client_runtime::interaction, dereth_client_runtime::interaction::Interaction};
+use {
+    dereth_client_runtime::landblock::load_region,
+    dereth_client_runtime::landblock::DEFAULT_LANDBLOCK,
+};
 
 // =============================================================================================
 // The shop's money, its category tabs, and the two lines about the row the player picked.
