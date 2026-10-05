@@ -237,6 +237,17 @@ impl<'a> Cursor<'a> {
         self.buf.len().saturating_sub(self.pos)
     }
 
+    /// Move back to an earlier position, clamping a later position to the current one.
+    pub fn rewind(&mut self, pos: usize) {
+        self.pos = pos.min(self.pos);
+    }
+
+    /// The consumed bytes from `start`, or an empty slice when `start` is later.
+    #[must_use]
+    pub fn since(&self, start: usize) -> &'a [u8] {
+        &self.buf[start.min(self.pos)..self.pos]
+    }
+
     /// Skip `n` bytes, bounds-checked.
     #[inline]
     pub fn skip(&mut self, n: usize) -> Result<(), DatError> {

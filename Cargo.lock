@@ -858,6 +858,7 @@ dependencies = [
 name = "dereth-classic-dat"
 version = "0.0.0"
 dependencies = [
+ "dereth-assets",
  "dereth-dat",
  "dereth-primitives",
  "serde",

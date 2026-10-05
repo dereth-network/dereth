@@ -2,8 +2,8 @@
 //! portal.dat, read through the shared dat reader, and the font atlas format its text is drawn
 //! from.
 //!
-//! **Depends on** `dereth-dat` (the container) and `dereth-primitives` (the 1252 code page and
-//! data ids). **Used by** the classic interface, which reads the player's own portal.dat at run
+//! **Depends on** `dereth-dat` (the container and cursor), `dereth-assets` (palette records)
+//! and `dereth-primitives` (the 1252 code page and data ids). **Used by** the classic interface, which reads the player's own portal.dat at run
 //! time rather than shipping any of its contents, and by the hosts that draw its fonts.
 //!
 //! **Must never** write into the portal it reads.

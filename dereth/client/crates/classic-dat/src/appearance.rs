@@ -9,6 +9,9 @@
 //! The eye strip is stored as one half of a face and drawn mirrored: each row followed by the same
 //! row reversed, which doubles its width.
 
+use dereth_assets::{Decode, Palette, PaletteSet};
+use dereth_primitives::DataId;
+
 use crate::reader::Cursor;
 
 /// One indexed texture: row-major palette indices and the id of its default palette.
@@ -25,9 +28,9 @@ fn words<const N: usize>(payload: &[u8], what: &str) -> Result<[u32; N], String>
         return Err(format!("{what} header is truncated"));
     }
     let mut out = [0u32; N];
-    for (i, w) in out.iter_mut().enumerate() {
-        let p = i * 4;
-        *w = u32::from_le_bytes([payload[p], payload[p + 1], payload[p + 2], payload[p + 3]]);
+    let mut reader = Cursor::new(payload);
+    for word in &mut out {
+        *word = reader.u32()?;
     }
     Ok(out)
 }
@@ -48,12 +51,8 @@ pub fn indexed(payload: &[u8]) -> Result<IndexedTexture, String> {
         return Err("indexed texture does not consume payload".into());
     }
     let end = usize::try_from(end).map_err(|e| e.to_string())?;
-    let palette = u32::from_le_bytes([
-        payload[end],
-        payload[end + 1],
-        payload[end + 2],
-        payload[end + 3],
-    ]);
+    let mut reader = Cursor::new(&payload[end..]);
+    let palette = reader.u32()?;
     Ok(IndexedTexture {
         width,
         height,
@@ -72,11 +71,14 @@ pub fn palette(payload: &[u8]) -> Result<Vec<[u8; 4]>, String> {
     if id >> 24 != 4 || count != 256 || payload.len() != 8 + 256 * 4 {
         return Err("palette dimensions do not consume payload".into());
     }
-    Ok(payload[8..]
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|c| [c[2], c[1], c[0], 0xFF])
+    let palette = Palette::decode_payload(DataId(id), payload).map_err(|e| e.to_string())?;
+    Ok(palette
+        .colors_argb
+        .into_iter()
+        .map(|color| {
+            let [b, g, r, _] = color.to_le_bytes();
+            [r, g, b, 0xFF]
+        })
         .collect())
 }
 
@@ -90,12 +92,8 @@ pub fn palette_set(payload: &[u8]) -> Result<Vec<u32>, String> {
     if id >> 24 != 0x0F || payload.len() as u64 != 8 + u64::from(count) * 4 {
         return Err("palette set does not consume payload".into());
     }
-    Ok(payload[8..]
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|c| u32::from_le_bytes(*c))
-        .collect())
+    let set = PaletteSet::decode_payload(DataId(id), payload).map_err(|e| e.to_string())?;
+    Ok(set.palette_ids.into_iter().map(|id| id.0).collect())
 }
 
 /// The texture an object description swaps in first: the new texture of its first texture swap,

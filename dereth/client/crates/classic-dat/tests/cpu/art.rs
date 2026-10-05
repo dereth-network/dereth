@@ -118,3 +118,102 @@ fn a_mirrored_texture_follows_each_row_with_its_reverse() {
     assert_eq!((m.width, m.height, m.palette), (6, 2, 9));
     assert_eq!(m.indices, vec![1, 2, 3, 3, 2, 1, 4, 5, 6, 6, 5, 4]);
 }
+
+#[test]
+fn appearance_admission_keeps_header_errors_before_shape_and_length_errors() {
+    for len in 0..8 {
+        assert_eq!(
+            appearance::palette(&vec![0; len]).unwrap_err(),
+            "palette header is truncated"
+        );
+        assert_eq!(
+            appearance::palette_set(&vec![0; len]).unwrap_err(),
+            "palette set header is truncated"
+        );
+    }
+    for len in 0..16 {
+        assert_eq!(
+            appearance::indexed(&vec![0; len]).unwrap_err(),
+            "indexed texture header is truncated"
+        );
+    }
+    let mut colors = palette(0x0400_0001);
+    colors[15] = 0x12;
+    assert_eq!(appearance::palette(&colors).unwrap()[1], [1, 2, 3, 255]);
+    for bytes in [
+        {
+            let mut b = colors.clone();
+            b[3] = 5;
+            b
+        },
+        {
+            let mut b = colors.clone();
+            b[4..8].copy_from_slice(&255u32.to_le_bytes());
+            b
+        },
+        colors[..colors.len() - 1].to_vec(),
+        {
+            let mut b = colors;
+            b.push(0);
+            b
+        },
+    ] {
+        assert_eq!(
+            appearance::palette(&bytes).unwrap_err(),
+            "palette dimensions do not consume payload"
+        );
+    }
+    let mut set = Enc::default();
+    set.u32(0x0f00_0001).u32(0);
+    assert_eq!(appearance::palette_set(&set.0).unwrap(), Vec::<u32>::new());
+    for bytes in [
+        {
+            let mut b = set.0.clone();
+            b[3] = 4;
+            b
+        },
+        {
+            let mut b = set.0.clone();
+            b[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+            b
+        },
+        {
+            let mut b = set.0;
+            b.push(0);
+            b
+        },
+    ] {
+        assert_eq!(
+            appearance::palette_set(&bytes).unwrap_err(),
+            "palette set does not consume payload"
+        );
+    }
+    for (id, kind, width, height, error) in [
+        (0x0400_0001, 2, 1, 1, "face is not an indexed texture"),
+        (0x0500_0001, 3, 1, 1, "face is not an indexed texture"),
+        (0x0500_0001, 2, 0, 1, "face is not an indexed texture"),
+        (0x0500_0001, 2, 1, 0, "face is not an indexed texture"),
+        (
+            0x0500_0001,
+            2,
+            u32::MAX,
+            u32::MAX,
+            "indexed texture does not consume payload",
+        ),
+    ] {
+        let mut e = Enc::default();
+        e.u32(id).u32(kind).u32(width).u32(height);
+        assert_eq!(appearance::indexed(&e.0).unwrap_err(), error);
+    }
+    let image = indexed(0x0500_0001, 1, 1, &[7], 0x0400_0001);
+    for bytes in [image[..image.len() - 1].to_vec(), {
+        let mut b = image;
+        b.push(0);
+        b
+    }] {
+        assert_eq!(
+            appearance::indexed(&bytes).unwrap_err(),
+            "indexed texture does not consume payload"
+        );
+    }
+}
