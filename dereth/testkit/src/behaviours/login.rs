@@ -158,6 +158,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "login.disconnect.a-scripted-run-ends-on-a-character-error",
+        says: "A scripted run that is told to enter the world ends when the server refuses it with \
+               a character error, rather than waiting on the disconnect screen for a press that \
+               will never come; a player's client stays on the screen until its button is pressed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-SCRIPTED-CHARACTER-ERROR"),
+        station: "dereth-client::gpu::login::disconnect_and_leave_game::a_scripted_run_ends_on_a_character_error_instead_of_waiting_on_the_screen",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "login.enter-world.reaches-the-hud-from-the-wizard-as-well-as-from-character-select",
         says: "A character who has just been created walks into the world exactly as one picked from the list \
                does: the wizard's last page gives way to the heads-up display the moment the world is \

@@ -548,10 +548,11 @@ impl<S: Shell> App<S> {
                 // `build_host_state` already puts `id_string()` into `HostState::error` and
                 // the front end queues the disconnected screen from it, and the screen's
                 // OK button is the documented way out (the quit path goes gameplay ->
-                // epilogue, never straight to `exit`). Only a run with no UI at
-                // all -- `--no-ui`, the scripted slices -- still ends here, because in that build
-                // there is nothing that could show the reason or take the player's answer.
-                if !shell.has_ui() {
+                // epilogue, never straight to `exit`). A run with no UI at all -- `--no-ui`, the
+                // scripted slices -- still ends here, because in that build there is nothing that
+                // could show the reason or take the player's answer, and so does an
+                // `--enter-world` run, whose script has nobody to press the button.
+                if !shell.has_ui() || self.cfg.enter_world {
                     self.script = EnterWorldScript::Done;
                 }
             }
@@ -861,8 +862,11 @@ impl<S: Shell> App<S> {
                     // a screen with the reason on it and a button, and ending the loop instead is
                     // indistinguishable from a crash from the player's seat. `--no-ui` ends the
                     // loop, because in that build there is no screen to show it on and nothing to
-                    // take the answer.
-                    if no_ui {
+                    // take the answer. So does an `--enter-world` run, screen or not: the screen's
+                    // one button only leads to the quit screen, and a script that will never press
+                    // it would otherwise wait on it for ever (a second login a second after a
+                    // log-off is refused as an account already logged on, code 1).
+                    if no_ui || scripted {
                         self.script = EnterWorldScript::Done;
                     }
                 }

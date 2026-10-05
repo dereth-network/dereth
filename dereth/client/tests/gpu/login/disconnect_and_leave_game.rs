@@ -3,7 +3,8 @@
 //! resolved through the same two-level mapper lookup the shell uses); the character-error codes 0,
 //! 2, 7 and 22 queue no mode; a server death shows `ID_NetErr_ConnectionLost`; the reason survives
 //! the frame that raised it with a link up; and the process stays up until the player presses OK
-//! (`0x10000418`, message 1), which goes to the epilogue and ends the loop on the following check.
+//! (`0x10000418`, message 1), which goes to the epilogue and ends the loop on the following check,
+//! while a scripted `--enter-world` run, with nobody to press it, ends on the character error.
 //! From inside the world, Exit to Character Selection raises a modal confirmation, No leaves the
 //! player in the world, Yes asks to log off without quitting, and Exit Game quits without asking.
 //! Fixture: the retail dats, a headless `App` with a link pointed at a port nobody listens on, and
@@ -320,6 +321,33 @@ fn the_process_stays_up_on_a_disconnect_and_ends_only_when_the_player_asks() {
     assert!(
         !app.frame(),
         "the following event-loop check sees the done flag and ends the loop"
+    );
+    assert_eq!(app.state(), AppState::ShuttingDown);
+}
+
+/// Behaviour: login.disconnect.a-scripted-run-ends-on-a-character-error
+///
+/// A scripted `--enter-world` run has nobody to press the disconnected screen's one button, and
+/// that button only leads to the quit screen, so a character error (here code 1, the account
+/// already logged on, which a second login made a second after a log-off meets) ends the run
+/// instead of leaving it on the screen for ever.
+#[test]
+fn a_scripted_run_ends_on_a_character_error_instead_of_waiting_on_the_screen() {
+    let _gpu = gpu_lock();
+    let mut app = app_on(
+        Config {
+            enter_world: true,
+            ..connected_config()
+        },
+        mode::GAME_PLAY,
+    );
+    assert!(app.frame());
+
+    deliver(&mut app, SessionEvent::CharacterError(1));
+
+    assert!(
+        !app.frame(),
+        "the frame after the character error ends the scripted run"
     );
     assert_eq!(app.state(), AppState::ShuttingDown);
 }
