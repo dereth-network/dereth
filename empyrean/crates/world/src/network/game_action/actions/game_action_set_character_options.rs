@@ -35,7 +35,7 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     if !w
         .objects
         .get(player)
-        .expect("session.Player is null")
+        .expect("ACE: session.Player is null (NullReferenceException)")
         .first_enter_world_done()
     {
         // if a player is stuck in pink bubble state during login,

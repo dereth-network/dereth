@@ -94,7 +94,7 @@ pub fn get_last_appraised_object(w: &mut World, session: SessionId) -> Option<Ob
     let player = w
         .sessions
         .player(session)
-        .expect("NullReferenceException: session.Player");
+        .expect("ACE: session.Player is null (NullReferenceException)");
     let target_id = w
         .objects
         .get(player)

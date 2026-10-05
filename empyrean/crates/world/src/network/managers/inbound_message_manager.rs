@@ -140,7 +140,9 @@ pub fn run_inbound_message_queue(w: &mut World) {
 /// `session.Player` inside a handler. The dispatch guards make it non-null; if it is null anyway,
 /// this panics as ACE's `NullReferenceException` would, and the catch-log-continue catches it.
 pub fn session_player(w: &World, session: SessionId) -> empyrean_entity::ObjectGuid {
-    w.sessions.player(session).expect("session.Player is null")
+    w.sessions
+        .player(session)
+        .expect("ACE: session.Player is null (NullReferenceException)")
 }
 
 // ACE: InboundMessageManager.Initialize

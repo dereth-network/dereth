@@ -19,7 +19,10 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     let chat_channel_id = Channel(m.channel.cs_cast());
 
     let player = session_player(w, session);
-    let o = w.objects.get(player).expect("ACE: session.Player is null");
+    let o = w
+        .objects
+        .get(player)
+        .expect("ACE: session.Player is null (NullReferenceException)");
     if w.sessions.get(session).expect("the session").access_level == AccessLevel::Player
         && !o.is_advocate()
     {
@@ -32,7 +35,7 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     {
         w.objects
             .get_mut(player)
-            .expect("ACE: session.Player is null")
+            .expect("ACE: session.Player is null (NullReferenceException)")
             .set_channels_active(Some(active & !chat_channel_id));
         let msg = game_event_weenie_error_with_string(
             session_data(w, session),

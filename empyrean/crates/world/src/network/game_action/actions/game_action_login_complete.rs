@@ -17,12 +17,12 @@ pub fn handle(w: &mut World, _message: &mut Payload<'_>, session: SessionId) -> 
     if !w
         .objects
         .get(player)
-        .expect("session.Player is null")
+        .expect("ACE: session.Player is null (NullReferenceException)")
         .first_enter_world_done()
     {
         w.objects
             .get_mut(player)
-            .expect("session.Player is null")
+            .expect("ACE: session.Player is null (NullReferenceException)")
             .set_first_enter_world_done(true);
         player_networking::send_property_updates_and_overrides(w, player);
     }

@@ -13,7 +13,10 @@ use crate::World;
 pub fn handle(w: &mut World, _message: &mut Payload<'_>, session: SessionId) -> HandlerResult {
     // Probably need some IsAdvocate and IsSentinel type thing going on here as well. leaving for now
     let player = session_player(w, session);
-    let o = w.objects.get(player).expect("ACE: session.Player is null");
+    let o = w
+        .objects
+        .get(player)
+        .expect("ACE: session.Player is null (NullReferenceException)");
     if !o.is_admin_prop() && !o.is_arch() && !o.is_psr() {
         return Ok(());
     }

@@ -13,7 +13,7 @@ use empyrean_world::World;
 pub(crate) fn session_player(w: &World, session: SessionId) -> ObjectGuid {
     w.sessions
         .player(session)
-        .expect("NullReferenceException: session.Player")
+        .expect("ACE: session.Player is null (NullReferenceException)")
 }
 
 /// `wo.Name`.

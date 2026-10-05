@@ -676,7 +676,7 @@ pub fn handle_reportbug(w: &mut World, session: Option<SessionId>, parameters: &
         let p = w
             .objects
             .get(player)
-            .expect("NullReferenceException: session.Player");
+            .expect("ACE: session.Player is null (NullReferenceException)");
         let (health, mana, appraisal) = (
             p.health_query_target(),
             p.mana_query_target(),

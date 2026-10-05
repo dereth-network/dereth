@@ -95,7 +95,7 @@ fn session_player(w: &World, session: Option<SessionId>) -> Option<ObjectGuid> {
     session.map(|s| {
         w.sessions
             .player(s)
-            .expect("NullReferenceException: session.Player")
+            .expect("ACE: session.Player is null (NullReferenceException)")
     })
 }
 

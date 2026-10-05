@@ -4408,7 +4408,7 @@ const GOD_STATE_ENTRIES: usize = 240;
 #[allow(clippy::too_many_lines)]
 fn do_god_mode(w: &mut World, player_saved: bool, session: SessionId, exception_return: bool) {
     let Some(current_player) = w.sessions.player(session) else {
-        panic!("NullReferenceException: session.Player");
+        panic!("ACE: session.Player is null (NullReferenceException)");
     };
     if !player_saved {
         send_server_message(

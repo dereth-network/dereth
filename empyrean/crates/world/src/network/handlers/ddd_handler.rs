@@ -597,11 +597,11 @@ pub fn ddd_request_data_message_with(
             let player = w
                 .sessions
                 .player(session)
-                .expect("NullReferenceException: session.Player is null");
+                .expect("ACE: session.Player is null (NullReferenceException)");
             let first_enter_world_done = w
                 .objects
                 .get(player)
-                .expect("NullReferenceException: session.Player is null")
+                .expect("ACE: session.Player is null (NullReferenceException)")
                 .first_enter_world_done();
             if first_enter_world_done {
                 // Boot client with msg
