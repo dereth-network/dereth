@@ -584,3 +584,43 @@ fn a_final_release_covers_everything_since_the_previous_final_one() {
         "{rc_notes}"
     );
 }
+
+/// A commit that only restructures the code (shares, moves, splits or merges it, removes dead
+/// code, or renames and documents it) is left out; one whose subject says what the product now
+/// does is kept, even when it starts with a verb.
+#[test]
+fn a_commit_that_only_restructures_the_code_is_left_out() {
+    let client = ["dereth/client/src/app.rs"];
+    for subject in [
+        "Share trade acceptance controls between interfaces",
+        "Split the gameplay screen into modules by concern",
+        "Move collision tests into a dedicated module",
+        "Remove unused model convenience APIs",
+        "Remove the unused rendering exception filter",
+        "Use owning crates throughout client consumers",
+        "Limit product dependencies to runtime ownership",
+        "Use consistent interface and format vocabulary",
+        "Refresh behavioral documentation and guard source citations",
+        "Dispatch registered commands through typed handler meanings",
+        "Allow headless desktop input replay",
+        "Route classic casting and shortcut creation through shared rules",
+    ] {
+        assert_eq!(
+            group(Product::Dereth, &commit(subject, &client)),
+            None,
+            "{subject}"
+        );
+    }
+    for subject in [
+        "Use Mouse Turning Settings sets the mouse-turning preset",
+        "Use the selected classic pack as the pickup destination",
+        "Correct Classic drag feedback and adaptive panel layout",
+        "The classic doll takes trinkets and aetheria",
+        "Remove unsupported local chat clearing",
+    ] {
+        assert!(
+            group(Product::Dereth, &commit(subject, &client)).is_some(),
+            "{subject}"
+        );
+    }
+}

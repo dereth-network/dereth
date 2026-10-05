@@ -11,8 +11,9 @@
 //!   crates the server is built from when the commit changes nothing that only the client ships
 //!   (a client change that touches a shared crate on the way is the client's).
 //!
-//! The other product's commits, CI's, the tools', test-only and documentation-only commits, and
-//! the releases' own version commits are left out. Each kept subject goes under one heading,
+//! The other product's commits, CI's, the tools', test-only and documentation-only commits, the
+//! releases' own version commits, and commits whose subject says they only restructure the code
+//! ([`is_restructure`]) are left out. Each kept subject goes under one heading,
 //! chosen from its words and then from where its files are; one the rules cannot place goes under
 //! "Other changes" rather than a guess.
 //!
@@ -424,6 +425,77 @@ fn is_fix(subject: &str) -> bool {
         || words.windows(2).any(|p| p == ["no", "longer"])
 }
 
+/// The first words of a subject that restructures the code without changing what it does: a
+/// shared copy, a moved or split file, a merged duplicate.
+const RESTRUCTURE_LEADS: &[&str] = &[
+    "Share",
+    "Move",
+    "Separate",
+    "Split",
+    "Extract",
+    "Consolidate",
+    "Integrate",
+    "Organize",
+    "Organise",
+    "Group",
+    "Reuse",
+    "Unify",
+    "Refactor",
+    "Rename",
+];
+
+/// Words that mark a subject about the code itself (its dependencies, documentation, citations
+/// or naming) rather than about what the product does.
+const RESTRUCTURE_WORDS: &[&str] = &[
+    "dependencies",
+    "documentation",
+    "citations",
+    "consistent",
+    "consistently",
+];
+
+/// Phrases that mark a subject about the code's own plumbing or its test harness.
+const RESTRUCTURE_PHRASES: &[&str] = &[
+    "dispatch",
+    "adapter",
+    "headless",
+    " lints",
+    "with each instance",
+    "through shared",
+    "shared display",
+    "protocol features",
+    "dead-code",
+    " panic ",
+    "formatting after",
+    "upgrade declaration",
+];
+
+/// Whether `subject` describes a change to the code alone: restructuring, removing dead code,
+/// naming or documentation. Such a commit changes nothing a player or an operator sees, so the
+/// notes leave it out; a subject that says what the product now does is kept.
+pub fn is_restructure(subject: &str) -> bool {
+    let first = subject.split_whitespace().next().unwrap_or("");
+    if RESTRUCTURE_LEADS.contains(&first) {
+        return true;
+    }
+    let lower = subject.to_ascii_lowercase();
+    if [
+        "remove unused ",
+        "remove the unused ",
+        "remove inert ",
+        "use owning ",
+    ]
+    .iter()
+    .any(|lead| lower.starts_with(lead))
+    {
+        return true;
+    }
+    words(subject)
+        .iter()
+        .any(|w| RESTRUCTURE_WORDS.contains(&w.as_str()))
+        || RESTRUCTURE_PHRASES.iter().any(|p| lower.contains(p))
+}
+
 /// A release's own version commit: `Dereth 0.2.0`, `Empyrean 0.1.1`, or either followed by `: ...`.
 pub fn is_release_commit(subject: &str) -> bool {
     let head = subject.split(':').next().unwrap_or(subject);
@@ -441,7 +513,7 @@ pub fn is_release_commit(subject: &str) -> bool {
 /// name none or several, the one heading the commit's folders imply (among the words' headings,
 /// when there are any); and "Other changes" when there is still no single answer.
 pub fn group(product: Product, commit: &Commit) -> Option<Group> {
-    if is_release_commit(&commit.subject) {
+    if is_release_commit(&commit.subject) || is_restructure(&commit.subject) {
         return None;
     }
     let shipped = shipped_paths(product, commit);
