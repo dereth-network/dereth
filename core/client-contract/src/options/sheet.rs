@@ -9,10 +9,10 @@
 //!
 //! A few rows belong to one interface only, because they mean something only there
 //! ([`Shown`]): the classic interface's own mouse look, its stretched layout and its social
-//! window's pages; the retail interface's mouse turning, its side-by-side vitals, its chat font
+//! window's pages; the modern interface's mouse turning, its side-by-side vitals, its chat font
 //! and its floating chat windows. A row for something the world's era does not have is left out ([`Needs`]).
 
-use crate::options::config::PrefValueConst;
+use crate::options::{config::PrefValueConst, interface::Interface};
 use crate::view::PlayerOption;
 
 /// The four pages, in the order both interfaces' tabs list them.
@@ -74,24 +74,18 @@ pub struct Heading {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shown {
     Both,
-    Retail,
-    Classic,
-}
-
-/// One of the two interfaces, as a page is drawn for it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Face {
-    Retail,
-    Classic,
+    Only(Interface),
 }
 
 impl Shown {
     /// Whether the interface `face` shows the row.
     #[must_use]
-    pub const fn on(self, face: Face) -> bool {
+    pub const fn on(self, face: Interface) -> bool {
         matches!(
             (self, face),
-            (Self::Both, _) | (Self::Retail, Face::Retail) | (Self::Classic, Face::Classic)
+            (Self::Both, _)
+                | (Self::Only(Interface::Modern), Interface::Modern)
+                | (Self::Only(Interface::Classic), Interface::Classic)
         )
     }
 }
@@ -217,9 +211,9 @@ impl Row {
 
     /// The caption `face` draws.
     #[must_use]
-    pub fn caption_for(&self, face: Face) -> &'static str {
+    pub fn caption_for(&self, face: Interface) -> &'static str {
         match (face, self.classic) {
-            (Face::Classic, Some((caption, _))) => caption,
+            (Interface::Classic, Some((caption, _))) => caption,
             _ => self.caption,
         }
     }
@@ -324,7 +318,7 @@ pub fn preference_range(preference: &str) -> (f32, f32) {
 
 /// UI restore values in the page's presentation order, including paired volume controls.
 #[must_use]
-pub fn defaults(page: PageId, face: Face) -> Vec<(&'static str, PrefValueConst)> {
+pub fn defaults(page: PageId, face: Interface) -> Vec<(&'static str, PrefValueConst)> {
     rows_for(page, face)
         .flat_map(|row| {
             let names = match row.value {
@@ -359,7 +353,7 @@ const GAME_SUPPORT: [Heading; 1] = [Heading {
         button("Exit Game", Act::ExitGame),
         button("Configure Keyboard", Act::ConfigureKeyboard),
         only(
-            Shown::Retail,
+            Shown::Only(Interface::Modern),
             button("Use Mouse Turning Settings", Act::MouseTurningSettings),
         ),
         button("Urgent Assistance", Act::UrgentAssistance),
@@ -384,7 +378,7 @@ const CHARACTER: [Heading; 7] = [
                 false,
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 noted(
                     "Using or equipping an item you own puts it in the first free shortcut slot.",
                     row("Automatically Create Shortcuts", Value::Bit { mask: 1 }),
@@ -404,7 +398,7 @@ const CHARACTER: [Heading; 7] = [
                 false,
             ),
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 opt("Side By Side Vitals", P::SideBySideVitals),
             ),
             opt("Display Spell Durations", P::SpellDuration),
@@ -621,7 +615,7 @@ const fn floaty_rows(window: u32) -> [Row; 13] {
     let mut rows = filter_rows::<13>(window, 0);
     let mut i = 0;
     while i < 13 {
-        rows[i].shown = Shown::Retail;
+        rows[i].shown = Shown::Only(Interface::Modern);
         i += 1;
     }
     rows
@@ -639,19 +633,19 @@ const CHAT: [Heading; 6] = [
         text: Text::preference("ID_ChatOption_GeneralOptions_Section", "Chat Windows"),
         rows: &[
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 row("Inactive Window Opacity", Value::Opacity(0x1000_0080)),
             ),
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 row("Active Window Opacity", Value::Opacity(0x1000_0081)),
             ),
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 pref("Chat Font", Value::Menu("UI.ChatFontFace"), Int(2)),
             ),
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 pref("Chat Font Size", Value::Menu("UI.ChatFontSize"), Int(1)),
             ),
         ],
@@ -777,7 +771,7 @@ const CLIENT: [Heading; 5] = [
                 Bool(false),
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 pref(
                     "Stretch UI",
                     Value::Check(crate::options::classic::STRETCH_UI),
@@ -785,7 +779,7 @@ const CLIENT: [Heading; 5] = [
                 ),
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 needs(
                     Needs::Trade,
                     pref(
@@ -796,7 +790,7 @@ const CLIENT: [Heading; 5] = [
                 ),
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 pref(
                     "Show Friends Tab",
                     Value::Check(crate::options::classic::SHOW_FRIENDS_TAB),
@@ -804,7 +798,7 @@ const CLIENT: [Heading; 5] = [
                 ),
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 pref(
                     "Show Squelch Tab",
                     Value::Check(crate::options::classic::SHOW_SQUELCH_TAB),
@@ -937,7 +931,7 @@ const CLIENT: [Heading; 5] = [
                 Float(0.55),
             ),
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 pref(
                     "Invert Mouselook Axes",
                     Value::Check("Input.InvertMouseLookYAxis"),
@@ -945,7 +939,7 @@ const CLIENT: [Heading; 5] = [
                 ),
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 pref(
                     "Invert Mouse Look Up/Down",
                     Value::Check(crate::options::classic::INVERT_MOUSE_LOOK),
@@ -953,7 +947,7 @@ const CLIENT: [Heading; 5] = [
                 ),
             ),
             only(
-                Shown::Retail,
+                Shown::Only(Interface::Modern),
                 pref(
                     "Turn Your Character with Camera Turning",
                     Value::Check("Input.UseMouseTurning"),
@@ -961,7 +955,7 @@ const CLIENT: [Heading; 5] = [
                 ),
             ),
             only(
-                Shown::Classic,
+                Shown::Only(Interface::Classic),
                 pref(
                     "Right-click Mouselook",
                     Value::Check(crate::options::classic::RIGHT_CLICK_MOUSE_LOOK),
@@ -1011,7 +1005,7 @@ pub fn page(id: PageId) -> &'static Page {
 /// with no row for `face` is left out.
 pub fn headings_for(
     id: PageId,
-    face: Face,
+    face: Interface,
 ) -> impl Iterator<Item = (&'static Heading, Vec<&'static Row>)> {
     page(id).headings.iter().filter_map(move |h| {
         let rows: Vec<&'static Row> = h.rows.iter().filter(|r| r.shown.on(face)).collect();
@@ -1020,7 +1014,7 @@ pub fn headings_for(
 }
 
 /// Every row of `page` that `face` shows, in order.
-pub fn rows_for(id: PageId, face: Face) -> impl Iterator<Item = &'static Row> {
+pub fn rows_for(id: PageId, face: Interface) -> impl Iterator<Item = &'static Row> {
     page(id)
         .headings
         .iter()
@@ -1056,7 +1050,7 @@ pub fn row_of_option(option: PlayerOption) -> Option<&'static Row> {
 pub const GREYED_WHILE_ON: [(&str, &str); 1] =
     [("Render.AutomaticDegrades", "Render.GraphicsPerformance")];
 
-/// The captions under a slider's two ends, left then right, for the sliders the retail page
+/// The captions under a slider's two ends, left then right, for the sliders the modern page
 /// labels; both interfaces draw the same words.
 pub const SLIDER_ENDS: [(&str, &str, &str); 6] = [
     ("Camera.Stiffness", "Soft", "Hard"),
@@ -1067,7 +1061,7 @@ pub const SLIDER_ENDS: [(&str, &str, &str); 6] = [
     ("Render.DegradeDistance", "Close", "Far"),
 ];
 
-/// The two end captions of `preference`'s slider, if the retail page labels it.
+/// The two end captions of `preference`'s slider, if the modern page labels it.
 #[must_use]
 pub fn slider_ends(preference: &str) -> Option<(&'static str, &'static str)> {
     SLIDER_ENDS
@@ -1083,8 +1077,8 @@ mod tests {
 
     #[test]
     fn every_character_option_on_a_page_is_on_the_character_page_once() {
-        let mut seen: Vec<PlayerOption> = rows_for(PageId::Character, Face::Retail)
-            .chain(rows_for(PageId::Character, Face::Classic))
+        let mut seen: Vec<PlayerOption> = rows_for(PageId::Character, Interface::Modern)
+            .chain(rows_for(PageId::Character, Interface::Classic))
             .filter_map(|r| match r.value {
                 Value::Option(o) => Some(o),
                 _ => None,
@@ -1126,22 +1120,22 @@ mod tests {
                 PageId::Client
             ]
         );
-        for face in [Face::Retail, Face::Classic] {
+        for face in [Interface::Modern, Interface::Classic] {
             for p in PAGES {
                 assert!(rows_for(p.id, face).count() > 0, "{face:?} {:?}", p.id);
             }
         }
         // The classic chat page is the main window's filter only.
-        let classic_chat: Vec<&str> = headings_for(PageId::Chat, Face::Classic)
+        let classic_chat: Vec<&str> = headings_for(PageId::Chat, Interface::Classic)
             .map(|(h, _)| h.title)
             .collect();
         assert_eq!(classic_chat, ["Main Chat Window"]);
         assert_eq!(
-            rows_for(PageId::Chat, Face::Retail).count(),
+            rows_for(PageId::Chat, Interface::Modern).count(),
             2 + 2 + 12 + 13 * 4
         );
         // The chat font's face and size are the chat page's, under the windows' opacity.
-        let chat: Vec<Option<&str>> = rows_for(PageId::Chat, Face::Retail)
+        let chat: Vec<Option<&str>> = rows_for(PageId::Chat, Interface::Modern)
             .take(4)
             .map(Row::preference)
             .collect();
@@ -1149,32 +1143,32 @@ mod tests {
             chat[2..],
             [Some("UI.ChatFontFace"), Some("UI.ChatFontSize")]
         );
-        assert!(!rows_for(PageId::Client, Face::Retail)
+        assert!(!rows_for(PageId::Client, Interface::Modern)
             .any(|r| r.preference().is_some_and(|p| p.starts_with("UI.ChatFont"))));
     }
 
     #[test]
     fn each_interface_keeps_its_own_mouse_look_and_invert() {
         let has = |face, p: &str| rows_for(PageId::Client, face).any(|r| r.preference() == Some(p));
-        assert!(has(Face::Retail, "Input.InvertMouseLookYAxis"));
-        assert!(!has(Face::Classic, "Input.InvertMouseLookYAxis"));
+        assert!(has(Interface::Modern, "Input.InvertMouseLookYAxis"));
+        assert!(!has(Interface::Classic, "Input.InvertMouseLookYAxis"));
         assert!(has(
-            Face::Classic,
+            Interface::Classic,
             crate::options::classic::INVERT_MOUSE_LOOK
         ));
         assert!(!has(
-            Face::Retail,
+            Interface::Modern,
             crate::options::classic::INVERT_MOUSE_LOOK
         ));
-        assert!(has(Face::Retail, "Input.UseMouseTurning"));
-        assert!(!has(Face::Classic, "Input.UseMouseTurning"));
+        assert!(has(Interface::Modern, "Input.UseMouseTurning"));
+        assert!(!has(Interface::Classic, "Input.UseMouseTurning"));
         assert!(has(
-            Face::Classic,
+            Interface::Classic,
             crate::options::classic::RIGHT_CLICK_MOUSE_LOOK
         ));
         // No row for vertical sync: it does nothing in a borderless window.
-        assert!(!has(Face::Retail, "Display.SyncToRefresh"));
-        assert!(!has(Face::Classic, "Display.SyncToRefresh"));
+        assert!(!has(Interface::Modern, "Display.SyncToRefresh"));
+        assert!(!has(Interface::Classic, "Display.SyncToRefresh"));
     }
 
     #[test]
@@ -1202,7 +1196,7 @@ mod tests {
     #[test]
     fn every_profile_row_has_a_default_and_a_registered_preference() {
         crate::options::store::init();
-        for face in [Face::Retail, Face::Classic] {
+        for face in [Interface::Modern, Interface::Classic] {
             for r in rows_for(PageId::Client, face) {
                 let p = r.preference().unwrap();
                 assert!(r.default.is_some(), "{p}");

@@ -61,11 +61,7 @@ pub const CATEGORIES: [&str; 10] = [
 ];
 
 /// Which interface's page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Interface {
-    Retail,
-    Classic,
-}
+pub use dereth_client_contract::options::interface::Interface;
 
 /// Why a row does nothing in one interface, and so is not on that interface's page.
 pub mod why {
@@ -99,8 +95,8 @@ pub struct Row {
     pub category: usize,
     /// The classic page's label.
     pub label: &'static str,
-    /// Why the row does nothing in the retail interface, when it does nothing there.
-    pub retail_not_used: Option<&'static str>,
+    /// Why the row does nothing in the modern interface, when it does nothing there.
+    pub modern_not_used: Option<&'static str>,
     /// Why the row does nothing in the classic interface, when it does nothing there.
     pub classic_not_used: Option<&'static str>,
 }
@@ -126,7 +122,7 @@ impl Row {
     #[must_use]
     pub fn shown(&self, interface: Interface) -> bool {
         self.not_used(interface).is_none()
-            && !(interface == Interface::Retail
+            && !(interface == Interface::Modern
                 && matches!(
                     self.action_name,
                     "ToggleInvertMouseLook"
@@ -142,7 +138,7 @@ impl Row {
     #[must_use]
     pub const fn not_used(&self, interface: Interface) -> Option<&'static str> {
         match interface {
-            Interface::Retail => self.retail_not_used,
+            Interface::Modern => self.modern_not_used,
             Interface::Classic => self.classic_not_used,
         }
     }
@@ -162,7 +158,7 @@ pub fn rows_of(action: ActionId) -> impl Iterator<Item = &'static Row> {
 /// The retail page's caption for a row the shipped string table does not name: Disable Most
 /// Weather Effects, under the Character Options page's own words for it.
 #[must_use]
-pub fn retail_caption(map: InputMapId, action: ActionId) -> Option<&'static str> {
+pub fn modern_caption(map: InputMapId, action: ActionId) -> Option<&'static str> {
     (map == map::CHARACTER_OPTIONS
         && action
             == dereth_client_contract::actions::names::action_for_enum_name(
@@ -175,8 +171,8 @@ pub fn retail_caption(map: InputMapId, action: ActionId) -> Option<&'static str>
 /// The retail page's tab (action class) for a row the shipped action map gives none: Disable
 /// Most Weather Effects, which goes with the other character options.
 #[must_use]
-pub fn retail_class(map: InputMapId, action: ActionId) -> Option<u32> {
-    retail_caption(map, action).map(|_| crate::dereth::class::CHARACTER_SETTINGS)
+pub fn modern_class(map: InputMapId, action: ActionId) -> Option<u32> {
+    modern_caption(map, action).map(|_| crate::dereth::class::CHARACTER_SETTINGS)
 }
 
 use category as C;
@@ -197,7 +193,7 @@ const fn row(
         group,
         category,
         label,
-        retail_not_used: None,
+        modern_not_used: None,
         classic_not_used: None,
     }
 }
@@ -208,7 +204,7 @@ const fn row_not_used(
     group: Group,
     category: usize,
     label: &'static str,
-    retail_not_used: Option<&'static str>,
+    modern_not_used: Option<&'static str>,
     classic_not_used: Option<&'static str>,
 ) -> Row {
     Row {
@@ -217,12 +213,12 @@ const fn row_not_used(
         group,
         category,
         label,
-        retail_not_used,
+        modern_not_used,
         classic_not_used,
     }
 }
 
-/// Every row, by group, in the retail page's order within each.
+/// Every row, by group, in the modern page's order within each.
 #[rustfmt::skip]
 pub const ROWS: &[Row] = &[
     row(M::MOVEMENT, "MovementForward", G::Movement, C::MOVEMENT, "Walk Forward"),
@@ -561,7 +557,7 @@ mod tests {
     fn the_rows_each_interface_does_nothing_with_are_the_ones_it_has_no_counterpart_for() {
         let retail: Vec<&str> = ROWS
             .iter()
-            .filter(|r| r.not_used(Interface::Retail).is_some())
+            .filter(|r| r.not_used(Interface::Modern).is_some())
             .map(|r| r.action_name)
             .collect();
         assert_eq!(
@@ -583,7 +579,7 @@ mod tests {
         assert_eq!(classic, 18);
         assert!(ROWS
             .iter()
-            .all(|r| r.not_used(Interface::Retail).is_none()
+            .all(|r| r.not_used(Interface::Modern).is_none()
                 || r.not_used(Interface::Classic).is_none()));
     }
 
@@ -619,14 +615,11 @@ mod tests {
                     .expect("named player option");
                 sheet::row_of_option(option).expect("option on the sheet")
             };
-            for (face, interface) in [
-                (sheet::Face::Retail, Interface::Retail),
-                (sheet::Face::Classic, Interface::Classic),
-            ] {
+            for interface in Interface::ALL {
                 assert_eq!(
-                    sheet_row.shown.on(face),
+                    sheet_row.shown.on(interface),
                     key.not_used(interface).is_none(),
-                    "{} {face:?}",
+                    "{} {interface:?}",
                     key.action_name
                 );
             }
@@ -648,12 +641,12 @@ mod tests {
                 .find(|r| r.action_name == action)
                 .expect("key row");
             assert_eq!(
-                row.shown.on(sheet::Face::Classic),
+                row.shown.on(Interface::Classic),
                 key.not_used(Interface::Classic).is_none()
             );
             assert_eq!(
-                row.shown.on(sheet::Face::Retail),
-                key.not_used(Interface::Retail).is_none()
+                row.shown.on(Interface::Modern),
+                key.not_used(Interface::Modern).is_none()
             );
         }
         // These are supported controls deliberately omitted only from the Modern key editor.
@@ -669,8 +662,8 @@ mod tests {
                 .iter()
                 .find(|r| r.action_name == name)
                 .expect("hidden key row");
-            assert_eq!(key.not_used(Interface::Retail), None);
-            assert!(!key.shown(Interface::Retail));
+            assert_eq!(key.not_used(Interface::Modern), None);
+            assert!(!key.shown(Interface::Modern));
         }
         // Era capabilities affect the options page; they do not delete the binding vocabulary.
         let cloak = sheet::row_of_option(PlayerOption::ShowCloak).expect("cloak option");

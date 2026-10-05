@@ -81,11 +81,12 @@ pub fn config_row(preference: &str) -> Option<ConfigRow> {
 
 /// Every preference row available to this interface, in shared page order.
 pub fn config_rows() -> impl Iterator<Item = ConfigRow> {
-    use dereth_client_contract::options::sheet::{self, Face, Value};
+    use dereth_client_contract::options::interface::Interface;
+    use dereth_client_contract::options::sheet::{self, Value};
     sheet::PAGES.iter().flat_map(|p| p.headings).flat_map(|h| {
         h.rows
             .iter()
-            .filter(|r| r.shown.on(Face::Retail))
+            .filter(|r| r.shown.on(Interface::Modern))
             .filter_map(|r| {
                 let control = match r.value {
                     Value::Check(_) => Check,
@@ -211,8 +212,9 @@ pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
 /// retail interface shows it.
 #[must_use]
 pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
-    use dereth_client_contract::options::sheet::{self, Face, PageId};
-    sheet::defaults(PageId::Client, Face::Retail)
+    use dereth_client_contract::options::interface::Interface;
+    use dereth_client_contract::options::sheet::{self, PageId};
+    sheet::defaults(PageId::Client, Interface::Modern)
         .into_iter()
         .map(|(name, value)| (name, value.into()))
         .collect()
@@ -316,9 +318,10 @@ mod tests {
     /// Every rendered preference row has its own shared control metadata.
     #[test]
     fn every_shared_preference_row_builds_a_control() {
-        use dereth_client_contract::options::sheet::{self, Face};
+        use dereth_client_contract::options::interface::Interface;
+        use dereth_client_contract::options::sheet::{self};
         for page in sheet::PAGES {
-            for row in sheet::rows_for(page.id, Face::Retail) {
+            for row in sheet::rows_for(page.id, Interface::Modern) {
                 if let Some(name) = row.preference() {
                     let config = config_row(name).expect(name);
                     assert_eq!(config.ui_default, row.default.unwrap());

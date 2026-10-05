@@ -1,4 +1,4 @@
-//! Which interface the client shows: the retail interface, or the classic one the game had before
+//! Which interface the client shows: the modern interface, or the classic one the game had before
 //! its 2005 redesign.
 //!
 //! This is this client's own option, not a retail one. [`INTERFACE`] holds a value of
@@ -26,32 +26,32 @@ pub const REQUIRES_FONTS: &str = "The classic interface needs the system's fonts
 /// The two interfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Interface {
-    /// The end-of-retail interface.
+    /// The modern interface.
     #[default]
-    Retail,
+    Modern,
     /// The interface before the 2005 redesign.
     Classic,
 }
 
 impl Interface {
     /// Both, in the order the options list them.
-    pub const ALL: [Self; 2] = [Self::Retail, Self::Classic];
+    pub const ALL: [Self; 2] = [Self::Modern, Self::Classic];
 
     /// The preference value.
     #[must_use]
     pub const fn value(self) -> i32 {
         match self {
-            Self::Retail => 0,
+            Self::Modern => 0,
             Self::Classic => 1,
         }
     }
 
-    /// The interface a preference value names; anything else is the retail one.
+    /// The interface a preference value names; anything else is the modern one.
     #[must_use]
     pub const fn from_value(v: i32) -> Self {
         match v {
             1 => Self::Classic,
-            _ => Self::Retail,
+            _ => Self::Modern,
         }
     }
 
@@ -59,7 +59,7 @@ impl Interface {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Retail => "Retail",
+            Self::Modern => "Modern",
             Self::Classic => "Classic",
         }
     }
@@ -69,14 +69,14 @@ impl Interface {
     pub fn of(v: &PrefValue) -> Self {
         match v {
             PrefValue::Int(i) => Self::from_value(*i),
-            _ => Self::Retail,
+            _ => Self::Modern,
         }
     }
 
     /// The interface the store holds now.
     #[must_use]
     pub fn chosen() -> Self {
-        super::store::inq_value(INTERFACE).map_or(Self::Retail, |v| Self::of(&v))
+        super::store::inq_value(INTERFACE).map_or(Self::Modern, |v| Self::of(&v))
     }
 }
 
@@ -123,11 +123,11 @@ pub fn choice_rows(name: &str) -> Option<Vec<super::store::Choice>> {
     )
 }
 
-/// Register the option in the option value store, holding the retail interface.
+/// Register the option in the option value store, holding the modern interface.
 pub fn register() -> usize {
     usize::from(super::store::register_preference(
         INTERFACE,
-        PrefValue::Int(Interface::Retail.value()),
+        PrefValue::Int(Interface::Modern.value()),
         super::store::DataType::UInt,
     ))
 }
@@ -139,16 +139,49 @@ mod tests {
 
     #[test]
     fn the_interface_reads_its_file_words_and_numbers_and_writes_its_word() {
+        for word in ["modern", "Modern", " MODERN "] {
+            assert_eq!(parse_value("ui.interface", word), Some(0));
+        }
         assert_eq!(parse_value("UI.Interface", "classic"), Some(1));
-        assert_eq!(parse_value("ui.interface", "Retail"), Some(0));
-        assert_eq!(parse_value("UI.Interface", "1"), Some(1));
-        assert_eq!(parse_value("UI.Interface", "9"), Some(0));
-        assert_eq!(parse_value("UI.Interface", "modern"), None);
+        for word in ["Retail", "retail", " RETAIL ", "unknown"] {
+            assert_eq!(parse_value("UI.Interface", word), None);
+        }
+        for (word, value) in [("1", 1), ("0", 0), ("9", 0), ("-1", 0), ("+1", 1)] {
+            assert_eq!(parse_value("UI.Interface", word), Some(value));
+        }
         assert_eq!(parse_value("Render.Sky", "classic"), None);
         assert_eq!(
             convert_to_string("UI.Interface", &PrefValue::Int(1)).as_deref(),
             Some("Classic")
         );
-        assert_eq!(choice_rows("UI.Interface").map(|r| r.len()), Some(2));
+        let rows = choice_rows("UI.Interface").expect("interface choices");
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.label.as_str(), r.value))
+                .collect::<Vec<_>>(),
+            [("Modern", 0), ("Classic", 1)]
+        );
+    }
+
+    #[test]
+    fn stored_modern_round_trips_and_retired_names_leave_the_active_interface_unchanged() {
+        use crate::{options::store, persist::preferences::UserPreferences};
+        store::init();
+        register();
+        store::set_value(INTERFACE, PrefValue::Int(1));
+        for word in ["Retail", "retail", " RETAIL "] {
+            let ini = UserPreferences::parse(&format!("[UI]\nInterface={word}\n")).unwrap();
+            assert_eq!(store::load(&ini), (0, 1));
+            assert_eq!(store::inq_value(INTERFACE), Some(PrefValue::Int(1)));
+        }
+        let ini = UserPreferences::parse("[UI]\nInterface=mOdErN\n").unwrap();
+        assert_eq!(store::load(&ini), (1, 0));
+        assert_eq!(store::inq_value(INTERFACE), Some(PrefValue::Int(0)));
+        let saved = store::save().to_text();
+        assert!(saved.contains("Interface=Modern"));
+        store::set_value(INTERFACE, PrefValue::Int(1));
+        let restored = UserPreferences::parse(&saved).unwrap();
+        assert_eq!(store::load(&restored).1, 0);
+        assert_eq!(store::inq_value(INTERFACE), Some(PrefValue::Int(0)));
     }
 }

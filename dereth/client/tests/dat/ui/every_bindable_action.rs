@@ -121,7 +121,7 @@ fn every_bindable_action_is_taken_by_some_handler_in_the_retail_interface() {
             .expect("the production input manager");
         let m = &input.manager.action_map;
         ROWS.iter()
-            .filter(|r| r.not_used(Interface::Retail).is_none())
+            .filter(|r| r.not_used(Interface::Modern).is_none())
             .map(|r| {
                 (
                     r.input_map(),

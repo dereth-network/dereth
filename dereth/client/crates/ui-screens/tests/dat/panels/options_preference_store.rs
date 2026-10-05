@@ -606,7 +606,7 @@ fn a_page_read_again_shows_the_stored_values_and_greys_by_them() {
     // The other interface: back to this one, and adaptive degrade turned off there.
     assert!(store::set_value(
         INTERFACE,
-        PrefValue::Int(Interface::Retail.value())
+        PrefValue::Int(Interface::Modern.value())
     ));
     assert!(store::set_value(
         "Render.AutomaticDegrades",
@@ -619,7 +619,7 @@ fn a_page_read_again_shows_the_stored_values_and_greys_by_them() {
     );
     assert_eq!(
         value(&s, INTERFACE),
-        PrefValue::Int(Interface::Retail.value())
+        PrefValue::Int(Interface::Modern.value())
     );
     assert_eq!(
         value(&s, "Render.AutomaticDegrades"),

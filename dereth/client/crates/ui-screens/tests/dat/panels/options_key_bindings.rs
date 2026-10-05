@@ -1033,7 +1033,7 @@ fn each_key_binding_tab_shows_the_bindings_its_label_names() {
             }
             rows += 1;
             assert_eq!(
-                dereth_input::presentation::retail_class(r.input_map, r.action)
+                dereth_input::presentation::modern_class(r.input_map, r.action)
                     .unwrap_or_else(|| m.action_map.action_class(r.input_map, r.action)),
                 want,
                 "the {label:?} tab shows {:?}/{:?}, which is another tab's binding",
@@ -1509,7 +1509,7 @@ fn the_key_page_lists_the_shared_rows_this_interface_acts_on_and_no_others() {
     assert!(
         p.rows
             .iter()
-            .all(|r| find(r.input_map, r.action).is_some_and(|row| row.shown(Interface::Retail))),
+            .all(|r| find(r.input_map, r.action).is_some_and(|row| row.shown(Interface::Modern))),
         "every row acts here"
     );
     for h in p.header_elements.clone() {

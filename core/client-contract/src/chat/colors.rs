@@ -238,7 +238,7 @@ mod tests {
         use crate::options::interface::Interface;
         for ty in 0..=255 {
             let modern = color_for_type(u8::try_from(ty).unwrap()).hex;
-            assert_eq!(interface_color(ty, Interface::Retail).hex, modern);
+            assert_eq!(interface_color(ty, Interface::Modern).hex, modern);
             if (27..=33).contains(&ty) {
                 continue;
             }

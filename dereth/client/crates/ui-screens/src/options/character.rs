@@ -309,8 +309,9 @@ impl CharacterSettingsPage {
     ///
     /// Returns how many check-box rows were built.
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
-        use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
-        for (heading, rows) in sheet::headings_for(PageId::Character, Face::Retail) {
+        use dereth_client_contract::options::interface::Interface;
+        use dereth_client_contract::options::sheet::{self, PageId, Value};
+        for (heading, rows) in sheet::headings_for(PageId::Character, Interface::Modern) {
             self.add_literal_header(ui, &super::config::resolve_text(ui, heading.text));
             for r in rows {
                 let Value::Option(o) = r.value else { continue };
@@ -688,7 +689,8 @@ pub fn table(ui: &UiSystem) -> dereth_primitives::DataId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
+    use dereth_client_contract::options::interface::Interface;
+    use dereth_client_contract::options::sheet::{rows_for, PageId, Value};
 
     /// Oracle: the 50 string literals retail hashes in
     /// The character settings panel's option build, in page order.
@@ -742,7 +744,7 @@ mod tests {
         assert_eq!(OPTION_BOX.0, 0x1000_01FA);
         assert_ne!(OPTION_BOX, super::super::config::OPTION_BOX);
         // Every option on the page has a name, and no two share one.
-        let mut names: Vec<&str> = rows_for(PageId::Character, Face::Retail)
+        let mut names: Vec<&str> = rows_for(PageId::Character, Interface::Modern)
             .filter_map(|r| match r.value {
                 Value::Option(o) => Some(o),
                 _ => None,

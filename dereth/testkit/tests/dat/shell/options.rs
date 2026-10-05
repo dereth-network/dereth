@@ -120,7 +120,8 @@ fn world_with(module: &dereth_protocol::login::PlayerModule) -> dereth_client_mo
 
 /// Every row of the page shows the setting the shard sent for it.
 pub(super) fn every_row_shows_the_setting_the_shard_sent() {
-    use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
+    use dereth_client_contract::options::interface::Interface;
+    use dereth_client_contract::options::sheet::{rows_for, PageId, Value};
     use dereth_client_model::player::options::PLAYER_OPTIONS;
     use dereth_ui_screens::options::character::option_name;
     use dereth_ui_screens::view::{GameView, PlayerOption};
@@ -136,7 +137,7 @@ pub(super) fn every_row_shows_the_setting_the_shard_sent() {
     // Two tables meet here and neither is derived from the other.
     let mut seen = std::collections::BTreeSet::new();
     let mut names_agree = true;
-    for row in rows_for(PageId::Character, Face::Retail) {
+    for row in rows_for(PageId::Character, Interface::Modern) {
         if let Value::Option(o) = row.value {
             let n = option_ordinal(o);
             names_agree &= PLAYER_OPTIONS[n].0 == option_name(o) && seen.insert(n);
@@ -151,7 +152,7 @@ pub(super) fn every_row_shows_the_setting_the_shard_sent() {
     let mut asked = 0usize;
     let mut ticked = 0usize;
     let mut each_row_agrees = true;
-    for row in rows_for(PageId::Character, Face::Retail) {
+    for row in rows_for(PageId::Character, Interface::Modern) {
         if let Value::Option(o) = row.value {
             asked += 1;
             let n = option_ordinal(o);

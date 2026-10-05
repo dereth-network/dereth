@@ -7,7 +7,8 @@
 //! preferences they are, and Apply writes them. Every row carries the same caption as the other
 //! interface's page, and the sliders the retail page labels at their ends are labelled the same.
 use super::*;
-use dereth_client_contract::options::sheet::{self, Face, PageId, Row, Value};
+use dereth_client_contract::options::interface::Interface;
+use dereth_client_contract::options::sheet::{self, PageId, Row, Value};
 use dereth_client_contract::options::store;
 use dereth_client_contract::PrefValue;
 use dereth_primitives::num::to_i32;
@@ -79,7 +80,7 @@ enum Line {
 fn lines(page: PageId, c: &Context<'_>) -> Vec<Line> {
     let features = c.game.era_features();
     let mut out = Vec::new();
-    for (h, rows) in sheet::headings_for(page, Face::Classic) {
+    for (h, rows) in sheet::headings_for(page, Interface::Classic) {
         out.push(Line::Heading(h.title));
         out.extend(
             rows.into_iter()
@@ -126,7 +127,7 @@ fn range(preference: &str) -> (f32, f32) {
 
 /// The row of the classic Client Options page that edits `preference`.
 fn client_row(preference: &str) -> Option<&'static Row> {
-    sheet::rows_for(PageId::Client, Face::Classic).find(|r| {
+    sheet::rows_for(PageId::Client, Interface::Classic).find(|r| {
         r.preference() == Some(preference)
             || matches!(r.value, Value::Sound { volume, .. } if volume == preference)
     })
@@ -137,7 +138,7 @@ impl Settings {
         let mut f = background(c);
         let height = i32::try_from(c.layout.side_height()).unwrap_or(362) - 25;
         separator(&mut f, height - 34);
-        let actions = sheet::rows_for(PageId::GameSupport, Face::Classic)
+        let actions = sheet::rows_for(PageId::GameSupport, Interface::Classic)
             .filter(|r| !matches!(r.value, Value::Action(sheet::Act::MouseTurningSettings)));
         for (k, r) in actions.enumerate() {
             let Value::Action(act) = r.value else {
@@ -152,7 +153,12 @@ impl Settings {
                 sheet::Act::MouseTurningSettings => continue,
             };
             let y = 8 + 42 * i32::try_from(k).unwrap_or(0);
-            f.button(id, rect(30, y, 240, 34), r.caption_for(Face::Classic), true);
+            f.button(
+                id,
+                rect(30, y, 240, 34),
+                r.caption_for(Interface::Classic),
+                true,
+            );
         }
         centered(
             &mut f,
@@ -287,7 +293,7 @@ impl Settings {
                 }
                 Line::Row(r) => r,
             };
-            let caption = row.caption_for(Face::Classic);
+            let caption = row.caption_for(Interface::Classic);
             match row.value {
                 Value::Check(p) => {
                     let (on, enabled) = self.check_state(s, p);
@@ -432,7 +438,7 @@ impl Settings {
     /// The Client page's Defaults: the settings host's rows as the classic page always set them,
     /// and every other row to the shared set's default.
     fn defaults(&mut self) -> Vec<PanelAction> {
-        let defaults = sheet::defaults(PageId::Client, Face::Classic);
+        let defaults = sheet::defaults(PageId::Client, Interface::Classic);
         let default_of = |name: &str| {
             defaults
                 .iter()

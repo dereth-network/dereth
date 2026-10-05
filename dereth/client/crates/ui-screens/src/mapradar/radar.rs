@@ -144,7 +144,7 @@ pub fn inq_showable_on_radar(o: &RadarEntry) -> bool {
 /// The radar panel's blip colour, in the client's exact decision order.
 #[must_use]
 pub fn get_blip_color(o: Option<&RadarEntry>) -> RadarColor {
-    match shared::color_role(o, Interface::Retail).index() {
+    match shared::color_role(o, Interface::Modern).index() {
         1 => BLUE,
         2 => GOLD,
         3 => WHITE,
@@ -253,7 +253,7 @@ pub fn get_blip_shape(o: Option<&RadarEntry>, player: Option<&RadarEntry>) -> Bl
         pk: p.is_pk,
         pk_lite: p.is_pk_lite,
     });
-    match shared::shape_role(o, viewer, Interface::Retail) {
+    match shared::shape_role(o, viewer, Interface::Modern) {
         shared::ShapeRole::Hidden => BlipShape::Undef,
         shared::ShapeRole::Ordinary => BlipShape::Default,
         shared::ShapeRole::Allegiance => BlipShape::AllegianceMember,
@@ -341,7 +341,7 @@ pub fn draw_objects(
         return out;
     }
     for (i, o) in objects.iter().enumerate() {
-        let Some(projected) = shared::project(o, geom, range, Interface::Retail) else {
+        let Some(projected) = shared::project(o, geom, range, Interface::Modern) else {
             continue;
         };
         let shape = get_blip_shape(Some(o), player);

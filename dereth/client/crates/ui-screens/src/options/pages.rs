@@ -328,8 +328,9 @@ mod tests {
     /// Chat options have six sections with the expected window ids.
     #[test]
     fn the_chat_options_page_edits_the_five_windows_filters_in_order() {
-        use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
-        let headings = sheet::headings_for(PageId::Chat, Face::Retail).collect::<Vec<_>>();
+        use dereth_client_contract::options::interface::Interface;
+        use dereth_client_contract::options::sheet::{self, PageId, Value};
+        let headings = sheet::headings_for(PageId::Chat, Interface::Modern).collect::<Vec<_>>();
         assert_eq!(headings.len(), 6);
         assert!(
             headings[0]

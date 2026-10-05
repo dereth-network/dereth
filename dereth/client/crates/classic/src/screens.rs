@@ -43,12 +43,13 @@ fn option_bit(option: dereth_client_contract::PlayerOption) -> (usize, u32) {
 /// The page's rows: the shared set's headings and the classic interface's options under them,
 /// each at its place down the page.
 pub fn rows() -> &'static [OptionRow] {
-    use dereth_client_contract::options::sheet::{headings_for, Face, Needs, PageId, Value};
+    use dereth_client_contract::options::interface::Interface;
+    use dereth_client_contract::options::sheet::{headings_for, Needs, PageId, Value};
     static ROWS: OnceLock<Vec<OptionRow>> = OnceLock::new();
     ROWS.get_or_init(|| {
         let mut out = Vec::new();
         let mut y = 6;
-        for (heading, rows) in headings_for(PageId::Character, Face::Classic) {
+        for (heading, rows) in headings_for(PageId::Character, Interface::Classic) {
             out.push(OptionRow {
                 caption: heading.title.to_owned(),
                 option: None,
@@ -67,7 +68,7 @@ pub fn rows() -> &'static [OptionRow] {
                     _ => continue,
                 };
                 out.push(OptionRow {
-                    caption: r.caption_for(Face::Classic).to_owned(),
+                    caption: r.caption_for(Interface::Classic).to_owned(),
                     option: match r.value {
                         Value::Option(o) => Some(o),
                         _ => None,

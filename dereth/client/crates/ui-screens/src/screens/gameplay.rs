@@ -1304,8 +1304,9 @@ impl GamePlayScreen {
         // opacity. They are preferences like the Client Options page's rows, so that page builds
         // and keeps them, and the Chat Options page shows them.
         if let Some(at) = self.chat_options.after_opacity() {
-            use dereth_client_contract::options::sheet::{rows_for, Face, PageId, Value};
-            let fonts: Vec<&'static str> = rows_for(PageId::Chat, Face::Retail)
+            use dereth_client_contract::options::interface::Interface;
+            use dereth_client_contract::options::sheet::{rows_for, PageId, Value};
+            let fonts: Vec<&'static str> = rows_for(PageId::Chat, Interface::Modern)
                 .filter_map(|r| match r.value {
                     Value::Menu(p) => Some(p),
                     _ => None,

@@ -1513,7 +1513,7 @@ impl<H: Host> ClientShell<H> {
                 }
                 tracing::info!("the classic interface is shown");
             }
-            Interface::Retail => {
+            Interface::Modern => {
                 if !self.classic.active {
                     return;
                 }
@@ -1623,7 +1623,7 @@ impl<H: Host> Shell for ClientShell<H> {
         cx.set_chat_interface(if self.classic.active {
             dereth_client_contract::options::interface::Interface::Classic
         } else {
-            dereth_client_contract::options::interface::Interface::Retail
+            dereth_client_contract::options::interface::Interface::Modern
         });
         let events: Vec<_> = self.shared.window_events.borrow_mut().drain(..).collect();
         if self.classic.active {
@@ -1911,7 +1911,7 @@ impl<H: Host> Shell for ClientShell<H> {
         cx.set_chat_interface(if self.classic.active {
             dereth_client_contract::options::interface::Interface::Classic
         } else {
-            dereth_client_contract::options::interface::Interface::Retail
+            dereth_client_contract::options::interface::Interface::Modern
         });
         if self.classic.active {
             self.sync_classic_input(cx, false, None, false);

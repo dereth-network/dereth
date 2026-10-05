@@ -120,9 +120,9 @@ impl ClassicFace {
     pub fn refused(&mut self) {
         dereth_client_contract::options::store::set_value(
             interface::INTERFACE,
-            PrefValue::Int(Interface::Retail.value()),
+            PrefValue::Int(Interface::Modern.value()),
         );
-        self.seen = Some(Interface::Retail);
+        self.seen = Some(Interface::Modern);
         self.active = false;
     }
 }
@@ -136,7 +136,7 @@ mod tests {
     fn a_refused_classic_choice_goes_back_to_the_retail_interface() {
         dereth_client_contract::options::store::init();
         let mut face = ClassicFace::default();
-        assert_eq!(face.changed_choice(), Some(Interface::Retail));
+        assert_eq!(face.changed_choice(), Some(Interface::Modern));
         assert_eq!(face.changed_choice(), None);
         dereth_client_contract::options::store::set_value(
             interface::INTERFACE,
@@ -144,7 +144,7 @@ mod tests {
         );
         assert_eq!(face.changed_choice(), Some(Interface::Classic));
         face.refused();
-        assert_eq!(Interface::chosen(), Interface::Retail);
+        assert_eq!(Interface::chosen(), Interface::Modern);
         assert_eq!(face.changed_choice(), None);
         assert!(face.active_mut().is_none());
     }

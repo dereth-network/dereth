@@ -501,10 +501,11 @@ impl ChatOptionsPage {
     /// registered — **seven**.
     pub fn init_options(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> usize {
         use crate::chat::interface::opacity_attr;
-        use dereth_client_contract::options::sheet::{self, Face, PageId, Value};
+        use dereth_client_contract::options::interface::Interface;
+        use dereth_client_contract::options::sheet::{self, PageId, Value};
         let mut idle = None;
         let mut active = None;
-        for (heading, rows) in sheet::headings_for(PageId::Chat, Face::Retail) {
+        for (heading, rows) in sheet::headings_for(PageId::Chat, Interface::Modern) {
             self.add_header(ui, heading.text);
             let mut windows = Vec::new();
             for row in rows {
@@ -1247,7 +1248,7 @@ mod tests {
         assert_eq!(
             dereth_client_contract::options::sheet::rows_for(
                 dereth_client_contract::options::sheet::PageId::Chat,
-                dereth_client_contract::options::sheet::Face::Retail,
+                dereth_client_contract::options::interface::Interface::Modern,
             )
             .filter_map(|r| match r.value {
                 dereth_client_contract::options::sheet::Value::Opacity(p) => Some(p),

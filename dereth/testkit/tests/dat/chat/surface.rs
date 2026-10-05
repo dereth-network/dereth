@@ -122,7 +122,7 @@ pub fn the_scroll_keys_move_the_log_and_the_history_keys_fill_the_entry() {
     for text in ["first", "second"] {
         c.world_mut().chat.entries.entry(8).or_default().submit(
             text,
-            dereth_client_contract::options::interface::Interface::Retail,
+            dereth_client_contract::options::interface::Interface::Modern,
         );
     }
     let back = with_screen(&mut c, |ui, s| {

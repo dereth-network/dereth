@@ -28,7 +28,7 @@ impl ChatEntry {
         self.history.push(text.to_owned());
         let limit = match interface {
             Interface::Classic => 10,
-            Interface::Retail => 100,
+            Interface::Modern => 100,
         };
         if self.history.len() > limit {
             self.history.drain(..self.history.len() - limit);
@@ -203,18 +203,18 @@ mod tests {
     }
     fn edit(entry: &mut ChatEntry, action: EntryAction) -> Option<EntryUpdate> {
         entry
-            .apply(8, entry.text.clone(), action, &targets(), Interface::Retail)
+            .apply(8, entry.text.clone(), action, &targets(), Interface::Modern)
             .0
     }
     /// Behaviour: chat.entry-history
     #[test]
     fn history_has_dead_ends_clears_forward_drafts_and_ignores_empty_submissions() {
         let mut e = ChatEntry::default();
-        e.submit("", Interface::Retail);
+        e.submit("", Interface::Modern);
         assert!(e.history().is_empty());
         assert!(edit(&mut e, EntryAction::Previous).is_none());
         for line in ["one", "two", "three"] {
-            e.submit(line, Interface::Retail);
+            e.submit(line, Interface::Modern);
         }
         e.text = "draft".into();
         assert_eq!(edit(&mut e, EntryAction::Next).unwrap().text, "");
@@ -232,7 +232,7 @@ mod tests {
     fn each_interface_bounds_history_on_submission_and_switching_keeps_it() {
         let mut e = ChatEntry::default();
         for n in 0..120 {
-            e.submit(&n.to_string(), Interface::Retail);
+            e.submit(&n.to_string(), Interface::Modern);
         }
         assert_eq!(e.history().len(), 100);
         assert_eq!(e.history()[0], "20");
@@ -248,7 +248,7 @@ mod tests {
         e.submit("classic", Interface::Classic);
         assert_eq!(e.history().len(), 10);
         assert_eq!(e.history()[0], "111");
-        e.submit("modern", Interface::Retail);
+        e.submit("modern", Interface::Modern);
         assert_eq!(e.history().len(), 11);
     }
     /// Behaviour: chat.entry-replies

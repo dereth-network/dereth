@@ -104,7 +104,7 @@ impl KeyBindingPass<'_> {
                 .entries()
                 .filter(|(map, action, _)| {
                     dereth_input::presentation::find(*map, *action)
-                        .is_some_and(|r| r.shown(dereth_input::presentation::Interface::Retail))
+                        .is_some_and(|r| r.shown(dereth_input::presentation::Interface::Modern))
                 })
                 .count();
             self.stats.init_calls += 1;

@@ -1,5 +1,5 @@
 use super::*;
-use Interface::{Classic, Retail};
+use Interface::{Classic, Modern};
 
 /// Behaviour: radar.shared-roles-and-projection-variants
 #[test]
@@ -12,17 +12,17 @@ fn roles_and_projection_preserve_interface_conventions() {
         ..Default::default()
     };
     assert_eq!(color_role(Some(&entry), Classic), ColorRole::LifeStone);
-    assert_eq!(color_role(Some(&entry), Retail), ColorRole::Vendor);
+    assert_eq!(color_role(Some(&entry), Modern), ColorRole::Vendor);
     entry.bitfield |= 0x40000;
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         assert_eq!(color_role(Some(&entry), face), ColorRole::Portal);
     }
     entry.blip_color = 99;
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         assert_eq!(color_role(Some(&entry), face), ColorRole::Override(99));
     }
     entry.bitfield |= 0x80;
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         assert_eq!(color_role(Some(&entry), face), ColorRole::Default);
         assert_eq!(shape_role(Some(&entry), None, face), ShapeRole::Hidden);
     }
@@ -40,7 +40,7 @@ fn roles_and_projection_preserve_interface_conventions() {
         })
     );
     assert_eq!(
-        project(&entry, geometry, 75.0, Retail),
+        project(&entry, geometry, 75.0, Modern),
         Some(Projection {
             x: 59,
             y: 59,
@@ -48,7 +48,7 @@ fn roles_and_projection_preserve_interface_conventions() {
         })
     );
     assert_eq!(shape_role(Some(&entry), None, Classic), ShapeRole::Ordinary);
-    assert_eq!(shape_role(Some(&entry), None, Retail), ShapeRole::Ordinary);
+    assert_eq!(shape_role(Some(&entry), None, Modern), ShapeRole::Ordinary);
     entry.is_player = true;
     entry.is_pk = true;
     entry.is_allegiance_member = true;
@@ -56,25 +56,25 @@ fn roles_and_projection_preserve_interface_conventions() {
         shape_role(Some(&entry), None, Classic),
         ShapeRole::Allegiance
     );
-    assert_eq!(shape_role(Some(&entry), None, Retail), ShapeRole::Ordinary);
+    assert_eq!(shape_role(Some(&entry), None, Modern), ShapeRole::Ordinary);
     let viewer = Some(Viewer {
         pk: true,
         pk_lite: false,
     });
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         assert_eq!(
             shape_role(Some(&entry), viewer, face),
             ShapeRole::Allegiance
         );
     }
     entry.is_allegiance_member = false;
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         assert_eq!(shape_role(Some(&entry), viewer, face), ShapeRole::Threat);
     }
     entry.is_fellow = true;
     entry.is_fellowship_leader = true;
     entry.blip_color = 0;
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         assert_eq!(
             shape_role(Some(&entry), viewer, face),
             ShapeRole::FellowshipLeader
@@ -82,7 +82,7 @@ fn roles_and_projection_preserve_interface_conventions() {
         assert_eq!(color_role(Some(&entry), face), ColorRole::Fellowship);
     }
     assert_eq!((radar_range(true), radar_range(false)), (75.0, 25.0));
-    for face in [Classic, Retail] {
+    for face in [Classic, Modern] {
         for range in [75.0, 25.0] {
             entry.player_space = (range - 1.0, 0.0, 0.0);
             assert!(project(&entry, geometry, range, face).is_none());

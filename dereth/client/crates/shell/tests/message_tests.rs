@@ -321,7 +321,7 @@ fn active_face_switches_drop_old_pending_transients_without_replaying_chat_histo
         .add_feedback_line("before Modern switch", 0x1a, Feedback::INFORMATION);
     c.app.apply_hud_events(&mut c.shell, &[]);
     assert_eq!(c.app.hud.classic.transient.len(), 1);
-    store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Modern.value()));
     c.shell.follow_interface(&mut c.app.ui_context());
     assert!(!c.app.hud.classic_active);
     assert!(c.app.hud.classic.transient.is_empty());
@@ -345,7 +345,7 @@ fn active_face_switches_drop_old_pending_transients_without_replaying_chat_histo
         .hud
         .classic
         .spew_offer(0x1a, "ordinary", Feedback::ORDINARY));
-    store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Modern.value()));
     c.shell.follow_interface(&mut c.app.ui_context());
 }
 
@@ -464,7 +464,7 @@ fn classic_global_room_callbacks_reach_chat_once_and_stop_outside_gameplay() {
     assert!(!lines.iter().any(|(_, s)| s.contains("before gameplay")
         || s.contains("pending at logoff")
         || s.contains("after logoff")));
-    store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Modern.value()));
     c.finish();
 }
 
@@ -562,7 +562,7 @@ fn first_toolbar_click_after_mode_and_interface_switch_toggles_once() {
         if switch {
             store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
             c.shell.follow_interface(&mut c.app.ui_context());
-            store::set_value(INTERFACE, PrefValue::Int(Interface::Retail.value()));
+            store::set_value(INTERFACE, PrefValue::Int(Interface::Modern.value()));
             c.shell.follow_interface(&mut c.app.ui_context());
         }
         let box_ = c.ui().ui.screen_box(button);

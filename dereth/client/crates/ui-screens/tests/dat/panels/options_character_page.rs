@@ -144,8 +144,9 @@ impl GameView for Module {
 
 /// The shared options set's Character Options headings as the retail interface shows them.
 fn shared_order() -> Vec<PlayerOption> {
-    use dereth_ui_screens::options::sheet::{rows_for, Face, PageId, Value};
-    rows_for(PageId::Character, Face::Retail)
+    use dereth_client_contract::options::interface::Interface;
+    use dereth_ui_screens::options::sheet::{rows_for, PageId, Value};
+    rows_for(PageId::Character, Interface::Modern)
         .filter_map(|r| match r.value {
             Value::Option(o) => Some(o),
             _ => None,

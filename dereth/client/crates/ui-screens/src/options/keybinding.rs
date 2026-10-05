@@ -1149,7 +1149,7 @@ fn action_description(
             return (name.to_owned(), String::new());
         }
     }
-    if let Some(caption) = presentation::retail_caption(map, action) {
+    if let Some(caption) = presentation::modern_caption(map, action) {
         return (caption.to_owned(), String::new());
     }
     let table = dereth_primitives::DataId(m.action_map.string_table);
@@ -1869,8 +1869,8 @@ impl KeyBindingPage {
             let Some(row) = presentation::find(map, action) else {
                 continue;
             };
-            let class = presentation::retail_class(map, action).unwrap_or(v.action_class);
-            if !row.shown(Interface::Retail) {
+            let class = presentation::modern_class(map, action).unwrap_or(v.action_class);
+            if !row.shown(Interface::Modern) {
                 continue;
             }
             let ci = match groups.iter().position(|(c, _)| *c == class) {

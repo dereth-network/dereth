@@ -1595,8 +1595,11 @@ impl PlayerOptionPage {
     /// [`Self::slider_end_captions`] and [`UiOption::label`] record what actually landed, so a
     /// headless caller can tell "no registry" from "no string table" from "captioned".
     pub fn init_options(&mut self, ui: &mut UiSystem) -> usize {
-        use dereth_client_contract::options::sheet::{self, Face, PageId};
-        for (k, (heading, rows)) in sheet::headings_for(PageId::Client, Face::Retail).enumerate() {
+        use dereth_client_contract::options::interface::Interface;
+        use dereth_client_contract::options::sheet::{self, PageId};
+        for (k, (heading, rows)) in
+            sheet::headings_for(PageId::Client, Interface::Modern).enumerate()
+        {
             if k > 0 {
                 self.add_separator(ui);
             }

@@ -191,7 +191,7 @@ fn every_row_the_retail_interface_does_not_use_has_no_default_key() {
     dm.create_input_map(dereth_input::dereth::INPUT_MAP);
     let unused: Vec<_> = ROWS
         .iter()
-        .filter(|r| r.not_used(Interface::Retail).is_some())
+        .filter(|r| r.not_used(Interface::Modern).is_some())
         .collect();
     assert_eq!(unused.len(), 5);
     for r in unused {
