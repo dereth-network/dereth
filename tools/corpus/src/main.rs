@@ -102,8 +102,13 @@ fn run(argv: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
             let args = parse(&argv[1..])?;
             scrub(&args)
         }
-        Some("field-dump") if argv.len() == 1 => {
-            field_dump::run();
+        Some("field-dump") => {
+            let out = match &argv[1..] {
+                [] => None,
+                [flag, file] if flag == "--out" => Some(PathBuf::from(file)),
+                _ => return Err("usage: field-dump [--out FILE]".into()),
+            };
+            field_dump::run(out);
             Ok(())
         }
         Some("corpus") => corpus::run(&parse_corpus(&argv[1..])?),
@@ -136,8 +141,10 @@ commands:
   corpus [--check] [--out DIR] [--repo DIR]
         regenerate fixtures/message-corpus/, the capture index and manifest.json from every
         recording in fixtures/packet-captures/; --check compares instead of writing
-  field-dump
-        print the field layout of the identity-bearing messages
+  field-dump [--out FILE]
+        decode every message of the recordings' corpus and write each one's fields, its decode
+        outcome and any bytes left over to FILE (default: corpus_census.txt in cargo's target
+        directory)
 
 --repo defaults to the workspace holding fixtures/ at or above the current directory.";
 

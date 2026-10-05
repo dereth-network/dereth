@@ -1,4 +1,4 @@
-//! Write decoded fields from the shared corpus for the census tool.
+//! The corpus census: every message of the shared corpus, decoded, as one text file.
 
 use dereth_client_net::client_session::testing::{Corpus, CorpusBlob, Direction};
 use dereth_protocol::Message;
@@ -122,17 +122,18 @@ fn name_of(op: u32) -> &'static str {
     dereth_protocol::Opcode(op).name().unwrap_or("?")
 }
 
-pub(crate) fn run() {
-    // The dump is this run's output: `corpus_census.txt` in cargo's target directory, the folder
-    // above the profile folder that holds this executable.
-    let out_path = std::env::var("DERETH_TEST_CENSUS_OUT").unwrap_or_else(|_| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|exe| Some(exe.parent()?.parent()?.join("corpus_census.txt")))
-            .unwrap_or_else(|| std::env::temp_dir().join("corpus_census.txt"))
-            .to_string_lossy()
-            .into_owned()
-    });
+/// Write the census to `out`, or to `corpus_census.txt` in cargo's target directory (the folder
+/// above the profile folder that holds this executable) when no file is named.
+pub(crate) fn run(out: Option<std::path::PathBuf>) {
+    let out_path = out
+        .unwrap_or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| Some(exe.parent()?.parent()?.join("corpus_census.txt")))
+                .unwrap_or_else(|| std::env::temp_dir().join("corpus_census.txt"))
+        })
+        .to_string_lossy()
+        .into_owned();
     if let Some(dir) = std::path::Path::new(&out_path).parent() {
         std::fs::create_dir_all(dir).expect("the output directory must be creatable");
     }
