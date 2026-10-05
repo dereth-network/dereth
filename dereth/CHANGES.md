@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.2.0 (2026-10-05)
+
 ### Added
 
 - **Every era of the game's data, 1999 to 2017, is read**, and worlds built on the February 2005
