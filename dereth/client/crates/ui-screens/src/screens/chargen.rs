@@ -462,6 +462,36 @@ pub const TOD_START_AREA: u32 = 3;
 
 const WORLD_TOWN_BUTTON_BASE: u32 = 0x7F01_0000;
 
+/// Pixels a map unit, should the map element be missing.
+const DEFAULT_MAP_SCALE: f64 = 480.0 / town_page::MAP_SPAN;
+
+/// A live element's description with its live children's own, so a copy needs nothing resolved
+/// from the data files.
+fn full_desc(ui: &UiSystem, h: ElemHandle) -> Option<dereth_ui::ElementDesc> {
+    let mut d = ui.node(h)?.desc.clone();
+    d.children.clear();
+    for c in ui.children(h) {
+        let cd = full_desc(ui, c)?;
+        d.children.insert(cd.element_id, cd);
+    }
+    Some(d)
+}
+
+/// No data files: every description handed to the builder here is already whole.
+#[derive(Debug)]
+struct NoAssets;
+impl dereth_primitives::AssetSource for NoAssets {
+    fn read(&self, id: DataId) -> Result<Vec<u8>, dereth_primitives::AssetError> {
+        Err(dereth_primitives::AssetError::NotFound(id))
+    }
+    fn exists(&self, _: DataId) -> bool {
+        false
+    }
+    fn iter_type(&self, _: dereth_primitives::DataType) -> Box<dyn Iterator<Item = DataId> + '_> {
+        Box::new(std::iter::empty())
+    }
+}
+
 /// The town page's page initialisation and the town write.
 pub mod town_page {
     use dereth_ui::{ElementId, StateId};
@@ -497,6 +527,107 @@ pub mod town_page {
     ];
     /// The frame the town-string write puts the town's own text inside.
     pub const HOW_TO: &str = "ID_CharGen_TownHowTo";
+    /// The map of Dereth the pins sit on.
+    pub const MAP: ElementId = ElementId(0x1000_040A);
+    /// A pin's dot, under its name.
+    pub const PIN_DOT: ElementId = ElementId(0x1000_040C);
+    /// A pin's name.
+    pub const PIN_NAME: ElementId = ElementId(0x1000_0409);
+    /// How many map units (a tenth of a degree, 240 metres) the map spans, edge to edge: the
+    /// world's 255 landblocks of 192 metres.
+    pub const MAP_SPAN: f64 = 255.0 * 192.0 / 240.0;
+    /// Where each pin's town lies, as map coordinates (east, north): Holtburg, Shoushi and Yaraq.
+    /// Sanamar's start is the only one by its town, so its dot needs no side.
+    pub const TOWN_CENTRES: [Option<(f64, f64)>; 4] = [
+        Some((33.6, 42.1)),
+        Some((73.1, -33.6)),
+        Some((-1.8, -21.5)),
+        None,
+    ];
+    /// The least distance from a town's dot to one of its starts' dots.
+    pub const DOT_DISTANCE: f64 = 28.0;
+
+    /// A position as map coordinates (east, north): the landblock's place on the world grid plus
+    /// the offset in it.
+    #[must_use]
+    pub fn map_coordinates(cell: u32, x: f32, y: f32) -> (f64, f64) {
+        let block = |b: u32, at: f32| (f64::from(b) * 192.0 + f64::from(at)) / 240.0 - 101.95;
+        (block(cell >> 24, x), block((cell >> 16) & 0xFF, y))
+    }
+
+    /// The screen point of a start's dot. The town's starts are laid in order round the town's
+    /// dot: each toward its own map place, as far out as the map puts it but at least
+    /// [`DOT_DISTANCE`], turned a step at a time either way, and failing that set a ring further
+    /// out, until its `size`-pixel dot overlaps no start laid before it and does not cover the
+    /// town's name (its centre and size). `starts` are all the town's starts, `start` among them.
+    #[must_use]
+    pub fn dot_at(
+        town_dot: (f64, f64),
+        town: Option<(f64, f64)>,
+        start: (f64, f64),
+        starts: &[(f64, f64)],
+        scale: f64,
+        size: f64,
+        name: Option<((f64, f64), (f64, f64))>,
+    ) -> (i32, i32) {
+        use dereth_primitives::num::math;
+        const STEP: f64 = std::f64::consts::PI / 12.0;
+        // Screen y runs south.
+        let offset = |at: (f64, f64)| {
+            let (dx, dy) = town.map_or((0.0, 0.0), |town| {
+                ((at.0 - town.0) * scale, (town.1 - at.1) * scale)
+            });
+            let length = math::hypot(dx, dy);
+            let angle = if length > f64::EPSILON {
+                math::atan2(dy, dx)
+            } else {
+                std::f64::consts::FRAC_PI_2
+            };
+            (angle, length.max(DOT_DISTANCE))
+        };
+        let covers_name = |p: (f64, f64)| {
+            name.is_some_and(|((x, y), (w, h))| {
+                (p.0 - x).abs() < (size + w) / 2.0 && (p.1 - y).abs() < (size + h) / 2.0
+            })
+        };
+        let clear = |p: (f64, f64), laid: &[(f64, f64)]| {
+            !covers_name(p)
+                && laid
+                    .iter()
+                    .all(|q| (p.0 - q.0).abs() >= size || (p.1 - q.1).abs() >= size)
+        };
+        let lay = |at: (f64, f64), laid: &[(f64, f64)]| {
+            let (angle, out) = offset(at);
+            let point = |turn: f64, out: f64| {
+                (
+                    town_dot.0 + out * math::cos(angle + turn),
+                    town_dot.1 + out * math::sin(angle + turn),
+                )
+            };
+            (0..4)
+                .flat_map(|ring| {
+                    (0..=12).flat_map(move |k| {
+                        let k = f64::from(k);
+                        [(k * STEP, ring), (-k * STEP, ring)]
+                    })
+                })
+                .map(|(turn, ring)| point(turn, out + f64::from(ring) * size / 4.0))
+                .find(|&p| clear(p, laid))
+                .unwrap_or_else(|| point(0.0, out))
+        };
+        let mut laid = Vec::new();
+        let mut own = None;
+        for &at in starts {
+            let p = lay(at, &laid);
+            if own.is_none() && at == start {
+                own = Some(p);
+            }
+            laid.push(p);
+        }
+        let (x, y) = own.unwrap_or_else(|| lay(start, &laid));
+        let round = |v: f64| dereth_primitives::num::to_i32_f64(v.round());
+        (round(x), round(y))
+    }
 }
 
 /// The client's five children and the three list templates.
@@ -1097,6 +1228,8 @@ pub mod appearance {
     pub const ZOOM_OUT: ElementId = ElementId(0x1000_0326);
     /// The viewport element (engine type `0x0D`) the preview draws into.
     pub const VIEWPORT: ElementId = ElementId(0x1000_03BB);
+    /// The page's help pane.
+    pub const HELP: ElementId = ElementId(0x1000_03AB);
 }
 
 /// The summary page's own viewport, which the summary preview drives.
@@ -1340,6 +1473,9 @@ pub struct CharGenTables {
     /// which case the nine spots all draw `ColorEmpty`, which is what the client shows when the
     /// colour lookup finds nothing.
     pub colors: Option<std::rc::Rc<dyn CgColorSource>>,
+    /// The creation texts the world's own files carry (a world from before Throne of Destiny):
+    /// where the table names one, the page shows it in place of this interface's own string.
+    pub texts: dereth_chargen::CreationTexts,
 }
 
 impl std::ops::Deref for CharGenTables {
@@ -1598,6 +1734,7 @@ impl CharGenScreen {
                 }
             }
         }
+        self.world_page_help(ui);
         // Step 3: "show the selected page element, highlight its tab, and call that page's update".
         match state {
             EcgProgress::Hertage => self.heritage_page_update(ui),
@@ -1904,6 +2041,25 @@ impl CharGenScreen {
         let row = HERITAGE_PAGE
             .iter()
             .find(|(h, _, _, _)| *h == self.state.heritage_group);
+        if let Some(own) = self.world_heritage_text() {
+            // The world's own description is the whole pane: its era's heritages had no starting
+            // or bonus skills of their own to list.
+            if let Some((id, _)) = HERITAGE_BUTTONS
+                .iter()
+                .find(|(_, h)| *h == self.state.heritage_group)
+            {
+                if let Some(h) = ui.get_child_recursive(root, *id) {
+                    ui.set_state(h, STATE_PROFESSION_ON);
+                }
+            }
+            if let Some((_, background, _, _)) = row.copied() {
+                if let Some(h) = ui.get_child_recursive(root, heritage_page::BACKGROUND) {
+                    ui.set_state(h, background);
+                }
+            }
+            self.append_literal(ui, text, &own, 0, true);
+            return;
+        }
         self.append_run(ui, text, HERITAGE_SKILLS_HEADER, 1, true);
         self.append_run(ui, text, HERITAGE_SKILLS_BODY, 0, false);
         self.append_run(ui, text, HERITAGE_BONUS_HEADER, 1, false);
@@ -2038,102 +2194,169 @@ impl CharGenScreen {
         }
     }
 
+    /// A world whose starter areas are not the shipped map's four towns (the February 2005
+    /// table's six outdoor starts, two by each of three towns): each town's pin stays as the map's
+    /// name for it, its own dot giving way to a dot per start, made from the pin and set beside the
+    /// town on the side the start lies. A dot chooses its start; the title names it and the pane
+    /// reads as the town's own.
     fn update_world_towns(&self, ui: &mut UiSystem, root: ElemHandle) {
         let Some(tables) = &self.tables else { return };
         let areas = &tables.chargen.starter_areas;
-        let selected = usize::try_from(self.state.start_area)
-            .ok()
-            .and_then(|i| areas.get(i));
-        let selected_map = selected.and_then(|area| Self::town_map_index(&area.name));
+        let chosen = usize::try_from(self.state.start_area).ok();
+        let selected = chosen.and_then(|i| areas.get(i));
+        let selected_town = selected.and_then(|area| Self::town_map_index(&area.name));
+        let mut pins = [None; 4];
         for (id, index) in TOWN_BUTTONS {
-            if let Some(pin) = ui.get_child_recursive(root, id) {
-                let index = usize::try_from(index).ok();
-                ui.set_visible(
-                    pin,
-                    areas
-                        .iter()
-                        .any(|area| Self::town_map_index(&area.name) == index),
-                );
-                ui.set_state(
-                    pin,
-                    if selected_map == index {
-                        town_page::PIN_ON
-                    } else {
-                        town_page::PIN_OFF
-                    },
-                );
+            let Some(pin) = ui.get_child_recursive(root, id) else {
+                continue;
+            };
+            let index = usize::try_from(index).unwrap_or(0);
+            let has = areas
+                .iter()
+                .any(|area| Self::town_map_index(&area.name) == Some(index));
+            ui.set_visible(pin, has);
+            ui.set_state(
+                pin,
+                if selected_town == Some(index) {
+                    town_page::PIN_ON
+                } else {
+                    town_page::PIN_OFF
+                },
+            );
+            if let Some(dot) = ui.get_child_recursive(pin, town_page::PIN_DOT) {
+                ui.set_visible(dot, false);
+            }
+            // The starts' dots take the clicks; the pin, a name now, would cover them.
+            for part in std::iter::once(pin).chain(ui.children(pin)) {
+                ui.set_mouse_visible(part, false);
+            }
+            if has {
+                pins[index] = Some(pin);
             }
         }
         if let Some(title) = ui.get_child_recursive(root, town_page::TITLE) {
-            if let Some(index) = selected_map {
+            if let Some(index) = selected_town {
                 ui.set_state(title, town_page::TITLE_STATES[index]);
             }
             crate::options::keybinding::set_literal(
                 ui,
                 title,
-                selected
-                    .and_then(|area| area.name.split_whitespace().next())
-                    .unwrap_or("Starting town"),
+                selected_town.map_or("Starting town", |index| TOWN_NAMES[index]),
             );
         }
-        let Some((page_id, _)) = EcgProgress::Town.page() else {
-            return;
-        };
-        let (Some(page), Some(text), Some(button)) = (
-            ui.get_child_recursive(root, page_id),
+        if let (Some(text), Some(index), Some(area)) = (
             ui.get_child_recursive(root, town_page::TEXT),
-            ui.get_child_recursive(root, EXIT_BUTTON),
-        ) else {
-            return;
-        };
-        let Some(template) = ui.node(button).map(|node| node.desc.clone()) else {
-            return;
-        };
-        let Some(layout_id) = ui.node(page).map(|node| node.layout_did) else {
-            return;
-        };
-        let Ok(env) = ui.require_env() else { return };
-        let layout = dereth_ui::LayoutDesc {
-            did: layout_id,
-            display_width: 800,
-            display_height: 600,
-            ..dereth_ui::LayoutDesc::default()
-        };
-        let region = ui.screen_box(text);
-        let parent = ui.screen_box(page);
-        if let Some(text) = ui.text_element_mut(text) {
-            text.set_text("");
+            selected_town,
+            selected,
+        ) {
+            // The start's own name heads the town's text: the title holds only the town's.
+            let body = self.string(ui, town_page::TEXT_TOKENS[index]);
+            let frame = self.string(ui, town_page::HOW_TO);
+            if let Some(t) = ui.text_element_mut(text) {
+                t.set_text(&format!("{}\n\n{body}\n\n{frame}\n", area.name));
+            }
         }
+        let map = ui
+            .get_child_recursive(root, town_page::MAP)
+            .map(|m| ui.screen_box(m));
+        let scale = map.map_or(DEFAULT_MAP_SCALE, |m| {
+            f64::from(m.width()) / town_page::MAP_SPAN
+        });
         for (index, area) in areas.iter().enumerate() {
             let Ok(index) = u32::try_from(index) else {
                 continue;
             };
+            let Some(town) = Self::town_map_index(&area.name) else {
+                continue;
+            };
+            let (Some(pin), Some(at)) = (pins[town], area.locations.first()) else {
+                continue;
+            };
             let id = ElementId(WORLD_TOWN_BUTTON_BASE + index);
-            let handle = ui.get_child_recursive(page, id).or_else(|| {
-                let mut desc = template.clone();
+            let dot = ui.get_child_recursive(root, id).or_else(|| {
+                let parent = ui.parent(pin)?;
+                let pin_dot = ui.get_child_recursive(pin, town_page::PIN_DOT)?;
+                // A copy of the pin, the button, with its dot and without its name, which stays
+                // the town's.
+                let mut desc = full_desc(ui, pin)?;
                 desc.element_id = id;
-                desc.base.incorporation |= dereth_ui::desc::incorporation::LEGACY_ALL_GEOMETRY;
-                desc.base.x = region.x0 - parent.x0;
-                desc.base.y = region.y0 - parent.y0 + i32::try_from(index).ok()? * 30;
-                desc.base.width = region.width();
-                desc.base.height = 26;
+                desc.children
+                    .retain(|child, _| *child == town_page::PIN_DOT);
+                let dot_box = ui.screen_box(pin_dot);
+                let starts: Vec<(f64, f64)> = areas
+                    .iter()
+                    .filter(|a| Self::town_map_index(&a.name) == Some(town))
+                    .filter_map(|a| a.locations.first())
+                    .map(|p| {
+                        town_page::map_coordinates(p.cell.0, p.frame.origin.x, p.frame.origin.y)
+                    })
+                    .collect();
+                let centre = |b: dereth_ui::Box2D| {
+                    (f64::from(b.x0 + b.x1) / 2.0, f64::from(b.y0 + b.y1) / 2.0)
+                };
+                let name = ui
+                    .get_child_recursive(pin, town_page::PIN_NAME)
+                    .map(|n| ui.screen_box(n))
+                    .map(|b| (centre(b), (f64::from(b.width()), f64::from(b.height()))));
+                let (x, y) = town_page::dot_at(
+                    centre(dot_box),
+                    town_page::TOWN_CENTRES[town],
+                    town_page::map_coordinates(at.cell.0, at.frame.origin.x, at.frame.origin.y),
+                    &starts,
+                    scale,
+                    f64::from(dot_box.width().max(dot_box.height())),
+                    name,
+                );
+                let (w, h) = (dot_box.width(), dot_box.height());
+                let parent_box = ui.screen_box(parent);
+                let into = |d: &mut dereth_ui::ElementDesc, x: i32, y: i32| {
+                    d.base.incorporation |= dereth_ui::desc::incorporation::LEGACY_ALL_GEOMETRY;
+                    d.base.x = x;
+                    d.base.y = y;
+                    d.base.width = w;
+                    d.base.height = h;
+                };
+                into(
+                    &mut desc,
+                    x - w / 2 - parent_box.x0,
+                    y - h / 2 - parent_box.y0,
+                );
+                for child in desc.children.values_mut() {
+                    into(child, 0, 0);
+                }
+                let layout = dereth_ui::LayoutDesc {
+                    did: ui.node(pin)?.layout_did,
+                    display_width: 800,
+                    display_height: 600,
+                    ..dereth_ui::LayoutDesc::default()
+                };
                 ui.register_for_element_message(
                     id,
                     dereth_ui::msg::element::id::BUTTON_CLICKED,
                     ME,
                 );
-                let handle = ui.create_element(env.assets(), &layout, &desc).ok()??;
-                ui.set_parent(handle, Some(page));
+                let handle = ui
+                    .create_element_recursive_from_full_desc(&NoAssets, &layout, &desc)
+                    .ok()??;
+                ui.set_parent(handle, Some(parent));
                 ui.initialize_tree(handle);
+                // As on the pin, the click is the button's, not its picture's.
+                for part in ui.children(handle) {
+                    ui.set_mouse_visible(part, false);
+                }
                 Some(handle)
             });
-            if let Some(handle) = handle {
-                for label in std::iter::once(handle).chain(ui.children(handle)) {
-                    ui.set_tooltip(label, Some(format!("Start in {}.", area.name)));
-                    if ui.text_element_mut(label).is_some() {
-                        crate::options::keybinding::set_literal(ui, label, &area.name);
-                    }
-                }
+            if let Some(dot) = dot {
+                ui.set_visible(dot, true);
+                ui.set_state(
+                    dot,
+                    if chosen == usize::try_from(index).ok() {
+                        town_page::PIN_ON
+                    } else {
+                        town_page::PIN_OFF
+                    },
+                );
+                ui.set_tooltip(dot, Some(format!("Start in {}.", area.name)));
             }
         }
     }
@@ -2152,8 +2375,20 @@ impl CharGenScreen {
         color_index: usize,
         clear: bool,
     ) {
-        use dereth_assets::ui::PropertyValue;
         let s = self.string(ui, token);
+        self.append_literal(ui, h, &s, color_index, clear);
+    }
+
+    /// [`Self::append_run`] with the text itself rather than its token.
+    fn append_literal(
+        &self,
+        ui: &mut UiSystem,
+        h: ElemHandle,
+        s: &str,
+        color_index: usize,
+        clear: bool,
+    ) {
+        use dereth_assets::ui::PropertyValue;
         let color = ui.node(h).and_then(|n| {
             match n
                 .merged_properties()
@@ -2173,7 +2408,7 @@ impl CharGenScreen {
             if let Some(c) = color {
                 t.font_color = c;
             }
-            t.append_text(&s);
+            t.append_text(s);
         }
     }
 
@@ -2331,11 +2566,87 @@ impl CharGenScreen {
             self.profession_text,
             ui.get_child_recursive(root, PROFESSION_DESC),
         ) {
-            let text = self.string(ui, tok);
+            let text = self
+                .world_profession_text()
+                .unwrap_or_else(|| self.string(ui, tok));
             if let Some(t) = ui.text_element_mut(h) {
                 t.set_text(&text);
             }
         }
+    }
+
+    /// On a world whose table names its own page help, the Skills and Appearance panes read it:
+    /// the skills page's, and the appearance page's then the clothing page's. The table's page
+    /// help runs sex, appearance, clothing, heraldry, attributes, skills, spells and name.
+    fn world_page_help(&self, ui: &mut UiSystem) {
+        let (Some(tables), Some(root)) = (self.tables.clone(), self.roots.first().copied()) else {
+            return;
+        };
+        let help = |i: usize| {
+            tables
+                .texts
+                .get(tables.chargen.help_strings.get(i).copied())
+        };
+        let appearance = match (help(1), help(2)) {
+            (Some(face), Some(clothes)) => Some(format!("{face}\n\n{clothes}")),
+            (face, clothes) => face.or(clothes).map(str::to_owned),
+        };
+        for (id, text) in [
+            (skills_page::DESCRIPTION, help(5).map(str::to_owned)),
+            (appearance::HELP, appearance),
+        ] {
+            if let (Some(text), Some(h)) = (text, ui.get_child_recursive(root, id)) {
+                if let Some(t) = ui.text_element_mut(h) {
+                    t.set_text(&text);
+                }
+            }
+        }
+    }
+
+    /// The chosen heritage's description, when the world's own files carry one.
+    fn world_heritage_text(&self) -> Option<String> {
+        let tables = self.tables.as_ref()?;
+        let heritage = tables
+            .chargen
+            .heritage_groups
+            .get(&self.state.heritage_group)?;
+        tables.texts.get(heritage.description).map(str::to_owned)
+    }
+
+    /// The chosen profession's description for the chosen sex, when the world's own files carry
+    /// one.
+    fn world_profession_text(&self) -> Option<String> {
+        let tables = self.tables.as_ref()?;
+        let heritage = tables
+            .chargen
+            .heritage_groups
+            .get(&self.state.heritage_group)?;
+        let template = usize::try_from(self.state.template).ok()?;
+        let shown = heritage.template_presentation(self.state.gender, template)?;
+        tables.texts.get(shown.description).map(str::to_owned)
+    }
+
+    /// The name page's help and the chosen sex's naming help, when the world's own files carry
+    /// them.
+    fn world_naming_text(&self) -> Option<String> {
+        let tables = self.tables.as_ref()?;
+        let sex = tables
+            .chargen
+            .heritage_groups
+            .get(&self.state.heritage_group)?
+            .sexes
+            .get(&self.state.gender)?;
+        let naming = tables.texts.get(sex.naming_help)?;
+        // The page help's last entry is the name page's.
+        Some(
+            match tables
+                .texts
+                .get(tables.chargen.help_strings.last().copied())
+            {
+                Some(page) => format!("{page}\n\n{naming}"),
+                None => naming.to_owned(),
+            },
+        )
     }
 
     /// The six sliders and the four read-outs, and then the template fit + profession update off
@@ -3654,6 +3965,10 @@ impl CharGenScreen {
         let Some(h) = ui.get_child_recursive(root, summary_page::HOW_TO) else {
             return;
         };
+        if let Some(own) = self.world_naming_text() {
+            self.append_literal(ui, h, &own, 0, true);
+            return;
+        }
         let examples = SUMMARY_NAME_EXAMPLES
             .iter()
             .find(|(g, _, _)| *g == self.state.heritage_group)
@@ -4968,6 +5283,7 @@ mod tests {
             );
         }
         Rc::new(CharGenTables {
+            texts: dereth_chargen::CreationTexts::default(),
             world: Rc::new(dereth_chargen::CreationTables {
                 chargen: CharGen {
                     help_strings: vec![],

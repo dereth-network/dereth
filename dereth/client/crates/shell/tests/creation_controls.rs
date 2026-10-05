@@ -154,47 +154,80 @@ fn click(ui: &mut UiSystem, screen: &mut CharGenScreen, handle: dereth_ui::ElemH
     drain(ui, screen);
 }
 
-/// Behaviour: chargen.tables.world-keys-and-costs-remain-authoritative
+/// Behaviour: chargen.town.an-earlier-world-draws-a-dot-on-the-map-for-each-start
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
     ignore = "reads the retail dats: --features retail-dats"
 )]
-fn earlier_world_town_buttons_show_and_select_all_six_actual_start_areas() {
+fn earlier_world_town_page_draws_a_dot_by_its_town_for_each_of_the_six_starts() {
     let (mut shell, mut screen, _) = fixture(true);
     screen.set_progress_state(&mut shell.ui, EcgProgress::Town);
     let root = screen.roots()[0];
-    let names = [
-        "Holtburg South",
-        "Holtburg West",
-        "Shoushi Southeast",
-        "Shoushi West",
-        "Yaraq North",
-        "Yaraq East",
+    let map = shell.ui.screen_box(
+        shell
+            .ui
+            .get_child_recursive(root, chargen::town_page::MAP)
+            .expect("the map"),
+    );
+    // Holtburg, Shoushi, Yaraq: the pin each start's town has on the map.
+    let starts = [
+        ("Holtburg South", 0),
+        ("Holtburg West", 0),
+        ("Shoushi Southeast", 1),
+        ("Shoushi West", 1),
+        ("Yaraq North", 2),
+        ("Yaraq East", 2),
     ];
-    for (index, name) in names.iter().enumerate() {
+    let mut boxes = Vec::new();
+    for (index, (name, town)) in starts.iter().enumerate() {
         let id = dereth_ui::ElementId(0x7f01_0000 + u32::try_from(index).unwrap());
-        let button = shell
+        let dot = shell
             .ui
             .get_child_recursive(root, id)
-            .expect("named town button");
-        let label = shell
-            .ui
-            .text_element_mut(button)
-            .expect("button caption")
-            .glyphs
-            .inq_text(false);
-        assert_eq!(&label, name);
+            .unwrap_or_else(|| panic!("{name}'s dot"));
+        assert!(shell.ui.node(dot).unwrap().region.flags.visible, "{name}");
+        let captions: Vec<String> = std::iter::once(dot)
+            .chain(shell.ui.children(dot))
+            .filter_map(|h| {
+                shell
+                    .ui
+                    .text_element_mut(h)
+                    .map(|t| t.glyphs.inq_text(false))
+            })
+            .filter(|t| !t.is_empty())
+            .collect();
+        assert!(
+            captions.is_empty(),
+            "{name}: a dot, not a captioned button: {captions:?}"
+        );
         assert_eq!(
-            shell.ui.node(button).unwrap().tooltip_text.as_deref(),
+            shell.ui.node(dot).unwrap().tooltip_text.as_deref(),
             Some(format!("Start in {name}.").as_str())
         );
-        let rect = shell.ui.screen_box(button);
+        let rect = shell.ui.screen_box(dot);
         assert!(
-            rect.x0 >= 0 && rect.x1 < 800 && rect.y0 >= 0 && rect.y1 < 600,
-            "{rect:?}"
+            rect.x0 >= map.x0 && rect.x1 <= map.x1 && rect.y0 >= map.y0 && rect.y1 <= map.y1,
+            "{name} {rect:?} on the map {map:?}"
         );
-        click(&mut shell.ui, &mut screen, button);
+        // Beside its own town's dot, within twice its width.
+        let pin = shell
+            .ui
+            .get_child_recursive(root, chargen::TOWN_BUTTONS[*town].0)
+            .unwrap();
+        let town_dot = shell.ui.screen_box(
+            shell
+                .ui
+                .get_child_recursive(pin, chargen::town_page::PIN_DOT)
+                .unwrap(),
+        );
+        let centre = |b: dereth_ui::Box2D| ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+        let (a, b) = (centre(rect), centre(town_dot));
+        assert!(
+            (a.0 - b.0).abs() <= 2 * town_dot.width() && (a.1 - b.1).abs() <= 2 * town_dot.width(),
+            "{name} {a:?} by its town {b:?}"
+        );
+        click(&mut shell.ui, &mut screen, dot);
         assert_eq!(
             screen.state.start_area,
             u32::try_from(index).unwrap(),
@@ -212,14 +245,118 @@ fn earlier_world_town_buttons_show_and_select_all_six_actual_start_areas() {
                 .unwrap()
                 .glyphs
                 .inq_text(false),
-            name.split_whitespace().next().unwrap()
+            name.split_whitespace().next().unwrap(),
+            "the title holds the town's name"
         );
+        let pane = shell
+            .ui
+            .get_child_recursive(root, chargen::town_page::TEXT)
+            .unwrap();
+        let text = shell
+            .ui
+            .text_element_mut(pane)
+            .unwrap()
+            .glyphs
+            .inq_text(false);
+        let town_name = name.split_whitespace().next().unwrap();
+        assert!(
+            text.starts_with(&format!("{name}\n\n")) && text[name.len()..].contains(town_name),
+            "{name}: the start's name, then the town's own text: {text:?}"
+        );
+        // Clear of every town's name on the map.
+        for (pin_id, _) in chargen::TOWN_BUTTONS {
+            let pin = shell.ui.get_child_recursive(root, pin_id).unwrap();
+            if !shell.ui.node(pin).unwrap().region.flags.visible {
+                continue;
+            }
+            let label = shell.ui.screen_box(
+                shell
+                    .ui
+                    .get_child_recursive(pin, chargen::town_page::PIN_NAME)
+                    .unwrap(),
+            );
+            assert!(
+                rect.x1 <= label.x0
+                    || label.x1 <= rect.x0
+                    || rect.y1 <= label.y0
+                    || label.y1 <= rect.y0,
+                "{name} {rect:?} covers a town's name {label:?}"
+            );
+        }
+        boxes.push(rect);
+    }
+    // No two dots overlap.
+    for (i, a) in boxes.iter().enumerate() {
+        for b in &boxes[i + 1..] {
+            assert!(
+                a.x1 <= b.x0 || b.x1 <= a.x0 || a.y1 <= b.y0 || b.y1 <= a.y0,
+                "{a:?} and {b:?} overlap"
+            );
+        }
     }
     let sanamar = shell
         .ui
         .get_child_recursive(root, chargen::TOWN_BUTTONS[3].0)
         .unwrap();
     assert!(!shell.ui.node(sanamar).unwrap().region.flags.visible);
+}
+
+/// Behaviour: chargen.text.an-earlier-world-shows-its-own-creation-texts
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn earlier_world_heritage_profession_and_naming_texts_are_the_worlds_own() {
+    let pane = |shell: &mut UiShell, root, id| {
+        let h = shell.ui.get_child_recursive(root, id).expect("a text pane");
+        shell.ui.text_element_mut(h).unwrap().glyphs.inq_text(false)
+    };
+    let (mut shell, mut screen, _) = fixture(true);
+    let root = screen.roots()[0];
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Hertage);
+    screen.heritage_page_update(&mut shell.ui);
+    let heritage = pane(&mut shell, root, chargen::heritage_page::TEXT);
+    assert!(
+        heritage.starts_with("ALUVIANS are a fiercely individualistic"),
+        "{heritage:?}"
+    );
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Profession);
+    screen.update_profession(&mut shell.ui);
+    let profession = pane(&mut shell, root, chargen::PROFESSION_DESC);
+    assert!(
+        profession.contains("Suggested skills"),
+        "the February 2005 profession text: {profession:?}"
+    );
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Summary);
+    screen.set_how_to_text(&mut shell.ui);
+    let naming = pane(&mut shell, root, chargen::summary_page::HOW_TO);
+    assert!(
+        naming.contains("Many Aluvian women have only a first name"),
+        "{naming:?}"
+    );
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Skills);
+    let skills = pane(&mut shell, root, chargen::skills_page::DESCRIPTION);
+    assert!(
+        skills.starts_with("Use this screen to select and modify your character's skills.")
+            && skills.contains("(from Untrained to Trained"),
+        "the February 2005 skills help: {skills:?}"
+    );
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Appearance);
+    let looks = pane(&mut shell, root, chargen::appearance::HELP);
+    assert!(
+        looks.starts_with("Use the tools below to select your character's appearance")
+            && looks.contains("customize the clothing"),
+        "the February 2005 appearance and clothing help: {looks:?}"
+    );
+
+    // The end of retail names no texts of its own: the interface's strings stay.
+    let (mut shell, mut screen, _) = fixture(false);
+    let root = screen.roots()[0];
+    screen.set_progress_state(&mut shell.ui, EcgProgress::Hertage);
+    screen.heritage_page_update(&mut shell.ui);
+    let heritage = pane(&mut shell, root, chargen::heritage_page::TEXT);
+    assert!(!heritage.starts_with("ALUVIANS"), "{heritage:?}");
 }
 
 /// Behaviour: chargen.controls.wheel-over-scrollbars

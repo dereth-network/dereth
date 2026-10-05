@@ -969,6 +969,32 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chargen.text.an-earlier-world-shows-its-own-creation-texts",
+        says: "On a world whose creation table names its own texts (February 2005), the retail \
+               interface's creation wizard shows them: the heritage's description as the \
+               heritage pane, the profession's description for the chosen sex, and the name \
+               page's help with the sex's naming help on the summary page. The end of retail \
+               names none and keeps the interface's strings.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-OCT05-CHARGEN-ERA-TEXT"),
+        station: "dereth-client-shell::lib::ui::creation_tests::earlier_world_heritage_profession_and_naming_texts_are_the_worlds_own",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chargen.town.an-earlier-world-draws-a-dot-on-the-map-for-each-start",
+        says: "On a world whose starts are not the shipped map's four towns (February 2005: two \
+               by each of Holtburg, Shoushi and Yaraq), the retail interface's town page keeps \
+               each town's name on the map and draws a dot for each start beside its town, on \
+               the side the start lies, no two overlapping. A dot chooses its start, the title \
+               names it and the pane shows the town's own text.",
+        since: THIS_CLIENT,
+        divergence: "CD-010",
+        evidence: Evidence::Private("AC-EVID-OCT05-CHARGEN-TOWN-DOTS"),
+        station: "dereth-client-shell::lib::ui::creation_tests::earlier_world_town_page_draws_a_dot_by_its_town_for_each_of_the_six_starts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chargen.tables.world-keys-and-costs-remain-authoritative",
         says: "Both creation interfaces use the active world keys, costs, resources and result identities without substituting interface-era choices.",
         since: THIS_CLIENT,

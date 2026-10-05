@@ -2554,7 +2554,9 @@ fn load_chargen_tables(
         empty: did(0x1000_000F),
         plug: did(0x1000_0010),
     };
+    let texts = dereth_chargen::CreationTexts::read(assets, &cg);
     let tables = Rc::new(CharGenTables {
+        texts,
         world: Rc::new(dereth_chargen::CreationTables {
             chargen: cg,
             skills,

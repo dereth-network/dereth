@@ -37,6 +37,8 @@ use dereth_primitives::DataId;
 pub mod palette;
 mod policy;
 pub use policy::{CreationEntry, CreationPolicy, CreationRandom, CreationTables};
+pub mod texts;
+pub use texts::CreationTexts;
 
 /// The client's two global pseudo-random streams, as character generation reaches them.
 ///
