@@ -6,7 +6,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -933,20 +933,10 @@ pub static ROWS: &[Behaviour] = &[
         says: "A placed object whose model has no animation and no effect of its own is drawn \
                as part of the land's fixed objects, not as a live object, so only the few \
                animated pieces of scenery cost a live object each.",
-        since: THIS_CLIENT,
+        since: TOOLING,
         evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM-BAKE"),
         station: "dereth-scene::lib::world_scene::imp::animated_scenery::a_static_with_no_default_animation_or_script_stays_in_the_bake_and_is_not_live",
         tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "rendering.scenery.an-animated-static-is-drawn-in-its-current-pose",
-        says: "The butterfly west of Shoushi is drawn where its animation has it this frame: \
-               two pictures taken half a second apart from the same spot show it in different \
-               places.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM-DRAW"),
-        station: "dereth-client::gpu::rendering::animated_scenery::the_butterfly_west_of_shoushi_is_drawn_in_a_new_place_half_a_second_later",
-        tier: Tier::Gpu,
     },
     behaviour! {
         id: "rendering.scenery.a-setups-part-scale-sizes-its-baked-parts",
@@ -958,6 +948,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-SCENERY-PART-SCALE"),
         station: "dereth-scene::lib::world_scene::imp::part_scale::a_ranged_scenery_shrub_is_drawn_at_its_scale_times_each_parts_own_scale",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "rendering.scenery.an-animated-static-is-drawn-in-its-current-pose",
+        says: "The butterfly west of Shoushi is drawn where its animation has it this frame: \
+               two pictures taken half a second apart from the same spot show it in different \
+               places.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM-DRAW"),
+        station: "dereth-client::gpu::rendering::animated_scenery::the_butterfly_west_of_shoushi_is_drawn_in_a_new_place_half_a_second_later",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "rendering.scenery.scenery-stops-at-the-full-detail-ring",
