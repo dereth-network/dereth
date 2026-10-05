@@ -1495,6 +1495,9 @@ impl<H: Host> ClientShell<H> {
                 }
                 self.classic.active = true;
                 cx.hud_mut().classic_active = true;
+                cx.apply_interface_overrides(
+                    dereth_client_runtime::ui_context::InterfaceOverrides::ClassicInput,
+                );
                 let size = cx.present().size();
                 let history: Vec<_> = self.classic.history().cloned().collect();
                 if let Some(ui) = self.classic.ui.as_mut() {

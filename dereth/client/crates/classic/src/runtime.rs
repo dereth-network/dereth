@@ -316,6 +316,17 @@ impl ClassicUi {
     /// The settings that follow the frame: the status area, the screen-size choice under way, the
     /// field of view, and whether the game is full screen now.
     fn sync_settings<S: Host>(&mut self, cx: &mut Cx<'_, S>) -> Result<(), String> {
+        // A body can arrive after the interface opens, including on a later world entry.
+        // Classic already transforms vertical mouse motion before the shared camera sees it.
+        if cx.scene().is_some_and(|scene| {
+            scene
+                .character()
+                .is_some_and(|body| body.camera.prefs.invert_y)
+        }) {
+            cx.apply_interface_overrides(
+                dereth_client_runtime::ui_context::InterfaceOverrides::ClassicInput,
+            );
+        }
         let stretched = crate::keyboard_runtime::stretch_ui();
         let height = cx.present().size().1.saturating_sub(118);
         self.game_status_area = stretched && height >= 413;

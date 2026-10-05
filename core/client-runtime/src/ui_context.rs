@@ -320,28 +320,37 @@ impl<'a, S: Shell> UiContext<'a, S> {
         let now = LocalTime(self.now());
         match overrides {
             InterfaceOverrides::ClassicInput => {
-                let _ = self.run_request(
+                self.apply_interface_preference(
                     UiRequest::SetPreference(
                         names::INVERT_MOUSE_LOOK_Y_AXIS,
                         PrefValue::Bool(false),
                     ),
                     now,
-                    &mut |_, _| false,
                 );
             }
             InterfaceOverrides::Modern => {
                 for name in [names::INVERT_MOUSE_LOOK_Y_AXIS, names::FIELD_OF_VIEW] {
                     if let Some(value) = store::inq_value(name) {
-                        let _ = self.run_request(
-                            UiRequest::SetPreference(name, value),
-                            now,
-                            &mut |_, _| false,
-                        );
+                        self.apply_interface_preference(UiRequest::SetPreference(name, value), now);
                     }
                 }
             }
             InterfaceOverrides::ClassicViewport(_) => unreachable!(),
         }
+    }
+
+    fn apply_interface_preference(&mut self, request: UiRequest, now: LocalTime) {
+        let remaining = self.run_request(request, now, &mut |_, _| false);
+        let remaining = self
+            .present_mut()
+            .apply_render_preference_requests(remaining);
+        crate::camera::apply_preference_requests(
+            self.app
+                .world
+                .as_mut()
+                .and_then(|world| world.character.as_mut()),
+            remaining,
+        );
     }
 
     /// See [`App::deliver_selection_notices`].

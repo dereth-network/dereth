@@ -19,6 +19,9 @@ struct Client {
 }
 impl Client {
     fn new() -> Self {
+        Self::with_presentation(|| Box::new(crate::present::NullPresentation::new(800, 600)))
+    }
+    fn with_presentation(make: fn() -> Box<dyn crate::present::ClientPresentation>) -> Self {
         let cfg = dereth_client_runtime::config::Config {
             headless: true,
             connect: false,
@@ -35,7 +38,7 @@ impl Client {
             cfg,
             None,
             |_| Ok(dereth_client_runtime::app::Platform::headless(800, 600)),
-            |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(800, 600))),
+            |_, _, _, _| Ok(make()),
         )
         .expect("real tables and a device-free presentation");
         let mut shell =
@@ -715,6 +718,141 @@ fn modern_pending_connection_cancel_stops_without_another_click() {
         "the first Cancel click ends the pending connection: {trace:?}"
     );
     client.finish();
+}
+
+/// Behaviour: presentation.settings.both-interfaces-edit-one-store
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn interface_switches_apply_inversion_to_present_and_later_bodies() {
+    use dereth_client_contract::{
+        options::{
+            interface::{Interface, INTERFACE},
+            names, store,
+        },
+        PrefValue,
+    };
+    let mut c = Client::with_presentation(|| {
+        Box::new(dereth_client_runtime::sim_present::SimPresentation::new(
+            800, 600,
+        ))
+    });
+    c.install_classic();
+    store::set_value(names::INVERT_MOUSE_LOOK_Y_AXIS, PrefValue::Bool(true));
+    store::set_value(names::FIELD_OF_VIEW, PrefValue::Float(75.0));
+    store::set_value(names::PLAY_SOUND_ONLY_WHEN_ACTIVE, PrefValue::Bool(true));
+    c.app.audio = Some(dereth_client_runtime::audio::Audio::with_output(
+        Default::default(),
+        1,
+        None,
+    ));
+    c.shell
+        .classic
+        .ui
+        .as_mut()
+        .unwrap()
+        .start(&mut c.app.ui_context())
+        .unwrap();
+    let sound = c.app.audio.as_ref().unwrap().stats.preferences_applied;
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    assert!(c.app.hud.classic_active);
+    assert!(c.app.probe_mut().world_state_mut().is_none());
+    assert!(c.app.frame(&mut c.shell));
+
+    let store_files = std::sync::Arc::clone(c.app.probe().dat_store());
+    let mut cfg = dereth_client_runtime::scene::SceneConfig {
+        land_radius: 0,
+        scenery_radius: 0,
+        ..Default::default()
+    };
+    cfg.mouse_look.invert_y = true;
+    c.app.probe_mut().load_world(&store_files, cfg).unwrap();
+    assert!(
+        c.app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_ref()
+            .unwrap()
+            .camera
+            .prefs
+            .invert_y
+    );
+    assert!(c.app.frame(&mut c.shell));
+    assert!(
+        !c.app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_ref()
+            .unwrap()
+            .camera
+            .prefs
+            .invert_y,
+        "Classic applies its input override when the delayed body appears"
+    );
+
+    for face in [Interface::Modern, Interface::Classic, Interface::Modern] {
+        store::set_value(INTERFACE, PrefValue::Int(face.value()));
+        c.shell.follow_interface(&mut c.app.ui_context());
+        assert_eq!(c.app.hud.classic_active, face == Interface::Classic);
+        assert_eq!(
+            c.app
+                .probe_mut()
+                .world_state_mut()
+                .unwrap()
+                .character
+                .as_ref()
+                .unwrap()
+                .camera
+                .prefs
+                .invert_y,
+            face == Interface::Modern,
+            "successful activation applies the face's input policy before another frame"
+        );
+    }
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    c.app.probe_mut().world_state_mut().unwrap().character = None;
+    assert!(c.app.frame(&mut c.shell));
+    c.app.probe_mut().load_world(&store_files, cfg).unwrap();
+    assert!(c.app.frame(&mut c.shell));
+    assert!(
+        !c.app
+            .probe_mut()
+            .world_state_mut()
+            .unwrap()
+            .character
+            .as_ref()
+            .unwrap()
+            .camera
+            .prefs
+            .invert_y,
+        "a replacement body receives the override even with unchanged option words"
+    );
+    assert_eq!(
+        store::inq_value(names::INVERT_MOUSE_LOOK_Y_AXIS),
+        Some(PrefValue::Bool(true))
+    );
+    assert_eq!(
+        store::inq_value(names::FIELD_OF_VIEW),
+        Some(PrefValue::Float(75.0))
+    );
+    assert_eq!(
+        store::inq_value(names::PLAY_SOUND_ONLY_WHEN_ACTIVE),
+        Some(PrefValue::Bool(true))
+    );
+    assert_eq!(
+        c.app.audio.as_ref().unwrap().stats.preferences_applied,
+        sound,
+        "interface overrides do not resend shared sound preferences"
+    );
+    c.finish();
 }
 
 /// Behaviour: presentation.settings.both-interfaces-edit-one-store
