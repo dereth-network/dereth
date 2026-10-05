@@ -1,11 +1,11 @@
 //! The option page and its 27 rows.
 //!
-//! The shipped `classic_gameplay` tree has the Client Options page `0x10000213` with an option box
+//! The shipped `0x21000005` tree has the Client Options page `0x10000213` with an option box
 //! `0x10000200` carrying **0 children** and none of the seven option-control types instantiated:
 //! the rows are built at run time. This module joins the pieces — [`dereth_client_contract::options::sheet`]
 //! is the option-row initialization, [`crate::panels::listbox::ListBoxWidget::add_from_template`]
 //! is the list box's add-from-template-list, and the eight row templates are roots of the shipped
-//! `classic_options` layout `0x2100002B`.
+//! `0x2100002B` layout `0x2100002B`.
 //!
 //! # The template indices, measured rather than transcribed
 //!
@@ -429,7 +429,7 @@ pub struct PlayerOptionPage {
     /// The state [`Self::sync_gates`] last asked each paired slider for, in [`Self::gated`] order.
     ///
     /// **Recorded because the shipped layout makes the greying invisible.** `0x1000021C` declares
-    /// **no states at all** in `classic_options`, and answers a
+    /// **no states at all** in `0x2100002B`, and answers a
     /// state its `ElementDesc` does not declare by recording **state 0** — so the bar's `n.state`
     /// is 0 whichever way the check box goes, in this build *and in retail*. That is a fact about
     /// the shipped data, not a defect to fix by inventing a state description; what can be
@@ -1585,7 +1585,7 @@ impl PlayerOptionPage {
     // ---- the page itself ---------------------------------------------------------------------
 
     /// The Client Options page's option build: the shared options set's Client Options page as
-    /// the retail interface shows it ([`dereth_client_contract::options::sheet`]), a header
+    /// the modern interface shows it ([`dereth_client_contract::options::sheet`]), a header
     /// before each heading and a separator between headings. Each row is built the way the
     /// retail page builds its own ([`super::config::config_row`]); a row of this client's own
     /// is captioned with literal text.

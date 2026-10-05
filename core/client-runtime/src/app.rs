@@ -14,7 +14,7 @@
 //! * a `Platform` -- the window, the clock, the frame pacer and the error box;
 //! * a presentation, [`crate::present::Presentation`] -- the device, or
 //!   [`crate::present::NullPresentation`], which draws nothing and counts what it was asked;
-//! * a front end, `Shell` -- the retail UI, the cursor, the clipboard and whatever else draws
+//! * a front end, `Shell` -- the modern UI, the cursor, the clipboard and whatever else draws
 //!   over the world. `NullShell` is the front end with no UI at all, which is what a headless
 //!   run or a client started without its UI has.
 //!

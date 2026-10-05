@@ -412,7 +412,7 @@ impl UiSystem {
     /// transparent again**, without touching the authored mouse-visible flag.
     ///
     /// That is not a detail: it is the whole reason a click on the radar can select a blip.
-    /// The radar sets no mouse-visible attribute anywhere, and the shipped `classic_gameplay`
+    /// The radar sets no mouse-visible attribute anywhere, and the shipped `0x21000005`
     /// layout gives `0x100006D2` none either, so the radar body is normally invisible to the
     /// pointer and clicks fall through it to the game view. The radar's draw sets a
     /// tooltip — the hovered object's name — exactly while a blip is within six pixels of the

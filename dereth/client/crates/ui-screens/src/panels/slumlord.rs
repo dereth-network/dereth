@@ -116,7 +116,7 @@ use crate::view::{GameView, SlumlordPayment, SlumlordView, UiRequest};
 /// The registered element-class id, and what the element-type query returns.
 pub const ELEMENT_CLASS: u32 = 0x1000_0013;
 
-/// The `HousingPanel` instance in the shipped `classic_gameplay` tree — `EnvironmentPanelStack`'s fourth
+/// The `HousingPanel` instance in the shipped `0x21000005` tree — `EnvironmentPanelStack`'s fourth
 /// page. [measured, `panels::house_purchase_window`]
 pub const PANEL: ElementId = ElementId(0x1000_0060);
 

@@ -171,7 +171,7 @@ fn the_later_ground_draws_an_older_world_with_the_later_land_surface_under_its_o
     let (own, own_px) = load_and_draw(&store, &mut gpu, cfg(None));
     let own_census = dereth_client_runtime::present::Scene::census(&own);
     drop(own);
-    let (later, later_px) = load_and_draw(&store, &mut gpu, cfg(Some(RegionStyle::Modern)));
+    let (later, later_px) = load_and_draw(&store, &mut gpu, cfg(Some(RegionStyle::Late)));
     assert!(later.draw.ground_from_other_files());
     assert!(
         !later.draw.ground_palette_shifts(),

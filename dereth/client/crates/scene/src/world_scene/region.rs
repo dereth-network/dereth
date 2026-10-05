@@ -67,7 +67,7 @@ impl From<WorldError> for StyleError {
 pub fn style_region(store: &RetailDatStore, style: RegionStyle) -> Result<StyleSource, StyleError> {
     let needs = style.required_files();
     let (files, own) = match needs {
-        RequiredFiles::Legacy => (
+        RequiredFiles::Classic => (
             store.classic_files(),
             store.era() == dereth_dat::ContainerEra::Classic,
         ),
@@ -79,7 +79,7 @@ pub fn style_region(store: &RetailDatStore, style: RegionStyle) -> Result<StyleS
     let files = files.ok_or(StyleError::Missing(needs))?;
     let id = match style {
         RegionStyle::LegacyHardware => HARDWARE_REGION,
-        RegionStyle::LegacySoftware | RegionStyle::Modern => DERETH_REGION,
+        RegionStyle::LegacySoftware | RegionStyle::Late => DERETH_REGION,
     };
     if !files.portal().contains(id) {
         return Err(StyleError::Missing(needs));
@@ -122,7 +122,7 @@ pub(super) fn ground_for(
     let surf = source.region.land_surf;
     let technique = match style {
         RegionStyle::LegacySoftware => surf.pal_shift.is_some(),
-        RegionStyle::LegacyHardware | RegionStyle::Modern => surf.tex_merge.is_some(),
+        RegionStyle::LegacyHardware | RegionStyle::Late => surf.tex_merge.is_some(),
     };
     if !technique {
         return Err(StyleError::Missing(style.required_files()));

@@ -164,7 +164,7 @@ fn a_pre_tod_container_walks_its_twelve_byte_directory_and_reads_every_record() 
     assert!(matches!(file.iteration_list(), Err(DatError::NotFound(_))));
 }
 
-/// An older world with the later interface beside it: the older files answer every record they
+/// An older world with the modern interface beside it: the older files answer every record they
 /// hold (in their layout), and the later portal and language files every other one.
 #[test]
 fn the_later_files_answer_what_an_older_world_lacks() {

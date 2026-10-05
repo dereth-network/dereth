@@ -137,7 +137,7 @@ pub const ATTR_ROW_INSTANCE_ID: u32 = 0x1000_000D;
 /// for all three meters.
 pub const ATTR_METER: u32 = 0x69;
 /// Rows are added from template 0, at the tail. The list box carries exactly one
-/// template, `(0x21000030, 0x10000281)` in the shipped `classic_gameplay` tree.
+/// template, `(0x21000030, 0x10000281)` in the shipped `0x21000005` tree.
 pub const ROW_TEMPLATE: usize = 0;
 
 /// Table enum `0x10000001` — the table every string on this

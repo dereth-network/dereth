@@ -142,7 +142,7 @@ impl GameView for Module {
 // The rows
 // ---------------------------------------------------------------------------------------------
 
-/// The shared options set's Character Options headings as the retail interface shows them.
+/// The shared options set's Character Options headings as the modern interface shows them.
 fn shared_order() -> Vec<PlayerOption> {
     use dereth_client_contract::options::interface::Interface;
     use dereth_ui_screens::options::sheet::{rows_for, PageId, Value};

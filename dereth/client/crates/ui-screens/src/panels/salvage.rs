@@ -78,7 +78,7 @@ use crate::view::{GameView, UiRequest};
 /// also returned by the element-type query.
 pub const ELEMENT_CLASS: u32 = 0x1000_0011;
 
-/// The salvage instance in the shipped `classic_gameplay` tree — the environment panel's second
+/// The salvage instance in the shipped `0x21000005` tree — the environment panel's second
 /// page. [measured on the shipped layout]
 pub const PANEL: ElementId = ElementId(0x1000_005E);
 

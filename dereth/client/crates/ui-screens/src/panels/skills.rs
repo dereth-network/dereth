@@ -788,7 +788,7 @@ pub fn set_row_icon(
 mod tests {
     use super::*;
 
-    /// Oracle: the live `classic_gameplay` tree — `0x1000023D` is a child of **both**
+    /// Oracle: the live `0x21000005` tree — `0x1000023D` is a child of **both**
     /// `AttributesPanel` (`0x1000022B`) and `SkillsPanel` (`0x1000022C`), so the panel id this module
     /// starts its search from has to be the skill one. Cheap guard against a transposition.
     #[test]

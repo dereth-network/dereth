@@ -60,7 +60,7 @@ use dereth_ui::{ElemHandle, UiSystem};
 use crate::panels::listbox::ListBoxWidget;
 use crate::view::{GameView, PlayerOption, UiRequest};
 
-/// The Character Options element in the shipped `classic_gameplay` tree.
+/// The Character Options element in the shipped `0x21000005` tree.
 ///
 /// Measured off the built tree rather than taken from a document: it is the one element of type
 /// `0x10000027` under the panel stack, distinct from the Client Options page at `0x10000213`. The three
@@ -73,7 +73,7 @@ pub const CHARACTER_PAGE_ELEMENT: dereth_ui::ElementId = dereth_ui::ElementId(0x
 ///
 /// **A recursive child lookup of `0x10000211` from `root` is not enough, and this is measured, not
 /// defensive.**
-/// The shipped `classic_gameplay` tree carries the id `0x10000211` **twice**: once as the
+/// The shipped `0x21000005` tree carries the id `0x10000211` **twice**: once as the
 /// keyboard tab `KEYBOARD_TAB_PAGES[4]` (engine type 3, a plain page) and once as this
 /// page (type `0x10000027`). A depth-first walk from the screen root reaches the keyboard's copy
 /// **first**, so binding by id alone binds the wrong element, finds no `0x100001FA` under it and

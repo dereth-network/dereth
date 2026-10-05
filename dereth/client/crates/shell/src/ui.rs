@@ -673,7 +673,7 @@ impl UiShell {
         use dereth_assets::Decode;
         use dereth_primitives::{AssetSource, DataId};
 
-        // The screens are the later interface: everything they are built from -- layouts,
+        // The screens are the modern interface: everything they are built from -- layouts,
         // strings, fonts, art -- is read from its own files, and only the world's records (the
         // creation tables) and the pictures it names from the world's.
         let interface = world.interface_files();

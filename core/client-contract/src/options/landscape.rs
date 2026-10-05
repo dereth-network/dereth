@@ -47,12 +47,12 @@ pub enum RegionStyle {
     /// base.
     LegacyHardware,
     /// The region of the end-of-retail dat set, whose ground texture-merges at a 512-pixel base.
-    Modern,
+    Late,
 }
 
 impl RegionStyle {
     /// The three, in the order the options list them.
-    pub const ALL: [Self; 3] = [Self::LegacySoftware, Self::LegacyHardware, Self::Modern];
+    pub const ALL: [Self; 3] = [Self::LegacySoftware, Self::LegacyHardware, Self::Late];
 
     /// The preference value.
     #[must_use]
@@ -60,7 +60,7 @@ impl RegionStyle {
         match self {
             Self::LegacySoftware => 1,
             Self::LegacyHardware => 2,
-            Self::Modern => 3,
+            Self::Late => 3,
         }
     }
 
@@ -70,7 +70,7 @@ impl RegionStyle {
         match v {
             1 => Some(Self::LegacySoftware),
             2 => Some(Self::LegacyHardware),
-            3 => Some(Self::Modern),
+            3 => Some(Self::Late),
             _ => None,
         }
     }
@@ -81,7 +81,7 @@ impl RegionStyle {
         match self {
             Self::LegacySoftware => "Palette Shift",
             Self::LegacyHardware => "Legacy Blend",
-            Self::Modern => "Modern Blend",
+            Self::Late => "Modern Blend",
         }
     }
 
@@ -91,7 +91,7 @@ impl RegionStyle {
         match self {
             Self::LegacySoftware => "Legacy Software",
             Self::LegacyHardware => "Legacy Hardware",
-            Self::Modern => "Modern",
+            Self::Late => "Modern",
         }
     }
 
@@ -99,8 +99,8 @@ impl RegionStyle {
     #[must_use]
     pub const fn required_files(self) -> RequiredFiles {
         match self {
-            Self::LegacySoftware | Self::LegacyHardware => RequiredFiles::Legacy,
-            Self::Modern => RequiredFiles::Modern,
+            Self::LegacySoftware | Self::LegacyHardware => RequiredFiles::Classic,
+            Self::Late => RequiredFiles::Modern,
         }
     }
 }
@@ -110,7 +110,7 @@ impl RegionStyle {
 pub enum RequiredFiles {
     /// A `portal.dat` from before Throne of Destiny: the world's own, or one given for
     /// presentation beside a later world.
-    Legacy,
+    Classic,
     /// The end-of-retail files: the world's own, or the interface files beside an older world.
     Modern,
 }
@@ -120,7 +120,7 @@ impl RequiredFiles {
     #[must_use]
     pub const fn ground_notice(self) -> &'static str {
         match self {
-            Self::Legacy => "This terrain mode requires legacy DATs",
+            Self::Classic => "This terrain mode requires legacy DATs",
             Self::Modern => "This terrain mode requires end-of-retail DATs",
         }
     }
@@ -129,7 +129,7 @@ impl RequiredFiles {
     #[must_use]
     pub const fn sky_notice(self) -> &'static str {
         match self {
-            Self::Legacy => "This sky requires legacy DATs",
+            Self::Classic => "This sky requires legacy DATs",
             Self::Modern => "This sky requires end-of-retail DATs",
         }
     }
@@ -138,7 +138,7 @@ impl RequiredFiles {
     #[must_use]
     pub const fn objects_notice(self) -> &'static str {
         match self {
-            Self::Legacy => "This object mode requires legacy DATs",
+            Self::Classic => "This object mode requires legacy DATs",
             Self::Modern => "This object mode requires end-of-retail DATs",
         }
     }
@@ -187,7 +187,7 @@ impl Landscape {
     pub const fn styles(self) -> &'static [RegionStyle] {
         match self {
             Self::Ground | Self::Sky => &RegionStyle::ALL,
-            Self::Objects => &[RegionStyle::LegacyHardware, RegionStyle::Modern],
+            Self::Objects => &[RegionStyle::LegacyHardware, RegionStyle::Late],
         }
     }
 
@@ -209,7 +209,7 @@ impl Landscape {
             Self::Sky => style.sky_label(),
             Self::Objects => match style {
                 RegionStyle::LegacySoftware | RegionStyle::LegacyHardware => "Legacy",
-                RegionStyle::Modern => "Modern",
+                RegionStyle::Late => "Modern",
             },
         }
     }
@@ -231,14 +231,14 @@ impl Landscape {
             (_, None) => "World",
             (Self::Ground, Some(RegionStyle::LegacySoftware)) => "PaletteShift",
             (Self::Ground, Some(RegionStyle::LegacyHardware)) => "LegacyBlend",
-            (Self::Ground, Some(RegionStyle::Modern)) => "ModernBlend",
+            (Self::Ground, Some(RegionStyle::Late)) => "ModernBlend",
             (Self::Sky, Some(RegionStyle::LegacySoftware)) => "LegacySoftware",
             (Self::Sky, Some(RegionStyle::LegacyHardware)) => "LegacyHardware",
-            (Self::Sky, Some(RegionStyle::Modern)) => "Modern",
+            (Self::Sky, Some(RegionStyle::Late)) => "Modern",
             (Self::Objects, Some(RegionStyle::LegacySoftware | RegionStyle::LegacyHardware)) => {
                 "Legacy"
             }
-            (Self::Objects, Some(RegionStyle::Modern)) => "Modern",
+            (Self::Objects, Some(RegionStyle::Late)) => "Modern",
         }
     }
 }
@@ -264,7 +264,7 @@ pub fn parse(raw: &str) -> Option<Option<RegionStyle>> {
         "world" | "worlddefault" | "default" | "hardware" => None,
         "paletteshift" | "legacysoftware" | "software" => Some(RegionStyle::LegacySoftware),
         "legacyblend" | "legacyhardware" | "legacy" => Some(RegionStyle::LegacyHardware),
-        "modernblend" | "modern" | "later" => Some(RegionStyle::Modern),
+        "modernblend" | "modern" | "later" => Some(RegionStyle::Late),
         _ => return None,
     })
 }
@@ -356,7 +356,7 @@ mod tests {
             }
         }
         assert_eq!(parse("software"), Some(Some(RegionStyle::LegacySoftware)));
-        assert_eq!(parse("Later"), Some(Some(RegionStyle::Modern)));
+        assert_eq!(parse("Later"), Some(Some(RegionStyle::Late)));
         assert_eq!(parse("hardware"), Some(None));
         assert_eq!(parse("World Default"), Some(None));
         assert_eq!(parse("tod"), None);
@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(parse_value(OBJECTS, "tod"), None);
         assert_eq!(Landscape::of("render.objects"), Some(Landscape::Objects));
         assert_eq!(
-            Landscape::Objects.notice(RequiredFiles::Legacy),
+            Landscape::Objects.notice(RequiredFiles::Classic),
             "This object mode requires legacy DATs"
         );
         assert_eq!(Landscape::Objects.caption(), "Object Mode");

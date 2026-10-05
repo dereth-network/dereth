@@ -248,7 +248,7 @@ pub enum FrameEvent {
     EscapeOptionsToggle {
         /// Of those, how many **answered `true`** — the visibility-toggle action's own
         /// return, i.e. the action had a listener bucket. `0x1000001B` does have one
-        /// in the shipped `classic_gameplay` tree (measured); `0x1000001E ToggleRadarPanel` does
+        /// in the shipped `0x21000005` tree (measured); `0x1000001E ToggleRadarPanel` does
         /// **not**. Summed by `FrameEvent::amount`.
         answered: bool,
     },

@@ -138,7 +138,7 @@ fn every_child_id_in_the_control_table_is_the_one_the_shipped_layout_carries() {
 }
 
 /// Oracle: the option box's own template list (element property `0x64`) in the shipped
-/// `classic_gameplay` tree, and the slider option's own template index: 6 when wide, 3 when not.
+/// `0x21000005` tree, and the slider option's own template index: 6 when wide, 3 when not.
 ///
 /// The load-bearing half is the last two assertions: template **6** is the row that carries
 /// `0x1000021E`/`0x1000021F`, and template **3** is not. the layout description and this crate both had
@@ -179,7 +179,7 @@ fn the_eight_row_templates_are_the_shipped_ones_and_only_the_wide_slider_has_end
         ],
         "the shipped template list, in index order"
     );
-    // Every template comes out of the same layout, `classic_options`.
+    // Every template comes out of the same layout, `0x2100002B`.
     for (did, _) in &templates {
         assert_eq!(
             did.0, 0x2100_002B,

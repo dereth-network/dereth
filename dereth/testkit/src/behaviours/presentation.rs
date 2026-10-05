@@ -99,7 +99,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.era.the-retail-interface-draws-its-own-art-over-an-older-world",
-        says: "Over the February 2005 world the retail interface's screens are read from the \
+        says: "Over the February 2005 world the modern interface's screens are read from the \
                end-of-retail files: where both sets of files hold a picture under the same id, \
                the interface draws the end-of-retail one (its panel frames, buttons, bars and \
                colours), and the world's own store still answers with the older one, which is \
@@ -113,7 +113,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.era.the-retail-magic-window-has-a-create-spell-tab-with-spell-research",
-        says: "On a world with spell research the retail interface's magic window has a third \
+        says: "On a world with spell research the modern interface's magic window has a third \
                tab, Create Spell, sharing the tab strip with Spells and Components; on one \
                without it there is no such tab (a window left open on it moves to the Spells \
                tab). Its page lays carried components into a formula of up to eight, by a double \
@@ -197,7 +197,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.interface.a-switch-back-to-the-retail-interface-shows-the-screen-the-game-is-at",
-        says: "Switched back to from the classic interface, the retail interface comes up on the \
+        says: "Switched back to from the classic interface, the modern interface comes up on the \
                screen the game is at: the gameplay screen in the world, the character screen at \
                character selection, the disconnected screen after a disconnect. It does not \
                replay the opening screens, and a character list that arrived while the classic \
@@ -217,7 +217,7 @@ pub static ROWS: &[Behaviour] = &[
         since: THIS_CLIENT,
         divergence: "CD-015",
         evidence: Evidence::Private("AC-EVID-ERA-UI-SWITCH"),
-        station: "dereth-client-shell::lib::classic_face::tests::a_refused_classic_choice_goes_back_to_the_retail_interface",
+        station: "dereth-client-shell::lib::classic_face::tests::a_refused_classic_choice_goes_back_to_the_modern_interface",
         tier: Tier::Cpu,
     },
     behaviour! {

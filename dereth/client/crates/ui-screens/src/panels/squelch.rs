@@ -66,7 +66,7 @@ use crate::view::{GameView, SquelchEntry, UiRequest};
 ///
 /// Found by **type** rather than by id, for the reason [`super::friends::PANEL_TYPE`] is:
 /// the post-init binds five *children* and never names its own id, which is layout data.
-/// (It is `0x1000054A` in the shipped `classic_gameplay` tree; that is a measurement, not a
+/// (It is `0x1000054A` in the shipped `0x21000005` tree; that is a measurement, not a
 /// constant of the client.)
 pub const PANEL_TYPE: ElementType = ElementType(0x1000_0047);
 

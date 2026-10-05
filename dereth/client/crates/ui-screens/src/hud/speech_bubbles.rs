@@ -29,7 +29,7 @@ pub const DEFAULT_MAX_CONCURRENT: usize = 1;
 
 /// The list box that holds the bubbles.
 pub const LIST_BOX: ElementId = ElementId(0x1000_0049);
-/// The authored `MessageLogPanel` panel instance in `classic_gameplay`.
+/// The authored `MessageLogPanel` panel instance in `0x21000005`.
 pub const PANEL: ElementId = ElementId(0x1000_0046);
 /// Each bubble is created from **layout enum `0x10000012`, element id `0x1000004A`**
 /// (created by layout enum).

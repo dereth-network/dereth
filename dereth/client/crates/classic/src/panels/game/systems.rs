@@ -334,7 +334,7 @@ impl Contracts {
     }
 }
 
-/// The journal: the character's notebook, one page at a time, in the file the retail interface
+/// The journal: the character's notebook, one page at a time, in the file the modern interface
 /// keeps it in, so either interface shows the same pages.
 ///
 /// The page's label, title and notes are edited in place; Stamp writes where the character stands,

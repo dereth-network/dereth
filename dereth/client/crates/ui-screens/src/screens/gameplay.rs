@@ -41,7 +41,7 @@ use crate::view::{GameView, UiRequest, Vital};
 /// The screen's child set-up: one root element, the gameplay UI.
 ///
 /// Retail creates the root from element `0x10000495` without naming the layout enum. That enum
-/// is **`0x10000006`** (`classic_gameplay` → layout `0x21000005`), the only shipped layout whose
+/// is **`0x10000006`** (`0x21000005` → layout `0x21000005`), the only shipped layout whose
 /// root element is `0x10000495`, as listed in the shipped layout index and enum map. Note
 /// that this enum is *not* one of the three unregistered **mode**
 /// ids that share its numbering; layout enums and mode ids are different spaces.
@@ -73,7 +73,7 @@ pub mod action {
 /// | `0x10000203` *Exit to Character Selection* | the end-character-session notice, argument 1 |
 /// | `0x10000617` *Exit Game* | a broadcast of global message 1 with `0x10000027` — the synthesised **quit** action |
 ///
-/// Both ids are in the shipped `classic_gameplay` layout, at (26, 20) and (26, 60) of the options
+/// Both ids are in the shipped `0x21000005` layout, at (26, 20) and (26, 60) of the options
 /// page — exactly where the paired retail sweep photographed them. **The buttons were never the
 /// missing piece; the handler was.** `GameplayOptionsPanel` is a `PlainElement` in this build, so
 /// its subtree's messages bubble to this screen, which is where the client's own
@@ -328,7 +328,7 @@ pub mod window {
     /// `<RADA>` — the radar.
     pub const RADAR: ElementId = ElementId(0x1000_06D2);
     /// The seventeenth child of the gameplay root, which the sixteen-window table does not name:
-    /// element `0x1000001F` of layout `0x21000009` (`classic_keyboard`) — `KeyboardPanel`'s
+    /// element `0x1000001F` of layout `0x21000009` — `KeyboardPanel`'s
     /// key-mapping window. It has no `0x1000007E` window id and no `0x10000029` panel id.
     pub const KEYBOARD: ElementId = ElementId(0x1000_04A8);
     /// The eighteenth: element `0x100004AC` of layout `0x21000058` (`classic_admin`) —
@@ -443,7 +443,7 @@ pub struct RadarChildren {
     /// order.
     pub magnitudes: [f32; 4],
     /// The window id, attribute `0x1000007E` — the key every per-window chat option row is stored
-    /// under. The shipped `classic_gameplay` layout gives the radar **14**.
+    /// under. The shipped `0x21000005` layout gives the radar **14**.
     pub window_id: u32,
     /// The object under the mouse — recomputed by every radar update, which is
     /// [`GamePlayScreen::update_radar`], and read by the select arm of
@@ -2474,7 +2474,7 @@ impl GamePlayScreen {
     ///
     /// The lamps are found **by element type**, not by id: the client's element-class registration
     /// covers six widget classes and which element in which window is one of them is layout data. The
-    /// shipped `classic_gameplay` puts a link lamp in `<INDI>` and another in the docked strip.
+    /// shipped `0x21000005` puts a link lamp in `<INDI>` and another in the docked strip.
     fn indicators_post_init(&mut self, ui: &mut UiSystem, root: ElemHandle) {
         self.link_lamps.clear();
         for h in elements_of_type(ui, root, crate::element_types::ty::LINK_STATUS_INDICATOR) {
@@ -2657,7 +2657,7 @@ impl GamePlayScreen {
     /// The state is read from and written to the **vitals window**, not the child that was
     /// pressed. `set_state`'s pass-to-children walk is what takes
     /// the new state down to the three meter groups and their labels, all of which author both
-    /// `0x10000006` and `0x10000007` in the shipped `classic_gameplay` layout.
+    /// `0x10000006` and `0x10000007` in the shipped `0x21000005` layout.
     ///
     /// Returns the window it toggled, for the frame's own denominator.
     pub fn on_vitals_press(
@@ -2715,7 +2715,7 @@ impl GamePlayScreen {
     /// every element registered for the action under attribute `0x57` and lets its `0x58` open the
     /// panel.
     ///
-    /// **This is the middle of that chain.** Measured over the shipped `classic_gameplay` tree:
+    /// **This is the middle of that chain.** Measured over the shipped `0x21000005` tree:
     /// **38** elements carry attribute `0x12` and **40** carry `0x57`; without a reader of `0x12`
     /// all 38 are dead buttons, the six indicator lamps among them.
     ///
@@ -2818,7 +2818,7 @@ impl GamePlayScreen {
     ///
     /// **The world is not drawn "behind" the UI: it is an element.** `WorldViewWrapper` (type
     /// `0x10000030`) hosts the world view inside the element tree. So in the client the gameplay
-    /// root's own background — `classic_gameplay` gives element `0x10000495` the full-screen image
+    /// root's own background — `0x21000005` gives element `0x10000495` the full-screen image
     /// `0x060022BA` — is blitted first and then covered, pixel for pixel, by the smart box's 3D
     /// output, which is a *later* child in the same tree.
     ///
@@ -2854,7 +2854,7 @@ impl GamePlayScreen {
     /// toolbar bottom-right, and nothing else.
     ///
     /// **The layout, read correctly, is the mechanism.** `0x3B` is `UICore_Element_hide`, not
-    /// "visible"; read that way the shipped `classic_gameplay` layout brings up **eight** of the
+    /// "visible"; read that way the shipped `0x21000005` layout brings up **eight** of the
     /// eighteen children, and the only two of those eight retail does not draw are taken down by
     /// the client's own code:
     ///
@@ -2865,10 +2865,10 @@ impl GamePlayScreen {
     /// | `<SVIT>` | sets its visibility from the side-by-side vitals option | yes |
     ///
     /// and the other ten — `<PBAR>`, `<COMB>`, `<EXAM>`, `<ENVP>`, all four `<FCHn>`,
-    /// `classic_keyboard` and `classic_admin` — carry `0x3B = true` and need no code at all. That
+    /// `0x21000009` and `classic_admin` — carry `0x3B = true` and need no code at all. That
     /// is checked directly by a test, on a tree built from the retail dat with **no** set-up run.
     ///
-    /// In particular `0x100004A8` (`classic_keyboard`) and `0x100004D1` (`classic_admin`), which
+    /// In particular `0x100004A8` (`0x21000009`) and `0x100004D1` (`classic_admin`), which
     /// carry no window id, no panel id and are referenced by no client code, and which cover the
     /// whole viewport when shown, are hidden by their own base elements' `0x3B`. There is no code
     /// to find.
@@ -5644,7 +5644,7 @@ impl Screen for GamePlayScreen {
             //
             // The three stacks' panel ids are disjoint (`0x1000005C` is 17 and `0x10000061` is 22;
             // the sixteen toolbar pages are 1–16 and 25, the five env pages 18–21 and 23 — read
-            // off the shipped `classic_gameplay`), so offering both cannot cross-talk.
+            // off the shipped `0x21000005`), so offering both cannot cross-talk.
             // The child's visible flag, read off the child at notice time — **not** `m.p1`, the
             // value the broadcast was stamped with. The two differ whenever a page's visibility was
             // written more than once before the outbox was drained, and the stale reading is a
@@ -6315,7 +6315,7 @@ mod tests {
     use super::*;
 
     /// layout
-    /// `0x21000005` (`classic_gameplay`, enum `0x10000006`) is the only shipped layout whose root
+    /// `0x21000005` (enum `0x10000006`) is the only shipped layout whose root
     /// element is `0x10000495`, which pins the otherwise omitted enum.
     #[test]
     fn the_screen_names_the_shipped_layout_enum_and_root() {

@@ -1425,7 +1425,7 @@ fn pref_on(name: &str) -> bool {
     )
 }
 
-/// Each of this client's own actions the retail interface answers, given a free key on the key
+/// Each of this client's own actions the modern interface answers, given a free key on the key
 /// page as a player gives it one, answers that key: the performance panel, the inverted mouse
 /// look and mute-when-inactive flip their settings, the trade key shows the trade window, and
 /// hold sidestep is held for as long as its key is.

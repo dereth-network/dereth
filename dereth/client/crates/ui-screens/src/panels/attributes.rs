@@ -808,7 +808,7 @@ mod tests {
         assert_eq!(prim, vec![1, 2, 3, 4, 5, 6]);
     }
 
-    /// Oracle: the live `classic_gameplay` tree — `AttributesPanel` is `0x1000022B` and shares
+    /// Oracle: the live `0x21000005` tree — `AttributesPanel` is `0x1000022B` and shares
     /// `0x1000023D` with `SkillsPanel`, which is why both panels resolve it from their own
     /// sub-panel and never from the page.
     #[test]

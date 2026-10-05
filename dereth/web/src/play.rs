@@ -1,4 +1,4 @@
-//! The playable client: the client shell's application and front end -- the retail UI, the scene
+//! The playable client: the client shell's application and front end -- the modern UI, the scene
 //! drawing, the input pipeline -- on the browser's host ([`WebHost`]). The data files come in
 //! already open, the graphics device is the one the page prepared (`dereth_render::wgpu`), the
 //! window is the canvas, and the connection is the runtime's socket-free endpoint fed by the page's

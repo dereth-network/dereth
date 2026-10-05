@@ -1,7 +1,7 @@
 //! The classic settings pages carried onto the host. UI values are normalized.
 //!
 //! **One store.** Every row of the Client page is a shared preference, the same one the
-//! retail interface's Client Options page edits: the page opens on the store's values and Apply
+//! modern interface's Client Options page edits: the page opens on the store's values and Apply
 //! writes them back, so the profile (`UserPreferences.ini`) holds both interfaces' settings and
 //! either page shows what the other set. The page keeps its own steps (tenths for the volumes,
 //! hundredths for the brightness) by packing a value into the classic interface's words before

@@ -1,4 +1,4 @@
-//! The executable's front end: the retail UI, the cursor, the clipboard, the preview spaces and
+//! The executable's front end: the modern UI, the cursor, the clipboard, the preview spaces and
 //! the overlay, plugged into [`dereth_client_runtime::app::App`]'s frame.
 //!
 //! The frame loop is the runtime's. What is here is [`App`], the application with this executable's

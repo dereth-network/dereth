@@ -3665,7 +3665,7 @@ pub mod menu {
 /// The alternative arm is attribute `0x68` `UICore_Meter_move_fill`: when it is set,
 /// the child draw draws normally and the child-update routine instead moves the child
 /// out of the parent's clip box. **No shipped layout sets it** — every `Meter` in
-/// `classic_gameplay` carries `0x68 = false` or nothing at all — so that arm is left unimplemented
+/// `0x21000005` carries `0x68 = false` or nothing at all — so that arm is left unimplemented
 /// rather than guessed at; see `Meter::child_clip`'s note.
 ///
 /// The property names come from the retail `MasterProperty 0x39000001` and settle what each
@@ -5130,7 +5130,7 @@ mod meter_tests {
     use crate::ElementId;
 
     /// The meter fill uses the client's four-arm direction switch, evaluated on the box
-    /// the retail `classic_gameplay` gives the health bar's fill child `0x00000002` — 150 x 16,
+    /// the retail `0x21000005` gives the health bar's fill child `0x00000002` — 150 x 16,
     /// read off the live tree decoded from `client_local_English.dat`.
     ///
     /// The proportion is the whole point: a meter at 22/30 must show 22/30 of its width, not "not

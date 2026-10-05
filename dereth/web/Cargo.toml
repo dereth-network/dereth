@@ -24,7 +24,7 @@ dereth-client-contract.workspace = true
 dereth-client-shell = { workspace = true, default-features = true }
 dereth-scene = { workspace = true, default-features = true }
 # What the host and the playable client name by crate: the runtime's platform seams and
-# configuration, the session's host parsing, the data store, the retail UI's display modes and the
+# configuration, the session's host parsing, the data store, the modern UI's display modes and the
 # shared key codes.
 dereth-client-runtime.workspace = true
 dereth-client-net = { workspace = true, default-features = true }

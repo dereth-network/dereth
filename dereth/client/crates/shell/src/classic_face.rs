@@ -1,4 +1,4 @@
-//! The classic interface in the retail interface's place, when the player chooses it.
+//! The classic interface in the modern interface's place, when the player chooses it.
 //!
 //! The client shows one interface at a time, chosen by the `UI.Interface` option, and switches on
 //! the frame after the choice changes, in the world or out of it. The classic interface draws from
@@ -94,7 +94,7 @@ impl ClassicFace {
         }
     }
 
-    /// The lines the retail interface missed while the classic one was shown.
+    /// The lines the modern interface missed while the classic one was shown.
     pub fn take_missed(&mut self) -> Vec<dereth_client_contract::chat::interface::ChatMessage> {
         std::mem::take(&mut self.missed)
     }
@@ -116,7 +116,7 @@ impl ClassicFace {
         Some(want)
     }
 
-    /// The choice is put back to the retail interface, as a refused choice is.
+    /// The choice is put back to the modern interface, as a refused choice is.
     pub fn refused(&mut self) {
         dereth_client_contract::options::store::set_value(
             interface::INTERFACE,
@@ -133,7 +133,7 @@ mod tests {
 
     /// Behaviour: presentation.interface.a-switch-follows-the-choice-and-a-refused-one-goes-back
     #[test]
-    fn a_refused_classic_choice_goes_back_to_the_retail_interface() {
+    fn a_refused_classic_choice_goes_back_to_the_modern_interface() {
         dereth_client_contract::options::store::init();
         let mut face = ClassicFace::default();
         assert_eq!(face.changed_choice(), Some(Interface::Modern));

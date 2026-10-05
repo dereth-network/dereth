@@ -25,7 +25,7 @@ members = [
     "core/audio",
     "core/client-sdk",
     # dereth/: the products (MIT). `dereth-client`, the 3D client, with its own crates under
-    # dereth/client/crates/ (drawing, the scene, the client shell, the retail UI, the device input,
+    # dereth/client/crates/ (drawing, the scene, the client shell, the modern UI, the device input,
     # the clipboard and the console); the headless client; and the test kit.
     "dereth/client",
     "dereth/desktop",

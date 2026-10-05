@@ -435,7 +435,7 @@ pub mod attr {
     /// Despite the `UI_ItemList_` prefix the property is carried by
     /// [`child::SHORTCUT_NUM`](super::child::SHORTCUT_NUM) — the shortcut numeral, the element the
     /// shortcut-number write reads it off and sets the image of — and by nothing else in the
-    /// shipped gameplay tree. In `classic_gameplay` the first nine entries are the distinct
+    /// shipped gameplay tree. In `0x21000005` the first nine entries are the distinct
     /// numerals `0x0600109E`…`0x060010A6` and entries 9…17 are nine copies of `0x060074D3`, which
     /// is why bank 2 has no numbers of its own.
     pub const SHORTCUT_OVERLAY_ARRAY: u32 = 0x1000_0042;
@@ -445,7 +445,7 @@ pub mod attr {
     /// `UI_ItemList_ShortcutOverlayArray_Empty` — the array the shortcut-number write picks when
     /// the icon is in state `0x1000001C`.
     ///
-    /// **No element in the shipped `classic_gameplay` tree carries it**, so the empty arm of
+    /// **No element in the shipped `0x21000005` tree carries it**, so the empty arm of
     /// the shortcut-number write finds no array and — because both the image write and the show
     /// happen only when the array lookup succeeds — does nothing at all.
     /// An empty quickbar tile therefore gets its number from somewhere else entirely — its own

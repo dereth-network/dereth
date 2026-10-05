@@ -1099,7 +1099,7 @@ impl SceneDraw {
             "the objects are drawn {}",
             match style {
                 None => "as the world's own",
-                Some(RegionStyle::Modern) => "with the later files' look",
+                Some(RegionStyle::Late) => "with the later files' look",
                 Some(_) => "with the older files' look",
             }
         );
@@ -1280,7 +1280,7 @@ impl SceneDraw {
         if self.land.region.land_surf.tex_merge.is_some() {
             return ((*self.land.region).clone(), None, DetailSource::World);
         }
-        match style_region(store, RegionStyle::Modern) {
+        match style_region(store, RegionStyle::Late) {
             Ok(s) if s.region.land_surf.tex_merge.is_some() => {
                 (s.region, s.files, DetailSource::EndOfRetail)
             }

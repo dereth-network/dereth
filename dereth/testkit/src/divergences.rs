@@ -152,8 +152,8 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD-016",
-        title: "The retail interface's Create Spell page",
-        change: "On a world with spell research, the retail interface's magic window gains a \
+        title: "The modern interface's Create Spell page",
+        change: "On a world with spell research, the modern interface's magic window gains a \
                  Create Spell tab that works as the classic research page does.",
         why: "Spell research is offered in both interfaces.",
     },
@@ -161,7 +161,7 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-017",
         title: "The character screen's message",
         change: "The server's character screen message is shown: in a floating Announcements \
-                 window in the retail interface, and in the message box in the classic one.",
+                 window in the modern interface, and in the message box in the classic one.",
         why: "A world's message to its players is seen in both interfaces.",
     },
     Divergence {

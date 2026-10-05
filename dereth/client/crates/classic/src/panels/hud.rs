@@ -767,7 +767,7 @@ impl Panel for Hud {
                 return vec![PanelAction::Toggle(panel.into())];
             }
             if name == "ToggleHelp" {
-                return vec![PanelAction::Host(HostAction::LegacyHelp(51))];
+                return vec![PanelAction::Host(HostAction::ClassicHelp(51))];
             }
             // The keyboard window is the character screen's: going there leaves the world, so
             // it asks first, as the Options window's Configure Keyboard does.
@@ -1113,7 +1113,7 @@ impl Panel for Vitals {
             ControlEvent::Tick=>{self.link.tick(c.game.now(),c.game.link_status());vec![]}
             ControlEvent::Activate(id) if id.starts_with("vital:") => {self.numeric = !self.numeric;vec![]}
 
-            ControlEvent::Activate(id) if id == "help" => vec![PanelAction::Host(HostAction::LegacyHelp(51))],
+            ControlEvent::Activate(id) if id == "help" => vec![PanelAction::Host(HostAction::ClassicHelp(51))],
             ControlEvent::Activate(id)
                 if matches!(
                     id.as_str(),

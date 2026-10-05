@@ -304,9 +304,9 @@ fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups
     assert!(!own.draw.objects_from_other_files());
     drop(own);
 
-    let mut later = load(&store, &mut gpu, cfg(Some(RegionStyle::Modern)));
+    let mut later = load(&store, &mut gpu, cfg(Some(RegionStyle::Late)));
     assert!(later.draw.objects_from_other_files());
-    assert_eq!(later.draw.objects_style(), Some(RegionStyle::Modern));
+    assert_eq!(later.draw.objects_style(), Some(RegionStyle::Late));
     let later_px = draw(&mut later, &store, &mut gpu);
     // The world's 17 parts, each drawn as the later files draw it: the first sixteen through
     // their later degrade record's nearest mesh.
@@ -332,7 +332,7 @@ fn an_older_world_draws_its_objects_with_the_later_look_and_keeps_its_own_setups
 fn the_february_2005_world_takes_the_degrade_distance_setting_with_either_look() {
     let store = older_world();
     let mut gpu = crate::common::test_gpu(640, 480);
-    for objects in [None, Some(RegionStyle::Modern)] {
+    for objects in [None, Some(RegionStyle::Late)] {
         for setting in [0.0f32, 50.0, 100.0] {
             let mut c = cfg(objects);
             c.render.degrade_distance = setting;
@@ -360,7 +360,7 @@ fn an_object_mode_without_its_files_is_refused_and_the_world_keeps_its_own() {
     let work = scene
         .update_from_preferences(&store, &mut gpu)
         .expect("the poll runs");
-    assert_eq!(work.objects_refused, Some((RequiredFiles::Legacy, None)));
+    assert_eq!(work.objects_refused, Some((RequiredFiles::Classic, None)));
     assert!(!work.objects_changed);
     assert_eq!(scene.draw.objects_style(), None);
     assert!(!scene.draw.objects_from_other_files());
@@ -406,7 +406,7 @@ fn the_client_says_which_files_a_refused_object_mode_needs_and_switches_when_the
         assert!(app.frame());
     }
     let work = app.probe().last_render_pref_work();
-    assert_eq!(work.objects_refused, Some((RequiredFiles::Legacy, None)));
+    assert_eq!(work.objects_refused, Some((RequiredFiles::Classic, None)));
     assert!(!app
         .world_scene()
         .expect("a world")
@@ -548,7 +548,7 @@ fn holtburgs_rooms_take_the_other_eras_look_with_their_buildings_and_go_back_wit
     drop(scene);
 
     let store = older_world();
-    let mut later = load(&store, &mut gpu, cfg(Some(RegionStyle::Modern)));
+    let mut later = load(&store, &mut gpu, cfg(Some(RegionStyle::Late)));
     draw(&mut later, &store, &mut gpu);
     let rooms = holtburg_rooms(&later);
     let kept: Vec<u32> = rooms.iter().filter(|(_, l)| !l).map(|(c, _)| *c).collect();

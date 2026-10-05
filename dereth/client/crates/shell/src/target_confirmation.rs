@@ -1,8 +1,8 @@
-//! The game's questions -- `dereth_client_runtime::dialogs` -- shown through the retail UI's
+//! The game's questions -- `dereth_client_runtime::dialogs` -- shown through the modern UI's
 //! dialog factory.
 //!
 //! What a question is, which ones open and what an answer does are the runtime's. What is here is
-//! only how the retail UI shows one: the property collection the factory builds the box from, the
+//! only how the modern UI shows one: the property collection the factory builds the box from, the
 //! wording of the questions whose sentence is a string-table row, the elements, and taking a box
 //! down.
 use dereth_client_runtime::dialogs::{Answer, DialogPresenter, Prompt, Question, QuestionId};
@@ -12,7 +12,7 @@ use dereth_ui::{dialog, PropertyCollection, PropertyValue};
 const SOURCE: u32 = 0x1000_003d;
 const TARGET: u32 = 0x1000_003e;
 
-/// The boxes the retail UI has made for the runtime's questions.
+/// The boxes the modern UI has made for the runtime's questions.
 #[derive(Debug, Default)]
 pub(crate) struct TargetedDialogs {
     /// Each question's dialog context, and whether it is a one-button message (a pop-up string),
@@ -67,7 +67,7 @@ struct Presenter<'a> {
 }
 
 impl Presenter<'_> {
-    /// The sentence a question shows: its own, or the string-table row the retail UI words it with.
+    /// The sentence a question shows: its own, or the string-table row the modern UI words it with.
     fn text(&mut self, prompt: &Prompt) -> String {
         let ui = &mut self.shell.ui;
         match prompt {

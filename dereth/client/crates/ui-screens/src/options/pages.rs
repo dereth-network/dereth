@@ -40,7 +40,7 @@ pub struct OptionControl {
     /// while the label write starts at the parent, finds descendant `0x1000021B`,
     /// and updates its text — so
     /// `0x1000021C` is the control and `0x1000021B` is the row's caption. The shipped
-    /// `classic_options` layout agrees: under template root `0x1000021A`, `0x1000021B` is type
+    /// `0x2100002B` layout agrees: under template root `0x1000021A`, `0x1000021B` is type
     /// `0x0C` (text) and `0x1000021C` is type `0x10000037` (`SliderOption`).
     /// `CheckboxSliderOption`'s two children are `0x10000219` and `0x1000021C`.
     ///

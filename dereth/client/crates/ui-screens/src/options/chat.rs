@@ -103,7 +103,7 @@ use crate::panels::listbox::ListBoxWidget;
 use crate::view::{GameView, UiRequest};
 
 // -------------------------------------------------------------------------------------------
-// Ids, measured off the shipped `classic_gameplay` tree
+// Ids, measured off the shipped `0x21000005` tree
 // -------------------------------------------------------------------------------------------
 
 /// The `ChatOptionsPanel` element. The one element of type `0x10000042` in the shipped tree; its

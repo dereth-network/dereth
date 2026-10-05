@@ -1082,7 +1082,7 @@ fn the_live_space_carries_the_camera_the_light_and_the_heading() {
 ///
 /// Oracle: the client's creature-mode space, whose field of view is 45 degrees from construction
 /// and which the paper doll never changes. The space here is shared with the classic interface,
-/// whose doll has a lens of its own; a frame of the retail interface puts the space's own back.
+/// whose doll has a lens of its own; a frame of the modern interface puts the space's own back.
 #[test]
 fn the_paper_doll_draws_with_its_own_45_degree_lens_whatever_the_space_was_given() {
     let (mut app, _) = app_with_the_capture();

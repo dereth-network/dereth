@@ -836,7 +836,7 @@ impl Region {
     /// thing that decides which sibling paints on top.
     ///
     /// The vitals bars are the proof. Every
-    /// `Meter` in `classic_gameplay` holds three z-0 children: the empty trough
+    /// `Meter` in `0x21000005` holds three z-0 children: the empty trough
     /// `0x100000E7` (read order 1), the coloured fill `0x00000002` (read order 2) and the label
     /// (read order 3). This crate's child-description table is a `BTreeMap` keyed by element id, so
     /// without the tie-break creation order is `2, 0xE7, 0xEB` — the fill first, the trough painted

@@ -307,7 +307,7 @@ fn the_hud_comes_up_with_the_six_windows_the_retail_client_shows_and_no_others()
 /// Initialization registers sixteen panel pages, five environment pages and two combat
 /// pages, then hides every page and leaves no current or previous page in any stack.
 ///
-/// Twenty-three pages, and the shipped `classic_gameplay` layout marks **all** of them visible: the
+/// Twenty-three pages, and the shipped `0x21000005` layout marks **all** of them visible: the
 /// admin panel, the inventory, the options pages and twenty more, stacked on top of each other. The
 /// assertion is on the live tree, so it fails if any of the three stacks leaves a registered page up.
 #[test]
@@ -1067,7 +1067,7 @@ fn the_link_lamp_is_present_and_is_the_only_thing_its_state_changes() {
 /// **The stance icon reflects the player's combat mode.**
 ///
 /// Retail client observation in peace mode: a white dove on green (`0x06004CEC`, element
-/// `0x10000192`). `classic_gameplay` marks **all four** stance buttons visible on the same
+/// `0x10000192`). `0x21000005` marks **all four** stance buttons visible on the same
 /// rectangle; the combat-mode visibility update hides three of them, otherwise the last icon
 /// drawn wins.
 ///

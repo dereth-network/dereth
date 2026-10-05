@@ -30,7 +30,7 @@
 //! 4. The notice handler shows that page, hides the page it covered, and shows `<COMB>` itself.
 //!    The corresponding hide path hides the wrapper when no page remains visible.
 //!
-//! The two page ids and their panel ids were read off the shipped `classic_gameplay`:
+//! The two page ids and their panel ids were read off the shipped `0x21000005`:
 //! `0x1000005C` carries panel id **17** and `0x10000061` panel id **22**, and all twenty-three
 //! panel ids in the three stacks are distinct, so the fan-out in
 //! `GamePlayScreen::recv_set_panel_visibility` cannot cross-talk.

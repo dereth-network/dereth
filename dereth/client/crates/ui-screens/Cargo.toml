@@ -1,6 +1,6 @@
 [package]
 name = "dereth-ui-screens"
-description = "Every concrete screen, panel, window and game-specific widget of the retail UI."
+description = "Every concrete screen, panel, window and game-specific widget of the modern UI."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

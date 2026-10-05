@@ -6,7 +6,7 @@
 //! # What the window is, measured from the shipped tree
 //!
 //! The combat panel (`0x1000005C`, element type `0x1000000C`) is a page of `<COMB>`. It is built
-//! from `classic_gameplay` by `GamePlayScreen::create`; its children are:
+//! from `0x21000005` by `GamePlayScreen::create`; its children are:
 //!
 //! | element | type | what it is |
 //! |---|---|---|

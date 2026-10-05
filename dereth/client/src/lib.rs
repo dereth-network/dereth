@@ -1,4 +1,4 @@
-//! The Dereth 3D client: the window, the graphics device, the renderer, the retail UI and the sound
+//! The Dereth 3D client: the window, the graphics device, the renderer, the modern UI and the sound
 //! device, plugged into the runtime's frame loop.
 //!
 //! **Depends on** the client shell (`dereth-client-shell`), scene (`dereth-scene`) and desktop

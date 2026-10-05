@@ -95,7 +95,7 @@ fn app_on(m: dereth_ui::UiMode) -> App {
     app
 }
 
-/// The shipped 5 x 10 border strip whose **columns** differ — `classic_gameplay`'s left window
+/// The shipped 5 x 10 border strip whose **columns** differ — `0x21000005`'s left window
 /// edge.
 const STRIP: DataId = DataId(0x0600_612B);
 

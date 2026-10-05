@@ -4,7 +4,7 @@
 //! more than draw is handed a [`UiContext`](crate::ui_context::UiContext): the game as a front end
 //! may see it (the model read-only, the pre-game state, the scene as a view), the front end's own
 //! HUD slot, the presentation, and a named call for each thing a front end may ask the game to do.
-//! Every front end gets the same context, the retail UI included, so nothing a UI does goes past
+//! Every front end gets the same context, the modern UI included, so nothing a UI does goes past
 //! it.
 
 use std::sync::Arc;

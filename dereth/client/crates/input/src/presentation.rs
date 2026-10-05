@@ -555,13 +555,13 @@ mod tests {
 
     #[test]
     fn the_rows_each_interface_does_nothing_with_are_the_ones_it_has_no_counterpart_for() {
-        let retail: Vec<&str> = ROWS
+        let modern: Vec<&str> = ROWS
             .iter()
             .filter(|r| r.not_used(Interface::Modern).is_some())
             .map(|r| r.action_name)
             .collect();
         assert_eq!(
-            retail,
+            modern,
             [
                 "PlayerOption_AutoCreateShortcuts",
                 "ToggleRightClickMouseLook",

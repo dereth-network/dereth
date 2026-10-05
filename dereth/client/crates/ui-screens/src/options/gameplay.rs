@@ -13,7 +13,7 @@ use dereth_client_contract::options::sheet::Act;
 /// The class name, so that `panels/catalogue.rs`'s row has a module that names it.
 pub const CLASS: &str = "GameplayOptionsPanel";
 
-/// The page element in the shipped `classic_gameplay` tree.
+/// The page element in the shipped `0x21000005` tree.
 ///
 /// Measured off the built tree, not taken from a document: it is the **one** element of type
 /// `0x10000029` in all 1,870, and its id is `0x10000212`. Both halves are asserted by the station,

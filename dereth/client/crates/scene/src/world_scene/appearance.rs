@@ -79,7 +79,7 @@ pub fn object_files_for(
     };
     let needs = style.required_files();
     let era = match needs {
-        RequiredFiles::Legacy => dereth_dat::ContainerEra::Classic,
+        RequiredFiles::Classic => dereth_dat::ContainerEra::Classic,
         RequiredFiles::Modern => dereth_dat::ContainerEra::Modern,
     };
     if era == store.era() {

@@ -16,7 +16,7 @@ use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::view::{PrefValue, UiRequest};
 
 // -------------------------------------------------------------------------------------------
-// The harness — the shipped `classic_gameplay` tree with a real string resolver.
+// The harness — the shipped `0x21000005` tree with a real string resolver.
 // -------------------------------------------------------------------------------------------
 
 fn ui_system(with_registry: bool) -> UiSystem {

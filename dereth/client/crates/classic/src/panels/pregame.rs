@@ -1660,7 +1660,7 @@ impl Panel for Pregame {
                 "back" if self.page == "heritage" => actions.push(Self::leave_creation()),
                 "back" => self.navigate(-1),
                 "creation-menu" => actions.push(Self::leave_creation()),
-                "creation-help" => actions.push(PanelAction::Host(HostAction::LegacyHelp(0x32))),
+                "creation-help" => actions.push(PanelAction::Host(HostAction::ClassicHelp(0x32))),
                 "next"
                     if self.page == "attributes"
                         && self

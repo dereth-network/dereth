@@ -1,4 +1,4 @@
-//! The client's front end over the runtime: the retail UI, the HUD's panels, the cursor, the
+//! The client's front end over the runtime: the modern UI, the HUD's panels, the cursor, the
 //! clipboard bridge, the device input and the renderer that draws the UI over the scene, generic
 //! over the platform under it.
 //!
@@ -19,7 +19,7 @@
 //! (`seam: host -> screens`).
 //!
 //! The frame loop is the runtime's. What this crate owns is what plugs into it: the front end and
-//! the application with it ([`app::ClientShell`], [`app::App`]), the retail UI ([`ui`],
+//! the application with it ([`app::ClientShell`], [`app::App`]), the modern UI ([`ui`],
 //! [`ui_draw`], [`hud`], [`hud_drive`]), the renderer that draws the UI over the scene ([`gpu`],
 //! [`present`]), the cursor ([`cursor`]), the clipboard bridge ([`clipboard`]), the device input
 //! ([`input`], [`pump`]), the layout and keymap files ([`persist`]) and the targeted-use
@@ -50,7 +50,7 @@ pub mod persist;
 
 // What the shell needs from the platform under it (`platform::host::Host`), and the window
 // events and key identities every platform shares.
-/// The classic interface in the retail interface's place, when it is chosen.
+/// The classic interface in the modern interface's place, when it is chosen.
 mod classic_face;
 pub mod platform;
 /// The presentation: the runtime's device seam and what the UI adds to it.

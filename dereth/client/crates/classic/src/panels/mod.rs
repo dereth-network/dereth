@@ -99,7 +99,7 @@ impl Default for ClassicState {
             active_bottom: String::new(),
             book_edit_privileged: false,
             portraits: std::collections::BTreeMap::new(),
-            option_words: crate::screens::DEFAULT_WORDS,
+            option_words: crate::character_options_model::DEFAULT_WORDS,
             timestamp_format: String::new(),
             abuse_response: None,
             game_status: String::new(),
@@ -168,8 +168,8 @@ pub enum HostAction {
         name: String,
     },
     Quit,
-    LegacyHelp(u32),
-    PrintLegacyHelp {
+    ClassicHelp(u32),
+    PrintClassicHelp {
         context: u32,
         topic: u32,
     },

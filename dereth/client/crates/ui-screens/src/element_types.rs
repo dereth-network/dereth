@@ -133,7 +133,7 @@ pub const REGISTRATION_ORDER: [GameElementType; 84] = [
 /// `CombatPanelStack` reports this as its element type but is **never** registered, because
 /// **`FloatingCombatStack` (`0x10000054`) derives from it** and that subclass is what the layout
 /// instantiates, with `CombatPanelStack` as its base. So `<COMB>` (`0x100006B5`) *is* a live `CombatPanelStack` and no element in
-/// `classic_gameplay` carries this type.
+/// `0x21000005` carries this type.
 ///
 /// It is **not** a described child of `CombatWindow`: it is the other way round —
 /// `CombatWindow` (`0x1000005C`) is a *child* of the `CombatPanelStack` instance — and a
@@ -157,7 +157,7 @@ pub const COMBAT_PANEL_UNREGISTERED: ElementType = ElementType(0x1000_0055);
 /// three of the routes into that flag:
 ///
 /// 1. **the element's own visibility rule** — the element base's rule is "has a context menu or a
-///    valid tooltip text", and no lamp in the shipped `classic_gameplay` layout
+///    valid tooltip text", and no lamp in the shipped `0x21000005` layout
 ///    carries a tooltip or a context menu;
 /// 2. **an explicit mouse-visible setter** — nothing calls one on a lamp;
 /// 3. **step 4**, which sets the flag for an
@@ -202,7 +202,7 @@ pub const COMBAT_PANEL_UNREGISTERED: ElementType = ElementType(0x1000_0055);
 ///
 /// The mini-game lamp `0x100000F3` would be dead in exactly the same way as the other five and is
 /// fixed by the same registration. `PortalStormIndicator` (`0x10000005`) is the sixth
-/// class and has **no instance anywhere in `classic_gameplay`** — measured over all 1,870 elements
+/// class and has **no instance anywhere in `0x21000005`** — measured over all 1,870 elements
 /// of the tree — so it is registered for correctness and has nothing to click today.
 pub const LAMP_BUTTON_CLASSES: [ElementType; 6] = [
     ty::BURDEN_INDICATOR,

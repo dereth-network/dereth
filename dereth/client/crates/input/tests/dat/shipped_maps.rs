@@ -178,7 +178,7 @@ fn the_key_pages_rows_are_the_bindable_entries_and_the_clients_own() {
     assert_eq!(listed + 1, ROWS.len());
 }
 
-/// **A row the retail interface does nothing with has no default key in it**: neither shipped
+/// **A row the modern interface does nothing with has no default key in it**: neither shipped
 /// map, nor this client's own defaults, binds any of the five.
 ///
 /// Behaviour: keys.retail.a-row-this-interface-does-not-use-has-no-default-key

@@ -282,7 +282,7 @@ fn one_character() -> dereth_ui::persist::CharacterSet {
 
 /// Behaviour: presentation.interface.a-switch-back-to-the-retail-interface-shows-the-screen-the-game-is-at
 ///
-/// Oracle: the game state the other interface left. The retail interface is not framed while the
+/// Oracle: the game state the other interface left. The modern interface is not framed while the
 /// classic one is shown, so it comes back either never having been framed at all (the classic
 /// interface was chosen before it started) or on the screen it last showed.
 #[test]

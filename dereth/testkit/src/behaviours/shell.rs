@@ -1652,7 +1652,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "options.client-page.the-classic-defaults-reset-the-texture-sizes-as-the-retail-ones-do",
         says: "The classic interface's Client page Defaults puts the landscape and environment \
-               texture sizes and the detail textures back where the retail interface's Defaults \
+               texture sizes and the detail textures back where the modern interface's Defaults \
                puts them, as well as the sound, the screen and the camera.",
         since: THIS_CLIENT,
         divergence: "CD-021",
@@ -1964,7 +1964,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "options.pages.both-interfaces-draw-the-same-four-pages-under-the-same-headings",
         says: "Both interfaces' options windows have the same four pages, Game and Support, \
                Character Options, Chat Options and Client Options, and each page's rows sit \
-               under the same headings in both; the retail interface's character options page \
+               under the same headings in both; the modern interface's character options page \
                has seven headings over its 50 check boxes and its client options page five \
                (Sound, Display, Graphics Quality, Era Look, Camera and Mouse), with no row for \
                Sync with Refresh Rate and a row for the landscape's detail texture.",

@@ -4,7 +4,7 @@
 //! **Depends on** `dereth-primitives`, the decoded tables of `dereth-assets` and, behind the
 //! default `proto` feature, `dereth-protocol`. **Used by** the client's object model
 //! (`dereth-client-model`), animation
-//! (`dereth-animation`), the retail UI (`dereth-ui-screens`), the SDK and the server
+//! (`dereth-animation`), the modern UI (`dereth-ui-screens`), the SDK and the server
 //! (`empyrean-world`).
 //!
 //! **Must never** hold the object model, read a file or touch the wire. The quality-reading

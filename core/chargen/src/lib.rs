@@ -3,7 +3,7 @@
 //!
 //! **Depends on** `dereth-primitives`, the decoded tables (`dereth-assets`), the shared rules'
 //! creation arithmetic (`dereth-rules`) and the contract (`dereth-client-contract`), whose
-//! `CharGenResultData` is what a finished creation hands the session. **Used by** the retail UI
+//! `CharGenResultData` is what a finished creation hands the session. **Used by** the modern UI
 //! (`dereth-ui-screens`), the drawn world's creation preview
 //! (`dereth-scene`) and any other UI's creation screens.
 //!

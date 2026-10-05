@@ -166,7 +166,7 @@ pub const LOGOUT_BUTTON: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_00FA
 /// `LinkStatusIndicator` (`0x10000003`) — the connection lamp.
 ///
 /// This is the one lamp that needs its post-init to be visible at all: the shipped
-/// `classic_gameplay` gives element `0x100000F8` **no base image at all**. Its
+/// `0x21000005` gives element `0x100000F8` **no base image at all**. Its
 /// four pictures live only in element states `0x11`…`0x14`, and the only thing that ever puts it
 /// into one of them is its own post-init: after the base post-init it registers for global
 /// message 3 and, if its link state is not already 1, sets it to 1 and shows element state `0x11`.

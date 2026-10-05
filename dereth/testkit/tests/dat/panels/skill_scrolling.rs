@@ -16,7 +16,7 @@ use super::*;
 // =============================================================================================
 
 /// The stat-management list's vertical scrollbar, attribute `0x72` on `0x1000023D` in the shipped
-/// `classic_gameplay` layout. Read back off the live tree below rather than assumed.
+/// `0x21000005` layout. Read back off the live tree below rather than assumed.
 const SKILL_LIST_SCROLLBAR: ElementId = ElementId(0x1000_023E);
 
 /// The skill id for *Melee Defense*, the row the value claims are pinned against: the

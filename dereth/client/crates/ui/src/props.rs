@@ -239,7 +239,7 @@ pub mod attr {
     pub const HOT_CLICK_REPEAT_INTERVAL: u32 = 0x11;
     /// enum — the `InputAction` a click on this button fires.
     /// The button's click handler's first act is
-    /// reading enum attribute `0x12` as the action; **38** elements of the shipped `classic_gameplay`
+    /// reading enum attribute `0x12` as the action; **38** elements of the shipped `0x21000005`
     /// tree carry one, including all seven toolbar panel buttons and the six indicator lamps.
     pub const BUTTON_INPUT_ACTION: u32 = 0x12;
     /// bool — highlight on rollover. Without it a button never enters state 2/7 no matter where
@@ -274,9 +274,9 @@ pub mod attr {
     ///    `0x10000193`/`0x10000194`/`0x10000195` each carry `0x3B = true`. Read as `hide`, the
     ///    layout comes up showing exactly the dove, matching the observed retail peace-mode
     ///    start state.
-    /// 3. Read as `hide`, the shipped `classic_gameplay` layout reproduces the **whole** live
+    /// 3. Read as `hide`, the shipped `0x21000005` layout reproduces the **whole** live
     ///    retail start state of the eighteen children of the gameplay root `0x10000495`,
-    ///    `classic_keyboard` and `classic_admin` included — see
+    ///    `0x21000009` and `classic_admin` included — see
     ///    `dereth_ui_screens::screens::gameplay::GamePlayScreen::HUD_START_VISIBILITY`.
     /// 4. `classic_intro` (`0x21000001`): both media children carry `0x3B = true` at element
     ///    level and `0x3B = false` in each state that owns media, i.e. "hidden except in my own
@@ -325,7 +325,7 @@ pub mod attr {
     /// **This is the gate on the whole tooltip.** The element's start-tooltip-at-mouse
     /// reads it as an enum and **returns NULL
     /// when it is absent** — an element with tooltip text and no `0x47` shows nothing at all.
-    /// 51 of `classic_gameplay`'s elements carry it, all but one naming an element of layout
+    /// 51 of `0x21000005`'s elements carry it, all but one naming an element of layout
     /// `0x21000041`.
     pub const TOOLTIP_ELEMENT: u32 = 0x47;
     /// data file — the layout the tooltip window is built from. `UICore_Element_tooltip_layout`.
@@ -338,7 +338,7 @@ pub mod attr {
     /// `UICore_Element_tooltip_entry`.
     ///
     /// Read through the generic property fetch, reached only after the live tooltip text fails its
-    /// validity check. Twenty-one of `classic_gameplay`'s elements carry
+    /// validity check. Twenty-one of `0x21000005`'s elements carry
     /// one and **nothing in the client sets a tooltip for them** — a shipped string is the
     /// whole of their tooltip.
     pub const TOOLTIP_ENTRY: u32 = 0x49;

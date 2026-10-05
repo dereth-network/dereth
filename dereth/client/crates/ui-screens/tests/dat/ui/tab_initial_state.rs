@@ -11,7 +11,7 @@ use dereth_primitives::{AssetSource, DataId};
 use dereth_ui::framework::LayoutEnum;
 use dereth_ui::{ElemHandle, ElementId, PropertyValue, StateId, UiSystem};
 
-/// `classic_gameplay`'s layout enum and root element — `screens::gameplay`'s own two constants.
+/// `0x21000005`'s layout enum and root element — `screens::gameplay`'s own two constants.
 const GAMEPLAY: LayoutEnum = LayoutEnum(0x1000_0006);
 const GAMEPLAY_ROOT: ElementId = ElementId(0x1000_0495);
 
@@ -118,7 +118,7 @@ fn color_of(v: &PropertyValue) -> Option<u32> {
     })
 }
 
-/// Every panel in `classic_gameplay` that declares `0x2E`, with its rows.
+/// Every panel in `0x21000005` that declares `0x2E`, with its rows.
 fn panels(ui: &UiSystem, root: ElemHandle) -> Vec<(ElemHandle, Vec<PageRow>)> {
     let mut all = Vec::new();
     walk(ui, root, &mut all);
@@ -142,7 +142,7 @@ fn panels(ui: &UiSystem, root: ElemHandle) -> Vec<(ElemHandle, Vec<PageRow>)> {
 // 0. The premise: the shipped layout really does put two differently coloured states on its tabs.
 // ================================================================================================
 
-/// If this fails, the assertions below are measuring nothing. `classic_gameplay` has tabbed panels,
+/// If this fails, the assertions below are measuring nothing. `0x21000005` has tabbed panels,
 /// each names its tabs through `0x2E`, and every tab authors both `0x0B` and `0x0C` with a font
 /// colour that differs from its base state's.
 #[test]

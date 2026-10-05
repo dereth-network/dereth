@@ -37,7 +37,7 @@
 //! | the click | `dereth_ui::widgets::button`'s `0x0B`/`0x0E` toggle | the arm keyed on these five sources |
 //!
 //! The elements themselves need nothing: all five are element type `0x10000035` in the shipped
-//! `classic_gameplay` tree and all five carry attribute `0x0B`, so the button element's mouse-up
+//! `0x21000005` tree and all five carry attribute `0x0B`, so the button element's mouse-up
 //! handler flips `0x0E` on every press. The press goes out as element message 1, which is what
 //! this module handles.
 //!

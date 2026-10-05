@@ -17,7 +17,7 @@ pub const BAR: ElementId = ElementId(0x1000_0034);
 /// The client's **text** element, not a second meter — child `0x10000035`, cast to a text element
 /// and given a string, and it carries the patcher's file name.
 ///
-/// Read back from the shipped `classic_gameplay` tree: `0x10000035` is element type `0x0C` and is a
+/// Read back from the shipped `0x21000005` tree: `0x10000035` is element type `0x0C` and is a
 /// **child of** `0x10000034`, not its sibling. They are not "two meters `PowerBar` drives, both
 /// with attribute `0x69`"; only `0x10000034` ever takes `0x69`.
 pub const SECONDARY_BAR: ElementId = ElementId(0x1000_0035);
@@ -36,7 +36,7 @@ pub const DDD_STATE: u32 = 4;
 /// The file-name string variable's placeholder when the patcher has not named a file.
 pub const DDD_UNKNOWN_FILE: &str = "???";
 
-/// One `PowerBar` **object** -- not the class. The shipped `classic_gameplay` tree carries
+/// One `PowerBar` **object** -- not the class. The shipped `0x21000005` tree carries
 /// **two**, and each keeps its own current power-bar mode and its own `0x10000034`.
 #[derive(Debug, Default)]
 pub struct PowerBar {
@@ -69,7 +69,7 @@ pub struct PowerBar {
 /// and the player description. Sending a notice walks only the handlers registered for it, so an
 /// object that registers nothing hears nothing.
 ///
-/// The shipped `classic_gameplay` tree carries one object of each class: `0x10000044` (type
+/// The shipped `0x21000005` tree carries one object of each class: `0x10000044` (type
 /// `0x1000000F`, inside `<SBOX>`, spanning the bottom of the screen) and `0x10000613` (`<PBAR>`,
 /// type `0x10000053`, the movable Advanced-Combat window). **Only `<PBAR>` is reachable by a
 /// notice**; the plain `PowerBar` object is inert in retail and can never become visible.
@@ -256,7 +256,7 @@ impl PowerBars {
     /// Bind every `PowerBar` under `root`.
     ///
     /// The class test accepts either type `0x1000000F` or `0x10000053`. The shipped
-    /// `classic_gameplay` tree has one
+    /// `0x21000005` tree has one
     /// of each -- `0x10000044` inside `<SBOX>` and `0x10000613`, the `<PBAR>` floaty -- and both
     /// start hidden.
     pub fn post_init(&mut self, ui: &mut UiSystem, root: ElemHandle) {

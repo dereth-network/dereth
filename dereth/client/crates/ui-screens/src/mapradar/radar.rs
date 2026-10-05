@@ -463,7 +463,7 @@ pub fn blip_fills(b: &Blip) -> Vec<dereth_ui::UiFill> {
 /// **The tooltip is not decoration.**
 /// The element base's tooltip write ends by recomputing the element's mouse visibility through
 /// the "should be mouse visible" test: it has a context menu or valid tooltip text. The
-/// radar sets no mouse-visible attribute anywhere and the shipped `classic_gameplay` layout gives
+/// radar sets no mouse-visible attribute anywhere and the shipped `0x21000005` layout gives
 /// `0x100006D2` none, so **the radar body is transparent to the pointer except while a blip is
 /// under it** — the tooltip is what makes it hit-testable, and clearing it is what makes it
 /// transparent again. That is why the radar's select arm can be

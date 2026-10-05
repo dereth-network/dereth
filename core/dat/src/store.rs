@@ -164,7 +164,7 @@ impl RetailDatStore {
         })
     }
 
-    /// A dat set from before Throne of Destiny with the later interface beside it: `portal.dat`
+    /// A dat set from before Throne of Destiny with the modern interface beside it: `portal.dat`
     /// and `cell.dat` from `dir` answer the world, and the later `client_local_English.dat` and
     /// `client_portal.dat` from `later_dir` answer the language reads and every portal read the
     /// older portal file has no record for. This is what lets the later screens run over the
@@ -205,7 +205,7 @@ impl RetailDatStore {
     }
 
     /// The layout of the record `id` as this store reads it: the world files' (the portal and cell
-    /// files hold it), else the later files' (a store with the later interface beside an older
+    /// files hold it), else the later files' (a store with the modern interface beside an older
     /// world answers it from those).
     #[must_use]
     pub fn era_of(&self, id: DataId) -> ContainerEra {
@@ -248,7 +248,7 @@ impl RetailDatStore {
         !implied_by_older
     }
 
-    /// Whether this store answers from the later interface files beside an older world.
+    /// Whether this store answers from the modern interface files beside an older world.
     #[must_use]
     pub fn has_modern_interface(&self) -> bool {
         self.companions.modern_portal.is_some()
@@ -273,9 +273,9 @@ impl RetailDatStore {
         })
     }
 
-    /// The files the later interface's own screens read: their layouts, strings, fonts and art.
+    /// The files the modern interface's own screens read: their layouts, strings, fonts and art.
     /// Beside an older world these are the later files ([`Self::modern_companion_files`]), so a record both
-    /// sets carry -- a panel's frame, a button's picture -- is the later interface's and not the
+    /// sets carry -- a panel's frame, a button's picture -- is the modern interface's and not the
     /// older world's picture under the same id. Otherwise this store itself. The pictures a world
     /// names (an item's icon, a spell's) stay this store's to answer.
     #[must_use]

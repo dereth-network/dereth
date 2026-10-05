@@ -395,7 +395,7 @@ mod imp {
         /// draws it: the UI is composited over a finished 3D frame with the depth test off.
         ///
         /// The draw list is lowered onto the presentation's overlay ([`Self::overlay_items`]) and
-        /// the overlay is what the device draws, so the retail UI draws through the same call any
+        /// the overlay is what the device draws, so the modern UI draws through the same call any
         /// other UI does.
         ///
         /// # Errors

@@ -11,7 +11,7 @@
 //! objects. A valid edge value from 1 through 4 shrinks one edge per object: 1 top, 2 bottom,
 //! 3 left, 4 right. The edge setter is fed by element property 0x52. In the shipped layouts that
 //! property appears only on roots of older docked layouts; the root children of
-//! `classic_gameplay` inherit from `classic_floaty*` instead and arm no clamp edge. This file
+//! `0x21000005` inherit from `classic_floaty*` instead and arm no clamp edge. This file
 //! does not rescan the layouts for it.
 //!
 //! Mouse hit testing walks visible children tail-to-head, checks their bounds and rebases
@@ -528,7 +528,7 @@ fn a_press_in_the_open_view_selects_the_object_behind_it() {
 /// visibility combines an explicit request with the behaviour's answer; the base answer is
 /// true for a context menu or valid tooltip. The client's widgets may also request mouse
 /// visibility. The floating panel, inventory page and three subpanels do not accept their
-/// padding. In the shipped layouts BLOCK_CLICKS appears only on hidden `classic_keyboard`
+/// padding. In the shipped layouts BLOCK_CLICKS appears only on hidden `0x21000009`
 /// 0x100004A8; this test does not rescan every element for that property.
 ///
 /// Adding opacity or a special gutter guard would change these positive hit/selection results.

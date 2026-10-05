@@ -1,4 +1,4 @@
-//! Every concrete screen, panel, window and game-specific widget of the retail UI.
+//! Every concrete screen, panel, window and game-specific widget of the modern UI.
 //!
 //! **Depends on** `dereth-primitives`, the decoded tables of `dereth-assets`, the shared rules
 //! (`dereth-rules`), the game's presentation rules (`dereth-presentation`), character creation's

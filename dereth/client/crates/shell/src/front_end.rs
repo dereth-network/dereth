@@ -1,4 +1,4 @@
-//! The executable's front end: the retail UI, the cursor, the clipboard, the preview spaces and
+//! The executable's front end: the modern UI, the cursor, the clipboard, the preview spaces and
 //! the overlay, as [`ClientShell`], the [`Shell`] the executable supplies.
 //!
 //! It is one front end among any: it never holds the application. Each step of the frame it takes
@@ -867,7 +867,7 @@ impl<H: Host> Ui<'_, '_, H> {
         }
     }
 
-    /// This client's own actions that the retail interface answers itself, taken out of what the
+    /// This client's own actions that the modern interface answers itself, taken out of what the
     /// screens left this frame (the performance panel's key and hold sidestep go on to the
     /// runtime, which answers them in either interface):
     ///
@@ -1586,7 +1586,7 @@ impl<H: Host> ClientShell<H> {
                 for line in missed {
                     cx.hud_mut().pending_chat.push((None, line));
                 }
-                tracing::info!("the retail interface is shown");
+                tracing::info!("the modern interface is shown");
             }
         }
     }

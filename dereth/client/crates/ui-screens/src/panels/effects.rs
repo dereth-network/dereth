@@ -1,6 +1,6 @@
 //! `EffectsPanel` — the **buff** and **debuff** panels the two magic lamps open.
 //!
-//! Element type `0x1000001B`; the shipped `classic_gameplay` tree holds **two** instances,
+//! Element type `0x1000001B`; the shipped `0x21000005` tree holds **two** instances,
 //! `0x10000184` and `0x10000185`, and the only thing that tells them apart is the layout attribute
 //! `0x1000000C`, the effects UI type — `1` helpful, `2` harmful. Reading it once and applying it to
 //! both would light the debuff panel with buffs.
@@ -31,7 +31,7 @@
 //!
 //! # Two facts measured off the shipped tree rather than taken from the catalogue
 //!
-//! Building `classic_gameplay` and reading both instances back:
+//! Building `0x21000005` and reading both instances back:
 //!
 //! * The client binds `0x10000126` as the panel's **info text** (a `TextElement`, type `0x0C`) and
 //!   `0x10000123` as its **list box** (type `0x05`). The second child is the info line under the

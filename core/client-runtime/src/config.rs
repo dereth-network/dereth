@@ -80,7 +80,7 @@ impl Default for DisplayPrefs {
 /// Display-preference values preserved by the compatibility projection.
 /// The active renderer reads its preferences independently of this record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PresentationFlags {
+pub struct DisplayModeFlags {
     pub fs_refresh_rate: u32,
     pub fs_bits_per_pixel: u32,
     pub fs_triple_buffering: bool,
@@ -88,7 +88,7 @@ pub struct PresentationFlags {
     pub antialiasing: bool,
 }
 
-impl Default for PresentationFlags {
+impl Default for DisplayModeFlags {
     fn default() -> Self {
         Self {
             fs_refresh_rate: 0,
@@ -100,22 +100,22 @@ impl Default for PresentationFlags {
     }
 }
 
-/// Presentation defaults, overwritten when the device loads display preferences.
+/// Display mode defaults, overwritten when the device loads display preferences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Presentation {
+pub struct DisplayMode {
     pub width: u32,
     pub height: u32,
     pub full_screen: bool,
 
     /// Compatibility projection retained independently of the effective window size.
-    pub compatibility: PresentationFlags,
+    pub compatibility: DisplayModeFlags,
 }
 
-impl Default for Presentation {
+impl Default for DisplayMode {
     /// The render-device presentation constructor uses this value.
     fn default() -> Self {
         Self {
-            compatibility: PresentationFlags::default(),
+            compatibility: DisplayModeFlags::default(),
             width: 800,
             height: 600,
             full_screen: false,
@@ -1663,22 +1663,22 @@ impl Config {
         &self,
         forced: Option<(u32, u32)>,
         allow_full_screen: bool,
-    ) -> Option<Presentation> {
+    ) -> Option<DisplayMode> {
         let w = self.display.resolution >> 16;
         let h = self.display.resolution & 0xFFFF;
         if w < 800 || h < 600 {
             return None;
         }
-        let mut p = Presentation {
+        let mut p = DisplayMode {
             width: w,
             height: h,
             full_screen: self.display.full_screen,
-            compatibility: PresentationFlags {
+            compatibility: DisplayModeFlags {
                 fs_refresh_rate: self.display.refresh_rate,
                 fs_triple_buffering: self.display.triple_buffering,
                 fs_sync_to_display_refresh: self.display.sync_to_refresh,
                 antialiasing: self.display.antialiasing,
-                ..PresentationFlags::default()
+                ..DisplayModeFlags::default()
             },
         };
         if let Some((fw, fh)) = forced {
@@ -1996,11 +1996,11 @@ mod tests {
         );
         assert_eq!(
             styles("[Render]\nGround=LegacyBlend\nSky=modern\n"),
-            (Some(RegionStyle::LegacyHardware), Some(RegionStyle::Modern))
+            (Some(RegionStyle::LegacyHardware), Some(RegionStyle::Late))
         );
         assert_eq!(
             styles("[Render]\nGround=LATER\n"),
-            (Some(RegionStyle::Modern), None)
+            (Some(RegionStyle::Late), None)
         );
         assert_eq!(
             styles("[Render]\nGround=software\n"),
@@ -2036,7 +2036,7 @@ mod tests {
                 &["--object-visuals", "modern"],
                 "[Render]\nObjects=Legacy\n"
             ),
-            (Some(RegionStyle::Modern), Some(Some(RegionStyle::Modern)))
+            (Some(RegionStyle::Late), Some(Some(RegionStyle::Late)))
         );
         assert_eq!(
             objects(&["--object-visuals", "world"], "[Render]\nObjects=Legacy\n"),

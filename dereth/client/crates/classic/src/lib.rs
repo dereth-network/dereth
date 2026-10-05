@@ -26,6 +26,7 @@
 //! [`renderer`] turns them into the overlay; [`art`] reads the early-2005 portal, and [`composed`]
 //! makes the images it lacks from its own pieces.
 pub mod art;
+pub mod character_options_model;
 pub mod composed;
 pub mod control_host;
 pub mod cursor;
@@ -43,7 +44,6 @@ pub mod previews;
 pub mod renderer;
 pub mod resources;
 pub mod runtime;
-pub mod screens;
 pub mod settings_host;
 pub mod steering;
 pub mod text_edit;

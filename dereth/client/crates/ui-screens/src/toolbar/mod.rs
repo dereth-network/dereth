@@ -21,7 +21,7 @@ use crate::panels::catalogue::TOOLBAR_PANEL_BUTTONS;
 ///
 /// **Why 6 and 1 rather than "pressed" and "normal".** All seven shipped panel buttons carry
 /// attribute `0x0B UICore_Button_toggleButton = true` and declare exactly states `1`, `3` and `6`
-/// (measured on `classic_gameplay`), so the retail state setter's toggle arm turns state 6 into
+/// (measured on `0x21000005`), so the retail state setter's toggle arm turns state 6 into
 /// `0x0E = true` and state 1 into `0x0E = false`, and the state update lands on 6 or 1
 /// accordingly.
 pub const STATE_PANEL_OPEN: StateId = StateId(6);

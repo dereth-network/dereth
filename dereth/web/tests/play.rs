@@ -20,7 +20,7 @@ fn splash(step: &mut dyn FnMut()) {
 }
 
 /// The client, brought up over the retail data on an off-screen device with no server to
-/// answer, draws the retail interface's first screen, the connecting screen: its logo and
+/// answer, draws the modern interface's first screen, the connecting screen: its logo and
 /// progress bars cover a tenth of the frame or more, the rest being the black it is cleared
 /// to.
 #[test]

@@ -209,7 +209,7 @@ pub const MOUSE_TURNING_KEY_MESSAGES: [&str; 2] = [
 /// Returns `(preference, value)` for every row, using the **UI** default — including the three that
 /// disagree with the registration.
 /// The rows run in the page's own order, the shared options set's Client Options page as the
-/// retail interface shows it.
+/// modern interface shows it.
 #[must_use]
 pub fn restore_default_values() -> Vec<(&'static str, PrefValue)> {
     use dereth_client_contract::options::interface::Interface;

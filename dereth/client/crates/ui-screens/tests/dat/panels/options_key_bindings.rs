@@ -1081,7 +1081,7 @@ mod defaults {
     // Literals, not symbols, as required by the stated testability rule.
     // ---------------------------------------------------------------------------------------------
 
-    /// The keyboard panel in the shipped `classic_gameplay` tree.
+    /// The keyboard panel in the shipped `0x21000005` tree.
     const KEYBOARD_UI: ElementId = ElementId(0x1000_0020);
 
     /// The four button attributes the page's post-init stores, and the element ids they resolve to

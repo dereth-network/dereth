@@ -1,4 +1,4 @@
-//! Beside the February 2005 world, the later interface's own files answer every record both sets
+//! Beside the February 2005 world, the modern interface's own files answer every record both sets
 //! carry with the later set's record, while the world's store keeps answering with the older one.
 //! Fixture: the February 2005 portal and cell files (`DERETH_TEST_PRETOD_DAT_DIR`) beside the
 //! end-of-retail files (`DERETH_TEST_DAT_DIR`).

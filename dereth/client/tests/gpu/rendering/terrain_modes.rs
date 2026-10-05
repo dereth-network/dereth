@@ -233,7 +233,7 @@ fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
         );
         assert_eq!(
             scene.draw.ground_is_worlds_own(),
-            style == RegionStyle::Modern,
+            style == RegionStyle::Late,
             "{style:?}: only Modern Blend is the end-of-retail world's own ground"
         );
         let c = dereth_client_runtime::present::Scene::census(&scene);
@@ -247,7 +247,7 @@ fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
             "{style:?} changed the scenery"
         );
         let m = moved(&own_px, &px);
-        if style == RegionStyle::Modern {
+        if style == RegionStyle::Late {
             assert_eq!(m, 0, "Modern Blend is the world's own frame");
         } else {
             assert!(m > 10_000, "{style:?} looks like the world's own: {m}");
@@ -261,12 +261,12 @@ fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
         let px = draw(&mut scene, &store, &mut gpu);
         assert_eq!(
             scene.draw.sky_is_worlds_own(),
-            style == RegionStyle::Modern,
+            style == RegionStyle::Late,
             "{style:?}"
         );
         assert_eq!(
             scene.draw.sky_from_other_files(),
-            style != RegionStyle::Modern
+            style != RegionStyle::Late
         );
         assert_eq!(
             scene
@@ -286,7 +286,7 @@ fn every_ground_and_sky_style_draws_the_end_of_retail_world() {
             ),
         }
         let m = moved(&own_px, &px);
-        if style == RegionStyle::Modern {
+        if style == RegionStyle::Late {
             assert_eq!(m, 0, "the Modern sky is the world's own frame");
         } else {
             assert!(m > 1_000, "{style:?}'s sky looks like the world's own: {m}");
@@ -323,12 +323,12 @@ fn a_style_without_its_files_is_refused_and_the_world_keeps_its_own() {
             .expect("a refusal is not an error");
         assert_eq!(
             work.ground_refused,
-            Some((RequiredFiles::Legacy, None)),
+            Some((RequiredFiles::Classic, None)),
             "{style:?}"
         );
         assert_eq!(
             work.sky_refused,
-            Some((RequiredFiles::Legacy, None)),
+            Some((RequiredFiles::Classic, None)),
             "{style:?}"
         );
         assert!(!work.ground_changed && !work.sky_changed);
@@ -343,7 +343,7 @@ fn a_style_without_its_files_is_refused_and_the_world_keeps_its_own() {
         );
     }
     // The world's own style by name is no change at all.
-    scene.draw.cfg.render.ground = Some(RegionStyle::Modern);
+    scene.draw.cfg.render.ground = Some(RegionStyle::Late);
     let work = scene
         .update_from_preferences(&store, &mut gpu)
         .expect("the poll");
@@ -468,8 +468,8 @@ fn the_client_says_which_files_a_refused_style_needs_and_puts_the_option_back() 
         assert!(app.frame());
     }
     let work = app.probe().last_render_pref_work();
-    assert_eq!(work.ground_refused, Some((RequiredFiles::Legacy, None)));
-    assert_eq!(work.sky_refused, Some((RequiredFiles::Legacy, None)));
+    assert_eq!(work.ground_refused, Some((RequiredFiles::Classic, None)));
+    assert_eq!(work.sky_refused, Some((RequiredFiles::Classic, None)));
     let s = app.world_scene().expect("a world");
     assert!(s.draw.ground_is_worlds_own() && s.draw.sky_is_worlds_own());
     assert_eq!(
@@ -584,7 +584,7 @@ fn the_detail_textures_follow_the_drawn_ground_style_and_palette_shift_draws_the
             (0x0500_1786, 8.0, 3.0, DetailSource::Ground),
         ),
         (
-            Some(RegionStyle::Modern),
+            Some(RegionStyle::Late),
             (0x0500_1786, 4.0, 4.0, DetailSource::World),
         ),
     ] {

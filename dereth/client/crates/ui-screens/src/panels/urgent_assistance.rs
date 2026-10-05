@@ -48,7 +48,7 @@
 //!
 //! # The shipped window, measured
 //!
-//! Built `classic_gameplay` (1,870 elements, **one** element of type `0x1000001F`). Page
+//! Built `0x21000005` (1,870 elements, **one** element of type `0x1000001F`). Page
 //! `0x10000189` under panel container `0x10000180`, three page containers whose
 //! `dereth_ui::props::attr::HIDE` (`0x3B`) is set per **state**, which is what makes the state write the
 //! whole of the page switching:

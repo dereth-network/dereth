@@ -66,7 +66,7 @@ use crate::view::{GameView, UiRequest};
 /// the element-type answer returns.
 pub const ELEMENT_CLASS: u32 = 0x1000_001E;
 
-/// The mini-game panel instance in the shipped `classic_gameplay` tree.
+/// The mini-game panel instance in the shipped `0x21000005` tree.
 pub const PANEL: ElementId = ElementId(0x1000_0188);
 
 /// The piece list box — the board grid's child `0x10000174`.

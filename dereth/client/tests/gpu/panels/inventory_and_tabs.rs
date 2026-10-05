@@ -4,7 +4,7 @@
 //! description, a drop on an item list becomes a container move that leaves the item in place and
 //! ghosted, a side-pack click points the grid at that pack, and the filled grid changes pixels only
 //! inside its own box.
-//! Fixture: the retail dats (`classic_gameplay` layout), the `first-login-walk-jump` recording's
+//! Fixture: the retail dats (`0x21000005` layout), the `first-login-walk-jump` recording's
 //! `0x0013 Login_PlayerDescription` as the oracle, and headless Apps rendered through the selected
 //! GPU backend; clicks are element messages broadcast through `UiSystem`, not injected input.
 
@@ -195,7 +195,7 @@ const TAB_PAGES: [u32; 6] = [
 ///
 /// Panel setup hides the stack's sixteen pages. Six of those sixteen are tabbed panels — the map,
 /// options, character, quest, social and spell pages — and each holds two to four **sub-panels
-/// sharing one rectangle**, all of them marked visible by `classic_gameplay`. Tab-page setup reads
+/// sharing one rectangle**, all of them marked visible by `0x21000005`. Tab-page setup reads
 /// attribute `0x2E UICore_Panel_pages`, and its update shows exactly the one whose entry carries
 /// `0x32 UICore_Panel_page_open`; without `add_tab` populating that table every sub-panel draws at
 /// once.

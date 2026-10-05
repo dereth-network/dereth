@@ -287,7 +287,7 @@ fn lit_columns(bgra: &[u8], w: u32, b: dereth_ui::Box2D) -> (i32, i32, i32) {
 /// Oracle for the *values*: `fixtures/packet-captures/first-login-walk-jump` — the stamina the recorded ACE server
 /// sent while the retail client was connected to it, which is a series and not one number because
 /// the recorded player jumped. Oracle for the *geometry*: the meter's clipping rule, evaluated
-/// against the rectangle `classic_gameplay` gives the fill child, read off the live tree.
+/// against the rectangle `0x21000005` gives the fill child, read off the live tree.
 ///
 /// The assertion is the **proportion**, at every level the capture recorded: a bar at 22/30 covers
 /// 22/30 of its width using the client's truncating float-to-integer conversion, with the explicit

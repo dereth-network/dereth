@@ -73,7 +73,7 @@ pub use dereth_client_contract::options::landscape::{
 pub const fn objects_style(style: RegionStyle) -> RegionStyle {
     match style {
         RegionStyle::LegacySoftware | RegionStyle::LegacyHardware => RegionStyle::LegacyHardware,
-        RegionStyle::Modern => RegionStyle::Modern,
+        RegionStyle::Late => RegionStyle::Late,
     }
 }
 
@@ -166,7 +166,7 @@ pub struct RenderPreferences {
     /// own. Not a retail preference. The scene applies a change live.
     pub sky: Option<RegionStyle>,
     /// `[Render] Objects`: the era whose models, surfaces, pictures and palettes the world's
-    /// objects draw with (`Some(LegacyHardware)` the older files, `Some(Modern)` the later ones);
+    /// objects draw with (`Some(LegacyHardware)` the older files, `Some(Late)` the later ones);
     /// `None` is the world's own. Not a retail preference. The scene applies a change live.
     pub objects: Option<RegionStyle>,
 }

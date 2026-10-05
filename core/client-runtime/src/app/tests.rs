@@ -220,7 +220,7 @@ fn the_documented_window_style_has_no_resize_and_no_maximise() {
     assert_eq!(RETAIL_WINDOW_CLASS, "Turbine Device Class");
 }
 
-/// Drawing the February 2005 world beside the later interface files, the client answers the
+/// Drawing the February 2005 world beside the modern interface files, the client answers the
 /// DDD interrogation (`0xF7E6`) with the world it draws: the 2005 portal and cell files as one
 /// run of their header iterations (2112 and 1593), and the later language file's own list.
 #[test]

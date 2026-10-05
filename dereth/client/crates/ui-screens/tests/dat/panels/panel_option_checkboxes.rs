@@ -76,7 +76,7 @@ const MASK_SHARE_LOOT: u32 = 0x0010_0000;
 const MASK_AUTO_ACCEPT: u32 = 0x2000_0000;
 
 // -------------------------------------------------------------------------------------------
-// Harness — the shipped `classic_gameplay` tree, with a real string resolver
+// Harness — the shipped `0x21000005` tree, with a real string resolver
 // -------------------------------------------------------------------------------------------
 
 fn env(with_strings: bool) -> UiSystem {
@@ -539,7 +539,7 @@ mod appear_offline {
     const LABEL_TOKEN: &str = "ID_PlayerOption_AppearOffline";
 
     // -------------------------------------------------------------------------------------------
-    // Harness — the shipped `classic_gameplay` tree, with a real string resolver
+    // Harness — the shipped `0x21000005` tree, with a real string resolver
     // -------------------------------------------------------------------------------------------
 
     fn env(with_strings: bool) -> UiSystem {
@@ -631,7 +631,7 @@ mod appear_offline {
     // 1. The calibration
     // -------------------------------------------------------------------------------------------
 
-    /// `0x1000052C` exists in the shipped `classic_gameplay` tree, carries element type `0x10000035`
+    /// `0x1000052C` exists in the shipped `0x21000005` tree, carries element type `0x10000035`
     /// and is a toggle button (`0x0B`), and `FriendsPanel` binds it.
     ///
     /// **This passes before the fix as well as after.** That is the point: it separates "the box is

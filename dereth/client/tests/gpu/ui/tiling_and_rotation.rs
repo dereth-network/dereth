@@ -441,7 +441,7 @@ fn some_shipped_repeats_move_pixels_and_the_rest_are_uniform_along_their_axis() 
     );
 }
 
-/// A shipped 5 x 10 border strip whose **columns differ**: `classic_gameplay`'s left window
+/// A shipped 5 x 10 border strip whose **columns differ**: `0x21000005`'s left window
 /// edge, one of the pictures the live gameplay screen tiles.
 ///
 /// It is drawn *horizontally* by this file, which is not how the shipped screen places it, and

@@ -113,7 +113,7 @@ fn tree(button_action: Option<u32>, disabled: bool) -> Tree {
         );
     }
     // The shipped panel buttons all carry `0x0B UICore_Button_toggleButton = true` and declare
-    // exactly states 1, 3 and 6 (measured on `classic_gameplay`). Declared here so
+    // exactly states 1, 3 and 6 (measured on `0x21000005`). Declared here so
     // the state-desc lookup guard lets the state move at all.
     button.base.properties.set(
         dereth_ui::props::attr::TOGGLE_BUTTON,

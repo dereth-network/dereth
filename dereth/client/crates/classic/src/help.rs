@@ -139,7 +139,7 @@ impl Help {
             }
             "exit" | "close" => return vec![PanelAction::Close],
             "printtopic" => {
-                return vec![PanelAction::Host(HostAction::PrintLegacyHelp {
+                return vec![PanelAction::Host(HostAction::PrintClassicHelp {
                     context: self.context,
                     topic: self.topic,
                 })]

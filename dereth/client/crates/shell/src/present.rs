@@ -37,7 +37,7 @@ pub fn present_error(e: dereth_render::RenderError) -> PresentError {
     PresentError(e.to_string())
 }
 
-/// What the retail UI adds to the device: its draw list, its textures, the movie frame, the
+/// What the modern UI adds to the device: its draw list, its textures, the movie frame, the
 /// target reticule's projection and where its preview spaces are drawn.
 pub trait ClientPresentation: Presentation {
     /// The frame's 2D half, the UI draw list `PresentFrame` blits over the world.

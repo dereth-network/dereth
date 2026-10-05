@@ -416,7 +416,7 @@ fn storm_level(app: &App) -> f32 {
 /// **The event-to-state projection works, and the three differences between the four handlers are
 /// the observable.**
 ///
-/// This does **not** assert a visible lamp. The shipped `classic_gameplay` layout has no
+/// This does **not** assert a visible lamp. The shipped `0x21000005` layout has no
 /// portal-storm indicator (`0x10000005`) instance, so this station stops at the view value and the
 /// state decision. A custom layout carrying that element would be driven by
 /// `GamePlayScreen::update_indicators`.

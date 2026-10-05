@@ -23,7 +23,7 @@
 //!
 //! # The list, out of the shipped tree
 //!
-//! The `TitlesPanel` instance in `classic_gameplay` is **`0x10000539`**, on the character
+//! The `TitlesPanel` instance in `0x21000005` is **`0x10000539`**, on the character
 //! page beside `AttributesPanel` and `SkillsPanel`. Its list box `0x10000532` carries exactly one row
 //! template, `(0x2100005E, 0x10000536)`, whose text child is `0x10000537` — which is why
 //! `0x10000537` resolves nowhere in the live tree until a row exists. [measured on the shipped

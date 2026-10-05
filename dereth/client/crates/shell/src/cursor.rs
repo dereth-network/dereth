@@ -457,7 +457,7 @@ impl CursorSystem {
     /// the current did still advances on a frame with no UI, so the cursor is not
     /// re-pushed the moment one appears.
     /// Put a wholly transparent cursor on the window, for an interface that draws its own
-    /// pointer. Built and installed once; the next cursor the retail interface chooses replaces it.
+    /// pointer. Built and installed once; the next cursor the modern interface chooses replaces it.
     pub fn hide(&mut self) {
         const HIDDEN: CursorKey = (DataId(0), 0, 0);
         if self.current == Some(HIDDEN.0) {

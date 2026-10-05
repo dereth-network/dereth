@@ -283,7 +283,7 @@ impl RemainingPanels {
         self.combat_window.post_init(ui, root);
         ok |= self.combat_window.bound();
         // The standalone power bars, once per instance. There are two in
-        // the shipped `classic_gameplay` tree and they are found by **type** rather than by id,
+        // the shipped `0x21000005` tree and they are found by **type** rather than by id,
         // because the element type is what tells the floaty power bar panel's two apart.
         self.power_bar.post_init(ui, root);
         ok |= self.power_bar.bound() > 0;

@@ -10,7 +10,7 @@ publish = false
 # The headless half of the client.
 #
 # The rule this crate exists to make checkable is a dependency rule: `cargo tree -e normal -p
-# dereth-client-runtime` lists no crate under `dereth/client/crates/` (the renderers, the retail UI,
+# dereth-client-runtime` lists no crate under `dereth/client/crates/` (the renderers, the modern UI,
 # the world drawing, the clipboard and the console) and none of `winit`, `windows`, `cpal` or `ash`.
 # Nothing here draws, holds a device, owns a window or makes an OS call; `dereth-client` keeps all
 # four.

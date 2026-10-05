@@ -3,7 +3,7 @@
 //!
 //! **Depends on** `dereth-primitives`, the contract (`dereth-client-contract`), whose read-only
 //! view the rules are functions of, and the shared rules' arithmetic (`dereth-rules`). **Used by**
-//! the runtime (`dereth-client-runtime`), the retail interface (`dereth-ui-screens`) and
+//! the runtime (`dereth-client-runtime`), the modern interface (`dereth-ui-screens`) and
 //! the classic interface (`dereth-classic-ui`).
 //!
 //! **Must never** draw, lay out an element, hold a string table or reach the platform: these are

@@ -49,7 +49,7 @@
 //!
 //! **Both of those run only because the shipped layout has no separate value or burden element.**
 //! The item pane's constructor looks for `0x10000138` (a value element) and `0x10000139` (a
-//! burden element) under `0x1000012E`, and **neither is in `classic_gameplay`** (measured: the
+//! burden element) under `0x1000012E`, and **neither is in `0x21000005`** (measured: the
 //! base field's children are `0x10000135`, `0x10000137`, `0x1000013C`, `0x100005F8`,
 //! `0x1000013E`, `0x1000013F` and `0x1000013D`). The appraise-info write's
 //! value-element-or-description fork therefore takes the *second* branch in retail too, and the
@@ -72,7 +72,7 @@ pub const WINDOW: ElementId = ElementId(0x1000_05F7);
 /// Other messages forward without hiding the window.
 ///
 /// Message `1` is [`dereth_ui::msg::element::id::BUTTON_CLICKED`], which is what a
-/// `Button` raises on release — and the shipped `classic_gameplay` gives `0x100005F3`
+/// `Button` raises on release — and the shipped `0x21000005` gives `0x100005F3`
 /// element type **1**, a 13x13 box at (284, 8)-(297, 21), the X in the frame's top-right corner.
 /// Read out of the live tree, not assumed.
 ///

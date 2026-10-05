@@ -1059,7 +1059,7 @@ impl ClassicUi {
                 }
             }
             HostAction::CloseVendorForced => ask(cx, UiRequest::VendorClose),
-            HostAction::LegacyHelp(context) => {
+            HostAction::ClassicHelp(context) => {
                 if cx.config().display.full_screen {
                     let id = if context == 50 {
                         "help-chargen"
@@ -1090,7 +1090,7 @@ impl ClassicUi {
                     );
                 }
             }
-            HostAction::PrintLegacyHelp { .. } => {
+            HostAction::PrintClassicHelp { .. } => {
                 self.desktop.show_dialog(
                     "help-print-error".into(),
                     "Printing is not available.".into(),
@@ -1209,7 +1209,7 @@ impl ClassicUi {
                 // The page sets only the bits it shows; every other bit of the two words (this
                 // interface's own settings, which live in the profile, and the options set from
                 // elsewhere, such as appearing offline) keeps what the character holds now.
-                let shown = crate::screens::shown_bits();
+                let shown = crate::character_options_model::shown_bits();
                 let options = &cx.model().player_system.options;
                 let old = [options.options, options.options2];
                 let word = (words[0] & shown[0]) | (options.options & !shown[0]);

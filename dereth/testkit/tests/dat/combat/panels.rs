@@ -7,7 +7,7 @@ use dereth_ui_screens::hud::combat_window::CombatWindow;
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::view::{GameView, Vital};
 
-/// The shipped `classic_gameplay` tree, built by the screen's own startup.
+/// The shipped `0x21000005` tree, built by the screen's own startup.
 pub fn gameplay() -> (UiSystem, GamePlayScreen) {
     let store = Arc::new(dereth_dat::testing::open_store_or_fail());
     let master_id = DataId(0x3900_0001);

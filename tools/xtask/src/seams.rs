@@ -1,4 +1,4 @@
-//! The seams between the game, the contract and the retail UI, checked rather than described.
+//! The seams between the game, the contract and the modern UI, checked rather than described.
 //!
 //! Four crates, and the client's own crates, sit on the boundaries the code is being cut along,
 //! and each has a rule that until now lived only in a doc comment:
@@ -11,12 +11,12 @@
 //! 1. **`dereth-client-contract`** is the read-only view onto the game and the request channel
 //!    back out. Its direct production dependencies are exactly [`CONTRACT_DIRECT`], and nothing it
 //!    pulls in, transitively, is another `dereth-*` crate or a presentation or platform crate.
-//! 2. **`dereth-ui-screens`** is the retail UI. It reads the game through the contract only, so it
+//! 2. **`dereth-ui-screens`** is the modern UI. It reads the game through the contract only, so it
 //!    never names `dereth-client-model` or `dereth-client-runtime` -- not as a dependency of any
 //!    kind, and not as a path in its code.
 //! 3. **`dereth-client-runtime`** is the game without a UI, a device or a window. Its production
 //!    dependency tree holds none of [`CORE_FORBIDDEN`] and no crate under `dereth/client/crates/`,
-//!    and its code never names the retail UI or the drawing crates ([`CORE_NAMES_NOT`]).
+//!    and its code never names the modern UI or the drawing crates ([`CORE_NAMES_NOT`]).
 //! 4. **`dereth-headless`** is the client with no UI, no device and no window, built on the client
 //!    SDK alone: its only `dereth-*` dependency, of any kind, is `dereth-client-sdk`
 //!    ([`HEADLESS_DERE`]), and nothing under `dereth/client/` is anywhere in its tree.
@@ -47,7 +47,7 @@
 //!     and its front end side by side, and the classic interface's) names none of
 //!     [`FRONT_END_NAMES_NOT`]: the
 //!     application and the runtime's internals behind it. Each step of the frame hands a front end
-//!     a `UiContext`, and that is all of the game it reaches -- the same for the retail UI as for
+//!     a `UiContext`, and that is all of the game it reaches -- the same for the modern UI as for
 //!     any other. (Its screens, `dereth-ui-screens`, cannot name the runtime at all: rule 2.)
 //! 8. **One place finds the retail dats.** No workspace file outside `core/dat/` joins a retail dat
 //!    file name onto a path ([`dat_path_violations`]): the client, the server and every test find

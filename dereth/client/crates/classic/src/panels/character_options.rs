@@ -1,7 +1,7 @@
 //! The classic Character settings model as an embeddable options page.
 use super::*;
+use crate::character_options_model::{rows, OptionsModel, ROW_HEIGHT};
 use crate::int::i32_from;
-use crate::screens::{rows, OptionsModel, ROW_HEIGHT};
 #[derive(Debug, Default)]
 pub struct CharacterOptions {
     model: OptionsModel,

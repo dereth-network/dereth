@@ -372,7 +372,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "keys.own.each-of-this-clients-actions-works-on-a-key-the-page-gives-it",
-        says: "Each of this client's own actions the retail interface answers, given a free key                on the key page as a player gives it one, answers that key: the performance panel,                the inverted mouse look and mute-when-inactive flip their settings, the trade key                shows the trade window, and hold sidestep is held for as long as its key is.",
+        says: "Each of this client's own actions the modern interface answers, given a free key                on the key page as a player gives it one, answers that key: the performance panel,                the inverted mouse look and mute-when-inactive flip their settings, the trade key                shows the trade window, and hold sidestep is held for as long as its key is.",
         since: THIS_CLIENT,
         divergence: "CD-022",
         evidence: Evidence::Private("AC-EVID-KEYBIND-OWN-REBOUND"),
@@ -381,9 +381,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "keys.retail.a-row-this-interface-does-not-use-has-no-default-key",
-        says: "None of the rows the retail interface does nothing with -- right-click mouse \
+        says: "None of the rows the modern interface does nothing with -- right-click mouse \
                look, the stretched layout, automatic shortcuts, and the classic interface's \
-               cancel and repeat-message keys -- has a default key in the retail interface, and \
+               cancel and repeat-message keys -- has a default key in the modern interface, and \
                its page does not list them.",
         since: THIS_CLIENT,
         divergence: "CD-022",
@@ -408,7 +408,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "keys.shared.a-cleared-key-stays-cleared-when-the-game-starts-again",
         says: "A key cleared on a key page is bound to nothing in its map rather than dropped, \
                so the key map file mentions it and the shipped default does not come back to it \
-               when the game starts again: in the retail interface as the final client's own \
+               when the game starts again: in the modern interface as the final client's own \
                clear does, and in the classic interface the same way.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-KEYBIND-CLEAR"),
@@ -435,7 +435,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Every action the retail key page lists outside its not-used section -- every \
                bindable entry of the shipped action map but the quickslots 10 to 18 and the \
                quest detail panel, Disable Most Weather Effects, and this client's own -- is \
-               answered in the retail interface when its key is pressed in the place it belongs \
+               answered in the modern interface when its key is pressed in the place it belongs \
                (a combat key in its combat mode): by a window, the movement, the camera, the game \
                or this client's own handling. None goes unanswered.",
         since: THIS_CLIENT,
@@ -446,7 +446,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "keys.shared.the-retail-interface-answers-this-clients-own-keys",
-        says: "In the retail interface hold sidestep is held for as long as its key is; the                inverted mouse look and mute-when-inactive keys flip the shared settings and the                right-click mouse look and stretched-interface keys the classic interface's,                each both ways; and the trade key shows the secure-trade window and hides it                again.",
+        says: "In the modern interface hold sidestep is held for as long as its key is; the                inverted mouse look and mute-when-inactive keys flip the shared settings and the                right-click mouse look and stretched-interface keys the classic interface's,                each both ways; and the trade key shows the secure-trade window and hides it                again.",
         since: THIS_CLIENT,
         divergence: "CD-019",
         evidence: Evidence::Private("AC-EVID-R2-OWN-KEYS-RETAIL"),
@@ -1683,7 +1683,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.world-view.the-world-view-fills-any-screen",
-        says: "In the retail interface the 3D world view covers the whole screen at any \
+        says: "In the modern interface the 3D world view covers the whole screen at any \
                resolution, 5120 by 2160 among them, and still covers it after a resolution \
                change; it keeps its minimum size, and every other element keeps its own limits.",
         since: THIS_CLIENT,

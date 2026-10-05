@@ -21,7 +21,7 @@
 //! # The bindings, and that they are in the shipped layout
 //!
 //! The pane looks up `0x10000153` off the window and then seven children off it. All seven are in
-//! `classic_gameplay`, read off the live tree rather than assumed. The focused probe dumps the
+//! `0x21000005`, read off the live tree rather than assumed. The focused probe dumps the
 //! subtree and asserts each one, and it also
 //! asserts that the formula list carries the row template `(0x2100001C, 0x1000032E)` that
 //! the pane instantiates by id. \[measured\]
@@ -88,7 +88,7 @@ pub const DISPLAY_TEXT: ElementId = ElementId(0x1000_0163);
 /// The same literal [`super::examination::SPELL_COMPONENT_LIST`]
 /// carries, bound here because this is the constructor that binds it.
 pub const FORMULA_LIST: ElementId = ElementId(0x1000_032D);
-/// The row template the pane instantiates in the formula list. In `classic_gameplay` the list's one template is `(0x2100001C, 0x1000032E)`.
+/// The row template the pane instantiates in the formula list. In `0x21000005` the list's one template is `(0x2100001C, 0x1000032E)`.
 pub const FORMULA_ROW_TEMPLATE: ElementId = ElementId(0x1000_032E);
 /// Property `0x10000010` — the property each row carries its component **SCID** under, and what
 /// the click arm reads back.

@@ -1,6 +1,6 @@
 [package]
 name = "dereth-client-shell"
-description = "The client's front end over the runtime: the retail UI, the HUD's panels, the cursor, the clipboard bridge, the device input and the renderer that draws the UI over the scene, generic over the platform under it."
+description = "The client's front end over the runtime: the modern UI, the HUD's panels, the cursor, the clipboard bridge, the device input and the renderer that draws the UI over the scene, generic over the platform under it."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -46,7 +46,7 @@ dereth-world-render.workspace = true
 dereth-ui.workspace = true
 dereth-ui-screens.workspace = true
 dereth-input.workspace = true
-# The classic interface, which the shell runs in the retail interface's place when it is chosen.
+# The classic interface, which the shell runs in the modern interface's place when it is chosen.
 dereth-classic-ui.workspace = true
 dereth-classic-dat.workspace = true
 thiserror.workspace = true

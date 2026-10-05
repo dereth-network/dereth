@@ -103,7 +103,7 @@ pub fn open_dats() -> Result<String, JsError> {
     Ok(dats::describe(&reports))
 }
 
-/// The playable client: the client shell's application and retail interface, drawing into the
+/// The playable client: the client shell's application and modern interface, drawing into the
 /// worker's canvas.
 #[wasm_bindgen]
 #[derive(Debug)]

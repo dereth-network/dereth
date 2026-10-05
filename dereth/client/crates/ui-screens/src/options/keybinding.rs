@@ -7,7 +7,7 @@
 //! # What the shipped layout actually carries, measured
 //!
 //! There is exactly **one** element description of type `0x10000034` in all 101 shipped layouts:
-//! `0x1000002F` of `0x21000009` (`classic_keyboard`), which is **template 1** of every one of the
+//! `0x1000002F` of `0x21000009`, which is **template 1** of every one of the
 //! six key-binding list boxes. It carries
 //!
 //! ```text
@@ -77,7 +77,7 @@ pub mod attr {
 /// *inside each tab page*, looked up once per page by a recursive child search for the page and
 /// then, inside it, for `0x10000018`'s value; the six pages are hard-coded ids in the panel's
 /// post-init. `0x10000019`..`0x1000001F` are seven single children — the
-/// keymap load/save controls and the filename label. In the shipped `classic_keyboard` tree the
+/// keymap load/save controls and the filename label. In the shipped `0x21000009` tree the
 /// values are `0x10000025` (the list box) and `0x1000002C, 0x1000002D, 0x1000002A, 0x1000002B,
 /// 0x10000028, 0x10000027, 0x10000029`.
 pub mod page_attr {
@@ -110,7 +110,7 @@ pub mod page_attr {
     ];
 }
 
-/// The keyboard-page element in the shipped `classic_gameplay` tree — type `0x1000000E`.
+/// The keyboard-page element in the shipped `0x21000005` tree — type `0x1000000E`.
 ///
 /// Measured off the built tree, and pinned as a literal by the key-binding tests.
 pub const KEYBOARD_UI: ElementId = ElementId(0x1000_0020);

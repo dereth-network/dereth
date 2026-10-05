@@ -17,7 +17,7 @@
 //! | `0x10000034` | `ActionKeyMapOption` | `TextElement` |
 //!
 //! **This is what makes the volume slider draggable.** `0x1000021C` in the shipped
-//! `classic_options` row templates is type `0x10000037`; as a `PlainElement` it has no thumb, no
+//! `0x2100002B` row templates is type `0x10000037`; as a `PlainElement` it has no thumb, no
 //! track, no `MouseDown` and no `0x0A` — the element draws and nothing else. As a
 //! [`dereth_ui::widgets::scrollbar::Scrollbar`] it is the full engine scrollbar, and a
 //! press-drag-release on its thumb raises element message `0x0A`

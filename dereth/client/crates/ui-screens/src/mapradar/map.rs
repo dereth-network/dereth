@@ -55,7 +55,7 @@ pub mod child {
     pub const COORDINATE_TEXT: ElementId = ElementId(0x1000_01EF);
 }
 
-/// The map page itself — `MapPanel`'s own element in the shipped `classic_gameplay` layout.
+/// The map page itself — `MapPanel`'s own element in the shipped `0x21000005` layout.
 ///
 /// `<MAPS>` `0x1000018C` is the toolbar page container and this is its **first tab**, the one that
 /// opens by default (`panels::house` records the same pairing from the other side). It is the

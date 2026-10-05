@@ -50,7 +50,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "login.character-select.the-mouse-wheel-scrolls-the-worlds-message",
-        says: "On the retail interface's character screen the mouse wheel scrolls the world's \
+        says: "On the modern interface's character screen the mouse wheel scrolls the world's \
                message under the pointer with nothing focused: the screen registers the \
                scrollable controls beside its own keys, where the end-of-retail screen \
                registered its keys alone.",
@@ -62,7 +62,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "login.character-select.the-worlds-message-shows-in-a-window-of-its-own",
-        says: "When the world sends the character screen's message, the retail interface's \
+        says: "When the world sends the character screen's message, the modern interface's \
                character screen shows it in a floating chat window right of the Create \
                Character button, from the button's top to the bottom of the characters frame, \
                titled Announcements, with its scrollbar and close button. It has no input row: \

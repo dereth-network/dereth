@@ -1642,7 +1642,7 @@ fn nested_child_restates_finish_before_the_parent_makes_its_next_state_call() {
     );
 }
 
-/// The shipped stack-splitter slider's own geometry, read off the live `classic_gameplay` tree:
+/// The shipped stack-splitter slider's own geometry, read off the live `0x21000005` tree:
 /// `0x100001A4` is 90 x 14 with a 16 x 14 thumb (element id 1) and no arrows.
 fn splitter_slider(ui: &mut UiSystem) -> (ElemHandle, ElemHandle) {
     let mut bar = desc(0x100, ty::SCROLLBAR.0, 0, 0, 90, 14);

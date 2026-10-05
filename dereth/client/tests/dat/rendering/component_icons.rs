@@ -1,4 +1,4 @@
-//! A component's icon in the retail interface's magic window: read from the world's files as an
+//! A component's icon in the modern interface's magic window: read from the world's files as an
 //! icon layer, so on a February 2005 world its black is transparent where the later files store
 //! alpha, and with its opaque white outline turned opaque black. The interface's own art from the
 //! same files draws its black.

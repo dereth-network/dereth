@@ -32,7 +32,7 @@ dereth-assets.workspace = true
 dereth-protocol.workspace = true
 dereth-rules = { workspace = true, default-features = true }
 dereth-input.workspace = true
-# The game's presentation rules, shared with the retail interface.
+# The game's presentation rules, shared with the modern interface.
 dereth-presentation.workspace = true
 dereth-ui.workspace = true
 # The item and spell icons are pictures of the world's own dats, decoded as the scene decodes them.

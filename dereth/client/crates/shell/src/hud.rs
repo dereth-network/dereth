@@ -2,7 +2,7 @@
 //!
 //! The model — the object rows, the chat composition, the property caches and the read-only
 //! [`HudView`] projection that is the game's `GameView` — is [`dereth_client_runtime::hud`], and every
-//! item of it is re-exported here at its historical path. What this module adds is the retail UI's
+//! item of it is re-exported here at its historical path. What this module adds is the modern UI's
 //! panel set, kept beside the model in the slot every front end has (`HudSlot`): the gameplay
 //! screen's [`RemainingPanels`], which outlive screen rebuilds, and which the model lends the two
 //! receivers it feeds as events land (the speech-bubble strip and the abuse panel). The per-frame
@@ -14,7 +14,7 @@ use dereth_client_runtime::hud::*;
 
 pub use crate::hud_drive::{deliver_power_bar_notices, talk_focus_notice};
 
-/// The HUD model and the retail UI's panel set beside it, plus the per-frame drive that hands both
+/// The HUD model and the modern UI's panel set beside it, plus the per-frame drive that hands both
 /// to the live gameplay screen ([`crate::hud_drive`]). Everything else is the model's, through
 /// `Deref`.
 #[derive(Debug)]
