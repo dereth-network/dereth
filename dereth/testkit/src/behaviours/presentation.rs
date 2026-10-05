@@ -56,6 +56,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.era.a-spell-learned-on-the-create-spell-page-brings-up-the-spells-tab",
+        says: "A spell learned while the retail interface's magic window is open on its Create \
+               Spell page brings up the Spells tab, where the spellbook selects the new spell, as \
+               the research-era client showed its spellbook page on every spell learned. On \
+               another tab a spell learned moves no tab.",
+        since: THIS_CLIENT,
+        divergence: "CD-016",
+        evidence: Evidence::Private("AC-EVID-OCT05-RESEARCH-LEARNED"),
+        station: "dereth-ui-screens::dat::panels::create_spell_tab::a_spell_learned_while_the_create_spell_page_is_open_brings_up_the_spells_tab",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.era.aetheria-slots-follow-character-unlocks",
         says: "On a world with aetheria, its three equipment slots are visible only for the corresponding low three player unlock bits; missing or higher-only bits hide them.",
         since: RETAIL,
@@ -112,18 +124,6 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-016",
         evidence: Evidence::Private("AC-EVID-ERA-UI-RETAIL-RESEARCH"),
         station: "dereth-ui-screens::dat::panels::create_spell_tab::the_create_spell_tab_is_absent_without_spell_research_and_shares_the_strip_with_it",
-        tier: Tier::Dat,
-    },
-    behaviour! {
-        id: "presentation.era.a-spell-learned-on-the-create-spell-page-brings-up-the-spells-tab",
-        says: "A spell learned while the retail interface's magic window is open on its Create \
-               Spell page brings up the Spells tab, where the spellbook selects the new spell, as \
-               the research-era client showed its spellbook page on every spell learned. On \
-               another tab a spell learned moves no tab.",
-        since: THIS_CLIENT,
-        divergence: "CD-016",
-        evidence: Evidence::Private("AC-EVID-OCT05-RESEARCH-LEARNED"),
-        station: "dereth-ui-screens::dat::panels::create_spell_tab::a_spell_learned_while_the_create_spell_page_is_open_brings_up_the_spells_tab",
         tier: Tier::Dat,
     },
     behaviour! {
