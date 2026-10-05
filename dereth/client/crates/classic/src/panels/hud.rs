@@ -1936,7 +1936,7 @@ mod tests {
         assert!(six.windows(2).all(|p| p[0].1 + p[0].2 == p[1].1));
         assert!(six
             .iter()
-            .all(|b| b.3.iter().all(|a| crate::composed::is_composed(*a))));
+            .all(|b| b.3.iter().all(|a| *a >= crate::composed::BASE)));
         // A world with neither the journal nor contracts has no such button.
         let mut era = dereth_client_contract::EraView::default();
         era.era = dereth_primitives::era::EraId::Infiltration;

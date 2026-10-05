@@ -214,7 +214,7 @@ impl RetailDatStore {
     /// world answers it from those).
     #[must_use]
     pub fn era_of(&self, id: DataId) -> ContainerEra {
-        if self.portal.contains(id) {
+        if self.portal.world_contains(id) {
             return self.portal.era();
         }
         if self.cell.contains(id) {
@@ -235,11 +235,15 @@ impl RetailDatStore {
     /// one its id implies (the detail type's top byte over its low 24 bits) is its own only when
     /// the older files hold it. Most do not, and the later files' record under that id is another
     /// object's levels, which would draw that object's meshes in its place.
+    ///
+    /// The client's own records over the older portal ([`Self::with_client_layer`]) are the
+    /// classic interface's, read from that file directly: the later files still answer the
+    /// world's read of an id both hold.
     fn later_answers(&self, id: DataId) -> bool {
         let Some(later) = &self.later_portal else {
             return false;
         };
-        if self.portal.contains(id) || !later.contains(id) {
+        if self.portal.world_contains(id) || !later.contains(id) {
             return false;
         }
         let implied_by_older = divine_type(id) == Some(DbType::DegradeInfo)
@@ -454,7 +458,7 @@ impl RetailDatStore {
         let mut file = shared::open(&path)?;
         if let Some((dir, key)) = &self.overlay {
             match dir.layer_over(RetailDat::HighRes, &file, key.as_deref()) {
-                Ok(Some(l)) => file = Arc::new(file.base().layered(Arc::new(l))),
+                Ok(Some(l)) => file = Arc::new(file.layered(Arc::new(l))),
                 Ok(None) => {}
                 Err(crate::overlay::OverlayError::Dat(e)) => return Err(e),
                 // A refused overlay leaves the file as it is; the world's other files have
@@ -489,7 +493,7 @@ impl RetailDatStore {
          -> Result<Option<Arc<DatFile>>, crate::overlay::OverlayError> {
             Ok(dir
                 .layer_over(target, slot, world_key)?
-                .map(|l| Arc::new(slot.base().layered(Arc::new(l)))))
+                .map(|l| Arc::new(slot.layered(Arc::new(l)))))
         };
         let portal = lay(&self.portal, RetailDat::Portal)?;
         let cell = lay(&self.cell, RetailDat::Cell)?;
@@ -520,6 +524,33 @@ impl RetailDatStore {
         }
         self.overlay = Some((dir.clone(), world_key.map(str::to_owned)));
         Ok(self)
+    }
+
+    /// This store with the client's own records (`layer`, [`crate::client_layer`]) beneath the
+    /// world's overlay on every portal file of the layer's layout this store holds: the world's
+    /// own portal when it is of that layout, and the other era's portal beside it (the older one
+    /// a later world is drawn beside, or the later one beside an older world). A store whose
+    /// overlay is laid afterwards ([`Self::with_overlay`]) keeps it beneath the overlay.
+    ///
+    /// Only the client lays one. Its records are in no iteration the store reports, and the base
+    /// files the data-patch path writes against ([`DatFile::base`]) leave it out.
+    #[must_use]
+    pub fn with_client_layer(mut self, layer: &crate::client_layer::ClientLayer) -> Self {
+        let alias = Arc::ptr_eq(&self.local, &self.portal);
+        if self.era() == layer.era() {
+            self.portal = Arc::new(layer.over(&self.portal));
+            if alias {
+                self.local = Arc::clone(&self.portal);
+            }
+        }
+        let other = match layer.era() {
+            ContainerEra::PreTod => &mut self.legacy_portal,
+            ContainerEra::Tod => &mut self.later_portal,
+        };
+        if let Some(f) = other {
+            *f = Arc::new(layer.over(f));
+        }
+        self
     }
 
     /// The world's overlay folder, when one is laid over this store.
@@ -738,6 +769,8 @@ impl RetailDatStore {
             DatKind::None => Vec::new(),
         };
         v.sort_unstable();
+        // An id the later files answer may also be one of the client's over the older portal.
+        v.dedup();
         v
     }
 
@@ -772,7 +805,12 @@ impl RetailDatStore {
 fn reload_one(slot: &mut Arc<DatFile>) -> Result<(), DatError> {
     let fresh = Arc::new(DatFile::open(slot.path())?);
     shared::replace(fresh.path(), &fresh);
-    // A file carrying the world's overlay carries it again, reopened from its container too.
+    // The client's records go back beneath it, and a file carrying the world's overlay carries it
+    // again, reopened from its container too.
+    let fresh = match slot.client_layer_arc() {
+        Some(client) => Arc::new(fresh.with_client_layer(client)),
+        None => fresh,
+    };
     let fresh = match slot.layer() {
         Some(layer) => match layer.reopen_over(&fresh) {
             Ok(l) => Arc::new(fresh.layered(Arc::new(l))),

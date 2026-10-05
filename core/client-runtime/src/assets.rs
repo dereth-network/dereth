@@ -45,6 +45,39 @@ pub struct DataFilesError {
     pub cause: String,
 }
 
+/// Dereth's own records over the portal from before Throne of Destiny: the classic interface's
+/// pictures for what later worlds added, under the later files' ids for them. Made from the
+/// pictures beside it by `dereth-pack` (`assets/classic-portal/pack.tsv` says how).
+const CLASSIC_PORTAL_LAYER: &[u8] = include_bytes!("../assets/classic-portal/layer.dat");
+
+/// The client layers built into the client ([`dereth_dat::client_layer`]), opened once. A layer
+/// that will not open is reported and left out, and what it held is missing as it is without it.
+#[must_use]
+pub fn client_layers() -> &'static [dereth_dat::client_layer::ClientLayer] {
+    static LAYERS: std::sync::OnceLock<Vec<dereth_dat::client_layer::ClientLayer>> =
+        std::sync::OnceLock::new();
+    LAYERS.get_or_init(|| {
+        [("classic-portal", CLASSIC_PORTAL_LAYER)]
+            .into_iter()
+            .filter_map(|(name, bytes)| {
+                dereth_dat::client_layer::ClientLayer::from_static(name, bytes)
+                    .map_err(|e| tracing::warn!("the client's {name} layer will not open: {e}"))
+                    .ok()
+            })
+            .collect()
+    })
+}
+
+/// `store` with the client's own records ([`client_layers`]) beneath the world's overlay, on
+/// every portal file of each layer's layout it holds. They are in no iteration it reports and in
+/// none of the base files the data-patch path writes against.
+#[must_use]
+pub fn with_client_layers(store: RetailDatStore) -> RetailDatStore {
+    client_layers()
+        .iter()
+        .fold(store, |s, layer| s.with_client_layer(layer))
+}
+
 /// The dat half of client database initialisation, for a world whose era the data files decide
 /// and whose older set, if any, is beside the later one ([`open_world_files`] with neither).
 ///
@@ -108,9 +141,20 @@ pub fn classic_set_dir(dat_dir: &Path, classic_dat_dir: Option<&Path>) -> Option
 ///   left out: the world still opens, and what needs it is refused as it is with none.
 /// - With no set named, a `dat_dir` holding only the older set opens that set.
 ///
+/// The client's own records lie over what opens ([`with_client_layers`]).
+///
 /// # Errors
 /// [`DataFilesError`] as [`open_data_files`].
 pub fn open_world_files(
+    dat_dir: &Path,
+    classic_dat_dir: Option<&Path>,
+    world_set: Option<dereth_dat::ContainerEra>,
+) -> Result<RetailDatStore, DataFilesError> {
+    open_retail_files(dat_dir, classic_dat_dir, world_set).map(with_client_layers)
+}
+
+/// [`open_world_files`] without the client's own records.
+fn open_retail_files(
     dat_dir: &Path,
     classic_dat_dir: Option<&Path>,
     world_set: Option<dereth_dat::ContainerEra>,
@@ -465,6 +509,163 @@ mod tests {
             Some(dereth_dat::ContainerEra::PreTod),
             "the overlay's"
         );
+    }
+
+    /// The paper doll's later slots, as the client's classic-portal layer holds them.
+    const SLOTS: [u32; 5] = [
+        0x0600_708F,
+        0x0600_6A6C,
+        0x0600_6BEF,
+        0x0600_6BF0,
+        0x0600_6BF1,
+    ];
+
+    /// The older portal the classic interface reads from `store`: the world's own on an older
+    /// world, else the one beside it.
+    fn classic_portal(store: &RetailDatStore) -> dereth_dat::DatFile {
+        if store.era() == dereth_dat::ContainerEra::PreTod {
+            store.portal().clone()
+        } else {
+            store
+                .legacy_files()
+                .expect("the older portal beside the world")
+                .portal()
+                .clone()
+        }
+    }
+
+    /// Behaviour: none (tooling: the client's own records laid over the data files)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn the_later_slots_read_the_clients_pictures_from_the_older_portal_on_both_kinds_of_world() {
+        let layer = &client_layers()[0];
+        assert_eq!(layer.era(), dereth_dat::ContainerEra::PreTod);
+        assert_eq!(
+            layer.ids(),
+            {
+                let mut s = SLOTS.map(DataId);
+                s.sort_unstable();
+                s.to_vec()
+            },
+            "the five slots, and nothing else"
+        );
+        let dir = dereth_dat::testing::both_sets_dir();
+        for era in [INFILTRATION, EOR] {
+            let store = open_world_files(&dir, None, era).expect("both sets open");
+            let bare = open_retail_files(&dir, None, era).expect("both sets open");
+            let portal = classic_portal(&store);
+            for id in SLOTS {
+                let ours = layer.read(DataId(id)).expect("the layer's record");
+                assert_eq!(ours.len(), 12 + 32 * 32 * 3, "{id:#010X}: 32 x 32 RGB");
+                assert_eq!(&ours[..4], &id.to_le_bytes(), "{id:#010X} echoes its id");
+                assert_eq!(
+                    portal.read(DataId(id)).ok(),
+                    Some(ours),
+                    "{era:?} {id:#010X}"
+                );
+                assert!(
+                    !classic_portal(&bare).contains(DataId(id)),
+                    "the older portal itself has no {id:#010X}"
+                );
+            }
+            // The later interface still reads the later files' own pictures at those ids.
+            if let Some(later) = store.modern_files() {
+                for id in SLOTS {
+                    assert_eq!(
+                        later.read_portal(DataId(id)).ok(),
+                        bare.modern_files().unwrap().read_portal(DataId(id)).ok(),
+                        "{era:?} {id:#010X}"
+                    );
+                }
+            }
+            if era == INFILTRATION {
+                // A world read of an id the later files answer is still theirs.
+                assert_eq!(
+                    store.read_portal(DataId(SLOTS[0])).ok(),
+                    bare.read_portal(DataId(SLOTS[0])).ok()
+                );
+            }
+        }
+    }
+
+    /// Behaviour: none (tooling: the client's own records laid over the data files)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn a_worlds_overlay_record_wins_over_the_clients_at_the_same_id() {
+        use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("client-layer-world-wins").expect("scratch");
+        let dir = dereth_dat::testing::both_sets_dir();
+        let store = open_world_files(&dir, None, INFILTRATION).expect("both sets open");
+        let overlay = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+        let theirs = {
+            let mut r = SLOTS[2].to_le_bytes().to_vec();
+            r.extend_from_slice(&1u32.to_le_bytes());
+            r.extend_from_slice(&1u32.to_le_bytes());
+            r.extend_from_slice(&[1, 2, 3]);
+            r
+        };
+        let base = store.portal().base();
+        let mut w = OverlayWriter::open_or_create(
+            &overlay.container(dereth_dat::RetailDat::Portal),
+            &base,
+            "portal.dat",
+            "a world",
+            1,
+        )
+        .expect("the overlay");
+        w.save(&base, DataId(SLOTS[2]), &theirs, 1, 1, 1)
+            .expect("the world's record");
+        w.flush(1).expect("flushed");
+        drop(w);
+        let world = store
+            .with_overlay(&overlay, Some("a world"))
+            .expect("the overlay opens over the older portal");
+        assert_eq!(world.portal().read(DataId(SLOTS[2])).ok(), Some(theirs));
+        // The others are still the client's.
+        assert_eq!(
+            world.portal().read(DataId(SLOTS[3])).ok(),
+            client_layers()[0].read(DataId(SLOTS[3])).ok()
+        );
+    }
+
+    /// Behaviour: none (tooling: the client's own records laid over the data files)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail and February 2005 dats: --features retail-dats"
+    )]
+    fn the_clients_records_change_no_iteration_the_client_reports_and_no_base_file() {
+        let dir = dereth_dat::testing::both_sets_dir();
+        for era in [INFILTRATION, EOR] {
+            let store = open_world_files(&dir, None, era).expect("both sets open");
+            let bare = open_retail_files(&dir, None, era).expect("both sets open");
+            for product in [1, 1 | crate::app::PRODUCT_HIGHRES] {
+                assert_eq!(
+                    crate::app::ddd_interrogation_response(&store, product),
+                    crate::app::ddd_interrogation_response(&bare, product),
+                    "{era:?}"
+                );
+            }
+            for t in dereth_dat::RetailDat::REQUIRED {
+                let (a, b) = (bare.target_file(t).unwrap(), store.target_file(t).unwrap());
+                assert_eq!(a.header_iteration(), b.header_iteration(), "{era:?} {t:?}");
+                assert_eq!(a.iteration_list().ok(), b.iteration_list().ok());
+                assert_eq!(
+                    dereth_dat::overlay::fingerprint(a),
+                    dereth_dat::overlay::fingerprint(b)
+                );
+                for id in SLOTS {
+                    assert_eq!(b.base().contains(DataId(id)), a.base().contains(DataId(id)));
+                }
+            }
+        }
     }
 
     // Oracle: the retail `DidMapper 0x25000000` and the four mappers it names. These are the ids the client

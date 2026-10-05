@@ -94,7 +94,7 @@ const FREE_BIT: u32 = 0x8000_0000;
 /// The journal's magic number, the `"PL"` in every journal record.
 const TRANSACT_MAGIC: u32 = 0x0000_4C50;
 /// The room check keeps this many blocks in hand above what the payload needs.
-const ROOM_RESERVE: u32 = 0x33;
+pub(crate) const ROOM_RESERVE: u32 = 0x33;
 /// The room check grows an expandable file by 1 MB at a time.
 const EXPAND_BYTES: u32 = 0x0010_0000;
 

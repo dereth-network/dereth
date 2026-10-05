@@ -409,6 +409,28 @@ impl Layer {
         Ok(me)
     }
 
+    /// A container of the client's own records ([`crate::client_layer`]), which lies over any base
+    /// of its layout: it has no deletions and no iterations, and names no base file.
+    pub(crate) fn client(file: DatFile, manifest: ContainerManifest) -> Self {
+        let len = file
+            .base_entries()
+            .filter(|(id, _)| !is_reserved(*id))
+            .count();
+        Self {
+            path: file.path().to_path_buf(),
+            file,
+            tombstones: Vec::new(),
+            single: BTreeSet::new(),
+            families: BTreeMap::new(),
+            manifest,
+            iterations: Vec::new(),
+            own_iterations: Vec::new(),
+            len,
+            served: AtomicU64::new(0),
+            hidden: AtomicU64::new(0),
+        }
+    }
+
     /// This overlay reopened from its container over `base` (a base that has been reopened).
     ///
     /// # Errors

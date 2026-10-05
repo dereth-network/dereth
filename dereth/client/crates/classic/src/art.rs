@@ -119,37 +119,32 @@ impl ClassicArt {
         })
     }
 
-    /// The interface image `id` (a `0x06…` record), decoded once and kept.
+    /// The interface image `id` (a `0x06…` record), decoded once and kept: the portal's record,
+    /// with the client's own records over it, else one composed from the portal's own pieces
+    /// ([`crate::composed`]) when it is one of those.
     #[must_use]
     pub fn image(&self, id: u32) -> Option<Arc<Image>> {
         if id >> 24 != 6 {
             return None;
         }
-        if crate::composed::is_composed(id) {
-            return self.composed(id);
-        }
-        let mut images = self.images.lock().ok()?;
-        images
-            .entry(id)
-            .or_insert_with(|| {
-                let payload = self.portal.get(id)?;
-                let decoded = dereth_classic_dat::image::decode_rgb(&payload, Some(id)).ok()?;
-                Some(Arc::new(Image {
-                    width: decoded.width,
-                    height: decoded.height,
-                    rgba: decoded.rgba,
-                }))
-            })
-            .clone()
-    }
-
-    /// An image composed from the portal's own pieces ([`crate::composed`]), made once and kept.
-    fn composed(&self, id: u32) -> Option<Arc<Image>> {
         if let Some(made) = self.images.lock().ok()?.get(&id) {
             return made.clone();
         }
-        let made = crate::composed::compose(id, &|piece| self.image(piece).map(|i| (*i).clone()))
-            .map(Arc::new);
+        // Composing reads other images, so no lock is held while the image is made.
+        let made = match self.portal.get(id) {
+            Some(payload) => dereth_classic_dat::image::decode_rgb(&payload, Some(id))
+                .ok()
+                .map(|decoded| Image {
+                    width: decoded.width,
+                    height: decoded.height,
+                    rgba: decoded.rgba,
+                }),
+            None if crate::composed::is_composed(id) => {
+                crate::composed::compose(id, &|piece| self.image(piece).map(|i| (*i).clone()))
+            }
+            None => None,
+        }
+        .map(Arc::new);
         self.images.lock().ok()?.insert(id, made.clone());
         made
     }

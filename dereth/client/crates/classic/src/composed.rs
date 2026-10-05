@@ -1,21 +1,26 @@
-//! Interface images the early-2005 portal does not have, composed when first asked for from pieces
-//! it does have, so the classic interface can show what later worlds added in its own style without
-//! reading any later data.
+//! Interface images the early-2005 portal does not have, composed from pieces it does have when
+//! the client's own records do not hold them either, so the classic interface can show what later
+//! worlds added in its own style without reading any later data.
 //!
-//! Each one has an id of its own in a range no portal uses ([`BASE`] up), and [`crate::art`] answers
-//! it like any portal image. A composed paper-doll slot is a bevelled slot frame with a grey
-//! silhouette, as the classic slots are: the frame and its colours are taken from the helmet slot,
-//! and the silhouette's shape from an item icon of the portal.
+//! Each one is asked for by an id the early-2005 portal does not use: the later files' own id for
+//! the same picture where there is one, else an id in a range no portal uses ([`BASE`] up).
+//! [`crate::art`] reads the portal first, with the client's records over it, and composes only
+//! what neither holds, so a record at one of these ids takes the composed picture's place.
+//!
+//! A composed paper-doll slot is a bevelled slot frame with a grey silhouette, as the classic
+//! slots are: the frame and its colours are taken from the helmet slot, and the silhouette's shape
+//! from an item icon of the portal.
 use crate::art::Image;
 
-/// The first composed id. The portal's interface images stay well below it.
+/// The first id of the range no portal uses. The portal's interface images stay well below it.
 pub const BASE: u32 = 0x06F0_0000;
-/// The cloak slot: a slot frame with a garment's outline.
-pub const CLOAK_SLOT: u32 = BASE + 1;
-/// The trinket slot: a slot frame with a flask's outline.
-pub const TRINKET_SLOT: u32 = BASE + 2;
-/// An aetheria sigil slot: a slot frame with a crystal's outline.
-pub const SIGIL_SLOT: u32 = BASE + 3;
+/// The cloak slot: the client's own picture, else a slot frame with a garment's outline.
+pub const CLOAK_SLOT: u32 = 0x0600_708F;
+/// The trinket slot: the client's own picture, else a slot frame with a flask's outline.
+pub const TRINKET_SLOT: u32 = 0x0600_6A6C;
+/// The three aetheria sigil slots, blue, yellow and red: the client's own pictures, else a slot
+/// frame with a crystal's outline.
+pub const SIGIL_SLOTS: [u32; 3] = [0x0600_6BEF, 0x0600_6BF0, 0x0600_6BF1];
 
 /// The classic helmet slot, whose bevel and colours every composed slot borrows.
 const SLOT_FRAME: u32 = 0x0600_0f68;
@@ -24,16 +29,18 @@ const GARMENT_ICON: u32 = 0x0600_32bf;
 const FLASK_ICON: u32 = 0x0600_32c8;
 const CRYSTAL_ICON: u32 = 0x0600_32d4;
 
-/// The journal's toolbar button, normal, lit (its page shown) and pressed: the map button's
-/// triangle with its compass taken out and filled in from the triangle around it, and a quill on
-/// it in the toolbar glyphs' white with a black edge, shaped from the portal's feather icon.
-pub const JOURNAL_BUTTON: [u32; 3] = [BASE + 0x10, BASE + 0x11, BASE + 0x12];
+/// The journal's toolbar button, normal, lit (its page shown) and pressed: the later files' ids
+/// for the quest button's normal and lit pictures, the pressed one showing the lit picture as the
+/// map's and the options' do. Composed, when no record holds them, as the map button's triangle
+/// with its compass taken out and filled in from the triangle around it, and a quill on it in the
+/// toolbar glyphs' white with a black edge, shaped from the portal's feather icon.
+pub const JOURNAL_BUTTON: [u32; 3] = [0x0600_69AE, 0x0600_69AF, 0x0600_69AF];
 /// Narrowed toolbar pictures: this, plus 64 for each picture of [`TOOLBAR_PICTURES`] before it,
 /// plus the width.
 const NARROWED: u32 = BASE + 0x100;
 /// The toolbar's panel button pictures that can be narrowed, each cut evenly from both sides so
 /// one more button fits on the row.
-const TOOLBAR_PICTURES: [u32; 18] = [
+const TOOLBAR_PICTURES: [u32; 17] = [
     0x0600_111f,
     0x0600_1120,
     0x0600_1121,
@@ -51,7 +58,6 @@ const TOOLBAR_PICTURES: [u32; 18] = [
     0x0600_111e,
     JOURNAL_BUTTON[0],
     JOURNAL_BUTTON[1],
-    JOURNAL_BUTTON[2],
 ];
 /// The map button's pictures the journal's are made from, in the same order.
 const TRIANGLES: [u32; 3] = [0x0600_1116, 0x0600_1117, 0x0600_1118];
@@ -70,10 +76,13 @@ pub fn narrowed(id: u32, width: u32) -> u32 {
         })
 }
 
-/// Whether `id` is one this module composes.
+/// Whether `id` is one this module composes when no record holds it.
 #[must_use]
-pub const fn is_composed(id: u32) -> bool {
-    id >= BASE && id < BASE + 0x1_0000
+pub fn is_composed(id: u32) -> bool {
+    (id >= BASE && id < BASE + 0x1_0000)
+        || JOURNAL_BUTTON.contains(&id)
+        || [CLOAK_SLOT, TRINKET_SLOT].contains(&id)
+        || SIGIL_SLOTS.contains(&id)
 }
 
 /// Compose image `id` from the portal images `portal` returns; `None` for an id this module does
@@ -96,7 +105,7 @@ pub fn compose(id: u32, portal: &dyn Fn(u32) -> Option<Image>) -> Option<Image> 
     let icon = match id {
         CLOAK_SLOT => GARMENT_ICON,
         TRINKET_SLOT => FLASK_ICON,
-        SIGIL_SLOT => CRYSTAL_ICON,
+        _ if SIGIL_SLOTS.contains(&id) => CRYSTAL_ICON,
         _ => return None,
     };
     Some(slot(&portal(SLOT_FRAME)?, &portal(icon)?))
@@ -346,7 +355,7 @@ mod tests {
             centre[0] > 60,
             "the outline is drawn lighter than the ground, in the silhouette grey: {centre:?}"
         );
-        assert!(is_composed(SIGIL_SLOT) && !is_composed(SLOT_FRAME));
+        assert!(SIGIL_SLOTS.iter().all(|s| is_composed(*s)) && !is_composed(SLOT_FRAME));
         assert!(compose(BASE + 99, &|_| None).is_none());
     }
 

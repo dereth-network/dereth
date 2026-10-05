@@ -1,0 +1,19 @@
+[package]
+name = "dereth-pack"
+description = "Packs pictures into a client layer: the container of Dereth's own records the client reads over the portal files."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[dependencies]
+# The container and its writer.
+dereth-dat.workspace = true
+dereth-primitives.workspace = true
+# The pictures.
+png.workspace = true
+
+[lints]
+workspace = true

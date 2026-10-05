@@ -58,6 +58,7 @@ members = [
     "tools/web-relay",
     "tools/web-dev",
     "tools/corpus",
+    "tools/pack",
     "tools/xtask",
     # empyrean/: Empyrean, the server: a Rust port of ACE (ACEmulator), AGPL-3.0-only
     # (empyrean/LICENSE; every server crate says so in its own `license`): the ported crates

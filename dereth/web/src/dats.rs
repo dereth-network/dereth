@@ -97,8 +97,11 @@ where
     if let Some(h) = &highres {
         reports.push(FileReport::of(FILE_NAMES[3], h)?);
     }
+    // The client's own records lie over the files as they do on the desktop.
     Ok((
-        RetailDatStore::open_with(portal, cell, local, highres),
+        dereth_client_sdk::runtime::assets::with_client_layers(RetailDatStore::open_with(
+            portal, cell, local, highres,
+        )),
         reports,
     ))
 }

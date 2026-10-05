@@ -36,6 +36,7 @@
 
 pub mod archive;
 pub mod btree;
+pub mod client_layer;
 pub mod container;
 pub mod cursor;
 pub mod decompose;

@@ -19,15 +19,16 @@ const EQUIPMENT: [(i32, i32, u32, u32, usize); 10] = [
     (190, 151, 0x060032c4, loc::UPPER_LEG_WEAR, 0),
 ];
 /// The slots a world after the classic interface adds to the paper doll, where the doll leaves
-/// room: the cloak and the trinket on the bottom row, the three aetheria sigils beside the head.
-/// The classic portal has no art for them, so each wears a slot composed from its own pieces in
-/// the classic slots' style: a bevelled frame with a garment's, a flask's or a crystal's outline.
+/// room: the cloak and the trinket on the bottom row, the three aetheria sigils (blue, yellow and
+/// red) beside the head. The classic portal has no art for them; each wears the client's own
+/// picture in the classic slots' style, under the later files' id for that slot
+/// ([`crate::composed`] makes one should that record be missing).
 const LATER_EQUIPMENT: [(i32, i32, u32, u32, usize); 5] = [
     (55, 202, crate::composed::CLOAK_SLOT, loc::CLOAK, 0),
     (97, 202, crate::composed::TRINKET_SLOT, loc::TRINKET_ONE, 0),
-    (156, 33, crate::composed::SIGIL_SLOT, loc::SIGIL_ONE, 0),
-    (156, 66, crate::composed::SIGIL_SLOT, loc::SIGIL_TWO, 0),
-    (13, 66, crate::composed::SIGIL_SLOT, loc::SIGIL_THREE, 0),
+    (156, 33, crate::composed::SIGIL_SLOTS[0], loc::SIGIL_ONE, 0),
+    (156, 66, crate::composed::SIGIL_SLOTS[1], loc::SIGIL_TWO, 0),
+    (13, 66, crate::composed::SIGIL_SLOTS[2], loc::SIGIL_THREE, 0),
 ];
 
 /// The paper doll's slots on this world: the classic ones, then the cloak, the trinket and the

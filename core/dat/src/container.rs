@@ -42,14 +42,25 @@ impl DatStorage for File {
 /// A container held whole in memory.
 impl DatStorage for Vec<u8> {
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
-        let start = usize::try_from(offset).map_err(|_| std::io::ErrorKind::UnexpectedEof)?;
-        let end = start
-            .checked_add(buf.len())
-            .filter(|&end| end <= self.len())
-            .ok_or(std::io::ErrorKind::UnexpectedEof)?;
-        buf.copy_from_slice(&self[start..end]);
-        Ok(())
+        read_slice_at(self, offset, buf)
     }
+}
+
+/// A container built into the program.
+impl DatStorage for &'static [u8] {
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        read_slice_at(self, offset, buf)
+    }
+}
+
+fn read_slice_at(bytes: &[u8], offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+    let start = usize::try_from(offset).map_err(|_| std::io::ErrorKind::UnexpectedEof)?;
+    let end = start
+        .checked_add(buf.len())
+        .filter(|&end| end <= bytes.len())
+        .ok_or(std::io::ErrorKind::UnexpectedEof)?;
+    buf.copy_from_slice(&bytes[start..end]);
+    Ok(())
 }
 
 /// A platform with neither positional-read call has no file the client can open by path; its
@@ -295,6 +306,11 @@ pub struct FileIterations {
 /// overlay first. A record the overlay holds is the overlay's (an addition or a replacement), a
 /// record its tombstones cover is not there, and every other record is the file's own. The
 /// container's structure (its header, its tree, its free chain) is always the file's own.
+///
+/// It may carry the client's own records too ([`DatFile::with_client_layer`]), beneath the
+/// world's overlay and above the file: a record the overlay neither holds nor deletes is the
+/// client's when the client layer holds it. The client's records are never in the file's
+/// iterations, and [`DatFile::base`] leaves them out.
 #[derive(Debug, Clone)]
 pub struct DatFile {
     path: PathBuf,
@@ -308,6 +324,8 @@ pub struct DatFile {
     header_iteration: Option<u32>,
     /// The world's overlay over this file, when it has one.
     layer: Option<Arc<crate::overlay::Layer>>,
+    /// The client's own records beneath the overlay, when it has them.
+    client: Option<Arc<crate::overlay::Layer>>,
 }
 
 impl DatFile {
@@ -358,6 +376,7 @@ impl DatFile {
             era: ContainerEra::Tod,
             header_iteration: None,
             layer: None,
+            client: None,
         };
         let mut hdr = [0u8; 0x50];
         me.read_exact_at(HEADER_OFFSET, &mut hdr)?;
@@ -480,17 +499,55 @@ impl DatFile {
         self.header_iteration
     }
 
-    /// This file with `layer` over it: every record read asks the overlay first. `layer` must have
-    /// been built over this file ([`crate::overlay::Layer::over`]).
+    /// This file with `layer` over it in place of any overlay it had: every record read asks the
+    /// overlay first. `layer` must have been built over this file
+    /// ([`crate::overlay::Layer::over`]). The client's records, when the file carries them, stay
+    /// beneath it.
     #[must_use]
     pub fn layered(&self, layer: Arc<crate::overlay::Layer>) -> Self {
         Self {
             layer: Some(layer),
+            client: self.client.clone(),
             ..self.base()
         }
     }
 
-    /// This file as it is on disk, with no overlay over it.
+    /// This file with the client's own records (`client`, [`crate::client_layer`]) beneath any
+    /// overlay over it, in place of any it carried.
+    #[must_use]
+    pub fn with_client_layer(&self, client: Arc<crate::overlay::Layer>) -> Self {
+        Self {
+            client: Some(client),
+            ..self.clone()
+        }
+    }
+
+    /// The client's records beneath this file's overlay, if any.
+    #[must_use]
+    pub fn client_layer(&self) -> Option<&crate::overlay::Layer> {
+        self.client.as_deref()
+    }
+
+    pub(crate) fn client_layer_arc(&self) -> Option<Arc<crate::overlay::Layer>> {
+        self.client.clone()
+    }
+
+    /// Whether the file holds `id` as the world reads it, leaving the client's own records out:
+    /// the overlay's records and deletions over the file's own.
+    #[must_use]
+    pub fn world_contains(&self, id: DataId) -> bool {
+        if let Some(layer) = &self.layer {
+            if layer.record(id).is_some() {
+                return true;
+            }
+            if layer.hides(id) {
+                return false;
+            }
+        }
+        self.dir.contains_key(&id.raw())
+    }
+
+    /// This file as it is on disk, with no overlay over it and none of the client's records.
     #[must_use]
     pub fn base(&self) -> Self {
         Self {
@@ -502,6 +559,7 @@ impl DatFile {
             era: self.era,
             header_iteration: self.header_iteration,
             layer: None,
+            client: None,
         }
     }
 
@@ -576,7 +634,7 @@ impl DatFile {
     }
 
     /// The directory entry for an id, if present: the overlay's when it holds the id, none when its
-    /// tombstones cover it, else the file's own.
+    /// tombstones cover it, else the client's when it holds it, else the file's own.
     #[must_use]
     pub fn entry(&self, id: DataId) -> Option<&BtEntry> {
         if let Some(layer) = &self.layer {
@@ -586,6 +644,9 @@ impl DatFile {
             if layer.hides(id) {
                 return None;
             }
+        }
+        if let Some(e) = self.client.as_ref().and_then(|c| c.record(id)) {
+            return Some(e);
         }
         self.dir.get(&id.raw())
     }
@@ -597,7 +658,16 @@ impl DatFile {
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.layer.as_ref().map_or(self.dir.len(), |l| l.len())
+        let world = self.layer.as_ref().map_or(self.dir.len(), |l| l.len());
+        // The client's records the world does not hold and has not deleted.
+        let client = self.client.as_ref().map_or(0, |c| {
+            c.records()
+                .filter(|(id, _)| {
+                    !self.world_contains(*id) && !self.layer.as_ref().is_some_and(|l| l.hides(*id))
+                })
+                .count()
+        });
+        world + client
     }
 
     #[must_use]
@@ -610,13 +680,22 @@ impl DatFile {
         self.iter_entries().map(|(id, _)| id)
     }
 
-    /// Every entry, ascending by id, the overlay's merged over the file's own.
+    /// Every entry, ascending by id: the overlay's merged over the client's, merged over the
+    /// file's own.
     pub fn iter_entries(&self) -> impl Iterator<Item = (DataId, &BtEntry)> + Send + '_ {
+        type Entries<'a> = Box<dyn Iterator<Item = (DataId, &'a BtEntry)> + Send + 'a>;
         let own = self.dir.iter().map(|(k, v)| (DataId(*k), v));
+        let below: Entries<'_> = match &self.client {
+            None => Box::new(own),
+            Some(client) => Box::new(crate::overlay::merge(
+                own.filter(move |(id, _)| client.record(*id).is_none()),
+                client.records(),
+            )),
+        };
         match &self.layer {
-            None => Box::new(own) as Box<dyn Iterator<Item = (DataId, &BtEntry)> + Send + '_>,
+            None => below,
             Some(layer) => Box::new(crate::overlay::merge(
-                own.filter(move |(id, _)| !layer.hides(*id) && layer.record(*id).is_none()),
+                below.filter(move |(id, _)| !layer.hides(*id) && layer.record(*id).is_none()),
                 layer.records(),
             )),
         }
@@ -640,6 +719,11 @@ impl DatFile {
             if layer.hides(id) {
                 layer.note_hidden();
                 return Err(DatError::NotFound(id));
+            }
+        }
+        if let Some(client) = &self.client {
+            if client.record(id).is_some() {
+                return client.read(id);
             }
         }
         let e = *self.dir.get(&id.raw()).ok_or(DatError::NotFound(id))?;

@@ -1,0 +1,23 @@
+# Dereth's own records over the portal from before Throne of Destiny: the classic interface's
+# pictures for what later worlds added, each under the later files' id for the same picture.
+#
+# After changing a picture or a line, regenerate the container and commit both:
+#   cargo run -p dereth-pack -- core/client-runtime/assets/classic-portal/pack.tsv
+# `cargo test -p dereth-pack` fails while the container is not what this manifest makes.
+
+over        portal.dat
+out         layer.dat
+# The paper doll's slot ground, under any transparent pixel.
+background  0D1115
+
+# The paper doll's later slots, 32 x 32.
+0x0600708F  rgb  cloak.png
+0x06006A6C  rgb  trinket.png
+0x06006BEF  rgb  sigil-blue.png
+0x06006BF0  rgb  sigil-yellow.png
+0x06006BF1  rgb  sigil-red.png
+
+# The journal's toolbar button, 34 x 27 like the map's, normal and lit (its page shown; the
+# pressed button shows the lit picture). Until these are here the interface composes them.
+# 0x060069AE  rgb  journal.png
+# 0x060069AF  rgb  journal-lit.png

@@ -1144,6 +1144,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-pack"
+version = "0.0.0"
+dependencies = [
+ "dereth-dat",
+ "dereth-primitives",
+ "png",
+]
+
+[[package]]
 name = "dereth-pcap"
 version = "0.0.0"
 dependencies = [
