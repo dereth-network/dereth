@@ -1,4 +1,6 @@
 .claude/
+.wrangler/
+/dist*/
 
 /target*/
 
