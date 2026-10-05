@@ -1858,3 +1858,77 @@ fn factories_keep_creation_and_help_content_with_their_resource_bundle() {
         assert_eq!(a.creation.as_ref().unwrap().heritages[0].name, "Amber");
     });
 }
+
+/// Behaviour: none (this client's classic creation screens: the wheel scrolls every list there).
+#[test]
+fn the_wheel_scrolls_the_hair_grid_the_help_text_and_the_colour_strips_on_the_creation_pages() {
+    context(|c| {
+        let mut t = tables();
+        let sx = t
+            .chargen
+            .heritage_groups
+            .get_mut(&1)
+            .unwrap()
+            .sexes
+            .get_mut(&2)
+            .unwrap();
+        sx.hair_styles = (0..14)
+            .map(|_| dereth_assets::tables::HairStyle {
+                icon: 0,
+                bald: 0,
+                alternate_setup: DataId(0),
+                objdesc: sx.base_objdesc.clone(),
+            })
+            .collect();
+        let mut d = CreationData::from_tables(std::rc::Rc::new(t));
+        d.help_ids = vec![0x2300_0001, 0x2300_0002];
+        let help = d.help_ids[1].to_string();
+        d.help_text.insert(help.clone(), "long help".into());
+        d.text_heights.insert(help, 400);
+        let d = std::rc::Rc::new(d);
+        let wheel = |p: &mut Pregame, x, y| {
+            let mut host = crate::control_host::ControlHost::default();
+            host.sync(&p.frame(c));
+            for e in host.handle(crate::widgets::Input::Wheel { x, y, delta: 1 }, c.now) {
+                p.event(e, c);
+            }
+        };
+        let mut p = Pregame::new(
+            "appearance",
+            Ok(d.clone()),
+            dereth_primitives::LocalTime(0.0),
+        );
+        let pick = p
+            .frame(c)
+            .controls
+            .iter()
+            .find(|v| v.id == "hair-style-pick-0")
+            .map(|v| (v.rect.x + 4, v.rect.y + 4))
+            .expect("a style");
+        // Over a style: the grid moves one row.
+        wheel(&mut p, pick.0, pick.1);
+        assert_eq!(p.hair_scroll, 48);
+        // Over the help text: three of its 16-pixel lines, not one pixel.
+        wheel(&mut p, 500, 100);
+        assert_eq!(p.help_scroll, 48);
+        let mut p = Pregame::new("clothing", Ok(d.clone()), dereth_primitives::LocalTime(0.0));
+        p.state.set_shirt_style(&d.tables.chargen, 0);
+        let frame = p.frame(c);
+        let swatch = frame
+            .controls
+            .iter()
+            .find(|v| v.id == "color-pick-1-0")
+            .map(|v| (v.rect.x + 4, v.rect.y + 4))
+            .expect("a swatch");
+        assert!(
+            frame
+                .controls
+                .iter()
+                .any(|v| v.id == "color-scroll-1" && v.enabled),
+            "the test data's shirt has more colours than the strip shows"
+        );
+        // Over a swatch: the strip moves one swatch.
+        wheel(&mut p, swatch.0, swatch.1);
+        assert_eq!(p.color_scroll[1], 32);
+    });
+}

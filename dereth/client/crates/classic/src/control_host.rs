@@ -746,6 +746,11 @@ impl ControlHost {
                 *thumb && self.controls.iter().any(|c| c.id == *id && c.enabled)
             });
         let input = self.wheel_target(input);
+        // A horizontal bar is worked as a slider, not by the widget tree: the wheel over it
+        // steps it here.
+        if let Some(event) = self.horizontal_wheel(&input) {
+            return vec![event];
+        }
         let events = self.handle_inner(input, now);
         if release || cancel {
             self.sound_scroll = None;
@@ -785,6 +790,34 @@ impl ControlHost {
         }
         events
     }
+    /// The wheel over a horizontal scroll bar moves it a step a notch, down or right for a
+    /// notch towards the user.
+    fn horizontal_wheel(&self, input: &Input) -> Option<ControlEvent> {
+        let Input::Wheel { x, y, delta } = *input else {
+            return None;
+        };
+        if self.choice.is_some() {
+            return None;
+        }
+        let c = self.control_at(x, y)?;
+        let ControlKind::ScrollBar {
+            min,
+            max,
+            value,
+            step,
+            vertical: false,
+            ..
+        } = c.kind
+        else {
+            return None;
+        };
+        Some(ControlEvent::Scroll {
+            id: c.id.clone(),
+            value: value
+                .saturating_add(delta.saturating_mul(step.max(1)))
+                .clamp(min, max.max(min)),
+        })
+    }
     /// The wheel over a window scrolls what is under the pointer; over anything else in a
     /// window with one vertical scroll bar, it scrolls that bar, as it would over the bar itself.
     fn wheel_target(&self, input: Input) -> Input {
@@ -794,6 +827,19 @@ impl ControlHost {
         // An open drop-down takes the wheel itself.
         if self.choice.is_some() {
             return input;
+        }
+        if let Some((bar, steps)) = self.control_at(x, y).and_then(|c| {
+            let (bar, steps) = c.wheel_bar.as_ref()?;
+            let bar = self.controls.iter().find(|b| {
+                b.enabled && b.id == *bar && matches!(b.kind, ControlKind::ScrollBar { .. })
+            })?;
+            Some((bar, *steps))
+        }) {
+            return Input::Wheel {
+                x: bar.rect.x + bar.rect.w / 2,
+                y: bar.rect.y + bar.rect.h / 2,
+                delta: delta.saturating_mul(steps.max(1)),
+            };
         }
         if self.control_at(x, y).is_some_and(|c| {
             matches!(

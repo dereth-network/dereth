@@ -415,7 +415,9 @@ impl Pregame {
                     offset,
                 },
                 true,
-            );
+            )
+            // A notch of the wheel over the text moves it three lines.
+            .wheel_bar = Some(("skill-help-scroll".into(), 3));
             f.control(
                 "skill-help-scroll",
                 rect(765, 462, 16, 66),

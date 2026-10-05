@@ -159,7 +159,10 @@ impl Pregame {
                 if k == state.colors[i] {
                     f.image_native("06000506", r.x, r.y, r, true);
                 }
-                f.button(format!("color-pick-{i}-{k}"), r, "", true).paint = false;
+                let pick = f.button(format!("color-pick-{i}-{k}"), r, "", true);
+                pick.paint = false;
+                // The wheel over the swatches moves the strip a swatch a notch.
+                pick.wheel_bar = Some((format!("color-scroll-{i}"), 1));
             }
             f.control(
                 format!("color-scroll-{i}"),
@@ -443,7 +446,10 @@ impl Pregame {
             if i == state.hair_style {
                 f.image("06000F51", r, false, true);
             }
-            f.button(format!("hair-style-pick-{i}"), r, "", true).paint = false;
+            let pick = f.button(format!("hair-style-pick-{i}"), r, "", true);
+            pick.paint = false;
+            // The wheel over the styles moves the grid a row a notch.
+            pick.wheel_bar = Some(("hairstyles-scroll".into(), 1));
         }
         if max > 0 {
             f.control(

@@ -508,6 +508,9 @@ pub struct Control {
     pub slot: bool,
     /// A drop-down drawn from one of the interface's list art sets (face, arrow, rows, edges).
     pub list_skin: Option<ListSkin>,
+    /// The scroll bar the wheel over this control moves, and by how many of its steps a notch:
+    /// a text box or a grid of picture buttons scrolled by a bar beside it.
+    pub wheel_bar: Option<(String, i32)>,
     pub font: String,
     pub color: u32,
 }
@@ -676,6 +679,7 @@ impl PanelFrame {
             choice_art: false,
             slot: false,
             list_skin: None,
+            wheel_bar: None,
             font: "15-6".into(),
             color: 0xffd2d2c8,
         });
