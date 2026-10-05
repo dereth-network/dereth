@@ -540,7 +540,17 @@ impl ControlHost {
             return;
         };
         if control.drop_equipment_canvas {
-            self.canvas_feedback = match g.equipment_hover(dragged).canvas {
+            let hover = g.equipment_hover(dragged);
+            let wields = g.item_valid_locations(dragged).is_some_and(|valid| {
+                valid & dereth_rules::slots::loc::WEARABLE == 0
+                    && valid & control.canvas_wields != 0
+            });
+            let answer = if wields {
+                hover.at_location(control.canvas_wields)
+            } else {
+                hover.canvas
+            };
+            self.canvas_feedback = match answer {
                 Some(accept) => Some((control.rect, accept)),
                 None => previous_canvas.filter(|(rect, _)| *rect == control.rect),
             };

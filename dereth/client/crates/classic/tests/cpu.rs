@@ -424,6 +424,26 @@ fn classic_equipment_preserves_pairs_offhand_and_later_locations() {
     }
 }
 
+/// Behaviour: classic.paper-doll.accessory-slots-work-as-the-doll-slots
+#[test]
+fn a_trinket_or_an_aetheria_on_the_classic_figure_or_its_button_is_wielded_into_its_slot() {
+    use dereth_client_model::Request;
+    for control in ["paperdoll", "accessories-button"] {
+        for location in [0x0400_0000, 0x1000_0000, 0x2000_0000, 0x4000_0000] {
+            let mut world = equipment_world(location);
+            let interaction = equipment_drop(&mut world, control);
+            let [Request::GetAndWieldItem(message)] = interaction.pending_requests() else {
+                panic!(
+                    "{control} with {location:#x} sends one wield: {:?}",
+                    interaction.pending_requests()
+                );
+            };
+            assert_eq!((message.item, message.slot), (ObjectId(3), location));
+            assert_eq!(interaction.stats.requests_refused, 0);
+        }
+    }
+}
+
 /// Behaviour: inventory.body.something-that-could-be-worn-or-wielded-is-still-worn-on-the-picture
 #[test]
 fn classic_clothing_and_canvas_send_the_whole_mask_but_other_slots_choose_one() {

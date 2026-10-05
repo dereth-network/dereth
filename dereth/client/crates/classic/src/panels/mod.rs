@@ -485,6 +485,9 @@ pub struct Control {
     pub silent: bool,
     pub drop_location: Option<u32>,
     pub drop_equipment_canvas: bool,
+    /// Locations a figure canvas also takes by wielding: an item that is not worn but fits one of
+    /// these is hinted as the equipment rules answer for them, not as the canvas's wearing does.
+    pub canvas_wields: u32,
     /// For an item strip that takes only some items, the rule its drag hints follow: an item it
     /// takes lights any slot as a place to drop, any other item as refused.
     pub drop_filter: Option<DropFilter>,
@@ -675,6 +678,7 @@ impl PanelFrame {
             silent: false,
             drop_location: None,
             drop_equipment_canvas: false,
+            canvas_wields: 0,
             drop_filter: None,
             choice_enabled: None,
             smooth_scroll: false,

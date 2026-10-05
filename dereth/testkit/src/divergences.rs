@@ -268,8 +268,15 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-033",
         title: "The classic paper doll's later slots open from one button",
-        change: "On a world with cloaks, trinkets or aetheria, the classic interface's paper doll                  has an accessories button beside the shield. It opens a flyout over the doll                  holding the cloak, the trinket and each aetheria sigil the character has                  unlocked, as slots that work as the doll's own do. The classic interface never                  had these slots.",
-        why: "Later worlds' equipment can be worn and seen in the classic interface, and the               doll keeps its own layout.",
+        change: "On a world with cloaks, trinkets or aetheria, the classic interface's paper doll \
+                 has an accessories button beside the shield. It opens a flyout over the doll \
+                 holding each aetheria sigil the character has unlocked over the cloak and the \
+                 trinket, as slots that work as the doll's own do. A trinket or an aetheria let \
+                 go on the figure goes into its own slot; the final client's figure refused them \
+                 and took them only on their own slots. The classic interface never had these \
+                 slots.",
+        why: "Later worlds' equipment can be worn and seen in the classic interface, and the \
+              doll keeps its own layout.",
     },
 ];
 

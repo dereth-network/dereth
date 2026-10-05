@@ -56,18 +56,6 @@ const BUTTON: crate::widgets::Rect = rect(55, 202, 32, 32);
 /// How long a dragged item held over the closed button takes to open the flyout.
 const SPRING_SECONDS: f64 = 0.4;
 
-/// How the flyout sets its slots out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // one layout is chosen; the other stays to be compared
-enum FlyoutLayout {
-    /// One row: the cloak, the trinket, then the sigils.
-    Row,
-    /// The sigils on one row, over the cloak and the trinket on the other.
-    Grid,
-}
-/// The layout the flyout uses.
-const FLYOUT_LAYOUT: FlyoutLayout = FlyoutLayout::Row;
-
 /// The flyout's frame, its title row and its collapse arrow, and each slot it shows (an index
 /// into [`ACCESSORIES`] and where it is).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,8 +67,9 @@ struct FlyoutGeometry {
 }
 
 /// Where the flyout lies for the accessories `shown`: a bevelled panel standing on the button,
-/// centred over the doll's legs and kept on the doll, its title row on top and its slots under it.
-fn flyout_geometry(layout: FlyoutLayout, shown: &[usize]) -> Option<FlyoutGeometry> {
+/// centred over the doll's legs and kept on the doll, its title row on top. Under it the sigils
+/// unlocked, in order, are on one row, over the cloak and the trinket on the bottom row.
+fn flyout_geometry(shown: &[usize]) -> Option<FlyoutGeometry> {
     const EDGE: i32 = 3;
     const PAD: i32 = 4;
     const TITLE: i32 = 16;
@@ -94,16 +83,11 @@ fn flyout_geometry(layout: FlyoutLayout, shown: &[usize]) -> Option<FlyoutGeomet
     if shown.is_empty() {
         return None;
     }
-    let rows: Vec<Vec<usize>> = match layout {
-        FlyoutLayout::Row => vec![shown.to_vec()],
-        FlyoutLayout::Grid => {
-            let (sigils, worn): (Vec<usize>, Vec<usize>) = shown.iter().partition(|&&k| k >= 2);
-            [sigils, worn]
-                .into_iter()
-                .filter(|r| !r.is_empty())
-                .collect()
-        }
-    };
+    let (sigils, worn): (Vec<usize>, Vec<usize>) = shown.iter().partition(|&&k| k >= 2);
+    let rows: Vec<Vec<usize>> = [sigils, worn]
+        .into_iter()
+        .filter(|r| !r.is_empty())
+        .collect();
     let span = |n: usize| i32_from(n) * SLOT + (i32_from(n) - 1).max(0) * GAP;
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
     let w = (span(columns) + 2 * (EDGE + PAD)).max(MIN_WIDTH);
@@ -142,12 +126,43 @@ struct Flyout {
     hover_since: Option<dereth_primitives::LocalTime>,
     /// The item a drag in progress carries.
     dragged: Option<ObjectId>,
+    /// The last press was outside the open flyout and closed it; a drag it starts opens it again.
+    closed_by_press: bool,
 }
 impl Flyout {
     fn close(&mut self) {
         self.open = false;
         self.sprung = false;
         self.hover_since = None;
+    }
+}
+
+/// The strip between the flyout and the button it stands on, which a drag crosses on its way from
+/// the one to the other.
+fn bridge(g: &FlyoutGeometry) -> crate::widgets::Rect {
+    let bottom = g.panel.y + g.panel.h;
+    rect(BUTTON.x, bottom, BUTTON.w, BUTTON.y - bottom)
+}
+
+/// The locations of the accessories `shown`.
+fn accessory_mask(shown: &[usize]) -> u32 {
+    shown.iter().fold(0, |m, &k| m | ACCESSORIES[k].1)
+}
+
+/// Where an item let go on the doll's figure or on the accessories button goes. What can be worn
+/// is worn, the server choosing where, as the figure has always taken it. A trinket or an
+/// aetheria, which the figure of the classic interface never knew, goes into its own slot behind
+/// the button through the same request as a drop on that slot.
+fn figure_drop(g: &dyn GameView, item: ObjectId, shown: &[usize]) -> DropTarget {
+    let hidden = accessory_mask(shown);
+    match g.item_valid_locations(item) {
+        Some(valid) if valid & loc::WEARABLE == 0 && valid & hidden != 0 => {
+            DropTarget::EquipLocation {
+                mask: valid & hidden,
+                side: 0,
+            }
+        }
+        _ => DropTarget::EquipCanvas,
     }
 }
 
@@ -174,7 +189,7 @@ fn worn(g: &dyn GameView, mask: u32) -> Option<ObjectId> {
 
 /// Whether `item` goes only in the flyout's slots: it fits one of them and nowhere else.
 fn fits_only_accessories(g: &dyn GameView, item: ObjectId, shown: &[usize]) -> bool {
-    let hidden = shown.iter().fold(0, |m, &k| m | ACCESSORIES[k].1);
+    let hidden = accessory_mask(shown);
     g.item_valid_locations(item)
         .is_some_and(|valid| valid & hidden != 0 && valid & !hidden == 0)
 }
@@ -425,12 +440,7 @@ impl Inventory {
         let button = f.button("accessories-button", BUTTON, "", true);
         button.paint = false;
         button.overlay = true;
-        let Some(geometry) = self
-            .flyout
-            .open
-            .then(|| flyout_geometry(FLYOUT_LAYOUT, &shown))
-            .flatten()
-        else {
+        let Some(geometry) = self.flyout.open.then(|| flyout_geometry(&shown)).flatten() else {
             return;
         };
         let p = geometry.panel;
@@ -478,9 +488,12 @@ impl Inventory {
     fn flyout_event(&mut self, e: &ControlEvent, ctx: &Context<'_>) -> Option<Vec<PanelAction>> {
         let g = ctx.game;
         let shown = accessories(g);
-        let geometry = flyout_geometry(FLYOUT_LAYOUT, &shown);
+        let geometry = flyout_geometry(&shown);
         let over_flyout = |x: i32, y: i32| {
-            BUTTON.contains(x, y) || geometry.as_ref().is_some_and(|g| g.panel.contains(x, y))
+            BUTTON.contains(x, y)
+                || geometry
+                    .as_ref()
+                    .is_some_and(|g| g.panel.contains(x, y) || bridge(g).contains(x, y))
         };
         match e {
             ControlEvent::Tick if shown.is_empty() => self.flyout.close(),
@@ -503,11 +516,24 @@ impl Inventory {
                 return Some(vec![]);
             }
             // A press anywhere else on the panel closes the flyout, and goes on to what it hit.
+            // A press that becomes a drag opens it again: an item carried from the pack finds
+            // the flyout open to take it.
             ControlEvent::Pointer {
                 x,
                 y,
                 pressed: true,
-            } if self.flyout.open && !over_flyout(*x, *y) => self.flyout.close(),
+            } => {
+                let elsewhere = self.flyout.open && !over_flyout(*x, *y);
+                if elsewhere {
+                    self.flyout.close();
+                }
+                self.flyout.closed_by_press = elsewhere;
+            }
+            ControlEvent::DragStart { .. } | ControlEvent::PreviewDrag { .. }
+                if std::mem::take(&mut self.flyout.closed_by_press) && !shown.is_empty() =>
+            {
+                self.flyout.open = true;
+            }
             ControlEvent::DragOver { object: None, .. } => {
                 if self.flyout.sprung {
                     self.flyout.close();
@@ -545,15 +571,15 @@ impl Inventory {
                     return Some(vec![]);
                 }
             }
-            // An item let go on the button goes where it fits, as on the doll.
+            // An item let go on the button or on the figure goes where it fits.
             ControlEvent::Drop {
                 id,
                 payload: DragPayload::Object(item),
                 ..
-            } if id == "accessories-button" => {
+            } if id == "accessories-button" || id == "paperdoll" => {
                 return Some(vec![PanelAction::Game(UiRequest::DragDrop {
                     item: *item,
-                    target: DropTarget::EquipCanvas,
+                    target: figure_drop(g, *item, &shown),
                 })]);
             }
             _ => {}
@@ -641,6 +667,7 @@ impl Panel for Inventory {
         let canvas = f.button("paperdoll", rect(59, 23, 80, 212), "", true);
         canvas.paint = false;
         canvas.drop_equipment_canvas = true;
+        canvas.canvas_wields = accessory_mask(&accessories(g));
         if let Some(player) = g.player() {
             for (i, (x, y, did, mask, _slot)) in EQUIPMENT.iter().enumerate() {
                 equipment_slot(
@@ -1408,11 +1435,14 @@ mod accessories_tests {
         f.controls.iter().find(|c| c.id == id)
     }
     fn shown_slots(f: &PanelFrame) -> Vec<String> {
-        f.controls
+        let mut ids: Vec<String> = f
+            .controls
             .iter()
             .filter(|c| c.id.starts_with("accessory:"))
             .map(|c| c.id.clone())
-            .collect()
+            .collect();
+        ids.sort();
+        ids
     }
     fn centre(r: crate::widgets::Rect) -> (i32, i32) {
         (r.x + r.w / 2, r.y + r.h / 2)
@@ -1528,7 +1558,7 @@ mod accessories_tests {
             ..Doll::default()
         };
         let mut panel = opened(&game);
-        let geometry = flyout_geometry(FLYOUT_LAYOUT, &accessories(&game)).unwrap();
+        let geometry = flyout_geometry(&accessories(&game)).unwrap();
         let f = frame(&panel, &game);
         assert_eq!(
             control(&f, "accessories").map(|c| c.rect),
@@ -1626,7 +1656,7 @@ mod accessories_tests {
             unlocks: 7,
             ..Doll::default()
         };
-        let geometry = flyout_geometry(FLYOUT_LAYOUT, &accessories(&game)).unwrap();
+        let geometry = flyout_geometry(&accessories(&game)).unwrap();
         let button = Some(centre(BUTTON));
         let outside = Some((260, 300));
         let mut panel = Inventory::default();
@@ -1698,8 +1728,8 @@ mod accessories_tests {
             unlocks: 7,
             ..Doll::default()
         };
-        let geometry = flyout_geometry(FLYOUT_LAYOUT, &accessories(&game)).unwrap();
-        let cloak = centre(geometry.slots[0].1);
+        let geometry = flyout_geometry(&accessories(&game)).unwrap();
+        let cloak = centre(geometry.slots.iter().find(|(k, _)| *k == 0).unwrap().1);
         let mut d = Desktop::new(crate::panels::factory, (800, 600));
         at(&game, 0.0, |c| d.open("inventory", c));
         d.set_position("inventory", 0, 0);
@@ -1956,7 +1986,7 @@ mod accessories_tests {
         };
         let panel = opened(&game);
         let f = frame(&panel, &game);
-        let geometry = flyout_geometry(FLYOUT_LAYOUT, &accessories(&game)).unwrap();
+        let geometry = flyout_geometry(&accessories(&game)).unwrap();
         let mut host = ControlHost::default();
         host.sync(&f);
         // Over the flyout's panel, the button and its slots the overlay has the pointer; the
@@ -2004,47 +2034,250 @@ mod accessories_tests {
 
     /// Behaviour: classic.paper-doll.accessories-flyout-opens-and-closes
     #[test]
-    fn both_layouts_stand_the_flyout_on_the_button_over_the_doll() {
-        let all = [0, 1, 2, 3, 4];
-        for layout in [FlyoutLayout::Row, FlyoutLayout::Grid] {
-            for shown in [&all[..], &[0, 1], &[2], &[0, 3]] {
-                let g = flyout_geometry(layout, shown).unwrap();
-                let p = g.panel;
-                assert_eq!(p.y + p.h, BUTTON.y - 2, "{layout:?} stands on the button");
+    fn the_flyout_stands_on_the_button_with_the_unlocked_sigils_over_the_cloak_and_trinket() {
+        for shown in [&[0, 1, 2, 3, 4][..], &[0, 1], &[2], &[0, 3], &[1, 2, 4]] {
+            let g = flyout_geometry(shown).unwrap();
+            let p = g.panel;
+            assert_eq!(p.y + p.h, BUTTON.y - 2, "{shown:?} stands on the button");
+            assert!(
+                p.x >= 2 && p.x + p.w <= 244 && p.y >= 23,
+                "{shown:?} on the doll"
+            );
+            for (i, (_, r)) in g.slots.iter().enumerate() {
                 assert!(
-                    p.x >= 2 && p.x + p.w <= 244 && p.y >= 23,
-                    "{layout:?} on the doll"
+                    r.intersect(p) == Some(*r),
+                    "{shown:?} slot inside the panel"
                 );
-                assert_eq!(
-                    g.slots
-                        .iter()
-                        .map(|(k, _)| *k)
-                        .collect::<std::collections::BTreeSet<_>>(),
-                    shown.iter().copied().collect(),
+                assert!(
+                    r.y >= g.title.y + g.title.h,
+                    "{shown:?} slots under the title"
                 );
-                for (i, (_, r)) in g.slots.iter().enumerate() {
-                    assert!(
-                        r.intersect(p) == Some(*r),
-                        "{layout:?} slot inside the panel"
-                    );
-                    assert!(
-                        r.y >= g.title.y + g.title.h,
-                        "{layout:?} slots under the title"
-                    );
-                    for (_, other) in &g.slots[i + 1..] {
-                        assert!(r.intersect(*other).is_none(), "{layout:?} slots apart");
-                    }
+                for (_, other) in &g.slots[i + 1..] {
+                    assert!(r.intersect(*other).is_none(), "{shown:?} slots apart");
                 }
-                assert!(g.collapse.intersect(p) == Some(g.collapse));
+            }
+            assert!(g.collapse.intersect(p) == Some(g.collapse));
+            // The sigils shown, in order, on one row; the cloak and the trinket on the bottom
+            // row, under them.
+            let row = |pick: &dyn Fn(usize) -> bool| {
+                g.slots
+                    .iter()
+                    .filter(|(k, _)| pick(*k))
+                    .map(|(k, r)| (*k, r.y, r.x))
+                    .collect::<Vec<_>>()
+            };
+            let sigils = row(&|k| k >= 2);
+            let worn = row(&|k| k < 2);
+            let keys = |r: &[(usize, i32, i32)]| r.iter().map(|s| s.0).collect::<Vec<_>>();
+            let mut all = keys(&worn);
+            all.extend(keys(&sigils));
+            assert_eq!(all, shown.to_vec(), "every slot shown, and only those");
+            for r in [&sigils, &worn] {
+                assert!(r.windows(2).all(|w| w[0].1 == w[1].1 && w[0].2 < w[1].2));
+            }
+            if let (Some(s), Some(w)) = (sigils.first(), worn.first()) {
+                assert!(
+                    s.1 < w.1,
+                    "{shown:?}: the sigils over the cloak and trinket"
+                );
             }
         }
-        // The row is one row; the grid puts the sigils over the cloak and the trinket.
-        let row = flyout_geometry(FlyoutLayout::Row, &all).unwrap();
-        assert!(row.slots.iter().all(|(_, r)| r.y == row.slots[0].1.y));
-        let grid = flyout_geometry(FlyoutLayout::Grid, &all).unwrap();
-        let y = |k: usize| grid.slots.iter().find(|(s, _)| *s == k).unwrap().1.y;
-        assert!(y(2) == y(3) && y(3) == y(4) && y(0) == y(1) && y(2) < y(0));
-        assert!(flyout_geometry(FlyoutLayout::Row, &[]).is_none());
+        assert!(flyout_geometry(&[]).is_none());
+    }
+
+    /// Behaviour: classic.paper-doll.accessories-flyout-springs-open-under-a-held-item
+    #[test]
+    fn a_drag_the_flyout_opened_under_keeps_it_open_on_its_way_from_the_button_to_a_slot() {
+        let game = Doll {
+            unlocks: 7,
+            ..Doll::default()
+        };
+        let geometry = flyout_geometry(&accessories(&game)).unwrap();
+        let mut panel = Inventory::default();
+        send(
+            &mut panel,
+            &game,
+            0.0,
+            hover(Some(CARRIED), Some(centre(BUTTON))),
+        );
+        send(
+            &mut panel,
+            &game,
+            0.5,
+            hover(Some(CARRIED), Some(centre(BUTTON))),
+        );
+        assert!(panel.flyout.sprung);
+        // Straight up from the button to the slot over it, through the strip between them.
+        let (x, _) = centre(BUTTON);
+        let bottom = geometry.panel.y + geometry.panel.h;
+        for (t, y) in [
+            (0.6, BUTTON.y),
+            (0.65, bottom + 1),
+            (0.7, bottom),
+            (0.75, bottom - 10),
+        ] {
+            send(&mut panel, &game, t, hover(Some(CARRIED), Some((x, y))));
+            assert!(panel.flyout.open, "open with the pointer at ({x}, {y})");
+        }
+        for (_, r) in &geometry.slots {
+            send(
+                &mut panel,
+                &game,
+                0.8,
+                hover(Some(CARRIED), Some(centre(*r))),
+            );
+            assert!(panel.flyout.open);
+        }
+        // Beside the button, off both, it closes.
+        send(
+            &mut panel,
+            &game,
+            0.9,
+            hover(Some(CARRIED), Some((BUTTON.x - 4, BUTTON.y + 4))),
+        );
+        assert!(!panel.flyout.open);
+    }
+
+    /// Behaviour: classic.paper-doll.accessories-flyout-opens-and-closes
+    #[test]
+    fn an_item_dragged_from_the_pack_into_the_open_flyout_finds_it_open() {
+        let game = Doll {
+            unlocks: 7,
+            ..Doll::default()
+        };
+        let mut panel = opened(&game);
+        // The press on an item in the pack closes the flyout...
+        send(
+            &mut panel,
+            &game,
+            0.0,
+            ControlEvent::Pointer {
+                x: 40,
+                y: 270,
+                pressed: true,
+            },
+        );
+        assert!(!panel.flyout.open);
+        // ...and the drag it starts opens it again, for the item to be let go in a slot.
+        let start = ControlEvent::DragStart {
+            id: "items".into(),
+            index: 0,
+        };
+        send(&mut panel, &game, 0.1, start.clone());
+        assert!(panel.flyout.open && !panel.flyout.sprung);
+        // A click that starts no drag leaves it closed, and a later drag does not reopen it.
+        send(
+            &mut panel,
+            &game,
+            0.2,
+            ControlEvent::Pointer {
+                x: 40,
+                y: 270,
+                pressed: true,
+            },
+        );
+        send(
+            &mut panel,
+            &game,
+            0.3,
+            ControlEvent::Pointer {
+                x: 40,
+                y: 270,
+                pressed: false,
+            },
+        );
+        assert!(!panel.flyout.open);
+        send(
+            &mut panel,
+            &game,
+            0.4,
+            ControlEvent::Pointer {
+                x: 40,
+                y: 270,
+                pressed: true,
+            },
+        );
+        assert!(!panel.flyout.open);
+        send(&mut panel, &game, 0.5, start);
+        assert!(!panel.flyout.open, "it was not open when this press came");
+    }
+
+    /// Behaviour: classic.paper-doll.accessory-slots-work-as-the-doll-slots
+    #[test]
+    fn a_trinket_or_an_aetheria_let_go_on_the_figure_or_the_button_goes_into_its_own_slot() {
+        for (valid, unlocks, expected) in [
+            (loc::TRINKET_ONE, 0, Some(loc::TRINKET_ONE)),
+            (loc::SIGIL_ONE, 1, Some(loc::SIGIL_ONE)),
+            (loc::SIGIL_TWO, 7, Some(loc::SIGIL_TWO)),
+            (loc::SIGIL_THREE, 4, Some(loc::SIGIL_THREE)),
+            // Worn things are worn, the server choosing where; a sigil not unlocked, or an
+            // aetheria whose sigil is not yet revealed (it goes nowhere), is the figure's to
+            // refuse.
+            (loc::CLOAK, 7, None),
+            (loc::CHEST_WEAR, 7, None),
+            (loc::SIGIL_TWO, 1, None),
+            (0, 7, None),
+        ] {
+            let game = Doll {
+                unlocks,
+                valid,
+                ..Doll::default()
+            };
+            let mut panel = Inventory::default();
+            for id in ["paperdoll", "accessories-button"] {
+                let drop = ControlEvent::Drop {
+                    id: id.into(),
+                    payload: DragPayload::Object(CARRIED),
+                    slot: 0,
+                };
+                let target = expected.map_or(DropTarget::EquipCanvas, |mask| {
+                    DropTarget::EquipLocation { mask, side: 0 }
+                });
+                assert_eq!(
+                    send(&mut panel, &game, 0.0, drop),
+                    [PanelAction::Game(UiRequest::DragDrop {
+                        item: CARRIED,
+                        target
+                    })],
+                    "{valid:#x} on {id}"
+                );
+            }
+        }
+    }
+
+    /// Behaviour: classic.paper-doll.accessory-slots-work-as-the-doll-slots
+    #[test]
+    fn the_figure_hints_a_trinket_or_an_aetheria_as_the_equipment_rules_answer_for_its_slot() {
+        for (valid, accepted, hint) in [
+            (loc::TRINKET_ONE, loc::TRINKET_ONE, "060011F9"),
+            (loc::SIGIL_ONE, loc::SIGIL_ONE, "060011F9"),
+            (loc::SIGIL_ONE, 0, "060011F8"),
+        ] {
+            let game = Doll {
+                unlocks: 1,
+                valid,
+                accepted,
+                ..Doll::default()
+            };
+            let f = frame(&Inventory::default(), &game);
+            let canvas = control(&f, "paperdoll").unwrap().rect;
+            let mut host = ControlHost::default();
+            host.sync(&f);
+            // The canvas's own answer for wearing (refused) is not the one shown.
+            host.update_item_drop_preview(
+                &game,
+                Some(CARRIED),
+                Some((canvas.x + 40, canvas.y + 20)),
+                true,
+                0,
+            );
+            let drawn = host.draw(&f);
+            assert!(
+                drawn.commands.iter().any(|c| matches!(c,
+                    crate::Command::Image { did, .. } if did == hint)),
+                "{valid:#x} accepted {accepted:#x}"
+            );
+        }
     }
 }
 

@@ -345,7 +345,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "classic.paper-doll.accessories-flyout-opens-and-closes",
-        says: "The accessories button toggles a titled flyout standing on it over the doll's legs, in one row or in a grid; a press elsewhere on the panel, its collapse arrow, Escape or the panel closing closes it, and while open it lies over the doll and takes the pointer and drops from what it covers.",
+        says: "The accessories button toggles a titled flyout standing on it over the doll's legs, the unlocked sigils in order over the cloak and the trinket; a press elsewhere on the panel (unless it starts a drag), its collapse arrow, Escape or the panel closing closes it, and while open it lies over the doll and takes the pointer and drops from what it covers.",
         since: THIS_CLIENT,
         divergence: "CD-033",
         evidence: Evidence::Private("AC-EVID-UI-CLASSIC-ACCESSORIES-TOGGLE"),
@@ -354,7 +354,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "classic.paper-doll.accessories-flyout-springs-open-under-a-held-item",
-        says: "A dragged item held over the closed accessories button for 400 ms opens the flyout; leaving it without dropping, or the drag ending elsewhere, closes it again, unless it was open before the drag, and a drop in it keeps it open.",
+        says: "A dragged item held over the closed accessories button for 400 ms opens the flyout, which stays open while the drag is over the flyout, the button or the strip between them; leaving them without dropping, or the drag ending elsewhere, closes it again, unless it was open before the drag, and a drop in it keeps it open.",
         since: THIS_CLIENT,
         divergence: "CD-033",
         evidence: Evidence::Private("AC-EVID-UI-CLASSIC-ACCESSORIES-SPRING"),
@@ -372,7 +372,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "classic.paper-doll.accessory-slots-work-as-the-doll-slots",
-        says: "Each slot in the accessories flyout drags its item out, unequips it on a double click, examines it on a right click, names it under the pointer, takes a dropped item through the shared equip request, and shows the shared accept or refuse hint while an item is dragged over it.",
+        says: "Each slot in the accessories flyout drags its item out, unequips it on a double click, examines it on a right click, names it under the pointer, takes a dropped item through the shared equip request, and shows the shared accept or refuse hint while an item is dragged over it; a trinket or an aetheria let go on the figure or the button goes into its own slot, and the figure hints it as the equipment rules answer for that slot.",
         since: THIS_CLIENT,
         divergence: "CD-033",
         evidence: Evidence::Private("AC-EVID-UI-CLASSIC-ACCESSORIES-SLOT-USE"),

@@ -19,7 +19,8 @@ background  0D1115
 
 # The paper doll's accessories button, 32 x 32, plain and lit (a slot behind it holds an item),
 # under the client's own ids (0x06F00020 and 0x06F00021, in a range no portal uses). Until these
-# are here the interface composes them from the shield slot's frame with three dots.
+# are here the interface composes them from the shield slot's frame with three dots, the lit
+# one on the generic item tile.
 # 0x06F00020  rgb  accessories.png
 # 0x06F00021  rgb  accessories-lit.png
 
