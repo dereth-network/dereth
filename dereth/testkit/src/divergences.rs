@@ -146,7 +146,7 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-015",
         title: "The classic interface, chosen live",
-        change: "The Interface option switches between the retail and the classic interface on \
+        change: "The Interface option switches between the modern and the classic interface on \
                  the next frame, keeping the game, the preferences and each interface's key map.",
         why: "Both interfaces are offered over any world, sharing one set of options.",
     },
@@ -174,7 +174,7 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-019",
         title: "Every key that can be bound does something",
-        change: "Show Cloak works, and this client's own saved bindings are answered by the retail \
+        change: "Show Cloak works, and this client's own saved bindings are answered by the modern \
                  interface and named in key-conflict prompts.",
         why: "A key that can be bound works when it is bound.",
     },
