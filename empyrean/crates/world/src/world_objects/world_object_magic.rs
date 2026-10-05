@@ -3351,7 +3351,9 @@ pub fn try_cast_item_enchantment_with_redirects(
             );
         }
 
-        if let Some(target_player) = target_player {
+        // DIVERGE: a caster who aimed at themselves is told once; ACE tells them again as the
+        // target.
+        if let Some(target_player) = target_player.filter(|&t| player != Some(t)) {
             if !squelch_manager_squelches_contains(
                 w,
                 target_player,
