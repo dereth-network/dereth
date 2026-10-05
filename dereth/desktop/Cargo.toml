@@ -37,7 +37,6 @@ dereth-console.workspace = true
 # The classic interface's text: the Windows font system on Windows, the client's own fonts
 # elsewhere (below). On Windows the carried fonts are built in only with `carried-fonts`.
 dereth-classic-dat.workspace = true
-dereth-classic-gdi.workspace = true
 dereth-classic-fonts = { workspace = true, optional = true }
 tracing.workspace = true
 # The one subscriber a product's `main` installs (`logging`).
@@ -51,6 +50,8 @@ cpal.workspace = true
 
 # The local clock and the URL launch on Windows (WinRT, safe bindings).
 [target.'cfg(windows)'.dependencies]
+# The classic interface's fonts from the Windows font system.
+dereth-classic-gdi.workspace = true
 windows = { version = "0.62", features = ["Foundation", "Globalization", "System"] }
 
 # The same two host services off Windows.

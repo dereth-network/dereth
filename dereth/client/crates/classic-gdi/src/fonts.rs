@@ -12,6 +12,7 @@
 pub use dereth_classic_dat::fonts::{
     coverage, cp1252, measure_cells, to_cp1252, FontAtlas, FontSpec, Glyph,
 };
+#[cfg(windows)]
 use dereth_classic_dat::fonts::{CELL, COLUMNS, PAD, ROWS};
 
 /// The Windows font system, as a [`dereth_classic_dat::fonts::FontSource`].

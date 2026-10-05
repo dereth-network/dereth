@@ -1064,6 +1064,7 @@ fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
 }
 
 #[test]
+#[cfg(windows)]
 fn the_trademark_sign_sits_after_the_title_not_over_it() {
     use dereth_classic_gdi::fonts::{rasterize, FontSpec};
     let p = Pregame::new(

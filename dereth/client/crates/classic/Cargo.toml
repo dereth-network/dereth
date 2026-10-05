@@ -47,7 +47,9 @@ dereth-client-runtime = { workspace = true, features = ["test-support"] }
 dereth-client-model = { workspace = true, features = ["test-support"] }
 dereth-client-net = { workspace = true, default-features = true }
 dereth-dat = { workspace = true, features = ["test-support"] }
-# One layout test measures the title with the fonts the desktop draws it with.
+
+# One layout test measures the title with the fonts the Windows desktop draws it with.
+[target.'cfg(windows)'.dev-dependencies]
 dereth-classic-gdi.workspace = true
 
 [lints]
