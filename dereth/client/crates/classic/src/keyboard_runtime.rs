@@ -95,22 +95,9 @@ fn toggle_option(world: &World, mask: u32) -> UiRequest {
 
 /// Apply after loading character options as well as after changing their word.
 pub fn sync_options<S: Shell>(cx: &mut Cx<'_, S>) {
-    let word = classic_bits();
-    // The classic option inverts only vertical mouse look. The shared modern preference
-    // negates both axes, so it stays off and `cursor_moved` applies this option.
-    let now = dereth_primitives::LocalTime(cx.now());
-    for request in [
-        UiRequest::SetPreference(
-            dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
-            PrefValue::Bool(false),
-        ),
-        UiRequest::SetPreference(
-            dereth_client_contract::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE,
-            PrefValue::Bool(word & MUTE_INACTIVE != 0),
-        ),
-    ] {
-        cx.run_request(request, now, &mut |_, _| false);
-    }
+    cx.apply_interface_overrides(
+        dereth_client_runtime::ui_context::InterfaceOverrides::ClassicInput,
+    );
 }
 
 /// The sample to hand on for the real one at `(x, y)`. `previous` is the last real sample and
@@ -158,7 +145,19 @@ pub fn handle<S: Shell>(cx: &mut Cx<'_, S>, name: &str, pressed: bool) -> Result
     }
     if mask & CLASSIC_ONLY != 0 {
         set_classic_bits(classic_bits() ^ mask);
+        let mute = classic_bits() & MUTE_INACTIVE != 0;
         sync_options(cx);
+        if mask == MUTE_INACTIVE {
+            let now = dereth_primitives::LocalTime(cx.now());
+            cx.run_request(
+                UiRequest::SetPreference(
+                    dereth_client_contract::options::names::PLAY_SOUND_ONLY_WHEN_ACTIVE,
+                    PrefValue::Bool(mute),
+                ),
+                now,
+                &mut |_, _| false,
+            );
+        }
         return Ok(true);
     }
     let request = toggle_option(cx.model(), mask);

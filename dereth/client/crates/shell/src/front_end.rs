@@ -1554,19 +1554,9 @@ impl<H: Host> ClientShell<H> {
                 // The classic interface set two shared preferences live for itself alone (its own
                 // field of view, and the camera's inversion off while it inverts the vertical
                 // itself); the shared store's values take over again.
-                let now = dereth_primitives::LocalTime(cx.now());
-                for name in [
-                    dereth_client_contract::options::names::INVERT_MOUSE_LOOK_Y_AXIS,
-                    dereth_client_contract::options::names::FIELD_OF_VIEW,
-                ] {
-                    if let Some(v) = dereth_client_contract::options::store::inq_value(name) {
-                        let _ = cx.run_request(
-                            dereth_client_contract::UiRequest::SetPreference(name, v),
-                            now,
-                            &mut |_, _| false,
-                        );
-                    }
-                }
+                cx.apply_interface_overrides(
+                    dereth_client_runtime::ui_context::InterfaceOverrides::Modern,
+                );
                 // The other interface may have changed any option while this one was put
                 // away (the interface choice itself among them): every option page shows the
                 // store and the character as they are now.

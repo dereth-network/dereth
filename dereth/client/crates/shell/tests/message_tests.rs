@@ -716,3 +716,167 @@ fn modern_pending_connection_cancel_stops_without_another_click() {
     );
     client.finish();
 }
+
+/// Behaviour: presentation.settings.both-interfaces-edit-one-store
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn classic_projection_follows_committed_values_and_mute_binding_delivers_once() {
+    use dereth_client_contract::{
+        options::{
+            interface::{Interface, INTERFACE},
+            store,
+        },
+        PrefValue,
+    };
+    let mut c = Client::new();
+    c.install_classic();
+    store::set_value("Sound.SoundVolume", PrefValue::Float(0.4));
+    store::set_value("Input.InvertMouseLookYAxis", PrefValue::Bool(true));
+    store::set_value("Render.FieldOfView", PrefValue::Float(0.75));
+    store::set_value("Sound.PlaySoundOnlyWhenActive", PrefValue::Bool(false));
+    c.shell
+        .classic
+        .ui
+        .as_mut()
+        .unwrap()
+        .start(&mut c.app.ui_context())
+        .unwrap();
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Classic.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    assert!(c.app.hud.classic_active);
+    assert_eq!(
+        c.shell.classic.ui.as_ref().unwrap().settings.effects_volume,
+        0.4
+    );
+    store::set_value("Sound.SoundVolume", PrefValue::Float(0.2));
+    assert!(c.app.frame(&mut c.shell));
+    assert_eq!(
+        c.shell.classic.ui.as_ref().unwrap().settings.effects_volume,
+        0.2
+    );
+    c.app.audio = Some(dereth_client_runtime::audio::Audio::with_output(
+        Default::default(),
+        1,
+        None,
+    ));
+    let before = c.app.audio.as_ref().unwrap().stats.preferences_applied;
+    assert!(dereth_classic_ui::keyboard_runtime::handle(
+        &mut c.app.ui_context(),
+        "MuteOnLosingFocus",
+        true
+    )
+    .unwrap());
+    assert_eq!(
+        store::inq_value("Sound.PlaySoundOnlyWhenActive"),
+        Some(PrefValue::Bool(true))
+    );
+    assert_eq!(
+        c.app.audio.as_ref().unwrap().stats.preferences_applied,
+        before + 1
+    );
+    assert!(dereth_classic_ui::keyboard_runtime::handle(
+        &mut c.app.ui_context(),
+        "MuteOnLosingFocus",
+        false
+    )
+    .unwrap());
+    assert!(dereth_classic_ui::keyboard_runtime::handle(
+        &mut c.app.ui_context(),
+        "InvertMouseLook",
+        true
+    )
+    .unwrap());
+    assert_eq!(
+        c.app.audio.as_ref().unwrap().stats.preferences_applied,
+        before + 1
+    );
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Modern.value()));
+    c.shell.follow_interface(&mut c.app.ui_context());
+    assert!(!c.app.hud.classic_active);
+    assert_eq!(
+        c.app.audio.as_ref().unwrap().stats.preferences_applied,
+        before + 1
+    );
+    assert_eq!(
+        store::inq_value("Sound.PlaySoundOnlyWhenActive"),
+        Some(PrefValue::Bool(true))
+    );
+    assert_eq!(
+        store::inq_value("Input.InvertMouseLookYAxis"),
+        Some(PrefValue::Bool(true))
+    );
+    assert_eq!(
+        store::inq_value("Render.FieldOfView"),
+        Some(PrefValue::Float(0.75))
+    );
+    c.finish();
+}
+
+/// Behaviour: presentation.settings.both-interfaces-edit-one-store
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail layouts and key maps"
+)]
+fn classic_live_preview_and_cancel_leave_committed_sound_and_camera_steps_intact() {
+    use dereth_classic_ui::{panels::ClassicSettings, settings_host::SettingsHost};
+    use dereth_client_contract::{options::store, PrefValue};
+    let mut c = Client::new();
+    let mut host = SettingsHost::load(ClassicSettings {
+        resolutions: vec![(800, 600), (1024, 768)],
+        ..Default::default()
+    })
+    .unwrap();
+    let mut applied = host.snapshot();
+    applied.brightness = 0.5;
+    applied.effects_volume = 0.4;
+    applied.camera_stiffness = 0.3;
+    assert!(host
+        .apply(&mut c.app.ui_context(), applied, true)
+        .unwrap()
+        .is_empty());
+    let saved = host.snapshot();
+    let camera = store::inq_value("Camera.Stiffness");
+    let mut draft = saved.clone();
+    draft.brightness = 0.9;
+    draft.effects_volume = 0.8;
+    draft.resolution = 1;
+    draft.camera_stiffness = 0.0;
+    host.preview(&mut c.app.ui_context(), &draft).unwrap();
+    assert_eq!(host.snapshot().brightness, 0.9);
+    assert_eq!(host.snapshot().effects_volume, 0.4);
+    assert_eq!(host.snapshot().resolution, 0);
+    assert_eq!(store::inq_value("Camera.Stiffness"), camera);
+    assert_eq!(
+        store::inq_value("Render.ScreenBrightness"),
+        Some(PrefValue::Float(0.0))
+    );
+    store::set_value("Sound.SoundVolume", PrefValue::Float(0.2));
+    host.sync(&mut c.app.ui_context()).unwrap();
+    assert_eq!(host.snapshot().effects_volume, 0.2);
+    assert_eq!(host.snapshot().brightness, 0.9);
+    host.reset(&mut c.app.ui_context()).unwrap();
+    assert_eq!(host.snapshot().brightness, 0.5);
+    assert_eq!(
+        host.snapshot().camera_stiffness.to_bits(),
+        0.3_f32.to_bits()
+    );
+    assert_eq!(host.snapshot().effects_volume, 0.2);
+    assert_eq!(store::inq_value("Camera.Stiffness"), camera);
+    store::set_value("Render.ScreenBrightness", PrefValue::Float(0.3));
+    host.sync(&mut c.app.ui_context()).unwrap();
+    assert_eq!(
+        host.snapshot().brightness,
+        0.65,
+        "Cancel ended the live preview"
+    );
+    assert_eq!(host.snapshot().effects_volume, 0.2);
+    assert_eq!(
+        host.snapshot().camera_stiffness.to_bits(),
+        0.3_f32.to_bits()
+    );
+    c.finish();
+}

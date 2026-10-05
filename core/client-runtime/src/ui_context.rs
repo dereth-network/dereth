@@ -24,6 +24,17 @@ use {
     dereth_client_contract::pregame::PregameView as HostState,
 };
 
+/// Interface-owned live settings. These never replace the saved shared preferences.
+#[derive(Debug, Clone, Copy)]
+pub enum InterfaceOverrides {
+    /// Classic transforms vertical motion itself, so shared inversion stays off.
+    ClassicInput,
+    /// The Classic viewport determines its live field of view.
+    ClassicViewport(f32),
+    /// A successful return to Modern restores the stored input and view choices.
+    Modern,
+}
+
 /// One step's view of the game for front end `S`. See the module documentation.
 pub struct UiContext<'a, S: Shell> {
     app: &'a mut App<S>,
@@ -288,6 +299,49 @@ impl<'a, S: Shell> UiContext<'a, S> {
             let notices = chat.take_talk_focus_notices();
             offer_talk_focus_notices(chat, notices, talk_focus);
         })
+    }
+
+    /// Apply interface-local overrides at the caller's existing transition/frame boundary.
+    /// Shared sound settings are deliberately outside this policy.
+    pub fn apply_interface_overrides(&mut self, overrides: InterfaceOverrides) {
+        use dereth_client_contract::{
+            options::{names, store},
+            PrefValue,
+        };
+        if let InterfaceOverrides::ClassicViewport(fov) = overrides {
+            let current = self.scene().map(|s| s.render_preferences().field_of_view);
+            if current.is_some_and(|c| (c - fov).abs() > f32::EPSILON) {
+                self.present_mut().apply_render_preference_requests(vec![
+                    UiRequest::SetPreference(names::FIELD_OF_VIEW, PrefValue::Float(fov)),
+                ]);
+            }
+            return;
+        }
+        let now = LocalTime(self.now());
+        match overrides {
+            InterfaceOverrides::ClassicInput => {
+                let _ = self.run_request(
+                    UiRequest::SetPreference(
+                        names::INVERT_MOUSE_LOOK_Y_AXIS,
+                        PrefValue::Bool(false),
+                    ),
+                    now,
+                    &mut |_, _| false,
+                );
+            }
+            InterfaceOverrides::Modern => {
+                for name in [names::INVERT_MOUSE_LOOK_Y_AXIS, names::FIELD_OF_VIEW] {
+                    if let Some(value) = store::inq_value(name) {
+                        let _ = self.run_request(
+                            UiRequest::SetPreference(name, value),
+                            now,
+                            &mut |_, _| false,
+                        );
+                    }
+                }
+            }
+            InterfaceOverrides::ClassicViewport(_) => unreachable!(),
+        }
     }
 
     /// See [`App::deliver_selection_notices`].

@@ -329,6 +329,7 @@ impl ClassicUi {
                 self.settings.resolution = host.snapshot().resolution;
             }
             let result = host.sync(cx);
+            self.settings = host.snapshot();
             self.settings_host = Some(host);
             result?;
         }
@@ -343,15 +344,9 @@ impl ClassicUi {
         if self.last_in_world {
             let r = self.desktop.game_rect();
             if let Some(fov) = classic_field_of_view(r.w, r.h) {
-                let current = cx.scene().map(|s| s.render_preferences().field_of_view);
-                if current.is_some_and(|c| (c - fov).abs() > f32::EPSILON) {
-                    cx.present_mut().apply_render_preference_requests(vec![
-                        UiRequest::SetPreference(
-                            dereth_client_runtime::render_prefs::FIELD_OF_VIEW,
-                            dereth_client_contract::PrefValue::Float(fov),
-                        ),
-                    ]);
-                }
+                cx.apply_interface_overrides(
+                    dereth_client_runtime::ui_context::InterfaceOverrides::ClassicViewport(fov),
+                );
             }
         }
         Ok(())

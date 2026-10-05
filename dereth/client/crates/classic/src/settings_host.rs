@@ -4,8 +4,7 @@
 //! modern interface's Client Options page edits: the page opens on the store's values and Apply
 //! writes them back, so the profile (`UserPreferences.ini`) holds both interfaces' settings and
 //! either page shows what the other set. The page keeps its own steps (tenths for the volumes,
-//! hundredths for the brightness) by packing a value into the classic interface's words before
-//! it is written, as the early client saved it.
+//! hundredths for the brightness) by quantizing the page before its values are written.
 //!
 //! The classic interface once kept these in a file of its own, `classic/settings.json`;
 //! [`migrate_settings_file`] carries a file left from then into the store, once.
@@ -206,16 +205,23 @@ fn write_shared(s: &ClassicSettings) {
 /// A preference the store does not hold keeps the capability's value.
 #[must_use]
 pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
+    project_shared(capabilities, store::inq_value)
+}
+
+fn project_shared(
+    capabilities: &ClassicSettings,
+    read: impl Fn(&'static str) -> Option<PrefValue>,
+) -> ClassicSettings {
     let mut s = capabilities.clone();
-    let bool_of = |name: &str| match store::inq_value(name) {
+    let bool_of = |name: &'static str| match read(name) {
         Some(PrefValue::Bool(b)) => Some(b),
         _ => None,
     };
-    let float_of = |name: &str| match store::inq_value(name) {
+    let float_of = |name: &'static str| match read(name) {
         Some(PrefValue::Float(f)) => Some(f),
         _ => None,
     };
-    let int_of = |name: &str| match store::inq_value(name) {
+    let int_of = |name: &'static str| match read(name) {
         Some(PrefValue::Int(i)) => Some(i),
         _ => None,
     };
@@ -269,10 +275,82 @@ fn resolution_request(size: (u32, u32)) -> UiRequest {
         resolution_value(size),
     )
 }
+/// A shared-store view and any explicitly applied live values, with the raw inputs last seen.
+/// Apply without saving and canceled preview values stay live until their preferences change. Only changed
+/// inputs are projected again: unrelated store traffic must not round-trip a stepped camera
+/// value. Capability fallbacks and the current size selection remain local to this view.
+#[derive(Debug)]
+struct SettingsProjection {
+    values: ClassicSettings,
+    observed: Vec<(&'static str, Option<PrefValue>)>,
+}
+impl SettingsProjection {
+    fn new(capabilities: ClassicSettings) -> Self {
+        let mut out = Self {
+            values: capabilities,
+            observed: Vec::new(),
+        };
+        out.refresh();
+        out
+    }
+    fn read(&self) -> (ClassicSettings, Vec<(&'static str, Option<PrefValue>)>) {
+        let observed = std::cell::RefCell::new(Vec::new());
+        let values = project_shared(&self.values, |name| {
+            let value = store::inq_value(name);
+            observed.borrow_mut().push((name, value.clone()));
+            if self
+                .observed
+                .iter()
+                .any(|(key, old)| *key == name && *old == value)
+            {
+                None
+            } else {
+                value
+            }
+        });
+        (values, observed.into_inner())
+    }
+    fn refresh(&mut self) {
+        (self.values, self.observed) = self.read();
+    }
+    /// An Apply already has its exact stepped values; acknowledge the store write without
+    /// converting those values back through the slider's inverse mapping.
+    fn acknowledge(&mut self) {
+        self.observed = self.read().1;
+    }
+}
+
+/// Only these fields change live while the page still has an unapplied draft.
+#[derive(Debug)]
+struct Preview {
+    brightness: f32,
+    performance: f32,
+    auto_degrade: bool,
+    camera_stiffness: f32,
+}
+impl Preview {
+    fn new(draft: &ClassicSettings) -> Self {
+        Self {
+            brightness: normalized(draft.brightness),
+            performance: normalized(draft.performance),
+            auto_degrade: draft.auto_degrade,
+            camera_stiffness: normalized(draft.camera_stiffness),
+        }
+    }
+    fn apply(&self, values: &mut ClassicSettings) {
+        values.brightness = self.brightness;
+        values.performance = self.performance;
+        values.auto_degrade = self.auto_degrade;
+        values.camera_stiffness = self.camera_stiffness;
+    }
+}
+
 /// The capability fields are supplied by the actual endpoint/renderer/display, never by the file.
 #[derive(Debug)]
 pub struct SettingsHost {
-    current: ClassicSettings,
+    projection: SettingsProjection,
+    preview: Option<Preview>,
+    /// The last Apply/open baseline, used only to cancel the live preview.
     saved: ClassicSettings,
     camera_value: Option<f32>,
     /// The render and camera preferences last sent, so an unchanged frame sends none.
@@ -281,32 +359,39 @@ pub struct SettingsHost {
 impl SettingsHost {
     /// The page over the shared store's values ([`from_shared`]).
     pub fn load(capabilities: ClassicSettings) -> Result<Self, String> {
-        let current = from_shared(&capabilities);
+        let projection = SettingsProjection::new(capabilities);
+        let current = &projection.values;
         let camera_value =
             (current.camera_stiffness > 0.0).then(|| camera_stiffness(current.camera_stiffness));
         Ok(Self {
             saved: current.clone(),
-            current,
+            projection,
+            preview: None,
             camera_value,
             sent: Vec::new(),
         })
     }
     pub fn snapshot(&self) -> ClassicSettings {
-        self.current.clone()
+        let mut values = self.projection.read().0;
+        if let Some(preview) = &self.preview {
+            preview.apply(&mut values);
+        }
+        values
     }
     /// Open the page again on the shared store's values: the other interface's page may have
     /// changed them while this one was put away. A size choice under way is left as it is.
     pub fn reload(&mut self) {
-        let current = from_shared(&self.current);
-        self.saved = current.clone();
-        self.current = current;
-        if self.current.camera_stiffness > 0.0 {
-            self.camera_value = Some(camera_stiffness(self.current.camera_stiffness));
+        self.projection.values = from_shared(&self.projection.values);
+        self.projection.acknowledge();
+        self.preview = None;
+        self.saved = self.projection.values.clone();
+        if self.projection.values.camera_stiffness > 0.0 {
+            self.camera_value = Some(camera_stiffness(self.projection.values.camera_stiffness));
         }
     }
     /// Call once after start_shell; sound is then available and loaded preferences can take effect.
     pub fn initialize<S: Shell>(&mut self, cx: &mut Cx<'_, S>) -> Result<Vec<UiRequest>, String> {
-        self.apply_values(cx, self.current.clone(), true)
+        self.apply_values(cx, self.snapshot(), true)
     }
     /// Apply quantizes the page to its tenths/hundredths before sending the values.
     /// Any returned display request must enter the host's normal UiRequest dispatcher.
@@ -316,7 +401,7 @@ impl SettingsHost {
         settings: ClassicSettings,
         save: bool,
     ) -> Result<Vec<UiRequest>, String> {
-        let effective = quantize(&settings, &self.current);
+        let effective = quantize(&settings, &self.snapshot());
         // A rejected native resize can leave the requested configuration ahead of
         // the live surface; rollback and retry must start from what is displayed.
         let previous = cx.present().size();
@@ -327,7 +412,7 @@ impl SettingsHost {
             .unwrap_or(previous);
         let full_screen = settings.full_screen;
         let mut left = self.apply_values(cx, effective, false)?;
-        self.current.full_screen = full_screen;
+        self.projection.values.full_screen = full_screen;
         if full_screen_changed(
             full_screen,
             cx.config().display.full_screen,
@@ -363,8 +448,14 @@ impl SettingsHost {
         Ok(left)
     }
     fn select_resolution(&mut self, size: (u32, u32)) {
-        if let Some(i) = self.current.resolutions.iter().position(|r| *r == size) {
-            self.current.resolution = i;
+        if let Some(i) = self
+            .projection
+            .values
+            .resolutions
+            .iter()
+            .position(|r| *r == size)
+        {
+            self.projection.values.resolution = i;
         }
     }
     /// Reconcile only screen size after the shared transaction finishes.
@@ -378,12 +469,14 @@ impl SettingsHost {
     }
     /// Commit the page's values to the shared store, with `size` as the window's size.
     fn persist_resolution(&mut self, size: (u32, u32)) -> Result<(), String> {
-        self.saved = quantize_at_size(&self.current, &self.current, size);
+        let current = self.snapshot();
+        self.saved = quantize_at_size(&current, &current, size);
         write_shared(&self.saved);
         let _ = store::set_value(
             dereth_client_contract::options::names::DISPLAY_RESOLUTION,
             resolution_value(size),
         );
+        self.projection.acknowledge();
         Ok(())
     }
     /// Only the three immediately applied sliders reach this edge.
@@ -392,7 +485,7 @@ impl SettingsHost {
         cx: &mut Cx<'_, S>,
         draft: &ClassicSettings,
     ) -> Result<(), String> {
-        self.current = preview_values(&self.current, draft);
+        self.preview = Some(Preview::new(draft));
         self.camera_value = Some(camera_stiffness(draft.camera_stiffness));
         self.sync(cx)
     }
@@ -405,7 +498,10 @@ impl SettingsHost {
         Ok(vec![])
     }
     pub fn reset<S: Shell>(&mut self, cx: &mut Cx<'_, S>) -> Result<Vec<UiRequest>, String> {
-        self.current = preview_values(&self.current, &self.saved);
+        self.projection.refresh();
+        Preview::new(&self.saved).apply(&mut self.projection.values);
+        self.projection.acknowledge();
+        self.preview = None;
         // A zero saved camera digit deliberately leaves the live stiffness unchanged.
         if self.saved.camera_stiffness > 0.0 {
             self.camera_value = Some(camera_stiffness(self.saved.camera_stiffness));
@@ -419,19 +515,26 @@ impl SettingsHost {
         settings: ClassicSettings,
         display: bool,
     ) -> Result<Vec<UiRequest>, String> {
-        self.current = settings;
-        if self.current.camera_stiffness > 0.0 {
-            self.camera_value = Some(camera_stiffness(self.current.camera_stiffness));
+        self.projection.values = settings;
+        self.projection.acknowledge();
+        self.preview = None;
+        if self.projection.values.camera_stiffness > 0.0 {
+            self.camera_value = Some(camera_stiffness(self.projection.values.camera_stiffness));
         }
-        self.current.sound_available = cx.audio_mut().is_some_and(|a| a.has_device());
+        self.projection.values.sound_available = cx.audio_mut().is_some_and(|a| a.has_device());
         // The sound preferences go the shared way, as the caller sends what this returns.
-        let mut left = if self.current.sound_available {
-            sound_requests(&self.current)
+        let mut left = if self.projection.values.sound_available {
+            sound_requests(&self.projection.values)
         } else {
             vec![]
         };
         if display {
-            if let Some((w, h)) = self.current.resolutions.get(self.current.resolution) {
+            if let Some((w, h)) = self
+                .projection
+                .values
+                .resolutions
+                .get(self.projection.values.resolution)
+            {
                 if (*w, *h) != (cx.config().width, cx.config().height) {
                     left.push(preference(
                         dereth_client_contract::options::names::DISPLAY_RESOLUTION,
@@ -446,7 +549,15 @@ impl SettingsHost {
     /// Called before every frame: the render and camera preferences follow the page, sent the
     /// shared way when they change.
     pub fn sync<S: Shell>(&mut self, cx: &mut Cx<'_, S>) -> Result<(), String> {
-        let requests = render_requests(&self.current, self.camera_value);
+        let previous_camera = self.projection.values.camera_stiffness;
+        self.projection.refresh();
+        if self.preview.is_none()
+            && self.projection.values.camera_stiffness != previous_camera
+            && self.projection.values.camera_stiffness > 0.0
+        {
+            self.camera_value = Some(camera_stiffness(self.projection.values.camera_stiffness));
+        }
+        let requests = render_requests(&self.snapshot(), self.camera_value);
         if requests != self.sent {
             self.sent.clone_from(&requests);
             cx.queue(Vec::new(), requests);
@@ -454,14 +565,7 @@ impl SettingsHost {
         Ok(())
     }
 }
-fn preview_values(current: &ClassicSettings, draft: &ClassicSettings) -> ClassicSettings {
-    let mut live = current.clone();
-    live.brightness = normalized(draft.brightness);
-    live.performance = normalized(draft.performance);
-    live.auto_degrade = draft.auto_degrade;
-    live.camera_stiffness = normalized(draft.camera_stiffness);
-    live
-}
+
 fn camera_stiffness(v: f32) -> f32 {
     (normalized(v) + 0.4) * 0.71428573
 }
@@ -733,7 +837,8 @@ mod tests {
         draft.brightness = 0.9;
         draft.performance = 0.8;
         draft.camera_stiffness = 0.7;
-        let actual = preview_values(&live, &draft);
+        let mut actual = live.clone();
+        Preview::new(&draft).apply(&mut actual);
         assert!(actual.effects);
         assert_eq!(actual.effects_volume, live.effects_volume);
         assert_eq!(actual.texture_levels, live.texture_levels);
@@ -768,8 +873,8 @@ mod tests {
             "capabilities are the machine's, not the store's"
         );
         // What this page commits, the retail page reads.
-        host.current.ambient_volume = 0.7;
-        host.current.performance = 1.0;
+        host.projection.values.ambient_volume = 0.7;
+        host.projection.values.performance = 1.0;
         host.persist_resolution((800, 600)).unwrap();
         assert_eq!(
             store::inq_value("Sound.AmbientSoundVolume"),
@@ -780,6 +885,49 @@ mod tests {
             Some(PrefValue::Float(1.0))
         );
     }
+    /// Behaviour: presentation.settings.both-interfaces-edit-one-store
+    #[test]
+    fn committed_changes_refresh_the_view_without_requantizing_or_replacing_preview() {
+        store::init();
+        let mut host = SettingsHost::load(settings()).unwrap();
+        host.projection.values.camera_stiffness = 0.3;
+        host.persist_resolution((800, 600)).unwrap();
+        let camera_bits = host.snapshot().camera_stiffness.to_bits();
+        assert_eq!(camera_bits, 0.3_f32.to_bits());
+        let saved = host.saved.clone();
+        let mut draft = host.snapshot();
+        draft.brightness = 0.9;
+        draft.performance = 0.8;
+        draft.camera_stiffness = 0.7;
+        host.preview = Some(Preview::new(&draft));
+        assert!(store::set_value("Sound.SoundVolume", PrefValue::Float(0.2)));
+        assert!(store::set_value(
+            "Render.ScreenBrightness",
+            PrefValue::Float(-0.6)
+        ));
+        let view = host.snapshot();
+        assert_eq!(
+            view.effects_volume, 0.2,
+            "another committed writer is visible immediately"
+        );
+        assert_eq!(view.brightness, 0.9, "the active preview remains separate");
+        assert_eq!(view.camera_stiffness, 0.7);
+        assert_eq!(
+            host.saved, saved,
+            "store traffic cannot replace the Cancel baseline"
+        );
+        host.projection.refresh();
+        host.preview = None;
+        let view = host.snapshot();
+        assert!((view.brightness - 0.2).abs() < f32::EPSILON);
+        assert_eq!(view.camera_stiffness.to_bits(), camera_bits);
+        assert_eq!(view.resolutions, saved.resolutions);
+        assert_eq!(view.sound_available, saved.sound_available);
+        // Wrong-type or absent registrations retain the existing view's fallback.
+        store::clear();
+        assert_eq!(host.snapshot(), view);
+    }
+
     /// Behaviour: presentation.settings.both-interfaces-edit-one-store
     #[test]
     fn a_settings_file_left_by_the_classic_interface_is_carried_into_the_store_once() {
@@ -814,14 +962,14 @@ mod tests {
     fn completed_size_readback_preserves_unsaved_snapshot_and_other_values() {
         store::init();
         let mut host = SettingsHost::load(settings()).unwrap();
-        host.current.resolution = 0;
+        host.projection.values.resolution = 0;
         host.saved.resolution = 0;
-        host.current.brightness = 0.8;
+        host.projection.values.brightness = 0.8;
         let saved_brightness = host.saved.brightness;
         host.resolution_readback((1024, 768), false);
-        assert_eq!(host.current.resolution, 1);
+        assert_eq!(host.projection.values.resolution, 1);
         assert_eq!(host.saved.resolution, 0);
-        assert_eq!(host.current.brightness, 0.8);
+        assert_eq!(host.projection.values.brightness, 0.8);
         assert_eq!(host.saved.brightness, saved_brightness);
         host.resolution_readback((1024, 768), true);
         assert_eq!(host.saved.resolution, 1);
