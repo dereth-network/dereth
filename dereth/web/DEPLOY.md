@@ -118,6 +118,10 @@ The owner of the repository runs releases:
    the release with Dereth's notes for the version.
 3. Review the draft and publish it. Hosts that follow the releases pick it up.
 
+Without GitHub Actions, `cargo xtask publish web <version>` makes the same release from
+`cargo xtask package web` run locally ([CONTRIBUTING.md, "Releasing without GitHub
+Actions"](../../CONTRIBUTING.md#releasing-without-github-actions)).
+
 Running the workflow by hand is a dry run: the same build and checks, the files kept as a
 workflow artifact for a week. Locally, `cargo xtask package web` writes the same three files into
 `target/package/dereth-web-<version>/` (`--out` names another folder; `--no-build` packages what

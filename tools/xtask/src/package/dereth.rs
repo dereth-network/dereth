@@ -1064,7 +1064,7 @@ pub fn download_url(source_url: &str, version: &str, file: &str) -> String {
 }
 
 /// The launcher's update-signing public key, from its configuration.
-fn launcher_public_key(ws: &Path) -> Result<String, String> {
+pub(crate) fn launcher_public_key(ws: &Path) -> Result<String, String> {
     let conf = ws.join(LAUNCHER_DIR).join("tauri.conf.json");
     sign::launcher_public_key(&String::from_utf8_lossy(&read(&conf)?))
 }
@@ -1092,7 +1092,7 @@ pub fn check_appimage(name: &str, bytes: &[u8]) -> Vec<String> {
 }
 
 /// The deny scan of a written release file.
-fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
+pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1119,7 +1119,12 @@ fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), Strin
 /// The index over a release folder: every release file scanned again and every signature
 /// verified again, then `MANIFEST.txt`, `release.json`, `latest.json` (when every launcher file
 /// is signed) and `SHA256SUMS`.
-fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Result<(), String> {
+pub(crate) fn write_index(
+    ws: &Path,
+    dir: &Path,
+    version: &str,
+    facts: &BuildFacts,
+) -> Result<(), String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)

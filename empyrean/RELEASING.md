@@ -228,3 +228,8 @@ else.
 **What GitHub needs.** Nothing beyond the workflow's own `GITHUB_TOKEN`: no secrets. Actions must be
 enabled on the repository, with the default token allowed to create releases (the draft job asks
 for `contents: write` itself). The `release` environment is created on first use; adding the maintainers as its required reviewers makes the draft job wait for approval.
+
+**Without GitHub Actions.** `cargo xtask publish empyrean <version>` makes the same draft from
+`cargo xtask package empyrean` run on a Windows, a macOS and a Linux machine, then finishes and
+publishes it:
+[CONTRIBUTING.md, "Releasing without GitHub Actions"](../CONTRIBUTING.md#releasing-without-github-actions).

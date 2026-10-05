@@ -29,14 +29,14 @@
 //! Windows linker writes no timestamp (`/Brepro`), and the archives carry the commit's time and
 //! fixed permissions.
 
-mod archive;
+pub(crate) mod archive;
 pub mod declaration;
 pub mod dereth;
 mod guard;
 mod headers;
 mod notice;
-mod sign;
-mod targets;
+pub(crate) mod sign;
+pub(crate) mod targets;
 pub mod version;
 pub mod web;
 
@@ -725,7 +725,7 @@ fn package_target(
 }
 
 /// The deny scan of a written archive.
-fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
+pub(crate) fn check_archive(path: &Path, target: Target, version: &str) -> Result<(), String> {
     let entries = archive::archive_entries(path, &target.archive_root(version))?;
     let findings = guard::scan(&entries, &allowlist(target), guard::ARCHIVE_CAP);
     if findings.is_empty() {
@@ -776,7 +776,12 @@ pub fn classify(name: &str, version: &str) -> Result<Asset, String> {
 
 /// The index over a release folder: `MANIFEST.txt`, `release.json` and `SHA256SUMS`. Every
 /// archive is scanned again first.
-fn write_index(ws: &Path, dir: &Path, version: &str, facts: &BuildFacts) -> Result<(), String> {
+pub(crate) fn write_index(
+    ws: &Path,
+    dir: &Path,
+    version: &str,
+    facts: &BuildFacts,
+) -> Result<(), String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)

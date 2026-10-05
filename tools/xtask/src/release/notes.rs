@@ -817,6 +817,9 @@ pub struct Request {
     pub version: Option<String>,
     /// Where to write the notes instead of printing them.
     pub out: Option<PathBuf>,
+    /// The repository the compare link names; by default the one the build environment names
+    /// (`DERETH_BUILD_SOURCE_URL`, `EMPYREAN_BUILD_SOURCE_URL`), else the public repository.
+    pub source_url: Option<String>,
 }
 
 /// `product`'s notes for `request`, read from the repository at `ws`.
@@ -884,8 +887,10 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
         Product::Dereth => package::dereth::SOURCE_URL_ENV,
         Product::Empyrean => "EMPYREAN_BUILD_SOURCE_URL",
     };
-    let source = std::env::var(source_env)
-        .ok()
+    let source = request
+        .source_url
+        .clone()
+        .or_else(|| std::env::var(source_env).ok())
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| package::DEFAULT_SOURCE_URL.to_owned());
     let compare = format!(

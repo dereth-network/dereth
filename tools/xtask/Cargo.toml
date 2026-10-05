@@ -35,6 +35,9 @@ sha2.workspace = true
 minisign = { version = "0.10", default-features = false }
 minisign-verify = "0.2"
 base64.workspace = true
+# `publish`: GitHub's REST API over HTTPS (rustls with its ring provider and the bundled web
+# roots, so no system TLS library), as the importer downloads with.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [lints]
 workspace = true

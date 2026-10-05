@@ -293,6 +293,21 @@ pub fn package(args: &[String]) -> i32 {
     }
 }
 
+/// The deny scan of a written bundle: every file in it, as [`scan`] reads them.
+pub(crate) fn check_bundle(path: &Path, version: &str) -> Result<(), String> {
+    let written = archive::archive_entries(path, &archive_root(version))?;
+    let findings = scan(&written);
+    if findings.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the deny scan refused {}:\n  {}",
+            path.display(),
+            findings.join("\n  ")
+        ))
+    }
+}
+
 /// Every file under `dir`, `/`-separated below it, with its bytes.
 fn listing(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     let entries = guard::staged_entries(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -415,14 +430,7 @@ fn build(ws: &Path, o: &Options) -> Result<PathBuf, String> {
     let zip = archive::zip_bytes(&archive_root(&version), &members, facts.epoch)?;
     write(&out.join(&name), &zip)?;
     // The archive as written, scanned again.
-    let written = archive::archive_entries(&out.join(&name), &archive_root(&version))?;
-    let again = scan(&written);
-    if !again.is_empty() {
-        return Err(format!(
-            "the written archive is refused:\n  {}",
-            again.join("\n  ")
-        ));
-    }
+    check_bundle(&out.join(&name), &version)?;
     let mut json =
         serde_json::to_string_pretty(&manifest(&version, &facts, (&name, &zip), &members))
             .map_err(|e| e.to_string())?;

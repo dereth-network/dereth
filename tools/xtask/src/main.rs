@@ -35,6 +35,7 @@ mod line_endings;
 mod lint;
 mod output_hygiene;
 mod package;
+mod publish;
 mod release;
 mod seams;
 mod separation;
@@ -113,6 +114,14 @@ Release and packaging:
                             the web client's release files: builds the module, stages the page's
                             allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
                             web.json (the update manifest) and SHA256SUMS (dereth/web/DEPLOY.md)
+  publish dereth|empyrean|web <version> --upload <dir> | --finish | --publish
+          [--repo <owner/name>] [--yes]
+                            the GitHub release without the release workflows: each machine
+                            uploads its `package` folder to the tag's draft (same name and bytes
+                            skipped, other bytes refused); --finish lists what is missing or
+                            writes the merged index and the notes; --publish publishes the draft.
+                            A dry run unless --yes; the token is DERETH_PUBLISH_TOKEN or
+                            GITHUB_TOKEN (CONTRIBUTING.md, Releasing without GitHub Actions)
   release empyrean|dereth <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 and a host package, tag empyrean-v<version> or
@@ -203,6 +212,7 @@ fn main() {
         ),
         Some("bundle-macos") => bundle::bundle_macos(&args[1..]),
         Some("package") => package::package(&args[1..]),
+        Some("publish") => publish::publish(&args[1..]),
         Some("release") => release::release(&args[1..]),
         Some("release-notes") => release::notes::release_notes(&args[1..]),
         Some("version") => package::version_command(&args[1..]),

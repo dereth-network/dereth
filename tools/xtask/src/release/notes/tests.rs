@@ -428,6 +428,7 @@ fn the_command_takes_a_product_and_its_options() {
                 since: Some("dereth-v0.1.0".to_owned()),
                 version: Some("0.2.0".to_owned()),
                 out: Some(PathBuf::from("n.md")),
+                source_url: None,
             }
         ))
     );

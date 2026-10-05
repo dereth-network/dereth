@@ -263,3 +263,8 @@ Anyone can verify a download with `sha256sum -c SHA256SUMS --ignore-missing`.
   `cargo tauri signer generate` wrote it) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (its password).
 - The `release` environment, created on first use; adding the maintainers as its required
   reviewers makes the draft job wait for approval.
+
+**Without GitHub Actions.** `cargo xtask publish dereth <version>` makes the same draft from
+`cargo xtask package dereth` run on a Windows, a macOS and a Linux machine, each signing its own
+launcher files with the key above, then finishes and publishes it:
+[CONTRIBUTING.md, "Releasing without GitHub Actions"](../../CONTRIBUTING.md#releasing-without-github-actions).
