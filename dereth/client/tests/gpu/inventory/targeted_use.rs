@@ -320,7 +320,7 @@ fn targeted_confirmation_gates_and_callback_keep_identity_and_busy_order() {
         out.0,
         vec![
             Notice::DisplayString {
-                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
+                feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                 channel: 0x1a,
                 text: format!(
                     "Using the {} with the {}",
@@ -454,7 +454,7 @@ fn accepted_targeted_callback_requires_ids_and_runs_using_item_tail_after_the_se
         out.0,
         vec![
             Notice::DisplayString {
-                feedback: dereth_client_contract::feedback::Feedback::LOCAL,
+                feedback: dereth_client_contract::feedback::Feedback::INFORMATION,
                 channel: 0x1a,
                 text: "Using the Bronze Oil of Rendering with the Bronze Training Shortbow".into()
             },
