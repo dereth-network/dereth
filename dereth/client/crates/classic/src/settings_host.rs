@@ -14,18 +14,14 @@ use dereth_client_contract::options::store;
 use dereth_client_contract::{PrefValue, UiRequest};
 use dereth_client_runtime::render_prefs::RenderPreferences;
 use dereth_client_runtime::{present::Presentation, shell::Shell};
-use serde::{Deserialize, Serialize};
+mod migration;
+pub use migration::migrate_settings_file;
+pub(crate) use migration::Migration;
+#[cfg(test)]
+use migration::Stored;
+#[cfg(test)]
 use std::path::Path;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-struct Stored {
-    version: u32,
-    sound: u32,
-    graphics: u32,
-    textures: u32,
-    detail: [bool; 2],
-    resolution: [u32; 2],
-}
 fn normalized(v: f32) -> f32 {
     if v.is_finite() {
         v.clamp(0.0, 1.0)
@@ -39,72 +35,41 @@ fn digit(v: f32, scale: f32) -> u32 {
     ))
     .unwrap_or(0)
 }
-impl Stored {
-    fn from_settings(s: &ClassicSettings) -> Self {
-        let (w, h) = s
-            .resolutions
-            .get(s.resolution)
-            .copied()
-            .unwrap_or((800, 600));
-        Self {
-            version: 1,
-            sound: u32::from(s.effects)
-                | (u32::from(s.ambient) << 1)
-                | (u32::from(s.interface) << 2)
-                | (u32::from(!s.auto_degrade) << 3)
-                | (u32::from(!s.stereo) << 4)
-                | (digit(s.effects_volume, 10.0) << 8)
-                | (digit(s.ambient_volume, 10.0) << 12),
-            graphics: digit(s.brightness, 100.0)
-                | (digit(s.performance, 10.0) << 8)
-                | (digit(s.camera_stiffness, 10.0) << 12),
-            textures: s
-                .texture_levels
-                .iter()
-                .enumerate()
-                .fold(0, |v, (i, n)| v | (u32::from((*n).min(3)) << (4 * i))),
-            detail: [s.landscape_detail, s.environment_detail],
-            resolution: [w, h],
-        }
-    }
-    fn decode(&self, capabilities: &ClassicSettings) -> Result<ClassicSettings, String> {
-        if self.version != 1
-            || self.sound & !0xffff != 0
-            || self.graphics & !0xffff != 0
-            || self.graphics & 255 > 100
-            || (self.graphics >> 8) & 15 > 10
-            || (self.graphics >> 12) & 15 > 10
-            || (self.sound >> 8) & 15 > 10
-            || (self.sound >> 12) & 15 > 10
-            || self.textures & !0xffff != 0
-            || (0..4).any(|i| (self.textures >> (4 * i)) & 15 > 3)
-        {
-            return Err("Invalid classic settings state".into());
-        }
-        let mut s = capabilities.clone();
-        s.stereo = self.sound & 0xf0 != 0x10;
-        s.effects = self.sound & 1 != 0;
-        s.ambient = self.sound & 2 != 0;
-        s.interface = self.sound & 4 != 0;
-        s.auto_degrade = self.sound & 8 == 0;
-        s.effects_volume = ((self.sound >> 8) & 15) as f32 / 10.0;
-        s.ambient_volume = ((self.sound >> 12) & 15) as f32 / 10.0;
-        s.brightness = (self.graphics & 255) as f32 / 100.0;
-        s.performance = ((self.graphics >> 8) & 15) as f32 / 10.0;
-        s.camera_stiffness = ((self.graphics >> 12) & 15) as f32 / 10.0;
-        s.texture_levels = std::array::from_fn(|i| ((self.textures >> (4 * i)) & 15) as u8);
-        s.landscape_detail = self.detail[0];
-        s.environment_detail = self.detail[1];
-        if let Some(i) = s
-            .resolutions
-            .iter()
-            .position(|r| *r == (self.resolution[0], self.resolution[1]))
-        {
-            s.resolution = i;
-        }
-        Ok(s)
-    }
+/// The live page uses the same finite, truncated steps as a saved settings value.
+fn quantize(settings: &ClassicSettings, capabilities: &ClassicSettings) -> ClassicSettings {
+    let size = settings
+        .resolutions
+        .get(settings.resolution)
+        .copied()
+        .unwrap_or((800, 600));
+    quantize_at_size(settings, capabilities, size)
 }
+
+fn quantize_at_size(
+    settings: &ClassicSettings,
+    capabilities: &ClassicSettings,
+    size: (u32, u32),
+) -> ClassicSettings {
+    let mut out = capabilities.clone();
+    out.stereo = settings.stereo;
+    out.effects = settings.effects;
+    out.ambient = settings.ambient;
+    out.interface = settings.interface;
+    out.auto_degrade = settings.auto_degrade;
+    out.effects_volume = digit(settings.effects_volume, 10.0) as f32 / 10.0;
+    out.ambient_volume = digit(settings.ambient_volume, 10.0) as f32 / 10.0;
+    out.brightness = digit(settings.brightness, 100.0) as f32 / 100.0;
+    out.performance = digit(settings.performance, 10.0) as f32 / 10.0;
+    out.camera_stiffness = digit(settings.camera_stiffness, 10.0) as f32 / 10.0;
+    out.texture_levels = settings.texture_levels.map(|n| n.min(3));
+    out.landscape_detail = settings.landscape_detail;
+    out.environment_detail = settings.environment_detail;
+    if let Some(i) = out.resolutions.iter().position(|r| *r == size) {
+        out.resolution = i;
+    }
+    out
+}
+
 /// The classic Client page's hosted settings, carried onto the shared scene's render preferences.
 ///
 /// The Environment Detail Textures box sets the shared preference as it is. Brightness sets the
@@ -294,67 +259,6 @@ pub fn from_shared(capabilities: &ClassicSettings) -> ClassicSettings {
     s
 }
 
-/// The texture sizes a `settings.json` kept as the page's old steps (0 full size .. 3 the
-/// smallest), as the shared preferences they stand for: landscape and every other image, stored
-/// value step + 1 (High .. Very Low).
-fn texture_values(s: &ClassicSettings) -> Vec<(&'static str, PrefValue)> {
-    use dereth_client_runtime::render_prefs as names;
-    let value = |step: u8| PrefValue::Int(i32::from(step.min(3)) + 1);
-    vec![
-        (names::LANDSCAPE_TEXTURE_DETAIL, value(s.texture_levels[0])),
-        (
-            names::ENVIRONMENT_TEXTURE_DETAIL,
-            value(s.texture_levels[2]),
-        ),
-    ]
-}
-
-/// Carry a `settings.json` the classic interface kept in its own folder into the shared store,
-/// once: each setting the player had moved from the page's own first values (`defaults`) is
-/// written to its shared preference, and the file is removed. A setting left at the page's first
-/// value is not written, so it does not override what the shared store holds. Returns how many
-/// settings were carried, or why the file could not be read (it is then left in place).
-///
-/// # Errors
-/// The file is there and cannot be read or is not the page's.
-pub fn migrate_settings_file(path: &Path, defaults: &ClassicSettings) -> Result<usize, String> {
-    if !dereth_client_runtime::platform::files::is_file(path) {
-        return Ok(0);
-    }
-    let bytes = dereth_client_runtime::platform::files::read(path).map_err(|e| e.to_string())?;
-    let stored = serde_json::from_slice::<Stored>(&bytes).map_err(|e| e.to_string())?;
-    let mut file = stored.decode(defaults)?;
-    // The file named a size, not a place in this machine's list of sizes.
-    file.full_screen = defaults.full_screen;
-    let mut carried = 0;
-    // The page's first values as the file would have held them (tenths, hundredths).
-    let first = Stored::from_settings(defaults).decode(defaults)?;
-    let mut before = shared_values(&first);
-    before.extend(texture_values(&first));
-    let mut after = shared_values(&file);
-    after.extend(texture_values(&file));
-    if !defaults
-        .resolutions
-        .contains(&(stored.resolution[0], stored.resolution[1]))
-    {
-        after.retain(|(n, _)| *n != dereth_client_contract::options::names::DISPLAY_RESOLUTION);
-        after.push((
-            dereth_client_contract::options::names::DISPLAY_RESOLUTION,
-            resolution_value((stored.resolution[0], stored.resolution[1])),
-        ));
-    }
-    for (name, v) in after {
-        if before.iter().any(|(n, d)| *n == name && *d == v) {
-            continue;
-        }
-        if store::set_value(name, v) {
-            carried += 1;
-        }
-    }
-    dereth_client_runtime::platform::files::remove_file(path).map_err(|e| e.to_string())?;
-    Ok(carried)
-}
-
 fn resolution_value(size: (u32, u32)) -> PrefValue {
     PrefValue::Int(((size.0 << 16) | size.1) as i32)
 }
@@ -404,7 +308,7 @@ impl SettingsHost {
     pub fn initialize<S: Shell>(&mut self, cx: &mut Cx<'_, S>) -> Result<Vec<UiRequest>, String> {
         self.apply_values(cx, self.current.clone(), true)
     }
-    /// Apply uses integer packing before decoding, reproducing the tenths/hundredths truncation.
+    /// Apply quantizes the page to its tenths/hundredths before sending the values.
     /// Any returned display request must enter the host's normal UiRequest dispatcher.
     pub fn apply<S: Shell>(
         &mut self,
@@ -412,8 +316,7 @@ impl SettingsHost {
         settings: ClassicSettings,
         save: bool,
     ) -> Result<Vec<UiRequest>, String> {
-        let packed = Stored::from_settings(&settings);
-        let effective = packed.decode(&self.current)?;
+        let effective = quantize(&settings, &self.current);
         // A rejected native resize can leave the requested configuration ahead of
         // the live surface; rollback and retry must start from what is displayed.
         let previous = cx.present().size();
@@ -475,9 +378,7 @@ impl SettingsHost {
     }
     /// Commit the page's values to the shared store, with `size` as the window's size.
     fn persist_resolution(&mut self, size: (u32, u32)) -> Result<(), String> {
-        let mut stored = Stored::from_settings(&self.current);
-        stored.resolution = [size.0, size.1];
-        self.saved = stored.decode(&self.current)?;
+        self.saved = quantize_at_size(&self.current, &self.current, size);
         write_shared(&self.saved);
         let _ = store::set_value(
             dereth_client_contract::options::names::DISPLAY_RESOLUTION,
@@ -576,6 +477,89 @@ fn full_screen_changed(chosen: bool, saved: bool, shown: bool) -> bool {
 mod tests {
     //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
     use super::*;
+    /// Behaviour: presentation.settings.both-interfaces-edit-one-store
+    #[test]
+    fn quantization_keeps_capabilities_and_matches_the_saved_numeric_steps() {
+        let mut capabilities = settings();
+        capabilities.sound_available = false;
+        capabilities.resolution = 1;
+        for value in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -1.0,
+            -0.0,
+            0.579,
+            1.0,
+            2.0,
+        ] {
+            let mut input = settings();
+            input.effects_volume = value;
+            input.ambient_volume = value;
+            input.brightness = value;
+            input.performance = value;
+            input.camera_stiffness = value;
+            input.texture_levels = [0, 2, 4, u8::MAX];
+            input.resolutions = vec![(1234, 789)];
+            let actual = quantize(&input, &capabilities);
+            let decoded = Stored::from_settings(&input).decode(&capabilities).unwrap();
+            assert_eq!(actual, decoded);
+            assert!(!actual.sound_available);
+            assert_eq!(actual.resolution, 1);
+            assert_eq!(actual.texture_levels, [0, 2, 3, 3]);
+            if !value.is_finite() {
+                assert_eq!(actual.effects_volume, 0.0);
+                assert_eq!(actual.brightness, 0.0);
+                assert_eq!(actual.camera_stiffness, 0.0);
+            }
+        }
+    }
+
+    /// Behaviour: presentation.settings.both-interfaces-edit-one-store
+    #[test]
+    fn migration_applies_bits_before_defaults_and_json_after_them_then_retires_only_empty_folders()
+    {
+        store::init();
+        let mut scratch = dereth_dat::testing::ScratchDir::new("classic-migration-phases").unwrap();
+        let folder = scratch.path().join("classic");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("classic-options"), b" 10\n").unwrap();
+        let mut old = settings();
+        old.effects_volume = 0.3;
+        std::fs::write(
+            folder.join("settings.json"),
+            serde_json::to_vec(&Stored::from_settings(&old)).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(folder.join("kept"), b"unrelated contents").unwrap();
+        let migration = Migration::new(&folder);
+        migration.before_defaults();
+        assert_eq!(
+            store::inq_value("UI.Classic.InvertMouseLook"),
+            Some(PrefValue::Bool(true))
+        );
+        assert_eq!(
+            store::inq_value("Sound.SoundVolume"),
+            Some(PrefValue::Float(1.0))
+        );
+        assert!(!folder.join("classic-options").exists());
+        assert!(folder.join("settings.json").exists());
+        migration.after_defaults(&settings());
+        assert_eq!(
+            store::inq_value("Sound.SoundVolume"),
+            Some(PrefValue::Float(0.3))
+        );
+        assert!(!folder.join("settings.json").exists());
+        assert_eq!(
+            std::fs::read(folder.join("kept")).unwrap(),
+            b"unrelated contents"
+        );
+        std::fs::remove_file(folder.join("kept")).unwrap();
+        migration.after_defaults(&settings());
+        assert!(!folder.exists());
+        scratch.cleanup().unwrap();
+    }
+
     #[test]
     fn full_screen_off_is_saved_even_after_alt_enter_left_full_screen() {
         // Saved on, Alt+Enter left full screen, the box is cleared: the saved preference changes.
@@ -614,7 +598,8 @@ mod tests {
         assert_eq!(p.sound, 0x6607);
         assert_eq!(p.graphics, 0x2539);
         assert_eq!(p.textures, 0x3210);
-        let d = p.decode(&s).unwrap();
+        let d = quantize(&s, &s);
+        assert_eq!(d, p.decode(&s).unwrap());
         assert_eq!(d.effects_volume, 0.6);
         assert_eq!(d.camera_stiffness, 0.2);
         assert_eq!(d.brightness, 0.57);
@@ -719,8 +704,10 @@ mod tests {
         let mut s = settings();
         s.resolution = 1;
         let p = Stored::from_settings(&s);
+        let input = s.clone();
         s.resolutions.reverse();
         assert_eq!(p.decode(&s).unwrap().resolution, 0);
+        assert_eq!(quantize(&input, &s).resolution, 0);
     }
     #[test]
     fn invalid_texture_nibble_and_version_are_rejected() {

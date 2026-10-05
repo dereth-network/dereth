@@ -1426,20 +1426,8 @@ impl ClassicUi {
     /// # Errors
     /// The key map cannot be read or the settings file is damaged.
     pub fn start<S: Host>(&mut self, cx: &mut Cx<'_, S>) -> Result<(), String> {
-        // This interface's own settings are in the shared store; a file of them left in its old
-        // folder is carried there once.
-        let retired = &self.paths.state;
-        if let Some(bits) =
-            dereth_client_runtime::platform::files::read_to_string(&retired.join("classic-options"))
-                .ok()
-                .and_then(|s| u32::from_str_radix(s.trim(), 16).ok())
-        {
-            crate::keyboard_runtime::set_classic_bits(bits);
-            let _ = dereth_client_runtime::platform::files::remove_file(
-                &retired.join("classic-options"),
-            );
-            tracing::info!("the classic interface's own options moved into the profile");
-        }
+        let migration = crate::settings_host::Migration::new(&self.paths.state);
+        migration.before_defaults();
         let bindings = crate::keybindings::KeyBindings::new(&self.classic_keys);
         self.keyboard = bindings.snapshot();
         self.bindings = Some(bindings);
@@ -1492,17 +1480,7 @@ impl ClassicUi {
             .iter()
             .position(|s| *s == size)
             .unwrap_or(0);
-        match crate::settings_host::migrate_settings_file(
-            &self.paths.state.join("settings.json"),
-            &self.settings,
-        ) {
-            Ok(0) => {}
-            Ok(n) => {
-                tracing::info!("{n} classic sound and graphics setting(s) moved into the profile")
-            }
-            Err(e) => tracing::warn!("the classic interface's old settings file: {e}"),
-        }
-        retire_folder(&self.paths.state);
+        migration.after_defaults(&self.settings);
         let host = crate::settings_host::SettingsHost::load(self.settings.clone())?;
         self.settings = host.snapshot();
         self.settings_host = Some(host);
@@ -2726,19 +2704,6 @@ fn names_of_own(name: &str) -> bool {
     dereth_client_contract::actions::names::DERETH_ACTION_NAMES
         .iter()
         .any(|(_, n)| *n == name)
-}
-
-/// The classic interface's old settings folder, once everything in it has moved into the shared
-/// store and key map: removed when nothing is left in it, and left with what is otherwise.
-fn retire_folder(folder: &std::path::Path) {
-    match dereth_client_runtime::platform::files::remove_empty_dir(folder) {
-        Ok(true) => tracing::info!("the classic interface's old settings folder is retired"),
-        Ok(false) => tracing::info!(
-            "the classic interface's old settings folder {} still holds files this client no longer reads",
-            folder.display()
-        ),
-        Err(_) => {}
-    }
 }
 
 fn is_ui_action(name: &str) -> bool {
