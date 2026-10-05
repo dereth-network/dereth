@@ -139,6 +139,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "login.disconnect.a-scripted-run-ends-on-a-character-error",
+        says: "A scripted run that is told to enter the world ends when the server refuses it with \
+               a character error, rather than waiting on the disconnect screen for a press that \
+               will never come; a player's client stays on the screen until its button is pressed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-SCRIPTED-CHARACTER-ERROR"),
+        station: "dereth-client::gpu::login::disconnect_and_leave_game::a_scripted_run_ends_on_a_character_error_instead_of_waiting_on_the_screen",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "login.disconnect.ok-reaches-the-epilogue-and-ends-the-loop",
         says: "Pressing OK on the disconnection screen moves to the closing screen, which logs off \
                and ends the client within that same frame.",
@@ -155,16 +165,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O71-DISCONNECT"),
         station: "dereth-client::gpu::login::disconnect_and_leave_game::the_process_stays_up_on_a_disconnect_and_ends_only_when_the_player_asks",
-        tier: Tier::Gpu,
-    },
-    behaviour! {
-        id: "login.disconnect.a-scripted-run-ends-on-a-character-error",
-        says: "A scripted run that is told to enter the world ends when the server refuses it with \
-               a character error, rather than waiting on the disconnect screen for a press that \
-               will never come; a player's client stays on the screen until its button is pressed.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC-EVID-SCRIPTED-CHARACTER-ERROR"),
-        station: "dereth-client::gpu::login::disconnect_and_leave_game::a_scripted_run_ends_on_a_character_error_instead_of_waiting_on_the_screen",
         tier: Tier::Gpu,
     },
     behaviour! {
