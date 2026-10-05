@@ -16,7 +16,6 @@ use empyrean_world::network::game_event::events::game_event_communication_transi
 use empyrean_world::network::game_event::events::game_event_player_description::game_event_player_description;
 use empyrean_world::network::game_event::game_event_message::session_data;
 use empyrean_world::network::game_messages::game_message::enqueue_send;
-use empyrean_world::network::game_messages::messages::game_message_system_chat::game_message_system_chat;
 use empyrean_world::world_objects::player_inventory::{self, SearchLocations};
 use empyrean_world::world_objects::{player_networking, player_tracking};
 use empyrean_world::World;
@@ -25,6 +24,7 @@ use crate::command_handler_attribute::CommandHandlerAttribute;
 use crate::command_handler_flag::CommandHandlerFlag;
 use crate::command_handler_info::{CommandHandlerInfo, NamedHandler};
 use crate::handler;
+use crate::handler_common::{session_player, system_chat};
 use crate::handlers::command_handler_helper;
 
 /// This file's `[CommandHandler]` decorations, in declaration order.
@@ -119,30 +119,9 @@ const REPORTBUG_USAGE: &str = concat!(
     "/reportbug code I was killed by a Non-Player Killer\n",
 );
 
-/// `session.Network.EnqueueSend(new GameMessageSystemChat(message, type))`.
-fn system_chat(
-    w: &mut World,
-    session: SessionId,
-    message: &str,
-    chat_message_type: ChatMessageType,
-) {
-    enqueue_send(
-        w,
-        session,
-        game_message_system_chat(message, chat_message_type),
-    );
-}
-
 /// `session` for a handler ACE only reaches with a session (RequiresWorld, or a dereference).
 fn require(session: Option<SessionId>) -> SessionId {
     session.expect("NullReferenceException: session")
-}
-
-/// `session.Player`.
-fn session_player(w: &World, session: SessionId) -> ObjectGuid {
-    w.sessions
-        .player(session)
-        .expect("NullReferenceException: session.Player")
 }
 
 fn property_manager_get_bool(w: &World, key: &str) -> bool {

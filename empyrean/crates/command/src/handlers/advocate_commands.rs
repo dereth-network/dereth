@@ -23,6 +23,7 @@ use crate::command_parameter_helpers::{
     self as cph, ACECommandParameter, ACECommandParameterType, AceParamValue,
 };
 use crate::handler;
+use crate::handler_common::session_player;
 use crate::handlers::command_handler_helper::send_server_message;
 
 /// This file's `[CommandHandler]` decorations, in declaration order.
@@ -86,12 +87,6 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
 
 fn require(session: Option<SessionId>) -> SessionId {
     session.expect("NullReferenceException: session")
-}
-
-fn session_player(w: &World, session: SessionId) -> ObjectGuid {
-    w.sessions
-        .player(session)
-        .expect("NullReferenceException: session.Player")
 }
 
 fn system_chat(w: &mut World, session: SessionId, message: &str) {

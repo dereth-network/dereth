@@ -51,7 +51,7 @@ use empyrean_world::network::game_messages::game_message::enqueue_send;
 use empyrean_world::network::game_messages::messages::game_message_system_chat::game_message_system_chat;
 use empyrean_world::physics::phys_ext;
 use empyrean_world::world_objects::player_inventory::{self, SearchLocations};
-use empyrean_world::world_objects::world_object::{self, CtorEnv, WorldObject};
+use empyrean_world::world_objects::world_object::{self, CtorEnv};
 use empyrean_world::world_objects::{
     player_networking, world_object_decay, world_object_magic, world_object_networking,
     world_object_tick,
@@ -63,6 +63,7 @@ use crate::command_handler_flag::CommandHandlerFlag;
 use crate::command_handler_info::{CommandHandlerInfo, NamedHandler};
 use crate::command_parameter_helpers::dotnet_parse;
 use crate::handler;
+use crate::handler_common::{location_of, name_of, obj, obj_mut, session_player};
 use crate::handlers::command_handler_helper;
 
 /// This file's `[CommandHandler]` decorations, in declaration order.
@@ -162,40 +163,6 @@ fn chat(w: &mut World, session: SessionId, message: &str) {
 
 fn require(session: Option<SessionId>) -> SessionId {
     session.expect("NullReferenceException: session")
-}
-
-/// `session.Player`.
-fn session_player(w: &World, session: SessionId) -> ObjectGuid {
-    w.sessions
-        .player(session)
-        .expect("NullReferenceException: session.Player")
-}
-
-fn obj(w: &World, g: ObjectGuid) -> &WorldObject {
-    w.objects
-        .get(g)
-        .unwrap_or_else(|| panic!("NullReferenceException: object 0x{:08X}", g.full()))
-}
-
-fn obj_mut(w: &mut World, g: ObjectGuid) -> &mut WorldObject {
-    w.objects
-        .get_mut(g)
-        .unwrap_or_else(|| panic!("NullReferenceException: object 0x{:08X}", g.full()))
-}
-
-/// `wo.Name`.
-fn name_of(w: &World, wo: ObjectGuid) -> String {
-    w.objects
-        .get(wo)
-        .and_then(|o| o.get_property(PropertyString::Name))
-        .unwrap_or_default()
-}
-
-/// `wo.Location`, which ACE dereferences.
-fn location_of(w: &World, wo: ObjectGuid) -> Position {
-    obj(w, wo)
-        .location()
-        .expect("NullReferenceException: Location")
 }
 
 /// `session.Player.CurrentLandblock`, which ACE dereferences.

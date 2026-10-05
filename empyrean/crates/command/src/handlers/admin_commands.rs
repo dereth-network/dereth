@@ -74,6 +74,7 @@ use crate::command_handler_info::{CommandHandlerInfo, NamedHandler};
 use crate::command_manager::console_write_line;
 use crate::command_parameter_helpers::dotnet_parse;
 use crate::handler;
+use crate::handler_common::{bool_string, name_of, obj, obj_mut, session_player, system_chat};
 use crate::handlers::command_handler_helper::{self, send_server_message};
 
 /// This file's `[CommandHandler]` decorations, in declaration order (`knownobjs` is replaced in
@@ -208,52 +209,9 @@ fn require(session: Option<SessionId>) -> SessionId {
     session.expect("NullReferenceException: session")
 }
 
-/// `session.Player`.
-fn session_player(w: &World, session: SessionId) -> ObjectGuid {
-    w.sessions
-        .player(session)
-        .expect("NullReferenceException: session.Player")
-}
-
 /// `session?.Player`.
 fn session_player_opt(w: &World, session: Option<SessionId>) -> Option<ObjectGuid> {
     session.map(|s| session_player(w, s))
-}
-
-/// `wo.Name`.
-fn name_of(w: &World, wo: ObjectGuid) -> String {
-    w.objects
-        .get(wo)
-        .and_then(|o| o.get_property(PropertyString::Name))
-        .unwrap_or_default()
-}
-
-/// The object `g`, which ACE dereferences.
-fn obj(w: &World, g: ObjectGuid) -> &WorldObject {
-    w.objects
-        .get(g)
-        .unwrap_or_else(|| panic!("NullReferenceException: object 0x{:08X}", g.full()))
-}
-
-/// The object `g`, mutably.
-fn obj_mut(w: &mut World, g: ObjectGuid) -> &mut WorldObject {
-    w.objects
-        .get_mut(g)
-        .unwrap_or_else(|| panic!("NullReferenceException: object 0x{:08X}", g.full()))
-}
-
-/// `session.Network.EnqueueSend(new GameMessageSystemChat(message, type))`.
-fn system_chat(
-    w: &mut World,
-    session: SessionId,
-    message: &str,
-    chat_message_type: ChatMessageType,
-) {
-    enqueue_send(
-        w,
-        session,
-        game_message_system_chat(message, chat_message_type),
-    );
 }
 
 /// `player.Session.Network.EnqueueSend(msg)`; nothing without a session.
@@ -366,15 +324,6 @@ fn upper_first(name: &str) -> String {
         .expect("InvalidOperationException: Sequence contains no elements");
     let first = String::from_utf16_lossy(&[first]).to_uppercase();
     first + &String::from_utf16_lossy(&units[1..])
-}
-
-/// `bool.ToString()`.
-fn bool_string(b: bool) -> &'static str {
-    if b {
-        "True"
-    } else {
-        "False"
-    }
 }
 
 /// `PropertyManager.GetBool(key).Item`.

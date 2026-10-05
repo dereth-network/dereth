@@ -49,6 +49,9 @@ use crate::command_handler_info::{CommandHandlerInfo, NamedHandler};
 use crate::command_manager::console_write_line;
 use crate::command_parameter_helpers::dotnet_parse;
 use crate::handler;
+use crate::handler_common::{
+    bool_string, location_of, name_of, obj, obj_mut, session_player, system_chat,
+};
 use crate::handlers::admin_commands::{self, enum_try_parse};
 use crate::handlers::command_handler_helper::{self, send_server_message};
 
@@ -59,49 +62,6 @@ use crate::handlers::command_handler_helper::{self, send_server_message};
 /// `session` for a handler ACE only reaches with a session (RequiresWorld, or a dereference).
 fn require(session: Option<SessionId>) -> SessionId {
     session.expect("NullReferenceException: session")
-}
-
-/// `session.Player`.
-fn session_player(w: &World, session: SessionId) -> ObjectGuid {
-    w.sessions
-        .player(session)
-        .expect("NullReferenceException: session.Player")
-}
-
-/// `wo.Name`.
-fn name_of(w: &World, wo: ObjectGuid) -> String {
-    w.objects
-        .get(wo)
-        .and_then(|o| o.get_property(PropertyString::Name))
-        .unwrap_or_default()
-}
-
-/// The object `g`, which ACE dereferences.
-fn obj(w: &World, g: ObjectGuid) -> &WorldObject {
-    w.objects
-        .get(g)
-        .unwrap_or_else(|| panic!("NullReferenceException: object 0x{:08X}", g.full()))
-}
-
-/// The object `g`, mutably.
-fn obj_mut(w: &mut World, g: ObjectGuid) -> &mut WorldObject {
-    w.objects
-        .get_mut(g)
-        .unwrap_or_else(|| panic!("NullReferenceException: object 0x{:08X}", g.full()))
-}
-
-/// `session.Network.EnqueueSend(new GameMessageSystemChat(message, type))`.
-fn system_chat(
-    w: &mut World,
-    session: SessionId,
-    message: &str,
-    chat_message_type: ChatMessageType,
-) {
-    enqueue_send(
-        w,
-        session,
-        game_message_system_chat(message, chat_message_type),
-    );
 }
 
 /// `player.SendMessage(msg)` (`ChatMessageType.Broadcast`).
@@ -165,22 +125,6 @@ fn is_creature(w: &World, wo: ObjectGuid) -> bool {
 /// `wo is Player`.
 fn is_player(w: &World, wo: ObjectGuid) -> bool {
     w.objects.get(wo).is_some_and(|o| o.player.is_some())
-}
-
-/// `wo.Location`, which ACE dereferences.
-fn location_of(w: &World, wo: ObjectGuid) -> Position {
-    obj(w, wo)
-        .location()
-        .expect("NullReferenceException: Location")
-}
-
-/// `bool.ToString()`.
-fn bool_string(b: bool) -> &'static str {
-    if b {
-        "True"
-    } else {
-        "False"
-    }
 }
 
 /// `Vector3.ToString()` in en-US: `<x, y, z>`.

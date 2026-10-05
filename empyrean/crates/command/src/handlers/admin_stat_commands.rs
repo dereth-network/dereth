@@ -20,6 +20,7 @@ use crate::command_handler_attribute::CommandHandlerAttribute;
 use crate::command_handler_flag::CommandHandlerFlag;
 use crate::command_handler_info::{CommandHandlerInfo, NamedHandler};
 use crate::handler;
+use crate::handler_common::bool_string;
 use crate::handlers::command_handler_helper;
 
 /// This file's `[CommandHandler]` decorations, in declaration order (`HandleLandblockStats` has
@@ -335,15 +336,6 @@ pub fn handle_server_status(w: &mut World, session: Option<SessionId>, _paramete
     );
 
     write_output_info(w, session, &sb);
-}
-
-/// `bool.ToString()`.
-fn bool_string(b: bool) -> &'static str {
-    if b {
-        "True"
-    } else {
-        "False"
-    }
 }
 
 // ACE: AdminStatCommands.HandleServerPerformance

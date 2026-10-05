@@ -29,6 +29,7 @@ use crate::command_parameter_helpers::{
     self as cph, dotnet_parse, ACECommandParameter, ACECommandParameterType, AceParamValue,
 };
 use crate::handler;
+use crate::handler_common::session_player;
 use crate::handlers::command_handler_helper;
 
 /// This file's `[CommandHandler]` decorations, in declaration order (the second `deaf` replaces
@@ -129,12 +130,6 @@ fn system_chat(w: &mut World, session: SessionId, message: &str) {
 
 fn require(session: Option<SessionId>) -> SessionId {
     session.expect("NullReferenceException: session")
-}
-
-fn session_player(w: &World, session: SessionId) -> ObjectGuid {
-    w.sessions
-        .player(session)
-        .expect("NullReferenceException: session.Player")
 }
 
 fn session_access_level(w: &World, session: SessionId) -> AccessLevel {

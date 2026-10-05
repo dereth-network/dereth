@@ -22,3 +22,4 @@ pub mod handlers;
 // @scaffold-mods end
 pub mod console;
 pub mod empyrean;
+mod handler_common;
