@@ -437,11 +437,8 @@ fn trim_language_marker(name: &str) -> &str {
 
 /// The shift from UTC to the zone `localtime` would have used for `at`, in seconds.
 ///
-/// Scroll insertion stamps with `wcsftime(L"%#H:%M:%S ", localtime(time(NULL)))`, and
-/// five other places in retail format a date through `localtime` as well. Every Win32 entry
-/// point in the `windows` crate is an `unsafe fn` and this crate is `#![forbid(unsafe_code)]`;
-/// the way through is WinRT, whose bindings are safe. See
-/// `crate::platform::local_utc_offset_secs`, which is the whole of it.
+/// Scroll insertion uses the local wall-clock time. The host supplies the offset through
+/// [`crate::platform::clock::local_utc_offset_secs`]; the runtime performs no platform query.
 ///
 /// It takes the instant because the answer depends on it — a daylight rule is not a constant.
 pub(super) fn utc_offset_secs(at: i64) -> i32 {

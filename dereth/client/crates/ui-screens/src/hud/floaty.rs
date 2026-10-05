@@ -161,7 +161,7 @@ pub const FLOATY_CHAT_WINDOWS: [ElementId; 4] = [
 /// `Option_PlacementArray` (`0x1000008C`) it is indexed out of.
 ///
 /// [`WindowPlacement`] and [`WindowPlacements`] are defined in [`dereth_client_contract::floaty`],
-/// because `dereth_client_shell::hud` owns the retained `PlayerModule` these are read out of and written
+/// because `dereth_client_runtime::hud` owns the retained `PlayerModule` these are read out of and written
 /// back into.
 pub use dereth_client_contract::floaty::{WindowPlacement, WindowPlacements};
 

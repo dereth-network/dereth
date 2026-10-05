@@ -31,7 +31,7 @@ pub const SKY: &str = crate::options::names::SKY;
 /// are drawn with.
 pub const OBJECTS: &str = crate::options::names::OBJECTS;
 
-/// The value both preferences hold for "the world's own": the hardware region of a world from
+/// The value all three preferences hold for "the world's own": the hardware region of a world from
 /// before Throne of Destiny (Legacy Blend and its sky), the one region of a later world (Modern).
 pub const WORLD_DEFAULT: i32 = 0;
 

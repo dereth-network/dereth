@@ -271,8 +271,7 @@ fn an_empty_registry_opens_the_panel_with_no_rows_and_the_no_spells_line() {
         panels.effects_helpful.info,
         effects::string::NO_SPELLS,
         "with no string service installed `statmgmt::label` falls back to the token, which is what \
-         the headless harness sees; `tests/g18_probe.rs` resolves it to \"NO SPELLS\" out of \
-         0x23000001"
+         the headless harness sees before string-table resolution"
     );
 }
 

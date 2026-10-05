@@ -346,7 +346,7 @@ impl CombatWindow {
     /// Returns the request it raised. Everything that reaches the combat system is a request
     /// because this crate has no `World`: the arms set requested attack height,
     /// end the attack at `(height, -1.0)`, or clamp `p1 * 0.001` as requested power; then
-    /// `dereth_client_shell::Interaction::run_ui_requests` is where each becomes the call.
+    /// `dereth_client_runtime::interaction::Interaction::run_ui_requests` is where each becomes the call.
     ///
     /// The `0x0A` arm's recklessness re-check is applied here rather than deferred, because it is
     /// a pure element write the window owns.

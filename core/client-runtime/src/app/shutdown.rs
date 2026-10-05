@@ -6,7 +6,7 @@ impl<S: Shell> App<S> {
     /// Run the normal cleanup path.
     ///
     /// The order is [`crate::shutdown::Step::ORDER`]; the recording it returns is what
-    /// `tests/gpu/presentation/shutdown.rs` asserts on, because an ordering nothing checks is a comment.
+    /// `dereth/client/tests/gpu/presentation/shutdown.rs` asserts on, because an ordering nothing checks is a comment.
     pub fn shutdown(mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
         use crate::shutdown::{Outcome, Step};
         if let Some(effect) = self.resolution.cancel() {

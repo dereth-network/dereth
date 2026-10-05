@@ -1,36 +1,9 @@
 //! The toolbar, environment and HUD panels beyond the inventory pages, driven from one place.
 //!
-//! The panel *mechanism* — the tab table and the item-list slot elements — lives in the panel
-//! stack, and the inventory pages have their own holder. This is the holder for the rest: it binds
-//! off the gameplay screen's root and drives each panel from the same `&dyn GameView` seam the
-//! inventory uses.
-//!
-//! # What is populated, and what is not
-//!
-//! | panel | source | state |
-//! |---|---|---|
-//! | attributes | the same `0x0013`'s attribute cache | **populated** |
-//! | skills | the skill table × `0x0013`'s skill-stat table | **populated** |
-//! | spellbook | the spell table × `0x0013`'s spellbook, filtered by spell filters | **populated** |
-//! | allegiance | `0x0020 Allegiance_AllegianceUpdate` | **populated**; the corpus carries twelve `0x0020` and **no members** — see below |
-//! | fellowship | `0x02BE Fellowship_FullUpdate` | **populated**; the corpus carries 94 fellowship messages — see below |
-//! | friends | `0x0021 Social_FriendsUpdate` | **populated**; it arrives unprompted on every login, 11 times across three captures, and five of six recorded sessions carry records |
-//! | journal | client-local notes; no message carries them | not populated |
-//! | character options | options | its own module |
-//!
-//! **Allegiance.** The corpus holds twelve `0x0020`, and **all twelve carry allegiance version 11,
-//! rank 0, `total_members = 0` and zero member records**: the character those captures were
-//! recorded with is in no allegiance, so the roster has no oracle in the corpus.
-//! [`super::allegiance`] is driven from a **synthesised** tree and says so. Its list box carries
-//! exactly **one** row template — `0x10000260` → `(0x2100002F, 0x10000266)` — so the row factory
-//! it needs is [`super::listbox`].
-//!
-//! **Fellowship.** The `fellowship*` recordings carry **23 `0x02BE`, 39 `0x02C0`, 8 `0x00A3`,
-//! 3 `0x00A4`, 2 `0x02BF` and 2 `0x01C9`** — 77 server-to-client fellowship messages — and **27
-//! client-to-server fellowship events**, which are retail's own client and therefore a byte-level
-//! oracle for every button on the tab. Its list box likewise carries one row template,
-//! `0x10000279` → `(0x21000030, 0x10000281)`. [`super::fellowship`] is driven from that corpus and
-//! says so.
+//! This holder binds the gameplay root and updates attributes, skills, spellbook, allegiance,
+//! fellowship, friends and journal panels through the shared `GameView` seam. It also routes
+//! their element messages and requests. Inventory has its own holder; panel stacking and
+//! reusable list rows stay in their respective modules.
 
 use dereth_ui::{ElemHandle, ElementId, UiSystem};
 

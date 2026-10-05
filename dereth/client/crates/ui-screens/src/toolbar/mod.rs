@@ -324,7 +324,7 @@ pub mod combat_mode {
     /// toolbar-active flag's one comparison.
     ///
     /// Both are defined in [`dereth_client_contract::combat_mode`], beside the five ids, because
-    /// `dereth_client_shell::hud` ghosts the shortcut numerals with `toolbar_active` and
+    /// `dereth_client_runtime::hud` ghosts the shortcut numerals with `toolbar_active` and
     /// `dereth_client_runtime::interaction` matches a pressed element against `BUTTONS`.
     pub use dereth_client_contract::combat_mode::{toolbar_active, BUTTONS};
 }

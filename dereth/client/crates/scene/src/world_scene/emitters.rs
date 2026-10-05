@@ -735,7 +735,7 @@ impl SceneDraw {
     ///
     /// They are counters on *tolerant* paths — a sub-palette range that would not apply, a
     /// palette that is not in the dat — and this project has twice paid for a counter nothing
-    /// compared, so `tests/gpu/objects/appearance_objdesc.rs` asserts both are zero over the whole corpus.
+    /// compared, so `dereth/client/tests/gpu/objects/appearance_objdesc.rs` asserts both are zero over the whole corpus.
     pub(super) fn refresh_surface_stats(&mut self) {
         self.stats.palette_range_failures = self.land.bake.palette_range_failures;
         self.stats.palette_missing = self.land.bake.palette_missing;

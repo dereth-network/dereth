@@ -136,7 +136,7 @@ pub const PLAYER_OBJECT_ID: ObjectId = ObjectId(0x6000_0000);
 /// run in **any** order with respect to the placements.
 ///
 /// This build folds that origin into the part frames instead (so the vertices stay
-/// block-local): [`Character::render_frame`] and `crate::world::WorldScene::render_frame_of`
+/// block-local): [`Character::render_frame`] and `crate::world_step::render_frame_of`
 /// both add `(block - viewer) * BLOCK_LENGTH`. That creates an ordering constraint the client
 /// does not have — **every writer of a drawn frame must run after the re-centre**. A violation
 /// leaves the body's parts `(-192 * dx, -192 * dy, 0)` behind the camera, which is the player's
@@ -152,23 +152,23 @@ pub const PLAYER_OBJECT_ID: ObjectId = ObjectId(0x6000_0000);
 /// So this is a zero-sized capability rather than data. Its field is private to the module below,
 /// which means **no code anywhere — in this crate or outside it — can construct one**; the only
 /// producer is [`Character::set_viewer_block`], the act of choosing the block, and
-/// `crate::world::WorldScene::recenter` is its only caller in a running client. A render-space
+/// the world streamer's recentering step supplies it during world updates. A render-space
 /// writer takes one by value, so it cannot be *called* before the binding that holds it exists.
-/// Move `place_local_body` above `recenter()` in `WorldScene::update` and the frame loop no
+/// Move `place_local_body` above `recenter()` in `world_step::update` and the frame loop no
 /// longer compiles.
 ///
 /// # What it does and does not enforce, exactly
 ///
 /// **What it enforces is the *ordering*, and that is airtight**: the token is a local binding that
-/// `crate::world::WorldScene::recenter` produces, so a writer called above that line has nothing
+/// `crate::world_step::recenter` produces, so a writer called above that line has nothing
 /// to pass and the frame loop does not compile.
 ///
 /// **What it does not enforce is who may mint one.** A scene with no body has no `Character` to
 /// re-anchor — the free camera owns its own position — and
-/// `crate::world::WorldScene::advance_objects` still has to place the server's objects there, so
+/// `crate::world_step::update` still has to place the server's objects there, so
 /// there is a second producer, [`RenderSpace::for_a_window_without_a_body`], which `recenter`'s
-/// bodiless arm calls. It is `pub` because `WorldScene::recenter` is in `dereth-client` and this
-/// module is not; a determined writer could mint a token instead of taking `recenter`'s. Saying
+/// bodiless arm calls. The constructor is public, so a writer could mint a token instead of
+/// taking `recenter`'s. Saying
 /// so is the point: a device that reads as total and is not is worse than one with a stated edge.
 /// The runtime half of the constraint, the render-space integration test, is what watches that
 /// seam, and the landblock-crossing test's four mutations still watch the placement itself.
@@ -532,7 +532,7 @@ impl MovementCommands {
     /// caller owes [`Character::take_control_from_server`] — the body half of the retake.
     ///
     /// A **take** rather than a read, for the reason
-    /// `crate::world::WorldScene::take_player_movement_applied` gives: the transfer is an edge,
+    /// `crate::world_state::WorldState::take_player_movement_applied` gives: the transfer is an edge,
     /// and two frames must not both act on one press.
     pub fn take_control_retake_pending(&mut self) -> bool {
         std::mem::take(&mut self.control_retake_pending)
@@ -1857,7 +1857,7 @@ impl Character {
     /// **It returns the frame's [`RenderSpace`] token, and is the only thing that can.**
     /// Choosing the block *is* the event every render-space writer has to be after, so the
     /// proof is minted here rather than announced by a comment somewhere else. Calling it again
-    /// with the same block is what `crate::world::WorldScene::recenter` does on a frame that
+    /// with the same block is what `crate::world_step::recenter` does on a frame that
     /// did not cross a boundary — the assignment is idempotent and the token is the point.
     pub fn set_viewer_block(&mut self, block: (i32, i32)) -> RenderSpace {
         self.viewer_block = block;
@@ -1984,7 +1984,7 @@ impl Character {
         self.apply_effects();
     }
 
-    /// One frame. `now` is the current timer value, sampled once per frame by [`dereth_client_runtime::platform::clock::Timer`].
+    /// One frame. `now` is the current timer value, sampled once per frame by [`crate::platform::clock::Timer`].
     ///
     /// Returns true when the 30 Hz gate opened, which is what returns.
     pub fn update(&mut self, now: LocalTime) -> bool {
@@ -2080,7 +2080,7 @@ impl Character {
 
     /// The objects whose collision this tick asks for an impact script.
     ///
-    /// Drained by `crate::world::WorldScene::update` immediately after [`Self::update`]; the
+    /// Drained by `crate::world_step::update` immediately after [`Self::update`]; the
     /// tail plays the object's default script and lives on the scene's
     /// animation driver because that is what holds the `PhysicsScriptTable`.
     #[must_use]
@@ -2163,7 +2163,7 @@ impl Character {
     /// **It is deliberately not part of [`Self::update`].** In the client the part placement is a
     /// draw-time act and the block origin is applied later still by block drawing; this build
     /// folds that origin into the part frames, so the placement has to
-    /// run **after** the viewer block is chosen. `crate::world::WorldScene::place_local_body` is
+    /// run **after** the viewer block is chosen. `crate::world_state::WorldState::place_local_body` is
     /// the one caller in a running client, and it is on the correct side of `recenter`. Anything
     /// driving a `Character` on its own — a test, a tool — has to call this where the frame loop
     /// would have.
@@ -3072,7 +3072,7 @@ impl Character {
 /// which the server writes from a `MoveTo` blob. So: our own body computes it here; every other
 /// creature takes the server's.
 ///
-/// [`dereth_client_model::skills::inq_run_rate`] performs the load lookup, the full skill lookup
+/// [`dereth_rules::skills::inq_run_rate`] performs the load lookup, the full skill lookup
 /// stack for skill `0x18`, current-stamina zeroing, and the movement system's run-rate
 /// calculation.
 pub fn refresh_run_rate(

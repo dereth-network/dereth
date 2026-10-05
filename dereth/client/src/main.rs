@@ -203,5 +203,8 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
 
 #[cfg(not(gpu))]
 fn run_with(_cfg: Config, _replay: Option<input_replay::Replay>) -> Result<(), String> {
-    Err("dereth-client needs a graphics backend: build with --features vulkan or d3d12".into())
+    Err(
+        "dereth-client needs a graphics backend: build with --features vulkan, d3d12 or wgpu"
+            .into(),
+    )
 }

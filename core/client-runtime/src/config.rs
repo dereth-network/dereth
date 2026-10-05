@@ -412,7 +412,7 @@ pub struct Config {
     /// over the world. **On by default**; `--no-ui` is the opt-out.
     ///
     /// **The retail client always has a UI**, so the default is on. The two capture gates
-    /// (`tests/gpu/presentation/headless_capture_determinism.rs` and `tests/gpu/rendering/static_scene.rs`) therefore capture the world plus
+    /// (`dereth/client/tests/gpu/presentation/headless_capture_determinism.rs` and `dereth/client/tests/gpu/rendering/static_scene.rs`) therefore capture the world plus
     /// the interface over it, which is what the client shows; both assert reproducibility rather
     /// than a golden image.
     pub ui: bool,

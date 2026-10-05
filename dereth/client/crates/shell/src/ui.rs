@@ -1,31 +1,13 @@
-//! The UI shell: the element manager's slot in the frame and the UI-flow mode machine.
+//! The modern UI's place in the application frame and its deferred screen transitions.
 //!
-//! The UI preserves the eight modes, deferred switching, destroy-then-create order, and every edge
-//! of the state diagram. Main-loop step 7 broadcasts global message 3, where the mode state
-//! machine advances.
+//! `UiShell` owns the element tree and flow, registers the screen and game-element factories,
+//! loads layout mappings and creation tables, and forwards session notices to the active
+//! screen. It also coordinates media playback, creation previews, panel resources and the
+//! draw list. Widgets and individual screen behavior live in `dereth-ui` and
+//! `dereth-ui-screens`; networking, world state and host services arrive through their seams.
 //!
-//! **This module wires; it does not implement.** Every decision here belongs to `dereth-ui` or
-//! `dereth-ui-screens`:
-//! `UiFlow` is `dereth_ui::framework::UiFlow`, the eight screens and the 84 game element types are
-//! registered by `dereth_ui_screens::register_all`, the layout-enum indirection is
-//! `DidMapperResolver::load_via_master`, and the draw list is `UiSystem::draw`. What this module
-//! owns is the three things the client reads out of **process globals** and a rebuild has to hand
-//! over explicitly:
-//!
-//! 1. the data-patch screen asks the network layer whether the socket is connected and checks
-//!    whether UI-flow persistent data has received `0xF658`;
-//! 2. the persistent-data character-set notice is fed by the network, not by the UI;
-//! 3. the server-died and character-error notices are
-//!    the two "any → Disconnected" edges, and both come from the session.
-//!
-//! [`HostState`] is those three, and [`UiShell::frame`] is the only place they are applied.
-//!
-//! # What is deliberately not here
-//!
-//! The connect and patch screens' real states, character select and creation, the HUD and the
-//! panels, and picking. This module is the seam those plug into: it brings the crates into the
-//! binary, gives the mode machine a place in the documented frame, and proves the four paths end
-//! to end.
+//! [`UiShell::frame`] applies [`HostState`] and broadcasts the frame message before dispatching
+//! queued deliveries. Mode changes retain destroy-then-create order.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1639,7 +1621,7 @@ impl UiShell {
     /// **This runs for every event `on_action` declined, not only keyboard ones**, because the
     /// client's handler list is not filtered by input map: the map callback gets first refusal and
     /// the handlers get whatever it did not take. In this build the point is moot — the left, right
-    /// and middle buttons are bound only in map 3 (`tests/routing.rs`), so a mouse action is always
+    /// and middle buttons are bound only in map 3 (the shipped UI input map), so a mouse action is always
     /// consumed above — but the shape is the client's rather than a keyboard special case.
     ///
     /// The debug console's input-active flag has no counterpart in this build; there is no

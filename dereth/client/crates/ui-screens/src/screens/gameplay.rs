@@ -2738,12 +2738,9 @@ impl GamePlayScreen {
     /// behaviour. Their message 1 bubbles, and **this is the only thing that fires their action**;
     /// five real clicks on the lamps take `button_actions_fired` to five.
     ///
-    /// **The faithful home is still not here.** In retail each lamp class carries its own copy:
-    /// the burden indicator's element-message handler repeats the button handler — on message 1
-    /// to itself, unless attribute `0xD` (disabled) is set, it runs the button-click handling and
-    /// stops processing when that fired — because these classes **derive from `Button`**. TODO:
-    /// give the six lamp element classes the button arm (in this crate's `register_all`, not in
-    /// `dereth-ui`), after which this copy really is dead and goes.
+    /// TODO: route each lamp's click through its own element handler. A disabled lamp must
+    /// decline the click; an enabled lamp fires its bound action and stops processing when
+    /// handled. Until those handlers are installed, this gameplay-level route remains live.
     ///
     /// Returns the action fired, so a caller can count that it ran.
     fn handle_button_click(&mut self, ui: &mut UiSystem, source: ElemHandle) -> Option<u32> {
@@ -5594,7 +5591,7 @@ impl Screen for GamePlayScreen {
         // because the update's first line sets the next update to now + 5.
         //
         // Only the update half is transcribed here: this build's tick does not go through a
-        // listener registration, it goes through `dereth_client_shell::hud`'s `if
+        // listener registration, it goes through `dereth_client_runtime::hud`'s `if
         // screen.map_update_due(...)`. Zeroing `next_map_update` makes the next poll due at once,
         // which is exactly what running the update on the show edge achieves; the
         // unregister-on-hide is **not** transcribed, so this build keeps polling a closed page.

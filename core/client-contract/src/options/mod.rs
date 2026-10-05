@@ -1,16 +1,8 @@
-//! The option *data*: the preference value store, the choice tables and the two const tables the
-//! store registers from.
+//! Shared preference values, registration defaults, choice tables and interface metadata.
 //!
-//! It lives here because the client's state modules need it: `dereth_client_runtime::config` reads
-//! `store::display_choice`,
-//! `dereth_client_shell::render_prefs` reads `store::enum_choices` and `store::set_value`, and
-//! `dereth_desktop::platform::window` names `store::DisplayMode` — none of which is presentation.
-//!
-//! The split is data / panel. What is here is the value store and the tables it is built from;
-//! what stays in `dereth_ui_screens::options` is the page — `PlayerOptionPage`, the rows, the
-//! element wiring, the key-binding screen, and `init_ui_preferences`'s `UiPreferenceItem`
-//! registry. Every item here is re-exported there, so
-//! `dereth_ui_screens::options::store::display_choice` and its siblings resolve.
+//! Runtime configuration and host adapters read this store directly. The modern and Classic
+//! option pages bind to the same values; their widgets, drafts and rendering stay in their
+//! respective interface crates.
 
 pub mod classic;
 pub mod config;

@@ -176,7 +176,7 @@ pub mod item_action {
 
 /// The equipment location (`0x1000000`) the client reads the endowment from.
 ///
-/// It lives in [`dereth_client_contract::panels::spellcasting`], because `dereth_client_shell::hud` is
+/// It lives in [`dereth_client_contract::panels::spellcasting`], because `dereth_client_runtime::hud` is
 /// what resolves it against the object table.
 pub use dereth_client_contract::panels::spellcasting::ENDOWMENT_LOCATION;
 

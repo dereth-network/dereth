@@ -956,7 +956,7 @@ impl NetLink {
             //
             // **Untested in this workspace, and kept.** Counting every attempt instead would pass
             // every suite: nothing here owns a socket that refuses a 20-byte datagram to a bound
-            // loopback peer, and `tests/gpu/presentation/shutdown.rs` runs with no link at all. The line stays
+            // loopback peer, and `dereth/client/tests/gpu/presentation/shutdown.rs` runs with no link at all. The line stays
             // because the point is that a step must not report `Ran` on something it has not
             // done.
             if matches!(socket.send_to(&bytes, to), Ok(true)) {

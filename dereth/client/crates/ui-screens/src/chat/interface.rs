@@ -10,7 +10,7 @@ use crate::view::UiRequest;
 
 /// The five window ids the client's window-id switch knows.
 ///
-/// Defined in [`dereth_client_contract::chat::interface::window`], because `dereth_client_shell::hud`
+/// Defined in [`dereth_client_contract::chat::interface::window`], because `dereth_client_runtime::hud`
 /// names `MAIN` when it seeds the placement blob.
 pub use dereth_client_contract::chat::interface::window;
 
@@ -87,7 +87,7 @@ pub const FADE_STEP_FRACTION: f32 = 0.05;
 /// The chat interface's attribute-set handler's two attributes.
 ///
 /// Defined, with the `1.0f` fallback and the transcribed `switch`, in
-/// [`dereth_client_contract::chat::interface::opacity_attr`], because `dereth_client_shell::hud` reads
+/// [`dereth_client_contract::chat::interface::opacity_attr`], because `dereth_client_runtime::hud` reads
 /// both ids off the retained `PlayerModule`.
 pub use dereth_client_contract::chat::interface::opacity_attr;
 

@@ -128,8 +128,8 @@ pub fn setup_geometry_with_parts(
 ///
 /// The placement-frame fallback chain is unchanged: the named
 /// id, then key `0`, then nothing at all. This is still its own transcription rather than a call
-/// into `dereth_client_runtime::models::placement_frames`, and `tests/dat/objects/resting_placement_pose.rs` and
-/// `tests/dat/objects/server_placement.rs` assert the copies agree.
+/// into `dereth_client_runtime::models::placement_frames`, and `dereth/client/tests/dat/objects/resting_placement_pose.rs` and
+/// `dereth/client/tests/dat/objects/server_placement.rs` assert the copies agree.
 pub fn setup_geometry_with_parts_at(
     store: &RetailDatStore,
     s: &Setup,

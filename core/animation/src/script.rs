@@ -57,7 +57,7 @@ fn shortsort<T>(v: &mut [T], lo: isize, hi: isize, comp: &dyn Fn(&T, &T) -> i32)
 /// this is the *published* VC7 `qsort.c`, not checked against
 /// the shipped `msvcr70.dll`. The 166 shipped scripts with more than eight entries and a duplicate start
 /// time, whose order depends on the partition choices, are the ones that would expose a difference;
-/// a consumer excludes exactly those (`tests/dat/qsort_parity.rs`) rather than distrust the corpus.
+/// a consumer excludes exactly those (`core/animation/tests/dat/scripts/qsort_parity.rs`) rather than distrust the corpus.
 ///
 /// Index arithmetic replaces the original's `char*` pointer arithmetic one for one; the loop
 /// structure and every comparison is the original's.
@@ -429,7 +429,7 @@ mod tests {
     /// records with ≤ 8 entries must sort exactly like a stable sort. The first half is true only
     /// for an all-equal range: the swap that moves the running maximum to the top is not adjacent,
     /// so a range with two distinct timestamp groups can be permuted. The worked example below is
-    /// the counterexample, and `tests/qsort_parity.rs` measures how many of the 2,128 are actually
+    /// the counterexample, and `core/animation/tests/dat/scripts/qsort_parity.rs` measures how many of the 2,128 are actually
     /// affected.
     #[test]
     fn shortsort_preserves_the_file_order_only_when_every_timestamp_is_equal() {

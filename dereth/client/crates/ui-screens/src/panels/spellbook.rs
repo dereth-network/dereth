@@ -217,7 +217,7 @@ impl SpellFilter {
 /// The **first** decrypted formula slot.
 ///
 /// Defined in [`dereth_client_contract::spellbook`], beside `DEFAULT_SPELL_FILTERS`,
-/// because `dereth_client_shell::hud` is what reads `raw_comps[0]` and the key.
+/// because `dereth_client_runtime::hud` is what reads `raw_comps[0]` and the key.
 pub use dereth_client_contract::spellbook::power_component;
 
 /// `SpellbookPanel` — the live spell list.

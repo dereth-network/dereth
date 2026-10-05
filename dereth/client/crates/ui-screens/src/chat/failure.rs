@@ -2,7 +2,7 @@
 //!
 //! Every production item -- the `ARMS` table, `Arm`, `arm_for`, `handle_failure_event` and the
 //! named `WeenieError` codes -- lives in [`dereth_client_contract::chat::failure`], because
-//! `dereth_client_shell::hud` turns nine inbound error events into chat lines through it and nothing in
+//! `dereth_client_runtime::hud` turns nine inbound error events into chat lines through it and nothing in
 //! it names a `dereth_ui` type. See that module for what it is.
 //!
 //! The tests live here: four of them assert the arm's chat type against

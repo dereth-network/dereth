@@ -28,7 +28,7 @@
 //! Remote objects follow server positions rather than client prediction. Their physics bodies are
 //! still synchronized and stepped so that queued interpolation, cell membership, and collision
 //! state remain current. Their *animation* also advances as local playback of a server-chosen
-//! motion rather than prediction of position. See `crate::world::WorldScene`'s object step for
+//! motion rather than prediction of position. See `crate::world_state::WorldState`'s object step for
 //! both updates.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -986,7 +986,7 @@ impl ObjectStream {
     ///
     /// This is the client end of cell release: it handles every cell a departing block
     /// hands back. It
-    /// is called from `crate::world::WorldScene::sync_objects` for each block
+    /// is called from `crate::world_objects::sync_objects` for each block
     /// `WorldScene::release_block_interiors` queued. Without that caller an
     /// object in a departed cell would keep its cell, stay in the visible-object table for ever
     /// and never be scheduled for destruction.
@@ -1292,9 +1292,9 @@ impl ObjectStream {
     /// Take the server's physics-script triggers since the last call, in arrival order.
     ///
     /// The caller owes them the object's physics body, which in this build is the scene's:
-    /// `crate::world::WorldScene::play_script_type` and `play_script_id` are the tails of
+    /// `crate::world_state::WorldState::play_script_type` and `play_script_id` are the tails of
     /// the smart box's play-script-type and play-script-identifier handlers, and
-    /// `crate::world::WorldScene::sync_objects` is the drain's one production caller — reached
+    /// `crate::world_objects::sync_objects` is the drain's one production caller — reached
     /// from `App::frame` through `Renderer::sync_objects`.
     pub fn take_script_events(&mut self) -> Vec<ScriptEvent> {
         std::mem::take(&mut self.script_events)
@@ -2434,7 +2434,7 @@ impl ObjectStream {
         self.unset_parent(m.id, now);
         self.world.leave_physics_world(m.id);
         // `leave_world`: `report_collision_end`, out of every cell list, and
-        // `position.objcell_id = 0`. The cell lists are [`crate::world::WorldScene`]'s and the
+        // `position.objcell_id = 0`. The cell lists are [`crate::world_state::WorldState`]'s and the
         // objcell is this field; an object with neither a position nor a holder is exactly the
         // "in a container" case the create path already refuses to put on screen.
         if let Some(e) = self.presences.get_mut(&m.id) {
@@ -2676,7 +2676,7 @@ impl ObjectStream {
     ///
     /// `set_velocity`/`set_omega` are not called from here for the same reason a movement buffer
     /// is not applied here: they belong to the `dereth_physics` body, which this table does
-    /// not hold. The pair is parked and `crate::world::WorldScene::sync_objects` applies it.
+    /// not hold. The pair is parked and `crate::world_objects::sync_objects` applies it.
     fn vector_update(&mut self, m: &MovementVectorUpdate) {
         let is_player = self.world.is_the_player(m.id);
         let use_position_from_server = self.use_position_from_server;
@@ -3138,7 +3138,7 @@ mod tests {
     ///
     /// Oracle: the packet corpus. All 21 of its drawable non-`Resting` creates are setup
     /// `0x02000124` at `MissileFlight (52)` — a missile in flight — and that setup does carry a
-    /// key 52 (`tests/dat/objects/server_placement.rs`). The id travels in `PhysicsDesc`'s `0x00020000`
+    /// key 52 (`dereth/client/tests/dat/objects/server_placement.rs`). The id travels in `PhysicsDesc`'s `0x00020000`
     /// "animframe" field, which loads from `[desc + 0x14]`.
     #[test]
     fn a_create_that_names_a_placement_is_posed_by_it() {

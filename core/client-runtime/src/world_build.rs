@@ -582,7 +582,7 @@ pub fn release_block_interiors(
 /// enough to see it, looking north and down. Fixed, so a capture of it is a regression test.
 ///
 /// # Errors
-/// [`WorldError::NoSuchLandblock`](crate::landblock::WorldError::NoSuchLandblock) when no block of the window has a mesh.
+/// [`WorldError::NoSuchLandblock`](dereth_world_data::landblock::WorldError::NoSuchLandblock) when no block of the window has a mesh.
 pub fn place_load_camera(
     ws: &mut WorldState,
     cfg: &SceneConfig,

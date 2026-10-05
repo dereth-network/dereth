@@ -179,7 +179,7 @@ pub struct AlphaListStats {
     /// Subsets queued on the **blend** list: mask 2 (Alpha / InvAlpha / Additive) or mask 4
     /// (Translucent).
     pub blend: usize,
-    /// Subsets dropped because a list was already at [`dereth_world_render::consts::ALPHA_LIST_CAP`].
+    /// Subsets dropped because a list was already at [`dereth_terrain::consts::ALPHA_LIST_CAP`].
     pub dropped: usize,
     /// Subsets the subset draw drew in place -- mask 0, the opaque ones.
     pub immediate: usize,
@@ -335,7 +335,7 @@ pub struct DegradeState {
 }
 
 impl DegradeState {
-    /// A pinned governor — [`dereth_world_render::consts::PINNED_DEG_MUL`] — unless the scene
+    /// A pinned governor — [`dereth_terrain::consts::PINNED_DEG_MUL`] — unless the scene
     /// asked for the live loop.
     #[must_use]
     pub fn new(auto: bool) -> Self {

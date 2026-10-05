@@ -38,7 +38,7 @@ default = ["replay"]
 test-support = []
 # The capture/replay harness and its gate test, the transport's acceptance gate.
 #
-# **On by default, and the reason is a measurement.** `tests/replay.rs` carries
+# **On by default, and the reason is a measurement.** `core/client-net/tests/cpu/net/replay.rs` carries
 # `#![cfg(feature = "replay")]`, so with the feature off the binary compiles to nothing and
 # `cargo test -p dereth-client-net` prints `test result: ok. 0 passed` for it. That is indistinguishable
 # from a passing gate in every summary anyone reads, and it is the same silence as the

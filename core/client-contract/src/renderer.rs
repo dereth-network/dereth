@@ -11,7 +11,7 @@
 //! create. `dereth_client_runtime::config::Config::renderer` holds one, which is what lets `config.rs` live
 //! in `dereth-client-runtime`. `dereth_render::device::Backend` keeps the capability and implements
 //! `From<RendererChoice>`, and the one site that creates a device
-//! (`dereth_client::app::App::device_presentation`) resolves the choice against
+//! (`dereth_client_shell::app::App::device_presentation`) resolves the choice against
 //! `Backend::compiled_in`.
 //!
 //! [`parse`](RendererChoice::parse) and [`name`](RendererChoice::name) are `Backend`'s own: the

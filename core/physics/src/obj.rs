@@ -1148,7 +1148,7 @@ mod tests {
     /// numbers: scale 0.9, setup `step_down_height` 2.075, low path sphere 0.55. Scaled, the halved
     /// step-down `amt` clears `2 * r0` and can still reach the
     /// floor it just dropped away from; unscaled it does not, which cost the body `CONTACT_TS` on
-    /// every horizontal walking sub-step. `tests/gpu/movement/remote_walk_animation.rs` in `dereth-client` is the
+    /// every horizontal walking sub-step. `dereth/client/tests/gpu/movement/remote_walk_animation.rs` in `dereth-client` is the
     /// same fact against the recorded creature.
     #[test]
     fn the_four_part_array_getters_scale_by_the_objects_scale() {

@@ -408,7 +408,7 @@ impl RenderPreferences {
         // would fall through every owner and end on `App`'s *"UI request with no owner yet"*
         // line; nothing reads it after start-up, so the preference could only take effect
         // through `Config::apply_preferences` on the next launch. The live path is
-        // [`crate::world::WorldScene::update_from_preferences`], which polls the field this writes.
+        // [`dereth_scene::world_scene::SceneWrites::update_from_preferences`], which polls the field this writes.
         if name.eq_ignore_ascii_case(LANDSCAPE_DRAW_DISTANCE) {
             take!(landscape_draw_distance, int);
         }

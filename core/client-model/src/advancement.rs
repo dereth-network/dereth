@@ -39,7 +39,7 @@ pub use dereth_client_contract::confirmation::ConfirmationType;
 /// The train-skill request — `0x0046`.
 ///
 /// The "raise 1" and "raise 10" buttons both send this one request; the only difference between
-/// them is whether the amount came from [`skill_cost_to_raise`] or [`skill_cost_to_raise_10`].
+/// them is whether the amount came from [`dereth_rules::advancement::skill_cost_to_raise`] or [`dereth_rules::advancement::skill_cost_to_raise_10`].
 /// There is no "raise ten" opcode.
 ///
 /// **The one gate the client applies is advancement class `> UNTRAINED`**, read fresh out of

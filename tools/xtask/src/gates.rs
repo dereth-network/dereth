@@ -166,7 +166,7 @@ pub const GATES: &[Gate] = &[
         title: "The client application",
         // The acceptance gate is `cargo run -p dereth-client -- --headless --frames 1 --capture
         // out.png` producing a byte-identical PNG across three runs, plus `cargo test -p
-        // dereth-client`. The three-run comparison is `tests/gpu/presentation/headless_capture_determinism.rs`, which spawns the
+        // dereth-client`. The three-run comparison is `dereth/client/tests/gpu/presentation/headless_capture_determinism.rs`, which spawns the
         // real binary three times and diffs the bytes, so the crate's own test command *is* the
         // whole gate and no separate harness is needed. It reads the retail dats -- the frame it
         // captures is a texture out of `client_portal.dat` -- and skips with a printed line when
@@ -278,7 +278,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
 ///
 /// A `gpu` module stands up a real Vulkan device. All of a crate's `gpu` tests share one binary,
 /// and libtest runs a binary's tests on as many threads as the host has cores.
-/// `tests/gpu/common/gpu.rs` is one process-wide lock for the whole binary, which is what makes a
+/// `dereth/client/tests/gpu/common/gpu.rs` is one process-wide lock for the whole binary, which is what makes a
 /// parallel run *correct*; this flag
 /// is what makes the gate's run readable and its wall clock honest rather than leaving several
 /// hundred device tests queued behind one mutex on N threads.
@@ -317,7 +317,7 @@ fn serialised_gpu_split(krate: &str) -> Option<(&'static [&'static str], &'stati
 /// merge; this table only says which binaries get it.
 ///
 /// `dereth-client`'s `gpu` binary is sharded the same way. Its `--test-threads=1` is the device
-/// lock in `tests/gpu/common/gpu.rs`, which is one lock *per process*: each shard opens its own
+/// lock in `dereth/client/tests/gpu/common/gpu.rs`, which is one lock *per process*: each shard opens its own
 /// device, and a driver serves several processes' devices at once. The runner picks the process
 /// count from the host's cores (`DERETH_TEST_SHARDS` overrides it) and deals modules by their
 /// recorded time. `dereth-render`'s `gpu` binary is a handful of tests and stays one process.

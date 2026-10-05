@@ -25,10 +25,9 @@ use super::*;
 /// same object-id equality guard as the other three clearers, and this function hands it the
 /// previous request's object id itself. Both halves are transcribed and tested.
 ///
-/// **Where this lives, and why it is not `hud.rs`.** The UI queue is drained by
-/// [`crate::hud::Hud::ui_event`], which owns chat and the vitals; the
-/// three arms here are inventory. Both read the same `SessionEvent` slice and
-/// neither opcode set overlaps the other's.
+/// The interaction event boundary applies inventory and action replies; the HUD boundary
+/// projects session events into chat, vitals and panel notices. Both receive the same ordered
+/// `SessionEvent` stream and retain their own state responsibilities.
 ///
 /// **The "item not created yet" branch of `0x0022`** — the container's
 /// server-says-contain-id record, which is

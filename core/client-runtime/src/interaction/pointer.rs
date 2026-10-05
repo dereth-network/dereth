@@ -314,17 +314,10 @@ impl Interaction {
     /// switch decides -- the mode, the combat maneuver table, the six stances and
     /// `forward_command` -- is answered.
     ///
-    /// The reason is a seam: [`draw_use_time_with_chat_focus`] reads the body out of an
-    /// `Option<&crate::world::WorldScene>` and `WorldScene::load` needs a `Gpu`, so **every
-    /// headless frame in this workspace has no body**. Composing the null arm answers `false` in
-    /// all of them and refuses every attack in the headless combat tests -- which is
-    /// retail's answer for a client with no physics object, and is not the state those benches
-    /// are about. The mode-change flavour above **does** compose it, because its consumers queue
-    /// rather than refuse and that arm is asserted end to end.
-    ///
-    /// This is expected to change when a frame slot can take the body independently of the
-    /// render scene (`app.rs` / `world.rs`); at that point the
-    /// `.or(Some(false))` below becomes `self.player_motions_pending` and the benches gain a body.
+    /// This attack path substitutes no pending motion when no physics-body observation is
+    /// available. The mode-change path above instead retains the missing-body rejection.
+    /// A device-free presentation can supply a real body; absence here is an observation
+    /// state, not a property of all headless frames.
     #[must_use]
     pub fn ready_for_attack(&self, game: &dereth_client_model::World) -> bool {
         game.player_in_ready_position(true, self.player_motions_pending.or(Some(false)))

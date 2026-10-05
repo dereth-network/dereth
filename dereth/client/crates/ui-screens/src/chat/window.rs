@@ -532,7 +532,7 @@ impl ChatWindow {
     ///
     /// The guard is the *space*, not the alias: the expansion happens when the space after `r` is
     /// typed, which is why the composed `@tell <name>,` carries no trailing space of its own. See
-    /// [`super::interface::handle_text_replacements`] for the arithmetic.
+    /// the shared chat-entry model for the expansion and returned cursor position.
     ///
     /// Returns what was expanded, for a caller that wants to say so; `None` is the ordinary case.
     pub fn on_entry_character(
@@ -598,7 +598,7 @@ impl ChatWindow {
 
 /// The three names the reply aliases can address.
 ///
-/// Defined in [`dereth_client_contract::chat::window`], because `dereth_client_shell::hud` is what
+/// Defined in [`dereth_client_contract::chat::window`], because `dereth_client_runtime::hud` is what
 /// fills it.
 pub use dereth_client_contract::chat::window::ReplyTargets;
 
@@ -761,9 +761,8 @@ impl ChatWindow {
         }
     }
 
-    /// [`ChatInterface::select_command_from_history`] with its element half: the model picks
-    /// the entry, setting the entry's text writes it and scrolling the entry to its last glyph
-    /// puts the caret at the end.
+    /// Request a history entry from the shared chat-entry model. The returned entry update
+    /// writes the widget text and places its caret at the supplied character position.
     pub fn select_command_from_history(
         &self,
         ui: &mut UiSystem,

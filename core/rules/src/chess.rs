@@ -185,7 +185,7 @@ impl ChessLogic {
         true
     }
 
-    /// Behavior: the board-state test every move starts with â€” each side has pieces and a king.
+    /// Behavior: the board-state test every move starts with — each side has pieces and a king.
     ///
     /// The client keeps each side's king first in that side's piece list and tests only that; it
     /// does not compare the board with the pieces' positions (a refused move's undo leaves them
@@ -360,7 +360,7 @@ impl ChessLogic {
         })
     }
 
-    /// The self-check test â€” try, test, undo: whether the piece's side is in check with the piece
+    /// The self-check test — try, test, undo: whether the piece's side is in check with the piece
     /// on `to` and whatever stood there taken; for an en passant capture (`result`
     /// `OK_MOVE_EN_PASSANT`), the pawn on the victim square is taken instead.
     fn does_move_self_check(&self, i: usize, to: Coord, result: i32) -> bool {
@@ -382,7 +382,7 @@ impl ChessLogic {
         trial.is_player_in_check(self.pieces[i].player)
     }
 
-    /// The move-and-self-check test â€” the reachability test, then the self-check test.
+    /// The move-and-self-check test — the reachability test, then the self-check test.
     fn test_move_and_self_check(&self, i: usize, to: Coord) -> i32 {
         let r = self.test_can_get_there(i, to, true);
         if r > 0 && self.does_move_self_check(i, to, r) {
@@ -560,12 +560,12 @@ impl ChessLogic {
     }
 
     /// Behavior: castling, refused in this order: the side was put in check by the last move
-    /// ([`Self::last_move_was_check`], not a fresh test) â€” `BadMoveCantCastleOutOfCheck`; the king
-    /// has moved â€” `BadMoveCantCastleAfterMoving`; then, walking out from the king towards the
-    /// destination, the first piece met that is not the side's own rook â€” `BadMoveWouldCollide`
-    /// (none at all: `BadMoveNoPiece`); that rook has moved â€” `BadMoveCantCastleAfterMoving`; the
-    /// square the king passes is attacked â€” `BadMoveCantCastleThroughCheck`; the king's destination
-    /// is attacked â€” `BadMoveSelfCheck`. The rook then stands on the square the king passed.
+    /// ([`Self::last_move_was_check`], not a fresh test) — `BadMoveCantCastleOutOfCheck`; the king
+    /// has moved — `BadMoveCantCastleAfterMoving`; then, walking out from the king towards the
+    /// destination, the first piece met that is not the side's own rook — `BadMoveWouldCollide`
+    /// (none at all: `BadMoveNoPiece`); that rook has moved — `BadMoveCantCastleAfterMoving`; the
+    /// square the king passes is attacked — `BadMoveCantCastleThroughCheck`; the king's destination
+    /// is attacked — `BadMoveSelfCheck`. The rook then stands on the square the king passed.
     fn handle_castling(&mut self, king: usize, to: Coord) -> i32 {
         use move_result as m;
         let k = self.pieces[king];

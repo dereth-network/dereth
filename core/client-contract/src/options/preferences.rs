@@ -1,10 +1,7 @@
-//! The preference table: the 34 preference attachments the UI-preference setup makes, as plain
-//! data.
+//! The 34 preference attachments registered by the shared store, as plain data.
 //!
-//! `dereth_ui_screens::options::preferences` re-exports both items. The table is what
-//! `super::store::init` registers, so it lives with the store; everything else in that module —
-//! the string-table resolution, `UiPreferenceItem`, the hash and the registry
-//! `init_ui_preferences` builds — stays in the UI.
+//! The modern options page resolves these label and help tokens through its string table and
+//! pairs enum-choice labels with the registered values when constructing menus.
 
 use super::config::PrefValueConst;
 
@@ -23,13 +20,9 @@ pub struct UiPref {
     pub range: Option<(f32, f32)>,
     /// The preference's enum-choice tokens, for the 8 that have them, in call order.
     ///
-    /// **The consumer has no caller in this build.** The options page reads this list with
-    /// the enum-choices query and pairs it with the client's
-    /// *registered* values (which are **not** the indices for two of the eight: the landscape
-    /// detail scale runs `VeryLow`=4 … `VeryHigh`=0, and the landscape draw distance runs 3, 5, 8,
-    /// 11, 15, 25) before filling the menu entries. Carried here because it is half of the function
-    /// this module transcribes and because `items` is the accessor the UI-preference setup uses;
-    /// **the popup that shows it is not built yet.**
+    /// The options page pairs these labels with the registered enum values, which are not
+    /// necessarily indices: landscape detail runs `VeryLow`=4 … `VeryHigh`=0, and landscape
+    /// draw distance runs 3, 5, 8, 11, 15, 25.
     pub choices: &'static [&'static str],
     /// The value preference registration gave the bound variable. **Not** the `SetDefault` value
     /// the option page restores; adaptive degrades, mouse sensitivity and texture filtering differ.

@@ -1606,7 +1606,7 @@ impl ExaminationPanel {
         }
         // Spell-examine notices are drained the same
         // way and for the same reason: its producer is the spellbook's or the spell bar's item
-        // list, which live on `dereth_client_shell::hud::Hud` and cannot reach this panel. Unlike the
+        // list, which live on `dereth_client_runtime::hud::Hud` and cannot reach this panel. Unlike the
         // object notice this one **fills and shows the panel immediately** — there is no reply to
         // wait for — so it runs after the object notice and before the appraisal is looked at, and
         // a spell examine on the same frame as an appraisal wins, which is the client's order too

@@ -1448,7 +1448,7 @@ pub fn part_find_obj_collisions(
 ///
 /// The original client shares the part collision implementation for buildings and
 /// ordinary objects. Separate entry points here keep the building counters specific
-/// to buildings, as asserted by `dereth-client`'s `tests/dat/world/collision_obstacles.rs`.
+/// to buildings, as asserted by `dereth-client`'s `dereth/client/tests/dat/world/collision_obstacles.rs`.
 pub fn object_part_find_obj_collisions(
     ctx: &TransitionCtx<'_>,
     t: &mut Transition,

@@ -511,7 +511,7 @@ fn an_opening_that_leaves_the_viewport_is_clipped_away_entirely() {
 ///
 /// The discriminating check that the flush reorders visible pixels is the unit test
 /// `real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_statics` in
-/// `src/world_building_shell_visibility_tests.rs`: two deliberately overlapping quads with the
+/// `dereth/client/crates/scene/src/world_building_shell_visibility_tests.rs`: two deliberately overlapping quads with the
 /// real DAT alpha 0.5 material go through the production flush and the final blended tail, and it
 /// asserts different ordered pixels, the exact reference order, exactly two draws and exclusion
 /// of a hidden shell.

@@ -1019,7 +1019,7 @@ impl WorldState {
     /// `player_teleport_use_time` and `load_pending_scene` inside its `WorldViewStep` step
     /// and `world.update` later in the *same* step, so the ordered pair
     /// `recenter(); ..; update_viewer_cell()` recomputes the index before `DrawWorld`
-    /// (`crate::frame::FrameStep::ORDER`, asserted by `tests/frame_order.rs`). By count 1 it
+    /// (`crate::frame::FrameStep::ORDER`, asserted by `dereth/testkit/tests/dat/frame.rs`). By count 1 it
     /// recomputes the same number -- which is what makes this a null with a mechanism rather
     /// than a coincidence.
     ///

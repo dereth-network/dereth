@@ -217,26 +217,10 @@ pub fn with_stored_options(mut cfg: crate::scene::SceneConfig) -> crate::scene::
 /// in order, so the caller can see what happened and a station can assert it without a browser
 /// window or a modal dialog appearing on the desktop.
 ///
-/// # Host URL and error handling
-///
-/// `ShellExecuteA` and `MessageBoxA` are `unsafe fn`s in the `windows` crate and this crate
-/// forbids `unsafe_code`, exactly as `GetTimeZoneInformation` is out of reach in
-/// [`crate::platform`]. The answer is the same as there: the **safe** WinRT binding in the
-/// same already-locked crate.
-///
-/// 1. The launch is `Windows.System.Launcher.LaunchUriAsync`, which is the shell's
-///    `"open"`-verb protocol dispatch for a URL and reaches the same registered handler
-///    `ShellExecuteA(NULL, "open", "http://...")` reaches. It is **not awaited**: retail's
-///    `ShellExecuteA` answers as soon as the handler has been started, so the result here is
-///    `33` (the smallest value the signed comparison accepts as success) once the launch has been
-///    handed off, and `0` when the uri will not parse or the launcher refuses the call --
-///    the value `SE_ERR_NOASSOC` would land in the same `<= 32` leg.
-/// 2. The failure leg's `MessageBoxA` has no safe equivalent (WinRT's `MessageDialog` wants a
-///    `CoreWindow`, which a Win32 client does not have), so the [`ShellCall::ErrorBox`] is
-///    handed back and `App` puts its text in the chat scroll instead, the way
-///    `App::take_action_screenshot` puts its own host-side line there. **The text itself is
-///    retail's, byte for byte** -- see [`shell_error_text`] -- so the player is still told the
-///    error code and the address to type in by hand. A real modal box is the one remaining gap.
+/// The launcher is installed through [`crate::platform::shell::install_uri_launcher`]. The runtime
+/// preserves its signed result and records each [`ShellCall`] in order. The caller handles
+/// the returned error-box request; this layer opens no browser or dialog itself. Tests can
+/// install a recording launcher and inspect the same result path.
 pub fn apply_open_url_requests(
     requests: Vec<dereth_client_contract::UiRequest>,
 ) -> (Vec<dereth_client_contract::UiRequest>, Vec<ShellCall>) {
@@ -469,7 +453,7 @@ impl ViewerBlockReport {
 /// other.
 ///
 /// `resident` — `env_cell_counts()`'s first half — is deliberately **not** here, because the line
-/// does not print it. `main.rs`'s own summary prints it and `tests/gpu/world/interiors.rs` reads it, so its
+/// does not print it. `main.rs`'s own summary prints it and `dereth/client/tests/gpu/world/interiors.rs` reads it, so its
 /// movement is not a silence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ViewerCellReport {

@@ -748,7 +748,7 @@ mod imp {
         ///   rather than an inverted one. That seed is reproduced here.
         ///
         /// `gfx_bound_box` itself is min/max over the `GfxObj`'s **vertex array**
-        /// ([`dereth_client_runtime::object_physics::gfx_bound_box`]).
+        /// ([`dereth_world_data::setup::gfx_bound_box`]).
         #[must_use]
         pub fn bounding_box(&self, store: &RetailDatStore) -> dereth_physics::geom::BBox {
             use dereth_assets::Decode;
@@ -782,7 +782,7 @@ mod imp {
         /// Total triangles, so a test can say the space drew *something* without a frame capture.
         ///
         /// **Mind the divisor.** A [`PartMesh`] is an *object* mesh — the FVF `0x152` layout
-        /// [`dereth_scene::world_scene::OBJECT_VERTEX_STRIDE`] describes, 36 bytes a vertex. Dividing by
+        /// [`crate::world_scene::OBJECT_VERTEX_STRIDE`] describes, 36 bytes a vertex. Dividing by
         /// the client shell's UI vertex size, `UI_VERTEX_BYTES` (24), instead would report exactly 1.5 times the
         /// truth, and a caller that asks only whether the count is positive would not notice.
         #[must_use]

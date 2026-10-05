@@ -13,12 +13,8 @@ autotests = false
 # Tier switch only: no code is gated on it. It selects the `dat` test binary, whose
 # modules read the retail dats under $DERETH_TEST_DAT_DIR.
 retail-dats = []
-# `mock` is on by default so that `cargo xtask gates` (which runs a bare `cargo test -p dereth-render`)
-# exercises the RecordingBackend suite. `cargo test -p dereth-render --features mock` works too.
-# Both on by default so that `cargo xtask gates` (which runs a bare `cargo test -p dereth-render`)
-# exercises the whole renderer, including the parts that need a device. The Vulkan tests create a
-# device and *skip with a printed line* if none is available, so a machine without a Vulkan driver
-# still passes the gate rather than failing it.
+# The defaults include the recording backend, native Vulkan and portable wgpu. Device tests
+# require their backend; selecting mock does not turn a hardware test into a recording test.
 default = ["mock", "vulkan", "wgpu"]
 # Test builds only (enabled in `[dev-dependencies]`): a device made without a named backend comes
 # up on the one the test-only `DERETH_TEST_RENDERER` names, so a GPU tier can run on D3D12.

@@ -64,8 +64,8 @@ pub const PLACEMENT_DEFAULT: u32 = 0;
 /// entry at either key" and "the
 /// identity" are the same pose, and that is what an absent return means here.
 ///
-/// [`crate::object_physics::setup_geometry_with_parts`] does the same lookup for the collision
-/// side; the two are asserted to agree in `tests/dat/objects/resting_placement_pose.rs`.
+/// [`dereth_world_data::setup::setup_geometry_with_parts`] does the same lookup for the collision
+/// side; the two are asserted to agree in `dereth/client/tests/dat/objects/resting_placement_pose.rs`.
 #[must_use]
 pub fn placement_frames(setup: &Setup, id: u32) -> Option<&[Frame]> {
     setup

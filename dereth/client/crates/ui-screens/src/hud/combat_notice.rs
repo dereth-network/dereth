@@ -66,7 +66,7 @@ pub const RECKLESSNESS_FIELD: ElementId = ElementId(0x1000_05EF);
 
 /// The skill the combat-mode notice handler's melee arm asks about.
 ///
-/// Defined in [`dereth_client_contract::combat_notice`], because `dereth_client_shell::hud` is what asks
+/// Defined in [`dereth_client_contract::combat_notice`], because `dereth_client_runtime::hud` is what asks
 /// the qualities. `0x32` is `Recklessness`.
 pub use dereth_client_contract::combat_notice::RECKLESSNESS_SKILL;
 

@@ -576,7 +576,7 @@ pub fn component_icon(icon: dereth_primitives::DataId) -> dereth_ui::GraphicRef 
 /// The icon a row draws — the client's input.
 ///
 /// Defined in [`dereth_client_contract::panels::spellcomponent`], because
-/// `dereth_client_shell::hud` is what composes the rows.
+/// `dereth_client_runtime::hud` is what composes the rows.
 pub use dereth_client_contract::panels::spellcomponent::row_icon;
 
 #[cfg(test)]

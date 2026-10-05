@@ -522,7 +522,7 @@ impl World {
     /// false
     /// ```
     ///
-    /// **The two `0x200000` tests read through [`crate::weenie::bitfield::IMPENETRABLE`], and that
+    /// **The two `0x200000` tests read through [`dereth_rules::weenie::bitfield::IMPENETRABLE`], and that
     /// symbol names bit 21, despite the different free-PK-status label in the original enum.**
     /// The mask is unambiguous; this documents the naming discrepancy without changing behavior.
     ///

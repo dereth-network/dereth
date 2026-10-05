@@ -2,7 +2,7 @@
 //! the conformance harness can drive the crate without a retail install.
 //!
 //! Nothing here asserts fidelity. It is scaffolding: the fidelity claims are made by tests that name
-//! a retail oracle, and the ones that need the real dats live in `tests/audio_conformance.rs`,
+//! a retail oracle, and the ones that need the real dats live in `core/audio/tests/dat/audio/audio_conformance.rs`,
 //! which **fails** when the install is absent rather than skipping.
 
 use std::collections::BTreeMap;

@@ -16,9 +16,8 @@ use dereth_primitives::{CellId, DataId, Frame, ObjectId, Viewport};
 /// The scene counters the three census lines in `App` print — `ViewerBlockReport`,
 /// `ObjectReport` and `report_scene`.
 ///
-/// An owned plain struct rather than `crate::world::SceneStats` itself, because that type carries
-/// `crate::particles::ParticleStats` and `crate::sky::SkyStats`, both of which hold device state;
-/// these ten are every field the ungated half of `App` reads.
+/// Plain counters copied from the presentation, without exposing renderer-owned state to the
+/// runtime. These ten fields describe the meshed world and server-object geometry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SceneCensus {
     pub blocks_meshed: usize,
@@ -35,7 +34,7 @@ pub struct SceneCensus {
 
 /// The drawn world, seen from outside the device.
 ///
-/// Implemented by `crate::world::WorldScene` behind the device feature. Everything here is either
+/// Implemented by the scene crate's world and by the device-free simulation. Everything here is either
 /// plain data or a type from a crate that has no device in it (`dereth_animation`, `dereth_audio`,
 /// `dereth_assets`, `dereth_physics`, `crate::character`).
 pub trait Scene: std::fmt::Debug {

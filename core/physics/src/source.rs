@@ -205,7 +205,7 @@ impl SetupGeometry {
 /// once at the wrong point, finds nothing, discovers the sphere is in no cell, and — per the
 /// sphere path's `if check_cell == NULL: return OK_TS` — does nothing for the
 /// rest of the path. A position derived this way has landed 175 m from the room it named.
-/// `dereth-client`'s `tests/dat/world/interior_sight_probe.rs` holds both halves.
+/// `dereth-client`'s `dereth/client/tests/dat/world/interior_sight_probe.rs` holds both halves.
 ///
 /// [`static_objects`](Self::static_objects) frames are the exception: the loader hands them to the
 /// cell insertion path already in landblock space.

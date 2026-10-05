@@ -68,7 +68,7 @@ use {crate::weenie::item_useable, crate::weenie::Weenie, dereth_rules::weenie::i
 
 /// Object-description bits used by result classification and item use.
 ///
-/// These are bits the curated list in [`crate::weenie::bitfield`] deliberately leaves unnamed
+/// These are bits the curated list in [`dereth_rules::weenie::bitfield`] deliberately leaves unnamed
 /// because the general object accessors do not read them. They are named here at their use
 /// sites. The names are ACE's `ObjectDescriptionFlag`
 /// enumeration.

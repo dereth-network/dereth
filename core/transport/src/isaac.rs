@@ -289,7 +289,7 @@ mod tests {
     /// The stream walks `randrsl` downward and refills at the bottom: draw 256 must be the first
     /// word of a *fresh* round, not a repeat of draw 0.
     ///
-    /// Oracle: `ac_isaac.ClientISAAC`, cross-checked in `tests/isaac_vectors.rs` over 1000 draws.
+    /// The expected second round comes from a separately initialized generator.
     #[test]
     fn draws_walk_down_and_refill() {
         let mut cs = CryptoSystem::new(0xDEAD_BEEF);

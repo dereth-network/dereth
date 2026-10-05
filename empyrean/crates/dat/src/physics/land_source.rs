@@ -8,7 +8,7 @@
 //! The shared source itself is not used because it reads a `RetailDatStore` directly: this one
 //! reads through the server's [`DatManager`] (its decoded-object cache, and a `FakeDats` in the
 //! unit tier), and has the server's residency model rather than the client's streaming window.
-//! `tests/all/real_content.rs` checks both build the same terrain, cells and buildings.
+//! `empyrean/crates/dat/tests/all/dat/real_dats.rs` checks both build the same terrain, cells and buildings.
 //!
 //! The server's residency model replaces the client's streaming window: a landblock's terrain is
 //! built on first touch and kept, while its interior cells and buildings are loaded by

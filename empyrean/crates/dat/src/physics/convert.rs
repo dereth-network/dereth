@@ -6,7 +6,7 @@
 //! `RetailDatStore`, while the server reads through its [`DatManager`] (its decoded-object cache,
 //! and a `FakeDats` in the unit tier), so [`first_degrade_mode`], [`setup_geometry_with_parts_at`]
 //! and [`simple_setup_geometry`] are the shared functions' bodies over that reader, without the
-//! client's statistics counters. `tests/all/real_content.rs` checks they build what the shared ones
+//! client's statistics counters. `empyrean/crates/dat/tests/all/dat/real_dats.rs` checks they build what the shared ones
 //! build over the retail dats. Nothing here is ported from ACE.
 
 use std::sync::Arc;

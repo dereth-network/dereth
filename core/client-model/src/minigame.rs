@@ -1,7 +1,7 @@
 //! The chess window and board grid — their state machine and the eleven
 //! messages it is the only speaker of.
 //!
-//! This file is the production caller of [`crate::chess::ChessLogic`], the board's rules engine.
+//! This file is the production caller of [`dereth_rules::chess::ChessLogic`], the board's rules engine.
 //!
 //! # What raises the board
 //!
@@ -258,7 +258,7 @@ pub const RESET_LAYOUT: [(i32, i32, i32, PieceType); 32] = {
 /// property `0x10000021 UI_MiniGame_PieceIconArray` off the list box.
 #[derive(Debug, Clone, Default)]
 pub struct GameBoard {
-    /// The board's [`crate::chess::ChessLogic`].
+    /// The board's [`dereth_rules::chess::ChessLogic`].
     pub logic: ChessLogic,
     /// The 8×8 previous-board snapshot, retained so that
     /// a server refusal can put the board back.
@@ -306,7 +306,7 @@ impl GameBoard {
     /// The client's loop deletes the previous-board entry when the *current* board holds a
     /// **different** non-null piece on that square; with indices rather than pointers the same
     /// test is "the square changed occupant", and the captured piece has already been moved to
-    /// [`crate::chess::HEAVEN`] by the move. Counting it is what makes the capture observable.
+    /// [`dereth_rules::chess::HEAVEN`] by the move. Counting it is what makes the capture observable.
     pub fn commit_moves(&mut self) -> u32 {
         let mut captured = 0;
         if let Some(prev) = self.previous.take() {

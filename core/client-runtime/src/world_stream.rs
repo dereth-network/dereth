@@ -529,7 +529,7 @@ pub fn choose_viewer_block(character: &mut Option<Character>, block: (i32, i32))
 ///
 /// # Why the sweep's placement is still right, which is the other half of the answer
 ///
-/// The reason, quoted from the sweep's call site in `dereth_client::app::App::frame`: *"It runs
+/// The reason, quoted from the sweep's call site in `crate::app::App::frame`: *"It runs
 /// here rather than inside `world.update` because the sweep starts from the pivot the body
 /// has just moved to and must be expressed in the block the re-centre has just chosen."*
 ///

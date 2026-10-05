@@ -256,7 +256,7 @@ impl SceneDraw {
     /// The bias is `deg_mul` when automatic degrades are on and the user-supplied degrade bias otherwise, so a **pinned**
     /// governor is expressed the way the client expresses one: automatic degrades off
     /// and the pinned value standing in as the user-supplied bias. With
-    /// [`dereth_world_render::consts::PINNED_DEG_MUL`] at 0 the two spellings agree, and the
+    /// [`dereth_terrain::consts::PINNED_DEG_MUL`] at 0 the two spellings agree, and the
     /// point of writing it out is that they keep agreeing if it ever moves.
     #[must_use]
     pub fn degrade_globals(

@@ -16,7 +16,7 @@
 //! * the output re-encodes the decoded salt, so a non-canonical final salt character is normalised.
 //!
 //! Tested against the OpenBSD / jBCrypt and OpenWall crypt_blowfish published vectors
-//! (`tests/all/bcrypt.rs`).
+//! (`empyrean/crates/store/tests/all/persistence/bcrypt.rs`).
 
 use crate::blowfish_tables::{P_INIT, S_INIT};
 

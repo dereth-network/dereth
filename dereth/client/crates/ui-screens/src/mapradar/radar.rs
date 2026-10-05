@@ -99,7 +99,7 @@ pub mod semantic {
 
 /// The object bitfield bits the radar reads.
 ///
-/// Defined in [`dereth_client_contract::radar::bitfield`], because `dereth_client_shell::hud` reads `PK`,
+/// Defined in [`dereth_client_contract::radar::bitfield`], because `dereth_client_runtime::hud` reads `PK`,
 /// `PK_LITE` and `PLAYER` from here and both sides must name the same mask.
 pub use dereth_client_contract::radar::bitfield;
 
@@ -110,7 +110,7 @@ pub use dereth_client_contract::radar::bitfield;
 /// `RadarEnum`, the value an object's radar field carries.
 ///
 /// Defined in [`dereth_client_contract::radar::radar_enum`], beside [`bitfield`], for the same
-/// reason: `dereth_client_shell::hud` reads `UNDEF`.
+/// reason: `dereth_client_runtime::hud` reads `UNDEF`.
 pub use dereth_client_contract::radar::radar_enum;
 
 /// **The radar's filter**, and the reason a
@@ -271,7 +271,7 @@ pub fn get_blip_shape(o: Option<&RadarEntry>, player: Option<&RadarEntry>) -> Bl
 /// not change, only the scale.
 ///
 /// Defined in [`dereth_client_contract::radar`]: it is the radius the *selection* and
-/// *speech* sweeps in `dereth_client::{hud, interaction}` use, at seven call sites, and it is one
+/// *speech* sweeps in `dereth_client_runtime::{hud, interaction}` use, at seven call sites, and it is one
 /// branch over a `bool`.
 pub use dereth_client_contract::radar::radar_range;
 

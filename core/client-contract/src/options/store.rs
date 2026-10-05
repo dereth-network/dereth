@@ -159,7 +159,7 @@ pub const FONT_PREFERENCE_NAMES: [&str; 2] = [
 /// notice, which broadcasts to
 /// every notice handler. This crate's store has no notice bus and no back-reference to a
 /// screen, so what it publishes is the *fact of the write*: a counter every writer of either
-/// [`FONT_PREFERENCE_NAMES`] bumps, which `crate::screens::gameplay::GamePlayScreen` compares
+/// [`FONT_PREFERENCE_NAMES`] bumps, which `dereth_ui_screens::screens::gameplay::GamePlayScreen` compares
 /// against the one it last answered. Same edge, one frame later at worst — and it catches the
 /// three writers the notice catches, because all three go through [`set_value`]: a live menu
 /// choice, *Cancel* (restoring the saved values) and *Restore Defaults*.

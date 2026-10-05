@@ -429,7 +429,7 @@ pub const PAPER_DOLL_ANIMATION_ENUM: u32 = 0x1000_0005;
 
 /// `PropertyInt 0xBC` — `HeritageGroup`.
 ///
-/// It lives in [`dereth_client_contract::panels::inventory`]; `dereth_client_shell::hud` reads
+/// It lives in [`dereth_client_contract::panels::inventory`]; `dereth_client_runtime::hud` reads
 /// the property off the qualities.
 pub use dereth_client_contract::panels::inventory::HERITAGE_GROUP_PROPERTY;
 

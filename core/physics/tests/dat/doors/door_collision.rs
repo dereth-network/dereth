@@ -23,7 +23,7 @@ use dereth_primitives::{DataId, Frame, LandblockId, LocalTime, ObjectId, Positio
 
 /// The region the landscape definitions read their variables from.
 const REGION_ID: DataId = DataId(0x1300_0000);
-/// Holtburg â€” used only as a patch of real terrain to stand the door on.
+/// Holtburg — used only as a patch of real terrain to stand the door on.
 const HOLTBURG: LandblockId = LandblockId(0xA9B4);
 /// The training-academy door setup. The literal, so a wrong id cannot hide behind a symbol.
 const DOOR_SETUP: DataId = DataId(0x0200_024F);
@@ -31,7 +31,7 @@ const DOOR_MTABLE: DataId = DataId(0x0900_0016);
 /// The animation named by both cycles — frame 0 closed, frame 30 open.
 const DOOR_ANIM: DataId = DataId(0x0300_0559);
 const PLACEMENT_FRAME_DEFAULT: u32 = 0x65;
-/// The body's collision sphere radius â€” what a body stopped by a mesh rests off it.
+/// The body's collision sphere radius — what a body stopped by a mesh rests off it.
 const BODY_RADIUS: f32 = 0.5;
 
 fn store() -> RetailDatStore {
@@ -117,7 +117,7 @@ fn holtburg(store: &RetailDatStore) -> StaticLandSource {
     land
 }
 
-/// The door's `SetupGeometry`, parts and all â€” `setup_geometry_with_parts`'s work, written here
+/// The door's `SetupGeometry`, parts and all — `setup_geometry_with_parts`'s work, written here
 /// because `dereth-physics` cannot depend on the application.
 fn door_geometry(store: &RetailDatStore) -> SetupGeometry {
     door_geometry_posed(store, None)
@@ -1214,7 +1214,7 @@ fn doorway(pose: Option<Arc<Vec<Frame>>>) -> Doorway {
 }
 
 const ENTRY_LATERAL: f32 = 1.0;
-/// The scoring window either side of the doorway's centre â€” the span both leaves cover, well
+/// The scoring window either side of the doorway's centre — the span both leaves cover, well
 /// clear of their outer ends.
 const GLIDE_WINDOW: f32 = 0.9;
 

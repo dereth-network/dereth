@@ -1412,8 +1412,8 @@ fn object_descriptions_match_aces_writers() {
 //
 // Each check decodes the bytes with `dereth-protocol` (tolerating at most three zero bytes of sender
 // padding, as the retail archive does), re-encodes the decoded value and requires the same bytes
-// back. A layout ACE gets differently from the retail client is `#[ignore = "Cross-check: ..."]`: kept as
-// ACE writes it, and reported.
+// back. Deliberate layout differences are documented in the server divergence register; these
+// checks remain active.
 
 use dereth_protocol::{self as dp, Message as ProtoMessage};
 use empyrean_world::network::game_event::events as ev;

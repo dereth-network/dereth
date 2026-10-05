@@ -3,7 +3,7 @@
 //! The icon has to be a linked resource rather than a file the client loads, because Explorer,
 //! the taskbar and Alt-Tab all read it straight out of the executable before any of our code runs.
 //! The other two platforms need no build step either: X11 takes the icon from the window, which
-//! `src/platform/window.rs` sets from `assets/dereth-256.png`, and macOS takes it from the
+//! `dereth/desktop/src/platform/window.rs` sets from `assets/dereth-256.png`, and macOS takes it from the
 //! application bundle that `cargo xtask bundle-macos` builds out of `assets/Dereth.icon` -- a
 //! binary run straight out of `target/` is not a bundle there and has no icon, which is the
 //! platform's own rule.

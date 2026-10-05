@@ -957,7 +957,7 @@ pub use dereth_client_contract::chat::mainchat::SpeakableTarget;
 /// What `use_time_auto_target` needs to know about the world.
 ///
 /// Defined, with its one method, in [`dereth_client_contract::chat::mainchat`], because
-/// `dereth_client_shell::hud` is what fills it -- the selected id, the player id, the talkable and
+/// `dereth_client_runtime::hud` is what fills it -- the selected id, the player id, the talkable and
 /// ownership answers and the in-range sweep are all the object table's.
 pub use dereth_client_contract::chat::mainchat::AutoTargetWorld;
 

@@ -343,7 +343,7 @@ pub(crate) fn collect(
     }
 }
 
-/// What one draw pass reported, for [`dereth_scene::world_scene::SceneStats`].
+/// What one draw pass reported, for [`crate::world_scene::SceneStats`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ParticleStats {
     /// Emitters alive across every object this frame.
@@ -360,7 +360,7 @@ pub struct ParticleStats {
     /// graphics object at that level.
     pub degraded_out: usize,
     /// Particles whose `hw_gfxobj_id` produced no triangles. A non-zero count is an invisible
-    /// effect and is asserted zero by `tests/gpu/rendering/particles.rs`.
+    /// effect and is asserted zero by `dereth/client/tests/gpu/rendering/particles.rs`.
     pub missing_geometry: usize,
 }
 

@@ -6,7 +6,7 @@
 //! 0. **`dereth-primitives`** is plain data and pure conversions: no domain logic, no engine code,
 //!    no I/O. Its direct production dependencies are exactly [`PRIMITIVES_DIRECT`], nothing in its
 //!    tree is another `dereth-*` crate or a platform crate, its code names no I/O facility of
-//!    [`PRIMITIVES_NO_IO`], and the only `unsafe` in it is `src/text/windows.rs`, the host NLS arm,
+//!    [`PRIMITIVES_NO_IO`], and the only `unsafe` in it is `core/primitives/src/text/windows.rs`, the host NLS arm,
 //!    declared behind the `host-nls` feature.
 //! 1. **`dereth-client-contract`** is the read-only view onto the game and the request channel
 //!    back out. Its direct production dependencies are exactly [`CONTRACT_DIRECT`], and nothing it

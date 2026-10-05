@@ -23,7 +23,7 @@ pub mod house_type {
 pub mod house_bitmask {
     pub const UNDEF: u32 = 0;
     pub const ACTIVE: u32 = 1;
-    /// Only a monarch may buy it â€” allegiance housing.
+    /// Only a monarch may buy it — allegiance housing.
     pub const REQUIRES_MONARCH: u32 = 2;
 }
 
@@ -61,7 +61,7 @@ pub mod hook_type_enum {
     pub const ROOF: u32 = 16;
 }
 
-/// `HookType` â€” the *visual* effect a hook applies to what is placed on it.
+/// `HookType` — the *visual* effect a hook applies to what is placed on it.
 pub mod hook_type {
     pub const SCALING: u32 = 0;
     pub const TRANSLUCENCY: u32 = 1;
@@ -120,7 +120,7 @@ pub fn rent_period_days(t: u32) -> i64 {
     }
 }
 
-/// `HousePayment` (0x18) â€” one line of a price.
+/// `HousePayment` (0x18) — one line of a price.
 ///
 /// `num` and `paid` are **signed** in retail (compared as signed), and ACE writes them as
 /// `int`.
@@ -149,7 +149,7 @@ impl HousePayment {
     ///
     /// **The `"es"` arm is dead in retail and is reproduced as dead.**
     /// The stored string length counts the terminator: callers append `len - 1` characters and test
-    /// `len != 1` for "non-empty" â€” and the character retail tests as the last letter is the one
+    /// `len != 1` for "non-empty" — and the character retail tests as the last letter is the one
     /// at index `len - 1`, which is that terminator, on both arms. So the
     /// comparison is always against `'\0'` and the suffix is always `"s"`. Writing the `'s'`/`'x'`
     /// test here would be *more* than retail does, and retail is the specification.
@@ -164,20 +164,20 @@ impl HousePayment {
         }
     }
 
-    /// The row's text â€” `"<num> <name>"`.
+    /// The row's text — `"<num> <name>"`.
     #[must_use]
     pub fn compose_text(&self) -> String {
         format!("{} {}", self.num, self.get_name(self.num))
     }
 
-    /// The row's text with the paid count â€” `"<paid>/<num> <name>"`.
+    /// The row's text with the paid count — `"<paid>/<num> <name>"`.
     #[must_use]
     pub fn compose_text2(&self) -> String {
         format!("{}/{} {}", self.paid, self.num, self.get_name(self.num))
     }
 }
 
-/// `HousePaymentList` â€” a `PackableList<HousePayment>`.
+/// `HousePaymentList` — a `PackableList<HousePayment>`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HousePaymentList(pub Vec<HousePayment>);
 
@@ -231,8 +231,8 @@ impl HousePaymentList {
     /// that fits (`paid + amount <= num`) is added and answered whole; otherwise the row is filled
     /// to `num` and the answer is the `num - paid` that filled it.
     ///
-    /// The payment call is a thin wrapper over it â€”
-    /// `attempt_to_pay(payment.wcid, payment.num) != 0` â€” and that boolean is what
+    /// The payment call is a thin wrapper over it —
+    /// `attempt_to_pay(payment.wcid, payment.num) != 0` — and that boolean is what
     /// the payment panel tests before it puts the row in the window, so an
     /// item the list does not want is **not added at all**.
     ///
@@ -271,7 +271,7 @@ impl HousePaymentList {
         0
     }
 
-    /// Pay one payment â€” `attempt_to_pay(payment.wcid, payment.num) != 0`.
+    /// Pay one payment — `attempt_to_pay(payment.wcid, payment.num) != 0`.
     pub fn pay(&mut self, wcid: u32, amount: i32, trade_note_value: Option<i32>) -> bool {
         self.attempt_to_pay(wcid, amount, trade_note_value) != 0
     }
@@ -283,7 +283,7 @@ impl HousePaymentList {
         }
     }
 
-    /// The list's text â€” the rows' texts, `", "`-joined.
+    /// The list's text — the rows' texts, `", "`-joined.
     #[must_use]
     pub fn compose_text(&self) -> String {
         self.0
@@ -304,7 +304,7 @@ impl HousePaymentList {
     }
 }
 
-/// `HouseProfile` (0x4C) â€” the dwelling's terms.
+/// `HouseProfile` (0x4C) — the dwelling's terms.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HouseProfile {
     pub id: ObjectId,
@@ -314,7 +314,7 @@ pub struct HouseProfile {
     pub bitmask: u32,
     pub buy: HousePaymentList,
     pub rent: HousePaymentList,
-    /// **`i32`, and `-1` means "no requirement"** â€” retail's are signed 32-bit, ACE's are
+    /// **`i32`, and `-1` means "no requirement"** — retail's are signed 32-bit, ACE's are
     /// `int`, and its `HouseProfile()` constructor sets all four of these to `-1`. That is a
     /// distinction with a difference: a
     /// recorded villa carries `min_level 35` and
@@ -479,7 +479,7 @@ impl HouseData {
         }
     }
 
-    /// The client's first line â€” *"This maintenance period ends: "*.
+    /// The client's first line — *"This maintenance period ends: "*.
     ///
     /// Add the rent timestamp to the `double`
     /// the period function returned, then convert to an integer.
@@ -489,7 +489,7 @@ impl HouseData {
             .into()
     }
 
-    /// The client's second line â€” *"Maintenance is next due: "*.
+    /// The client's second line — *"Maintenance is next due: "*.
     ///
     /// The **period is doubled** when nothing more is owed. This is the
     /// arm taken when `maintenance_free != 0` **or** the rent is paid in full.
@@ -528,7 +528,7 @@ pub struct Har {
     pub roommate_list: Vec<ObjectId>,
 }
 
-/// `RestrictionDB` â€” the compact form attached to **every** object in the house.
+/// `RestrictionDB` — the compact form attached to **every** object in the house.
 ///
 /// It is what makes a door refuse to open for a non-guest. The protocol crate owns the wire form
 /// ([`dereth_protocol::types::RestrictionDb`]); this is the evaluation.
@@ -605,7 +605,7 @@ pub const MAINTENANCE_ALREADY_PAID: &str = "The maintenance has already been pai
 pub const APARTMENT_EXEMPTION: &str = ". This restriction does not apply to apartments.";
 
 impl crate::world::World {
-    /// The update-restrictions handler, `(ts, objId, rdb)` â€” the only housing
+    /// The update-restrictions handler, `(ts, objId, rdb)` — the only housing
     /// handler with logic.
     ///
     /// Four gates in order: a zero id is ignored, the **local player is never given restrictions**,
@@ -639,7 +639,7 @@ impl crate::world::World {
     ///
     /// The original message handler forwards to the panel, which keeps its own copy. Here the panel
     /// pulls from the model, so
-    /// the copy lives here and [`Self::house_data_notices`] is the redraw edge â€” the same shape
+    /// the copy lives here and [`Self::house_data_notices`] is the redraw edge — the same shape
     /// `allegiance_aborts` and `house_status_notices` already use, and a **count** rather than a
     /// flag because two messages in one frame are two redraws in retail.
     pub fn recv_house_data(&mut self, m: &dereth_protocol::trade::HouseDataMessage) {
@@ -673,7 +673,7 @@ impl crate::world::World {
     /// (`empty_message!(HouseQueryHouse)`), the queue is `Weenie`, and the answer is `0x0225` when
     /// the account owns a house and `0x0226` when it does not.
     ///
-    /// Returns whether it sent â€” `false` on every `0x0013` after the first, which is the whole of
+    /// Returns whether it sent — `false` on every `0x0013` after the first, which is the whole of
     /// the initialization guard. The two operations not performed here are the
     /// spell-component drain (`dereth_client_model::magic` already owns that queue) and
     /// the login-complete notification attempt; both are named so that "not done" and "not known
@@ -786,7 +786,7 @@ impl crate::world::World {
     /// row is cleared, and the panel redraws. Without house data the message does nothing.
     ///
     /// **The null guard is the whole message.** A shard that sends `0x0227` to a houseless
-    /// character changes nothing and draws nothing â€” there is no "create the house data" arm â€” so
+    /// character changes nothing and draws nothing — there is no "create the house data" arm — so
     /// this returns `false` and the panel is not disturbed.
     ///
     /// A new maintenance period starting is exactly this: the period's start moves forward and
@@ -794,8 +794,8 @@ impl crate::world::World {
     /// flips, and the warning line changes colour and sentence.
     ///
     /// **This raises no notice**: the original path redraws directly. Here `HousePanel::update`'s
-    /// third arm â€” the comparison
-    /// against what was last drawn â€” is the edge for this message.
+    /// third arm — the comparison
+    /// against what was last drawn — is the edge for this message.
     pub fn recv_update_rent_time(&mut self, rent_time: i32) -> bool {
         let Some(h) = self.house.as_mut() else {
             return false;
@@ -867,7 +867,7 @@ impl crate::world::World {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 9. The two scroll-printing receivers â€” `0x0257` and `0x0271`.
+// 9. The two scroll-printing receivers — `0x0257` and `0x0271`.
 // ---------------------------------------------------------------------------------------------
 //
 // Both handlers format a string for chat type 0, window 0, rather than the command's window.
@@ -929,7 +929,7 @@ fn guest_info_dump(guest: &dereth_protocol::trade::GuestInfo, out: &mut String) 
 ///
 /// `dereth_protocol::archive::PackedHash` keeps the wire order and the bucket count, so the bucket walk
 /// is reconstructed here: a stable sort on `key % table_size`. **What is still open** is the order
-/// *within* one bucket â€” whether insertion prepends or appends to the chain â€” and
+/// *within* one bucket — whether insertion prepends or appends to the chain — and
 /// there is no oracle for it: the captured `0x0257` fixture carries an empty guest table.
 /// Two guests that collide in one
 /// bucket may therefore print in the wrong order; one that does not, cannot.
@@ -943,7 +943,7 @@ fn guest_dump_order(
     rows
 }
 
-/// The available-houses handler's header line â€” `0x0271`'s first
+/// The available-houses handler's header line — `0x0271`'s first
 /// scroll print.
 ///
 /// Types 1 through 4 print `cottages`, `villas`, `mansions` and `apartments`, respectively,
@@ -974,13 +974,13 @@ pub fn available_houses_header(house_type: u32, num_houses: i32) -> String {
 /// ```
 ///
 /// Three things that are easy to miss: the **five leading spaces**, the
-/// **`fabs`** â€” so a western or southern cell's magnitude is printed and the letter carries the
-/// sign â€” and that **north/south is printed first** even though `gid_to_lcoord`'s first
+/// **`fabs`** — so a western or southern cell's magnitude is printed and the letter carries the
+/// sign — and that **north/south is printed first** even though `gid_to_lcoord`'s first
 /// out-parameter is east/west. The `+ 0.5` before the `fabs` is retail's own rounding and is
 /// deliberately not a `round()`: at `lcoord == 1024` exactly it prints `0.5`, not `0.0`.
 ///
 /// Takes the two landscape coordinates rather than the cell id because `gid_to_lcoord` lives in
-/// `dereth-physics`, which this crate does not depend on â€” the same split
+/// `dereth-physics`, which this crate does not depend on — the same split
 /// `dereth_client_model::quests::contract_location_text` has.
 #[must_use]
 pub fn coord_line(ew: i32, ns: i32) -> String {

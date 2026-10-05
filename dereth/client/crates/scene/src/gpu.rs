@@ -177,10 +177,10 @@ mod imp {
         /// resets and closes the frame command list, so a texture created between `begin_frame` and
         /// `end_frame` would discard the frame's recorded commands. That is also why the dynamic
         /// upload arena is reserved here rather than grown on demand — see
-        /// [`dereth_scene::world_scene::WorldScene::upload_reservation`].
+        /// [`crate::world_scene::SceneReads::upload_reservation`].
         ///
         /// # Errors
-        /// [`dereth_client_runtime::landblock::WorldError`] when the region, the landblock or a device resource is
+        /// [`dereth_world_data::landblock::WorldError`] when the region, the landblock or a device resource is
         /// unavailable.
         pub fn load_world(
             &mut self,
@@ -216,7 +216,7 @@ mod imp {
         /// [`SceneRenderer::load_world`] is: creating a texture runs a command list of its own.
         ///
         /// # Errors
-        /// [`dereth_client_runtime::landblock::WorldError`] when a device resource cannot be created.
+        /// [`dereth_world_data::landblock::WorldError`] when a device resource cannot be created.
         pub fn sync_objects(
             &mut self,
             store: &std::sync::Arc<dereth_dat::RetailDatStore>,
@@ -233,7 +233,7 @@ mod imp {
         ///
         /// The viewport handler uses the region's x, y, width, and height with depth disabled;
         /// this is the same call, deferred to the scene because in this build the viewport reaches
-        /// the device inside [`dereth_scene::world_scene::WorldScene::draw`]'s own bracket rather than as
+        /// the device inside [`crate::world_scene::SceneReads::draw`]'s own bracket rather than as
         /// standing device state.
         ///
         /// A no-op with no world loaded, which is the char-gen and intro case: those screens draw
@@ -279,7 +279,7 @@ mod imp {
         /// landblock boundary.
         ///
         /// # Errors
-        /// [`dereth_client_runtime::landblock::WorldError`] when a device resource cannot be created.
+        /// [`dereth_world_data::landblock::WorldError`] when a device resource cannot be created.
         pub fn stream_world(
             &mut self,
             store: &dereth_dat::RetailDatStore,
@@ -295,7 +295,7 @@ mod imp {
         /// moved, which is every frame but the one after an options-page Apply.
         ///
         /// # Errors
-        /// [`dereth_client_runtime::landblock::WorldError`] when the rebuild a changed preference asks for fails.
+        /// [`dereth_world_data::landblock::WorldError`] when the rebuild a changed preference asks for fails.
         pub fn update_render_preferences(
             &mut self,
             store: &dereth_dat::RetailDatStore,
@@ -318,8 +318,8 @@ mod imp {
         /// flushes the ambient sound tables.
         ///
         /// Here the landblock window, the resident blocks, the interior cells and the body are all
-        /// [`dereth_scene::world_scene::WorldScene`], so the whole scene is what goes. **The textures are
-        /// handed back first** through [`dereth_scene::world_scene::WorldScene::release_textures`]: more than
+        /// [`crate::world_scene::WorldScene`], so the whole scene is what goes. **The textures are
+        /// handed back first** through [`crate::world_scene::SceneWrites::release_textures`]: more than
         /// four scenes on one device exhaust the descriptor heap, so a second login that simply
         /// built a second scene would leak a whole world of descriptors.
         ///

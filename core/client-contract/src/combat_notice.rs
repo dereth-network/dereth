@@ -1,7 +1,7 @@
 //! The skill the combat meter is gated on.
 //!
 //! One constant shared with `dereth_ui_screens::hud::combat_notice`, which keeps the notice handler
-//! and its element ids. `dereth_client_shell::hud` queries the player description for the skill
+//! and its element ids. `dereth_client_runtime::hud` queries the player description for the skill
 //! advancement class used by the notice, so both sides have to name the same skill.
 
 /// The skill the combat panel's melee arm asks the player description about:

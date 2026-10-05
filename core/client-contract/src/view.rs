@@ -195,7 +195,7 @@ impl SkillAdvancement {
 /// counterpart of [`SkillAdvancement`] for the skill footer.
 ///
 /// The two costs are computed by
-/// `dereth_client_model::advancement::{attribute_cost_to_raise, attribute_cost_to_raise_10}`,
+/// `dereth_rules::advancement::{attribute_cost_to_raise, attribute_cost_to_raise_10}`,
 /// which are verified against recorded traffic.
 ///
 /// `value` and `effective` are the raw and enchanted attribute or vital values used
@@ -548,9 +548,7 @@ pub struct EffectEntry {
 /// The vitae panel's inputs, gathered on the host side.
 ///
 /// The threshold is computed here rather than in the panel because it is
-/// `dereth_client_model::advancement::vitae_cp_pool_threshold`, which lives in
-/// `dereth-client-model`, and
-/// `dereth-ui-screens` may not depend on that crate. The **level fall-back is part of it**:
+/// `dereth_rules::advancement::vitae_cp_pool_threshold`, evaluated by the runtime's HUD view. The **level fall-back is part of it**:
 /// the panel update reads `DeathLevel` (139) and uses `Level` (25) only when that is zero, and
 /// doing it here keeps the panel from needing two int qualities it would otherwise have to name.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -892,7 +890,7 @@ pub enum PlayerOption {
     ///
     /// It is the **player's own** appear-offline setting, not a friend's
     /// — the two are different words on different sides of the wire. See
-    /// `crate::panels::friends::APPEAR_OFFLINE_OPTION_BOX`.
+    /// `dereth_ui_screens::panels::friends::APPEAR_OFFLINE_OPTION_BOX`.
     AppearOffline,
 }
 
@@ -1048,7 +1046,7 @@ pub enum UiRequest {
     ///   literal zero, bypassing
     ///   the examine entry point. It is the only producer of a zero-id appraise in retail.
     ///
-    /// Raised by `crate::panels::examination::ExaminationPanel::examine_spell`, and only when
+    /// Raised by `dereth_ui_screens::panels::examination::ExaminationPanel::examine_spell`, and only when
     /// one of the panel's two appraisal ids is set — the entry jumps straight to the
     /// fill when both are already zero, so a spell right-click with nothing in flight puts nothing
     /// on the wire.
@@ -1118,7 +1116,7 @@ pub enum UiRequest {
     ///
     /// Raised only by the inscription box when it loses keyboard focus. The two guards in front of
     /// it live in the panel — see
-    /// `crate::panels::examination::ExaminationPanel::handle_inscription_losing_focus`.
+    /// `dereth_ui_screens::panels::examination::ExaminationPanel::handle_inscription_losing_focus`.
     SetInscription {
         object: ObjectId,
         text: String,
@@ -1134,7 +1132,7 @@ pub enum UiRequest {
     /// Added for the urgent-assistance window. Its Send button is the original
     /// client's only producer on Help channel `0x400`: ordinary chat excludes that
     /// value, so `@help` is a command rather than a channel send. See
-    /// `crate::panels::urgent_assistance::HELP_CHANNEL`.
+    /// `dereth_ui_screens::panels::urgent_assistance::HELP_CHANNEL`.
     ///
     /// The variant carries a general channel/text pair because allegiance chat rows
     /// and talk-focus destinations use the same broadcast operation.
@@ -1560,7 +1558,7 @@ pub enum UiRequest {
     // ---------------------------------------------------------------------------------------
     // The vendor window's button handler and its eleven `case`s, as the four
     // distinct things they do. The element ids are the cases themselves and live in
-    // [`crate::panels::vendor`]; a request carries what the button decided, not which button.
+    // [`dereth_ui_screens::panels::vendor`]; a request carries what the button decided, not which button.
     // ---------------------------------------------------------------------------------------
     /// Buy a single item — cases `0x100000C2` ("Buy") and `0x100000C9`
     /// ("Buy Item"). **This sends `0x005F` on its own**, with a one-entry list; it does not fill
@@ -1587,7 +1585,7 @@ pub enum UiRequest {
     /// slider amount when stack size is at least 2, otherwise 1. Without this write,
     /// a stackable row always adds one item regardless of the slider.
     ///
-    /// `crate::panels::vendor::VendorPanel::update_items_list` emits this once for
+    /// `dereth_ui_screens::panels::vendor::VendorPanel::update_items_list` emits this once for
     /// each listed row whose maximum stack size exceeds 1. The host owns and changes
     /// the description.
     VendorSetObjectStackSize {
@@ -1662,7 +1660,7 @@ pub enum UiRequest {
     /// Cast `spell_id` with the from-UI flag set — and
     /// the request that makes a player able to cast a spell at all.
     ///
-    /// Raised by `crate::panels::spellcasting::SpellcastingPanel::cast`, which is
+    /// Raised by `dereth_ui_screens::panels::spellcasting::SpellcastingPanel::cast`, which is
     /// the spellcasting panel's cast — the **only** caller `CastSpell` has in the shipped
     /// binary. Everything the client decides after that point (the component check, the
     /// self-targeted branch, the target compatibility test and which of `0x0048` /
@@ -1722,7 +1720,7 @@ pub enum UiRequest {
     /// that makes the combat window's three attack-height buttons do anything.
     ///
     /// Raised by `crate::hud::combat_window::CombatWindow::on_element_message`'s `0x1C`
-    /// (mouse-press) arm and by `dereth_client_shell::Interaction::on_actions`' `CombatLow/Medium/High
+    /// (mouse-press) arm and by `dereth_client_runtime::interaction::Interaction::on_actions`' `CombatLow/Medium/High
     /// Attack` and `CombatAimLow/Medium/High` keys, which are the same act: the combat action
     /// handler and the combat window's element-message handler call the one function.
     ///
@@ -1838,7 +1836,7 @@ pub enum UiRequest {
     ///
     /// `prompt` is resolved here rather than by the host because the three
     /// `ID_Allegiance_*Confirmation` strings live in this crate's string table
-    /// (`crate::panels::allegiance::STRING_TABLE`) and the host has no reader for it.
+    /// (`dereth_ui_screens::panels::allegiance::STRING_TABLE`) and the host has no reader for it.
     AllegianceConfirmation {
         action: AllegianceAction,
         target: ObjectId,
@@ -2100,7 +2098,7 @@ pub struct FriendEntry {
 ///
 /// There is **no id**, deliberately. The row attribute `0x1000008F` is written with a literal
 /// zero by the panel's one production caller and nothing ever reads it back; the Remove button
-/// identifies a row by its text. See `crate::panels::squelch`.
+/// identifies a row by its text. See `dereth_ui_screens::panels::squelch`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SquelchEntry {
     /// The name written into the row's `0x10000542` text child.
@@ -2506,7 +2504,7 @@ pub trait GameView: std::fmt::Debug {
     }
     /// The frame clock needed by panels that own a timer.
     ///
-    /// Carried on the view because `crate::panels::linkstatus::LinkStatusPanel`
+    /// Carried on the view because `dereth_ui_screens::panels::linkstatus::LinkStatusPanel`
     /// tracks its last ping request, next update and round trip, as the original panel
     /// does. The default `0.0` freezes those timers, which is what an unclocked host
     /// should get.
@@ -2557,7 +2555,7 @@ pub trait GameView: std::fmt::Debug {
     ///
     /// The default is still `false` rather than an `Option`, because that is what the *page* can
     /// use; a host that wants to tell "off" from "not asked" apart asks
-    /// `dereth_client_shell::hud::Hud::character_option`, which answers `Option<bool>`.
+    /// `dereth_client_runtime::hud::character_option`, which answers `Option<bool>`.
     fn player_option(&self, _o: PlayerOption) -> bool {
         false
     }
@@ -2612,7 +2610,7 @@ pub trait GameView: std::fmt::Debug {
     /// `None` is *"this host does not answer the question"* and is not the same as a selection
     /// that asks for neither query: the first must not read as the second, or a build with no
     /// producer looks exactly like a build whose selection genuinely wanted nothing. See
-    /// `crate::screens::gameplay::ToolbarSelection::query`.
+    /// `dereth_ui_screens::screens::gameplay::ToolbarSelection::query`.
     fn selection_query_facts(&self, _id: ObjectId) -> Option<SelectionQueryFacts> {
         None
     }
@@ -2953,7 +2951,7 @@ pub trait GameView: std::fmt::Debug {
     /// The object's `AppraisalProfile` projected for the examination panel.
     ///
     /// `None` means no `0x00C9 Item_SetAppraiseInfo` has arrived for that object — which is what
-    /// makes the pull in `crate::panels::examination::ExaminationPanel::update` equivalent to the
+    /// makes the pull in `dereth_ui_screens::panels::examination::ExaminationPanel::update` equivalent to the
     /// client's push: the profile cannot be answered before the reply lands.
     ///
     /// It carries only the six fields the panel reads, for the reason [`SlotDecoration`] does the
@@ -3028,7 +3026,7 @@ pub trait GameView: std::fmt::Debug {
     /// The **panel's edge** for the one notice this build's per-frame pull cannot otherwise see:
     /// the allegiance panel's update-aborted notice updates the panel
     /// only when it is visible, and the update's first statement is the busy-latch clear that
-    /// `crate::panels::allegiance::AllegiancePanel::awaiting_update` carries. Without this the
+    /// `dereth_ui_screens::panels::allegiance::AllegiancePanel::awaiting_update` carries. Without this the
     /// latch, set on every allegiance update request, would stay set for ever on a request the server
     /// aborts — the panel stuck "busy" with no answer coming.
     fn allegiance_update_aborts(&self) -> u64 {
@@ -3061,7 +3059,7 @@ pub trait GameView: std::fmt::Debug {
     /// carrying no records gives -- and that is not a gap: all five recorded `0x0021` are
     /// exactly that, an empty list with type `Full`, so the empty case is the one the recorded
     /// corpus witnesses and the panel has to be able to say it drew it.
-    /// `crate::panels::friends::FriendsPanel::rebuilds` is what separates the two readings.
+    /// `dereth_ui_screens::panels::friends::FriendsPanel::rebuilds` is what separates the two readings.
     ///
     /// The order is **not** the display order: the panel puts the
     /// online friends first and sorts each block by name, and that walk is the panel's.
@@ -3081,7 +3079,7 @@ pub trait GameView: std::fmt::Debug {
     /// The default is **empty**, which is the same answer a host whose shard sent a `0x01F4` with
     /// an empty DB gives -- and that is the ordinary case, not a gap: every login clears the DB
     /// (the client clears it on login) and no recorded capture carries a populated one.
-    /// `crate::panels::squelch::SquelchPanel::rebuilds` is what separates the two readings.
+    /// `dereth_ui_screens::panels::squelch::SquelchPanel::rebuilds` is what separates the two readings.
     ///
     /// The order is **not** the display order: the panel's sorted insert sorts the
     /// rows by name as they are inserted, and that walk is the panel's.
@@ -3094,7 +3092,7 @@ pub trait GameView: std::fmt::Debug {
     /// The default is empty, which is what every host that has received no `0x0314`/`0x0315`
     /// answers — and that is the overwhelmingly common case: neither opcode appears anywhere in
     /// the recorded corpus. So
-    /// `crate::panels::contracts::ContractsPanel::rebuilds` is what separates "a character with
+    /// `dereth_ui_screens::panels::contracts::ContractsPanel::rebuilds` is what separates "a character with
     /// no contracts" from "the panel never ran".
     ///
     /// This is not display order: the panel re-sorts by name or status on every rebuild.
@@ -3108,12 +3106,12 @@ pub trait GameView: std::fmt::Debug {
     /// update, and the update redraws the pane unconditionally — it reads nothing out of
     /// the notice, whose one `u32` all three registered receivers ignore. So what crosses this
     /// seam is not the message's *content* (there is none the client keeps) but the fact that one
-    /// **arrived**: `crate::panels::house::HousePanel` redraws whenever this number moves, which
+    /// **arrived**: `dereth_ui_screens::panels::house::HousePanel` redraws whenever this number moves, which
     /// is retail's "redraw on every notice" expressed in a pull.
     ///
     /// The default is `0`, which is what every host that has received no `0x0226` answers — and
     /// that is the case a build with no shard is in, where the pane falls back to
-    /// `crate::panels::house::HousePanel::stand_in_for_the_login_query`.
+    /// `dereth_ui_screens::panels::house::HousePanel::stand_in_for_the_login_query`.
     fn house_status_notices(&self) -> u64 {
         0
     }
@@ -3325,7 +3323,7 @@ pub trait GameView: std::fmt::Debug {
     /// `0x1A`. Otherwise the answer is whether the item is not already in the self items list.
     ///
     /// This is everything except the last step; the already-in-the-list half is the panel's own
-    /// list and stays in `crate::panels::trade::TradePanel::drag_accept_state`. The host
+    /// list and stays in `dereth_ui_screens::panels::trade::TradePanel::drag_accept_state`. The host
     /// answers it with the game world's trade-item acceptance query, which the **drop** path
     /// also uses; this is the hover's.
     ///
@@ -3994,7 +3992,7 @@ pub struct AppraisalView {
     /// `0x17D PKDamageRating`, `0x17E PKDamageResistRating`, `0x182 Overpower` and
     /// `0x183 OverpowerResist`.
     ///
-    /// See `crate::panels::examination::CHARACTER_RATING_ROWS`; `0x143` is read and **never used**.
+    /// See `dereth_presentation::appraisal::CHARACTER_RATING_ROWS`; `0x143` is read and **never used**.
     pub ratings: [Option<i32>; 13],
     /// String property `0x0A` `Fellowship` — *"Fellowship:"*.
     pub fellowship: Option<String>,
@@ -4002,7 +4000,7 @@ pub struct AppraisalView {
     pub date_of_birth: Option<String>,
     /// `InqInt(0x7D)` `Age`, through the client's elapsed-time formatter —
     /// *"Time in Dereth:"*. That formatter already exists as
-    /// `crate::panels::journal::delta_time_to_string`.
+    /// `crate::journal::delta_time_to_string`.
     pub age: Option<i32>,
     /// `InqInt(0xB5)` `ChessRank` — *"Chess Rank:"*.
     pub chess_rank: Option<i32>,
@@ -4182,7 +4180,7 @@ pub struct SlotDecoration {
     /// It updates the cache and the tile only when the value changes.
     ///
     /// **One mirror, not two.** A separate `Vec<bool>` beside the snapshot in
-    /// `crate::panels::inventory::InventoryPanels`, gathered for `items` + `equipment` only,
+    /// `dereth_ui_screens::panels::inventory::InventoryPanels`, gathered for `items` + `equipment` only,
     /// misses the side-pack strip (the container list) and the main-pack slot (the top
     /// container): a **backpack** picked up in the container list would take the ghost at the
     /// list's begin-drag and nothing on this side of the seam could take it off again. Retail has
@@ -4246,7 +4244,7 @@ pub struct AllegianceEntry {
 /// An allegiance the player is not in is [`Self::default`] — `total == 0`, no monarch, no patron,
 /// no vassals — which is a state the panel must render *correctly* rather than merely render
 /// emptily, and is the only state the capture corpus can witness (see
-/// `crate::panels::allegiance`).
+/// `dereth_ui_screens::panels::allegiance`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AllegianceRoster {
     /// The allegiance name, present in version 8 and later and empty when unnamed.
@@ -4466,7 +4464,7 @@ pub struct MagicInfoView {
 ///
 /// [`Self::open`] records whether the client has a nonzero vendor id; a closed shop is
 /// [`Self::default`], and the panel must render that correctly rather than merely render it
-/// emptily — see `crate::panels::vendor`.
+/// emptily — see `dereth_ui_screens::panels::vendor`.
 ///
 /// # The money is **four** writers, two sub-UIs and three numbers
 ///
@@ -4614,7 +4612,7 @@ pub struct TradeView {
     /// This is additional UI history, not a field in the received trade record. The
     /// original client handles removal as an immediate notice and needs no memory
     /// across frames. This panel instead rebuilds from a snapshot, and the optimistic
-    /// row to remove is `crate::panels::trade::TradePanel::pending`. A refused id is
+    /// row to remove is `dereth_ui_screens::panels::trade::TradePanel::pending`. A refused id is
     /// not in [`Self::self_rows`] and never will be. Without refusal history, that
     /// optimistic row would remain displayed indefinitely.
     ///
@@ -4632,7 +4630,7 @@ pub struct TradeView {
     /// **The window's server-says-attempt-failed notice is NOT one of them.** It clears the
     /// pending stack split and touches neither list,
     /// neither button nor the light. See the note on
-    /// `crate::panels::trade::TradePanel`'s module header.
+    /// `dereth_ui_screens::panels::trade::TradePanel`'s module header.
     ///
     /// An id leaves this set when a `0x0200 Trade_AddToTrade` names it on side 1, so the set and
     /// [`Self::self_rows`] are disjoint and the panel's retain needs no ordering rule. The whole
@@ -4652,7 +4650,7 @@ pub struct TradeView {
     /// retail's two lights are already out. Drawing the lights off the mirror alone shows a lit
     /// "partner accepted" beside an offer the partner has since changed.
     ///
-    /// `crate::panels::trade::TradePanel::update` takes it together with its own `removed_now`,
+    /// `dereth_ui_screens::panels::trade::TradePanel::update` takes it together with its own `removed_now`,
     /// which stays because it covers the one case a model flag cannot: an **optimistic** row the
     /// mirror never held.
     pub acceptance_darkened: bool,

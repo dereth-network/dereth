@@ -1,30 +1,12 @@
-//! The in-game HUD's host half: the three globals the gameplay screen's windows read.
+//! The in-game HUD model and its projection through the shared `GameView` seam.
 //!
-//! The HUD translates world state and UI actions into sixteen windows, vitals, placement,
-//! the panel stack, chat routing through the final-string notice, and map/radar coordinates.
+//! Session events and the local object state feed player qualities, window placement, chat,
+//! social lists, selection and map/radar facts. The HUD dispatches notices to its generic
+//! panel receiver; interface crates own the concrete widgets and their layouts.
 //!
-//! **This module wires; it does not implement.** Everything the HUD *decides* is in
-//! `dereth_ui_screens`: which windows are visible, what a meter's fill is, which chat window takes
-//! a line, where a compass token sits. What this module owns is the three things the client reads
-//! out of process globals and a rebuild has to hand over explicitly, exactly as
-//! `crate::ui::HostState` does for the pre-game screens:
-//!
-//! 1. the player's module placement blob — read by each floating HUD window's placement update,
-//!    plus `SideBySideVitals` and `LockUI`;
-//! 2. the local player description — the qualities used for
-//!    secondary-attribute queries, kept current by the `Qualities_*` event stream;
-//! 3. the outbound final-string notice, which carries a final chat line into the UI.
-//!
-//! Every one of those arrives as a [`dereth_client_net::client_session::SessionEvent`]; this module decodes nothing that
-//! [`dereth_protocol`] already decodes and computes nothing [`dereth_client_model`] already computes.
-//!
-//! # The two things it does compute, and why
-//!
-//! * `gid_to_lcoord` on the player's cell and then
-//!   `(lcoord − 1024) × 0.1 + 0.5` per axis. The `gid_to_lcoord` half is the physics crate's
-//!   ([`dereth_physics::landdefs`]); the two-line affine part belongs to player state and has no
-//!   separate crate.
-//! * the heading for the radar's compass, taken from the player's live frame.
+//! The child modules handle event delivery, chat formatting, placement decoding, state
+//! synchronization, table queries and the read-only view. Protocol decoding and game rules
+//! remain with their owning crates.
 
 mod chat;
 mod events;
@@ -56,13 +38,11 @@ use dereth_rules::attributes::inq_attribute_2nd;
 
 /// The `ObjectDescriptionFlag` bits and the `RadarEnum` values the radar reads, taken from
 /// [`dereth_client_contract::radar`] rather than restated, so the seam and the rules that consume it can
-/// never disagree about a mask. `dereth_ui_screens::mapradar::radar` re-exports them at their old
-/// paths.
+/// never disagree about a mask.
 use dereth_client_contract::radar::bitfield as bits;
 use dereth_client_contract::radar::radar_enum as radar_enum_value;
 
-/// The panel driver lives in `crate::hud_drive`; the two fan-out helpers keep
-/// their `crate::hud::…` path from here, because that is what `app.rs` and the test tree name.
+/// The panel receiver contract implemented by each interface's panel holder.
 pub use dereth_client_contract::panels::HudPanels;
 
 /// A panel set with no panels: what the model runs with where no UI is attached (this crate's
@@ -561,7 +541,7 @@ pub struct Hud {
     pub journal_identity: Option<dereth_client_contract::journal::JournalIdentity>,
     /// The `(date, time-of-day name)` pair supplied by the simulation clock.
     ///
-    /// Fed from `App::frame` out of `crate::world::WorldScene::game_date_time`, beside the
+    /// Fed from `App::frame` out of `crate::present::Scene::game_date_time`, beside the
     /// `ViewerFrame` and for the same reason: the clock belongs to the scene, the panels read it
     /// through [`HudView`], and this is the one place both are in hand. Unlike [`Self::coords`] it
     /// is **not** derived from the player's cell and does not go away indoors — see

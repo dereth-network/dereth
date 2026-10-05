@@ -692,7 +692,7 @@ pub struct WorldAudioStats {
 ///
 /// # What this key is a superset OF
 ///
-/// The gated work is `crate::world::WorldScene::terrain_neighbourhood` fed to
+/// The gated work is `crate::present::Scene::terrain_neighbourhood` fed to
 /// `AudioSystem::on_position_changed`, which takes **seven**
 /// arguments. Two of them are what this key has to cover:
 ///

@@ -18,7 +18,7 @@ pub const MISSILE: u32 = 4;
 pub const MAGIC: u32 = 8;
 
 // The toolbar's two reads of the same four modes, shared with
-// `dereth_ui_screens::toolbar::combat_mode`. `dereth_client::{hud, interaction}` call both: the HUD
+// `dereth_ui_screens::toolbar::combat_mode`. `dereth_client_runtime::{hud, interaction}` call both: the HUD
 // ghosts the shortcut numerals with `toolbar_active`, and the input path matches a pressed
 // element against `BUTTONS`. Element ids and one comparison.
 

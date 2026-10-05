@@ -164,7 +164,7 @@ pub struct ObjectPhysicsStats {
     /// On the connected path this is 0 by construction: the local body takes the id `0xF746`
     /// sends ([`crate::character::Character::adopt_server_id`], called from `App::sync_objects`
     /// immediately before [`ObjectPhysics::sync`]), and the one object that can carry that id is
-    /// the player himself, whom `exclude` skips. `tests/player_id.rs` asserts it over the corpus.
+    /// the player himself, whom `exclude` skips. `dereth/testkit/tests/dat/login.rs` checks it over the corpus.
     /// A fixed placeholder id would not be safe here: `0x50000001` is the **first** GUID ACE hands
     /// out, so another character carrying it would evict our own body.
     ///
@@ -172,8 +172,7 @@ pub struct ObjectPhysicsStats {
     /// `0xF746` has arrived — so `exclude` is `None` and the body still carries the offline id —
     /// while object creates have. Nothing in ACE allocates `0x60000000`, but the guard is what
     /// stands between a server that did and a body that silently stops being simulated, and the
-    /// counter is tripped on purpose in `tests/player_id.rs` so that it is not a number nobody can
-    /// move.
+    /// counter records that refusal without replacing the existing body.
     pub id_collision: u64,
     /// Bodies whose part arrays contain physics BSPs, so object-collision
     /// checking walks those parts' BSPs.

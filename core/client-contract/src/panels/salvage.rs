@@ -1,7 +1,7 @@
 //! The salvage panel's three object-carrying notices.
 //!
 //! The panel stayed in `dereth_ui_screens::panels::salvage`; this enum is the transit
-//! `dereth_client::{hud, interaction}` fill (`Hud::pending_salvage`) and the panel drains, which
+//! `dereth_client_runtime::{hud, interaction}` fill (`Hud::pending_salvage`) and the panel drains, which
 //! makes it the contract rather than the drawing. Three `ObjectId`s.
 
 use dereth_primitives::ObjectId;

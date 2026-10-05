@@ -1,6 +1,6 @@
 //! The spell-component row's icon.
 //!
-//! One function out of `dereth_ui_screens::panels::spellcomponent`: `dereth_client_shell::hud` composes the
+//! One function out of `dereth_ui_screens::panels::spellcomponent`: `dereth_client_runtime::hud` composes the
 //! component rows and has to pick the same icon the panel would -- the row's component icon, not
 //! the item's own icon.
 

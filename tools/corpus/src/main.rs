@@ -376,7 +376,7 @@ fn find_repo() -> Result<PathBuf, Box<dyn std::error::Error>> {
     }
 }
 
-/// What one recording's scrub produced. Counts only â€” never a value.
+/// What one recording's scrub produced. Counts only — never a value.
 #[derive(Debug, Default)]
 struct SessionCounts {
     datagrams: usize,

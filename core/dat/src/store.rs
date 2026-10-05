@@ -83,7 +83,7 @@ impl RetailDatStore {
     /// (`xtask`'s `RETAIL_DATS`) list all four for a different and equally good reason -- a partial
     /// install makes the retail-data check answer false to every tier-1 gate -- and the two lists
     /// differing is a fact worth knowing rather than a bug. `dereth-dat`'s own
-    /// `tests/aaa_preflight.rs` asserts the stricter four and says so at the site.
+    /// `core/dat/tests/dat/container/aaa_preflight.rs` asserts the stricter four and says so at the site.
     pub const REQUIRED_DATS: [&'static str; 3] = [
         ModernDat::Portal.file_name(),
         ModernDat::Cell.file_name(),

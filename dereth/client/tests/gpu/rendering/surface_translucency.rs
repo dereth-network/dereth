@@ -5,7 +5,7 @@
 //! Frames are compared in pairs that differ only in `SceneConfig::surface_translucency` (the
 //! computed byte against an opaque 0xFF): at the horizon only the sky band changes, and looking
 //! straight down, with nothing translucent in view, nothing changes. The exact alpha arithmetic
-//! and both mesh-building paths are unit tests in `src/world_scene.rs`.
+//! and both mesh-building paths are unit tests in `dereth/client/crates/scene/src/world_scene/tests.rs`.
 //! Fixture: Holtburg (landblock 0xA9B4) from the retail dats on a software device; every fixture
 //! path is an `expect`, never a skip.
 

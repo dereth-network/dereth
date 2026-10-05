@@ -515,6 +515,7 @@ pub const RULES: &[&str] = &[
     "study method",
     "private provenance",
     "stale source citation",
+    "corrupt punctuation",
 ];
 
 fn provenance_pattern() -> &'static regex::Regex {
@@ -528,6 +529,11 @@ fn provenance_pattern() -> &'static regex::Regex {
 pub fn scan_text(text: &str, whole_literal: bool) -> Vec<(&'static str, usize, usize)> {
     let b = text.as_bytes();
     let mut out = Vec::new();
+    out.extend(
+        occurrences(text, "\u{00e2}\u{20ac}\u{201d}", false)
+            .into_iter()
+            .map(|(start, end)| ("corrupt punctuation", start, end)),
+    );
     out.extend(
         provenance_pattern()
             .find_iter(text)
@@ -756,10 +762,25 @@ pub fn stale_test_commands(text: &str, targets: &BTreeSet<String>) -> Vec<(usize
     out
 }
 
-fn stale_source_citations(root: &Path, text: &str) -> Vec<(usize, usize)> {
+/// The nearest manifest owns `src/` and `tests/` citations. Other module-relative paths are
+/// intentionally not guessed from whichever candidate happens to exist.
+fn citation_crate(root: &Path, source: &Path) -> Option<PathBuf> {
+    source
+        .parent()?
+        .ancestors()
+        .take_while(|p| p.starts_with(root))
+        .find(|p| p.join("Cargo.toml").is_file())
+        .map(Path::to_path_buf)
+}
+
+fn stale_source_citations(
+    root: &Path,
+    crate_root: Option<&Path>,
+    text: &str,
+) -> Vec<(usize, usize)> {
     static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let pattern = PATTERN.get_or_init(|| regex::Regex::new(
-        r"`((?:(?:dereth/)?(?:core|empyrean|tools)/|(?:dereth/)?dereth/|dereth/(?:client|headless|testkit|web)/)[\w./-]+\.rs)(?::\d+)?`"
+        r"`((?:(?:dereth/)?(?:core|empyrean|tools|docs)/|(?:dereth/)?dereth/|dereth/(?:client|headless|testkit|web)/|(?:src|tests)/)[\w./-]+\.(?:rs|md|toml))(?::\d+)?(?:#[\w.-]+)?`"
     ).expect("source citation rule"));
     pattern
         .captures_iter(text)
@@ -767,6 +788,11 @@ fn stale_source_citations(root: &Path, text: &str) -> Vec<(usize, usize)> {
             let path = captures.get(1)?;
             let name = path.as_str();
             let safe = !name.split('/').any(|part| part == "..");
+            if name.starts_with("src/") || name.starts_with("tests/") {
+                let owner = crate_root?;
+                return (!(safe && owner.join(name).is_file()))
+                    .then_some((path.start(), path.end()));
+            }
             let exists = safe
                 && (root.join(name).is_file()
                     || name
@@ -833,6 +859,7 @@ pub fn scan_workspace(
             continue;
         }
         let mut any = false;
+        let crate_root = citation_crate(root, &root.join(r));
         for s in segs {
             let test_code = test_file || s.test;
             if test_code != (scope == Scope::Test) {
@@ -841,7 +868,7 @@ pub fn scan_workspace(
             any = true;
             let mut hits = scan_text(&s.text, s.whole_literal);
             hits.extend(
-                stale_source_citations(root, &s.text)
+                stale_source_citations(root, crate_root.as_deref(), &s.text)
                     .into_iter()
                     .map(|(a, b)| ("stale source citation", a, b)),
             );
@@ -1076,12 +1103,97 @@ mod tests {
         std::fs::write(&file, "").expect("fixture source");
         let cited = "core/sample/tests/cpu.rs";
         let text = format!("`{cited}` and `dereth/{cited}:4`");
-        assert!(stale_source_citations(&root, &text).is_empty());
+        assert!(stale_source_citations(&root, None, &text).is_empty());
         let examples = "`step.rs` `core/sample/*.rs` `https://example.org/core/no.rs`";
-        assert!(stale_source_citations(&root, examples).is_empty());
+        assert!(stale_source_citations(&root, None, examples).is_empty());
         std::fs::remove_file(&file).expect("remove cited source");
-        assert_eq!(stale_source_citations(&root, &text).len(), 2);
+        assert_eq!(stale_source_citations(&root, None, &text).len(), 2);
         std::fs::remove_dir_all(&root).expect("remove fixture");
+    }
+
+    #[test]
+    fn source_citations_resolve_docs_and_the_nearest_crate_without_guessing_other_paths() {
+        let root = std::env::temp_dir().join("xtask-comment-citation-owners");
+        let files = [
+            "Cargo.toml",
+            "docs/formats/sample.md",
+            "core/outer/Cargo.toml",
+            "core/outer/src/outer.rs",
+            "core/outer/inner/Cargo.toml",
+            "core/outer/inner/src/lib.rs",
+            "core/outer/inner/tests/cpu.rs",
+        ];
+        for name in files {
+            let file = root.join(name);
+            std::fs::create_dir_all(file.parent().expect("parent")).expect("directory");
+            std::fs::write(file, "").expect("fixture");
+        }
+        let owner = citation_crate(&root, &root.join("core/outer/inner/src/lib.rs")).unwrap();
+        assert_eq!(owner, root.join("core/outer/inner"));
+        let valid = "`docs/formats/sample.md#fields` `dereth/docs/formats/sample.md:3` \
+                     `src/lib.rs:4` `tests/cpu.rs` `core/outer/Cargo.toml`";
+        assert!(stale_source_citations(&root, Some(&owner), valid).is_empty());
+        let missing = "`docs/formats/absent.md` `src/outer.rs` `tests/old.rs` \
+                       `src/../../src/outer.rs` `core/outer/../Cargo.toml`";
+        assert_eq!(
+            stale_source_citations(&root, Some(&owner), missing).len(),
+            5
+        );
+        let excluded = "`lib.rs` `module/old.rs` `src/*.rs` `src/{backend}.rs` \
+                        `src/<name>.rs` `https://example.org/docs/old.md` \
+                        `cargo run -- src/old.rs` `target/generated.rs` `OUT_DIR/table.rs` \
+                        `src/items.rs::Item` `/src/old.rs` `src/` `src/image.png`";
+        assert!(stale_source_citations(&root, Some(&owner), excluded).is_empty());
+        assert!(stale_source_citations(&root, None, "`src/unowned.rs`").is_empty());
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn both_scopes_check_source_citations_and_only_the_corrupt_punctuation_sequence() {
+        let root = std::env::temp_dir().join("xtask-comment-citation-scopes");
+        let corrupt = "\u{00e2}\u{20ac}\u{201d}";
+        let source = format!(
+            "// `src/missing.rs` {corrupt}\n\
+            fn message() -> &'static str {{ \"{corrupt}\" }}\n\
+            #[cfg(test)]\nmod tests {{\n// `tests/missing.rs` {corrupt}\n}}\n"
+        );
+        let path = root.join("example/src/lib.rs");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(root.join("example/Cargo.toml"), "").unwrap();
+        std::fs::write(path, source).unwrap();
+        let hits = |scope| scan_workspace(&root, scope, &BTreeSet::new()).0;
+        let production = hits(Scope::Production);
+        let tests = hits(Scope::Test);
+        assert_eq!(
+            production
+                .iter()
+                .filter(|f| f.rule == "stale source citation")
+                .count(),
+            1
+        );
+        assert_eq!(
+            production
+                .iter()
+                .filter(|f| f.rule == "corrupt punctuation")
+                .count(),
+            2
+        );
+        assert_eq!(
+            tests
+                .iter()
+                .filter(|f| f.rule == "stale source citation")
+                .count(),
+            1
+        );
+        assert_eq!(
+            tests
+                .iter()
+                .filter(|f| f.rule == "corrupt punctuation")
+                .count(),
+            1
+        );
+        assert!(scan_text("— – → × é â € ”", false).is_empty());
+        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]

@@ -49,7 +49,7 @@ fn character(store: &Arc<RetailDatStore>) -> Character {
 }
 
 /// Drive `seconds` of wall clock at a fixed frame rate from `t0`, returning the new clock and how
-/// many times the 30 Hz gate opened. Shaped like `tests/cpu/walk_scenarios.rs`'s own `run`.
+/// many times the 30 Hz gate opened. Shaped like `core/physics/tests/cpu/transition/walk_scenarios.rs`'s own `run`.
 fn run(c: &mut Character, t0: f64, seconds: f64, fps: f64) -> (f64, u32) {
     let dt = 1.0 / fps;
     let (mut t, mut ticks) = (t0, 0);

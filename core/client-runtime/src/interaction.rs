@@ -186,8 +186,8 @@ pub enum TargetMode {
     UseTarget,
 }
 
-/// A screen-layout action raised by local UI commands and consumed by [`crate::app::App`],
-/// which owns the live `crate::ui::UiShell` and preferences-file identity.
+/// A screen-layout action raised by local UI commands and passed through [`crate::app::App`]
+/// to the active shell, which owns the UI tree and layout persistence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiLayoutCommand {
     /// Save the named layout from the manual or automatic save path.
@@ -413,7 +413,7 @@ pub struct Interaction {
     /// [`Self::note_examine_panel_open`] and [`Self::note_player_physics`] push in the other
     /// globals this file cannot reach. `None` is "no UI shell, no gameplay screen, or no
     /// `<SBOX>`" — the whole back buffer, which is
-    /// `crate::world::WorldScene::view_params`'s own fallback and
+    /// `crate::present::Scene::view_params`'s own fallback and
     /// the viewport computation's answer with nothing docked. It is therefore
     /// what a headless harness gets without saying anything, which is why every existing
     /// `(800, 600)` in this file's callers still measures what it always measured.
@@ -1153,7 +1153,7 @@ fn is_combat_mode_button(id: ElementId) -> bool {
 /// names itself as the catcher through attribute `0x36`. Making the wrapper hit-testable
 /// supplies `Some(SMART_BOX)` to both click and drop consumers.
 ///
-/// The `None` arm remains for synthesized `crate::ui::UiMouseEvent` values that carry no hit
+/// The `None` arm remains for synthesized `crate::interaction::UiMouseEvent` values that carry no hit
 /// test. It preserves their established world-click behavior, but the live tree is expected to
 /// provide `Some(SMART_BOX)`.
 #[must_use]

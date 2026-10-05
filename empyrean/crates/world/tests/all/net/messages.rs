@@ -1556,8 +1556,8 @@ fn a_message_converts_to_the_transports_view() {
 //
 // Each check decodes the message with `dereth-protocol`'s decoder (tolerating at most three zero bytes of
 // sender padding, as the retail archive does), re-encodes the decoded value and requires the same
-// bytes back, then spot-checks the fields. A layout ACE gets differently from the retail client is
-// `#[ignore = "Cross-check: ..."]`: kept as ACE writes it, and reported.
+// bytes back, then spot-checks the fields. Deliberate layout differences are documented in the
+// server divergence register; these checks remain active.
 
 use dereth_primitives::ObjectId;
 use dereth_protocol::{self as dp, Message as ProtoMessage};
