@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.2.0 (2026-10-05)
+
 ### Added
 
 - **Eras:** an `[era]` profile chooses the era a world plays. The end of retail, the default, is

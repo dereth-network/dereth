@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-command"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "crossterm",
  "dereth-physics",
@@ -1592,7 +1592,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-common"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-primitives",
  "dereth-protocol",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-content"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "empyrean-common",
@@ -1621,7 +1621,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-dat"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-entity"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-animation",
  "dereth-physics",
@@ -1649,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-import"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-dat",
  "dereth-primitives",
@@ -1664,7 +1664,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-net"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-client-net",
  "dereth-primitives",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-server"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "ctrlc",
  "dereth-dat",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-store"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "empyrean-common",
  "empyrean-entity",
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-tables"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "empyrean-common",
  "empyrean-entity",
@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-testkit"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-assets",
  "dereth-client-net",
@@ -1755,7 +1755,7 @@ dependencies = [
 
 [[package]]
 name = "empyrean-world"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
