@@ -435,6 +435,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "net.dat-patch.every-view-reads-the-patched-records",
+        says: "When the update exchange ends having changed the data files, everything the client \
+               had read from them before is let go and read again: an interface already built \
+               over the files draws a picture the shard sent, not the one the files held before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DDD-PATCH-REREAD"),
+        station: "dereth-client-shell::lib::front_end::patch_reread_tests::the_classic_interface_draws_a_portal_record_patched_after_it_was_built",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "net.dat-patch.the-iteration-list-counts-as-delivered",
         says: "When the shard sends its copy of a data file's version list during an update, the \
                client counts it as delivered so the update can finish, but keeps its own list plus \

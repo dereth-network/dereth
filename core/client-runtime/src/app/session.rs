@@ -890,15 +890,17 @@ impl<S: Shell> App<S> {
     /// referenced (the language interface and the master property list) by hand and re-creates
     /// them.
     ///
-    /// This build's equivalent is to reopen the store. Every `DatFile` caches its whole B-tree at
-    /// open, so a reader that was up across the patch holds entries naming chains that are now on
-    /// the free list; [`dereth_dat::DatFile::reload`] is the fix and this is its one production
-    /// caller. What that reaches, and what it does not, is the list in [`crate::ddd`]'s module
-    /// documentation — the short version being that every heavy consumer
-    /// (`WorldScene`, `LandSource`, `DatAnimAssets`, `ObjectStream`, the renderer's world) takes
-    /// its `Arc<RetailDatStore>` at **world entry**, which is after DDD, so it picks up the
-    /// replacement; the UI shell takes its copy at `start_shell`, which is before, and does not.
-    fn invalidate_after_ddd(&mut self) {
+    /// This build's equivalent is to reopen the store, with the world's overlay laid over it as the
+    /// patch left it. Every `DatFile` caches its whole B-tree at open, so a reader that was up
+    /// across the patch would read the files as they were. The reopened store is handed to
+    /// everything that holds one through [`Self::adopt_store`], and the front ends read their
+    /// files again, letting go of the pictures they made from the old records, when they see
+    /// [`Self::store_generation`] move.
+    ///
+    /// The `0xF7EA` arm runs this once the event loop's borrow of the link has ended; a driver
+    /// that patches through the patcher (`App::ddd`) itself ends the patch by setting
+    /// [`Self::ddd_invalidation`] and calling it.
+    pub fn invalidate_after_ddd(&mut self) {
         let Some(summary) = self.ddd_invalidation.take() else {
             return;
         };
@@ -919,7 +921,7 @@ impl<S: Shell> App<S> {
         }
         match crate::assets::open_store(&self.cfg) {
             Ok(fresh) => {
-                self.store = std::sync::Arc::new(fresh);
+                self.adopt_store(std::sync::Arc::new(fresh));
                 tracing::info!(
                     "DDD reopened the dat files; {} changed",
                     summary
@@ -938,6 +940,32 @@ impl<S: Shell> App<S> {
                 e.cause
             ),
         }
+    }
+
+    /// Make `fresh`, the data files reopened after a patch, the store every reader of this
+    /// application reads: the application's own handle, the animation assets the preview spaces
+    /// and the portal space build from, the object stream's, and the bases the patcher writes
+    /// against. Then count the reopen, so a front end that keeps what it read from the files (its
+    /// pictures, its fonts, its own handle on them) reads them again ([`Self::store_generation`]).
+    ///
+    /// The world, once entered, keeps the handles it took at world entry; the one patch that
+    /// reaches it in play, a landblock answering a run-time get, is handed to the land source by
+    /// its caller.
+    pub fn adopt_store(&mut self, fresh: std::sync::Arc<dereth_dat::RetailDatStore>) {
+        self.anim_assets = std::sync::Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+            std::sync::Arc::clone(&fresh),
+        ));
+        self.objects.set_store(std::sync::Arc::clone(&fresh));
+        self.ddd.set_bases(&fresh);
+        self.store = fresh;
+        self.store_generation += 1;
+    }
+
+    /// How many times the data files have been reopened since start-up. See
+    /// [`Self::adopt_store`].
+    #[must_use]
+    pub fn store_generation(&self) -> u64 {
+        self.store_generation
     }
 
     /// The asynchronous cache-miss path's production caller.
@@ -967,7 +995,7 @@ impl<S: Shell> App<S> {
             match crate::assets::open_store(&self.cfg) {
                 Ok(fresh) => {
                     let fresh = std::sync::Arc::new(fresh);
-                    self.store = std::sync::Arc::clone(&fresh);
+                    self.adopt_store(std::sync::Arc::clone(&fresh));
                     land.resupply(fresh, &resupplied);
                     tracing::info!(
                         "0xF7E2 answered {} run-time get(s); the land source was reseeded",

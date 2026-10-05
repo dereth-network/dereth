@@ -65,6 +65,13 @@ impl<'a, S: Shell> UiContext<'a, S> {
         &self.app.store
     }
 
+    /// How many times the data files have been reopened since start-up: a front end keeping
+    /// anything it read from [`Self::store`] reads it again when this moves.
+    #[must_use]
+    pub fn store_generation(&self) -> u64 {
+        self.app.store_generation()
+    }
+
     /// The animation assets the preview spaces build their objects from.
     #[must_use]
     pub fn anim_assets(&self) -> &Arc<dereth_world_data::anim_assets::DatAnimAssets> {

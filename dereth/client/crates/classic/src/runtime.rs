@@ -1449,6 +1449,23 @@ impl ClassicUi {
     ///
     /// # Errors
     /// The key map cannot be read or the settings file is damaged.
+    /// Read the data files again after a data patch: the art reads the portal as the patch left
+    /// it, and every picture and preview made from the files before is let go, to be made again
+    /// from the new records when it is next drawn.
+    pub fn reread_files<S: Host>(&mut self, cx: &mut Cx<'_, S>) {
+        if let Some(art) = &self.resources.art {
+            match dereth_classic_dat::ClassicPortal::of_store(cx.store()) {
+                Some(portal) => art.reread(portal),
+                None => tracing::warn!(
+                    "the reopened data files hold no portal for the classic interface; it keeps                      the one it had"
+                ),
+            }
+        }
+        if let Some(canvas) = &mut self.canvas {
+            canvas.forget_pictures(cx.present_mut());
+        }
+        self.previews.forget_built();
+    }
     pub fn start<S: Host>(&mut self, cx: &mut Cx<'_, S>) -> Result<(), String> {
         let migration = crate::settings_host::Migration::new(&self.paths.state);
         migration.before_defaults();

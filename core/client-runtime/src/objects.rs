@@ -700,6 +700,12 @@ impl ObjectStream {
         }
     }
 
+    /// Read the data files through `store` from here on: the files reopened after a patch.
+    pub fn set_store(&mut self, store: Arc<RetailDatStore>) {
+        self.command_numbering = dereth_world_data::command_numbering::of_store(&store);
+        self.store = Some(store);
+    }
+
     /// The numbering the server's motion commands arrive in, and the client's go out in: the
     /// world files' ([`dereth_world_data::command_numbering`]).
     #[must_use]

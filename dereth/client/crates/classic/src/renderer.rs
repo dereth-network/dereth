@@ -702,6 +702,33 @@ impl Canvas {
     pub fn font_metrics(&self) -> FontMetrics {
         FontMetrics(Arc::clone(&self.manifest.fonts))
     }
+    /// Forget every picture this canvas decoded from the data files or uploaded from them, after
+    /// a data patch: the next screen that names one reads it again, from the files as they are
+    /// now. The font sheets are the host's, not the files', and stay.
+    pub fn forget_pictures<P: Presentation + ?Sized>(&mut self, present: &mut P) {
+        let mut released = Vec::new();
+        self.textures.retain(|file, keyed| {
+            let keep = file.starts_with("font:");
+            if !keep {
+                released.extend(keyed.values().copied());
+            }
+            keep
+        });
+        released.extend(self.item_icons.drain().map(|(_, slot)| slot));
+        released.extend(
+            std::mem::take(&mut self.indexed)
+                .into_values()
+                .flatten()
+                .map(|(_, slot)| slot),
+        );
+        released.extend(std::mem::take(&mut self.spells).into_values());
+        for slot in released {
+            let _ = present.overlay_release(slot);
+        }
+        self.manifest.assets.clear();
+        self.runtime_pixels.clear();
+        self.world_indexed.clear();
+    }
     pub fn resize(&mut self, size: (u32, u32)) {
         self.size = size;
     }

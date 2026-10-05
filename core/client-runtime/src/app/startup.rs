@@ -285,6 +285,7 @@ impl<S: Shell> App<S> {
             pending_ddd: Vec::new(),
             ddd,
             ddd_invalidation: None,
+            store_generation: 0,
             pending_auto_layout: false,
             duties: FrameDuties::default(),
             applied_full_screen: started_full_screen,

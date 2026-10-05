@@ -284,6 +284,9 @@ pub(crate) struct FrontEndServices<H: Host> {
     pub(crate) ui_release: crate::gpu::UiReleaseReport,
     /// This frame's 2D blit list, built at step 7 and drawn inside `PresentFrame`.
     pub(crate) ui_draw_list: Vec<dereth_ui::UiDrawCmd>,
+    /// The reopen of the data files the interfaces last read them at
+    /// ([`dereth_client_runtime::ui_context::UiContext::store_generation`]).
+    files_read: u64,
 }
 
 impl<H: Host> std::fmt::Debug for ClientShell<H> {
@@ -346,6 +349,7 @@ impl<H: Host> ClientShell<H> {
                 host_clipboard: H::clipboard(),
                 ui_release: crate::gpu::UiReleaseReport::default(),
                 ui_draw_list: Vec::new(),
+                files_read: 0,
             },
             classic: crate::classic_face::ClassicFace::default(),
         }
@@ -415,9 +419,31 @@ trait FrontEnd<H: Host> {
     ) -> Result<(), dereth_client_runtime::present::PresentError>;
     fn resize(&mut self, display: (i32, i32));
     fn suspend(&mut self, cx: &mut Cx<'_, H>);
+    /// Read the data files again, as a data patch left them: what the interface keeps from them
+    /// is read from [`Cx::store`] now, and what it uploaded from the old records is let go.
+    fn reread_files(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>);
 }
 
 impl<H: Host> FrontEnd<H> for ModernFrontEnd {
+    fn reread_files(&mut self, cx: &mut Cx<'_, H>, services: &mut FrontEndServices<H>) {
+        let Some(shell) = self.ui.as_mut() else {
+            return;
+        };
+        if let Err(e) = shell.reread_files(cx.store()) {
+            tracing::warn!("the interface could not read the patched data files ({e}); it keeps the ones it had");
+            return;
+        }
+        let r = cx.present_mut().release_ui_textures();
+        services.ui_release.freed += r.freed;
+        services.ui_release.still_linked += r.still_linked;
+        services.ui_release.unknown += r.unknown;
+        // The preview spaces are built again from the new records the next time they are drawn.
+        self.preview_chargen = None;
+        self.chargen_pal_sets = dereth_scene::preview::PaletteSetCache::default();
+        self.paper_doll_built = None;
+        self.examine_3d_built = None;
+    }
+
     fn game_viewport(&self) -> Option<dereth_primitives::Viewport> {
         let shell = self.ui.as_ref()?;
         let root = *shell.flow.current()?.roots().first()?;
@@ -680,6 +706,10 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
 }
 
 impl<H: Host> FrontEnd<H> for dereth_classic_ui::runtime::ClassicUi {
+    fn reread_files(&mut self, cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {
+        dereth_classic_ui::runtime::ClassicUi::reread_files(self, cx);
+    }
+
     fn game_viewport(&self) -> Option<dereth_primitives::Viewport> {
         self.game_viewport()
     }
@@ -1335,6 +1365,24 @@ fn build_classic<H: Host>(
 }
 
 impl<H: Host> ClientShell<H> {
+    /// After the data files are reopened (a data patch), both interfaces read them again, the
+    /// one not shown too, so whichever is shown next draws the new records.
+    fn reread_files_when_patched(&mut self, cx: &mut Cx<'_, H>) {
+        let now = cx.store_generation();
+        if now == self.shared.files_read {
+            return;
+        }
+        self.shared.files_read = now;
+        <ModernFrontEnd as FrontEnd<H>>::reread_files(&mut self.modern, cx, &mut self.shared);
+        if let Some(ui) = self.classic.ui.as_mut() {
+            <dereth_classic_ui::runtime::ClassicUi as FrontEnd<H>>::reread_files(
+                ui,
+                cx,
+                &mut self.shared,
+            );
+        }
+    }
+
     fn front(&self) -> &dyn FrontEnd<H> {
         match self.classic.active() {
             Some(ui) => ui,
@@ -1907,6 +1955,7 @@ impl<H: Host> Shell for ClientShell<H> {
         notices: UiNotices,
     ) {
         service_journal(cx);
+        self.reread_files_when_patched(cx);
         self.follow_interface(cx);
         cx.set_chat_interface(if self.classic.active {
             dereth_client_contract::options::interface::Interface::Classic
@@ -2450,3 +2499,7 @@ mod message_tests;
 #[cfg(test)]
 #[path = "../tests/interface_switch_tests.rs"]
 mod interface_switch_tests;
+
+#[cfg(test)]
+#[path = "../tests/patch_reread_tests.rs"]
+mod patch_reread_tests;

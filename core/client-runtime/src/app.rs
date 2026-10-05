@@ -807,6 +807,10 @@ pub struct App<S: Shell> {
     /// Set by the `0xF7EA` arm; drained by [`Self::invalidate_after_ddd`] once the `link` borrow
     /// the event loop holds has ended.
     pub ddd_invalidation: Option<crate::ddd::DddSummary>,
+    /// How many times the data files have been reopened since start-up ([`Self::adopt_store`]):
+    /// a front end that keeps anything read from them compares it with the count it last saw and
+    /// reads again when it has moved.
+    store_generation: u64,
     /// `0x0013` has arrived and the automatic screen layout has not been applied
     /// yet. The front end's UI step ([`Shell::ui_frame`]) is where the notice's own arm runs.
     pub pending_auto_layout: bool,

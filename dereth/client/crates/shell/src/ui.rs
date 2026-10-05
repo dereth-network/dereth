@@ -674,100 +674,22 @@ impl UiShell {
         // Types *and* defaults: the enum attribute lookup falls back to the master row's
         // default, and the list-row highlight lives on that fallback.
         ui.install_master(&master);
-        // The two services the text element reaches through singletons in the client and cannot
-        // reach at all from `dereth-ui`: the string tables on the asset cache and font mapper.
-        // Without them a label has no characters and no metrics, and there is no text anywhere
-        // in the client.
-        ui.strings = Some(Rc::new(crate::ui_draw::DatStringResolver::new(Arc::clone(
-            store,
-        ))));
-        ui.fonts = Some(Rc::new(crate::ui_draw::DatFontProvider::new(Arc::clone(
-            store,
-        ))));
         let mut flow = UiFlow::new();
         dereth_ui_screens::register_all(&mut ui, &mut flow);
-
-        // The mapper performs a two-level lookup. Never hard-code a
-        // layout DataID: a DDD patch can move one.
-        let assets: Rc<dyn AssetSource> = Rc::new(Arc::clone(store));
-        let resolver = DidMapperResolver::load_via_master(assets.as_ref())
-            .map_err(|e| UiShellError::Resolver(e.to_string()))?;
-        dereth_ui_screens::env::install_env(
-            &mut ui,
-            dereth_ui_screens::env::Env::new(Rc::clone(&assets), Rc::new(resolver)),
-        );
-        // The third service the UI element manager reaches through a singleton in the client, and
-        // cannot reach at all from `dereth-ui`, is the asset database cache.
-        // Tooltip creation builds its window from a layout inside the per-frame update, with no
-        // caller to hand it an asset source. Without this every tooltip in the client is nothing
-        // at all.
-        ui.assets = Some(Rc::new(Arc::clone(store)));
-        // A new UI starts with an empty request queue of its own: nothing a previous shell queued
-        // can reach this one, which is the client's "the objects that would have made the calls
-        // no longer exist".
-
-        // The same two-level lookup as the layouts, on the string-table group. Never hard-code a
-        // table DataID: a DDD patch can move one exactly as it can move a layout.
-        let patch_strings = DidMapperResolver::load_group(
-            assets.as_ref(),
-            dereth_ui::framework::STRING_TABLE_GROUP,
-        )
-        .ok()
-        .and_then(|r| {
-            use dereth_ui::framework::LayoutEnumResolver as _;
-            r.resolve(dereth_ui::framework::LayoutEnum(PATCH_STRING_TABLE_ENUM))
-        });
-        if patch_strings.is_none() {
-            tracing::warn!("string-table enum {PATCH_STRING_TABLE_ENUM:#X} did not resolve");
-        }
-        // The same lookup on `GamePlayScreen`'s own table enum.
-        let client_strings = DidMapperResolver::load_group(
-            assets.as_ref(),
-            dereth_ui::framework::STRING_TABLE_GROUP,
-        )
-        .ok()
-        .and_then(|r| {
-            use dereth_ui::framework::LayoutEnumResolver as _;
-            r.resolve(dereth_ui::framework::LayoutEnum(CLIENT_STRING_TABLE_ENUM))
-        });
-        if client_strings.is_none() {
-            tracing::warn!("string-table enum {CLIENT_STRING_TABLE_ENUM:#X} did not resolve");
-        }
-
-        // The two dat tables `CharGenScreen`'s pages are views over, through the **same**
-        // two-level lookup: `DidMapper 0x25000000` entry 2 is `UNIQUEDB`, and its entries `0x0E`
-        // and `4` are `CharGen_CharacterData` and `Weenie_SkillTable`. Hard-coding `0x0E000002`
-        // would work against this dat build and break on any other.
-        let mut stats = UiStats::default();
-        let chargen_tables = load_chargen_tables(&Arc::clone(world), world);
-        let classic_creation = chargen_tables
-            .as_ref()
-            .map(|tables| {
-                Rc::new(
-                    dereth_classic_ui::panels::pregame::data::CreationData::load(
-                        Rc::clone(&tables.world),
-                        world,
-                    ),
-                )
-            })
-            .ok_or_else(|| "World creation tables unavailable".to_owned());
-        if chargen_tables.is_none() {
-            stats.chargen_table_failures += 1;
-            tracing::warn!("the char-gen tables did not load; creation is unavailable");
-        }
+        let files = read_files(&mut ui, world, &interface)?;
 
         Ok(Self {
             ui,
-            interface: Arc::clone(store),
+            interface: files.interface,
             flow,
             transitions: Vec::new(),
             last_host: HostState::default(),
-            patch_strings,
-            client_strings,
+            patch_strings: files.patch_strings,
+            client_strings: files.client_strings,
             character_actions: Vec::new(),
             chargen_actions: Vec::new(),
-            chargen_tables,
-            classic_creation,
+            chargen_tables: files.chargen_tables.clone(),
+            classic_creation: files.classic_creation,
             last_char_set: None,
             client_dir: std::path::PathBuf::from("."),
             movie_bytes: |_| None,
@@ -778,7 +700,10 @@ impl UiShell {
             movie_stats: MovieStats::default(),
             log_off_requested: false,
             save_keymap_requested: false,
-            stats,
+            stats: UiStats {
+                chargen_table_failures: u64::from(files.chargen_tables.is_none()),
+                ..UiStats::default()
+            },
             mouse_events: Vec::new(),
             target_mode_active: false,
             text_mode: false,
@@ -798,6 +723,29 @@ impl UiShell {
         &self,
     ) -> Result<Rc<dereth_classic_ui::panels::pregame::data::CreationData>, String> {
         self.classic_creation.clone()
+    }
+
+    /// Read the data files again after a data patch: every service the screens reach the files
+    /// through, the string tables and the creation tables are read from `world` as it is now. A
+    /// screen built from here on is built from the new records; the pictures the renderer
+    /// uploaded for the old ones are its caller's to let go.
+    ///
+    /// # Errors
+    /// As [`Self::new`]; the shell then keeps reading the files it had.
+    pub fn reread_files(
+        &mut self,
+        world: &Arc<dereth_dat::RetailDatStore>,
+    ) -> Result<(), UiShellError> {
+        let files = read_files(&mut self.ui, world, &world.interface_files())?;
+        if files.chargen_tables.is_none() {
+            self.stats.chargen_table_failures += 1;
+        }
+        self.interface = files.interface;
+        self.patch_strings = files.patch_strings;
+        self.client_strings = files.client_strings;
+        self.chargen_tables = files.chargen_tables;
+        self.classic_creation = files.classic_creation;
+        Ok(())
     }
 
     /// Main-loop step 7: advance the UI element manager.
@@ -2458,6 +2406,108 @@ impl UiShell {
             self.ui.refresh_event(display);
         }
     }
+}
+
+/// What the modern interface reads from the data files and keeps: its own files' handle, the
+/// two string tables it names, and the world's creation tables.
+struct ShellFiles {
+    interface: Arc<dereth_dat::RetailDatStore>,
+    patch_strings: Option<dereth_primitives::DataId>,
+    client_strings: Option<dereth_primitives::DataId>,
+    chargen_tables: Option<Rc<CharGenTables>>,
+    classic_creation: Result<Rc<dereth_classic_ui::panels::pregame::data::CreationData>, String>,
+}
+
+/// Point `ui`'s services at `interface`, the modern interface's own files beside `world`, and
+/// read what the shell keeps from them ([`ShellFiles`]). The shell's start and every reread after
+/// a data patch read through here, so both read the same things.
+///
+/// # Errors
+/// [`UiShellError::Resolver`] when the layout mapper does not load.
+fn read_files(
+    ui: &mut UiSystem,
+    world: &Arc<dereth_dat::RetailDatStore>,
+    interface: &Arc<dereth_dat::RetailDatStore>,
+) -> Result<ShellFiles, UiShellError> {
+    use dereth_primitives::AssetSource;
+    let store = interface;
+    // The mapper performs a two-level lookup. Never hard-code a
+    // layout DataID: a DDD patch can move one. Loaded first, so files it will not load from
+    // change nothing `ui` reads.
+    let assets: Rc<dyn AssetSource> = Rc::new(Arc::clone(store));
+    let resolver = DidMapperResolver::load_via_master(assets.as_ref())
+        .map_err(|e| UiShellError::Resolver(e.to_string()))?;
+    // The two services the text element reaches through singletons in the client and cannot
+    // reach at all from `dereth-ui`: the string tables on the asset cache and font mapper.
+    // Without them a label has no characters and no metrics, and there is no text anywhere
+    // in the client.
+    ui.strings = Some(Rc::new(crate::ui_draw::DatStringResolver::new(Arc::clone(
+        store,
+    ))));
+    ui.fonts = Some(Rc::new(crate::ui_draw::DatFontProvider::new(Arc::clone(
+        store,
+    ))));
+    dereth_ui_screens::env::install_env(
+        ui,
+        dereth_ui_screens::env::Env::new(Rc::clone(&assets), Rc::new(resolver)),
+    );
+    // The third service the UI element manager reaches through a singleton in the client, and
+    // cannot reach at all from `dereth-ui`, is the asset database cache.
+    // Tooltip creation builds its window from a layout inside the per-frame update, with no
+    // caller to hand it an asset source. Without this every tooltip in the client is nothing
+    // at all.
+    ui.assets = Some(Rc::new(Arc::clone(store)));
+
+    // The same two-level lookup as the layouts, on the string-table group. Never hard-code a
+    // table DataID: a DDD patch can move one exactly as it can move a layout.
+    let patch_strings =
+        DidMapperResolver::load_group(assets.as_ref(), dereth_ui::framework::STRING_TABLE_GROUP)
+            .ok()
+            .and_then(|r| {
+                use dereth_ui::framework::LayoutEnumResolver as _;
+                r.resolve(dereth_ui::framework::LayoutEnum(PATCH_STRING_TABLE_ENUM))
+            });
+    if patch_strings.is_none() {
+        tracing::warn!("string-table enum {PATCH_STRING_TABLE_ENUM:#X} did not resolve");
+    }
+    // The same lookup on `GamePlayScreen`'s own table enum.
+    let client_strings =
+        DidMapperResolver::load_group(assets.as_ref(), dereth_ui::framework::STRING_TABLE_GROUP)
+            .ok()
+            .and_then(|r| {
+                use dereth_ui::framework::LayoutEnumResolver as _;
+                r.resolve(dereth_ui::framework::LayoutEnum(CLIENT_STRING_TABLE_ENUM))
+            });
+    if client_strings.is_none() {
+        tracing::warn!("string-table enum {CLIENT_STRING_TABLE_ENUM:#X} did not resolve");
+    }
+
+    // The two dat tables `CharGenScreen`'s pages are views over, through the **same**
+    // two-level lookup: `DidMapper 0x25000000` entry 2 is `UNIQUEDB`, and its entries `0x0E`
+    // and `4` are `CharGen_CharacterData` and `Weenie_SkillTable`. Hard-coding `0x0E000002`
+    // would work against this dat build and break on any other.
+    let chargen_tables = load_chargen_tables(&Arc::clone(world), world);
+    let classic_creation = chargen_tables
+        .as_ref()
+        .map(|tables| {
+            Rc::new(
+                dereth_classic_ui::panels::pregame::data::CreationData::load(
+                    Rc::clone(&tables.world),
+                    world,
+                ),
+            )
+        })
+        .ok_or_else(|| "World creation tables unavailable".to_owned());
+    if chargen_tables.is_none() {
+        tracing::warn!("the char-gen tables did not load; creation is unavailable");
+    }
+    Ok(ShellFiles {
+        interface: Arc::clone(interface),
+        patch_strings,
+        client_strings,
+        chargen_tables,
+        classic_creation,
+    })
 }
 
 /// Load `CharGen_CharacterData` and the `SkillTable` through the master `DidMapper`.

@@ -59,6 +59,13 @@ impl std::fmt::Debug for Previews {
     }
 }
 impl Previews {
+    /// Forget what the spaces were built from and every record read for them, after a data
+    /// patch: each shown space is built again from the files as they are now.
+    pub fn forget_built(&mut self) {
+        self.built.clear();
+        self.palettes = PaletteSetCache::default();
+        self.pick_meshes.clear();
+    }
     /// A click on the paper doll: the object and part the ray from the doll's camera hits.
     /// Coordinates are in the same absolute UI space as `view.rect`.
     pub fn pick<P: Presentation + ?Sized>(

@@ -3,7 +3,7 @@ use dereth_classic_dat::fonts::{FontAtlas, FontSource, FontSpec};
 use dereth_classic_dat::ClassicPortal;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// One decoded interface image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +30,8 @@ pub const CHARACTER_PANEL: u32 = 0x0600_1924;
 
 /// The classic portal's art and tables.
 pub struct ClassicArt {
-    portal: ClassicPortal,
+    /// The portal read from, replaced whole when the files are reread ([`Self::reread`]).
+    portal: RwLock<ClassicPortal>,
     images: Mutex<BTreeMap<u32, Option<Arc<Image>>>>,
     fonts: BTreeMap<String, Arc<FontAtlas>>,
 }
@@ -62,22 +63,47 @@ impl ClassicArt {
             fonts.insert(name.to_owned(), Arc::new(atlas));
         }
         Ok(Self {
-            portal,
+            portal: RwLock::new(portal),
             images: Mutex::default(),
             fonts,
         })
     }
 
-    /// The classic portal itself.
+    /// The classic portal itself, as it is now read.
     #[must_use]
-    pub const fn portal(&self) -> &ClassicPortal {
-        &self.portal
+    pub fn portal(&self) -> ClassicPortal {
+        self.portal
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Read from `portal` from here on, the files as a data patch left them, and forget every
+    /// image decoded from the files before: the next ask for one decodes it from `portal`. Every
+    /// holder of this art reads the new records, whatever it was built with.
+    pub fn reread(&self, portal: ClassicPortal) {
+        *self
+            .portal
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = portal;
+        self.images
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+
+    /// A record of the portal, as it is now read.
+    fn record(&self, id: u32) -> Option<Vec<u8>> {
+        self.portal
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(id)
     }
 
     /// A palette (a `0x04` record) of the classic portal, as 256 opaque colours.
     #[must_use]
     pub fn palette(&self, id: u32) -> Option<Vec<[u8; 4]>> {
-        dereth_classic_dat::appearance::palette(&self.portal.get(id)?).ok()
+        dereth_classic_dat::appearance::palette(&self.record(id)?).ok()
     }
 
     /// An indexed texture (a `0x05` record) of the classic portal: the creation strips' own when
@@ -93,7 +119,7 @@ impl ClassicArt {
             None => (key, false),
         };
         let id = u32::from_str_radix(id, 16).ok()?;
-        let t = dereth_classic_dat::appearance::indexed(&self.portal.get(id)?).ok()?;
+        let t = dereth_classic_dat::appearance::indexed(&self.record(id)?).ok()?;
         Some(if mirror {
             dereth_classic_dat::appearance::mirrored(&t)
         } else {
@@ -113,7 +139,7 @@ impl ClassicArt {
             return made.clone();
         }
         // Composing reads other images, so no lock is held while the image is made.
-        let made = match self.portal.get(id) {
+        let made = match self.record(id) {
             Some(payload) => dereth_classic_dat::image::decode_rgb(&payload, Some(id))
                 .ok()
                 .map(|decoded| Image {
