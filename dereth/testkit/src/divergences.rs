@@ -288,6 +288,25 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The server, the launcher and the client agree on one form, and a client older or \
               newer than its server still reads the systems they share.",
     },
+    Divergence {
+        id: "CD-035",
+        title: "The logon version is the world's",
+        change: "--logon-version sets the version string the login request carries. The final \
+                 client always sent 1802; without the switch this client does too.",
+        why: "A world whose server accepts only its own client's string can be played with this \
+              one.",
+    },
+    Divergence {
+        id: "CD-036",
+        title: "A world can be played by its own client's rules",
+        change: "--world-profile names a set of rules compiled into the client, the ones a \
+                 world's own client changed: burden, run and jump, which weapons rule out a \
+                 shield, what an appraisal and some refusals say, and a few more. The final \
+                 client had one set of these rules, hard-coded; without the switch this client \
+                 plays by it.",
+        why: "A character on such a world carries, moves and reads what that world's server \
+              expects.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

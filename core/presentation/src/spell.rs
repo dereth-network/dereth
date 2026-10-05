@@ -25,6 +25,16 @@ pub fn school_name(school: u32) -> &'static str {
     }
 }
 
+/// [`school_name`] as the world words it: a world may name the Void school differently.
+#[must_use]
+pub fn school_name_in(school: u32, rules: Option<&dereth_primitives::WorldRules>) -> &str {
+    let name = school_name(school);
+    match (school, rules) {
+        (5, Some(r)) => r.text_or(dereth_primitives::TextKey::SchoolVoidMagic, name),
+        _ => name,
+    }
+}
+
 /// The spell's skill lookup, the five fallback skills, and
 /// the spell-range determination's arithmetic.
 ///

@@ -235,15 +235,26 @@ mod inquiries {
         t: &SkillTable,
         filter: Option<&dereth_assets::tables::QualityFilter>,
     ) -> Option<f32> {
+        inq_run_rate_in(q, t, filter, &dereth_primitives::WorldRules::default())
+    }
+
+    /// [`inq_run_rate`] under a world's rules: its burden capacity and its run scale.
+    #[must_use]
+    pub fn inq_run_rate_in<Q: QualityRead + ?Sized>(
+        q: &Q,
+        t: &SkillTable,
+        filter: Option<&dereth_assets::tables::QualityFilter>,
+        rules: &dereth_primitives::WorldRules,
+    ) -> Option<f32> {
         let stamina = inq_current_vital(q, vital::STAMINA, filter)?;
-        let load = crate::burden::inq_load(q);
+        let load = crate::burden::inq_load_in(q, rules);
         let run = inq_skill(q, t, skill::RUN, false)?;
         let run = if stamina == 0 {
             0
         } else {
             i32::try_from(run).unwrap_or(i32::MAX)
         };
-        Some(get_run_rate(load, run, 1.0))
+        Some(get_run_rate(load, run, rules.run_scale))
     }
 }
 
@@ -302,6 +313,23 @@ mod tests {
             inq_max_run_rate()
         );
         assert!((inq_max_run_rate() * 4.0 - 14.784_293).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_worlds_run_scale_divides_the_run_rate_and_its_maximum() {
+        let slow = dereth_primitives::WorldRules {
+            run_scale: 1.5,
+            ..dereth_primitives::WorldRules::default()
+        };
+        let max = crate::movement::inq_max_run_rate_in(&slow);
+        assert!((max * 1.5 - inq_max_run_rate()).abs() < 1e-6, "{max}");
+        assert_eq!(
+            crate::movement::inq_max_run_rate_in(&dereth_primitives::WorldRules::default()),
+            inq_max_run_rate()
+        );
+        // The skill-800 exception is not scaled: the same 4.5 the end of retail returns.
+        assert_eq!(get_run_rate(0.0, 800, 1.5), 4.5);
+        assert!((get_run_rate(0.0, 300, 1.5) * 1.5 - get_run_rate(0.0, 300, 1.0)).abs() < 1e-6);
     }
 
     /// Oracle: the run-rate enquiry — encumbrance enters only through `load_mod`, which multiplies

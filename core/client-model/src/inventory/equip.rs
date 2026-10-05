@@ -403,7 +403,7 @@ impl World {
         }
         if valid & loc::SHIELD != 0 {
             if let Some(r) = self.weenie(ready) {
-                if blocks_use_of_shield(r) {
+                if self.world_rules.weapons_block_shields && blocks_use_of_shield(r) {
                     let name = r.display_name(
                         crate::weenie::NameType::Singular,
                         self.material_name(r.pwd.material_type.unwrap_or(0)),
@@ -483,6 +483,11 @@ impl World {
             if inv & bit == 0 {
                 return WieldPlan::Wield(bit);
             }
+            // A world whose rules replace a worn trinket asks for the slot anyway, silently: the
+            // server takes the old one off first.
+            if bit == loc::TRINKET_ONE && self.world_rules.trinket_replaces_worn {
+                return WieldPlan::Wield(bit);
+            }
             walk.block(bit, Some(message));
         }
 
@@ -558,7 +563,10 @@ impl World {
             if inv & loc::WEAPON_READY_SLOT == 0 {
                 // The off-hand rules the main hand out, not the other way round.
                 let shield = self.inv_slots.item_at(loc::SHIELD);
-                if shield.is_some() && blocks_use_of_shield(w) {
+                if shield.is_some()
+                    && self.world_rules.weapons_block_shields
+                    && blocks_use_of_shield(w)
+                {
                     walk.block(loc::SHIELD, None);
                 } else {
                     // The launcher and the ammunition already up must agree.
@@ -1342,6 +1350,58 @@ mod tests {
         assert_eq!(
             w.auto_wear_is_legal(ObjectId(10)),
             Err((String::new(), false))
+        );
+    }
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_world_whose_weapons_do_not_block_shields_lets_a_shield_on_beside_a_bow() {
+        let mut w = world_with(&[
+            (
+                20,
+                PublicWeenieDesc {
+                    name: "Bow".into(),
+                    ammo_type: Some(1),
+                    combat_use: Some(crate::combat::combat_use::MISSILE),
+                    location: Some(loc::MISSILE_WEAPON),
+                    ..PublicWeenieDesc::default()
+                },
+            ),
+            (
+                30,
+                PublicWeenieDesc {
+                    name: "Shield".into(),
+                    valid_locations: Some(loc::SHIELD),
+                    ..PublicWeenieDesc::default()
+                },
+            ),
+        ]);
+        w.inv_slots.set(loc::WEAPON_READY_SLOT, ObjectId(20));
+        assert_eq!(
+            w.auto_wield_is_legal(ObjectId(30)),
+            Err("A shield may not be worn with the Bow".into())
+        );
+        w.world_rules.weapons_block_shields = false;
+        assert_eq!(w.auto_wield_is_legal(ObjectId(30)), Ok(()));
+    }
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_world_that_replaces_a_worn_trinket_asks_for_the_trinket_slot_without_a_word() {
+        let mut w = world_with(&[(10, wearable(loc::TRINKET_ONE, 0))]);
+        w.inventory_mask = loc::TRINKET_ONE;
+        assert_eq!(
+            w.plan_auto_wield(ObjectId(10), SlotSide::Null, false),
+            WieldPlan::Blocked {
+                slot: loc::TRINKET_ONE,
+                blocker: None,
+                messages: vec!["You're already wearing a trinket."],
+            }
+        );
+        w.world_rules.trinket_replaces_worn = true;
+        assert_eq!(
+            w.plan_auto_wield(ObjectId(10), SlotSide::Null, false),
+            WieldPlan::Wield(loc::TRINKET_ONE)
         );
     }
 

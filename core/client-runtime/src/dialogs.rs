@@ -37,6 +37,8 @@ pub enum Prompt {
     AcceptSwear { name: String },
     /// Buy the house the player is at.
     HouseBuy,
+    /// Buy the house the player is at, asked in the world's own words.
+    HouseBuyAs(String),
     /// Pay the house's rent on the owner's behalf.
     HouseRentByProxy,
 }
@@ -304,6 +306,11 @@ impl DialogService {
             }
             let prompt = if rent {
                 Prompt::HouseRentByProxy
+            } else if let Some(worded) = world
+                .world_rules
+                .text(dereth_primitives::TextKey::HouseBuyConfirmation)
+            {
+                Prompt::HouseBuyAs(worded.to_owned())
             } else {
                 Prompt::HouseBuy
             };

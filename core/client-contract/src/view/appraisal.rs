@@ -426,6 +426,9 @@ pub struct AppraisalView {
     /// `InqInt(0x186)` `Enlightenment` — the character pane's *"Enlightenment:"* line, drawn
     /// whenever the property is present, zero included.
     pub enlightenment: Option<i32>,
+    /// The rules the world plays by: what its own client showed in a shield's slot, how it
+    /// worded the texts a world may word differently.
+    pub world_rules: dereth_primitives::WorldRules,
 }
 
 /// One `(requirement, skill/attribute, difficulty)` triple of the wield-requirements block.

@@ -86,6 +86,9 @@ pub struct PregameView {
     /// `0xF658`'s Throne of Destiny flag, which
     /// gates the Viamontian heritage and the Sanamar start area.
     pub account_has_tod: bool,
+    /// The rules the world plays by (`--world-profile`), for the screens before the world: which
+    /// heritages character creation's Random picks among, what its fourth starting town is called.
+    pub world_rules: dereth_primitives::WorldRules,
     /// `DDD_PatchtimeEnd`: there is nothing to patch.
     pub patch_finished: bool,
     /// Data-patch notifications, in arrival order, since the last frame.

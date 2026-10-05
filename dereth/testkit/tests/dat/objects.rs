@@ -185,6 +185,7 @@ dereth_testkit::scenarios! {
     scenario_selecting_a_creature_asks_about_its_health_once => selecting_a_creature_asks_about_its_health_once ["selection.query.selecting-a-creature-asks-the-shard-about-its-health-once"],
     scenario_selecting_a_stack_asks_nothing => selecting_a_stack_asks_nothing ["selection.query.selecting-a-pile-of-things-asks-the-shard-nothing"],
     scenario_what_is_asked_has_four_outcomes_and_not_two => what_is_asked_has_four_outcomes_and_not_two ["selection.query.what-the-client-asks-about-a-selected-thing-has-four-outcomes"],
+    scenario_a_world_that_asks_any_selection_for_mana_asks_about_a_thing_on_the_ground => a_world_that_asks_any_selection_for_mana_asks_about_a_thing_on_the_ground ["selection.query.a-world-whose-rules-ask-any-selection-for-mana-asks-about-a-thing-on-the-ground"],
     scenario_a_pile_that_shrinks_to_one_asks_again => a_pile_that_shrinks_to_one_asks_again ["selection.query.a-pile-that-shrinks-to-one-asks-again-with-no-selection-change"],
     scenario_the_shards_answer_fills_the_selected_things_health_bar => the_shards_answer_fills_the_selected_things_health_bar ["selection.meters.the-shards-answer-fills-the-selected-things-health-bar"],
     scenario_a_magic_answer_fills_the_bar_only_when_it_succeeded => a_magic_answer_fills_the_bar_only_when_it_succeeded ["selection.meters.an-answer-about-a-things-magic-fills-its-bar-only-when-it-succeeded"],
@@ -2603,6 +2604,64 @@ pub fn what_is_asked_has_four_outcomes_and_not_two() {
     );
 }
 
+/// On a world whose rules ask any selection for its mana, a thing on the ground is asked about
+/// its mana as the player's own things are, and a creature is still asked about its health.
+pub fn a_world_that_asks_any_selection_for_mana_asks_about_a_thing_on_the_ground() {
+    use dereth_ui_screens::screens::gameplay::SelectionQuery;
+    use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
+
+    let mut b = hud_support::Bench::new();
+    b.hud.era.world_rules =
+        dereth_rules::world::profile_rules(dereth_rules::world::CLASSICACE_CUSTOMDM)
+            .expect("a compiled profile");
+    let me = b
+        .objects
+        .world
+        .player
+        .expect("the recording named a player");
+    let w = &mut b.objects.world;
+    let monster = hud_support::put(
+        w,
+        0x7000_0001,
+        item_type::CREATURE,
+        bitfield::ATTACKABLE,
+        None,
+        None,
+    );
+    let mine = hud_support::put(w, 0x7000_0004, item_type::CASTER, 0, None, Some(me));
+    let ground = hud_support::put(w, 0x7000_0005, item_type::MISC, 0, None, None);
+    let cases: &[(ObjectId, SelectionQuery)] = &[
+        (monster, SelectionQuery::Health),
+        (mine, SelectionQuery::ItemMana),
+        (ground, SelectionQuery::ItemMana),
+    ];
+    let idle = b.frame().is_empty();
+    let _ = b.sent();
+    let mut ok = true;
+    for (id, want) in cases {
+        ok &= b.select(Some(*id)).is_empty();
+        let sent = b.sent();
+        let asked = hud_support::per_selection(&sent);
+        ok &= match want {
+            SelectionQuery::Health => matches!(
+                asked.as_slice(),
+                [dereth_client_model::Request::QueryHealth(q)] if q.target == *id
+            ),
+            SelectionQuery::ItemMana => matches!(
+                asked.as_slice(),
+                [dereth_client_model::Request::QueryItemMana(q)] if q.object == *id
+            ),
+            _ => false,
+        };
+    }
+
+    let mut client = HeadlessClient::model();
+    client.assert_behaviour(
+        "selection.query.a-world-whose-rules-ask-any-selection-for-mana-asks-about-a-thing-on-the-ground",
+        move |_| idle && ok,
+    );
+}
+
 /// A pile that shrinks to one asks again, with no selection having changed.
 pub fn a_pile_that_shrinks_to_one_asks_again() {
     use dereth_client_model::qualities::{StatKey, StatType, StatValue};
@@ -2735,12 +2794,25 @@ pub fn a_magic_answer_fills_the_bar_only_when_it_succeeded() {
         .iter()
         .any(|r| matches!(r, dereth_client_model::Request::QueryItemMana(q) if q.object == WAND));
 
-    // A failed answer writes nothing.
-    let failed = !b.objects.world.update_item_mana(WAND, 0.5, false);
+    // A failed answer writes nothing, and asks the shard to stop answering about the wand.
+    let mut stop = dereth_client_model::RecordingRequests::default();
+    let failed = !b
+        .objects
+        .world
+        .receive_item_mana(&mut stop, WAND, 0.5, false)
+        && matches!(
+            stop.0.as_slice(),
+            [dereth_client_model::Request::QueryItemMana(q)] if q.object == ObjectId(0)
+        );
     let quiet = b.frame().is_empty();
     let still_down = !b.meter_visible(b.mana) && b.hud.stats.selection_meters_written == 0;
 
-    let succeeded = b.objects.world.update_item_mana(WAND, 0.5, true);
+    let mut none = dereth_client_model::RecordingRequests::default();
+    let succeeded = b
+        .objects
+        .world
+        .receive_item_mana(&mut none, WAND, 0.5, true)
+        && none.0.is_empty();
     let quiet2 = b.frame().is_empty();
     let filled = b.meter_visible(b.mana)
         && b.meter(b.mana) == Some(0.5)

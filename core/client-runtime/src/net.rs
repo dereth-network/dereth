@@ -34,7 +34,7 @@ use dereth_client_net::socket::{
 use dereth_client_net::{Net, NetConfig};
 use dereth_primitives::{LocalTime, ObjectId};
 use dereth_transport::conn::{
-    build_login_request, handshake_port, iteration_verdict, ConnectRequest,
+    build_login_request_as, handshake_port, iteration_verdict, ConnectRequest,
     ConnectionAuthenticator, IterationVerdict, LoginState, NetErrorCode,
 };
 use dereth_transport::flow::HANDSHAKE_RESEND;
@@ -646,11 +646,25 @@ impl ClientNetwork {
         }
     }
 
-    /// client version `"1802"` and the authenticator,
+    /// The logon version string the login request carries: `"1802"` unless the world's server
+    /// wants another (`--logon-version`).
+    #[must_use]
+    pub fn logon_version(&self) -> &str {
+        &self.session.transport.config.client_version
+    }
+
+    /// Send `version` as the logon version string instead of `"1802"`.
+    pub fn set_logon_version(&mut self, version: &str) {
+        version.clone_into(&mut self.session.transport.config.client_version);
+    }
+
+    /// The client version ([`Self::logon_version`]) and the authenticator,
     /// with a hand-built header: everything zero but header flags `0x10000` and the data length.
     fn send_login_request(&mut self) {
         let mut p = OutPacket::new(ProtoHeader::default());
-        if p.add_optional_header(PacketFlags::LOGIN_REQUEST, build_login_request(&self.auth))
+        let body =
+            build_login_request_as(&self.session.transport.config.client_version, &self.auth);
+        if p.add_optional_header(PacketFlags::LOGIN_REQUEST, body)
             .is_err()
         {
             return;
@@ -1033,6 +1047,32 @@ mod tests {
             Some(&cr.cookie.to_le_bytes()[..]),
             "the cookie is echoed verbatim"
         );
+    }
+
+    /// Behaviour: login.logon-version.a-world-that-wants-another-logon-version-is-sent-it
+    #[test]
+    fn the_login_request_carries_the_logon_version_the_world_wants() {
+        let version_sent = |c: &mut ClientNetwork| {
+            c.tick(LocalTime(0.0));
+            let out = c.take_outgoing();
+            let p = ParsedPacket::parse(&out[0].0).expect("LoginRequest parses");
+            let body = p
+                .optional
+                .get(&PacketFlags::LOGIN_REQUEST)
+                .expect("a login request")
+                .clone();
+            dereth_transport::conn::LoginRequest::parse(&body)
+                .expect("decodes")
+                .client_version
+        };
+        let mut retail =
+            ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0).expect("host");
+        assert_eq!(retail.logon_version(), "1802");
+        assert_eq!(version_sent(&mut retail), "1802");
+
+        let mut c = ClientNetwork::new("127.0.0.1:19000", 7304, "ac01", "pass", 0).expect("host");
+        c.set_logon_version("c118");
+        assert_eq!(version_sent(&mut c), "c118");
     }
 
     /// A duplicate `ConnectRequest` at the same iteration is ignored entirely; a newer one is not.

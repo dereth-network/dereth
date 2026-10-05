@@ -727,12 +727,16 @@ impl SlumlordPanel {
                 true
             }
             BUY_BUTTON => {
-                // The client: every landscape house asks; only an apartment pays immediately.
-                if self
-                    .profile
-                    .as_ref()
-                    .is_none_or(|p| p.house_type != APARTMENT)
-                {
+                // The client: every landscape house asks; only an apartment pays immediately,
+                // unless the world's rules ask for every purchase.
+                let retail = dereth_primitives::WorldRules::default();
+                let rules = view.era().map_or(&retail, |e| &e.world_rules);
+                if self.profile.as_ref().is_none_or(|p| {
+                    dereth_client_contract::panels::slumlord::purchase_asks_first(
+                        p.house_type,
+                        rules,
+                    )
+                }) {
                     if !self.buy_confirmation_pending {
                         self.buy_confirmation_pending = true;
                         ui.requests

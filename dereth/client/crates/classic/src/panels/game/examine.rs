@@ -112,7 +112,10 @@ impl Panel for Examine {
                 text(
                     &mut f,
                     rect(9, 35, 235, 20),
-                    format!("School: {}", spell::school_name(s.school)),
+                    format!(
+                        "School: {}",
+                        spell::school_name_in(s.school, g.era().map(|e| &e.world_rules))
+                    ),
                     "16-7",
                     CREAM,
                     1,
@@ -328,13 +331,7 @@ impl Panel for Examine {
                 text(
                     &mut f,
                     rect(2, 63, 168, 17),
-                    if a.weenie_is_pk {
-                        "Player Killer"
-                    } else if a.weenie_is_pk_lite {
-                        "Player Killer Lite"
-                    } else {
-                        "Non-Player Killer"
-                    },
+                    dereth_presentation::appraisal::pk_status_text_in(&a).to_owned(),
                     "15-6",
                     CREAM,
                     1,

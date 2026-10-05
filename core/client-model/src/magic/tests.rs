@@ -26,6 +26,54 @@ fn new_session_keeps_receipt_sequence_but_discards_pending_test_and_result() {
     assert!(fresh.last_learned_spell.is_none());
 }
 
+/// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+#[test]
+fn a_world_that_leaves_expiries_unannounced_writes_no_expiry_line() {
+    let base = SpellBase {
+        name: "Strength Self I".into(),
+        description: String::new(),
+        school: 4,
+        icon: 0,
+        category: 0,
+        bitfield: 0,
+        base_mana: 0,
+        base_range_constant: 0.0,
+        base_range_mod: 0.0,
+        power: 0,
+        spell_economy_mod: 0.0,
+        formula_version: 0,
+        component_loss: 0.0,
+        meta_spell_type: 1,
+        meta_spell_id: 0,
+        duration: None,
+        portal_lifetime: None,
+        raw_comps: [0; 8],
+        comp_key: 0,
+        comps: Vec::new(),
+        caster_effect: 0,
+        target_effect: 0,
+        fizzle_effect: 0,
+        recovery_interval: 0.0,
+        recovery_amount: 0.0,
+        display_order: 0,
+        non_component_target_type: 0,
+        mana_mod: 0,
+    };
+    let mut world = World::new();
+    world.magic.spell_table = Some(std::sync::Arc::new(dereth_assets::tables::SpellTable {
+        id: dereth_primitives::DataId(0x0e00000e),
+        spell_buckets: 1,
+        spells: [(2, base)].into_iter().collect(),
+        spellset_bucket_index: 0,
+        spellsets: Default::default(),
+    }));
+    assert!(world.notify_of_enchantment_removal(2));
+    assert_eq!(world.scroll.drain()[0].body, "Strength Self I has expired.");
+    world.world_rules.enchantment_expiry_line = false;
+    assert!(!world.notify_of_enchantment_removal(2));
+    assert!(world.scroll.drain().is_empty());
+}
+
 /// Behaviour: feedback.producers.successful-casting-keeps-warning-emphasis
 #[test]
 fn real_targeted_cast_announces_dynamic_spell_name_as_warning_and_unknown_stays_silent() {

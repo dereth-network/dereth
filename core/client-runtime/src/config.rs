@@ -292,6 +292,14 @@ pub struct Config {
     /// table; one this client's table and the bitfield's do not both have, or a name it does not
     /// know, is left to the table.
     pub era_features: dereth_primitives::EraFeatureOverrides,
+    /// `--logon-version <string>`: the logon version string the login request carries, for a
+    /// world whose server wants one other than the end of retail's `"1802"`, as the launcher
+    /// reads it from its table of such worlds.
+    pub logon_version: String,
+    /// `--world-profile <name>`: the named rules the world's own client played by
+    /// (`dereth_rules::world::PROFILES`), over the end of retail's. Default: none, the end of
+    /// retail's rules.
+    pub world_rules: dereth_primitives::WorldRules,
 
     // ---- the static scene ----
     /// `--landblock <hex>`: which landblock the camera starts over. Holtburg by default, the
@@ -523,6 +531,8 @@ impl Default for Config {
             world_base: None,
             era: None,
             era_features: dereth_primitives::EraFeatureOverrides::default(),
+            logon_version: dereth_transport::conn::CLIENT_VERSION.to_owned(),
+            world_rules: dereth_primitives::WorldRules::default(),
         }
     }
 }
@@ -718,6 +728,17 @@ const REBUILD_SWITCHES: &[Switch] = &[
     },
     Switch {
         long: "era-features",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The logon version string a world's server wants, and the named rules its client played by.
+    Switch {
+        long: "logon-version",
+        short: None,
+        arity: Arity::Required,
+    },
+    Switch {
+        long: "world-profile",
         short: None,
         arity: Arity::Required,
     },
@@ -1527,6 +1548,19 @@ impl Config {
                     }
                     self.era_features = features;
                 }
+            }
+            "logon-version" => {
+                // A packed string the server compares byte for byte; Windows-1252 has no room for
+                // anything but plain characters here, and an empty one would be no version at all.
+                let v = v.trim();
+                if v.is_empty() || !v.chars().all(|c| c.is_ascii_graphic()) || v.len() > 64 {
+                    return Err(ConfigError::new(format!("bad --logon-version {v:?}")));
+                }
+                v.clone_into(&mut self.logon_version);
+            }
+            "world-profile" => {
+                self.world_rules = dereth_rules::world::profile_rules(v)
+                    .map_err(|e| ConfigError::new(format!("bad --world-profile: {e}")))?;
             }
             "landblock" => {
                 self.landblock = u16::from_str_radix(v.trim_start_matches("0x"), 16)

@@ -7,6 +7,7 @@
 
 use dereth_client_contract::view::AppraisalView;
 use dereth_primitives::num::math;
+use dereth_primitives::TextKey;
 use dereth_rules::advancement;
 
 #[cfg(test)]
@@ -513,6 +514,18 @@ pub fn skill_to_string(skill: u32) -> Option<&'static str> {
         .copied()
 }
 
+/// [`skill_to_string`] as the appraised world words it: a world may name Void Magic (skill 43)
+/// differently.
+#[must_use]
+pub fn skill_to_string_in(p: &AppraisalView, skill: u32) -> Option<&str> {
+    let name = skill_to_string(skill)?;
+    Some(if skill == 43 {
+        p.world_rules.text_or(TextKey::SkillVoidMagic, name)
+    } else {
+        name
+    })
+}
+
 /// The weapon-and-armour block's switch on int `0x161` — the parenthesised
 /// weapon family appended to the skill name. Ten literals, each with its **leading
 /// space**, which is why the line reads `Skill: Missile Weapons (Bow)` and not `...Weapons(Bow)`.
@@ -768,7 +781,23 @@ fn weapon_and_armor_lines_for(
 ) -> Vec<(String, u8)> {
     let mut out = Vec::new();
     let loc = p.valid_locations;
-    if variant == crate::DisplayVariant::Classic {
+    // A world whose rules read the shield's slot from the item's level: its own wording when the
+    // shield has none, which on such a world is every shield.
+    if p.world_rules.appraisal_shield_shows_level && loc & equip::SHIELD != 0 {
+        let label = match variant {
+            crate::DisplayVariant::Classic => "Shield Level",
+            crate::DisplayVariant::Modern => "Base Shield Level",
+        };
+        out.push(match p.level {
+            None => (
+                p.world_rules
+                    .text_or(TextKey::AppraisalShieldUnknown, "Shield Level: Unknown")
+                    .to_owned(),
+                0,
+            ),
+            Some(n) => (format!("{label}: {n}"), mod_color(p, &[0x1c])),
+        });
+    } else if variant == crate::DisplayVariant::Classic {
         if loc & equip::SHIELD != 0 {
             out.push((
                 p.armor_level.map_or_else(
@@ -799,7 +828,7 @@ fn weapon_and_armor_lines_for(
     // 3. The skill line. An unknown skill name skips the whole line.
     // Colour 0, same line: plain, whatever the weapon skill is enchanted by.
     if let Some(skill) =
-        skill_to_string(w.weapon_skill).filter(|_| variant == crate::DisplayVariant::Modern)
+        skill_to_string_in(p, w.weapon_skill).filter(|_| variant == crate::DisplayVariant::Modern)
     {
         let suffix = p.weapon_type.and_then(weapon_type_suffix).unwrap_or("");
         out.push((format!("Skill: {skill}{suffix}"), 0));
@@ -827,12 +856,14 @@ fn weapon_and_armor_lines_for(
         let color = mod_color(p, &[0x2C, 0x16]);
         if damage - low > 0.000_199_999_994_947_575_03 {
             let sig = if low >= 10.0 { 4 } else { 3 };
+            // A world whose rules print the low end whole rounds it to the nearest.
+            let low_text = if p.world_rules.appraisal_whole_damage {
+                format!("{low:.0}")
+            } else {
+                format_g(low, sig)
+            };
             out.push((
-                format!(
-                    "{label}{} - {}{suffix}",
-                    format_g(low, sig),
-                    w.weapon_damage
-                ),
+                format!("{label}{low_text} - {}{suffix}", w.weapon_damage),
                 color,
             ));
         } else {
@@ -898,7 +929,7 @@ fn weapon_and_armor_lines_for(
     }
 
     if variant == crate::DisplayVariant::Classic {
-        if let Some(skill) = skill_to_string(w.weapon_skill) {
+        if let Some(skill) = skill_to_string_in(p, w.weapon_skill) {
             out.push((format!("Uses {skill} Skill"), 0));
         }
     }
@@ -1219,6 +1250,15 @@ fn special_properties_lines_for(
                 append_helper(&mut list, "Magic Absorbing");
             }
             if mask & bit != 0 {
+                // Four of the names a world may word differently.
+                let key = match *bit {
+                    0x0000_4000 => Some(TextKey::AppraisalNetherRending),
+                    0x0000_0400 => Some(TextKey::AppraisalMeleeDefense),
+                    0x0000_0800 => Some(TextKey::AppraisalMissileDefense),
+                    0x0000_1000 => Some(TextKey::AppraisalMagicDefense),
+                    _ => None,
+                };
+                let name = key.map_or(*name, |k| p.world_rules.text_or(k, name));
                 append_helper(&mut list, name);
             }
         }
@@ -2562,7 +2602,10 @@ pub fn portal_restriction_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         // Only the low eight bits are ever asked about, and all five of these live there, so
         // the plain mask test is the client's own.
         if mask & bit != 0 {
-            text.push_str(literal);
+            match (bit, p.world_rules.text(TextKey::AppraisalPkLitePortal)) {
+                (0x04, Some(worded)) => text.push_str(worded),
+                _ => text.push_str(literal),
+            }
         }
     }
     let mut out = Vec::new();
@@ -2810,7 +2853,18 @@ pub fn item_description_runs_for(
     for block in order {
         match block {
             Value => push_item_info(&mut out, value_line(p.value), true, 0),
-            Burden => push_item_info(&mut out, burden_line(p.burden), true, 0),
+            Burden => push_item_info(
+                &mut out,
+                match (
+                    p.burden,
+                    p.world_rules.text(TextKey::AppraisalBurdenUnknown),
+                ) {
+                    (None, Some(text)) => text.to_owned(),
+                    (burden, _) => burden_line(burden),
+                },
+                true,
+                0,
+            ),
             Description => {
                 if let Some(text) = decorated_description_for(p, variant) {
                     push_item_info(&mut out, text, false, 0);
@@ -3355,7 +3409,12 @@ pub fn char_misc_rows_for(
         out.push(misc("Enlightenment:", v.to_string(), 0));
     }
     if variant == crate::DisplayVariant::Modern || p.base_armor.is_some() {
-        out.push(misc(UNENCHANTABLE_FOOTNOTE, "", 0));
+        out.push(misc(
+            p.world_rules
+                .text_or(TextKey::AppraisalUnenchantableNote, UNENCHANTABLE_FOOTNOTE),
+            "",
+            0,
+        ));
     }
     out
 }
@@ -3400,6 +3459,17 @@ pub fn pk_status_text(is_pk: bool, is_pk_lite: bool) -> &'static str {
         "Player Killer Lite"
     } else {
         "Non-Player Killer"
+    }
+}
+
+/// [`pk_status_text`] as the world words it: a world may name the lite status differently.
+#[must_use]
+pub fn pk_status_text_in(p: &AppraisalView) -> &str {
+    let text = pk_status_text(p.weenie_is_pk, p.weenie_is_pk_lite);
+    if !p.weenie_is_pk && p.weenie_is_pk_lite {
+        p.world_rules.text_or(TextKey::AppraisalPkLiteStatus, text)
+    } else {
+        text
     }
 }
 
@@ -4516,5 +4586,125 @@ mod tests {
         assert_eq!(b, "Value: 5\nBurden: 10");
         let c = add_item_info(&b, "Block", false);
         assert_eq!(c, "Value: 5\nBurden: 10\n\nBlock");
+    }
+
+    fn customdm() -> dereth_primitives::WorldRules {
+        dereth_rules::world::profile_rules(dereth_rules::world::CLASSICACE_CUSTOMDM).unwrap()
+    }
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_shields_slot_reads_covers_front_where_the_worlds_rules_read_its_level() {
+        let shield = AppraisalView {
+            valid_locations: equip::SHIELD,
+            armor_level: Some(120),
+            ..Default::default()
+        };
+        // The end of retail's modern pane writes nothing for the slot; the classic one the level.
+        assert!(weapon_and_armor_lines(&shield).is_empty());
+        assert_eq!(
+            weapon_and_armor_lines_for(&shield, crate::DisplayVariant::Classic)[0].0,
+            "Shield Level: 120"
+        );
+        let world = AppraisalView {
+            world_rules: customdm(),
+            ..shield.clone()
+        };
+        for variant in [
+            crate::DisplayVariant::Modern,
+            crate::DisplayVariant::Classic,
+        ] {
+            assert_eq!(
+                weapon_and_armor_lines_for(&world, variant)[0],
+                ("Covers Front".to_string(), 0),
+                "{variant:?}"
+            );
+        }
+        let levelled = AppraisalView {
+            level: Some(7),
+            ..world
+        };
+        assert_eq!(
+            weapon_and_armor_lines(&levelled)[0].0,
+            "Base Shield Level: 7"
+        );
+    }
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_world_that_prints_damage_whole_rounds_the_low_end() {
+        let sword = AppraisalView {
+            valid_locations: equip::MELEE_WEAPON,
+            weapon: Some(dereth_client_contract::view::WeaponView {
+                damage_type: 1,
+                weapon_skill: 11,
+                weapon_damage: 20,
+                damage_variance: 0.33,
+                weapon_offense: 1.0,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let damage = |p: &AppraisalView| {
+            weapon_and_armor_lines(p)
+                .into_iter()
+                .find(|(t, _)| t.starts_with("Damage"))
+                .unwrap()
+                .0
+        };
+        assert_eq!(damage(&sword), "Damage: 13.4 - 20, Slashing");
+        let world = AppraisalView {
+            world_rules: customdm(),
+            ..sword
+        };
+        assert_eq!(damage(&world), "Damage: 13 - 20, Slashing");
+    }
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_world_words_its_own_properties_names_and_refusals() {
+        let mut p = AppraisalView {
+            special: dereth_client_contract::view::SpecialPropertiesView {
+                imbued: Some(0x4000 | 0x1000),
+                ..Default::default()
+            },
+            portal_bitmask: Some(0x04),
+            weenie_is_pk_lite: true,
+            ..Default::default()
+        };
+        let props = |p: &AppraisalView| {
+            special_properties_lines(p)
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        let portal = |p: &AppraisalView| portal_restriction_lines(p)[1].text.clone();
+        assert!(
+            props(&p).contains("Nether Rending, +1 Magic Defense"),
+            "{}",
+            props(&p)
+        );
+        assert_eq!(portal(&p), "Lite Player Killers may not use this portal.\n");
+        assert_eq!(pk_status_text_in(&p), "Player Killer Lite");
+        assert_eq!(skill_to_string_in(&p, 43), Some("Void Magic"));
+        assert_eq!(
+            char_misc_rows(&p).last().unwrap().label,
+            UNENCHANTABLE_FOOTNOTE
+        );
+
+        p.world_rules = customdm();
+        assert!(
+            props(&p).contains("Elem. Rending, +3 Magic Defense"),
+            "{}",
+            props(&p)
+        );
+        assert_eq!(portal(&p), "Hardcore Killers may not use this portal.");
+        assert_eq!(pk_status_text_in(&p), "Player Killer");
+        assert_eq!(skill_to_string_in(&p, 43), Some("Any"));
+        assert_eq!(skill_to_string_in(&p, 44), Some("Heavy Weapons"));
+        assert_eq!(char_misc_rows(&p).last().unwrap().label, "");
+        assert_eq!(crate::spell::school_name_in(5, Some(&p.world_rules)), "Any");
+        assert_eq!(crate::spell::school_name_in(5, None), "Void Magic");
     }
 }

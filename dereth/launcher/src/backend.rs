@@ -771,7 +771,7 @@ impl Backend {
             default_client,
             dat_sets: choices::dat_sets_for(&self.state, &world),
             classic_sets: choices::classic_sets_for(&self.state),
-            requires: eras::required_set(world.era.as_deref()),
+            requires: choices::required_set_for(&world),
             offers_private_copy: choices::offers_private_copy(&self.state, &world),
             accounts: self.state.accounts_for(slug).cloned().collect(),
             prefs,
@@ -840,10 +840,17 @@ impl Backend {
                 .filter(|s| s.kind == kind)
                 .map(|s| s.path.clone())
         };
+        // A world that ships its own files is never started on another world's: the chosen set
+        // must report what the world's files report.
+        if let Some(set) = dat_set_id.as_deref().and_then(|id| self.state.dat_set(id)) {
+            if let Err(why) = choices::set_matches(&world, set) {
+                return err(why);
+            }
+        }
         let (dat_dir, classic_dat_dir) = if dereth {
             let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
             let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
-            match choices::dat_dirs(world.era.as_deref(), modern.as_deref(), classic.as_deref()) {
+            match choices::dat_dirs_for(&world, modern.as_deref(), classic.as_deref()) {
                 Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
                 Err(e) => return err(e.to_string()),
             }
@@ -1022,17 +1029,8 @@ impl Backend {
             last_patched_by_server: None,
             created_by_launcher: false,
         };
-        let c = set
-            .iterations()
-            .compare(&custom.iterations, &dereth_launch::DatRole::ALL);
-        if !c.newer.is_empty() || !c.older.is_empty() || !c.missing.is_empty() {
-            return Err(format!(
-                "These are not {}'s data files: they read {}, the world publishes {}.",
-                w.name,
-                set.iterations().label(),
-                custom.iterations.label()
-            ));
-        }
+        // The files the world's server compares, as the world's own files report them.
+        choices::set_matches(&w, &set)?;
         self.state.dat_sets.push(set);
         self.save();
         Ok(())

@@ -1194,6 +1194,9 @@ pub struct EraView {
     /// The systems the server announces for its world (the launcher passes them with the era).
     /// Each one announced wins over the era's table; empty: the era's table alone.
     pub announced_features: dereth_primitives::EraFeatureOverrides,
+    /// The rules the world plays by over the end of retail's, from the world profile the launcher
+    /// names: what an appraisal or character creation shows, what selecting an item asks for.
+    pub world_rules: dereth_primitives::WorldRules,
 }
 
 impl EraView {

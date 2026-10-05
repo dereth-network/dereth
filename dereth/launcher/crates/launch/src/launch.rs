@@ -9,7 +9,7 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--era <era>] [--era-features <version>:<bits>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--world-base <set>] [--era <era>] [--era-features <version>:<bits>] [--logon-version <string>] [--world-profile <name>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
@@ -19,7 +19,9 @@
 //! plays, the Dereth client is told it, and the systems the world has with it, so its screens show
 //! that world's systems from the start. The systems go as the shared bitfield
 //! (`dereth_primitives::EraFeatureBits`): the world's whole set, the era's table with what the
-//! world or the player turned on or off over it.
+//! world or the player turned on or off over it. A world that runs a client of its own
+//! ([`crate::known`]) also names the set its world is drawn from, the logon version its server
+//! accepts and the rules its client played by.
 
 use std::path::PathBuf;
 
@@ -130,11 +132,20 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                     plain(classic.display().to_string()),
                 ]);
             }
+            if let Some(base) = req.world.world_base.as_deref().filter(|b| !b.is_empty()) {
+                args.extend([plain("--world-base"), plain(base)]);
+            }
             if let Some(era) = req.world.era.as_deref().filter(|e| !e.is_empty()) {
                 args.extend([plain("--era"), plain(era)]);
             }
             if let Some(bits) = era_feature_bits(req.world) {
                 args.extend([plain("--era-features"), plain(bits.to_string())]);
+            }
+            if let Some(v) = req.world.logon_version.as_deref().filter(|v| !v.is_empty()) {
+                args.extend([plain("--logon-version"), plain(v)]);
+            }
+            if let Some(p) = req.world.world_profile.as_deref().filter(|p| !p.is_empty()) {
+                args.extend([plain("--world-profile"), plain(p)]);
             }
         }
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
@@ -365,6 +376,134 @@ mod tests {
         assert_eq!(view.era, EraId::Infiltration);
         assert_eq!(view.features(), world_has);
         assert_ne!(view.features(), EraId::Infiltration.features());
+    }
+
+    /// Each known world's whole command line for the Dereth client, as the community list and the
+    /// launcher's table make the world.
+    #[test]
+    fn each_known_world_starts_the_dereth_client_with_its_base_era_systems_logon_and_profile() {
+        let list = |id: &str, name: &str, emu: &str, host: &str, port: u16| {
+            format!(
+                "<ServerItem><id>{id}</id><name>{name}</name><emu>{emu}</emu>\
+                 <server_host>{host}</server_host><server_port>{port}</server_port></ServerItem>"
+            )
+        };
+        let xml = format!(
+            "<ArrayOfServerItem>{}{}{}{}</ArrayOfServerItem>",
+            list(
+                "4db379b0-587a-4775-9b7f-879e0f15ba4b",
+                "Dekarutide",
+                "ACE",
+                "dekaru.ac",
+                9000
+            ),
+            list(
+                "3f1f41ec-c7fd-4ed9-b47d-25b0d94219c1",
+                "Unfamiliar Shores",
+                "ACE",
+                "74.50.118.178",
+                9000
+            ),
+            list(
+                "394C58D0-885D-466B-B17F-D7E0B96FE3E2",
+                "Seedsow",
+                "GDL",
+                "serafino.ddns.net",
+                9060
+            ),
+            list(
+                "EEA962C0-CF9F-481E-9736-0EB058ACC1D8",
+                "Snowreap",
+                "GDL",
+                "serafino.ddns.net",
+                9070
+            ),
+        );
+        use dereth_primitives::EraFeatures;
+        let worlds = crate::serverlist::parse_servers_xml(xml.as_bytes()).unwrap();
+        let i = inst(ClientKind::Dereth);
+        let customdm_bits = EraFeatureBits::of(EraFeatures {
+            cloaks: true,
+            trinkets: true,
+            ..EraFeatures::INFILTRATION
+        })
+        .to_string();
+        let infiltration_bits = EraFeatureBits::of(EraFeatures::INFILTRATION).to_string();
+        let expect = [
+            (
+                "dekaru.ac",
+                "9000",
+                &customdm_bits,
+                "c118",
+                "classicace-customdm",
+            ),
+            (
+                "74.50.118.178",
+                "9000",
+                &customdm_bits,
+                "c118",
+                "classicace-customdm",
+            ),
+            (
+                "serafino.ddns.net",
+                "9060",
+                &infiltration_bits,
+                "1802",
+                "classicdereth",
+            ),
+            (
+                "serafino.ddns.net",
+                "9070",
+                &infiltration_bits,
+                "1802",
+                "classicdereth",
+            ),
+        ];
+        for (w, (host, port, bits, logon, profile)) in worlds.iter().zip(expect) {
+            let mut r = req(w, &i);
+            r.dat_dir = Some(PathBuf::from("/lib/world"));
+            assert_eq!(
+                plan(&r).unwrap().argv("pw"),
+                [
+                    "-a",
+                    "player",
+                    "-v",
+                    "pw",
+                    "-h",
+                    host,
+                    "-p",
+                    port,
+                    "--dat-dir",
+                    "/lib/world",
+                    "--world-base",
+                    "modern",
+                    "--era",
+                    "infiltration",
+                    "--era-features",
+                    bits.as_str(),
+                    "--logon-version",
+                    logon,
+                    "--world-profile",
+                    profile,
+                ],
+                "{}",
+                w.name
+            );
+        }
+        // And the client reads that command line back as the world's: its logon and its rules.
+        let argv = plan(&req(&worlds[0], &i)).unwrap().argv("pw");
+        let cfg = dereth_client_runtime::config::Config::from_args_and_prefs_with(
+            &argv,
+            &dereth_client_runtime::config::Preferences::default(),
+        )
+        .unwrap();
+        assert_eq!(cfg.logon_version, "c118");
+        assert_eq!(cfg.world_rules.burden_strength_bonus, 40);
+        assert_eq!(
+            cfg.world_base,
+            Some(dereth_primitives::ContainerEra::Modern)
+        );
+        assert_eq!(cfg.era, Some(EraId::Infiltration));
     }
 
     #[test]

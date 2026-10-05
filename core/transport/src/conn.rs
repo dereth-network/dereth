@@ -200,7 +200,8 @@ impl NetErrorCode {
     }
 }
 
-/// The client version string. **ACE compares it exactly.**
+/// The client version string the end-of-retail client sends. **ACE compares it exactly.** A world
+/// whose server wants another is sent that instead ([`build_login_request_as`]).
 pub const CLIENT_VERSION: &str = "1802";
 
 /// `NetAuthType`.
@@ -332,8 +333,14 @@ impl NetAuthType {
 /// length, the authenticator, as the logon header builds it.
 #[must_use]
 pub fn build_login_request(auth: &ConnectionAuthenticator) -> Vec<u8> {
+    build_login_request_as(CLIENT_VERSION, auth)
+}
+
+/// [`build_login_request`] with another client version string.
+#[must_use]
+pub fn build_login_request_as(client_version: &str, auth: &ConnectionAuthenticator) -> Vec<u8> {
     let packed = auth.pack();
-    let mut out = crate::wire::optional::pstring_pack(CLIENT_VERSION.as_bytes());
+    let mut out = crate::wire::optional::pstring_pack(client_version.as_bytes());
     out.extend_from_slice(&u32::try_from(packed.len()).unwrap_or(0).to_le_bytes());
     out.extend_from_slice(&packed);
     out

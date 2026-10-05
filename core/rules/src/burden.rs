@@ -22,6 +22,20 @@ pub fn encumbrance_capacity(strength: i32, num_augs: i32) -> i32 {
         .saturating_add(strength.saturating_mul(150))
 }
 
+/// The encumbrance capacity under a world's rules: Strength raised by the world's bonus first,
+/// so a bonus that lifts Strength above zero gives a capacity where the end of retail gives none.
+#[must_use]
+pub fn encumbrance_capacity_in(
+    strength: i32,
+    num_augs: i32,
+    rules: &dereth_primitives::WorldRules,
+) -> i32 {
+    encumbrance_capacity(
+        strength.saturating_add(rules.burden_strength_bonus),
+        num_augs,
+    )
+}
+
 /// The load fraction.
 #[must_use]
 pub fn load(capacity: i32, burden: i32) -> f32 {
@@ -77,12 +91,22 @@ pub fn load_band(load: f32) -> LoadBand {
 #[cfg(feature = "proto")]
 #[must_use]
 pub fn inq_load<Q: crate::quality::QualityRead + ?Sized>(q: &Q) -> f32 {
+    inq_load_in(q, &dereth_primitives::WorldRules::default())
+}
+
+/// [`inq_load`] under a world's rules ([`encumbrance_capacity_in`]).
+#[cfg(feature = "proto")]
+#[must_use]
+pub fn inq_load_in<Q: crate::quality::QualityRead + ?Sized>(
+    q: &Q,
+    rules: &dereth_primitives::WorldRules,
+) -> f32 {
     // The capacity inquiry reads Strength enchanted (raw = false): a live Strength enchantment
     // changes capacity.
     let strength = crate::attributes::inq_attribute(q, 1, false)
         .map_or(10, |strength| i32::try_from(strength).unwrap_or(i32::MAX));
     let augs = q.inq_int(230);
-    let capacity = encumbrance_capacity(strength, augs);
+    let capacity = encumbrance_capacity_in(strength, augs, rules);
     let burden = q.inq_int(5);
     load(capacity, burden)
 }
@@ -141,5 +165,26 @@ mod tests {
         assert_eq!(load_band(1.0), LoadBand::Encumbered);
         assert_eq!(load_band(1.99), LoadBand::Encumbered);
         assert_eq!(load_band(2.0), LoadBand::OverBurdened);
+    }
+
+    #[test]
+    fn a_worlds_strength_bonus_is_added_before_the_capacity_and_its_zero_test() {
+        let plus_40 = dereth_primitives::WorldRules {
+            burden_strength_bonus: 40,
+            ..dereth_primitives::WorldRules::default()
+        };
+        // 100 Strength carries as 140 does; no augmentations.
+        assert_eq!(encumbrance_capacity_in(100, 0, &plus_40), 140 * 150);
+        assert_eq!(
+            encumbrance_capacity_in(100, 0, &plus_40),
+            encumbrance_capacity(140, 0)
+        );
+        // Zero Strength carries nothing at the end of retail and 40 Strength's worth here.
+        assert_eq!(encumbrance_capacity(0, 0), 0);
+        assert_eq!(encumbrance_capacity_in(0, 0, &plus_40), 40 * 150);
+        assert_eq!(
+            encumbrance_capacity_in(100, 3, &dereth_primitives::WorldRules::default()),
+            encumbrance_capacity(100, 3)
+        );
     }
 }

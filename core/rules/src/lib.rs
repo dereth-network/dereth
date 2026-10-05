@@ -44,3 +44,5 @@ pub mod slots;
 pub mod taboo;
 pub mod vendor;
 pub mod weenie;
+/// A world's rules as data: the vocabulary, its bounds and the compiled-in profiles.
+pub mod world;

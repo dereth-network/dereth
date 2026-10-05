@@ -256,6 +256,7 @@ impl<S: Shell> App<S> {
                 self.hud.player_desc(&self.objects.world),
                 self.hud.skill_table.as_ref(),
                 self.hud.quality_filter.as_ref(),
+                &self.objects.world.world_rules,
             );
         }
         if let Some(mut world) = self

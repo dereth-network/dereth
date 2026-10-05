@@ -256,9 +256,11 @@ pub fn apply_events_at_boundary(
                 if !dereth_protocol::objects::CharacterServerSaysAttemptFailed::suppresses_generic_text(
                     m.reason,
                 ) {
-                    if let Some(c) =
-                        dereth_client_contract::chat::failure::handle_failure_event(m.reason, "")
-                    {
+                    if let Some(c) = dereth_client_contract::chat::failure::handle_failure_event_in(
+                        m.reason,
+                        "",
+                        &game.world_rules,
+                    ) {
                         game.scroll.add_feedback_to_scroll(
                             dereth_client_model::chat::composition::add_text_to_scroll_trim(&c.body),
                             u32::from(c.ty),
@@ -528,7 +530,7 @@ pub fn apply_events_at_boundary(
                 let Ok(m) = dereth_protocol::items::ItemQueryItemManaResponse::read(&mut r) else {
                     continue;
                 };
-                if game.update_item_mana(m.object, m.mana, m.success != 0) {
+                if game.receive_item_mana(&mut req, m.object, m.mana, m.success != 0) {
                     inter.stats.selection_meters_written += 1;
                 }
                 inter.stats.mana_responses += 1;

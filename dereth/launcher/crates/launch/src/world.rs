@@ -55,8 +55,8 @@ impl Emulator {
     }
 
     /// Whether this server is known to insist on the end-of-retail wire protocol. Every emulator
-    /// named here refuses a logon whose version string is not `"1802"` (ClassicACE keeps ACE's
-    /// logon).
+    /// named here compares the logon version string exactly: `"1802"`, except ClassicACE, whose
+    /// rulesets each want their own ([`World::logon_version`]).
     pub fn requires_end_of_retail_protocol(self) -> bool {
         matches!(
             self,
@@ -250,6 +250,18 @@ pub struct World {
     pub updated_at: Option<String>,
     /// The row's schema. Rows from before schema 2 say nothing and read as 1.
     pub schema: u32,
+    /// The logon version string the world's server accepts, when it is not the end of retail's
+    /// `"1802"` or is known to be it ([`crate::known`]). `None`: not said.
+    #[serde(default)]
+    pub logon_version: Option<String>,
+    /// The client rules the world plays by, as `--world-profile` names them. `None`: the end of
+    /// retail's.
+    #[serde(default)]
+    pub world_profile: Option<String>,
+    /// The data set the world is drawn from (`modern` or `classic`), when it is not the one its
+    /// era suggests. `None`: the era's.
+    #[serde(default)]
+    pub world_base: Option<String>,
 }
 
 /// The logon version string every emulator requires today.
@@ -280,10 +292,15 @@ impl World {
                 .iter()
                 .any(|c| c == client_id || (c == "dereth" && client_id.starts_with("dereth-")));
         }
+        // The Dereth client sends whatever logon version the world wants; a retail build sends
+        // its own, which must be that one.
+        let wanted = self
+            .logon_version
+            .as_deref()
+            .unwrap_or(END_OF_RETAIL_NET_VERSION);
         client_id == "dereth"
             || client_id.starts_with("dereth-")
-            || (client_id.starts_with("acclient-")
-                && net_version == Some(END_OF_RETAIL_NET_VERSION))
+            || (client_id.starts_with("acclient-") && net_version == Some(wanted))
     }
 
     /// Whether the world writes to the player's dats. Unknown counts as no: every emulator ships
@@ -444,6 +461,8 @@ pub fn parse_world(row: &Value) -> Option<World> {
         });
     }
     w.updated_at = string_at(row, &["updated_at"]);
+    // A world the launcher knows by its list id: what its row cannot say.
+    crate::known::apply(&mut w);
     Some(w)
 }
 
@@ -573,6 +592,18 @@ mod tests {
             w.accepts("dereth-0.4.0", Some("1802")),
             "`dereth` covers every version of it"
         );
+    }
+
+    #[test]
+    fn a_world_that_wants_another_logon_takes_the_dereth_client_and_only_that_retail_build() {
+        let mut w = world(TODAY);
+        w.logon_version = Some("c118".into());
+        assert!(
+            w.accepts("dereth", None),
+            "the Dereth client sends what is wanted"
+        );
+        assert!(!w.accepts("acclient-6096", Some("1802")));
+        assert!(w.accepts("acclient-6096", Some("c118")));
     }
 
     #[test]

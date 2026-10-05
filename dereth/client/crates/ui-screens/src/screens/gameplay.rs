@@ -2557,7 +2557,25 @@ impl GamePlayScreen {
         // both meters up **hidden**, so a first selection clears nothing and only a selection that
         // follows a reply sends anything at all.
         let mut cleared = false;
-        if edge {
+        let any_mana = view
+            .era()
+            .is_some_and(|e| e.world_rules.selection_asks_any_mana);
+        if edge && any_mana {
+            // A world whose rules ask any selection for its mana stops the mana updates whenever
+            // the health meter was not up, and hides a mana meter that is without asking.
+            let health = self.toolbar_children.get("sel_object_health_meter");
+            if let Some(h) = health.filter(|h| ui.node(*h).is_some_and(|n| n.region.flags.visible))
+            {
+                ui.requests.emit(UiRequest::QueryHealth(ObjectId(0)));
+                ui.set_visible(h, false);
+            } else {
+                ui.requests.emit(UiRequest::QueryItemMana(ObjectId(0)));
+            }
+            cleared = true;
+            if let Some(h) = self.toolbar_children.get("sel_object_mana_meter") {
+                ui.set_visible(h, false);
+            }
+        } else if edge {
             for (field, request) in [
                 (
                     "sel_object_health_meter",

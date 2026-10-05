@@ -498,3 +498,41 @@ fn the_chrome_buttons_open_the_documented_dialogs_and_the_strip_jumps_pages() {
         "on the summary page Random warns first"
     );
 }
+
+/// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+#[test]
+fn a_world_that_keeps_random_heritage_to_the_original_three_never_rolls_the_expansions() {
+    let t = tables();
+    let mut s = CharGenScreen {
+        tables: Some(t.clone()),
+        account_has_tod: true,
+        ..CharGenScreen::default()
+    };
+    let rolls = |s: &mut CharGenScreen| {
+        (0..64)
+            .map(|_| {
+                let tod = s.heritage_roll_has_tod();
+                s.state
+                    .randomize_heritage_group(&t.world.chargen, &t.world.skills, tod);
+                s.state.heritage_group
+            })
+            .collect::<std::collections::BTreeSet<u32>>()
+    };
+    assert!(
+        rolls(&mut s).contains(&TOD_HERITAGE),
+        "the account's expansion heritage comes up"
+    );
+    s.random_original_heritages_only = true;
+    assert!(!s.heritage_roll_has_tod());
+    assert!(!rolls(&mut s).contains(&TOD_HERITAGE));
+}
+
+/// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+#[test]
+fn a_world_that_names_the_fourth_town_is_shown_its_name() {
+    let mut s = CharGenScreen::default();
+    assert_eq!(s.town_name(3), "Sanamar");
+    s.fourth_town = Some("Other".into());
+    assert_eq!(s.town_name(3), "Other");
+    assert_eq!(s.town_name(0), "Holtburg");
+}

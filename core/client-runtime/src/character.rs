@@ -2412,6 +2412,11 @@ impl Character {
         d.env.jump_skill = skill.unwrap_or(0);
     }
 
+    /// The world's jump scale, the height's divisor (1 at the end of retail).
+    pub fn set_jump_scale(&self, scale: f32) {
+        self.driver.borrow_mut().env.jump_scale = scale;
+    }
+
     /// Finishing the jump clears the player interpreter's standing-long-jump state.
     pub fn finish_jump(&self) {
         self.driver.borrow_mut().movement.interp.standing_longjump = false;
@@ -3080,9 +3085,10 @@ pub fn refresh_run_rate(
     qualities: Option<&dereth_client_model::qualities::Qualities>,
     skills: Option<&dereth_assets::tables::SkillTable>,
     filter: Option<&dereth_assets::tables::QualityFilter>,
+    rules: &dereth_primitives::WorldRules,
 ) {
     let rate = match (qualities, skills) {
-        (Some(q), Some(t)) => dereth_rules::skills::inq_run_rate(q, t, filter),
+        (Some(q), Some(t)) => dereth_rules::skills::inq_run_rate_in(q, t, filter, rules),
         // No player description yet, or the shipped `SkillTable` has not been read: there are no
         // qualities and the run-rate inquiry returns false. Not a rate of 1.0 — a failed inquiry.
         _ => None,

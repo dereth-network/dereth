@@ -1512,6 +1512,11 @@ pub struct CharGenScreen {
     /// The account flag character randomisation is handed and the expansion-warning dialog build
     /// tests.
     pub account_has_tod: bool,
+    /// The world's rules roll a random heritage among the three original ones only, as for an
+    /// account without the expansion.
+    pub random_original_heritages_only: bool,
+    /// The world's name for the fourth starting town, when it names it differently.
+    pub fourth_town: Option<String>,
     pub open_dialog: Option<CharGenDialog>,
     /// The exit-warning context.
     ///
@@ -1626,6 +1631,8 @@ impl Default for CharGenScreen {
             left_enabled: false,
             right_enabled: false,
             account_has_tod: false,
+            random_original_heritages_only: false,
+            fourth_town: None,
             open_dialog: None,
             exit_dialog: None,
             randomize_warning_dialog: None,
@@ -1818,10 +1825,26 @@ impl CharGenScreen {
     ///
     /// [`Self::account_has_tod`] must already be set when this runs, which is why the host writes
     /// it before handing the tables over.
+    /// Whether a random heritage may be one of the expansion's: the account holds it and the
+    /// world's rules do not keep the roll to the original three. The starting-town roll still
+    /// follows the account alone.
+    fn heritage_roll_has_tod(&self) -> bool {
+        self.account_has_tod && !self.random_original_heritages_only
+    }
+
+    /// The name of starting town `index` as the town page and the summary print it: the
+    /// client's own, or the world's for the fourth.
+    pub fn town_name(&self, index: usize) -> &str {
+        match (&self.fourth_town, index) {
+            (Some(name), 3) => name,
+            _ => TOWN_NAMES.get(index).copied().unwrap_or("?"),
+        }
+    }
+
     pub fn set_tables(&mut self, t: Rc<CharGenTables>) {
         self.state.clothing = t.clothing.clone();
         self.state
-            .randomize_character(&t.chargen, &t.skills, self.account_has_tod);
+            .randomize_character(&t.chargen, &t.skills, self.heritage_roll_has_tod());
         self.tables = Some(t);
         self.setup_parts();
         self.pending_refresh = true;
@@ -1982,10 +2005,11 @@ impl CharGenScreen {
     pub fn do_random(&mut self, ui: &mut UiSystem) {
         let Some(t) = self.tables.clone() else { return };
         let tod = self.account_has_tod;
+        let heritage_tod = self.heritage_roll_has_tod();
         match self.progress {
             EcgProgress::Hertage => {
                 self.state
-                    .randomize_heritage_group(&t.chargen, &t.skills, tod);
+                    .randomize_heritage_group(&t.chargen, &t.skills, heritage_tod);
                 self.after_heritage_change(&t);
                 self.heritage_page_update(ui);
             }
@@ -2014,7 +2038,8 @@ impl CharGenScreen {
                 self.town_page_update(ui);
             }
             EcgProgress::Summary => {
-                self.state.randomize_character(&t.chargen, &t.skills, tod);
+                self.state
+                    .randomize_character(&t.chargen, &t.skills, heritage_tod);
                 self.after_heritage_change(&t);
                 self.summary_page_update(ui);
             }
@@ -2247,7 +2272,7 @@ impl CharGenScreen {
             crate::options::keybinding::set_literal(
                 ui,
                 title,
-                selected_town.map_or("Starting town", |index| TOWN_NAMES[index]),
+                selected_town.map_or("Starting town", |index| self.town_name(index)),
             );
         }
         if let (Some(text), Some(index), Some(area)) = (
@@ -3327,6 +3352,11 @@ impl Screen for CharGenScreen {
         // the heritage; with the flag still false the Viamontian
         // heritage could never come up on the opening roll of a Throne of Destiny account.
         self.account_has_tod = host.account_has_tod;
+        self.random_original_heritages_only = host.world_rules.random_original_heritages_only;
+        self.fourth_town = host
+            .world_rules
+            .text(dereth_primitives::TextKey::ChargenFourthTown)
+            .map(str::to_owned);
         if self.tables.is_none() {
             // `set_tables` and not a field write: the wizard's constructor initializes its
             // first page from the tables, and the screen is

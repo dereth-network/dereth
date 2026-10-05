@@ -12,12 +12,14 @@ pub fn refresh_qualities(
     qualities: Option<&dereth_client_model::qualities::Qualities>,
     skills: Option<&dereth_assets::tables::SkillTable>,
     filter: Option<&dereth_assets::tables::QualityFilter>,
+    rules: &dereth_primitives::WorldRules,
 ) {
+    character.set_jump_scale(rules.jump_scale);
     let Some(qualities) = qualities else {
         character.set_jump_qualities(0.0, false, None);
         return;
     };
-    let load = dereth_rules::burden::inq_load(qualities);
+    let load = dereth_rules::burden::inq_load_in(qualities, rules);
     let jump =
         skills.and_then(|table| dereth_rules::skills::inq_jump_skill(qualities, table, filter));
     character.set_jump_qualities(load, load < 2.0, jump);

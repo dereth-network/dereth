@@ -614,10 +614,13 @@ impl Hud {
                                 .map(|c| c.body),
                             );
                         }
-                        if let Some(c) = dereth_client_contract::chat::failure::handle_failure_event(
-                            m.error_type,
-                            &m.text,
-                        ) {
+                        if let Some(c) =
+                            dereth_client_contract::chat::failure::handle_failure_event_in(
+                                m.error_type,
+                                &m.text,
+                                &self.era.world_rules,
+                            )
+                        {
                             chat.push(failure_line(c));
                         }
                     }
@@ -973,10 +976,13 @@ impl Hud {
                                 .map(|c| c.body),
                             );
                         }
-                        if let Some(c) = dereth_client_contract::chat::failure::handle_failure_event(
-                            m.error_type,
-                            "",
-                        ) {
+                        if let Some(c) =
+                            dereth_client_contract::chat::failure::handle_failure_event_in(
+                                m.error_type,
+                                "",
+                                &self.era.world_rules,
+                            )
+                        {
                             chat.push(failure_line(c));
                         }
                     }
@@ -1011,9 +1017,10 @@ impl Hud {
                             .map(|c| c.body),
                         );
                     }
-                    if let Some(c) = dereth_client_contract::chat::failure::handle_failure_event(
+                    if let Some(c) = dereth_client_contract::chat::failure::handle_failure_event_in(
                         m.failure_type,
                         "",
+                        &self.era.world_rules,
                     ) {
                         chat.push(c);
                     }

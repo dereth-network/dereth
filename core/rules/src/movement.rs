@@ -115,3 +115,9 @@ pub fn jump_stamina_cost(load: f32, extent: f32, free: bool) -> i32 {
 pub fn inq_max_run_rate() -> f32 {
     get_run_rate(0.0, 9999, 1.0)
 }
+
+/// The maximum run rate under a world's rules: `GetRunRate(0, 9999, run scale)`.
+#[must_use]
+pub fn inq_max_run_rate_in(rules: &dereth_primitives::WorldRules) -> f32 {
+    get_run_rate(0.0, 9999, rules.run_scale)
+}

@@ -240,7 +240,13 @@ impl SpellExamineUi {
         self.spell = spell;
         self.filled += 1;
 
-        let school = format!("School: {}", school_name(v.school));
+        let school = format!(
+            "School: {}",
+            dereth_presentation::spell::school_name_in(
+                v.school,
+                view.era().map(|e| &e.world_rules)
+            )
+        );
         set_text(ui, self.school, &school);
         self.school_text = Some(school);
 

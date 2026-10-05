@@ -816,7 +816,7 @@ impl MotionInterp {
         if !env.jump_velocity_available {
             return 0.0;
         }
-        jump_velocity(env.load, env.jump_skill, e, 1.0)
+        jump_velocity(env.load, env.jump_skill, e, env.jump_scale)
     }
 
     /// The velocity the object leaves the ground with.

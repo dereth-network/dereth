@@ -121,6 +121,8 @@ fn world_of(row: &BTreeMap<String, String>, taken: &mut HashSet<String>) -> Opti
         discord: field("discord_url").map(str::to_owned),
         ..Links::default()
     };
+    // What the list cannot say about the few worlds that run a client of their own.
+    crate::known::apply(&mut w);
     Some(w)
 }
 
@@ -365,6 +367,27 @@ mod tests {
         assert_eq!(b.description.as_deref(), Some("Five <worlds>"));
         assert_eq!(b.endpoint, None, "a port that is no number is no endpoint");
         assert_eq!(b.links.website, None);
+    }
+
+    #[test]
+    fn a_listed_world_the_launcher_knows_is_read_with_its_logon_files_and_rules() {
+        let xml = "<ArrayOfServerItem><ServerItem>\
+                   <id>3f1f41ec-c7fd-4ed9-b47d-25b0d94219c1</id><name>Unfamiliar Shores</name>\
+                   <emu>ACE</emu><server_host>192.0.2.7</server_host><server_port>9000</server_port>\
+                   </ServerItem><ServerItem><id>394C58D0-885D-466B-B17F-D7E0B96FE3E2</id>\
+                   <name>Seedsow</name><emu>GDL</emu></ServerItem></ArrayOfServerItem>";
+        let w = parse_servers_xml(xml.as_bytes()).unwrap();
+        assert_eq!(
+            w[0].emulator,
+            Emulator::ClassicAce,
+            "the list says plain ACE"
+        );
+        assert_eq!(w[0].logon_version.as_deref(), Some("c118"));
+        assert_eq!(w[0].world_profile.as_deref(), Some("classicace-customdm"));
+        assert_eq!(w[0].era.as_deref(), Some("infiltration"));
+        assert!(w[0].dats.custom.is_some());
+        assert_eq!(w[1].world_profile.as_deref(), Some("classicdereth"));
+        assert_eq!(w[1].logon_version.as_deref(), Some("1802"));
     }
 
     #[test]

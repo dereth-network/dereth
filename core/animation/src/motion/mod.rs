@@ -210,6 +210,8 @@ pub struct MotionEnv {
     /// `burden / capacity`.
     pub load: f32,
     pub jump_skill: i32,
+    /// The jump height's divisor: 1 at the end of retail, the world's own where its rules say.
+    pub jump_scale: f32,
     /// The game object's actual can-jump inquiry. `None` is the isolated arithmetic adapter (`load <2`);
     /// an attached client supplies `Some(false)` when its player description is unavailable.
     pub jump_permission: Option<bool>,
@@ -269,6 +271,7 @@ impl Default for MotionEnv {
             run_rate: None,
             load: 0.0,
             jump_skill: 0,
+            jump_scale: 1.0,
             jump_permission: None,
             jump_velocity_available: true,
             is_interpolating: false,

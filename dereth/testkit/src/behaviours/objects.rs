@@ -9,7 +9,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -819,7 +819,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "selection.meters.an-answer-about-a-things-magic-fills-its-bar-only-when-it-succeeded",
         says: "Selecting something of the player's own asks the shard how much magic is left in \
                it, and the answer fills that bar only when the shard says the question succeeded; \
-               an answer that says it did not leaves the bar down and empty.",
+               an answer that says it did not leaves the bar down and empty, and asks the shard \
+               to stop answering about it.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O124-MANA"),
         station: "dereth-testkit::dat::objects::scenario_a_magic_answer_fills_the_bar_only_when_it_succeeded",
@@ -854,6 +855,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O124-RESEED"),
         station: "dereth-testkit::dat::objects::scenario_a_pile_that_shrinks_to_one_asks_again",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "selection.query.a-world-whose-rules-ask-any-selection-for-mana-asks-about-a-thing-on-the-ground",
+        says: "On a world whose profile asks any selection for its mana, selecting a thing lying \
+               on the ground that is nobody's asks the shard about its magic, as selecting \
+               something of the player's own does; a creature it would attack is still asked \
+               about its life.",
+        since: THIS_CLIENT,
+        divergence: "CD-036",
+        evidence: Evidence::Private("AC-EVID-CUSTOM-WORLD-SELECTION-MANA"),
+        station: "dereth-testkit::dat::objects::scenario_a_world_that_asks_any_selection_for_mana_asks_about_a_thing_on_the_ground",
         tier: Tier::Dat,
     },
     behaviour! {

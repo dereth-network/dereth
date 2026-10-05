@@ -321,7 +321,13 @@ impl Panel for Maintenance {
                     let question = if rent {
                         !h.am_i_the_owner
                     } else {
-                        h.house_type != 4
+                        // An apartment pays at once, unless the world's rules ask before every
+                        // purchase.
+                        let retail = dereth_primitives::WorldRules::default();
+                        dereth_client_contract::panels::slumlord::purchase_asks_first(
+                            h.house_type,
+                            c.game.era().map_or(&retail, |e| &e.world_rules),
+                        )
                     };
                     if question {
                         if std::mem::replace(

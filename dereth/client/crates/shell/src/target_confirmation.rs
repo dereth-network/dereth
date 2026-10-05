@@ -79,6 +79,7 @@ impl Presenter<'_> {
                 dereth_ui_screens::panels::allegiance::accept_swear_prompt(ui, name)
             }
             Prompt::HouseBuy => dereth_ui_screens::panels::slumlord::BUY_CONFIRMATION.to_owned(),
+            Prompt::HouseBuyAs(text) => text.clone(),
             Prompt::HouseRentByProxy => {
                 dereth_ui_screens::panels::slumlord::RENT_BY_PROXY_CONFIRMATION.to_owned()
             }

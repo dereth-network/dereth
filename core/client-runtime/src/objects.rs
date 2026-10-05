@@ -2784,6 +2784,8 @@ impl ObjectStream {
         fresh.scroll.preserve_output_from(&self.world.scroll);
         fresh.preserve_material_names_from(&mut self.world);
         fresh.preserve_vital_formulas_from(&mut self.world);
+        // The world's rules are the world's, not the character's.
+        fresh.world_rules = std::mem::take(&mut self.world.world_rules);
         self.world = fresh;
     }
 }

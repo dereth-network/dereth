@@ -292,6 +292,10 @@ impl crate::world::World {
             text.push_str(" penalty");
         }
         text.push_str(" has expired.\n");
+        // A world whose rules leave expiries unannounced writes nothing.
+        if !self.world_rules.enchantment_expiry_line {
+            return false;
+        }
         self.scroll
             .add_text_to_scroll(&text, crate::chat::text_type::MAGIC, true, 0);
         true

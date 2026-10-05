@@ -1159,6 +1159,7 @@ dependencies = [
  "dereth-client-runtime",
  "dereth-dat",
  "dereth-primitives",
+ "dereth-rules",
  "dereth-transport",
  "ed25519-dalek",
  "serde",

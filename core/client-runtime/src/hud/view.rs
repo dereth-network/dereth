@@ -478,9 +478,10 @@ impl GameView for HudView<'_> {
             n => n,
         };
         // The client treats the level as an unsigned 32-bit value when converting it.
-        // The world's era decides the curve (the older one before Throne of Destiny).
+        // The world's era decides the curve (the older one before Throne of Destiny), unless
+        // the world's rules name one.
         let threshold = dereth_rules::advancement::vitae_cp_pool_threshold_in(
-            self.hud.era.era.vitae_recovery(),
+            self.hud.era.world_rules.vitae_recovery(self.hud.era.era),
             f64::from(multiplier),
             f64::from(level.unsigned_abs()),
         );
@@ -540,9 +541,13 @@ impl GameView for HudView<'_> {
             num_deaths: q.inq_int(NUM_DEATHS),
             strength: raw(1),
             endurance: raw(2),
-            load: dereth_rules::burden::inq_load(q),
+            load: dereth_rules::burden::inq_load_in(q, &self.hud.era.world_rules),
             encumbrance: q.inq_int(ENCUMBRANCE_VAL),
-            capacity: dereth_rules::burden::encumbrance_capacity(cap_strength, augmentations),
+            capacity: dereth_rules::burden::encumbrance_capacity_in(
+                cap_strength,
+                augmentations,
+                &self.hud.era.world_rules,
+            ),
             augmentations,
             // The birth/age/deaths read-out's first two arms are
             // gated on the int-quality query's **return**, so `None` and `Some(0)` are different
@@ -584,7 +589,10 @@ impl GameView for HudView<'_> {
     /// `0x0013` description supplies the attribute cache and `EncumbranceVal`; once registered,
     /// both names refer to the same qualities.
     fn load(&self) -> Option<f32> {
-        Some(dereth_rules::burden::inq_load(self.player_desc()?))
+        Some(dereth_rules::burden::inq_load_in(
+            self.player_desc()?,
+            &self.hud.era.world_rules,
+        ))
     }
 
     /// The object's public-description decoration fields used by the item-display update.
@@ -2539,6 +2547,7 @@ impl GameView for HudView<'_> {
             num_deaths: am::inq::int(p, 0x2B),
             num_character_titles: am::inq::int(p, 0x106),
             enlightenment: am::inq::int(p, 0x186),
+            world_rules: self.hud.era.world_rules.clone(),
         })
     }
 
@@ -2689,6 +2698,11 @@ impl GameView for HudView<'_> {
     /// null check produces: the handler still runs the comparison and
     /// `0 < 2`, so the recklessness meter stays hidden.
     fn recklessness_advancement_class(&self) -> u32 {
+        // A world whose rules hide the marker answers as an untrained character does, whatever
+        // the character holds.
+        if !self.hud.era.world_rules.recklessness_marker {
+            return 0;
+        }
         self.player_desc().map_or(0, |q| {
             dereth_rules::skills::inq_skill_advancement_class(
                 q,

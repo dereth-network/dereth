@@ -130,8 +130,14 @@ impl CharGenScreen {
                 "Starting Town: {}",
                 usize::try_from(self.state.start_area)
                     .ok()
-                    .and_then(|i| tables.chargen.starter_areas.get(i))
-                    .map_or("?", |area| area.name.as_str())
+                    .and_then(|i| {
+                        // A world that names the fourth town itself is shown its own name.
+                        if i == 3 && self.fourth_town.is_some() {
+                            return Some(self.town_name(3));
+                        }
+                        tables.chargen.starter_areas.get(i).map(|a| a.name.as_str())
+                    })
+                    .unwrap_or("?")
             ),
         ];
         for l in lines {

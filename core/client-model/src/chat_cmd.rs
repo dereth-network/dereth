@@ -336,7 +336,13 @@ impl World {
         }
         if let Some(w) = self.player.and_then(|p| self.weenie(p)) {
             if !w.is_pk_lite() {
-                return ChatCommand::fail(ONLY_PLAYER_KILLER_LITES, BROADCAST_CHAT_TYPE);
+                // The same failure event the server's refusal raises, so a world that words it
+                // differently words this one too.
+                let text = self.world_rules.text_or(
+                    dereth_primitives::TextKey::FailurePkLiteCommand,
+                    ONLY_PLAYER_KILLER_LITES,
+                );
+                return ChatCommand::fail(text, BROADCAST_CHAT_TYPE);
             }
         }
         req.send(Request::TeleToPklArena(

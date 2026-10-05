@@ -184,6 +184,43 @@ fn the_classic_dat_dir_switch_names_where_the_older_files_are_and_is_optional() 
     }
 }
 
+/// Behaviour: login.logon-version.a-world-that-wants-another-logon-version-is-sent-it
+#[test]
+fn the_logon_version_switch_replaces_1802_and_refuses_what_cannot_be_sent() {
+    assert_eq!(parse(&[]).expect("parses").logon_version, "1802");
+    assert_eq!(
+        parse(&["--logon-version", "c118"])
+            .expect("parses")
+            .logon_version,
+        "c118"
+    );
+    for bad in ["", " ", "c 118", "c118\u{e9}"] {
+        assert!(parse(&["--logon-version", bad]).is_err(), "{bad:?}");
+    }
+}
+
+/// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+#[test]
+fn the_world_profile_switch_takes_a_compiled_profile_and_refuses_any_other() {
+    let none = parse(&[]).expect("parses");
+    assert!(none.world_rules.is_end_of_retail());
+    let c = parse(&["--world-profile", "classicace-customdm"]).expect("parses");
+    assert_eq!(c.world_rules.burden_strength_bonus, 40);
+    assert_eq!(c.world_rules.run_scale, 1.5);
+    assert_eq!(
+        c.world_rules.profile.as_deref(),
+        Some("classicace-customdm")
+    );
+    let i = parse(&["--world-profile", "classicace-infiltration"]).expect("parses");
+    assert_eq!(i.world_rules.burden_strength_bonus, 0);
+    assert!(!i.world_rules.recklessness_marker);
+    let e = parse(&["--world-profile", "nowhere"]).unwrap_err().detail;
+    assert!(
+        e.contains("classicace-customdm"),
+        "names the known ones: {e}"
+    );
+}
+
 /// `--set-at` and `--capture-at` collect a frame and what to do there, in order.
 #[test]
 fn a_run_can_set_a_preference_and_take_a_picture_part_way_through() {

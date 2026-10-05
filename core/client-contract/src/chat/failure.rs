@@ -982,6 +982,36 @@ pub fn arm_for(error_code: u32) -> Option<(u8, Arm)> {
 /// released and the function returns without drawing anything.
 #[must_use]
 pub fn handle_failure_event(error_code: u32, text: &str) -> Option<ChatMessage> {
+    handle_failure_event_in(error_code, text, &dereth_primitives::WorldRules::default())
+}
+
+/// The two refusals a world may word differently, by code.
+const WORDED_BY_WORLD: [(u32, dereth_primitives::TextKey); 2] = [
+    (0x04f3, dereth_primitives::TextKey::FailurePkLitePortal),
+    (0x0560, dereth_primitives::TextKey::FailurePkLiteCommand),
+];
+
+/// [`handle_failure_event`] as the world words it.
+#[must_use]
+pub fn handle_failure_event_in(
+    error_code: u32,
+    text: &str,
+    rules: &dereth_primitives::WorldRules,
+) -> Option<ChatMessage> {
+    if let Some(worded) = WORDED_BY_WORLD
+        .iter()
+        .find(|(code, _)| *code == error_code)
+        .and_then(|(_, key)| rules.text(*key))
+    {
+        let (ty, _) = arm_for(error_code)?;
+        return Some(ChatMessage {
+            feedback: crate::feedback::Feedback::numeric(error_code),
+            ty,
+            body: worded.to_owned(),
+            prefix: None,
+            window: 0,
+        });
+    }
     // The scroll gets `(text, <type>, true, 0)` -- the type is the arm's, not the function's.
     let (ty, arm) = arm_for(error_code)?;
     Some(ChatMessage {
@@ -991,4 +1021,36 @@ pub fn handle_failure_event(error_code: u32, text: &str) -> Option<ChatMessage> 
         prefix: None,
         window: 0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_world_words_its_two_lite_refusals_and_leaves_every_other_alone() {
+        let mut rules = dereth_primitives::WorldRules::default();
+        let retail = handle_failure_event_in(0x04f3, "", &rules).unwrap();
+        assert_eq!(
+            retail.body,
+            "Lite Player Killers may not interact with that portal!\n"
+        );
+        rules.set_text(
+            dereth_primitives::TextKey::FailurePkLitePortal,
+            "Hardcore Killers may not interact with that portal!",
+        );
+        let worded = handle_failure_event_in(0x04f3, "", &rules).unwrap();
+        assert_eq!(
+            worded.body,
+            "Hardcore Killers may not interact with that portal!"
+        );
+        assert_eq!(worded.ty, retail.ty, "on the same chat type");
+        assert_eq!(
+            handle_failure_event_in(0x0560, "", &rules),
+            handle_failure_event(0x0560, ""),
+            "a refusal the world does not word is the client's own"
+        );
+        assert_eq!(handle_failure_event_in(0xFFFF_FFFF, "", &rules), None);
+    }
 }

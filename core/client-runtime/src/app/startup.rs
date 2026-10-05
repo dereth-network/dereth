@@ -106,14 +106,18 @@ impl<S: Shell> App<S> {
             let seq = (crate::platform::clock::system_unix_time().map_or(0, |d| d.as_millis())
                 & u128::from(u32::MAX)) as u32;
             let client_port = u16::try_from(cfg.client_port).unwrap_or(0);
-            Some(NetLink::connect(
+            let mut link = NetLink::connect(
                 &cfg.host,
                 u16::try_from(cfg.port).unwrap_or(0),
                 client_port,
                 &cfg.account,
                 &cfg.vg_password,
                 seq,
-            )?)
+            )?;
+            // Before the first login request goes: a world whose server wants another logon
+            // version is sent that one.
+            link.net.set_logon_version(&cfg.logon_version);
+            Some(link)
         } else {
             None
         };
@@ -419,6 +423,20 @@ impl<S: Shell> App<S> {
         }
         // And so do the systems it announces for its world, each over the era's table.
         self.hud.era.announced_features = self.cfg.era_features;
+        // And the rules the world's own client played by, which every front end and the object
+        // model read from here.
+        if let Some(name) = &self.cfg.world_rules.profile {
+            tracing::info!(
+                "playing by the world profile {name}: burden Strength {:+}, run scale {}, jump \
+                 scale {}",
+                self.cfg.world_rules.burden_strength_bonus,
+                self.cfg.world_rules.run_scale,
+                self.cfg.world_rules.jump_scale
+            );
+        }
+        self.hud.era.world_rules = self.cfg.world_rules.clone();
+        self.objects.world.world_rules = self.cfg.world_rules.clone();
+        self.host_state.world_rules = self.cfg.world_rules.clone();
         self.hud.load_tables(&self.store, &self.objects.world);
         // The same table computes the maximum a received current vital is clamped to, which the
         // world's quality-update paths apply before storing.

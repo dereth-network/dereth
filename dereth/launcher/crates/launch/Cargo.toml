@@ -42,6 +42,8 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 # client's era view: one test follows a world's announced era and systems that far.
 dereth-client-runtime.workspace = true
 dereth-client-contract.workspace = true
+# The known worlds' profiles must be ones the client compiles.
+dereth-rules.workspace = true
 
 [features]
 # Builders for synthetic dats and installs, for other crates' tests. Never in a release build.

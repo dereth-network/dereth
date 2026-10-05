@@ -1421,7 +1421,7 @@ impl ExaminationPanel {
             }
             // Guarded on the current object being known, which is the same object
             // the live-object check above already required.
-            let pk = pk_status_text(p.weenie_is_pk, p.weenie_is_pk_lite);
+            let pk = dereth_presentation::appraisal::pk_status_text_in(p);
             write(ui, self.char_pk_status, pk);
             self.pk_status_text = Some(pk.to_string());
             // The allegiance full-name read over the title bar the examination panel's

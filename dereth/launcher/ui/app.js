@@ -559,6 +559,8 @@ function formChoice() {
 // Which kind of data files the world's era needs: the Classic pair for an era before Throne of
 // Destiny, the Modern files for any other, and for an era nobody has named.
 function requiredKind(world) {
+  // A world that names the set it is drawn from needs that one, whatever its era.
+  if (world.world_base === "modern" || world.world_base === "classic") return world.world_base;
   return ui.snap.eras.find((e) => e.name === world.era)?.needs ?? "modern";
 }
 
@@ -632,15 +634,23 @@ function worldPage() {
     + (world.dats.custom ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
   const eraName = eraLabel(world.era);
-  const dataNote = needs === "classic"
+  const dataNote = world.world_base === "modern" && world.dats.custom
+    ? `${world.name} plays ${eraName || "its era"} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
+    : needs === "classic"
     ? `${eraName} is before Throne of Destiny: it needs Classic data files. Modern ones are optional.`
     : `${eraName ? `${eraName} needs` : "With no era named, the Dereth client plays the end of retail, which needs"} Modern data files. Classic ones are optional, for the classic interface and looks.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
+  // A world that plays with its own files, and none of the player's sets is them: where they come
+  // from, and the way to point at them.
+  const ownFiles = world.dats.custom && w.view.dat_sets.length === 0 && f.client === "dereth"
+    ? `<p class="note warn">${esc(world.dats.custom.license_note ?? "This world plays with data files of its own.")}
+         <button class="btn" data-url="${esc(world.dats.custom.url)}">Where to get them</button></p>`
+    : "";
   const dataRow = f.client === "retail"
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
     : `<label class="lab" for="dats">MODERN DATA</label><select id="dats" class="field">${setOpts}</select>
        <label class="lab" for="classic">CLASSIC DATA</label><select id="classic" class="field">${classicOpts}</select>
-       <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>`;
+       <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>${ownFiles}`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
 
   return `<div class="column wide">

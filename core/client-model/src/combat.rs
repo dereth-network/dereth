@@ -2048,10 +2048,9 @@ impl World {
 
     /// Receive item-mana query response `0x0264`.
     ///
-    /// `success == 0` takes the response handler's other branch, which
-    /// re-sends rather than writing the meter. The argument of that
-    /// re-send is not known, so this
-    /// rebuild takes the branch and writes nothing rather than inventing a target for it.
+    /// `success == 0` takes the response handler's other branch, which writes nothing and,
+    /// for the selected object, asks for object 0's mana: the request that stops the server
+    /// sending it. [`Self::receive_item_mana`] is the whole handler, request and all.
     ///
     /// Returns whether the meter was written.
     pub fn update_item_mana(&mut self, object: ObjectId, mana: f32, success: bool) -> bool {
@@ -2060,6 +2059,25 @@ impl World {
         }
         self.selected_meters.mana = Some(mana);
         true
+    }
+
+    /// Receive item-mana query response `0x0264`, whole: [`Self::update_item_mana`], and for a
+    /// reply that the selected object has no mana, `Item_QueryItemMana` (`0x0263`) for object 0,
+    /// which stops the server sending it -- unless the world's rules ask for nothing more.
+    ///
+    /// Returns whether the meter was written.
+    pub fn receive_item_mana(
+        &mut self,
+        req: &mut dyn RequestSink,
+        object: ObjectId,
+        mana: f32,
+        success: bool,
+    ) -> bool {
+        let wrote = self.update_item_mana(object, mana, success);
+        if !success && self.selected == Some(object) && !self.world_rules.selection_asks_any_mana {
+            self.query_item_mana(req, ObjectId(0));
+        }
+        wrote
     }
 }
 

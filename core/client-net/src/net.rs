@@ -43,8 +43,9 @@ pub struct NetConfig {
     pub bind_interface: Option<String>,
     /// `Net.ComputeUniquePort`.
     pub compute_unique_port: bool,
-    /// Always `"1802"`. ACE compares it exactly.
-    pub client_version: &'static str,
+    /// The logon version string: `"1802"` unless the world's server wants another. ACE compares
+    /// it exactly.
+    pub client_version: String,
 }
 
 impl Default for NetConfig {
@@ -55,7 +56,7 @@ impl Default for NetConfig {
             client_port: 0,
             bind_interface: None,
             compute_unique_port: false,
-            client_version: dereth_transport::conn::CLIENT_VERSION,
+            client_version: dereth_transport::conn::CLIENT_VERSION.to_owned(),
         }
     }
 }

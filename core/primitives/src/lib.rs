@@ -38,6 +38,7 @@ pub mod text;
 pub mod time;
 pub mod transport;
 pub mod viewport;
+pub mod world_rules;
 
 pub use asset::{
     AssetError, AssetSource, ContainerEra, MeshData, MeshHandle, TextureData, TextureFormat,
@@ -52,6 +53,7 @@ pub use space::{Frame, Position, Quat, Vec3};
 pub use time::{LocalTime, ServerTime};
 pub use transport::{IncomingMessage, NetBlobId, NetQueue, RecipientId, Transport};
 pub use viewport::Viewport;
+pub use world_rules::{TextKey, VitaeCurve, WorldRules};
 
 #[cfg(test)]
 mod tests {

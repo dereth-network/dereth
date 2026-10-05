@@ -230,6 +230,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "login.logon-version.a-world-that-wants-another-logon-version-is-sent-it",
+        says: "Given --logon-version, the login request carries that string where the final \
+               client's carries 1802; without it the request carries 1802. A string with a space, \
+               a character outside plain ASCII, or nothing at all is refused at start-up.",
+        since: THIS_CLIENT,
+        divergence: "CD-035",
+        evidence: Evidence::Private("AC-EVID-CUSTOM-WORLD-LOGON-VERSION"),
+        station: "dereth-client-runtime::lib::net::tests::the_login_request_carries_the_logon_version_the_world_wants",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "login.patch.the-data-patch-screen-shows-the-documented-states",
         says: "The first screen reads Connecting... until the link is up and Connected! after, and \
                its patch line walks through the shipped sentences -- Looking for data to patch..., \

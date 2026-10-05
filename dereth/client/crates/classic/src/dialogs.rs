@@ -56,6 +56,7 @@ pub fn prompt_text(prompt: &Prompt) -> String {
                              from buying another for 30 days. Are you sure you want to buy this \
                              house?\n\n(Default is No)"
             .into(),
+        Prompt::HouseBuyAs(text) => format!("\n\n{text}\n\n(Default is No)"),
         Prompt::HouseRentByProxy => "\n\nYou are paying maintenance on someone else's house. Are \
                                      you sure you wish to continue?\n\n(Default is No)"
             .into(),

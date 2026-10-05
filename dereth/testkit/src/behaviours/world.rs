@@ -10,7 +10,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -1476,6 +1476,24 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O426-RECENTRE"),
         station: "dereth-client::gpu::world::landblock_recentre::frame_writers::the_body_writer_is_on_the_far_side_of_the_recentre",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails",
+        says: "Given --world-profile, the client plays by the rules that world's own client \
+               played by, and by the end of retail's for every rule the profile leaves alone: \
+               the CustomDM profile carries as Strength + 40, runs and jumps with a scale of 1.5, \
+               lets a shield on beside any weapon, wields a trinket in place of a worn one, \
+               writes no expiry line, asks any selection for its mana, asks before buying an \
+               apartment, prints damage ranges whole and words its appraisal and refusals as \
+               that client did; both ClassicACE profiles hide the Recklessness marker, roll a \
+               random heritage among the original three, recover vitae on the curve from before \
+               Throne of Destiny and show Covers Front in a shield's slot. A profile the client \
+               does not compile, or a set with any rule out of bounds, is refused whole.",
+        since: THIS_CLIENT,
+        divergence: "CD-036",
+        evidence: Evidence::Private("AC-EVID-CUSTOM-WORLD-PROFILES"),
+        station: "dereth-rules::lib::world::tests::the_customdm_profile_sets_its_clients_rules_and_infiltration_only_the_shared_ones",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "world.scene-less-frame.a-click-and-a-double-click-are-answered-so-the-gestures-after-them-still-work",

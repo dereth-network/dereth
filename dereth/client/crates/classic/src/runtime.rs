@@ -1823,6 +1823,7 @@ impl ClassicUi {
             }
         }
         self.classic.reply_targets = cx.hud().reply_targets(cx.model());
+        self.selection_queries.any_mana = cx.model().world_rules.selection_asks_any_mana;
         let requests = self
             .selection_queries
             .update(selected, selection_facts, meters);

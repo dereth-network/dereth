@@ -57,3 +57,32 @@ pub enum PaymentAction {
     /// The caller has completed the shared confirmation, if one was required.
     Submit,
 }
+
+/// `HouseType::Apartment`.
+pub const APARTMENT: u32 = 4;
+
+/// Whether buying a house of `house_type` asks the player first: every house but an apartment,
+/// and an apartment too on a world whose rules ask before every purchase.
+#[must_use]
+pub fn purchase_asks_first(house_type: u32, rules: &dereth_primitives::WorldRules) -> bool {
+    house_type != APARTMENT || !rules.apartment_buys_without_asking
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn an_apartment_is_bought_at_once_unless_the_world_asks_before_every_purchase() {
+        let retail = dereth_primitives::WorldRules::default();
+        assert!(purchase_asks_first(1, &retail), "a cottage asks");
+        assert!(!purchase_asks_first(APARTMENT, &retail));
+        let every = dereth_primitives::WorldRules {
+            apartment_buys_without_asking: false,
+            ..retail
+        };
+        assert!(purchase_asks_first(APARTMENT, &every));
+        assert!(purchase_asks_first(2, &every));
+    }
+}

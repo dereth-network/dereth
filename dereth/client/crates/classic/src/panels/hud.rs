@@ -35,6 +35,9 @@ pub struct SelectionQueries {
     selected: Option<ObjectId>,
     health_active: bool,
     mana_active: bool,
+    /// The world's rules ask any selected object that is not a creature or a player for its
+    /// mana, not only an item the player owns.
+    pub any_mana: bool,
 }
 impl SelectionQueries {
     pub fn update(
@@ -49,7 +52,12 @@ impl SelectionQueries {
         }
         self.selected = selected;
         let health = selected.filter(|_| facts.is_some_and(|f| f.attackable || f.is_player));
-        let mana = selected.filter(|_| facts.is_some_and(|f| f.owned_by_player));
+        let any_mana = self.any_mana;
+        let mana = selected.filter(|_| {
+            facts.is_some_and(|f| {
+                f.owned_by_player || (any_mana && !f.attackable && !f.is_player && !f.has_pet_owner)
+            })
+        });
         let mut out = vec![];
         if self.health_active || health.is_some() {
             out.push(UiRequest::QueryHealth(health.unwrap_or(ObjectId(0))));
@@ -2563,6 +2571,39 @@ mod tests {
             ]
         );
         assert!(q.update(None, None, (None, None)).is_empty());
+    }
+
+    /// Behaviour: world.rules.a-world-profile-sets-its-clients-rules-over-the-end-of-retails
+    #[test]
+    fn a_world_that_asks_any_selection_for_its_mana_asks_for_an_item_on_the_ground() {
+        use dereth_client_contract::view::SelectionQueryFacts;
+        let ground = SelectionQueryFacts {
+            is_player: false,
+            has_pet_owner: false,
+            attackable: false,
+            owned_by_player: false,
+        };
+        let mut q = SelectionQueries::default();
+        assert!(q
+            .update(Some(ObjectId(9)), Some(ground), (None, None))
+            .is_empty());
+        let mut q = SelectionQueries {
+            any_mana: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            q.update(Some(ObjectId(9)), Some(ground), (None, None)),
+            vec![UiRequest::QueryItemMana(ObjectId(9))]
+        );
+        let creature = SelectionQueryFacts {
+            attackable: true,
+            ..ground
+        };
+        assert_eq!(
+            q.update(Some(ObjectId(10)), Some(creature), (None, None)),
+            vec![UiRequest::QueryHealth(ObjectId(10))],
+            "a creature is still asked for its health, not its mana"
+        );
     }
     #[test]
     fn stack_text_commits_only_valid_complete_values() {

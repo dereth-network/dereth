@@ -1756,3 +1756,29 @@ fn the_scrollbar_gauge_is_continuous_and_reaches_values_the_keyboard_cannot() {
         "0.300 is not a notch, and the keyboard has no way to produce it"
     );
 }
+
+/// Behaviour: selection.meters.an-answer-about-a-things-magic-fills-its-bar-only-when-it-succeeded
+#[test]
+fn a_reply_that_the_selected_thing_has_no_mana_asks_the_server_to_stop() {
+    let mut w = World::new();
+    w.selected = Some(ObjectId(7));
+    let mut req = RecordingRequests::default();
+    assert!(!w.receive_item_mana(&mut req, ObjectId(7), 0.0, false));
+    assert_eq!(
+        req.0,
+        vec![Request::QueryItemMana(
+            dereth_protocol::items::ItemQueryItemMana {
+                object: ObjectId(0)
+            }
+        )]
+    );
+    // A reply about something else, or one that has mana, asks nothing.
+    let mut req = RecordingRequests::default();
+    assert!(!w.receive_item_mana(&mut req, ObjectId(8), 0.0, false));
+    assert!(w.receive_item_mana(&mut req, ObjectId(7), 0.5, true));
+    assert!(req.0.is_empty());
+    // A world whose rules ask any selection for its mana asks nothing more either.
+    w.world_rules.selection_asks_any_mana = true;
+    assert!(!w.receive_item_mana(&mut req, ObjectId(7), 0.0, false));
+    assert!(req.0.is_empty());
+}

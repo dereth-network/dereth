@@ -176,7 +176,22 @@ impl GamePlayScreen {
         };
         hide_or_show(ui, false);
 
+        let any_mana = view
+            .era()
+            .is_some_and(|e| e.world_rules.selection_asks_any_mana);
         if !splitter::shows_split_widget(stack_size) {
+            // A world whose rules ask any selection for its mana: an object that is not a player,
+            // has no pet owner and is not attackable is asked for its mana whoever owns it, and
+            // the field keeps the state it had.
+            if let Some(id) = sel.filter(|id| {
+                any_mana
+                    && view
+                        .selection_query_facts(*id)
+                        .is_some_and(|f| !f.is_player && !f.has_pet_owner && !f.attackable)
+            }) {
+                ui.requests.emit(UiRequest::QueryItemMana(id));
+                return Some(SelectionQuery::ItemMana);
+            }
             if let Some(h) = self.toolbar_children.get("sel_object_field") {
                 // Both non-stack branches: state `0x1000000B`.
                 ui.set_state(h, dereth_ui::StateId(0x1000_000B));
@@ -227,7 +242,13 @@ impl GamePlayScreen {
         }
         hide_or_show(ui, true);
         // The stack arm asks for neither query: the client's `else` seeds the pair and falls
-        // straight through to the common return. A stack is asked for **nothing**.
+        // straight through to the common return. A stack is asked for **nothing**, except on a
+        // world whose rules ask any selection for its mana.
+        if any_mana {
+            let id = sel?;
+            ui.requests.emit(UiRequest::QueryItemMana(id));
+            return Some(SelectionQuery::ItemMana);
+        }
         None
     }
 }

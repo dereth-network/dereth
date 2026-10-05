@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::datset::{DatOrigin, DatSet, SetKind};
+use dereth_primitives::EraId;
+
+use crate::datset::{DatOrigin, DatRole, DatSet, SetKind};
 use crate::install::{ClientKind, Installation};
 use crate::state::LauncherState;
 use crate::world::World;
@@ -65,12 +67,22 @@ pub fn default_client(
 /// not assigned). One that does gets only its own private set, or a custom set matching what it
 /// published: never a set another world might be using.
 pub fn dat_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
+    // A world that publishes no hash for its own files (the ones the launcher knows by their list
+    // id) is matched by what its files report: any set of the player's that reports it, wherever
+    // it came from, and none that does not.
+    let by_iterations = world
+        .dats
+        .custom
+        .as_ref()
+        .filter(|c| c.sha256.is_none())
+        .is_some();
     state
         .dat_sets
         .iter()
         .filter(|s| s.kind == SetKind::Modern)
         .filter(|s| match &s.origin {
             DatOrigin::World { slug } => slug == &world.slug,
+            _ if by_iterations => set_matches(world, s).is_ok(),
             DatOrigin::Custom { sha256 } => world.dats.custom.as_ref().is_some_and(|c| {
                 c.sha256
                     .as_deref()
@@ -80,6 +92,83 @@ pub fn dat_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
         })
         .cloned()
         .collect()
+}
+
+/// The files a world compares: those its server checks (GDLE's covers portal and cell; the ACE
+/// family's the local file too), and of those only the ones the world says.
+fn compared_roles(world: &World) -> &'static [DatRole] {
+    if world.emulator == crate::world::Emulator::Gdle {
+        &[DatRole::Portal, DatRole::Cell]
+    } else {
+        &[DatRole::Portal, DatRole::Cell, DatRole::Local]
+    }
+}
+
+/// Whether `set` holds the files a world that ships its own wants: what each file reports equals
+/// what the world's files report, file by file. Any set does for a world that ships none.
+///
+/// # Errors
+/// What is wrong, for the player: which files differ, and where the world's own come from.
+pub fn set_matches(world: &World, set: &DatSet) -> Result<(), String> {
+    let Some(custom) = &world.dats.custom else {
+        return Ok(());
+    };
+    let have = set.iterations();
+    let c = have.compare(&custom.iterations, compared_roles(world));
+    if c.matches() {
+        return Ok(());
+    }
+    let mut out = format!(
+        "These are not {}'s data files: they read {}, and {}'s read {}.",
+        world.name,
+        have.label(),
+        world.name,
+        custom.iterations.label()
+    );
+    if let Some(note) = &custom.license_note {
+        out.push(' ');
+        out.push_str(note);
+    }
+    Err(out)
+}
+
+/// The set a world page should start on: the one last used there if it may still be used, else
+/// the first that matches.
+pub fn default_set_for(state: &LauncherState, world: &World, last: Option<&str>) -> Option<String> {
+    let sets = dat_sets_for(state, world);
+    last.filter(|id| sets.iter().any(|s| s.id == *id))
+        .map(str::to_owned)
+        .or_else(|| sets.first().map(|s| s.id.clone()))
+}
+
+/// The data set a world's world is drawn from: the one it names ([`World::world_base`]), else its
+/// era's ([`crate::eras::required_set`]).
+pub fn required_set_for(world: &World) -> SetKind {
+    match world
+        .world_base
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("modern") => SetKind::Modern,
+        Some("classic") => SetKind::Classic,
+        _ => crate::eras::required_set(world.era.as_deref()),
+    }
+}
+
+/// [`dat_dirs`] for a world: its base set required, as [`required_set_for`] says.
+///
+/// # Errors
+/// [`MissingSet`] when the required set was not chosen.
+pub fn dat_dirs_for(
+    world: &World,
+    modern: Option<&Path>,
+    classic: Option<&Path>,
+) -> Result<DatDirs, MissingSet> {
+    match required_set_for(world) {
+        SetKind::Modern => dat_dirs(None, modern, classic),
+        SetKind::Classic => dat_dirs(Some(EraId::Infiltration.name()), modern, classic),
+    }
 }
 
 /// The Classic sets the Dereth client may be given: every one. No world patches or ships them, so
@@ -276,6 +365,116 @@ mod tests {
         let ids = |v: Vec<DatSet>| v.into_iter().map(|d| d.id).collect::<Vec<_>>();
         assert_eq!(ids(dat_sets_for(&s, &w)), ["m"]);
         assert_eq!(ids(classic_sets_for(&s)), ["c"]);
+    }
+
+    /// A set whose files report `it`, with the given origin.
+    fn set_reading(id: &str, origin: DatOrigin, it: Iterations) -> DatSet {
+        let d = crate::datset::tests::tmp(&format!("choices-{id}"));
+        crate::datset::tests::fake_set(&d, it);
+        DatSet {
+            id: id.into(),
+            path: d.clone(),
+            kind: SetKind::Modern,
+            origin,
+            files: crate::datset::scan_dir(&d),
+            last_patched_by_server: None,
+            created_by_launcher: false,
+        }
+    }
+
+    fn known_world(list_id: &str, name: &str) -> World {
+        let mut w = World::new(crate::serverlist::slug_for(name), name);
+        w.list_id = Some(list_id.into());
+        crate::known::apply(&mut w);
+        w
+    }
+
+    #[test]
+    fn a_known_world_is_offered_only_the_sets_whose_files_report_its_own() {
+        let customdm = Iterations {
+            portal: Some(20044),
+            cell: Some(20011),
+            local: Some(20011),
+            highres: Some(497),
+        };
+        let classicdereth = Iterations {
+            portal: Some(2072),
+            cell: Some(4),
+            local: Some(994),
+            highres: Some(497),
+        };
+        let s = LauncherState {
+            dat_sets: vec![
+                set_reading("eor", DatOrigin::Shared, Iterations::END_OF_RETAIL),
+                set_reading("cdm", DatOrigin::Unassigned, customdm),
+                set_reading("cd", DatOrigin::Unassigned, classicdereth),
+            ],
+            ..Default::default()
+        };
+        let ids = |v: Vec<DatSet>| v.into_iter().map(|d| d.id).collect::<Vec<_>>();
+        let dekarutide = known_world("4db379b0-587a-4775-9b7f-879e0f15ba4b", "Dekarutide");
+        assert_eq!(ids(dat_sets_for(&s, &dekarutide)), ["cdm"]);
+        assert_eq!(
+            default_set_for(&s, &dekarutide, Some("eor")).as_deref(),
+            Some("cdm"),
+            "a set that does not match is not kept as the choice"
+        );
+        // GDLE compares portal and cell only, so the local file's count does not matter.
+        let seedsow = known_world("394C58D0-885D-466B-B17F-D7E0B96FE3E2", "Seedsow");
+        assert_eq!(ids(dat_sets_for(&s, &seedsow)), ["cd"]);
+        // An ordinary world is offered the shared set and the unassigned ones, as before.
+        assert_eq!(
+            ids(dat_sets_for(&s, &World::new("coldeve", "Coldeve"))),
+            ["eor", "cdm", "cd"]
+        );
+        for d in &s.dat_sets {
+            let _ = std::fs::remove_dir_all(&d.path);
+        }
+    }
+
+    #[test]
+    fn a_known_world_with_none_of_its_files_is_offered_nothing_and_a_wrong_set_is_refused() {
+        let s = LauncherState {
+            dat_sets: vec![set_reading(
+                "eor2",
+                DatOrigin::Shared,
+                Iterations::END_OF_RETAIL,
+            )],
+            ..Default::default()
+        };
+        let shores = known_world("3f1f41ec-c7fd-4ed9-b47d-25b0d94219c1", "Unfamiliar Shores");
+        assert!(dat_sets_for(&s, &shores).is_empty());
+        assert_eq!(default_set_for(&s, &shores, None), None);
+        let refusal = set_matches(&shores, &s.dat_sets[0]).unwrap_err();
+        assert!(
+            refusal.contains("2072/982/994/497")
+                && refusal.contains("20044/20011/20011/497")
+                && refusal.contains("CustomDM"),
+            "{refusal}"
+        );
+        assert_eq!(set_matches(&World::new("a", "A"), &s.dat_sets[0]), Ok(()));
+        let _ = std::fs::remove_dir_all(&s.dat_sets[0].path);
+    }
+
+    #[test]
+    fn a_known_world_drawn_from_the_later_files_needs_the_modern_set_whatever_its_era() {
+        let w = known_world("4db379b0-587a-4775-9b7f-879e0f15ba4b", "Dekarutide");
+        assert_eq!(w.era.as_deref(), Some("infiltration"));
+        assert_eq!(required_set_for(&w), SetKind::Modern);
+        assert_eq!(
+            dat_dirs_for(&w, None, Some(Path::new("/c"))),
+            Err(MissingSet::Modern)
+        );
+        assert_eq!(
+            dat_dirs_for(&w, Some(Path::new("/m")), Some(Path::new("/c"))),
+            Ok(DatDirs {
+                dat_dir: "/m".into(),
+                classic_dat_dir: Some("/c".into())
+            })
+        );
+        let mut plain = World::new("x", "X");
+        plain.era = Some("infiltration".into());
+        assert_eq!(required_set_for(&plain), SetKind::Classic);
     }
 
     #[test]

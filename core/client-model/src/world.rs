@@ -139,6 +139,9 @@ pub struct World {
     /// The player's own house, or `None`. The receive layer stores it here because the house panel
     /// is a pulled view; see [`crate::housing`].
     pub house: Option<crate::housing::HouseData>,
+    /// The rules the world plays by over the end of retail's (`--world-profile`): which weapons
+    /// rule out a shield, whether a worn trinket is replaced, whether an expiry is announced.
+    pub world_rules: dereth_primitives::WorldRules,
     /// How many `0x0225 House_HouseData` have arrived: the panel's redraw
     /// edge, analogous to [`Self::allegiance_aborts`].
     pub house_data_notices: u64,
@@ -284,6 +287,7 @@ impl World {
             portal_storms_struck: 0,
             pending_portal_storm_scripts: Vec::new(),
             house: None,
+            world_rules: dereth_primitives::WorldRules::default(),
             house_data_notices: 0,
             slumlord: None,
             house_profile_notices: 0,
