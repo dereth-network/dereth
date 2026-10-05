@@ -54,6 +54,7 @@ pub mod server_packet;
 pub mod session;
 pub mod session_connection_data;
 pub mod session_termination_details;
+pub mod status_ping;
 pub mod transport_messages;
 
 #[cfg(feature = "testing")]

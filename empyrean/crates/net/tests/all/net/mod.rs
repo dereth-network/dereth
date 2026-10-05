@@ -9,4 +9,5 @@ pub(crate) mod optional_header_sections;
 pub(crate) mod real_sockets;
 pub(crate) mod session_lifecycle;
 pub(crate) mod statistics_and_packet_log;
+pub(crate) mod status_ping;
 pub(crate) mod timers_resend_and_routing;

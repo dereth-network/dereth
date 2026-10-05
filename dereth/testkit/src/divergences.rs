@@ -278,6 +278,16 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "Later worlds' equipment can be worn and seen in the classic interface, and the \
               doll keeps its own layout.",
     },
+    Divergence {
+        id: "CD-034",
+        title: "A world's systems reach the client as one shared bitfield",
+        change: "--era-features takes the world's whole set of systems as the bitfield the \
+                 server's status ping and the launcher use (the table's version, then the bits \
+                 in hex), as well as by name. A system the client's table and the bitfield's do \
+                 not both have is left to the era's table, never read as missing.",
+        why: "The server, the launcher and the client agree on one form, and a client older or \
+              newer than its server still reads the systems they share.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

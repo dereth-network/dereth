@@ -145,6 +145,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.era.the-worlds-systems-are-read-from-the-shared-bitfield",
+        says: "Given --era-features as the shared bitfield (a table version and its bits in \
+               hex), the client takes every system its own table and that version's both name, \
+               on or off as the bit says; a newer table's further bits are skipped, and a \
+               malformed bitfield or a version 0 is refused.",
+        since: THIS_CLIENT,
+        divergence: "CD-034",
+        evidence: Evidence::Private("AC-EVID-ERA-FEATURE-BITS"),
+        station: "dereth-client-runtime::lib::config::tests::the_era_features_switch_takes_the_bitfield",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "presentation.frame.a-frame-with-no-physics-tick-draws-what-the-last-drew",
         says: "A frame on which physics did not tick draws exactly what the frame before it drew: \
                the running player's body and the camera hold still between ticks at every frame \

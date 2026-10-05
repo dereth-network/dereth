@@ -46,8 +46,9 @@ picks: the world's era decides which one it needs (a Classic set for an era befo
 Destiny, a Modern set for any other, or when the era is not known), and the other is optional
 (a Classic set beside a Modern one gives the classic interface and looks). The Modern set is
 `--dat-dir`, the Classic set `--classic-dat-dir` (`--dat-dir` when no Modern set is chosen for a
-Classic-era world), and the world's era and systems `--era` and `--era-features`. A world
-that patches data files over the network, or ships its own, gets a private copy, and only the
+Classic-era world), and the world's era and systems `--era` and `--era-features` (the systems as
+the shared bitfield, `<table version>:<hex>`: the era's table with what the world or the player
+turned on or off over it). A world that patches data files over the network, or ships its own, gets a private copy, and only the
 Dereth client can use one.
 
 Both clients receive the account and password on their command line (`-a <account> -v <password>`).
@@ -75,8 +76,8 @@ and era.
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
 | passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (the Secret Service: GNOME Keyring, KWallet): one entry per account per world, named `dereth:world/<slug>/<account>` |
 | the world list | the community's list, `Servers.xml` in [acresources/serverslist](https://github.com/acresources/serverslist) (`DERETH_SERVERS_LIST` overrides), fetched at most once a day (the refresh button fetches it again) and kept in the data folder as `world-list.json`; and the servers the player added, which are kept in the state |
-| a world's era and systems | its Empyrean status document when it says them; otherwise the player's choice on the world's row, kept per world in the state |
-| whether a world is up | its Empyrean status document when it has one; otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on |
+| a world's era and systems | its Empyrean status document or status ping when it says them; otherwise the player's choice on the world's row, kept per world in the state |
+| whether a world is up | its Empyrean status document when it has one; else, for a world that may run Empyrean, the status ping on its game port (`docs/networking/06-status-ping.md`), which also says how many are on, its era and systems, the server's version and its name, asked again every minute once answered; otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on |
 
 Nothing is kept beside the launcher, and the launcher writes nothing outside its own `launcher`
 folders: the rest of `Dereth` (`dereth` on Linux) is the client's. Nothing is carried over from

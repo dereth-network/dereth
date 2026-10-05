@@ -244,6 +244,26 @@ fn the_era_features_switch_names_the_servers_systems() {
     assert!(parse(&["--era-features", "trade"]).is_err());
 }
 
+/// `--era-features` also takes the shared bitfield, as the launcher passes it: every system of
+/// its table is set, and a newer table's systems past this client's are skipped.
+///
+/// Behaviour: presentation.era.the-worlds-systems-are-read-from-the-shared-bitfield
+#[test]
+fn the_era_features_switch_takes_the_bitfield() {
+    use dereth_primitives::{EraFeatures, EraId};
+    let c = parse(&["--era-features", "1:0002de"]).expect("parses");
+    let f = c.era_features.apply(EraFeatures::NONE);
+    assert!(f.aetheria && !f.trade && f.housing && f.chess && !f.ratings);
+    assert_eq!(c.era_features.iter().count(), EraFeatures::COUNT);
+    let newer = parse(&["--era-features", "99:ffff5fff"]).expect("parses");
+    assert_eq!(
+        newer.era_features.apply(EraFeatures::NONE),
+        EraId::Eor.features()
+    );
+    assert!(parse(&["--era-features", "1:zz"]).is_err());
+    assert!(parse(&["--era-features", "0:ffff5f"]).is_err());
+}
+
 /// `--cast` names the spell a scripted world entry casts; it takes a spell id.
 #[test]
 fn the_cast_switch_names_the_spell_a_scripted_entry_casts() {

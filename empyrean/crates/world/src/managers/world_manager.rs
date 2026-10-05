@@ -760,6 +760,25 @@ pub fn update_world(
     w.world_manager.world_active = false;
 }
 
+/// Not ACE: the status ping's live facts (V442), read before the pass's datagrams: whether the
+/// world is open and how many are on.
+fn refresh_status_ping(w: &mut World) {
+    use empyrean_net::status_ping::WorldState;
+    let state = if w.server_manager.shutdown_initiated {
+        WorldState::ShuttingDown
+    } else if w.world_manager.world_status == WorldStatusState::Open {
+        WorldState::Open
+    } else {
+        WorldState::Starting
+    };
+    let players = u16::try_from(crate::managers::player_manager::get_online_count(w).max(0))
+        .unwrap_or(u16::MAX);
+    if let Some(ping) = w.net.status_ping.as_mut() {
+        ping.facts.state = state;
+        ping.facts.players = players;
+    }
+}
+
 impl World {
     /// One iteration of `WorldManager.UpdateWorld`'s loop at `now`, without its `Thread.Sleep`
     /// and without advancing `Timers.PortalYearTicks` (the caller measures the iteration; see
@@ -767,6 +786,7 @@ impl World {
     pub fn tick(&mut self, now: ClockSnapshot, driver: &mut dyn NetDriver) -> UpdateWorldTick {
         self.now = now;
 
+        refresh_status_ping(self);
         run_stage(self, "NetworkManager.ProcessPacket", (), |w| {
             driver.receive(&mut w.net, now)
         });

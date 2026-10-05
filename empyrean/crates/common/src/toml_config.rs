@@ -480,6 +480,50 @@ pub const SECTIONS: &[Section] = &[
         ],
     },
     Section {
+        toml: &["status"],
+        ace: &["Status"],
+        array: false,
+        help: "The status ping: a launcher that knows only the world's host and port asks, in two small\n\
+               datagrams on the game port and with no login, whether the world is open, how many are on,\n\
+               its era and systems, the server software and the world's name. The first step answers\n\
+               with a short-lived token only, never more bytes than it was sent; the second must carry it.",
+        keys: &[
+            Key {
+                unset: "true",
+                ..e(
+                    "udp_ping",
+                    "UdpPing",
+                    "Answer the status ping. Off, it is dropped as a server without it drops it.",
+                )
+            },
+            Key {
+                unset: "4",
+                ..e(
+                    "hellos_per_minute",
+                    "HellosPerMinute",
+                    "Token requests a minute from one address; the excess is dropped silently.",
+                )
+            },
+            Key {
+                unset: "4",
+                ..e(
+                    "asks_per_minute",
+                    "AsksPerMinute",
+                    "Status requests a minute from one address; the excess is dropped silently.",
+                )
+            },
+            Key {
+                unset: "50",
+                ..e(
+                    "replies_per_second",
+                    "RepliesPerSecond",
+                    "Status-ping replies a second to everyone together. Drops are logged as a count once a\n\
+                     minute.",
+                )
+            },
+        ],
+    },
+    Section {
         toml: &["era"],
         ace: &["Era"],
         array: false,

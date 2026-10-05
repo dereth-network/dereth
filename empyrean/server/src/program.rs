@@ -38,6 +38,7 @@ use empyrean_common::thread_safe_random::ThreadSafeRandom;
 use empyrean_content::WorldDatabase;
 use empyrean_dat::{DatManager, RealDats};
 use empyrean_net::driver::udp::UdpDriver;
+use empyrean_net::status_ping::{StatusFacts, StatusPing, StatusPingConfig, WorldState};
 use empyrean_net::{NetConfig, Outgoing, PortKind, ServerNet};
 use empyrean_server::config_file::{self, ConfigSource};
 use empyrean_server::websocket::{EndpointConfig, WebSocketEndpoint};
@@ -851,7 +852,46 @@ fn new_world(
         net_config,
         empyrean_world::network::game_messages::game_message::transport_messages(),
     );
+    world.net.status_ping = Some(status_ping(config, &world));
     world
+}
+
+/// Not ACE: the status ping on the game port (`[status]`, V442), with the world's lasting facts.
+/// The world loop keeps its state and player count current.
+fn status_ping(config: &MasterConfiguration, world: &World) -> StatusPing {
+    let s = &config.status;
+    if s.udp_ping {
+        log::info!(
+            "Status ping on the game port: {} hellos and {} asks a minute from one address, {} replies a second",
+            s.hellos_per_minute,
+            s.asks_per_minute,
+            s.replies_per_second
+        );
+    } else {
+        log::info!("Status ping off ([status] udp_ping = false)");
+    }
+    StatusPing::new(
+        StatusPingConfig {
+            enabled: s.udp_ping,
+            hellos_per_minute: s.hellos_per_minute,
+            asks_per_minute: s.asks_per_minute,
+            replies_per_second: s.replies_per_second,
+        },
+        StatusFacts {
+            state: WorldState::Starting,
+            players: 0,
+            era: world.era.id.name().to_owned(),
+            features: world.era.features,
+            software: empyrean_common::brand::PRODUCT.to_owned(),
+            software_version: env!("CARGO_PKG_VERSION").to_owned(),
+            world_name: config.server.world_name.clone(),
+        },
+        Box::new(|| {
+            let mut secret = [0u8; 32];
+            getrandom::fill(&mut secret).expect("the OS random source failed");
+            secret
+        }),
+    )
 }
 
 /// `SocketManager.Initialize()`: the listeners on `Host`, ports `Port` and `Port + 1`, and (not ACE)

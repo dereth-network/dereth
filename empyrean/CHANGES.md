@@ -35,6 +35,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
   before.
 - `GET /status` and `GET /v1/world` report the world's era, its systems, its data files and the
   client versions it admits.
+- **Status ping:** a launcher can ask a world on its game port, with no login and no web address,
+  whether it is open, how many are on, its era and systems, the server software and the world's
+  name. It is on by default; `[status] udp_ping = false` turns it off, and the section's rate
+  limits bound how often one address may ask.
 - Spell research: with `spell_research` on, a tested formula of components teaches and casts the
   spell it makes. A test is judged in order: an impossible formula, then a wrong target ("Incorrect
   target type"), then a formula that makes no spell, which is spoken and fizzles.

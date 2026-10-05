@@ -46,6 +46,8 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 flate2.workspace = true
 sha2.workspace = true
+# The status ping's secrets: the OS random source.
+getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

@@ -286,9 +286,11 @@ pub struct Config {
     /// and chooses which of [`Self::dat_dir`]'s sets draws the world; `None`: the end of retail's
     /// set when the folder has it, and the data files decide.
     pub era: Option<dereth_primitives::EraId>,
-    /// `--era-features <name=true,...>`: the systems the server says its world has, as the
-    /// launcher reads them from the world's status. Each one named wins over the era's table; a
-    /// name this client does not know is skipped.
+    /// `--era-features <version>:<bits>` (or `<name=true,...>`): the systems the server says its
+    /// world has, as the launcher reads them from the world's status, in the shared bitfield
+    /// (`dereth_primitives::EraFeatureBits`) or by name. Each system given wins over the era's
+    /// table; one this client's table and the bitfield's do not both have, or a name it does not
+    /// know, is left to the table.
     pub era_features: dereth_primitives::EraFeatureOverrides,
 
     // ---- the static scene ----
@@ -1503,14 +1505,28 @@ impl Config {
                 );
             }
             "era-features" => {
-                let (features, unknown) = dereth_primitives::EraFeatureOverrides::parse(v)
-                    .map_err(|e| ConfigError::new(format!("bad --era-features: {e}")))?;
-                if !unknown.is_empty() {
-                    tracing::warn!(
-                        "--era-features names systems this client does not know: {unknown:?}"
-                    );
+                // The bitfield (`<table version>:<hex>`), as the launcher passes it, or the
+                // systems by name (`name=true,...`), as a person types them.
+                if !v.contains('=') && v.contains(':') {
+                    let bits = dereth_primitives::EraFeatureBits::parse(v)
+                        .map_err(|e| ConfigError::new(format!("bad --era-features: {e}")))?;
+                    if bits.table_version > dereth_primitives::EraFeatures::TABLE_VERSION {
+                        tracing::warn!(
+                            "--era-features is from a newer table (version {}); the systems this client does not know are skipped",
+                            bits.table_version
+                        );
+                    }
+                    self.era_features = bits.overrides();
+                } else {
+                    let (features, unknown) = dereth_primitives::EraFeatureOverrides::parse(v)
+                        .map_err(|e| ConfigError::new(format!("bad --era-features: {e}")))?;
+                    if !unknown.is_empty() {
+                        tracing::warn!(
+                            "--era-features names systems this client does not know: {unknown:?}"
+                        );
+                    }
+                    self.era_features = features;
                 }
-                self.era_features = features;
             }
             "landblock" => {
                 self.landblock = u16::from_str_radix(v.trim_start_matches("0x"), 16)

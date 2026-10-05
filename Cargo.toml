@@ -184,6 +184,8 @@ serde_json = "1"
 skrifa = { version = "0.48", default-features = false, features = ["std"] }
 # Legacy SHA512 account password hashes.
 sha2 = "0.10"
+# The status ping's tokens (empyrean-net): HMAC-SHA256 over the asker's address and the time window.
+hmac = "0.12"
 # Configuration consumers retain ordered table keys through their preserve_order feature.
 toml = "1"
 web-sys = "0.3.104"

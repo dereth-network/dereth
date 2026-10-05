@@ -25,6 +25,9 @@ dereth-client-net = { workspace = true, optional = true }
 dereth-protocol.workspace = true
 dereth-primitives.workspace = true
 log.workspace = true
+# The status ping's stateless tokens.
+hmac.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 # Self dev-dependency: turns on `testing` for tests/all without making it a default feature.

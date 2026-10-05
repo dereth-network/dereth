@@ -377,6 +377,30 @@ records_per_minute = 60000
 bytes_per_second = 1048576
 
 # ----------------------------------------------------------------------------------------------
+[status]
+# The status ping: a launcher that knows only the world's host and port asks, in two small
+# datagrams on the game port and with no login, whether the world is open, how many are on,
+# its era and systems, the server software and the world's name. The first step answers
+# with a short-lived token only, never more bytes than it was sent; the second must carry it.
+
+# default: true (Empyrean only)
+# Answer the status ping. Off, it is dropped as a server without it drops it.
+udp_ping = true
+
+# default: 4 (Empyrean only)
+# Token requests a minute from one address; the excess is dropped silently.
+hellos_per_minute = 4
+
+# default: 4 (Empyrean only)
+# Status requests a minute from one address; the excess is dropped silently.
+asks_per_minute = 4
+
+# default: 50 (Empyrean only)
+# Status-ping replies a second to everyone together. Drops are logged as a count once a
+# minute.
+replies_per_second = 50
+
+# ----------------------------------------------------------------------------------------------
 [era]
 # The era the world plays. Every era speaks the end-of-retail client protocol; the era
 # selects the world's rules (start positions, level cap, what the character list tells

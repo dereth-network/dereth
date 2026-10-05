@@ -76,6 +76,44 @@ fn probe_host(host: &str, port: u16) -> bool {
     false
 }
 
+/// Ask a world's live status with the status ping ([`dereth_launch::probe::status_hello`]): the
+/// hello, then the ask with the token it brings back. Two tries for each step, 600 ms apiece.
+/// `None` when the server does not answer it, which a server other than Empyrean never does.
+fn ping_status(host: &str, port: u16) -> Option<LiveStatus> {
+    use std::net::{ToSocketAddrs, UdpSocket};
+    let addr = (host, port)
+        .to_socket_addrs()
+        .ok()?
+        .find(std::net::SocketAddr::is_ipv4)?;
+    let sock = UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    let wait = Duration::from_millis(600);
+    sock.set_read_timeout(Some(wait)).ok()?;
+    // Sends `request` and waits for a datagram from the server that `wanted` takes.
+    let exchange = |request: &[u8], wanted: &dyn Fn(&[u8]) -> bool| {
+        let mut buf = [0u8; 1500];
+        for _ in 0..2 {
+            sock.send_to(request, addr).ok()?;
+            let until = Instant::now() + wait;
+            while Instant::now() < until {
+                match sock.recv_from(&mut buf) {
+                    Ok((n, from)) if from == addr && wanted(&buf[..n]) => {
+                        return Some(buf[..n].to_vec());
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+        }
+        None
+    };
+    let token = exchange(&dereth_launch::probe::status_hello(), &|d| {
+        dereth_launch::probe::status_ask(d).is_some()
+    })?;
+    let ask = dereth_launch::probe::status_ask(&token)?;
+    let reply = exchange(&ask, &|d| dereth_launch::probe::status_reply(d).is_some())?;
+    dereth_launch::probe::status_reply(&reply)
+}
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -409,8 +447,24 @@ impl Backend {
             w.features_source = Some(Told::World);
         }
         if let Some(l) = self.live.get(&w.slug) {
-            // Only Empyrean publishes the document.
-            w.emulator = Emulator::Empyrean;
+            // Only Empyrean publishes the document and answers the status ping.
+            if l.software
+                .as_deref()
+                .is_none_or(|s| s.eq_ignore_ascii_case("Empyrean"))
+            {
+                w.emulator = Emulator::Empyrean;
+            }
+            // A server the player added without naming it is called what it calls itself.
+            if let Some(name) = &l.world_name {
+                if self
+                    .state
+                    .custom_worlds
+                    .iter()
+                    .any(|c| c.slug == w.slug && c.name == c.host)
+                {
+                    w.name.clone_from(name);
+                }
+            }
             if l.version.is_some() {
                 w.emulator_version.clone_from(&l.version);
             }
@@ -572,15 +626,22 @@ impl Backend {
         Self::probe(shared, slugs);
     }
 
-    /// Ask the named worlds whether they are up, a few at a time, on threads of their own.
+    /// Ask the named worlds whether they are up, a few at a time, on threads of their own. A world
+    /// with no status document that may be Empyrean (it says so, or nobody has said what it runs)
+    /// is asked with the status ping first, which tells its state, players, era, systems, software
+    /// and name; one that does not answer it, and every other, with the server-tracker login.
     pub fn probe(shared: &Shared, slugs: Vec<String>) {
-        let queue: Vec<(String, String, u16)> = {
+        let queue: Vec<(String, String, u16, bool)> = {
             let mut b = lock(shared);
-            let targets: Vec<(String, String, u16)> = slugs
+            let targets: Vec<(String, String, u16, bool)> = slugs
                 .iter()
                 .filter(|s| !b.probing.contains(*s))
                 .filter_map(|s| b.world(s))
-                .filter_map(|w| w.endpoint.map(|e| (w.slug, e.address, e.port)))
+                .filter_map(|w| {
+                    let ping = w.status_method != StatusMethod::EmpyreanHttp
+                        && matches!(w.emulator, Emulator::Empyrean | Emulator::Unknown);
+                    w.endpoint.map(|e| (w.slug, e.address, e.port, ping))
+                })
                 .collect();
             for (slug, ..) in &targets {
                 b.probing.insert(slug.clone());
@@ -595,19 +656,45 @@ impl Backend {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .pop();
-                let Some((slug, host, port)) = next else {
+                let Some((slug, host, port, ping)) = next else {
                     break;
                 };
-                let up = probe_host(&host, port);
+                let live = ping.then(|| ping_status(&host, port)).flatten();
+                let up = live.is_some() || probe_host(&host, port);
                 let mut b = lock(&shared);
                 b.probing.remove(&slug);
-                b.probed.insert(slug, up);
+                b.probed.insert(slug.clone(), up);
+                if ping {
+                    b.polled.insert(slug.clone(), Instant::now());
+                    // A world that stopped answering the ping is up or down by the login alone.
+                    match live {
+                        Some(live) => b.live.insert(slug, live),
+                        None => b.live.remove(&slug),
+                    };
+                }
             });
         }
     }
 
-    /// Once a second: ask for each Empyrean world's status when it is due, and watch the clients.
+    /// Once a second: ask for each Empyrean world's status when it is due (its status document,
+    /// or the status ping for a world that answered it), and watch the clients.
     pub fn tick(shared: &Shared) {
+        let pings: Vec<String> = {
+            let b = lock(shared);
+            b.all_worlds()
+                .filter(|w| w.status_method != StatusMethod::EmpyreanHttp)
+                .filter(|w| b.live.contains_key(&w.slug) && !b.probing.contains(&w.slug))
+                .filter(|w| {
+                    b.polled
+                        .get(&w.slug)
+                        .is_none_or(|t| t.elapsed() >= STATUS_INTERVAL)
+                })
+                .map(|w| w.slug)
+                .collect()
+        };
+        if !pings.is_empty() {
+            Self::probe(shared, pings);
+        }
         let due: Vec<(String, String)> = {
             let b = lock(shared);
             b.worlds
@@ -1432,6 +1519,75 @@ mod tests {
         let (mut b, dir) = backend("probe");
         b.probed.insert("eulmore".into(), false);
         assert_eq!(b.world("eulmore").unwrap().state, WorldState::Offline);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A stand-in for Empyrean's side of the status ping: a token for the hello, the status for
+    /// the ask that carries it.
+    #[test]
+    fn a_server_that_answers_the_status_ping_tells_its_state_players_era_software_and_name() {
+        use dereth_launch::probe::status_ping as sp;
+        use std::net::UdpSocket;
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let port = server.local_addr().unwrap().port();
+        let token = sp::Token {
+            window: 1,
+            mac: [5; 16],
+        };
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 1500];
+            for _ in 0..2 {
+                let Ok((n, from)) = server.recv_from(&mut buf) else {
+                    return;
+                };
+                let reply = match sp::parse_request(&buf[..n]) {
+                    Some(sp::Request::Hello) => sp::token_reply(token),
+                    Some(sp::Request::Ask(t)) if t == token => sp::StatusReply {
+                        format_version: 1,
+                        state: sp::WorldState::Open,
+                        players: 4,
+                        era: "infiltration".into(),
+                        era_table_version: 1,
+                        era_features: vec![0, 0, 0xdf],
+                        software: "Empyrean".into(),
+                        software_version: "0.2.0".into(),
+                        world_name: "Loopback".into(),
+                    }
+                    .encode(),
+                    _ => return,
+                };
+                let _ = server.send_to(&reply, from);
+            }
+        });
+        let live = ping_status("127.0.0.1", port).expect("answered");
+        assert_eq!(live.state, WorldState::Online);
+        assert_eq!(live.players, Some(4));
+        assert_eq!(live.era.as_deref(), Some("infiltration"));
+
+        // A server that does not answer it is asked no further.
+        let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert_eq!(
+            ping_status("127.0.0.1", silent.local_addr().unwrap().port()),
+            None
+        );
+
+        // A server the player added without a name is called what it says it is called.
+        let (mut b, dir) = backend("ping");
+        let slug = b
+            .add_custom_world(&NewServer {
+                host: "127.0.0.1".into(),
+                port: port.to_string(),
+                ..NewServer::default()
+            })
+            .unwrap();
+        b.live.insert(slug.clone(), live);
+        let w = b.world(&slug).unwrap();
+        assert_eq!(w.name, "Loopback");
+        assert_eq!(w.emulator, Emulator::Empyrean);
+        assert_eq!(w.emulator_version.as_deref(), Some("0.2.0"));
+        assert_eq!(w.players, Some(4));
+        assert_eq!(w.era_source, Some(Told::World));
+        assert_eq!(w.features_source, Some(Told::World));
         let _ = std::fs::remove_dir_all(dir);
     }
 

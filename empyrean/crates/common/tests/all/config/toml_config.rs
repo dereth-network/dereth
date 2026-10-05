@@ -99,6 +99,11 @@ fn every_kept_key_parses() {
         patching = false
         records_per_minute = 1234
         bytes_per_second = 5678
+        [status]
+        udp_ping = false
+        hellos_per_minute = 2
+        asks_per_minute = 3
+        replies_per_second = 9
         "#,
     );
     assert!(
@@ -113,6 +118,19 @@ fn every_kept_key_parses() {
     assert_eq!(c.dat_overlay.records_per_minute, 1234);
     assert_eq!(c.dat_overlay.bytes_per_second, 5678);
     assert!(MasterConfiguration::default().dat_overlay.patching);
+    assert_eq!(
+        (
+            c.status.udp_ping,
+            c.status.hellos_per_minute,
+            c.status.asks_per_minute,
+            c.status.replies_per_second
+        ),
+        (false, 2, 3, 9)
+    );
+    assert!(
+        MasterConfiguration::default().status.udp_ping,
+        "the status ping is on unless turned off"
+    );
     let s = &c.server;
     assert_eq!(s.world_name, "Kept World");
     assert_eq!(s.dat_files_directory, "D:\\ac\\");

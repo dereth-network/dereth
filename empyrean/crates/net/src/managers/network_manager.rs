@@ -19,6 +19,7 @@ use crate::packets::packet_inbound_connect_response::PacketInboundConnectRespons
 use crate::packets::packet_outbound_connect_request::packet_outbound_connect_request;
 use crate::session::{NetIo, Session, SessionCore};
 use crate::session_connection_data::SessionRandom;
+use crate::status_ping::{Outcome, StatusPing};
 use crate::transport_messages::TransportMessages;
 use crate::{Event, OutboundMessage, Outgoing, PortKind, SessionId};
 
@@ -77,6 +78,9 @@ pub struct ServerNet {
     pub shutdown_time: Option<DotNetDateTime>,
     /// The world's builders of the messages the transport sends (see [`TransportMessages`]).
     pub messages: TransportMessages,
+    /// Not ACE: the status ping (`[status]`), answered before any session exists. `None`: not
+    /// set up, and dropped as with the ping off.
+    pub status_ping: Option<StatusPing>,
 }
 
 /// Splits borrows so a session and the manager's sinks can be used together.
@@ -110,6 +114,23 @@ impl ServerNet {
             shutdown_in_progress: false,
             shutdown_time: None,
             messages,
+            status_ping: None,
+        }
+    }
+
+    /// Not ACE: one status-ping datagram from `from` (see [`crate::status_ping`]). A reply goes
+    /// back from `P` with no session.
+    pub fn answer_status_ping(&mut self, from: SocketAddr, bytes: &[u8], now: ClockSnapshot) {
+        let Some(ping) = self.status_ping.as_mut() else {
+            return;
+        };
+        if let Outcome::Reply(reply) = ping.on_request(from, bytes, now.monotonic.as_secs()) {
+            self.outgoing.push(Outgoing {
+                to: from,
+                via_port_kind: PortKind::C2S,
+                bytes: reply,
+                session: None,
+            });
         }
     }
 

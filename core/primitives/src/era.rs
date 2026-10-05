@@ -231,6 +231,136 @@ impl Default for EraFeatures {
     }
 }
 
+impl EraFeatures {
+    /// The version of the systems' table, as [`EraFeatureBits`] carries it. Systems are only ever
+    /// appended to the table, never moved or removed, so each version's systems are the first
+    /// ones of every later version's; the version goes up by one whenever one is appended.
+    pub const TABLE_VERSION: u16 = 1;
+
+    /// How many systems each version of the table has, version 1 first.
+    pub const COUNT_BY_VERSION: [usize; Self::TABLE_VERSION as usize] = [24];
+
+    /// How many systems version `version` of the table has, as far as this build can say: its own
+    /// count for a version it knows, every system it has for a later one (whose first systems are
+    /// these), none for version 0.
+    #[must_use]
+    pub fn count_at_version(version: u16) -> usize {
+        match version {
+            0 => 0,
+            v if v > Self::TABLE_VERSION => Self::COUNT,
+            v => Self::COUNT_BY_VERSION[usize::from(v) - 1],
+        }
+    }
+}
+
+/// A world's full set of systems as a bitfield: bit `i` (byte `i / 8`, bit `i % 8`, lowest
+/// first) is the `i`-th system of [`EraFeatures::NAMES`], with the version of the table it was
+/// written against. The server's status reply, the launcher and the client's `--era-features`
+/// all carry it in this form.
+///
+/// A reader takes only the bits its own table and the writer's both name: a system the writer's
+/// table does not have (an older writer), or whose bit the writer did not send, is unknown, never
+/// off, and a bit past the reader's table (a newer writer) is skipped.
+///
+/// Text form: the table version in decimal, a colon, and the bytes in hex, first byte first
+/// (`1:ffff5f` is the end of retail).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EraFeatureBits {
+    /// The version of the table the bits were written against.
+    pub table_version: u16,
+    /// The bits, lowest system first.
+    pub bytes: Vec<u8>,
+}
+
+impl EraFeatureBits {
+    /// The most bytes a bitfield is read with: room for 2,040 systems.
+    pub const MAX_BYTES: usize = 255;
+
+    /// `features` against this build's table.
+    #[must_use]
+    pub fn of(features: EraFeatures) -> Self {
+        let mut bytes = vec![0u8; EraFeatures::COUNT.div_ceil(8)];
+        for (i, (_, on)) in features.iter().enumerate() {
+            if on {
+                bytes[i / 8] |= 1 << (i % 8);
+            }
+        }
+        Self {
+            table_version: EraFeatures::TABLE_VERSION,
+            bytes,
+        }
+    }
+
+    /// The bit of the `i`-th system, `None` when it is unknown: past the writer's table, or past
+    /// the bytes sent.
+    #[must_use]
+    pub fn bit(&self, i: usize) -> Option<bool> {
+        if i >= EraFeatures::count_at_version(self.table_version) {
+            return None;
+        }
+        let byte = self.bytes.get(i / 8)?;
+        Some(byte & (1 << (i % 8)) != 0)
+    }
+
+    /// Every system whose bit is known, set to it; the rest unset, so the era's table supplies
+    /// them ([`EraFeatureOverrides::apply`]).
+    #[must_use]
+    pub fn overrides(&self) -> EraFeatureOverrides {
+        let mut o = EraFeatureOverrides::default();
+        for (i, name) in EraFeatures::NAMES.iter().enumerate() {
+            if let Some(on) = self.bit(i) {
+                o.set(name, on);
+            }
+        }
+        o
+    }
+
+    /// Reads the text form.
+    ///
+    /// # Errors
+    /// No colon, a version that is not a number from 1 to 65,535, or hex that is not whole bytes,
+    /// or more than [`Self::MAX_BYTES`] of them.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let (version, hex) = text
+            .trim()
+            .split_once(':')
+            .ok_or_else(|| format!("{text:?} is not <table version>:<hex>"))?;
+        let table_version = version
+            .trim()
+            .parse::<u16>()
+            .ok()
+            .filter(|v| *v > 0)
+            .ok_or_else(|| format!("{text:?}: the table version is not a number from 1"))?;
+        let hex = hex.trim();
+        if hex.len() % 2 != 0 || hex.len() / 2 > Self::MAX_BYTES {
+            return Err(format!("{text:?}: the bits are not whole hex bytes"));
+        }
+        let bytes = (0..hex.len())
+            .step_by(2)
+            .map(|i| {
+                hex.get(i..i + 2)
+                    .and_then(|b| u8::from_str_radix(b, 16).ok())
+            })
+            .collect::<Option<Vec<u8>>>()
+            .ok_or_else(|| format!("{text:?}: the bits are not hex"))?;
+        Ok(Self {
+            table_version,
+            bytes,
+        })
+    }
+}
+
+impl core::fmt::Display for EraFeatureBits {
+    /// The text form [`EraFeatureBits::parse`] reads.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}:", self.table_version)?;
+        for b in &self.bytes {
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
+    }
+}
+
 /// The systems a world turns on or off over its era's table: each value set replaces the table's.
 /// A server's configuration gives them, and the client is told the world's full set in the same
 /// form.
@@ -435,5 +565,122 @@ mod tests {
         assert!(EraFeatureOverrides::parse("chess").is_err());
         assert!(EraFeatureOverrides::parse("chess=maybe").is_err());
         assert!(EraFeatureOverrides::parse("").expect("parses").0.is_empty());
+    }
+
+    /// The first table's systems, in order. A system is only ever appended: this list never
+    /// changes, and a new system bumps [`EraFeatures::TABLE_VERSION`].
+    #[test]
+    fn the_first_tables_systems_keep_their_bits_and_a_new_one_bumps_the_version() {
+        const VERSION_1: [&str; 24] = [
+            "ratings",
+            "consolidated_weapon_skills",
+            "item_spell_auras",
+            "assessed_armor_and_ratings",
+            "swear_to_lower_level",
+            "pre_order_items_and_rares",
+            "dual_wield",
+            "weapon_masteries",
+            "innate_augmentations",
+            "aetheria",
+            "luminance",
+            "contracts",
+            "titles",
+            "cloaks",
+            "trinkets",
+            "journal",
+            "trade",
+            "housing",
+            "apartments",
+            "tinkering",
+            "cantrips",
+            "spell_research",
+            "chess",
+            "swear_xp_cost",
+        ];
+        assert_eq!(EraFeatures::NAMES[..VERSION_1.len()], VERSION_1);
+        assert_eq!(
+            EraFeatures::COUNT_BY_VERSION.last().copied(),
+            Some(EraFeatures::COUNT),
+            "the latest version counts every system"
+        );
+        assert!(EraFeatures::COUNT_BY_VERSION
+            .windows(2)
+            .all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn the_bitfield_round_trips_every_era_and_its_text() {
+        for era in EraId::ALL {
+            let f = era.features();
+            let bits = EraFeatureBits::of(f);
+            assert_eq!(bits.table_version, EraFeatures::TABLE_VERSION);
+            assert_eq!(bits.bytes.len(), EraFeatures::COUNT.div_ceil(8));
+            assert_eq!(bits.overrides().apply(EraFeatures::NONE), f, "{era}");
+            assert_eq!(bits.overrides().apply(EraFeatures::ALL), f, "{era}");
+            let text = bits.to_string();
+            assert_eq!(EraFeatureBits::parse(&text), Ok(bits), "{text}");
+        }
+        assert_eq!(
+            EraFeatureBits::of(EraFeatures::END_OF_RETAIL).to_string(),
+            "1:ffff5f"
+        );
+        assert_eq!(
+            EraFeatureBits::of(EraFeatures::INFILTRATION).to_string(),
+            "1:0000df"
+        );
+    }
+
+    /// A newer table's bits past this build's are skipped; an older table's missing systems,
+    /// and bits not sent, are unknown and left to the era's table.
+    #[test]
+    fn unknown_bits_are_unknown_never_off() {
+        // A newer writer: two more systems, both on, in a fourth byte.
+        let newer = EraFeatureBits {
+            table_version: EraFeatures::TABLE_VERSION + 1,
+            bytes: vec![0xff, 0xff, 0x5f, 0x03],
+        };
+        assert_eq!(
+            newer.overrides().apply(EraFeatures::NONE),
+            EraFeatures::END_OF_RETAIL
+        );
+        assert_eq!(newer.bit(EraFeatures::COUNT), None);
+
+        // Bits not sent: the systems past the bytes keep the table's value.
+        let short = EraFeatureBits {
+            table_version: EraFeatures::TABLE_VERSION,
+            bytes: vec![0x00],
+        };
+        let f = short.overrides().apply(EraFeatures::ALL);
+        assert!(!f.ratings && !f.weapon_masteries, "the first byte is read");
+        assert!(f.innate_augmentations, "the ninth system is past it");
+        assert!(f.aetheria && f.trade && f.chess, "the rest are unknown");
+
+        // Version 0 names no table: nothing is known.
+        let none = EraFeatureBits {
+            table_version: 0,
+            bytes: vec![0; 3],
+        };
+        assert!(none.overrides().is_empty());
+        assert_eq!(EraFeatures::count_at_version(0), 0);
+        assert_eq!(EraFeatures::count_at_version(1), 24);
+        assert_eq!(EraFeatures::count_at_version(u16::MAX), EraFeatures::COUNT);
+    }
+
+    #[test]
+    fn the_bitfield_text_refuses_what_is_not_one() {
+        for bad in ["ffff5f", "0:ffff5f", "x:ff", "1:fff", "1:zz", "-1:ff"] {
+            assert!(EraFeatureBits::parse(bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            EraFeatureBits::parse(" 1:FFff5F "),
+            Ok(EraFeatureBits::of(EraFeatures::END_OF_RETAIL))
+        );
+        assert_eq!(
+            EraFeatureBits::parse("2:"),
+            Ok(EraFeatureBits {
+                table_version: 2,
+                bytes: Vec::new()
+            })
+        );
     }
 }

@@ -11,7 +11,8 @@
 //! Framing and the optional headers are [`wire`], the checksums [`crc`], the key stream [`isaac`],
 //! fragments and blobs [`blob`], reassembly [`indicator`], the per-connection receive state and the
 //! retransmit cache [`session`], the send path [`flow`], the handshake, referral and server-switch
-//! records [`conn`], and the frame a WebSocket carries a datagram in [`web_frame`] (not retail's).
+//! records [`conn`], the frame a WebSocket carries a datagram in [`web_frame`] (not retail's), and the
+//! status ping a launcher asks a world's live status with [`status_ping`] (not retail's either).
 //! The four rules most likely to silently break a rebuild:
 //!
 //! - A packet is encrypted **exactly when** it carries fragments or a non-disposable optional
@@ -27,7 +28,8 @@
 //! cipher), `docs/networking/02-reliability-and-flow.md` (sequencing, acknowledgement and
 //! retransmission), `docs/networking/03-connection-state-machine.md` (the handshake and connection
 //! states), `docs/networking/04-netblobs-and-queues.md` (message blobs and reassembly) and
-//! `docs/networking/05-websocket-frame.md` (the WebSocket frame).
+//! `docs/networking/05-websocket-frame.md` (the WebSocket frame) and `docs/networking/06-status-ping.md`
+//! (the status ping).
 
 pub mod blob;
 pub mod conn;
@@ -36,6 +38,7 @@ pub mod flow;
 pub mod indicator;
 pub mod isaac;
 pub mod session;
+pub mod status_ping;
 pub mod web_frame;
 pub mod wire;
 

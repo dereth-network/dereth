@@ -11,6 +11,7 @@ use crate::ddd_configuration::DDDConfiguration;
 use crate::era::EraConfiguration;
 use crate::game_configuration::GameConfiguration;
 use crate::offline_configuration::OfflineConfiguration;
+use crate::status_configuration::StatusConfiguration;
 
 // ACE: MasterConfiguration
 /// The whole configuration.
@@ -46,4 +47,9 @@ pub struct MasterConfiguration {
     /// DIVERGE: an extra section; ACE serves whole data files.
     #[serde(rename = "DatOverlay")]
     pub dat_overlay: DatOverlayConfiguration,
+
+    /// Not ACE: the status ping on the game port (`[status]`).
+    /// DIVERGE: an extra section; ACE answers nothing about a world without a login (V442).
+    #[serde(rename = "Status")]
+    pub status: StatusConfiguration,
 }

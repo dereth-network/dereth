@@ -36,6 +36,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
   that world's own texts and shows a dot on the map for each starting town.
 - The launcher lists the community's worlds, with each world's era and emulator, and keeps a
   Modern and a Classic data set, each with its own default.
+- The launcher shows an Empyrean world's live state, players, era and systems, server version and
+  name from the world itself, with no status page, refreshed every minute, and hands the world's
+  systems to the client.
 - A world can keep its own changes to the data files: the client keeps them in a separate overlay
   for that world and never alters the installed files. One data folder (`--dat-dir`) holds both the
   later and the early-2005 sets; `--classic-dat-dir` names another folder for the early set.

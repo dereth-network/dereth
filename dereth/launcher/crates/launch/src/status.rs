@@ -1,9 +1,15 @@
-//! A world's live status, from Empyrean's public status document (`GET /v1/world`).
+//! A world's live status, from Empyrean's public status document (`GET /v1/world`) or from its
+//! status ping on the game port (`dereth_transport::status_ping`).
 //!
 //! The document is small and public: whether the world is open, how many are on, the era it plays
 //! and the systems it has, and what its dats are. The dats matter most. They are what the server will compare, so when the document says them
 //! they win over the registry's published numbers.
+//!
+//! The status ping says less, and needs no web address: whether the world is open, how many are
+//! on, its era and systems, the server software and its version, and the world's name.
 
+use dereth_primitives::EraFeatureBits;
+use dereth_transport::status_ping::{StatusReply, WorldState as PingState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -26,6 +32,39 @@ pub struct LiveStatus {
     /// Dereth client's `--era-features` reads (`ratings=false,trade=true,...`).
     #[serde(default)]
     pub era_features: Option<String>,
+    /// The server software, when the world says it (`Empyrean`).
+    #[serde(default)]
+    pub software: Option<String>,
+    /// The world's own name for itself.
+    #[serde(default)]
+    pub world_name: Option<String>,
+}
+
+/// Read a status ping's reply ([`StatusReply`]). The systems are kept by name, as far as this
+/// build's table and the world's both name them; the rest are left to the era's table.
+#[must_use]
+pub fn from_status_reply(r: &StatusReply) -> LiveStatus {
+    let some = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_owned());
+    let bits = EraFeatureBits {
+        table_version: r.era_table_version,
+        bytes: r.era_features.clone(),
+    };
+    let features = bits.overrides();
+    LiveStatus {
+        state: match r.state {
+            PingState::Open => WorldState::Online,
+            PingState::Starting => WorldState::Starting,
+            PingState::ShuttingDown => WorldState::Offline,
+            PingState::Unknown(_) => WorldState::Unknown,
+        },
+        players: Some(u32::from(r.players)),
+        version: some(&r.software_version),
+        era: some(&r.era),
+        era_features: (!features.is_empty()).then(|| features.to_string()),
+        software: some(&r.software),
+        world_name: some(&r.world_name),
+        ..LiveStatus::default()
+    }
 }
 
 /// The document's `features` object (`{"ratings":false,"trade":true,...}`) in the `--era-features`
@@ -85,6 +124,12 @@ pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
             .filter(|e| !e.is_empty())
             .map(str::to_owned),
         era_features: v.get("features").and_then(era_features),
+        software: None,
+        world_name: v
+            .get("world_name")
+            .and_then(Value::as_str)
+            .filter(|n| !n.trim().is_empty())
+            .map(str::to_owned),
     })
 }
 
@@ -139,6 +184,51 @@ mod tests {
         );
         let s = parse_world_document(br#"{"world_open":true,"features":{}}"#).unwrap();
         assert_eq!(s.era_features, None);
+    }
+
+    #[test]
+    fn a_status_ping_reply_reads_as_the_live_status() {
+        use dereth_primitives::{EraFeatureBits, EraFeatures, EraId};
+        let has = EraFeatures {
+            aetheria: true,
+            ..EraId::Infiltration.features()
+        };
+        let bits = EraFeatureBits::of(has);
+        let mut r = StatusReply {
+            format_version: 1,
+            state: PingState::Open,
+            players: 7,
+            era: "infiltration".into(),
+            era_table_version: bits.table_version,
+            era_features: bits.bytes,
+            software: "Empyrean".into(),
+            software_version: "0.2.0".into(),
+            world_name: "Loopback".into(),
+        };
+        let s = from_status_reply(&r);
+        assert_eq!(s.state, WorldState::Online);
+        assert_eq!(s.players, Some(7));
+        assert_eq!(s.era.as_deref(), Some("infiltration"));
+        assert_eq!(s.software.as_deref(), Some("Empyrean"));
+        assert_eq!(s.version.as_deref(), Some("0.2.0"));
+        assert_eq!(s.world_name.as_deref(), Some("Loopback"));
+        let (o, unknown) =
+            dereth_primitives::EraFeatureOverrides::parse(s.era_features.as_deref().unwrap())
+                .unwrap();
+        assert!(unknown.is_empty());
+        assert_eq!(o.apply(EraFeatures::NONE), has);
+        assert_eq!(s.dats, None, "the ping says nothing of the dats");
+
+        r.state = PingState::ShuttingDown;
+        assert_eq!(from_status_reply(&r).state, WorldState::Offline);
+        r.state = PingState::Starting;
+        assert_eq!(from_status_reply(&r).state, WorldState::Starting);
+        // A table version 0 names no systems: they are unknown, not off.
+        r.era_table_version = 0;
+        r.world_name = "  ".into();
+        let s = from_status_reply(&r);
+        assert_eq!(s.era_features, None);
+        assert_eq!(s.world_name, None);
     }
 
     #[test]

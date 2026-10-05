@@ -370,6 +370,16 @@ With the WebSocket endpoint on, `/status` also reports `websocket_url`, the URL 
 connect to (`null` when the endpoint is off). A web page on an origin in
 `server.websocket.allowed_origins` may read `/status` too, so it can find that URL; no other page can.
 
+**The status ping**, unlike the endpoint, is on by default and needs no address of its own: a
+launcher asks on the game port itself, in two small datagrams, whether the world is open, how
+many are on, its era and systems, the server software and the world's name. The first step is
+answered with a short-lived token only, never more bytes than it was sent, and the second must
+carry that token from the same address, so the server cannot be used to flood a third party. Each
+address may ask a few times a minute (`[status] hellos_per_minute`, `asks_per_minute`, 4 each by
+default) and the server sends at most `replies_per_second` replies (50); the excess is dropped and
+counted in the log once a minute. `[status] udp_ping = false` turns it off, and the server then
+ignores it as ACE does. The datagrams are described in `docs/networking/06-status-ping.md`.
+
 ### 4.7 WebSocket: browser clients
 
 A browser cannot send UDP. With `[server.websocket]` enabled, the server also accepts each game

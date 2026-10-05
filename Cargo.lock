@@ -1672,7 +1672,9 @@ dependencies = [
  "dereth-transport",
  "empyrean-common",
  "empyrean-net",
+ "hmac",
  "log",
+ "sha2",
 ]
 
 [[package]]
@@ -1692,6 +1694,7 @@ dependencies = [
  "empyrean-store",
  "empyrean-world",
  "flate2",
+ "getrandom 0.4.3",
  "log",
  "rcgen",
  "rusqlite",

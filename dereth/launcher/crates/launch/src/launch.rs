@@ -9,7 +9,7 @@
 //!
 //! | client | form |
 //! |---|---|
-//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--era <era>] [--era-features <systems>]` |
+//! | Dereth | `dereth-client.exe -a <account> -v <password> -h <host> -p <port> --dat-dir <dir> [--classic-dat-dir <dir>] [--era <era>] [--era-features <version>:<bits>]` |
 //! | retail, ACE or Empyrean | `acclient.exe -a <account> -v <password> -h <host>:<port>` |
 //! | retail, GDLE | `acclient.exe -h <host> -p <port> -a <account>:<password>` |
 //!
@@ -17,12 +17,33 @@
 //! from its own folder too, and reads the dat set it is given, and the Classic set when it is
 //! given one ([`crate::choices::dat_dirs`] decides which). When the world names the era it
 //! plays, the Dereth client is told it, and the systems the world has with it, so its screens show
-//! that world's systems from the start.
+//! that world's systems from the start. The systems go as the shared bitfield
+//! (`dereth_primitives::EraFeatureBits`): the world's whole set, the era's table with what the
+//! world or the player turned on or off over it.
 
 use std::path::PathBuf;
 
+use dereth_primitives::{EraFeatureBits, EraFeatureOverrides, EraId};
+
 use crate::install::{ClientKind, Installation};
 use crate::world::{Emulator, World};
+
+/// The world's whole set of systems as the bitfield the Dereth client reads: its era's table (the
+/// end of retail's when it names none) with [`World::era_features`] over it. `None` when nobody
+/// said its systems, or what was said does not read.
+fn era_feature_bits(world: &World) -> Option<EraFeatureBits> {
+    let text = world
+        .era_features
+        .as_deref()
+        .filter(|f| !f.trim().is_empty())?;
+    let (overrides, _unknown) = EraFeatureOverrides::parse(text).ok()?;
+    let era = world
+        .era
+        .as_deref()
+        .and_then(EraId::parse)
+        .unwrap_or_default();
+    Some(EraFeatureBits::of(overrides.apply(era.features())))
+}
 
 /// One argument, or a placeholder for a secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,8 +133,8 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
             if let Some(era) = req.world.era.as_deref().filter(|e| !e.is_empty()) {
                 args.extend([plain("--era"), plain(era)]);
             }
-            if let Some(f) = req.world.era_features.as_deref().filter(|f| !f.is_empty()) {
-                args.extend([plain("--era-features"), plain(f)]);
+            if let Some(bits) = era_feature_bits(req.world) {
+                args.extend([plain("--era-features"), plain(bits.to_string())]);
             }
         }
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
@@ -263,17 +284,13 @@ mod tests {
         w.era = Some("infiltration".into());
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(argv[argv.len() - 2..], ["--era", "infiltration"]);
-        // And the systems its status lists.
+        // And the systems its status lists, as the whole set over the era's table: Infiltration's
+        // `1:0000df` with trade off and aetheria on.
         w.era_features = Some("trade=false,aetheria=true".into());
         let argv = plan(&req(&w, &i)).unwrap().argv("pw");
         assert_eq!(
             argv[argv.len() - 4..],
-            [
-                "--era",
-                "infiltration",
-                "--era-features",
-                "trade=false,aetheria=true"
-            ]
+            ["--era", "infiltration", "--era-features", "1:0002de"]
         );
 
         // And the Classic set, between the data folder and the era.
@@ -289,7 +306,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "trade=false,aetheria=true"
+                "1:0002de"
             ]
         );
 

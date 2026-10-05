@@ -56,6 +56,7 @@ pub mod performance;
 pub mod preloaded_landblock;
 pub mod random;
 pub mod server_build_info;
+pub mod status_configuration;
 pub mod test_paths;
 pub mod thread_safe_random;
 pub mod time;
