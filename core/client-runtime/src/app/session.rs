@@ -482,6 +482,16 @@ impl<S: Shell> App<S> {
                 self.command_interpreter_disable();
                 self.log_on_character_communication_clears();
             }
+            if matches!(e, SessionEvent::LoggedOff) {
+                // This client's own rule (client divergence CD-032): the world is torn down when
+                // the server answers the log-off, not when the next character enters, so nothing
+                // of it -- its scene, its objects, its sounds -- goes on behind the character
+                // screen. The entry edge tears it down again, which finds nothing left to do.
+                self.reset_world_view();
+                if let Some(audio) = self.audio.as_mut() {
+                    audio.end_world();
+                }
+            }
             if matches!(e, SessionEvent::PlayerCreated(_)) {
                 // The player-description handler enables the command interpreter after accepting
                 // the player id. Like Reset above,

@@ -776,6 +776,15 @@ pub struct WorldAudio {
 }
 
 impl Audio {
+    /// The world is gone: its sounds stop, the ambient set empties and the next world's
+    /// surroundings are scanned afresh.
+    pub fn end_world(&mut self) {
+        if let Ok(mut s) = self.system.lock() {
+            s.end_world();
+        }
+        self.world.last_scan = None;
+    }
+
     /// Update the listener transform used by spatial sounds.
     pub fn set_listener(&self, l: dereth_audio::Listener) {
         if let Ok(mut s) = self.system.lock() {

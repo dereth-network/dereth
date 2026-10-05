@@ -257,6 +257,14 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "One set of installed files serves every world, each world's changes stay its own, \
               and a server cannot change the files the player installed.",
     },
+    Divergence {
+        id: "CD-032",
+        title: "Logging off tears the world down",
+        change: "When the server answers a log-off, the world the character left is torn down at \
+                 once: its scene, its objects and its sounds. The final client left it standing \
+                 behind the character screen until the next character entered.",
+        why: "Nothing of a world the player has left goes on being seen or heard.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

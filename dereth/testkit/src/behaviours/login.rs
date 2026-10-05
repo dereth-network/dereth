@@ -297,10 +297,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "login.second-login.the-world-is-reset-on-entry-and-nothing-carries-over",
-        says: "Logging off leaves the world standing behind character select, and entering the \
-               world again wipes it first: a second login stands the body in the landblock and at \
-               the place the shard names, not where the first session left it.",
-        since: RETAIL,
+        says: "When the server answers a log-off the world is torn down -- its scene, its objects \
+               and its sounds -- so nothing of it goes on behind character select (the final \
+               client left it standing until the next entry), and entering the world again wipes \
+               it once more: a second login stands the body in the landblock and at the place the \
+               shard names, not where the first session left it.",
+        since: THIS_CLIENT,
+        divergence: "CD-032",
         evidence: Evidence::Private("AC-EVID-O939-SECOND-LOGIN"),
         station: "dereth-client::gpu::login::second_login::a_second_login_stands_the_body_where_the_server_says_and_not_where_the_first_one_left_it",
         tier: Tier::Gpu,

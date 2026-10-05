@@ -264,6 +264,13 @@ impl AudioSystem {
     }
 
     /// Close the movie audio, stopping the soundtrack wherever it had got to.
+    /// The world is gone: every voice stops and the ambient set is emptied, so nothing of the last
+    /// world goes on being heard and the next one starts from its own surroundings.
+    pub fn end_world(&mut self) {
+        self.pool.stop_all();
+        self.ambient = Ambient::new();
+    }
+
     pub fn stop_movie_audio(&mut self) {
         self.movie = None;
     }

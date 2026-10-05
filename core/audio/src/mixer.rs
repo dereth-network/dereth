@@ -192,6 +192,11 @@ impl VoicePool {
         StartOutcome::Started(slot)
     }
 
+    /// Stop every voice at once.
+    pub fn stop_all(&mut self) {
+        self.voices = [const { None }; NUM_VOICES];
+    }
+
     /// Mix every playing voice into an interleaved stereo buffer.
     ///
     /// `out` is *not* cleared: the caller owns the block. Voices advance whether or not the output is

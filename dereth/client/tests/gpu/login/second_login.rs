@@ -206,9 +206,8 @@ fn log_on(app: &mut App, peer: &mut Peer, id: ObjectId, cell: u32, xyz: (f32, f3
 }
 
 /// The server's `0xF653`, which arrives six seconds after the client request in the five recorded
-/// logouts. The client leaves the world standing here: it clears login, logout, player-init,
-/// player-description, and player-id state, disconnects the world transport, and touches neither
-/// the world object store nor the cell manager.
+/// logouts. The client clears login, logout, player-init, player-description, and player-id state,
+/// disconnects the world transport, and tears the world down.
 fn log_off(app: &mut App, peer: &mut Peer) {
     peer.send(
         app,
@@ -254,8 +253,8 @@ fn close(a: (f32, f32, f32), b: (f32, f32, f32)) -> bool {
 /// **A second login stands the body at the second placement.**
 ///
 /// Two logins, a clean `0xF653` between them, and the assertion is where the *body* stands after
-/// the second: in session 2's landblock and position, with the world reset once per entry and not
-/// on the log-off. A client that kept session 1's world would leave the body at `CELL_A`.
+/// the second: in session 2's landblock and position, with the world torn down on the log-off and
+/// reset again on the entry. A client that kept session 1's world would leave the body at `CELL_A`.
 #[test]
 fn a_second_login_stands_the_body_where_the_server_says_and_not_where_the_first_one_left_it() {
     let _gpu = gpu_lock();
@@ -287,20 +286,30 @@ fn a_second_login_stands_the_body_where_the_server_says_and_not_where_the_first_
     log_off(&mut app, &mut peer);
     assert_eq!(
         app.probe().world_resets(),
-        1,
-        "station 2: logging off is NOT a world teardown -- the reset count stays unchanged"
+        2,
+        "station 2: the log-off tears the world down"
     );
     assert!(
-        app.world_scene().is_some(),
-        "station 2: and retail's world is still standing at character select"
+        app.world_scene().is_none(),
+        "station 2: and no world stands behind character select"
+    );
+    assert_eq!(
+        app.probe_mut().objects_mut().world.player,
+        None,
+        "station 2: nor any of its objects"
+    );
+    frames(&mut app, 10, "character select");
+    assert!(
+        app.world_scene().is_none(),
+        "station 2: and nothing builds it again before the next entry"
     );
 
     // Station 3 — the second entry, into a different landblock.
     log_on(&mut app, &mut peer, PLAYER_2, CELL_B, POS_B);
     assert_eq!(
         app.probe().world_resets(),
-        2,
-        "station 3: the second entry wiped the first one's world"
+        3,
+        "station 3: the second entry wiped the world again"
     );
     assert_eq!(
         body_cell(&app).map(|c| c.landblock()),
