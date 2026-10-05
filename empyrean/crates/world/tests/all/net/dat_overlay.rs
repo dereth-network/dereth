@@ -190,7 +190,11 @@ fn a_client_that_keeps_overlays_is_sent_the_manifest_the_records_and_the_deletio
     let base_dir = dereth_dat::testing::dat_dir();
     let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
     let made = make_overlay(&base, &dir, "client_portal.dat", "client_cell_1.dat");
-    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Modern);
+    let dats = overlaid(
+        &base_dir,
+        dir.path(),
+        dereth_primitives::ContainerEra::Modern,
+    );
     assert_eq!(
         dats.portal_dat().iteration(),
         i32::try_from(made.portal_revision).unwrap()
@@ -279,7 +283,11 @@ fn a_client_holding_another_base_is_refused_with_the_reason_and_one_without_over
     let base_dir = dereth_dat::testing::dat_dir();
     let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
     make_overlay(&base, &dir, "client_portal.dat", "client_cell_1.dat");
-    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Modern);
+    let dats = overlaid(
+        &base_dir,
+        dir.path(),
+        dereth_primitives::ContainerEra::Modern,
+    );
 
     let mut other = response(&base, true);
     other.overlay_bases[0].fingerprint = [0x5A; 32];
@@ -374,7 +382,11 @@ fn a_client_that_keeps_overlays_is_sent_its_records_at_the_overlays_rate() {
     w.add_iteration(revision, 1).expect("the revision");
     w.flush(1).expect("flushed");
     drop(w);
-    let dats = overlaid(&base_dir, dir.path(), dereth_primitives::ContainerEra::Modern);
+    let dats = overlaid(
+        &base_dir,
+        dir.path(),
+        dereth_primitives::ContainerEra::Modern,
+    );
     let (mut ts, id) = exchange(&dats, &response(&base, true));
     ts.run_until(6.0, |ts| ts.received::<DddData>(id).len() >= 600);
     assert_eq!(ts.received::<DddData>(id).len(), 600);

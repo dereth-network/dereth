@@ -52,7 +52,10 @@ fn find(dir: &Path, name: &str) -> Option<PathBuf> {
 fn targets(pre_tod: bool) -> Vec<(ModernDat, &'static str)> {
     if pre_tod {
         vec![
-            (ModernDat::Portal, dereth_dat::ClassicDat::Portal.file_name()),
+            (
+                ModernDat::Portal,
+                dereth_dat::ClassicDat::Portal.file_name(),
+            ),
             (ModernDat::Cell, dereth_dat::ClassicDat::Cell.file_name()),
         ]
     } else {

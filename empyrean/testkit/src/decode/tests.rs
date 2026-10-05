@@ -42,7 +42,7 @@ fn alternate_bodies_keep_their_candidate_order_and_round_trip_gate() {
         (0x00A3, &["FellowshipQuitNotice", "FellowshipQuitRequest"]),
         (0xF7DE, &["CommunicationTurbineChat", "SendToRoomById"]),
     ];
-    assert_eq!(table().values().map(Vec::len).sum::<usize>(), 199);
+    assert_eq!(table().values().map(Vec::len).sum::<usize>(), 200);
     for (opcode, expected) in cases {
         let names: Vec<_> = table()[opcode].iter().map(|(name, _)| *name).collect();
         assert_eq!(&names, expected);

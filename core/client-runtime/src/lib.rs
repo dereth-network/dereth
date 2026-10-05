@@ -84,8 +84,6 @@ pub mod flags;
 
 // The object / character / physics chain.
 
-/// The world's overlay folder: where it is, the blocklist, and laying it over the store.
-pub mod world_overlay;
 /// The free camera and the character camera. The four functions that take a
 /// `crate::present::Scene` stay in `dereth_client_runtime::camera`, with the two tests whose oracle is
 /// `dereth_render::camera::view_from_frame`.
@@ -110,6 +108,8 @@ pub mod pick;
 pub mod pick_geometry;
 /// Per-object selection geometry, client half.
 pub mod selection_geometry;
+/// The world's overlay folder: where it is, the blocklist, and laying it over the store.
+pub mod world_overlay;
 
 /// The teleport / portal animation, wired to the smart box. The model it drives is
 /// `dereth_client_contract::teleport`.
