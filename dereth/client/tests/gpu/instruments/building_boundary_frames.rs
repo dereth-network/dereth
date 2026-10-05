@@ -30,7 +30,7 @@ fn default_dir() -> &'static str {
 }
 
 #[test]
-#[ignore = "evidence generator: writes PNGs, run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
+#[ignore = "instrument: writes PNGs; run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
 fn render_the_recorded_pose_frame() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
@@ -217,7 +217,7 @@ fn shot(
 }
 
 #[test]
-#[ignore = "evidence generator: writes PNGs, run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
+#[ignore = "instrument: writes PNGs; run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
 fn probe_room_views() {
     let store = store();
     let p = point_in(&store, 0xA9B4_0143).expect("the ground floor has a standable point");
@@ -235,7 +235,7 @@ fn probe_room_views() {
 }
 
 #[test]
-#[ignore = "evidence generator: writes PNGs, run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
+#[ignore = "instrument: writes PNGs; run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
 fn probe_door_station() {
     let store = store();
     let door = Position::new(CellId(RECORDED_CELL), Frame::new(DOORWAY, DOOR_ROT));
@@ -262,7 +262,7 @@ fn write_png(path: &str, rgba: &[u8]) {
 }
 
 #[test]
-#[ignore = "evidence generator: writes PNGs, run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
+#[ignore = "instrument: writes PNGs; run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
 fn probe_door_differential() {
     let store = store();
     let door = Position::new(CellId(RECORDED_CELL), Frame::new(DOORWAY, DOOR_ROT));
@@ -318,7 +318,7 @@ fn probe_door_differential() {
 /// **The recorded station.** The body stands in the house's front doorway, which is the
 /// **outdoor** landcell `0xA9B40029`, while its camera, three metres behind, is inside the room.
 #[test]
-#[ignore = "evidence generator: writes PNGs, run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
+#[ignore = "instrument: writes PNGs; run with DERETH_TEST_BUILDING_BOUNDARY_DUMP set and --ignored"]
 fn probe_body_in_the_doorway() {
     let store = store();
     let door = Position::new(CellId(RECORDED_CELL), Frame::new(DOORWAY, DOOR_ROT));
