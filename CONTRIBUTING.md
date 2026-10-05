@@ -9,7 +9,7 @@ There is one command for each moment, and each covers the client and the server 
 | While working, before each commit | `cargo xtask check` | nothing | 1-2 minutes |
 | Before pushing or opening a PR | `cargo xtask ci tier0` | nothing | about 3 minutes |
 | With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump (below) | about 15 minutes |
-| Milestones, on hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
+| On hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
 
 - **`check`** runs clippy and the tests of the crates you changed since your branch left
   `origin/HEAD` (`--base <ref>` to compare with another branch, `-p <crate>` to name crates
@@ -20,7 +20,7 @@ There is one command for each moment, and each covers the client and the server 
   documentation check.
 - **`ci tier1`** runs every crate's data tier and the server's real-content tests.
 - **`ci tier2`** runs the tests that draw on a real graphics device and the comparisons against
-  the original game; `--milestone` asks whether anything has been certified against it.
+  the original game.
 
 `cargo xtask` with no arguments lists these and every single check. Each prints a pass/fail table;
 a check that could not run says why and is never counted as a pass.

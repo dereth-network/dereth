@@ -16,7 +16,7 @@
 //! | while working, before each commit | `cargo xtask check` | nothing |
 //! | before pushing or opening a PR | `cargo xtask ci tier0` | nothing: exactly what public CI runs |
 //! | with the retail data | `cargo xtask ci tier1` | the dats and `world.pack` |
-//! | milestones, on hardware | `cargo xtask ci tier2` | a graphics device and the dats |
+//! | on hardware | `cargo xtask ci tier2` | a graphics device and the dats |
 //!
 //! The expensive comparisons wait until the cheap ones hold: golden images against a renderer built
 //! on unproven float precision produce an unbounded stream of false differences. The single checks
@@ -63,10 +63,9 @@ When to run what (client and server alike):
                             real-content tier. Needs the dats (DERETH_TEST_DAT_DIR), world.pack
                             (EMPYREAN_TEST_WORLD_PACK) and ACE's world dump (EMPYREAN_WORLD_SQL, or
                             `empyrean-import fetch` once). --serial: the unsharded client dat tier
-  ci tier2 [--milestone]    milestones, on hardware: the gpu tier and the retail comparisons. Needs a
-                            graphics device and the dats. --milestone exits non-zero unless an
-                            oracle row passed; it is the command a milestone signs off on. The
-                            client's gpu binary runs sharded (DERETH_TEST_SHARDS=N); --serial: one process
+  ci tier2                  on hardware: the gpu tier and the retail comparisons. Needs a graphics
+                            device and the dats. The client's gpu binary runs sharded
+                            (DERETH_TEST_SHARDS=N); --serial: one process
 
 Rules (each a row of `check` or `ci tier0`):
   fmt-check                 cargo fmt --all --check
@@ -136,7 +135,6 @@ Release and packaging:
 Ledgers:
   test-inventory [--out F]  every #[test] fn in source, with its libtest name, assertion counts and
                             body hashes, to compare a tree before and after tests move
-  deviations check          the deviation ledger (not built yet)
 ";
 
 /// The usage text, with the gate names wrapped under their column.
@@ -209,7 +207,6 @@ fn main() {
         Some("release-notes") => release::notes::release_notes(&args[1..]),
         Some("version") => package::version_command(&args[1..]),
         Some("web") => web(&args[1..]),
-        Some("deviations") => deviations(&args[1..]),
         Some("ci") => ci(&args[1..]),
         None | Some("help" | "--help" | "-h") => {
             print!("{}", usage());
@@ -243,134 +240,6 @@ fn threads(args: &[String]) -> gates::Threads {
 /// the argument after it. The two orders have to mean the same thing.
 fn gate_name(args: &[String]) -> Option<&String> {
     args[1..].iter().find(|a| !a.starts_with("--"))
-}
-
-/// The deviation ledger. `deviations.toml` does not exist yet, so this reports NOT-BUILT rather
-/// than a pass. An unexplained difference and an
-/// explained one must not look the same in the output, and neither must an absent ledger and an
-/// empty one.
-fn deviations(args: &[String]) -> i32 {
-    if args.first().map(String::as_str) != Some("check") {
-        eprintln!("usage: cargo xtask deviations check");
-        return 2;
-    }
-    let ledger = workspace_root().join("deviations.toml");
-    if ledger.is_file() {
-        eprintln!(
-            "{} exists but `deviations check` is not implemented yet",
-            ledger.display()
-        );
-        return 2;
-    }
-    // NOT-BUILT, not an unconsulted oracle: there is no ledger to read because nobody has written
-    // one, so there is no question this host declined to ask. It exits 0 and prints "NOTHING IN
-    // THIS TABLE PASSED", which is the honest reading of `xtask deviations check` today.
-    //
-    // The exit code is the one the table computes. A hard-coded `0` returned after `print_table`
-    // would be an instrument whose verdict is thrown away by its caller, and it would go on
-    // discarding a real failure the day the ledger exists and this function has something to fail
-    // about.
-    print_table(
-        "xtask deviations check",
-        &[Report::new(
-            "deviation ledger",
-            Outcome::NotRun(NotRun::NotBuilt),
-            "deviations.toml does not exist; the ledger is not built yet",
-        )],
-    )
-}
-
-/// Is a tier-2 run entitled to let anybody sign off a milestone?
-///
-/// **The decision, and the argument for it.**
-///
-/// Tier 2 exists to answer one question: *has this build been compared against retail?* It runs
-/// nightly and before every milestone, and it is the only tier that ever consults an oracle. Today
-/// it holds one informational step and two `NotBuilt` rows, so it exits 0 having compared nothing
-/// against anything.
-///
-/// There are two obvious repairs and both are wrong on their own:
-///
-/// * **Make the whole run exit non-zero until an oracle passes.** That is red from birth, and a
-///   gate that is always red is a gate nobody reads (the sweep's `KNOWN_RED` exists for
-///   exactly that kind of gate). Worse,
-///   and this is the half the "red from birth" objection usually misses: an exit code that is 1
-///   today, 1 tomorrow and 1 on the day a real golden-image comparison *fails* is not an exit
-///   code that distinguishes a new failure. It has stopped measuring that change.
-/// * **Leave it green and stop citing it in the milestone checklist.** There is no milestone
-///   checklist. A repository-wide search for `tier2` and `tier 2` returns this
-///   file's own module doc, the validation-tier table, and
-///   two unrelated prose mentions of cost. **There is nothing to stop citing**, so that horn is
-///   vacuous as stated, and taking it would leave the exit code saying exactly what it says now.
-///
-/// **The rule, and it is the third option: tier 2 asks two questions and had one number for
-/// them.** *Did anything I ran fail?* and *has an oracle certified this build?* are different
-/// questions with different right answers today -- no and no respectively -- and one exit code
-/// cannot carry both. So they get two commands:
-///
-/// * `cargo xtask ci tier2` keeps the per-row exit code, so it still measures the first question
-///   and will still go red the day a comparison genuinely fails. It **always** prints the
-///   milestone verdict in words, so the number is never the only thing on screen.
-/// * `cargo xtask ci tier2 --milestone` asks the second question and **cannot answer yes while
-///   every oracle row is `NotBuilt`**. It exits non-zero and names the missing oracle rows. That is the command a milestone sign-off runs, and it is red today.
-///
-/// This makes tier 2 incapable of reporting a milestone-ready state while every oracle row is
-/// `NotBuilt`, without spending the exit code of the run people actually type.
-///
-/// **The objection to state rather than hide: `--milestone` could be the gate nobody reads,
-/// wearing a flag.** Two things bound that. It is red for exactly one nameable reason (the
-/// capture rig does not exist) rather than for a diffuse tree-wide backlog, so it is a to-do with
-/// an exit code and it clears the day the rig does. And the default run prints its verdict and the
-/// command unconditionally, so the flag cannot be forgotten by anyone who ran tier 2 at all.
-///
-/// `Err` carries the whole message; `Ok(n)` is the number of oracle rows that passed.
-fn milestone_verdict(oracle_rows: &[Report]) -> Result<usize, String> {
-    // A tier 2 that declared no oracle rows would pass vacuously: an empty space would
-    // return a confident yes. Deleting the two `NotBuilt` rows must not be
-    // a way to certify a milestone.
-    if oracle_rows.is_empty() {
-        return Err(
-            "MILESTONE NOT CERTIFIED: tier 2 declared NO oracle rows at all. An empty oracle \
-             tier certifies nothing, and it must not be possible to make this check pass by \
-             deleting the rows that fail it."
-                .to_owned(),
-        );
-    }
-    let passed = oracle_rows
-        .iter()
-        .filter(|r| r.outcome == Outcome::Pass)
-        .count();
-    if passed > 0 {
-        return Ok(passed);
-    }
-    let owing: Vec<String> = oracle_rows
-        .iter()
-        .map(|r| format!("{} [{}] {}", r.name, r.outcome.label(), r.detail))
-        .collect();
-    Err(format!(
-        "MILESTONE NOT CERTIFIED: 0 of {} oracle row(s) passed, so nothing in this build has been \
-         compared against retail. Owing:\n    {}",
-        oracle_rows.len(),
-        owing.join("\n    ")
-    ))
-}
-
-/// The exit code of a tier-2 run, from the two questions it asks.
-///
-/// `ran` is [`print_table`]'s verdict on what actually executed. `certified` is whether an oracle
-/// row passed. `milestone` is whether the caller asked the milestone question at all.
-///
-/// Extracted from [`ci`] because `ci` cannot be called from a test without building the workspace,
-/// and an exit code nobody can test is exactly the failure this function exists to prevent. Note what it does
-/// *not* do: `ran` is never suppressed. A tier-2 run whose informational corpus check genuinely failed
-/// exits non-zero in both modes, so the milestone flag can only ever make a run redder, never
-/// greener.
-fn tier2_exit(ran: i32, certified: bool, milestone: bool) -> i32 {
-    if milestone && !certified {
-        ran.max(1)
-    } else {
-        ran
-    }
 }
 
 /// `dereth-corpus corpus --check`: the committed message corpus and packet-capture index are exactly
@@ -436,11 +305,6 @@ fn tier0(profile: Profile) -> i32 {
         separation::report(&separation::check(&ws, false))
     }));
     reports.push(source_rule("output-hygiene", || output_hygiene::run(&ws)));
-    reports.push(Report::new(
-        "xtask deviations check",
-        Outcome::NotRun(NotRun::NotBuilt),
-        "the deviation ledger is not built yet",
-    ));
     print_table("CI tier 0 -- no data (before pushing; public CI)", &reports)
 }
 
@@ -487,12 +351,11 @@ fn tier1(args: &[String], profile: Profile) -> i32 {
     print_table("CI tier 1 -- the retail data", &reports)
 }
 
-/// Tier 2: the `gpu` binaries, then the comparisons against retail and the milestone verdict.
+/// Tier 2: the `gpu` binaries, then the comparisons against retail.
 fn tier2(args: &[String], profile: Profile) -> i32 {
     let ws = workspace_root();
-    let milestone = args.iter().any(|a| a == "--milestone");
     let dats = retail_data_available();
-    let mut informational: Vec<Report> = gates::gpu_invocations(profile, threads(args))
+    let mut reports: Vec<Report> = gates::gpu_invocations(profile, threads(args))
         .into_iter()
         .map(|(krate, call)| {
             let label = format!("gpu tier: {krate}");
@@ -506,57 +369,22 @@ fn tier2(args: &[String], profile: Profile) -> i32 {
             step(&label, call.run())
         })
         .collect();
-    // The corpus check is NOT an oracle row -- it compares the derived corpus against the
-    // recordings it is derived from, never against retail -- and keeping it out of `oracle_rows`
-    // is what stops it standing in for the comparison that is missing. The gpu rows are not
-    // oracle rows either: they pin this client's own drawing.
-    informational.push(corpus_check_step(
+    // The corpus check compares the derived corpus against the recordings it is derived from,
+    // never against retail, and the gpu rows pin this client's own drawing; neither is a
+    // comparison with retail.
+    reports.push(corpus_check_step(
         &ws,
         "message corpus consistency (informational)",
         profile,
     ));
-    // Both NOT-BUILT rather than NO-ORACLE: the deciding fact is that the comparison code does
-    // not exist, not that a host declined to run it. A capture rig would be
-    // `NotRun::Unhostable`; there is nothing yet for a rig to drive.
-    //
-    // **These two rows are the whole reason tier 2 exists**, and the list is separate from the
-    // table precisely so that the milestone question can be asked of them alone. See
-    // `milestone_verdict` for the decision and the argument.
-    let oracle_rows = vec![
-        Report::new(
-            "golden images",
-            Outcome::NotRun(NotRun::NotBuilt),
-            "no capture rig yet",
-        ),
-        Report::new(
-            "long physics traces / full-session replay",
-            Outcome::NotRun(NotRun::NotBuilt),
-            "deferred deliberately: running these against code that is about to change wastes the effort",
-        ),
-    ];
-    let mut reports = informational;
-    reports.extend(oracle_rows.iter().cloned());
-    let ran = print_table("CI tier 2 -- hardware and retail comparisons", &reports);
-    let verdict = milestone_verdict(&oracle_rows);
-    match &verdict {
-        Ok(n) => println!("\n  MILESTONE: {n} oracle row(s) passed against retail."),
-        Err(msg) => {
-            println!("\n  {msg}");
-            if milestone {
-                println!(
-                    "  `--milestone` asks whether an oracle certified this build. It did \
-                     not, so this exits non-zero."
-                );
-            } else {
-                println!(
-                    "  This run exits {ran} because nothing it RAN failed. That is NOT a \
-                     milestone verdict and must not be read as one -- run `cargo xtask ci \
-                     tier2 --milestone` for that, which is red today."
-                );
-            }
-        }
-    }
-    tier2_exit(ran, verdict.is_ok(), milestone)
+    // NOT-BUILT rather than NO-ORACLE: the comparison code does not exist, so there is nothing a
+    // host could have declined to run.
+    reports.push(Report::new(
+        "retail comparisons",
+        Outcome::NotRun(NotRun::NotBuilt),
+        "golden images and long physics traces against retail are not built yet",
+    ));
+    print_table("CI tier 2 -- hardware and retail comparisons", &reports)
 }
 
 fn ci(args: &[String]) -> i32 {
@@ -566,7 +394,7 @@ fn ci(args: &[String]) -> i32 {
         Some("tier1") => tier1(args, profile),
         Some("tier2") => tier2(args, profile),
         _ => {
-            eprintln!("usage: cargo xtask ci tier0|tier1|tier2 [--milestone] [--serial] [--debug]");
+            eprintln!("usage: cargo xtask ci tier0|tier1|tier2 [--serial] [--debug]");
             2
         }
     }
@@ -788,148 +616,5 @@ mod tests {
             None,
             "a flag is not a gate"
         );
-    }
-
-    fn row(name: &str, outcome: Outcome) -> Report {
-        Report::new(name, outcome, "detail")
-    }
-
-    /// The two rows `ci tier2` builds today, verbatim in shape.
-    fn tier2_oracle_rows_today() -> Vec<Report> {
-        vec![
-            row("golden images", Outcome::NotRun(NotRun::NotBuilt)),
-            row(
-                "long physics traces / full-session replay",
-                Outcome::NotRun(NotRun::NotBuilt),
-            ),
-        ]
-    }
-
-    /// **Calibration on the real instance.** This is what `cargo xtask ci tier2` holds on
-    /// 2026-09-08 -- two `NotBuilt` oracle rows -- and it is the state the row calls
-    /// milestone-unready. The message must name the rows, because a refusal that does not say who
-    /// owes the work is a refusal nobody can act on.
-    #[test]
-    fn two_unbuilt_oracle_rows_cannot_certify_a_milestone() {
-        let err = milestone_verdict(&tier2_oracle_rows_today())
-            .expect_err("0 of 2 oracle rows passed; this must not certify a milestone");
-        assert!(err.contains("MILESTONE NOT CERTIFIED"), "{err}");
-        assert!(err.contains("0 of 2"), "{err}");
-        assert!(
-            err.contains("golden images"),
-            "the failure must name the row that owes it: {err}"
-        );
-        assert!(err.contains("NOT-BUILT"), "and the state it is in: {err}");
-    }
-
-    /// Nothing short of a passing oracle row certifies a milestone.
-    #[test]
-    fn nothing_short_of_a_passing_oracle_row_certifies_a_milestone() {
-        let non_pass = [
-            Outcome::Fail,
-            Outcome::NotRun(NotRun::Unhostable),
-            Outcome::NotRun(NotRun::OracleAbsent),
-            Outcome::NotRun(NotRun::NotBuilt),
-        ];
-        for a in non_pass {
-            assert!(
-                milestone_verdict(&[row("golden images", a)]).is_err(),
-                "{a:?} alone certified a milestone"
-            );
-            for b in non_pass {
-                assert!(
-                    milestone_verdict(&[row("golden images", a), row("traces", b)]).is_err(),
-                    "{a:?} + {b:?} certified a milestone"
-                );
-            }
-        }
-    }
-
-    /// One passing oracle row is enough and the gate can go green.
-    #[test]
-    fn one_passing_oracle_row_is_enough_and_the_gate_can_go_green() {
-        assert_eq!(
-            milestone_verdict(&[row("golden images", Outcome::Pass)]),
-            Ok(1)
-        );
-        assert_eq!(
-            milestone_verdict(&[
-                row("golden images", Outcome::Pass),
-                row("traces", Outcome::NotRun(NotRun::NotBuilt)),
-            ]),
-            Ok(1),
-            "landing alone must clear the milestone gate; Wave 3 is deliberately deferred"
-        );
-        assert_eq!(
-            milestone_verdict(&[row("a", Outcome::Pass), row("b", Outcome::Pass)]),
-            Ok(2)
-        );
-    }
-
-    /// **The empty-space guard.** `0 of 0` is a wrong-space census with a confident yes, and it is
-    /// reachable by the cheapest possible edit: deleting the two rows that fail.
-    /// An empty oracle list must be distinguishable from a complete passing list.
-    /// Removing every row must not be a way to certify a milestone.
-    #[test]
-    fn an_oracle_tier_with_no_oracle_rows_at_all_certifies_nothing() {
-        let err = milestone_verdict(&[]).expect_err("an empty oracle tier must not certify");
-        assert!(err.contains("NO oracle rows at all"), "{err}");
-    }
-
-    /// **The exit code the two questions produce.** `milestone_verdict` decides the verdict;
-    /// this decides what the process returns, and until it was extracted no test covered the
-    /// plumbing between them -- which would have made "exits non-zero" a claim resting on one
-    /// manual run.
-    ///
-    /// The four rows are: the calibration (the milestone question, red today); the decision (the
-    /// default run stays green, which is the whole argument of this unit); the proof the gate can
-    /// clear (green the day an oracle passes, without editing this file); and the guarantee that
-    /// the flag can only ever redden -- a genuine failure in what RAN is never masked by either
-    /// mode.
-    #[test]
-    fn the_milestone_flag_can_only_ever_make_a_run_redder() {
-        assert_eq!(
-            tier2_exit(0, false, true),
-            1,
-            "the milestone question is red today"
-        );
-        assert_eq!(
-            tier2_exit(0, false, false),
-            0,
-            "the default run keeps measuring what it ran"
-        );
-        assert_eq!(
-            tier2_exit(0, true, true),
-            0,
-            "and it goes green when an oracle passes"
-        );
-        assert_eq!(tier2_exit(0, true, false), 0);
-        for milestone in [false, true] {
-            for certified in [false, true] {
-                assert_eq!(
-                    tier2_exit(1, certified, milestone),
-                    1,
-                    "a run that FAILED must stay failed (certified={certified}, \
-                     milestone={milestone})"
-                );
-            }
-        }
-    }
-
-    /// The informational step is not an oracle row.
-    #[test]
-    fn the_informational_step_is_not_an_oracle_row() {
-        let with_stale_counted = vec![
-            row("message corpus consistency (informational)", Outcome::Pass),
-            row("golden images", Outcome::NotRun(NotRun::NotBuilt)),
-            row("traces", Outcome::NotRun(NotRun::NotBuilt)),
-        ];
-        assert_eq!(
-            milestone_verdict(&with_stale_counted),
-            Ok(1),
-            "counting the informational step WOULD certify a milestone -- which is why `ci tier2` \
-             keeps it out of `oracle_rows`, and why moving it in is the mutation to fear"
-        );
-        assert!(milestone_verdict(&tier2_oracle_rows_today()).is_err());
     }
 }
