@@ -8,7 +8,7 @@
 //! Fixture: synthetic profiles, the shipped options pages, and a headless `App` or scene at
 //! Holtburg over the retail dats on a software device. No socket is opened; missing dats fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client::app::App;
 use dereth_client_runtime::render_prefs::RenderPreferences;

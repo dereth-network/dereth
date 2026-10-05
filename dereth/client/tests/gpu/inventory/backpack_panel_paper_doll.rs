@@ -9,7 +9,7 @@
 //! Fixture: the `first-login-walk-jump` recording (its own `0xF745` for the player dresses the
 //! doll) replayed into a headless gameplay `App` with the retail dats; no network.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

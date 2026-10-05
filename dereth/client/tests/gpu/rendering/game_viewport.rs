@@ -8,7 +8,7 @@
 //! `App` on the gameplay screen. Fails when the retail dats are absent; skips only without a
 //! device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

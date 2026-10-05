@@ -35,7 +35,7 @@ use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFIN
 use dereth_primitives::{TextureData, TextureFormat};
 
 use crate::descriptor::{
-    DescriptorAllocator, DescriptorStats, Released, TextureKey, TextureTable, TextureTableStats,
+    DescriptorAllocator, DescriptorStats, Released, TextureKey, TextureTableStats,
     DESCRIPTORS_PER_TEXTURE,
 };
 use crate::pso::{Blend, Cull, PipelineKey, PixelShader, ZFunc};
@@ -215,9 +215,8 @@ pub struct Gpu {
     /// as [`Self::sampler_binds`], for the second texture stage.
     stage1_binds: std::cell::Cell<u64>,
     /// The shared and custom texture tables and their link count.
-    texture_table: TextureTable,
     /// Descriptor pairs in the shader-visible heap: a free list, not a monotonic counter.
-    descriptors: DescriptorAllocator,
+    texture_book: crate::device::TextureBook,
     config: DeviceConfig,
     pub adapter_kind: AdapterKind,
     /// The adapter's name, for the startup line.
@@ -423,8 +422,10 @@ impl Gpu {
             frame_open: false,
             sampler_binds: std::cell::Cell::new([0; SAMPLER_COUNT as usize]),
             stage1_binds: std::cell::Cell::new(0),
-            texture_table: TextureTable::new(),
-            descriptors: DescriptorAllocator::new(srv_descriptors, DESCRIPTORS_PER_TEXTURE),
+            texture_book: crate::device::TextureBook::new(DescriptorAllocator::new(
+                srv_descriptors,
+                DESCRIPTORS_PER_TEXTURE,
+            )),
             config: *cfg,
             adapter_kind,
             adapter_name,
@@ -1790,7 +1791,7 @@ impl Gpu {
     /// Whether an upload under `key` would be a cache hit, without taking a link.
     #[must_use]
     pub fn has_texture_key(&self, key: TextureKey) -> bool {
-        self.texture_table.contains(key)
+        self.texture_book.contains(key)
     }
 
     /// Whether the current device's BGRA8 format supports this backend's runtime autogen path.
@@ -1807,17 +1808,13 @@ impl Gpu {
     ) -> Result<TextureSlot, RenderError> {
         // "if (key != 0 and texture_table[key] exists) { AddRef; return it }" -- before any device
         // work, because the whole point of the cache is that the upload does not happen.
-        if let Some(slot) = self.texture_table.get(key) {
+        if let Some(slot) = self.texture_book.get(key) {
             return Ok(TextureSlot(slot));
         }
         // The client builds the compressed system chain before the video-memory copy.
         // Keep this after the real cache hit and on the explicit image-texture owner only.
-        let system_chain = if imgtex {
-            crate::mip::compressed_system_chain(t)?
-        } else {
-            None
-        };
-        let t = system_chain.as_ref().unwrap_or(t);
+        let upload = crate::device::PreparedUpload::new(t, imgtex, false)?;
+        let t = upload.texture();
         let (format, block) = match t.format {
             TextureFormat::Bgra8 => (DXGI_FORMAT_B8G8R8A8_UNORM, false),
             TextureFormat::Bc1 => (DXGI_FORMAT_BC1_UNORM, true),
@@ -1831,21 +1828,8 @@ impl Gpu {
                 )))
             }
         };
-        if t.width == 0 || t.height == 0 || t.levels.is_empty() {
-            return Err(RenderError::BadDimensions {
-                width: t.width,
-                height: t.height,
-                reason: "a texture needs a non-zero extent and at least one level",
-            });
-        }
-        let levels = if imgtex {
-            crate::mip::runtime_level_count(t, self.imgtex_autogen_supported)
-        } else {
-            t.levels.len()
-        };
-        let levels = u16::try_from(levels)
-            .map_err(|_| RenderError::Unsupported("too many provided texture levels"))?;
-        let generate = usize::from(levels) > t.levels.len();
+        upload.validate_dimensions()?;
+        let (levels, generate) = upload.native_levels(self.imgtex_autogen_supported)?;
         if generate && self.mip_generator.is_none() {
             self.mip_generator = Some(mipgen::MipGenerator::new(&self.device)?);
         }
@@ -1904,7 +1888,7 @@ impl Gpu {
             let (mut w, mut h) = (t.width, t.height);
             for (level, bits) in t.levels.iter().enumerate() {
                 let row = if block {
-                    w.div_ceil(4) as usize * bytes_per_block(format)
+                    w.div_ceil(4) as usize * crate::texture::block_bytes(t.format).unwrap_or(16)
                 } else {
                     w as usize * 4
                 };
@@ -2022,31 +2006,20 @@ impl Gpu {
         // An upload does not wait for the device, so a slot released since the device last caught
         // up is not yet reusable. When that is all that stands between this texture and a full
         // heap, wait for the device and take the slot back, rather than refuse.
-        if self.descriptors.free_slots() == 0
-            && self.descriptors.frontier() >= self.descriptors.capacity()
-            && self.descriptors.pending_slots() > 0
-        {
+        if self.texture_book.waiting_for_capacity() {
             if let Err(e) = self.wait_idle() {
                 self.retired_textures.push((self.next_fence_value, texture));
                 return Err(e);
             }
             self.collect_retired();
         }
-        let Some(slot) = self.descriptors.alloc() else {
+        let Some(slot) = self.texture_book.descriptors.alloc() else {
             // The upload may still be running: retire the texture against the next fence value, as
             // a release does, rather than dropping it now.
             self.retired_textures.push((self.next_fence_value, texture));
             // Counted in `DescriptorStats::exhaustions`, not merely logged. Nothing has been written
             // to the heap.
-            return Err(RenderError::Device(format!(
-                "descriptor heap exhausted: {} of {} slots taken, {} live, {} waiting on the fence \
-                 ({} refusals so far)",
-                self.descriptors.frontier(),
-                self.descriptors.capacity(),
-                self.descriptors.live(),
-                self.descriptors.pending_slots(),
-                self.descriptors.stats().exhaustions,
-            )));
+            return Err(self.texture_book.exhausted("fence"));
         };
         let srv = D3D12_SHADER_RESOURCE_VIEW_DESC {
             Format: format,
@@ -2074,7 +2047,7 @@ impl Gpu {
                 .CreateShaderResourceView(&texture, Some(&srv), h);
         }
         self.textures.insert(slot, texture);
-        self.texture_table.insert(key, slot);
+        self.texture_book.insert(key, slot);
         Ok(TextureSlot(slot))
     }
 
@@ -2084,7 +2057,7 @@ impl Gpu {
     /// Returns the new link count, or `None` for a slot with no live texture — counted in
     /// [`TextureTableStats::unknown_add_refs`].
     pub fn retain_texture(&mut self, slot: TextureSlot) -> Option<u32> {
-        self.texture_table.add_ref(slot.0)
+        self.texture_book.add_ref(slot.0)
     }
 
     /// Drop one link, and at zero free the texture and give its
@@ -2113,7 +2086,7 @@ impl Gpu {
     /// counted in [`TextureTableStats::unknown_releases`] and otherwise ignored, because the callers
     /// of this are teardown paths where a panic would lose more than it reports.
     pub fn release_texture(&mut self, slot: TextureSlot) -> Released {
-        let outcome = self.texture_table.release(slot.0);
+        let outcome = self.texture_book.release(slot.0);
         if outcome == Released::Freed {
             let resource = self.textures.remove(&slot.0);
             if self.frame_open {
@@ -2121,7 +2094,7 @@ impl Gpu {
             } else {
                 // The value the next Signal will carry. Everything already submitted precedes it.
                 let fence = self.next_fence_value;
-                self.descriptors.release(slot.0, fence);
+                self.texture_book.descriptors.release(slot.0, fence);
                 if let Some(resource) = resource {
                     self.retired_textures.push((fence, resource));
                 }
@@ -2134,7 +2107,7 @@ impl Gpu {
     /// frame's submission.
     fn flush_frame_releases(&mut self, fence: u64) {
         for (slot, resource) in std::mem::take(&mut self.released_in_frame) {
-            self.descriptors.release(slot, fence);
+            self.texture_book.descriptors.release(slot, fence);
             if let Some(resource) = resource {
                 self.retired_textures.push((fence, resource));
             }
@@ -2146,7 +2119,7 @@ impl Gpu {
     fn collect_retired(&mut self) {
         // SAFETY: GetCompletedValue is a pure query on a fence owned by self.
         let completed = unsafe { self.fence.GetCompletedValue() };
-        self.descriptors.retire(completed);
+        self.texture_book.descriptors.retire(completed);
         self.retired_textures
             .retain(|(fence, _)| *fence > completed);
         self.pending_uploads.retain(|u| u.fence > completed);
@@ -2156,22 +2129,14 @@ impl Gpu {
     /// bound: without slot reuse it would be the count of every texture the session had ever uploaded.
     #[must_use]
     pub fn descriptor_stats(&self) -> DescriptorStats {
-        self.descriptors.stats()
+        self.texture_book.descriptors.stats()
     }
 
     /// Descriptor slots ever taken from fresh heap space, and the budget they come out of.
     #[must_use]
     pub fn descriptor_usage(&self) -> DescriptorUsage {
-        DescriptorUsage {
-            live: self.descriptors.live(),
-            frontier: self.descriptors.frontier(),
-            high_water: self.descriptors.high_water(),
-            free: self.descriptors.free_slots(),
-            pending: self.descriptors.pending_slots(),
-            // LINT-OK: bounded by the descriptor budget, a u32.
-            deferred: self.released_in_frame.len() as u32,
-            capacity: self.descriptors.capacity(),
-        }
+        // LINT-OK: bounded by the descriptor budget, a u32.
+        self.texture_book.usage(self.released_in_frame.len() as u32)
     }
 
     /// Whether a frame's command list is open. A non-zero [`DescriptorUsage::deferred`] while this
@@ -2185,7 +2150,7 @@ impl Gpu {
     /// failures.
     #[must_use]
     pub fn texture_table_stats(&self) -> TextureTableStats {
-        self.texture_table.stats()
+        self.texture_book.stats()
     }
 
     /// Every live keyed texture, sorted: the census of which
@@ -2193,13 +2158,13 @@ impl Gpu {
     /// them are holding the same sixty-four-bit payload.
     #[must_use]
     pub fn texture_keys(&self) -> Vec<TextureKey> {
-        self.texture_table.keys()
+        self.texture_book.keys()
     }
 
     /// Live textures — entries with at least one link.
     #[must_use]
     pub fn live_textures(&self) -> usize {
-        self.texture_table.len()
+        self.texture_book.len()
     }
 
     /// Actual resident subresource count, read from the resource rather than a policy counter.
@@ -2215,7 +2180,7 @@ impl Gpu {
     /// Narrow the descriptor budget so a test can reach exhaustion without filling the real heap.
     #[cfg(test)]
     pub(crate) fn narrow_descriptor_budget(&mut self, slots: u32) {
-        self.descriptors.narrow_for_test(slots);
+        self.texture_book.descriptors.narrow_for_test(slots);
     }
 
     /// Bind a texture pair and a sampler for the next draw.
@@ -2543,16 +2508,6 @@ const DISABLED_STENCIL_FACE: D3D12_DEPTH_STENCILOP_DESC = D3D12_DEPTH_STENCILOP_
     StencilPassOp: D3D12_STENCIL_OP_KEEP,
     StencilFunc: D3D12_COMPARISON_FUNC_ALWAYS,
 };
-
-/// Bytes per 4x4 block for the block-compressed formats: 8 for BC1, 16 for BC2/BC3. The same
-/// statement as `PixelFormatDesc`'s 4 and 8 bits per pixel.
-fn bytes_per_block(format: DXGI_FORMAT) -> usize {
-    if format == DXGI_FORMAT_BC1_UNORM {
-        8
-    } else {
-        16
-    }
-}
 
 /// The D3D semantic name for one vertex element, as a `'static` C string.
 ///

@@ -11,7 +11,7 @@
 //! Fixture: a recorded door (`0x0200_024F`) at Holtburg's room `0xA9B4_0143`, created through
 //! `ObjectStream::apply_event` (no socket), on the retail dats and a software device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::objects::ObjectStream;

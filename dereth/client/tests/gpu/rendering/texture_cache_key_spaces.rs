@@ -73,7 +73,7 @@
 //! comparing texel for texel says exactly how many pixels the bit moves, which is a sharper answer
 //! than whether a human noticed a difference in a screenshot.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

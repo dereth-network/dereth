@@ -7,7 +7,7 @@
 //! Fixture: long-solo-play's corpse create, destroy effect and delete fed through a socket-free
 //! replay endpoint, and its first `0x0024` event; constructed inventory and descriptor state in a
 //! headless `App` with the shipped UI and geometry.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 use dereth_client_model::{objects::ObjectInventory, Weenie};
 use dereth_client_net::client_session::{
     testing::{Corpus, CorpusBlob, Direction},

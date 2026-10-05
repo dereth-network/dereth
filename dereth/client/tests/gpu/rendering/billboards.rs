@@ -7,7 +7,7 @@
 //! Fixture: the retail dats' degrade records; Holtburg (landblock 0xA9B4) with no character, and
 //! the `first-login-walk-jump` recording replayed into a live scene, on a software device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};

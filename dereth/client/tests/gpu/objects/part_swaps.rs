@@ -28,7 +28,7 @@
 //!    **every** step. This is the assertion that reddens when part replacement's surface
 //!    restoration is removed.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,

@@ -9,7 +9,7 @@
 //! equal-pose pairs. The arithmetic (ramp values, material row 13, pipeline keys) is unit-tested
 //! in the world scene; this file adds the raster result. Missing fixtures fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

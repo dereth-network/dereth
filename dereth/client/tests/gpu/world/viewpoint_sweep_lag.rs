@@ -9,7 +9,7 @@
 //! enough to leave the block, all read in global metres. Fixture: the retail dats on a software
 //! device; fails when the dats or a device are absent.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

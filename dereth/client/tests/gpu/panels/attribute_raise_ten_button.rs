@@ -9,7 +9,7 @@
 //! socket-free link, with Strength, level and experience overwritten to one retail screenshot's
 //! figures; every action is read back from the link's outgoing queue.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

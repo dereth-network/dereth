@@ -9,7 +9,7 @@
 //! control and `SceneConfig::building_portals` isolating the neighbouring buildings' mask-7
 //! stamps. Fails when the retail dats are absent or no GPU device can be created.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::objects::ObjectStream;

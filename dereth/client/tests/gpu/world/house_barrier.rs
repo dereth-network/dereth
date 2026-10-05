@@ -50,7 +50,7 @@
 //! Each walk reads distance travelled, final position, how far north the body ever got and frames
 //! in contact, on the villa block. Fails when the retail dats or the recording are absent.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::collections::{BTreeMap, BTreeSet};

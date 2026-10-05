@@ -238,7 +238,7 @@ impl Gpu {
         let h = (height >> level).max(1);
         let block = is_block_compressed(format);
         let row = if block {
-            w.div_ceil(4) as usize * bytes_per_block(format)
+            w.div_ceil(4) as usize * crate::texture::block_bytes(format).unwrap_or(16)
         } else {
             w as usize * 4
         };

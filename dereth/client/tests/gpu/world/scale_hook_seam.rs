@@ -9,7 +9,7 @@
 //! per-object script path. Fixture: the retail dats and Holtburg's default scene on a software
 //! device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

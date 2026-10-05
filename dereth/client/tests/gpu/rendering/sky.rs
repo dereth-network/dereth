@@ -7,7 +7,7 @@
 //! Fixture: the retail region record `0x13000000` and the meshes it names, drawn on a software
 //! device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_dat::RetailDatStore;
 use dereth_render::device::Gpu;

@@ -25,15 +25,27 @@
 //!
 //! The backends leave the FPU control word unchanged.
 
+#[cfg(gpu)]
+pub(crate) mod terrain;
+
+#[cfg(gpu)]
+mod book;
+#[cfg(gpu)]
+pub(crate) use book::TextureBook;
+
+#[cfg(gpu)]
+mod upload;
+#[cfg(gpu)]
+pub(crate) use upload::PreparedUpload;
+
 // The items only the device enum names are gated with it: a build with no backend compiles this
 // module for its plain data alone.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 use crate::descriptor::{DescriptorStats, Released, TextureKey, TextureTableStats};
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 use crate::pso::PipelineKey;
-use crate::pso::PixelShader;
 use crate::RenderError;
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 use dereth_primitives::TextureData;
 
 pub use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
@@ -46,7 +58,7 @@ pub use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 pub const FRAME_COUNT: usize = 3;
 
 /// How many texture stages `bind_texture` counts binds for. The same eight in both backends.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub(crate) const SAMPLER_COUNT: u32 = crate::sampler::SAMPLER_COUNT;
 
 /// The two handles a window contributes: enough for `ash-window` to make a
@@ -367,25 +379,12 @@ pub(crate) fn unpack_argb(c: u32) -> [f32; 4] {
 }
 
 /// View a `#[repr(C)]` plain-old-data struct as bytes for the upload ring.
-#[allow(dead_code)]
+#[cfg(any(feature = "vulkan", all(windows, feature = "d3d12")))]
 pub(crate) fn as_bytes<T: Copy>(v: &T) -> &[u8] {
     // SAFETY: `T` is a Copy, repr(C) struct of floats with no padding invariants and no interior
     // pointers, and the slice borrows `v` for exactly its own lifetime.
     unsafe {
         std::slice::from_raw_parts(std::ptr::from_ref(v).cast::<u8>(), std::mem::size_of::<T>())
-    }
-}
-
-/// The fragment/pixel entry point's name as a NUL-terminated byte string. Both shader sets use
-/// these names.
-#[allow(dead_code)]
-pub(crate) const fn shader_entry_c(s: PixelShader) -> &'static [u8] {
-    match s {
-        PixelShader::Modulate => b"ps_modulate\0",
-        PixelShader::SelectArg1 => b"ps_selectarg1\0",
-        PixelShader::SelectArg2 => b"ps_selectarg2\0",
-        PixelShader::PreModulate => b"ps_premodulate\0",
-        PixelShader::BlendCurrentAlpha => b"ps_blendcurrentalpha\0",
     }
 }
 
@@ -536,7 +535,7 @@ impl From<dereth_client_contract::RendererChoice> for Backend {
 ///
 /// A build with neither backend has no device at all, and this type is then absent rather than
 /// uninhabited -- which is what keeps `dereth-client`'s no-device build free of dead arms.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[allow(clippy::large_enum_variant)] // one device per process, never moved in bulk
 #[derive(Debug)]
 #[non_exhaustive]
@@ -553,7 +552,7 @@ pub enum Gpu {
 }
 
 /// Forward a method to whichever backend this device is. Only compiled when there is one.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 macro_rules! dispatch {
     ($self:expr, $g:ident => $body:expr) => {{
         match $self {
@@ -567,7 +566,7 @@ macro_rules! dispatch {
     }};
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 impl Gpu {
     /// Create a device on [`Backend::resolve_default`]: the default backend (in a test build, the
     /// one `DERETH_TEST_RENDERER` names, when it does).

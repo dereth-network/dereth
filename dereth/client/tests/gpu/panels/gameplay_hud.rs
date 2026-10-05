@@ -8,7 +8,7 @@
 //! through the real transport and object stream), on a headless App at 800x600; missing dats or
 //! recordings fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::recorded_world_sessions;

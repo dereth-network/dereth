@@ -8,7 +8,7 @@
 //! own element tree and compared across paired runs pixel by pixel; the result is inspected, never
 //! sent.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -15,7 +15,7 @@
 //! non-player create carries has none. **Fails** when the retail dats are absent or no GPU device
 //! can be created.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{retail_store, test_gpu};
 use std::sync::Arc;

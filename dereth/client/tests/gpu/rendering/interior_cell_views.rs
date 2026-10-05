@@ -9,7 +9,7 @@
 //! published view polygons, object submission and pick results, and the stamp counters, not pixels.
 
 // The application test is available with Vulkan or Windows D3D12.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 use dereth_scene::world_scene::SceneReads;

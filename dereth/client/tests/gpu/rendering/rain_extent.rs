@@ -8,7 +8,7 @@
 //! the rain below the horizon (`dereth_scene::sky`'s `WEATHER_FLOOR_Z`).
 //! Fixture: the retail dats and a software device, drawn at midday of the offline clock's
 //! "Rainy" day group.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_render::device::Gpu;
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};

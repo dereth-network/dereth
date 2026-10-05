@@ -29,7 +29,7 @@
 //! than anything about a vendor, and `ToggleRadarPanel` toggles the radar flag rather than the
 //! leave-target-mode one.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use dereth_scene::world_scene::SceneWrites;

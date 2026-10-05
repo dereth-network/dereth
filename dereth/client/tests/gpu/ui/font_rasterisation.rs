@@ -21,7 +21,7 @@
 //! | the 256x256 bake still refuses the three tall ones | it refuses past row 255 |
 //! | the name prompt loses its escapes | the string-table escape rules |
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -81,7 +81,7 @@ fn run() -> Result<(), String> {
 /// `StartupError::Device`'s text is corestrings 127, which only reports a fatal Windows API issue.
 /// The variant also carries the underlying failure for this log line, so a start-up that dies on,
 /// say, a missing Vulkan loader says so instead of asking the player to reboot.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 fn fatal(e: dereth_client_runtime::app::StartupError) -> String {
     if let Some(cause) = e.cause() {
         tracing::error!("{cause}");
@@ -89,7 +89,7 @@ fn fatal(e: dereth_client_runtime::app::StartupError) -> String {
     e.to_string()
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), String> {
     let capture = cfg.capture.clone();
     let headless = cfg.headless;
@@ -201,7 +201,7 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
     Ok(())
 }
 
-#[cfg(not(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12"))))]
+#[cfg(not(gpu))]
 fn run_with(_cfg: Config, _replay: Option<input_replay::Replay>) -> Result<(), String> {
     Err("dereth-client needs a graphics backend: build with --features vulkan or d3d12".into())
 }

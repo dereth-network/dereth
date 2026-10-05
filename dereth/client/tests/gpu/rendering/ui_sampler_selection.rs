@@ -11,7 +11,7 @@
 //! draw glyph runs from more than one font, rendered by a headless `App`, with
 //! `Gpu::sampler_binds` as the census. The retail dats are an `expect`, never a skip.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

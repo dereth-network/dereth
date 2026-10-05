@@ -28,7 +28,7 @@
 //! unchanged from the previous frame. The body is checked first, so a failure says which of the
 //! two moved.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 #![allow(clippy::pedantic)]
 
 use dereth_scene::world_scene::SceneWrites;

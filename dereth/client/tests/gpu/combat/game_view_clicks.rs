@@ -5,7 +5,7 @@
 //! Fixture: the retail dats, the corpus's own recorded objects, and a headless `App` in gameplay
 //! whose pointer messages are built by its own `Pump` and delivered to its input manager.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

@@ -9,7 +9,7 @@
 //! freshly created profile in the OS temp directory (never a user's `UserPreferences.ini`).
 
 // This suite drives a real `App` through either Vulkan or Windows D3D12.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_ui_screens::{
     options::{

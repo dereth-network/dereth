@@ -7,7 +7,7 @@
 //! Fixture: an offline headless `App` on the retail dats, driven through the char-gen wizard's
 //! element messages and read back from its tree and captured frames; no link, FINISH never pressed.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

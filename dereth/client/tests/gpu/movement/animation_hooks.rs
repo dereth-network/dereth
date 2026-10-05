@@ -9,7 +9,7 @@
 //! (decoding hooks out of a motion table is `dereth-animation`'s to test). The remote-object lookup
 //! a live door takes is `dat::objects::door_opens_ethereal`'s. Absent dats or device fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

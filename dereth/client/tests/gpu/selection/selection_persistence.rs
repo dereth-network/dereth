@@ -31,7 +31,7 @@
 //! and draw helper; the never-drawn control omits that helper and reselects after each clear so the
 //! next cycle can continue.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

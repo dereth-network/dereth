@@ -4,7 +4,7 @@
 //! profile written in the test with non-default values, and a body attached to a scene on the
 //! retail dats, on a software GPU device. Fails when the dats or the device are absent.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::camera::CameraPreferences;
 use dereth_scene::world_scene::SceneWrites;

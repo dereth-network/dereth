@@ -9,7 +9,7 @@
 //! Fixture: the retail dats; scenery generated over the 5x5 blocks around Holtburg, and one plant
 //! on block `0xA9B3` photographed on a software device with and without a creature behind it.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

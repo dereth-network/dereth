@@ -9,7 +9,7 @@
 //! schedule rebuilt on the client's fixed seed 1, and the HUD scroll and spew counters are checked.
 //! Fixture: the retail dats; application or GPU setup failures fail the test.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

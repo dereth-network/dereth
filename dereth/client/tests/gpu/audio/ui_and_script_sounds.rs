@@ -36,7 +36,7 @@
 //! Each has its own guard elsewhere; [`the_click_sound_still_obeys_the_three_shipped_bugs`] is
 //! this module's guard that the click path goes through them rather than round them.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

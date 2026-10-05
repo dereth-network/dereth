@@ -19,7 +19,7 @@
 //! and discards outgoing datagrams. Pointer messages are built by `Pump`, dispatched to it and
 //! forwarded to the input shell. Every fixture path is an `expect`.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::gameplay;
 

@@ -16,6 +16,7 @@
 //! together with the texture tables the last legacy bind installed.
 
 use super::*;
+use crate::device::terrain::{pack_job, JOB_WORDS, MAX_OVERLAYS};
 use crate::device::{MergeSource, TerrainMergeJob, TerrainSplat};
 
 /// The compositor. Pixels are BGRA8 bytes read as little-endian `uint`s.
@@ -177,9 +178,6 @@ float4 ps_splat(VSOut i) : SV_TARGET
 }
 ";
 
-/// As the Vulkan compositor: the client's own maximum is five overlays.
-const MAX_OVERLAYS: usize = 8;
-const JOB_WORDS: usize = 8 + 9 * MAX_OVERLAYS;
 const INITIAL_POOL_BYTES: u64 = 16 << 20;
 /// The splat's layers: a base, five alpha maps and five tiles.
 const MAX_LAYERS: usize = 5;
@@ -276,7 +274,7 @@ impl Gpu {
                 "runtime image texture mips require a world-owner key",
             ));
         }
-        if let Some(slot) = self.texture_table.get(key) {
+        if let Some(slot) = self.texture_book.get(key) {
             return Ok(TextureSlot(slot));
         }
         if job.size == 0 {
@@ -538,25 +536,7 @@ impl Gpu {
         let pitch_bytes = (u64::from(size) * 4)
             .div_ceil(u64::from(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT))
             * u64::from(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
-        let mut words = vec![0u32; JOB_WORDS];
-        words[0] = size;
-        words[1] = (pitch_bytes / 4) as u32;
-        if let Some(b) = job.base {
-            let (off, w, h) = source(b)?;
-            words[2..7].copy_from_slice(&[1, off, w, h, job.base_tiling]);
-        }
-        words[7] = job.overlays.len() as u32;
-        for (k, o) in job.overlays.iter().enumerate() {
-            let (aoff, aw, ah) = source(o.alpha)?;
-            let b = 8 + k * 9;
-            words[b..b + 4].copy_from_slice(&[aoff, aw, ah, o.rotation]);
-            if let Some(t) = o.tex {
-                let (toff, tw, th) = source(t)?;
-                words[b + 4..b + 9].copy_from_slice(&[1, toff, tw, th, o.tiling]);
-            } else {
-                words[b + 8] = o.tiling;
-            }
-        }
+        let words = pack_job(job, (pitch_bytes / 4) as u32, source)?;
         // SAFETY: the job buffer is host-visible and JOB_WORDS words long; the previous job was
         // waited for.
         unsafe {

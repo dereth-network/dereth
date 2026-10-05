@@ -13,7 +13,7 @@
 //! disabled, and disappear with it enabled. These are submission counts, not pixel comparisons.
 //! Missing fixtures and GPU creation failures are hard failures; there is no skip.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{addr, connection_sequence_number, load, retail_store, test_gpu};
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

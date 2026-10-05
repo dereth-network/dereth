@@ -6,7 +6,7 @@
 //! Fixture: the four retail dats in `$DERETH_TEST_DAT_DIR` (their absence fails) and a software
 //! device at 800x600 (its absence skips with a printed line).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_dat::RetailDatStore;
 use dereth_scene::world_scene::SceneReads;

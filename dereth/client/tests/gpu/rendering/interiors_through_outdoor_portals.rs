@@ -9,7 +9,7 @@
 //! hand-written expectation of what a window looks like. The claim is located, not "some pixels
 //! changed": every changed pixel must lie inside the projected outline of an opening.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;

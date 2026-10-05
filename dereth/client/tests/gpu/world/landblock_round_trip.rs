@@ -9,7 +9,7 @@
 //! station must restore the frame exactly. Fixture: the retail dats on a WARP device at 800x600,
 //! walking from Holtburg. Fails when the retail dats are absent or a device is absent.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

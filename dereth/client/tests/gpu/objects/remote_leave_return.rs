@@ -27,7 +27,7 @@
 //! `App::frame` calls. A `TimeSync` header advances the application clock alongside its blobs
 //! before maintenance and object sync. No socket is used. Draw counts observe submitted parts,
 //! not a pixel-perfect image or exact final position.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{LocalTime, ObjectId, Position, Vec3};
 use dereth_protocol::{

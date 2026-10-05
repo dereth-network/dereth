@@ -56,7 +56,7 @@
 //! Fixture: the retail dats' player script table and emitters, the recorded sessions' teleports
 //! and logins, and a headless `App` with the UI up; an `App` that cannot be built fails the test.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::retail_store;
 use dereth_scene::world_scene::SceneReads;

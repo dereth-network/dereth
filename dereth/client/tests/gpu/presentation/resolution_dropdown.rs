@@ -61,7 +61,7 @@
 //! load). On a real monitor `client == outer` would be the observable, not the style bits, and
 //! neither is reachable from an automated test.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::rc::Rc;
 

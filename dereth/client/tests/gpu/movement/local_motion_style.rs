@@ -7,7 +7,7 @@
 //! `WorldScene::sync_objects` into a real scene with a local body; style indices map through the
 //! motion command table (60/61/63/73 = HandCombat / NonCombat / BowCombat / Magic).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::recorded_movement_events;
 use dereth_scene::world_scene::SceneWrites;

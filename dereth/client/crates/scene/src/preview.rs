@@ -640,10 +640,10 @@ impl PaperDollSelectionLighting {
     }
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub use imp::*;
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 mod imp {
     use std::sync::Arc;
 

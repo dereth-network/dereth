@@ -32,7 +32,7 @@
 //! and decoded so the flags really go over the wire. The movement arm selected for each message is
 //! asserted from `ObjectPhysics::stats` rather than assumed.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

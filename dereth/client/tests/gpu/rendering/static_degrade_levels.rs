@@ -8,7 +8,7 @@
 //! what the scene drew. Fixture: Holtburg (`0xA9B4`) over the retail dats on a WARP device, with
 //! no body and a fixed camera. Every fixture is an `expect`, so nothing skips.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

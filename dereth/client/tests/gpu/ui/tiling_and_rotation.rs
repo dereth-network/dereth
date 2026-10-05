@@ -52,7 +52,7 @@
 //! bracketed: the same instrument is required to report a large non-zero for the stretched
 //! reading, so "0 differing" cannot be the differ failing to look.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

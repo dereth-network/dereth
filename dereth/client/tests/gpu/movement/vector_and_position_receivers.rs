@@ -670,7 +670,7 @@ fn a_position_and_movement_event_whose_tail_is_not_a_buffer_is_counted() {
 ///
 /// The object, the create that builds it and the vector update are all `long-solo-play`'s
 /// `0x5000000A`: one of the few recorded vector updates that carry a non-zero velocity.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[test]
 fn the_recorded_vector_update_reaches_the_physics_body() {
     use dereth_render::device::{DeviceConfig, Gpu};

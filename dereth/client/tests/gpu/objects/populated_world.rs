@@ -24,7 +24,7 @@
 //!    `movement_corpus_decode`.)
 //! 5. **Drawn.** The objects are submitted through the real device and the frame is not black.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,

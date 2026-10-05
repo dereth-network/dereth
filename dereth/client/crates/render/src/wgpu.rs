@@ -31,8 +31,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use crate::descriptor::{
-    DescriptorAllocator, DescriptorStats, Released, TextureKey, TextureSpace, TextureTable,
-    TextureTableStats, DESCRIPTORS_PER_TEXTURE,
+    DescriptorAllocator, DescriptorStats, Released, TextureKey, TextureSpace, TextureTableStats,
+    DESCRIPTORS_PER_TEXTURE,
 };
 use crate::device::{
     AdapterKind, CapturedImage, DescriptorUsage, DeviceConfig, MergeSource, PerDrawConstants,
@@ -427,10 +427,9 @@ pub struct Gpu {
     bound_bias: Cell<f32>,
 
     textures: HashMap<u32, Texture>,
-    texture_table: TextureTable,
     /// The texture slots: the other devices' budget and accounting, so occupancy reads the same
     /// on every device. A slot released inside a frame comes back when that frame has ended.
-    descriptors: DescriptorAllocator,
+    texture_book: crate::device::TextureBook,
     white: wgpu::BindGroup,
     stamp_texture: Option<TextureSlot>,
 
@@ -647,11 +646,10 @@ impl Gpu {
             bound_sampler: Cell::new(None),
             bound_bias: Cell::new(0.0),
             textures: HashMap::new(),
-            texture_table: TextureTable::new(),
-            descriptors: DescriptorAllocator::new(
+            texture_book: crate::device::TextureBook::new(DescriptorAllocator::new(
                 srv_descriptors.unwrap_or(SRV_HEAP_SIZE),
                 DESCRIPTORS_PER_TEXTURE,
-            ),
+            )),
             white,
             stamp_texture: None,
             levels: levels::Levels::default(),
@@ -689,7 +687,7 @@ impl Gpu {
     /// # Errors
     /// Never; the signature is the device's.
     pub fn begin_frame(&mut self) -> Result<(), RenderError> {
-        self.descriptors.retire(self.frame_stamp);
+        self.texture_book.descriptors.retire(self.frame_stamp);
         self.commands.get_mut().clear();
         self.vertex_arena.clear();
         self.uniform_arena.clear();
@@ -726,7 +724,7 @@ impl Gpu {
                 _ => {
                     surface.configure(&self.device, config);
                     // The frame's draws are dropped with it, so what it released is free now.
-                    self.descriptors.retire(self.frame_stamp + 1);
+                    self.texture_book.descriptors.retire(self.frame_stamp + 1);
                     return Ok(());
                 }
             },
@@ -1417,7 +1415,7 @@ impl Gpu {
 
     #[must_use]
     pub fn has_texture_key(&self, key: TextureKey) -> bool {
-        self.texture_table.contains(key)
+        self.texture_book.contains(key)
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1427,27 +1425,12 @@ impl Gpu {
         t: &TextureData,
         imgtex: bool,
     ) -> Result<TextureSlot, RenderError> {
-        if let Some(slot) = self.texture_table.get(key) {
+        if let Some(slot) = self.texture_book.get(key) {
             return Ok(TextureSlot(slot));
         }
-        if t.width == 0 || t.height == 0 || t.levels.is_empty() {
-            return Err(RenderError::BadDimensions {
-                width: t.width,
-                height: t.height,
-                reason: "a texture needs a non-zero extent and at least one level",
-            });
-        }
-        let system_chain = if imgtex {
-            crate::mip::compressed_system_chain(t)?
-        } else {
-            None
-        };
-        let t = system_chain.as_ref().unwrap_or(t);
-        let wanted = if imgtex {
-            crate::mip::runtime_level_count(t, true)
-        } else {
-            t.levels.len()
-        };
+        let upload = crate::device::PreparedUpload::new(t, imgtex, true)?;
+        let t = upload.texture();
+        let wanted = upload.wanted_levels(true);
         let compressed = block_format(t.format);
         let native = compressed.is_some()
             && self.bc
@@ -1459,25 +1442,22 @@ impl Gpu {
                 (format, t.levels.clone())
             }
             Some(_) => {
-                let decoded = decode_bc(t)?;
+                let decoded = crate::texture::decode_block_chain(t)?;
                 (wgpu::TextureFormat::Rgba8Unorm, rgba_levels(&decoded)?)
             }
             None => (wgpu::TextureFormat::Rgba8Unorm, rgba_levels(t)?),
         };
-        let provided = levels.len().min(wanted.max(1));
-        let level_count = u32::try_from(wanted.max(provided).max(1)).unwrap_or(1);
-        let generate = format == wgpu::TextureFormat::Rgba8Unorm && level_count as usize > provided;
+        let (provided, level_count, generate) = crate::device::PreparedUpload::web_levels(
+            wanted,
+            levels.len(),
+            format == wgpu::TextureFormat::Rgba8Unorm,
+        );
         let mut usage = wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_DST
             | wgpu::TextureUsages::COPY_SRC;
         if generate {
             usage |= wgpu::TextureUsages::RENDER_ATTACHMENT;
         }
-        let level_count = if generate {
-            level_count
-        } else {
-            u32::try_from(provided).unwrap_or(1)
-        };
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("texture"),
             size: extent(t.width, t.height),
@@ -1523,17 +1503,9 @@ impl Gpu {
         stored: TextureFormat,
         levels: u32,
     ) -> Result<TextureSlot, RenderError> {
-        self.descriptors.retire(self.frame_stamp);
-        let Some(slot) = self.descriptors.alloc() else {
-            return Err(RenderError::Device(format!(
-                "descriptor heap exhausted: {} of {} slots taken, {} live, {} waiting on the frame \
-                 ({} refusals so far)",
-                self.descriptors.frontier(),
-                self.descriptors.capacity(),
-                self.descriptors.live(),
-                self.descriptors.pending_slots(),
-                self.descriptors.stats().exhaustions,
-            )));
+        self.texture_book.descriptors.retire(self.frame_stamp);
+        let Some(slot) = self.texture_book.descriptors.alloc() else {
+            return Err(self.texture_book.exhausted("frame"));
         };
         let bind = texture_bind(&self.device, &self.texture_layout, &texture);
         self.textures.insert(
@@ -1545,35 +1517,35 @@ impl Gpu {
                 levels: u16::try_from(levels).unwrap_or(u16::MAX),
             },
         );
-        self.texture_table.insert(key, slot);
+        self.texture_book.insert(key, slot);
         Ok(TextureSlot(slot))
     }
 
     pub fn retain_texture(&mut self, slot: TextureSlot) -> Option<u32> {
-        self.texture_table.add_ref(slot.0)
+        self.texture_book.add_ref(slot.0)
     }
 
     /// Drop one link, freeing the texture at zero. A frame that already bound it keeps it until
     /// the frame is drawn.
     pub fn release_texture(&mut self, slot: TextureSlot) -> Released {
-        let outcome = self.texture_table.release(slot.0);
+        let outcome = self.texture_book.release(slot.0);
         if outcome == Released::Freed {
             self.textures.remove(&slot.0);
             // A draw this frame recorded may name the slot; it is free again once the frame ends.
             let fence = self.frame_stamp + u64::from(self.frame_open);
-            self.descriptors.release(slot.0, fence);
+            self.texture_book.descriptors.release(slot.0, fence);
         }
         outcome
     }
 
     #[must_use]
     pub fn texture_keys(&self) -> Vec<TextureKey> {
-        self.texture_table.keys()
+        self.texture_book.keys()
     }
 
     #[must_use]
     pub fn texture_table_stats(&self) -> TextureTableStats {
-        self.texture_table.stats()
+        self.texture_book.stats()
     }
 
     #[must_use]
@@ -1583,26 +1555,18 @@ impl Gpu {
 
     #[must_use]
     pub fn live_textures(&self) -> usize {
-        self.texture_table.len()
+        self.texture_book.len()
     }
 
     #[must_use]
     pub fn descriptor_stats(&self) -> DescriptorStats {
-        self.descriptors.stats()
+        self.texture_book.descriptors.stats()
     }
 
     /// Slots handed out, free and waiting on the frame, against the budget.
     #[must_use]
     pub fn descriptor_usage(&self) -> DescriptorUsage {
-        DescriptorUsage {
-            live: self.descriptors.live(),
-            frontier: self.descriptors.frontier(),
-            high_water: self.descriptors.high_water(),
-            free: self.descriptors.free_slots(),
-            pending: self.descriptors.pending_slots(),
-            deferred: 0,
-            capacity: self.descriptors.capacity(),
-        }
+        self.texture_book.usage(0)
     }
 
     // --- binding and samplers ------------------------------------------------------------------
@@ -1982,23 +1946,6 @@ fn swap_red_blue(pixels: &mut [u8]) {
     for p in pixels.as_chunks_mut::<4>().0 {
         p.swap(0, 2);
     }
-}
-
-/// A block-compressed chain decoded to BGRA8 on the CPU.
-fn decode_bc(t: &TextureData) -> Result<TextureData, RenderError> {
-    let id = dereth_render_cpu::texture::block_source_format(t.format)
-        .ok_or_else(|| RenderError::Device(format!("unhandled texture format {:?}", t.format)))?;
-    let mut levels = Vec::with_capacity(t.levels.len());
-    for (i, bits) in t.levels.iter().enumerate() {
-        let (w, h) = level_extent(t.width, t.height, i);
-        levels.push(crate::dxt::decode(id, bits, w, h)?);
-    }
-    Ok(TextureData {
-        width: t.width,
-        height: t.height,
-        format: TextureFormat::Bgra8,
-        levels,
-    })
 }
 
 fn write_level(

@@ -25,7 +25,7 @@
 //!
 //! Fixture: long-solo-play's sparring golem and its corpse, replayed from the reassembled corpus
 //! into a live scene. No datagram leaves this process.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_client_net::client_session::SessionEvent;

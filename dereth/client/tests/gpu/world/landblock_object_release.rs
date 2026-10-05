@@ -11,7 +11,7 @@
 //!
 //! Sections of this module:
 //! * `outdoor_objects`: objects in a departed block's outdoor cells are released by the scroll.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

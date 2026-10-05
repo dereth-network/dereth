@@ -8,7 +8,7 @@
 //! `0x0013 Login_PlayerDescription` as the oracle, and headless Apps rendered through the selected
 //! GPU backend; clicks are element messages broadcast through `UiSystem`, not injected input.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

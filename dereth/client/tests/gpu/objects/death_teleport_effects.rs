@@ -25,7 +25,7 @@
 //! physics-script table. Counters observe object part submissions, owned emitter records and
 //! scene-wide particle submissions, not individual pixels. An `App` that cannot be built fails
 //! the test.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_net::client_session::SessionEvent;
 use dereth_physics::V3;

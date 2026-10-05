@@ -8,7 +8,7 @@
 //! synthetic player created through the world-objects dispatch; the retail dats; a software
 //! device driven by direct scene steps (no App, no socket).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 #![allow(clippy::pedantic)]
 
 use std::sync::Arc;

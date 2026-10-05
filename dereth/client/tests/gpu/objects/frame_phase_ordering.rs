@@ -9,7 +9,7 @@
 //! the transport writer; object and UI bodies are written in the test (one case replays
 //! long-solo-play's remote human). No GUI, socket, owner settings, or injected expected delivery
 //! or model state.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 use dereth_primitives::{LocalTime, ObjectId, ServerTime};
 use dereth_protocol::objects::{ItemCreateObject, ItemServerSaysRemove, ObjectCreatePayload};
 use {

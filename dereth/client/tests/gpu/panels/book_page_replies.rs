@@ -4,7 +4,7 @@
 //! Fixture: `net::late_receivers`' socket-free replay App with `long-solo-play`'s recorded `0x00B4`
 //! book open.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::gpu_lock;
 use crate::net::late_receivers::{gameplay, recorded, settle, setup, Peer, PLAYER};

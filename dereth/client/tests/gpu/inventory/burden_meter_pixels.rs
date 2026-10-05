@@ -7,7 +7,7 @@
 //! Fixture: the `first-login-walk-jump` recording replayed into a headless gameplay `App` with the
 //! retail dats and the backpack opened.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

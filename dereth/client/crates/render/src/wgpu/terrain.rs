@@ -5,7 +5,7 @@
 //! names which of them make one cell's surface; one dispatch writes the composite's texels, which
 //! are copied into level 0 of a new texture and given their sublevels as an uploaded composite
 //! is. Every step is integer, so the texels are bit-identical to the CPU compositor's. The one
-//! change to the shader is the output row stride: a buffer-to-texture copy needs rows a multiple
+//! device-specific value is the output row stride: a buffer-to-texture copy needs rows a multiple
 //! of 256 bytes apart, so the stride is a job word rather than the composite's width.
 //!
 //! **The splat** draws a landscape cell by blending its layers in the pixel shader instead, with
@@ -13,6 +13,7 @@
 //! binding rather than in push constants, which `wgpu` has only as a native extension, and each
 //! sample takes the bias of the bank's wrap sampler, because a `wgpu` sampler carries none.
 
+use crate::device::terrain::{pack_job, JOB_WORDS, MAX_OVERLAYS};
 use std::collections::HashMap;
 
 use super::{
@@ -20,11 +21,8 @@ use super::{
     PerFrameConstants, PipelineKey, TerrainMergeJob, TerrainSplat, TextureData, TextureFormat,
     TextureKey, TextureSlot, TextureSpace, VertexFormat,
 };
-use crate::wgsl::{bias_splat_samples, JOB_WORDS, MAX_OVERLAYS, TERRAIN_MERGE, TERRAIN_SPLAT_TAIL};
+use crate::wgsl::{bias_splat_samples, TERRAIN_MERGE, TERRAIN_SPLAT_TAIL};
 use crate::RenderError;
-
-/// The job word that carries the output row stride, in texels, after the shared layout.
-const STRIDE_WORD: usize = JOB_WORDS;
 
 /// The pool's first size. It doubles when a source does not fit.
 const INITIAL_POOL_BYTES: u64 = 16 << 20;
@@ -127,7 +125,7 @@ impl Gpu {
                 "runtime image texture mips require a world-owner key",
             ));
         }
-        if let Some(slot) = self.texture_table.get(key) {
+        if let Some(slot) = self.texture_book.get(key) {
             return Ok(TextureSlot(slot));
         }
         if job.size == 0 {
@@ -161,15 +159,11 @@ impl Gpu {
     }
 
     fn create_terrain_merge(&mut self) -> TerrainMerge {
-        let source = TERRAIN_MERGE.replace(
-            "out_px[y * size + x] = px;",
-            &format!("out_px[y * job[{STRIDE_WORD}u] + x] = px;"),
-        );
         let module = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("terrain merge"),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
+                source: wgpu::ShaderSource::Wgsl(TERRAIN_MERGE.into()),
             });
         let storage = |binding: u32, read_only: bool| wgpu::BindGroupLayoutEntry {
             binding,
@@ -207,7 +201,7 @@ impl Gpu {
         let pool = self.merge_buffer(INITIAL_POOL_BYTES, "terrain merge sources");
         let params = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("terrain merge job"),
-            size: ((JOB_WORDS + 1) * 4) as u64,
+            size: (JOB_WORDS * 4) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -307,25 +301,7 @@ impl Gpu {
         let size = job.size;
         // Rows a multiple of 256 bytes apart, for the copy into the texture.
         let stride = (size * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) / 4;
-        let mut words = vec![0u32; JOB_WORDS + 1];
-        words[0] = size;
-        if let Some(b) = job.base {
-            let (off, w, h) = source(b)?;
-            words[1..6].copy_from_slice(&[1, off, w, h, job.base_tiling]);
-        }
-        words[6] = u32::try_from(job.overlays.len()).unwrap_or(0);
-        for (k, o) in job.overlays.iter().enumerate() {
-            let (aoff, aw, ah) = source(o.alpha)?;
-            let b = 7 + k * 9;
-            words[b..b + 4].copy_from_slice(&[aoff, aw, ah, o.rotation]);
-            if let Some(t) = o.tex {
-                let (toff, tw, th) = source(t)?;
-                words[b + 4..b + 9].copy_from_slice(&[1, toff, tw, th, o.tiling]);
-            } else {
-                words[b + 8] = o.tiling;
-            }
-        }
-        words[STRIDE_WORD] = stride;
+        let words = pack_job(job, stride, source)?;
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         self.queue.write_buffer(&tm.params, 0, &bytes);
         let out_len = u64::from(stride) * u64::from(size) * 4;

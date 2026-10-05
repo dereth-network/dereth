@@ -7,7 +7,7 @@
 //! Fixture: `client_cell_1.dat` and `client_portal.dat` (decoded environment cells and
 //! environments), Holtburg's window, on a software device. Fails without the dats or a device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

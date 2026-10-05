@@ -11,7 +11,7 @@
 //! (`DERETH_TEST_PRETOD_DAT_DIR`), Holtburg with no body at a pinned time of day, and a graphics
 //! device; a missing input fails.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;

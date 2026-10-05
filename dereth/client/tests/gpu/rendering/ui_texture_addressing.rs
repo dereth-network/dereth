@@ -55,7 +55,7 @@
 //! the axis they repeat, so they cannot move a pixel either way. The premise is asserted before
 //! anything is believed.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

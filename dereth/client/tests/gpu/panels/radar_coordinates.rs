@@ -7,7 +7,7 @@
 //! Fixture: the retail dats, a headless `App` on the gameplay screen, and a socket-free peer that
 //! feeds a synthetic login and a synthetic position body (both stamps advanced, flags 0, no
 //! 0xF751) through the in-memory transport.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -4,7 +4,7 @@
 //! vertices). A uniformly scaled part is lit exactly as before.
 //! Fixture: a full-screen lit quad on a device, one directional light, pixel readback.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{Frame, Quat, TextureData, TextureFormat, Vec3};
 use dereth_render::device::{Gpu, PerDrawConstants, PerFrameConstants};

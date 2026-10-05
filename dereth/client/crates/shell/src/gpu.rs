@@ -22,13 +22,13 @@ pub use {
 };
 
 /// The scene's half of the renderer, which [`Renderer`] holds and dereferences to.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub use dereth_scene::gpu::SceneRenderer;
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub use imp::*;
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[path = "."]
 mod imp {
     use std::path::Path;

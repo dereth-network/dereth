@@ -7,7 +7,7 @@
 //! Fixture: an offline headless `App` on the retail dats, stepped through `App::frame` with element
 //! messages broadcast on its own tree, plus `turbine_logo_ac.avi` from the retail install decoded directly.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -19,7 +19,7 @@
 //! bypasses only the key-to-action conversion, which the dialog and pregame action tests cover with
 //! `WM_KEYDOWN`/`WM_CHAR`/`WM_KEYUP` triples on this screen.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

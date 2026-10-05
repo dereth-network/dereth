@@ -9,7 +9,7 @@
 //! selection helper, and the recording first-login-walk-jump for the paper doll's player; baked
 //! ids and triangle counts are observed, not pixels. No datagram leaves the process.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

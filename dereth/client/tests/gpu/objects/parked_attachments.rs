@@ -688,7 +688,7 @@ fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reente
     assert!(s.world.physics(CHILD).is_some());
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[test]
 fn app_late_child_becomes_real_held_geometry_then_drop_and_next_parent_operation_work() {
     use dereth_assets::Decode;

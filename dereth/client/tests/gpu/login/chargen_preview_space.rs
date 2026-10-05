@@ -8,7 +8,7 @@
 //! (char-gen wizard, or Holtburg with the gameplay UI) captured in paired frames with the space's
 //! object present and absent; no link, FINISH never pressed.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

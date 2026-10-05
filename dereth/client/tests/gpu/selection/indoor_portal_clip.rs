@@ -24,7 +24,7 @@
 //! the geometry to the selection ray before drawing it. An outdoor object is therefore submitted
 //! only if it falls inside at least one opening polygon.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 use dereth_scene::world_scene::SceneReads;

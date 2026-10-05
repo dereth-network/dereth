@@ -13,7 +13,7 @@
 //! * `cell_source`: the viewer's cell id is its own position read through the container rule.
 //! * `load_time`: neither load-time arm re-centres, and a re-centre could not change the index.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

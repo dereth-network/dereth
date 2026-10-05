@@ -9,7 +9,7 @@
 //! step. Fixture: Holtburg with the gameplay UI in a headless `App` on the retail dats; fails
 //! without the dats.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

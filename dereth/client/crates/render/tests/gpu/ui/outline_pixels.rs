@@ -3,7 +3,7 @@
 //! a displaced outline is caught; the atlas carries both border counts.
 //! Fixture: offscreen device rendering and pixel readback.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{TextureData, TextureFormat};
 use dereth_render::device::{Gpu, PerDrawConstants, PerFrameConstants, TextureSlot};

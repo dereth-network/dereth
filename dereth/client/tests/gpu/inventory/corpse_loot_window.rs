@@ -6,7 +6,7 @@
 //! screen. Every action's bytes are compared with the recorded client message.
 //! Fixture: the `long-solo-play` corpus (corpse `0x80000A96`) fed unchanged into a headless
 //! gameplay `App` with the retail dats; no server and no fabricated answers.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_model::Request;
 use dereth_client_net::client_session::{

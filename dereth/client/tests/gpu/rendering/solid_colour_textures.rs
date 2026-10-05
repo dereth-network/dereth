@@ -9,7 +9,7 @@
 //! again when it returns, so the two must differ. Fixture: every surface record in
 //! `client_portal.dat`, and a two-lap walk over Holtburg's blocks on a software device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::collections::BTreeSet;

@@ -521,7 +521,7 @@ fn recorded_targeted_pairs_have_independent_source_and_target_descriptors() {
     assert!(count > 0, "the recordings carry no targeted use (0x0035)");
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 mod app_journey {
     use super::*;
     use dereth_client_model::Request;

@@ -8,7 +8,7 @@
 //! software device, no local body; published surface ids are re-read from the dat and rerun
 //! through the shared helpers, so these check the scene's wiring. Missing fixtures fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::{Decode, GfxObj, GfxObjDegradeInfo};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};

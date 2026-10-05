@@ -33,7 +33,7 @@
 //! that case as premises before the pick is believed.
 
 // This suite drives a real GPU-backed `App`.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 use dereth_scene::world_scene::SceneReads;

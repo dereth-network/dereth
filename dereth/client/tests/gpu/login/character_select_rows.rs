@@ -7,7 +7,7 @@
 //! Fixture: the retail dats, a headless App with no link on the character-management screen fed a
 //! synthetic `0xF658` character set, and the recorded `0xF657`/`0xF658` pairs of every capture.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

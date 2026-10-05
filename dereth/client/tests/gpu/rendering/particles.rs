@@ -6,7 +6,7 @@
 //! the shipped particle equations reach the draw unchanged. Fixture: the retail dats around
 //! Holtburg (`0xA9B4`), drawn on a software device at a pinned time of day.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;

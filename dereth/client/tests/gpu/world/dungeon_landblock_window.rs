@@ -13,7 +13,7 @@
 //! * `teleport_into_a_dungeon`: a teleport into a dungeon from another landblock brings the window
 //!   to the dungeon's own block.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::{Decode, EnvCell};
 use dereth_client_runtime::character::CharacterInput;

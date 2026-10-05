@@ -10,7 +10,7 @@
 //!
 //! Behaviour: none (an equivalence of two bake paths inside the client, not a retail claim)
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

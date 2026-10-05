@@ -2344,7 +2344,7 @@ mod tests {
     /// Falsified by: dropping either enum from [`ChargenPreviewKey`] (the first two arms fail), or
     /// by putting either of them into [`ChargenPreviewKey::same_space`] (the third fails, and every
     /// animation change would tear the model down and reload it).
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     #[test]
     fn the_chargen_preview_key_carries_both_animation_enums_without_forcing_a_rebuild() {
         use dereth_ui_screens::screens::chargen::Cg3dView;

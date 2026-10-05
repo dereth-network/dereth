@@ -12,7 +12,7 @@
 //! byte-identical. Fixture: the retail dats on a software device. Fails when the retail dats are
 //! absent; skips only without a device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::objects::ObjectStream;

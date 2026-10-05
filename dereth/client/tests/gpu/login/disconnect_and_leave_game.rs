@@ -9,7 +9,7 @@
 //! Fixture: the retail dats, a headless `App` with a link pointed at a port nobody listens on, and
 //! clicks broadcast through the live UI tree to elements of the shipped layout.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

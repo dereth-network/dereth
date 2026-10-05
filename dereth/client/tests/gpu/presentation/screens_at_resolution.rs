@@ -51,7 +51,7 @@
 //!
 //! §2 is the force itself, on a real `App` over a headless software GPU.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::rc::Rc;
 

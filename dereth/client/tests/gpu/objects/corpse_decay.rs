@@ -64,7 +64,7 @@
 //! Socket-free: every blob is admitted through the encrypted replay endpoint and the ordinary
 //! `App::frame` order, and the 25 s deadline is crossed with a real `TimeSync` optional header
 //! that advances the application clock, never by a model call.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{retail_store, test_gpu};
 use std::sync::Arc;

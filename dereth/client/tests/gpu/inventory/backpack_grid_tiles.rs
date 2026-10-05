@@ -8,7 +8,7 @@
 //! Fixture: every recording on disk replayed into `Hud` and a GPU-less gameplay screen built from
 //! the retail dats; the pixel test uses two headless `App`s run the same number of frames.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::{recorded_sessions, recorded_world_sessions};

@@ -6,7 +6,7 @@
 //! path; one test starts a headless App on the retail dats to see the selected size reach
 //! gameplay. No real preferences file is read or written and no network endpoint is attached.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::path::{Path, PathBuf};
 

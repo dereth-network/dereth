@@ -22,7 +22,7 @@
 //! be 0, and the before/after pair must not be. The frames use an 800x600 panel size, comparable
 //! with a separately captured windowed frame.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

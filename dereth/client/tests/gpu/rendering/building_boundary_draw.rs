@@ -8,7 +8,7 @@
 //! body at a recorded pose in the doorway, on a software device. The ignored generators write
 //! PNGs to `DERETH_TEST_BUILDING_BOUNDARY_DUMP`.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::objects::ObjectStream;

@@ -38,7 +38,7 @@
 //! No datagrams are sent. Retail DATs and a software GPU are required; device creation failure
 //! is a hard failure here. Images come from the current renderer, not a stored image golden.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

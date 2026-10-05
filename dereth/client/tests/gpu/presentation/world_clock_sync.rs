@@ -35,7 +35,7 @@
 //! (`[0.4375, 0.5000)` is `3334.5 s .. 3810 s`) for the first 6,300 frames, so the unsynchronised
 //! date is exactly `"Date: Morningthaw 0, 10 P.Y."` / `"Time: Morntide-and-Half"`: the
 //! process-local epoch a client without time sync shows.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -3,7 +3,7 @@
 //! Fixture: long-solo-play's recorded create, position and state for a creature, driven through
 //! `ObjectStream` and `WorldScene` on a software device with constructed
 //! `Movement_SetObjectMovement 0xF74C` messages; the retail dats.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

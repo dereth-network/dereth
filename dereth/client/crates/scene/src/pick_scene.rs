@@ -3,7 +3,7 @@
 //! The sweep and its trait are [`dereth_client_runtime::pick`]; `WorldScene` is this crate's, so
 //! its implementation of the runtime's trait lives here.
 //!
-//! The `#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]` gate is on this
+//! The `#[cfg(gpu)]` gate is on this
 //! module's declaration in `lib.rs` -- the same gate `WorldScene` itself carries.
 
 use dereth_client_runtime::pick::{LocalBody, LocalBodyPart, PickScene};

@@ -3,7 +3,7 @@
 //! kept untouched, so the edge of a cut-out goes from a hard step to a ramp.
 //! Fixture: an offscreen device, a horizontal alpha ramp over an opaque backdrop, pixel readback.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{TextureData, TextureFormat};
 use dereth_render::device::{Gpu, PerDrawConstants, PerFrameConstants};

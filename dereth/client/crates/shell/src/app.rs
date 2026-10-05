@@ -9,7 +9,7 @@
 //! The main loop is tiny: connect once, then run one frame at a time until a frame asks to stop.
 //! [`App::run`] is that loop and [`App::frame`] is one frame of it.
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 use dereth_scene::world_scene::SceneReads;
 
 use dereth_client_runtime::app::*;
@@ -60,7 +60,7 @@ impl<H: Host> App<H> {
     ///
     /// # Errors
     /// [`StartupError`] for any of the failures the client treats as fatal.
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     pub fn new(cfg: Config) -> Result<Self, StartupError> {
         Self::bring_up(cfg, None, None)
     }
@@ -122,13 +122,9 @@ impl<H: Host> App<H> {
             },
             |window, client_w, client_h, cfg| match present {
                 Some(p) => Ok(p),
-                #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+                #[cfg(gpu)]
                 None => Self::device_presentation(window, client_w, client_h, cfg),
-                #[cfg(not(any(
-                    feature = "vulkan",
-                    feature = "wgpu",
-                    all(windows, feature = "d3d12")
-                )))]
+                #[cfg(not(gpu))]
                 None => {
                     let _ = (window, cfg);
                     Ok(Box::new(
@@ -271,7 +267,7 @@ impl<H: Host> App<H> {
 
     /// For the gated [`App::new`] path: construct the graphics engine and apply the three
     /// presentation preferences it needs before anything draws.
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     fn device_presentation(
         window: &dyn dereth_client_runtime::platform::window::WindowHost,
         client_w: u32,
@@ -306,7 +302,7 @@ impl<H: Host> App<H> {
     /// A backend that is not in this build, or that cannot create a device on this
     /// machine, is **a logged line and a fall back to the default**, never a panic and never a
     /// start-up failure; only the default failing too is a `StartupError::Device`.
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     fn device_on_selected_backend(
         handles: Option<dereth_render::device::WindowHandles>,
         client_w: u32,
@@ -448,7 +444,7 @@ impl<H: Host> App<H> {
     /// `App` holds a [`dereth_client_runtime::present::Presentation`], so this is a downcast of it and is gated on the device feature exactly as the renderer itself is. It panics if the
     /// presentation is not the device one, which is the same contract the field access had: a
     /// caller of this function has already decided it is driving a real device.
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     pub fn renderer_mut(&mut self) -> &mut crate::gpu::Renderer {
         self.core
             .present
@@ -475,7 +471,7 @@ impl<H: Host> App<H> {
     /// Read-only access to the renderer, for the counters the report prints.
     ///
     /// See [`App::renderer_mut`] for why this is a downcast and what it asserts.
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     #[must_use]
     pub fn renderer(&self) -> &crate::gpu::Renderer {
         self.core
@@ -487,7 +483,7 @@ impl<H: Host> App<H> {
 
     /// The scene as one view: this `App`'s world state beside the renderer's drawing
     /// half, reading as a whole `WorldScene` did. Gated and asserting like [`App::renderer`].
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     #[must_use]
     pub fn world_scene(&self) -> Option<dereth_scene::world_scene::WorldSceneRef<'_>> {
         let draw = self.renderer().world()?;
@@ -498,7 +494,7 @@ impl<H: Host> App<H> {
     }
 
     /// …and writable, both halves.
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     pub fn world_scene_mut(&mut self) -> Option<dereth_scene::world_scene::WorldSceneMut<'_>> {
         let draw = self
             .core
@@ -514,7 +510,7 @@ impl<H: Host> App<H> {
     }
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 impl<H: Host> App<H> {
     /// Report the static scene immediately after its load completes.
     pub fn log_load_report(&self, scene: dereth_client_runtime::scene::SceneConfig) {
@@ -862,7 +858,7 @@ mod tests {
     /// lets Windows scale it). Client divergence CD-004.
     ///
     /// Behaviour: presentation.window.the-picture-is-the-windows-real-pixels-at-any-desktop-scaling
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     #[test]
     #[cfg_attr(
         not(feature = "retail-dats"),
@@ -933,7 +929,7 @@ mod tests {
     /// Client divergence CD-008.
     ///
     /// Behaviour: presentation.startup.a-second-client-starts-while-the-first-is-running
-    #[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+    #[cfg(gpu)]
     #[test]
     #[cfg_attr(
         not(feature = "retail-dats"),

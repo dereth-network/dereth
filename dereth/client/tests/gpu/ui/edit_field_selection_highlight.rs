@@ -55,7 +55,7 @@
 //! 4. [`the_highlight_changes_only_the_pixels_under_the_selected_glyphs`] is the picture, on a
 //!    real device, with a calibration first and a declared rectangle.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -32,11 +32,11 @@ pub mod gpu;
 pub mod mip_worker;
 /// Presentation: the emitter geometry it caches is device-resident, so the whole module is
 /// gated with the other presentation modules.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub mod particles;
 /// `impl PickScene for WorldScene`, the half of picking that names this crate's own scene
 /// type. Gated exactly as `WorldScene` is.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 mod pick_scene;
 /// The paper-doll preview space.
 pub mod preview;

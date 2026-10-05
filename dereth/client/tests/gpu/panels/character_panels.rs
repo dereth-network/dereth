@@ -9,7 +9,7 @@
 //! and spell table `0x0E00000E`, and a headless App on a software GPU device with offscreen
 //! captures; pages are opened through the panel-visibility handler, not OS input.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

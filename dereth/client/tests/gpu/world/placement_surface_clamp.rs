@@ -11,7 +11,7 @@
 //! body (no socket) 300 m out on the Holtburg hill, on the retail dats and a software device. It
 //! reads the settled physics position, not pixels.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;

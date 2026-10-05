@@ -9,7 +9,7 @@
 //! refusal bytes, the retail dats, and a headless App on a socket-free replay endpoint (nothing
 //! leaves the process; nothing is bought, rented or abandoned).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;

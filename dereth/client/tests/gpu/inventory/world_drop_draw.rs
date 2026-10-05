@@ -8,7 +8,7 @@
 //! such pack items, the retail dats, a software device; the `0xF748` is constructed from the
 //! recorded player's position with resting placement and `POSITION_TS` advanced by one.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

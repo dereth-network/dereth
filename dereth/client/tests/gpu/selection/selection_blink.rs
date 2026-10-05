@@ -39,7 +39,7 @@
 //!
 //! The headless clock advances by 1/30 second per frame, so 0.2 seconds is six frames.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 use dereth_scene::world_scene::SceneReads;

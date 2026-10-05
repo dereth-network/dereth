@@ -7,7 +7,7 @@
 //! Fixture: the retail dats and an offline headless App at 800x600 on the wizard's appearance page;
 //! pixel differentials are box-scoped and calibrated by two idle frames agreeing inside the box.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

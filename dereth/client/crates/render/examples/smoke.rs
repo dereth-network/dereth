@@ -17,7 +17,7 @@ fn main() {
     }
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     use dereth_primitives::{TextureData, TextureFormat};
     use dereth_render::device::{DeviceConfig, Gpu, PerDrawConstants, PerFrameConstants};
@@ -165,7 +165,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12"))))]
+#[cfg(not(gpu))]
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     Err("the smoke example needs a graphics backend: --features vulkan or d3d12".into())
 }

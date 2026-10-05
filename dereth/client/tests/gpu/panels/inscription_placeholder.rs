@@ -9,7 +9,7 @@
 //! Fixture: the retail dats and a headless `App` on the gameplay screen, fed synthetic objects
 //! and appraisal replies by a socket-free peer; `0xBF` is decoded from the outgoing datagrams.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

@@ -6,7 +6,7 @@
 //! fabricated. The swap-chain test owns an invisible native window and reads the interval the
 //! real present call used. Neither changes a saved profile or a monitor mode.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

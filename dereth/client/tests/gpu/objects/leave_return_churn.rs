@@ -44,7 +44,7 @@
 //! headless `App`, in ordinary `App::frame` order. A real `TimeSync` optional header advances the
 //! server clock across the 25 s deadline; the tests do not directly invoke the model's
 //! destruction routine.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::{

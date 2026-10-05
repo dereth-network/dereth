@@ -11,7 +11,7 @@
 //! at the event's supplied volume. The render frame, not the listener position, is the sound
 //! position. These tests do not replay the transport/session queue.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

@@ -4,7 +4,7 @@
 //! rebuilt at another display size reprojects the corners; the brackets follow the world fade and
 //! hide during the portal tunnel. Fixture: a headless `App` with the retail dats' gameplay layout
 //! and world, objects created from synthetic object-create messages.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::SessionEvent;

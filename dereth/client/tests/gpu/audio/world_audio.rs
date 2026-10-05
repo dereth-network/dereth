@@ -22,7 +22,7 @@
 //! * 12.3 the last row of a multi-row entry is unreachable;
 //! * 12.7 `Sound.InterfaceSoundVolume` has no reader.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::audio::Audio;
 use dereth_client_runtime::objects::ObjectStream;

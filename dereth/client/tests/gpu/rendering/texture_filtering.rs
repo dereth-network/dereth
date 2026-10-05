@@ -4,7 +4,7 @@
 //! first draw without the profile being written.
 //! Fixture: a retail dat setup drawn through the production preview on a software device, and
 //! synthetic viewports and preference profiles (not retail captures).
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{DataId, Vec3};
 use dereth_render::{

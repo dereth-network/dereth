@@ -30,7 +30,7 @@
 //! 4. **The `0x0200004E` characters are dressed**: a paired before/after compared in memory, with
 //!    the changed pixels confined to the body.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,

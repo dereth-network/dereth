@@ -9,7 +9,7 @@
 //! creates into a `WorldScene` on a software device, the retail dats, and a census over six
 //! recordings' velocity-carrying creates.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::{Decode, Setup};
 use dereth_physics::math::V3 as _;

@@ -8,7 +8,7 @@
 //! the middle of Holtburg `0xA9B4` in a 5x5 window, aimed at the four coarse blocks carrying the
 //! most objects. Fixture: the retail dats on a software device; fails without the dats or a device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::objects::ObjectStream;

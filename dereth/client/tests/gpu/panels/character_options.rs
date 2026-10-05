@@ -8,7 +8,7 @@
 //! distinct option ordinals are pinned too.
 //! Fixture: the retail dats and a headless `App` on the gameplay screen, logged in by a synthetic
 //! socket-free peer, with a synthetic `0x0013` carrying the default option words.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -5,7 +5,7 @@
 //! The geometry at the pixel and the attribute reaching a `UiDrawCmd` are covered elsewhere; a
 //! draw list is not a draw call, so this counts what leaves the renderer.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

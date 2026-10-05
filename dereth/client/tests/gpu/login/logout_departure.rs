@@ -10,7 +10,7 @@
 //! Fixture: the five recorded logout sessions, the retail dats, and a headless `App` in the world
 //! with a socket-free replay link, driven through the shipped logout buttons and the input pump.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

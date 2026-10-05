@@ -5,9 +5,9 @@
 //! rules live in `dereth-world-render`; device commands live in `dereth-render`.
 //! Cohesive child modules share the scene records without changing resource ownership.
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub use imp::*;
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[path = "world_scene/imp.rs"]
 mod imp;

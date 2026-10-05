@@ -9,7 +9,7 @@
 //! and the `first-login-walk-jump` recording replayed to its most populated datagram over its own
 //! landblock, the camera aimed from the objects' centroid at eleven stations.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_model::weenie::{bitfield, item_type};
 use dereth_client_net::client_session::testing::capture::{self, peer as addr, Datagram as Record};

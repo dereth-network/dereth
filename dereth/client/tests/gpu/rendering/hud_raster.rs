@@ -4,7 +4,7 @@
 //! Fixture: `panels::gameplay_hud`'s headless App in gameplay over the retail dats, drawn through
 //! the selected GPU backend at 800x600, with the recorded sessions replayed for the vial's value.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::panels::gameplay_hud::{

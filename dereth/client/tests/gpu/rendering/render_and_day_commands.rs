@@ -7,7 +7,7 @@
 //! Fixture: a real GPU-backed headless App and the shared typed-chat input hand, with a
 //! small static landscape; no datagram leaves the process.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::chat::{
     app_with, bubbles, chat_log, forced_saved_player_module, gameplay_element,

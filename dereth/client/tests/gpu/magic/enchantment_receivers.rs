@@ -5,7 +5,7 @@
 //! Fixture: `net::late_receivers`' socket-free replay App, with the recorded enchantment from
 //! `fellowship-one-vassal` and production-encoded game events.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::gpu_lock;
 use crate::net::late_receivers::{chat, describe_player, recorded, settle, setup};

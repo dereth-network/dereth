@@ -8,7 +8,7 @@
 //! Hideout `0x019E_0114`, teleported into from Holtburg `0xA9B4_0021` and logged into directly.
 //! Fixture: the retail dats; fails without them or a headless device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client::app::App;
 use dereth_client_net::client_session::SessionEvent;

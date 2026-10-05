@@ -20,7 +20,7 @@
 //! the same observation. The first frame is driven *before* the one-second poll interval has
 //! elapsed, so "the frame closed it" is separated from "the frame closes things".
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

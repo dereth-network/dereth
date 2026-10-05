@@ -51,7 +51,7 @@
 //! Socket-free: every message is encoded and admitted through the encrypted
 //! replay endpoint and the ordinary `App::frame` order, and the 25 s deadline is crossed by a real
 //! `TimeSync` optional header, which advances the application clock.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_protocol::{

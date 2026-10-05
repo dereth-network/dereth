@@ -7,7 +7,7 @@
 //! both the spheres and the step-down height carry the part array's scale.
 //! Fixture: long-solo-play's Sparring Golem (scale 0.9) and its recorded approach, with no position
 //! updates after it, on a headless software device; every assertion is a count over the window.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_animation::MotionCommand;
 use dereth_client_net::client_session::testing::{Corpus, Direction};

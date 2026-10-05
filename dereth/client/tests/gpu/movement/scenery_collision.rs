@@ -33,7 +33,7 @@
 //! Missing retail DATs fail, and so do the scene tests when a software GPU device cannot be
 //! created; the census needs no GPU. These tests inspect physics state, not rendered pixels.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::cell::RefCell;

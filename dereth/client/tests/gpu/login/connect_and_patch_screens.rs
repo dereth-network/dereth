@@ -8,7 +8,7 @@
 //! Fixture: the retail dats, a headless `UiShell` driven with `HostState`, and an offline headless
 //! `App` on a software device compared pixel by pixel between runs.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

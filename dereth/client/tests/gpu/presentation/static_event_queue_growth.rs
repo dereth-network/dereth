@@ -13,7 +13,7 @@
 //! routed sounds reach `WorldScene::take_sound_events`, which is what `App::frame` hands the
 //! mixer.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

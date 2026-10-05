@@ -58,7 +58,7 @@
 //! budget. The streaming edges are asserted by the streaming-release tests, on drives in which
 //! only their own population moves; this file stays the corpus-scale measurement.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

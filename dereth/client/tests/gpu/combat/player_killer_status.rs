@@ -6,7 +6,7 @@
 //! Fixture: a headless `App` in gameplay with a socket-free replay endpoint fed synthetic
 //! datagrams, and long-solo-play's recorded player description.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;

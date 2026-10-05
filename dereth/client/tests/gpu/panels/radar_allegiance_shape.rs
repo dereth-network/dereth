@@ -6,7 +6,7 @@
 //! HUD projection. The target is created and positioned through the normal object path; only its
 //! descriptive radar fields are filled directly.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;

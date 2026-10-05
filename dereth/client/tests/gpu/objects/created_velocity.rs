@@ -53,7 +53,7 @@
 //! geometry; the bolt's velocity, state and missing motion table, and the dropped item's state and
 //! missing velocity flag, are constructed, in a live `WorldScene` with a physics owner attached.
 //! The census reads every recorded session's creates.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_physics::math::V3 as _;
 use dereth_physics::{PhysicsState, TransientState};

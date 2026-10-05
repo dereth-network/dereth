@@ -3,7 +3,7 @@
 //! (`0x0003`) clears the panel's busy latch.
 //! Fixture: `net::late_receivers`' socket-free replay App and production-encoded game events.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::gpu_lock;
 use crate::net::late_receivers::{chat, settle, setup};

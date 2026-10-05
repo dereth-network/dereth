@@ -10,7 +10,7 @@
 //! placement rule itself, over synthetic metrics with no device, is the cpu tier's
 //! `presentation::window_placement`.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 // =============================================================================================
 // The wiring: headless application and computed window rectangle

@@ -20,10 +20,10 @@ pub use dereth_client_runtime::assets::FIRST_PIXEL_SURFACE;
 /// shared character-preview viewport. The contract's, so any UI names the same four.
 pub use dereth_client_contract::overlay::PreviewSpace as PreviewId;
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub use imp::*;
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 mod imp {
     use std::path::Path;
 

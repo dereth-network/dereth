@@ -19,7 +19,7 @@
 //! 5. **The cost is measured.** Descriptor-heap textures a populated capture consumes, against
 //!    `dereth_render`'s 2,048-texture ceiling.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{
     addr, connection_sequence_number, corpus_sessions, load, retail_store, test_gpu,

@@ -9,7 +9,7 @@
 //! Fixture: the retail dats, the `first-login-walk-jump` recording replayed offline (its object
 //! ids and icons seed three synthesized shortcuts), and headless Apps on a software GPU device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

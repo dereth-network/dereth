@@ -8,7 +8,7 @@
 //! Fixture: the retail dats and the `long-solo-play` / `early-inventory-and-casting` recordings
 //! replayed into a headless `App` on the gameplay screen.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

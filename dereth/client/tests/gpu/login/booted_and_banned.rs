@@ -9,7 +9,7 @@
 //! epilogue. Fixture: the `login-account-booted` recording replayed through `ClientNetwork`;
 //! constructed ban events; a headless linked App aimed at an unused loopback port.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

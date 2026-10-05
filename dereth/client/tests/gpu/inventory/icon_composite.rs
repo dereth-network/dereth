@@ -4,7 +4,7 @@
 //! Fixture: the retail dats and a headless `App` pair run the same number of frames on a software
 //! device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

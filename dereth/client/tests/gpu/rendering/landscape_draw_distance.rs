@@ -10,7 +10,7 @@
 //! distances as reference bands, and the driven arms measure the larger window's effect on
 //! terrain and occlusion.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Decode;

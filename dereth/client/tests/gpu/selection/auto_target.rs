@@ -20,7 +20,7 @@
 //! 3. **Examine and Use have no start gate.** Both actions belong to the UI-action handler, which
 //!    reads the event-start flag **once** in the whole function and not in either arm.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_scene::world_scene::SceneWrites;
 use std::sync::Arc;

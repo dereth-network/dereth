@@ -19,7 +19,7 @@
 //!
 //! A machine without the retail dats fails.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

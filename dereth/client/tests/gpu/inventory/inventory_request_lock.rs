@@ -3,7 +3,7 @@
 //! split state defaults to the whole stack.
 //! Fixture: the client's `Interaction` and object model, with no device and no App.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::combat::game_view_clicks::{seed_container, seed_item, seed_player};
 

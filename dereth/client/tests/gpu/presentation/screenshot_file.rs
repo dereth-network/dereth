@@ -39,7 +39,7 @@
 //! Every test below points `Config::preferences_file` at a directory under the system temp
 //! directory and cleans up after itself. Nothing is written under `DERETH_TEST_DAT_DIR`.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

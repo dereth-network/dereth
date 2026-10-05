@@ -11,7 +11,7 @@
 //! dats on a software device. Fails when the retail dats are absent; the pixel station skips
 //! only without a device, the held-item station fails without one.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_net::client_session::SessionEvent;
 use dereth_client_runtime::character::CharacterInput;

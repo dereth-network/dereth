@@ -9,7 +9,7 @@
 //! `App::cursor_moved` to the body's position and the `0xF61C Movement_MoveToState` and
 //! `0xF753 Movement_AutonomousPosition` a socket-free replay endpoint emits.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position, unhide_recorded_player as unhide_the_player};
 

@@ -282,7 +282,7 @@ fn the_recorded_door_is_the_one_these_stations_animate() {
     assert_eq!(row(149).dir, Direction::ServerToClient);
 }
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 mod in_the_doorway {
     use crate::common::app::{frames, position};
     use dereth_animation::MotionCommand;

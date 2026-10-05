@@ -14,7 +14,7 @@ pub use dereth_scene::render_prefs::*;
 /// notices — which is what this does: the gpu-owned names land on the device, the scene-owned
 /// ones land on [`dereth_client_runtime::scene::SceneConfig::render`], and `view_params` and the part pass read
 /// them on the next frame.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub fn apply_preference_requests(
     renderer: &mut crate::gpu::Renderer,
     requests: Vec<dereth_ui_screens::UiRequest>,

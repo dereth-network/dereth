@@ -34,10 +34,10 @@ fn a_bundled_moltenvk_is_looked_for_in_the_bundle_then_beside_the_executable() {
     );
 }
 
-/// Create a device, preferring a CPU rasteriser, or return `None` when Vulkan is unavailable.
+/// Create a test device, or return `None` when Vulkan is unavailable.
 /// Every test here skips rather than fails in that case: the pure-logic half of each unit is
 /// tested elsewhere and does not need a device.
-fn warp(width: u32, height: u32) -> Option<Gpu> {
+fn test_device(width: u32, height: u32) -> Option<Gpu> {
     let cfg = DeviceConfig {
         width,
         height,
@@ -115,7 +115,9 @@ fn opaque_key() -> PipelineKey {
 #[test]
 fn the_portal_stamp_resets_the_depth_inside_its_polygon_and_nowhere_else() {
     const N: u32 = 64;
-    let Some(mut gpu) = warp(N, N) else { return };
+    let Some(mut gpu) = test_device(N, N) else {
+        return;
+    };
     let tex = gpu.upload_texture(&white()).expect("upload");
     let per_frame = identity_frame();
     let draw = PerDrawConstants::identity();
@@ -205,7 +207,9 @@ fn the_portal_stamp_resets_the_depth_inside_its_polygon_and_nowhere_else() {
 #[test]
 fn the_portal_stamp_writes_no_colour() {
     const N: u32 = 64;
-    let Some(mut gpu) = warp(N, N) else { return };
+    let Some(mut gpu) = test_device(N, N) else {
+        return;
+    };
     let tex = gpu.upload_texture(&white()).expect("upload");
     let per_frame = identity_frame();
     let draw = PerDrawConstants::identity();
@@ -243,7 +247,9 @@ fn the_portal_stamp_writes_no_colour() {
 /// Fewer than three vertices — a polygon the clipper left below a triangle is not drawn at all.
 #[test]
 fn a_portal_polygon_below_three_vertices_is_not_stamped() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     gpu.begin_frame().expect("begin");
     for n in 0..3usize {
         let poly: Vec<[f32; 4]> = (0..n).map(|i| [i as f32 * 0.1, 0.0, 0.5, 1.0]).collect();
@@ -278,7 +284,9 @@ fn tiny_texture() -> TextureData {
 // proved and not just the algebra.
 #[test]
 fn a_texture_released_and_re_uploaded_gets_its_descriptor_pair_back() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let first = gpu.upload_texture(&t).expect("upload");
     assert_eq!(gpu.descriptor_usage().frontier, 1);
@@ -303,7 +311,9 @@ fn a_texture_released_and_re_uploaded_gets_its_descriptor_pair_back() {
 #[test]
 fn n_device_releases_then_n_uploads_leave_the_heap_high_water_at_n() {
     const N: usize = 32;
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let first: Vec<TextureSlot> = (0..N)
         .map(|_| gpu.upload_texture(&t).expect("upload"))
@@ -342,7 +352,9 @@ fn n_device_releases_then_n_uploads_leave_the_heap_high_water_at_n() {
 // upload's wait completes -- the frame's own command buffer has not been submitted yet.
 #[test]
 fn a_slot_released_inside_a_frame_survives_an_intervening_wait_idle() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let slot = gpu.upload_texture(&t).expect("upload");
     gpu.begin_frame().expect("begin");
@@ -388,7 +400,9 @@ fn a_slot_released_inside_a_frame_survives_an_intervening_wait_idle() {
 // and the held release is still there for the eventual `end_frame`.
 #[test]
 fn a_frame_cannot_be_abandoned_so_a_held_release_is_never_stranded_silently() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let slot = gpu.upload_texture(&t).expect("upload");
     gpu.begin_frame().expect("begin");
@@ -418,7 +432,9 @@ fn a_frame_cannot_be_abandoned_so_a_held_release_is_never_stranded_silently() {
 
 #[test]
 fn a_full_descriptor_heap_fails_cleanly_and_counts_the_refusal() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     gpu.narrow_descriptor_budget(4);
     let t = tiny_texture();
     let held: Vec<TextureSlot> = (0..4)
@@ -458,7 +474,9 @@ fn a_full_descriptor_heap_fails_cleanly_and_counts_the_refusal() {
 
 #[test]
 fn a_keyed_upload_of_a_cached_texture_costs_no_descriptors() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let key = TextureKey::world(crate::descriptor::combined_texture_key(
         0x0400_0001,
@@ -489,7 +507,9 @@ fn a_keyed_upload_of_a_cached_texture_costs_no_descriptors() {
 
 #[test]
 fn a_double_release_at_the_device_is_counted_and_frees_the_pair_once() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let slot = gpu.upload_texture(&t).expect("upload");
     assert_eq!(gpu.release_texture(slot), Released::Freed);
@@ -515,7 +535,9 @@ fn a_double_release_at_the_device_is_counted_and_frees_the_pair_once() {
 
 #[test]
 fn a_long_session_of_screens_stays_bounded_by_what_is_resident() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     let t = tiny_texture();
     let mut resident: Vec<TextureSlot> = Vec::new();
     for _ in 0..12 {
@@ -629,7 +651,9 @@ fn a_capture_after_three_heavy_frames_is_clean_under_validation() {
 
 #[test]
 fn a_thousand_frames_cycle_the_ring_without_stalling() {
-    let Some(mut gpu) = warp(64, 64) else { return };
+    let Some(mut gpu) = test_device(64, 64) else {
+        return;
+    };
     for _ in 0..1000 {
         gpu.begin_frame().expect("begin");
         gpu.end_frame().expect("end");
@@ -645,7 +669,7 @@ fn a_thousand_frames_cycle_the_ring_without_stalling() {
 fn the_headless_capture_is_deterministic_across_runs() {
     let mut captures = Vec::new();
     for _ in 0..3 {
-        let Some(mut gpu) = warp(800, 600) else {
+        let Some(mut gpu) = test_device(800, 600) else {
             return;
         };
         gpu.begin_frame().expect("begin");
@@ -666,7 +690,9 @@ fn the_headless_capture_is_deterministic_across_runs() {
 /// A capture before any frame is black, not undefined memory.
 #[test]
 fn a_capture_before_the_first_frame_is_black() {
-    let Some(mut gpu) = warp(16, 16) else { return };
+    let Some(mut gpu) = test_device(16, 16) else {
+        return;
+    };
     let image = gpu.capture().expect("capture");
     assert!(image.bgra.iter().all(|b| *b == 0));
 }
@@ -674,7 +700,9 @@ fn a_capture_before_the_first_frame_is_black() {
 /// The presentation extent can change between frames; the offscreen target follows it.
 #[test]
 fn a_resize_rebuilds_the_target_at_the_new_extent() {
-    let Some(mut gpu) = warp(16, 16) else { return };
+    let Some(mut gpu) = test_device(16, 16) else {
+        return;
+    };
     gpu.begin_frame().expect("begin");
     gpu.end_frame().expect("end");
     gpu.resize(32, 24).expect("resize");
@@ -751,7 +779,9 @@ fn the_back_buffer_format_is_non_srgb_and_bgra_ordered() {
 
 #[test]
 fn the_gamma_value_is_clamped_the_way_setgamma_clamps_it() {
-    let Some(mut gpu) = warp(16, 16) else { return };
+    let Some(mut gpu) = test_device(16, 16) else {
+        return;
+    };
     gpu.set_gamma(5.0);
     assert_eq!(gpu.gamma(), 1.0);
     gpu.set_gamma(-5.0);

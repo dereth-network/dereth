@@ -1,5 +1,5 @@
 //! Offscreen software devices and comparisons against authored glyph pixels.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 use dereth_render::device::{DeviceConfig, Gpu};
 use dereth_render::font::TextVertex;
 

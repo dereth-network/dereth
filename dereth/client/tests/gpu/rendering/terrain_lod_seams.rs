@@ -21,7 +21,7 @@
 //! Fixture: the retail dats around Holtburg (0xA9B4); the burial arm drives a scene on a software
 //! device, with an `ObjectStream` fed by hand. No datagram leaves the process; missing dats fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Decode;

@@ -10,7 +10,7 @@
 //! leaves the process; a station returns with a printed reason when the device or the scene
 //! cannot be created.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::scene::SceneConfig;
 use dereth_ui_screens::{PrefValue, UiRequest};

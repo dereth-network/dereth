@@ -14,8 +14,9 @@
 //! dispatch and no upload at all.
 
 use super::*;
+use crate::device::terrain::{pack_job, JOB_WORDS, MAX_OVERLAYS};
 use crate::device::{MergeSource, TerrainMergeJob};
-use crate::wgsl::{JOB_WORDS, MAX_OVERLAYS, TERRAIN_MERGE as SHADER};
+use crate::wgsl::TERRAIN_MERGE as SHADER;
 
 /// The pool's first size. It doubles when a source does not fit.
 const INITIAL_POOL_BYTES: u64 = 16 << 20;
@@ -99,7 +100,7 @@ impl Gpu {
                 "runtime image texture mips require a world-owner key",
             ));
         }
-        if let Some(slot) = self.texture_table.get(key) {
+        if let Some(slot) = self.texture_book.get(key) {
             return Ok(TextureSlot(slot));
         }
         if job.size == 0 {
@@ -346,24 +347,7 @@ impl Gpu {
                     "a merge source this device does not hold",
                 ))
         };
-        let mut words = vec![0u32; JOB_WORDS];
-        words[0] = job.size;
-        if let Some(b) = job.base {
-            let (off, w, h) = source(b)?;
-            words[1..6].copy_from_slice(&[1, off, w, h, job.base_tiling]);
-        }
-        words[6] = job.overlays.len() as u32;
-        for (k, o) in job.overlays.iter().enumerate() {
-            let (aoff, aw, ah) = source(o.alpha)?;
-            let b = 7 + k * 9;
-            words[b..b + 4].copy_from_slice(&[aoff, aw, ah, o.rotation]);
-            if let Some(t) = o.tex {
-                let (toff, tw, th) = source(t)?;
-                words[b + 4..b + 9].copy_from_slice(&[1, toff, tw, th, o.tiling]);
-            } else {
-                words[b + 8] = o.tiling;
-            }
-        }
+        let words = pack_job(job, job.size, source)?;
         let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         tm.params.write(0, &bytes)?;
 

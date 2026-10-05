@@ -5,7 +5,7 @@
 //! cargo's scratch folder for integration tests. They assert nothing; the claims are in
 //! `rendering::building_boundary_draw`, whose fixture these share.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

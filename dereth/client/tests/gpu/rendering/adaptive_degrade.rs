@@ -53,7 +53,7 @@
 //! client builds around these stations put no particle in a movable band, so the two arms agree
 //! on the particles exactly while the static world differs.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::motion::GfxObjDegradeInfo;
 use dereth_assets::Decode;

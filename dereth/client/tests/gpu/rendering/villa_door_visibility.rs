@@ -2,7 +2,7 @@
 //! recorded pose, and a continuous walk across the villa does not reuse the building cells drawn
 //! before the depth clear. Fixture: the villa landblock `0x9DAF` over the retail dats, its doors
 //! decoded from the recorded `house-purchase-and-trade` session, a WARP device and no socket.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::objects::ObjectStream;

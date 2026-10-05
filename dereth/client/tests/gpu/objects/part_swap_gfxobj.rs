@@ -15,7 +15,7 @@
 //! these are data, model and bake checks with GPU resources but no pixel or frame-draw oracle.
 //! Required fixture failures are fatal.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{retail_store, test_gpu};
 use dereth_scene::world_scene::SceneWrites;

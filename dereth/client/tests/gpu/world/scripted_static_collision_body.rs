@@ -302,7 +302,7 @@ fn the_sound_table_hooks_ceiling_is_the_four_setups_that_name_a_table() {
 // Scene stations: a Holtburg or 0x5655 scene on a software device.
 // ---------------------------------------------------------------------------------------------
 
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 mod scene {
     use std::sync::Arc;
     use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

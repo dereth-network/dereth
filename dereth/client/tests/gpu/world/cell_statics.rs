@@ -13,7 +13,7 @@
 //! Fixture: `client_cell_1.dat` and `client_portal.dat` (the environment-cell and setup decoders),
 //! the training dungeon and Holtburg's dining rooms, on a software device. Fails without the dats.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

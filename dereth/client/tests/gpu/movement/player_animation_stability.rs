@@ -7,7 +7,7 @@
 //! actions; the second test runs `WorldScene::update` then `camera::update_viewer` (the frame
 //! loop's order) on a headless software device. A missing dat is a failure.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 #![allow(clippy::pedantic)]
 
 use dereth_scene::world_scene::SceneWrites;

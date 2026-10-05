@@ -42,7 +42,7 @@
 //! ignored fourth test reports a larger hit-test map without asserting its shape. A missing
 //! device fails the tests. No datagram leaves this process.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 

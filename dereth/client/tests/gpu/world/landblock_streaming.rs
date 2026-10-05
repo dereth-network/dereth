@@ -8,7 +8,7 @@
 //! the retail dats on a WARP device at 800x600, a flycam or a running body out of Holtburg. Fails
 //! when the retail dats are absent; a missing device fails too.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::collections::BTreeSet;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

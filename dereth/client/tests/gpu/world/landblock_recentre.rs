@@ -14,7 +14,7 @@
 //! * `frame_writers`: every writer of a drawn frame (the body's parts and the server's objects)
 //!   runs after the re-centre.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

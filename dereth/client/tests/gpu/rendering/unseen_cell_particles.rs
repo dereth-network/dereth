@@ -3,7 +3,7 @@
 //! keeps its candelabra particles.
 //! Fixture: the villa on landblock 0x9DAF from the retail dats on a software device, 60 frames per
 //! shot; no network. `DERETH_TEST_UNSEEN_CELL_PARTICLES_DUMP=<dir>` writes each shot as a PNG.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::camera::FreeCamera;
 use dereth_client_runtime::objects::ObjectStream;

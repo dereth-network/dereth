@@ -43,7 +43,7 @@
 //! Separate checks cover root-list position, sibling root flags, tooltips, and the retained
 //! resize-during-drag behaviour.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;

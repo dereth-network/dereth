@@ -9,7 +9,7 @@
 //! `early-inventory-and-casting` and `long-solo-play` replayed through `ObjectStream`,
 //! `WorldScene::sync_objects` and the frame update into a real scene.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::recorded_movement_events;
 use dereth_scene::world_scene::SceneWrites;

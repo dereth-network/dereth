@@ -13,7 +13,7 @@
 //!
 //! Fixture: the retail dats, Holtburg with a body attached, on a software device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::motion::GfxObjDegradeInfo;
 use dereth_assets::Decode;

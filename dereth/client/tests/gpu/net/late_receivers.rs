@@ -9,7 +9,7 @@
 //! `fellowship-one-vassal` and the `0x00B4` book from `long-solo-play`, fed fragmented into a
 //! socket-free replay endpoint (`App::attach_replay_network`); the retail dats; a headless App.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir_required as client_dir;
 use crate::common::gpu_lock;

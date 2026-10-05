@@ -11,7 +11,7 @@
 //! Fixture: the retail dats and the server-created population of a recorded session replayed
 //! through the object stack, on a software device; missing fixtures fail, nothing skips.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

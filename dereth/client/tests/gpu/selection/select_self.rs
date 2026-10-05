@@ -12,7 +12,7 @@
 //! server scene object, so the pick must also sweep the local body. Clicks go through
 //! `wrapper_mouse` then `App::frame` (PRIMARY_CLICK, start=true, over=None; no mouse-up).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 use dereth_scene::world_scene::SceneReads;

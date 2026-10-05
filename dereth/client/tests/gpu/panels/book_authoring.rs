@@ -7,7 +7,7 @@
 //! Fixture: the retail dats and a headless 800x600 App in gameplay mode; the client's outbound
 //! datagrams are read from a socket-free replay endpoint that also feeds the ordered responses.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

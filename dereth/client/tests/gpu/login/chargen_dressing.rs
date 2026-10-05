@@ -9,7 +9,7 @@
 //! Fixture: the retail dats and an offline headless App at 800x600 on the wizard (Aluvian,
 //! Holtburg); the list-rule and palette-index tests use synthetic inputs and no device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

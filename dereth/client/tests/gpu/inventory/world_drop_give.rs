@@ -9,7 +9,7 @@
 //! Fixture: the recordings replayed over a loopback `ClientNetwork` into `Interaction` (light
 //! tests) or a headless gameplay `App` with the retail dats (hit-test and drag tests).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

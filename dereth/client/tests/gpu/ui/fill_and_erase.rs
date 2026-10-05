@@ -13,7 +13,7 @@
 //! | a generated surface reaches the frame, and only inside the rectangle it declared | the generated blip fills and a differential capture with the blips present and absent |
 //! | the descriptor heap stays bounded | the renderer allocator's `exhaustions == 0` counter |
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

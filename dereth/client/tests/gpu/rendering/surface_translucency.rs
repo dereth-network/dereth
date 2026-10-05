@@ -9,7 +9,7 @@
 //! Fixture: Holtburg (landblock 0xA9B4) from the retail dats on a software device; every fixture
 //! path is an `expect`, never a skip.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

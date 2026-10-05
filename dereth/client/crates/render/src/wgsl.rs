@@ -10,9 +10,9 @@
 ///
 /// Pixels are BGRA8 bytes read as little-endian `u32`s: B in bits 0..8, G 8..16, R 16..24, A 24..32.
 ///
-/// `job` layout, in `u32`s: `[size, base_present, base_offset, base_w, base_h, base_tiling,
+/// `job` layout, in `u32`s: `[size, stride, base_present, base_offset, base_w, base_h, base_tiling,
 /// overlay_count]`, then per overlay `[alpha_offset, alpha_w, alpha_h, rotation, tex_present,
-/// tex_offset, tex_w, tex_h, tiling]`. Offsets are in pool words.
+/// tex_offset, tex_w, tex_h, tiling]`. Offsets and the output row stride are in pool words.
 pub(crate) const TERRAIN_MERGE: &str = r"
 @group(0) @binding(0) var<storage, read> pool: array<u32>;
 @group(0) @binding(1) var<storage, read> job: array<u32>;
@@ -73,12 +73,12 @@ fn cs_merge(@builtin(global_invocation_id) gid: vec3<u32>) {
     let x = gid.x;
     let y = gid.y;
     var px = MISSING;
-    if (job[1] != 0u) {
-        px = fetch_tiled(job[2], job[3], job[4], job[5], size, x, y);
+    if (job[2] != 0u) {
+        px = fetch_tiled(job[3], job[4], job[5], job[6], size, x, y);
     }
-    let n = job[6];
+    let n = job[7];
     for (var k = 0u; k < n; k = k + 1u) {
-        let b = 7u + k * 9u;
+        let b = 8u + k * 9u;
         let aw = job[b + 1u];
         let ah = job[b + 2u];
         let ax = x * aw / size;
@@ -90,14 +90,9 @@ fn cs_merge(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
         px = blend(px, s, a);
     }
-    out_px[y * size + x] = px;
+    out_px[y * job[1] + x] = px;
 }
 ";
-
-/// The most overlays one composite may carry. The client's own maximum is five (three terrain
-/// passes and two road passes); the headroom costs nothing.
-pub(crate) const MAX_OVERLAYS: usize = 8;
-pub(crate) const JOB_WORDS: usize = 7 + 9 * MAX_OVERLAYS;
 
 /// The splat pixel shader, appended to the legacy fragment source. The layer bindings live in
 /// set 4, so sets 0 to 3 keep the legacy meaning.

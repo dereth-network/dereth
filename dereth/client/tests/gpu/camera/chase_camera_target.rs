@@ -8,7 +8,7 @@
 //! `DEFAULT_LANDBLOCK`, a seeded player and creature, read back through the camera's own
 //! `target_status` mask and `target_object_id` (the framing itself is not pixel-checked).
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client::app::App;
 use dereth_client_model::combat::CombatMode;

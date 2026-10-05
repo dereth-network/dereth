@@ -37,7 +37,7 @@ pub fn apply_scene_preference_requests(
 
 /// The same owner at synchronous UI delivery boundaries, where the caller also holds the
 /// renderer's live scene. Field-disjoint borrows avoid delaying a request or copying scene state.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 pub fn apply_gpu_preference_requests(
     gpu: &mut dereth_render::device::Gpu,
     requests: Vec<dereth_client_contract::UiRequest>,

@@ -9,7 +9,7 @@
 //! Fixture: the shipped dats (setups, their script tables, the scripts and emitters those name) on
 //! a software device. Missing dats fail.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_assets::Decode;
 use dereth_client_net::client_session::dispatch::world_objects::{dispatch, InstanceTable};

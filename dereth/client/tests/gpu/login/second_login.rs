@@ -8,7 +8,7 @@
 //! held command or armed Use cursor carries over. Ordinary frames never tear the world down.
 //! Fixture: the retail dats and a headless `App` with a socket-free replay link fed two scripted
 //! world entries through the real session, network and frame path; no datagram leaves the process.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

@@ -5,7 +5,7 @@
 //! Fixture: every recording's client datagrams through the shared capture reader, and a `Session`
 //! backed by `MockTransport`.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::combat::game_view_clicks::{seed_player, weenie};
 

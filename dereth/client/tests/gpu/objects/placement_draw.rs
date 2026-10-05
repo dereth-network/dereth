@@ -13,7 +13,7 @@
 //! `objects::populated_world`, so nothing depends on the machine's adapter. **Fails** when there
 //! are no dats or no device.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use super::common::{retail_store, test_gpu};
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

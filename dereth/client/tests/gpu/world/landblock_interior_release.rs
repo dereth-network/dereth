@@ -15,7 +15,7 @@
 //! * `interior_cell_objects`: a departed block releases the objects in its cells, through the
 //!   production path.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

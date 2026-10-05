@@ -6,7 +6,7 @@
 //! `client_cell_1.dat` and `client_portal.dat`, judged by each room's own cell and physics BSPs,
 //! on a software GPU device. Fails when the dats or the device are absent.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

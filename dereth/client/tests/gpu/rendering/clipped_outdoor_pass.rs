@@ -8,7 +8,7 @@
 //! differ in one `SceneConfig` flag. The scene has no character, so the camera's viewer sweep has
 //! nothing to do and the frame order leaves it out; the flycam supplies the viewpoint.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::RetailDatStore;

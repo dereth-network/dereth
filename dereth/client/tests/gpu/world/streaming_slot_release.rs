@@ -12,7 +12,7 @@
 //! Sections of this module:
 //! * `terrain_surfaces`: a departed or re-meshed block returns its merged terrain surfaces.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

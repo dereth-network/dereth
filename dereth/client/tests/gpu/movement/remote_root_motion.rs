@@ -6,7 +6,7 @@
 //! Fixture: long-solo-play's Sparring Golem (0x800009D2) and player, recorded blobs up to the
 //! `0xF74C` at t=91.500548, then constructed `0xF74C` and `0xF74B` messages, on a headless
 //! software device.
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_animation::motion::moveto::distance;
 use dereth_animation::MotionCommand;

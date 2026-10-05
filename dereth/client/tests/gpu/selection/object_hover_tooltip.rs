@@ -34,7 +34,7 @@
 //! Twenty frames are allowed at each station; this is not an elapsed-time measurement of the
 //! 0.25 s delay. The test checks the configured default delay separately.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 

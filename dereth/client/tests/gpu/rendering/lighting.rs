@@ -9,7 +9,7 @@
 //! standalone evaluations kept in this file; image checks compare runs with lighting on and off,
 //! or with a frame-matched untreated control.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

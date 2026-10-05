@@ -1010,7 +1010,7 @@ fn stance_resume_requires_all_four_conditions() {
 /// The scene `attach_character` builds at the middle of Holtburg's own landblock — the same body
 /// [`settled_character`] builds, inside the `WorldScene` the application actually holds it in, so
 /// the seam under test is reached through the type `App::frame` hands it.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 fn holtburg_scene(
     store: &Arc<RetailDatStore>,
     gpu: &mut dereth_render::device::Gpu,
@@ -1055,7 +1055,7 @@ fn holtburg_scene(
 /// Both directions are asserted, which is the point: an autonomous player buffer must latch
 /// **nothing** (the original application returns 0 for it), and a fresh scene that has synced nothing
 /// must read `false` — otherwise a latch stuck at `true` would pass the positive half alone.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[test]
 fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
     use dereth_client_net::client_session::SessionEvent;
@@ -1260,7 +1260,7 @@ fn the_scene_latches_lose_control_for_the_players_own_non_autonomous_buffers() {
 
 /// One frame of the application's movement step, in `App::frame`'s own order: the control
 /// transfer, then the body.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 fn seam_frame(
     scene: &mut dereth_scene::world_scene::WorldScene,
     mc: &mut MovementCommands,
@@ -1281,7 +1281,7 @@ fn seam_frame(
 
 /// Ground speed in m/s over frames `[a, b)` of a recorded track, at 30 Hz — the measurement
 /// [`over`] makes, over a plain slice.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 fn speed(at: &[(f32, f32)], a: usize, b: usize) -> f32 {
     assert!(
         b > a && b <= at.len(),
@@ -1307,7 +1307,7 @@ fn speed(at: &[(f32, f32)], a: usize, b: usize) -> f32 {
 /// The oracle is the retained `combat-mode-while-moving` recording, quoted in this file's header:
 /// auto-run `2.670 -> 0.002 m/s` and never resuming; held `W`
 /// `5.725 -> 4.000 -> 1.443 -> 5.856 -> 5.857` inside one 7.4-second press.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[test]
 fn the_seam_retakes_control_for_a_held_key_and_never_for_a_cancelled_auto_run() {
     let store = store();
@@ -1464,7 +1464,7 @@ fn the_seam_retakes_control_for_a_held_key_and_never_for_a_cancelled_auto_run() 
 /// Three counters rather than one distinguish an instrument with no third state: `(0, 0, 0)` is
 /// "the step never ran" and `(n, 0, 0)` is "it ran and no dispatch
 /// arrived", and only the second is a working client.
-#[cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#[cfg(gpu)]
 #[test]
 fn the_frame_runs_the_control_transfer_step_once_per_frame() {
     use dereth_client::app::App;

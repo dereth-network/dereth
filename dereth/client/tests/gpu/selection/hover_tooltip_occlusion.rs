@@ -22,7 +22,7 @@
 //! and the tests do not directly invoke the tooltip setters or object-found callback. Corpus
 //! messages are decoded and applied as local events; no datagram leaves the process.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::app::{frames, position};
 use dereth_scene::world_scene::SceneReads;

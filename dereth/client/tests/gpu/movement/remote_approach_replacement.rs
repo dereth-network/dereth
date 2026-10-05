@@ -7,7 +7,7 @@
 //! world and stands off the golem's path. The recording holds server positions, not per-frame
 //! poses, so headings are compared with the recorded server's own snaps, never assumed monotonic.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use dereth_animation::motion::moveto::{distance, position_heading};
 use dereth_animation::table::MovementType;

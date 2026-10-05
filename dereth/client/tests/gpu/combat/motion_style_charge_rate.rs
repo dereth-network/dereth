@@ -6,7 +6,7 @@
 //! Fixture: `CombatState` alone for the rate; a headless `App` in gameplay with a real
 //! `WorldScene` and `Character` for the bridge. No desktop, no shard.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 

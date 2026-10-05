@@ -7,7 +7,7 @@
 //! `0x860201B1` on a headless software device, and a headless `App` fed a socket-free
 //! interrogation. No datagram leaves the process.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use std::sync::Arc;
 use {dereth_scene::world_scene::SceneReads, dereth_scene::world_scene::SceneWrites};

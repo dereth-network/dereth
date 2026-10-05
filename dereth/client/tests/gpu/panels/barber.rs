@@ -6,7 +6,7 @@
 //! Fixture: the retail dats (char-gen table, palette sets, string tables), a headless 800x600 App in
 //! gameplay mode, and a socket-free replay endpoint that feeds the notices; no live barber is used.
 
-#![cfg(any(feature = "vulkan", feature = "wgpu", all(windows, feature = "d3d12")))]
+#![cfg(gpu)]
 
 use crate::common::client_dir;
 use crate::common::gpu_lock;

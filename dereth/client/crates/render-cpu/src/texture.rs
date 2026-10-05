@@ -580,8 +580,106 @@ fn read_pixel(desc: &PixelFormatDesc, row: &[u8], x: usize) -> Result<u32, Rende
     Ok((a << 24) | (r << 16) | (g << 8) | b)
 }
 
+/// The byte size of a 4x4 block, or `None` for an uncompressed or unsupported format.
+#[must_use]
+pub const fn block_bytes(format: TextureFormat) -> Option<usize> {
+    match format {
+        TextureFormat::Bc1 => Some(8),
+        TextureFormat::Bc2
+        | TextureFormat::Bc2Premultiplied
+        | TextureFormat::Bc3
+        | TextureFormat::Bc3Premultiplied => Some(16),
+        _ => None,
+    }
+}
+
+/// Decode a block-compressed chain to BGRA8 on the CPU, for a device with no BC support.
+///
+/// # Errors
+/// Rejects unsupported formats and source levels shorter than their declared extent.
+pub fn decode_block_chain(t: &TextureData) -> Result<TextureData, RenderError> {
+    let id = crate::texture::block_source_format(t.format)
+        .ok_or_else(|| RenderError::Device(format!("unhandled texture format {:?}", t.format)))?;
+    let (mut w, mut h) = (t.width, t.height);
+    let mut levels = Vec::with_capacity(t.levels.len());
+    for bits in &t.levels {
+        levels.push(crate::dxt::decode(id, bits, w, h)?);
+        w = crate::mip::half(w);
+        h = crate::mip::half(h);
+    }
+    Ok(TextureData {
+        width: t.width,
+        height: t.height,
+        format: TextureFormat::Bgra8,
+        levels,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// Behaviour: none (portable backend fallback preserves complete compressed chains).
+    #[test]
+    fn block_chain_decode_keeps_cropped_levels_and_premultiplied_formats() {
+        let colour = [0, 248, 0, 0, 0, 0, 0, 0];
+        for (format, alpha, bytes) in [
+            (TextureFormat::Bc1, vec![], 8),
+            (TextureFormat::Bc2, vec![255; 8], 16),
+            (TextureFormat::Bc2Premultiplied, vec![255; 8], 16),
+            (TextureFormat::Bc3, vec![255, 255, 0, 0, 0, 0, 0, 0], 16),
+            (
+                TextureFormat::Bc3Premultiplied,
+                vec![255, 255, 0, 0, 0, 0, 0, 0],
+                16,
+            ),
+        ] {
+            assert_eq!(block_bytes(format), Some(bytes));
+            let block: Vec<_> = alpha.into_iter().chain(colour).collect();
+            let source = TextureData {
+                width: 5,
+                height: 3,
+                format,
+                levels: vec![block.repeat(2), block.clone(), block],
+            };
+            let decoded = decode_block_chain(&source).unwrap();
+            assert_eq!(
+                (decoded.width, decoded.height, decoded.format),
+                (5, 3, TextureFormat::Bgra8)
+            );
+            assert_eq!(
+                decoded.levels,
+                [15, 2, 1].map(|pixels| [0, 0, 255, 255].repeat(pixels))
+            );
+            assert_eq!(source.format, format);
+        }
+    }
+
+    /// Behaviour: none (portable backend fallback retains source-level error details).
+    #[test]
+    fn block_chain_decode_reports_the_first_short_level_and_refuses_uncompressed_input() {
+        let mut source = TextureData {
+            width: 5,
+            height: 3,
+            format: TextureFormat::Bc1,
+            levels: vec![vec![0; 16], vec![]],
+        };
+        assert!(matches!(
+            decode_block_chain(&source),
+            Err(RenderError::ShortSourceData {
+                width: 2,
+                height: 1,
+                expected: 8,
+                actual: 0,
+                ..
+            })
+        ));
+        source.format = TextureFormat::Bgra8;
+        assert_eq!(block_bytes(source.format), None);
+        assert!(matches!(
+            decode_block_chain(&source),
+            Err(RenderError::Device(_))
+        ));
+    }
     use super::*;
 
     /// The JPEG variant in [`docs/formats/14-textures.md`] stores zero header `width`,
