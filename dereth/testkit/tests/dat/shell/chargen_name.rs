@@ -139,8 +139,12 @@ pub(super) fn a_press_on_nothing_takes_the_keyboard_away_and_a_press_back_in_ret
     let keyboard_back = what_holds_the_keyboard(&c) == Some(name);
 
     dereth_testkit::input_steps::type_text(&mut c, "Zz");
-    let now_it_enters = wizard_text(&mut c, name) == format!("{p}Zz")
-        && with_wizard(&mut c, |_, w| w.state.name.clone()) == format!("{p}Zz");
+    // The box holds what was typed; the wizard keeps that edit as a name is formatted, so the
+    // prompt's brackets do not reach it.
+    let typed = format!("{p}Zz");
+    let now_it_enters = wizard_text(&mut c, name) == typed
+        && with_wizard(&mut c, |_, w| w.state.name.clone())
+            == dereth_rules::names::format_name(typed.as_bytes());
 
     c.assert_behaviour("chargen.summary.a-press-on-nothing-takes-the-keyboard-away-and-a-press-back-in-the-box-returns-it", move |_| {
         really_empty && keyboard_let_go && nothing_entered && keyboard_back && now_it_enters
