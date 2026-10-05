@@ -1424,13 +1424,10 @@ impl<H: Host> ClientShell<H> {
     /// and show this one; a classic choice that cannot be shown goes back, and the chat says why.
     fn follow_interface(&mut self, cx: &mut Cx<'_, H>) {
         use dereth_client_contract::options::interface::Interface;
-        let pending: Vec<_> = cx
-            .hud()
-            .pending_chat
-            .iter()
-            .map(|(_, m)| m.clone())
-            .collect();
-        self.classic.remember(&pending);
+        // The lines a chat window was handed since the last frame, each once: a line still
+        // waiting to be delivered is recorded when it is, however many frames it waits.
+        let delivered = std::mem::take(&mut cx.hud_mut().delivered_chat);
+        self.classic.remember(&delivered);
         let Some(want) = self.classic.changed_choice() else {
             return;
         };
@@ -1585,9 +1582,7 @@ impl<H: Host> ClientShell<H> {
                 }
                 // This interface's chat takes the lines it missed.
                 let missed: Vec<_> = self.classic.take_missed();
-                for line in missed {
-                    cx.hud_mut().pending_chat.push((None, line));
-                }
+                cx.hud_mut().replayed_chat.extend(missed);
                 tracing::info!("the modern interface is shown");
             }
         }

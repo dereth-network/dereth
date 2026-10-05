@@ -417,6 +417,8 @@ impl Hud {
                     self.barber = None;
                     self.placements = WindowPlacements::default();
                     self.pending_chat.clear();
+                    self.delivered_chat.clear();
+                    self.replayed_chat.clear();
                     // The same argument one queue upstream: a notice still in the
                     // scroll at log-off goes down with the windows.
                     world.scroll.clear();

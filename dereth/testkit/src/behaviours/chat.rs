@@ -1681,6 +1681,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "feedback.delivery.a-line-is-in-the-classic-log-once-after-relogs-and-switches",
+        says: "A line the server sends once, such as its welcome on entering the world, is in the \
+               classic chat log once: however many frames it waits before a chat window takes \
+               it, after logging back in, and after switching from the modern interface to the \
+               classic one and back any number of times.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-OCT06-CLASSIC-WELCOME-ONCE"),
+        station: "dereth-client-shell::lib::front_end::message_tests::the_welcome_is_in_the_classic_log_once_after_relogs_and_switches",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "feedback.delivery.active-face-switches-do-not-replay-pending-transients",
         says: "Switching interfaces discards pending viewport notices belonging to the outgoing interface, while retaining chat history without replaying transient callbacks.",
         since: THIS_CLIENT,

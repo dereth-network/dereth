@@ -452,6 +452,8 @@ fn classic_global_room_callbacks_reach_chat_once_and_stop_outside_gameplay() {
         assert_eq!(matches.len(), 1, "one callback is drawn once");
         assert!(matches[0].1.contains(name));
     }
+    // The next frame's step records what the chat windows were handed.
+    c.shell.follow_interface(&mut c.app.ui_context());
     assert_eq!(c.shell.classic.history().count(), 2);
     deliver(&mut c, 123, "pending at logoff");
     c.app
@@ -1016,5 +1018,116 @@ fn classic_live_preview_and_cancel_leave_committed_sound_and_camera_steps_intact
         host.snapshot().camera_stiffness.to_bits(),
         0.3_f32.to_bits()
     );
+    c.finish();
+}
+
+/// The shard's welcome, as Empyrean sends it on entering the world.
+const WELCOME: &str = "Welcome to Dereth\n powered by Empyrean\n\nFor more information on commands supported by this server, type @emphelp\n";
+
+/// The welcome as the session hands it to the HUD.
+fn welcome_event() -> dereth_client_net::client_session::SessionEvent {
+    use dereth_protocol::Message as _;
+    type M = dereth_protocol::comms::CommunicationTextboxString;
+    let m = M {
+        text: WELCOME.to_owned(),
+        text_type: 0,
+    };
+    let mut blob = M::OPCODE.0.to_le_bytes().to_vec();
+    blob.extend(dereth_protocol::write_body(&m).unwrap());
+    dereth_client_net::client_session::SessionEvent::UiEvent {
+        opcode: M::OPCODE,
+        blob,
+    }
+}
+
+/// Behaviour: feedback.delivery.a-line-is-in-the-classic-log-once-after-relogs-and-switches
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn the_welcome_is_in_the_classic_log_once_after_relogs_and_switches() {
+    use dereth_client_contract::options::{
+        interface::{Interface, INTERFACE},
+        store,
+    };
+    use dereth_client_contract::PrefValue;
+    use dereth_client_net::client_session::SessionEvent;
+    let mut c = Client::new();
+    c.install_classic();
+    let frames = |c: &mut Client, n| {
+        for _ in 0..n {
+            assert!(c.app.frame(&mut c.shell));
+        }
+    };
+    // Entering the world: the welcome arrives and waits a few frames before a chat window takes
+    // it (the shell follows the interface choice on every one of them), then frames run.
+    let log_in = |c: &mut Client| {
+        c.app.apply_hud_events(&mut c.shell, &[welcome_event()]);
+        for _ in 0..5 {
+            c.shell.follow_interface(&mut c.app.ui_context());
+        }
+        frames(c, 3);
+    };
+    let choose = |c: &mut Client, interface: Interface| {
+        store::set_value(INTERFACE, PrefValue::Int(interface.value()));
+        frames(c, 3);
+        assert_eq!(c.shell.classic.active, interface == Interface::Classic);
+    };
+    let welcomes = |c: &Client| {
+        let log = c
+            .shell
+            .classic
+            .ui
+            .as_ref()
+            .expect("the classic interface is up")
+            .classic
+            .chat
+            .iter()
+            .filter(|(_, s)| s.contains("Welcome to Dereth"))
+            .count();
+        let kept = c
+            .shell
+            .classic
+            .history()
+            .filter(|m| m.body.contains("Welcome to Dereth"))
+            .count();
+        (log, kept)
+    };
+    c.app.host_state.in_world = true;
+    log_in(&mut c);
+    // Modern -> classic -> modern -> classic.
+    choose(&mut c, Interface::Classic);
+    assert_eq!(
+        welcomes(&c),
+        (1, 1),
+        "the first switch to the classic interface"
+    );
+    choose(&mut c, Interface::Modern);
+    choose(&mut c, Interface::Classic);
+    assert_eq!(
+        welcomes(&c),
+        (1, 1),
+        "the second switch to the classic interface"
+    );
+    // Two relogs in the classic interface, then the switches again.
+    for relog in 1..=2 {
+        c.app
+            .apply_hud_events(&mut c.shell, &[SessionEvent::LoggedOff]);
+        frames(&mut c, 3);
+        assert_eq!(welcomes(&c), (0, 0), "logging off empties the log");
+        log_in(&mut c);
+        assert_eq!(welcomes(&c), (1, 1), "after relog {relog}");
+    }
+    for round in 1..=2 {
+        choose(&mut c, Interface::Modern);
+        choose(&mut c, Interface::Classic);
+        assert_eq!(
+            welcomes(&c),
+            (1, 1),
+            "switch round {round} after the relogs"
+        );
+    }
+    choose(&mut c, Interface::Modern);
     c.finish();
 }

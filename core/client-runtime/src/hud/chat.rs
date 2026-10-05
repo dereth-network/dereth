@@ -390,13 +390,19 @@ impl Hud {
     /// The chat lines waiting for the chat windows, oldest first, for the screen generation
     /// `screen`: a line raised for an earlier generation of the screen (a notice of a window that
     /// has since been rebuilt) is dropped, and a line tied to no screen is kept. The queue is
-    /// emptied either way, so no line is delivered twice.
+    /// emptied either way, so no line is delivered twice. The lines handed again
+    /// ([`Self::replayed_chat`]) come first; the queue's lines are also recorded in
+    /// [`Self::delivered_chat`].
     pub fn take_chat_lines(&mut self, screen: u64) -> Vec<ChatMessage> {
-        std::mem::take(&mut self.pending_chat)
+        let lines: Vec<_> = std::mem::take(&mut self.pending_chat)
             .into_iter()
             .filter(|(generation, _)| !generation.is_some_and(|g| g != screen))
             .map(|(_, m)| m)
-            .collect()
+            .collect();
+        self.delivered_chat.extend(lines.iter().cloned());
+        let mut out = std::mem::take(&mut self.replayed_chat);
+        out.extend(lines);
+        out
     }
 
     /// The communication state projected into either interface's target menu.

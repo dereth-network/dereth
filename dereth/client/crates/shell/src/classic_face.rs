@@ -73,7 +73,7 @@ impl ClassicFace {
         }
     }
 
-    /// Keep a copy of the chat lines the game is about to deliver.
+    /// Keep a copy of the chat lines the chat windows were handed, each once.
     pub fn remember(&mut self, lines: &[dereth_client_contract::chat::interface::ChatMessage]) {
         for line in lines {
             if self.history.len() == HISTORY {

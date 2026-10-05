@@ -584,6 +584,14 @@ pub struct Hud {
     /// time, which is step 7 and not step 4, so a
     /// line decoded while the network was pumped waits here until the UI ticks.
     pub pending_chat: Vec<(Option<u64>, ChatMessage)>,
+    /// Every line [`Self::take_chat_lines`] has handed a chat window, oldest first, each once,
+    /// until the host takes them for its record of the session's chat. A line waiting in
+    /// [`Self::pending_chat`] over several frames is still recorded once, when it is delivered.
+    pub delivered_chat: Vec<ChatMessage>,
+    /// Lines handed again to a chat window that missed them (one interface's lines for the other,
+    /// after a switch). [`Self::take_chat_lines`] delivers them first and does not record them
+    /// in [`Self::delivered_chat`] a second time.
+    pub replayed_chat: Vec<ChatMessage>,
     /// Incoming-only synchronous subscriber lifetime. No history for an absent/new screen.
     turbine_chat_generation: Option<u64>,
     /// What the placement blob was last pushed into the screen *for*. See [`AppliedKey`].
