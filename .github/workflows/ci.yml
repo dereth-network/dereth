@@ -86,6 +86,9 @@ jobs:
           rustup override set "$toolchain"
       - name: Fetch locked dependencies
         run: cargo fetch --locked
+      # The bundle's third-party licences page is made by cargo-about, the version the releases use.
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@0.9.2" --features cli
       - name: Clippy over the browser half
         env:
           CARGO_NET_OFFLINE: 'true'
