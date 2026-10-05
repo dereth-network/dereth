@@ -36,6 +36,7 @@
 //!
 //! **No datagram leaves this module.** Every send goes into the caller's [`RequestSink`].
 
+use crate::cmd::interp::next_arg;
 use crate::{Request, RequestSink, World};
 
 // ---------------------------------------------------------------------------------------------
@@ -229,14 +230,6 @@ impl ChatCommand {
             sent: 1,
             ..Self::default()
         }
-    }
-}
-
-/// Behavior: pop one token, or the empty string when `argc` is already 0.
-fn next_arg(args: &[String]) -> (&str, &[String]) {
-    match args.split_first() {
-        Some((first, rest)) => (first.as_str(), rest),
-        None => ("", &[]),
     }
 }
 

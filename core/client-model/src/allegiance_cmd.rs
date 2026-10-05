@@ -39,6 +39,7 @@
 //! branch; a mismatch falls through to the next literal. The comparison is true only for
 //! equality, so the chain continues only when the current literal did not match.
 
+use crate::cmd::interp::{join_args, next_arg};
 use dereth_protocol::social as s;
 
 use crate::world::World;
@@ -178,19 +179,6 @@ impl AllegianceCommand {
 // ---------------------------------------------------------------------------------------------
 // The argument helpers
 // ---------------------------------------------------------------------------------------------
-
-/// Behavior: pop one token, or the empty string when `argc` is already 0.
-fn next_arg(args: &[String]) -> (&str, &[String]) {
-    match args.split_first() {
-        Some((first, rest)) => (first.as_str(), rest),
-        None => ("", &[]),
-    }
-}
-
-/// Re-joins the arguments with single spaces.
-fn join_args(args: &[String]) -> String {
-    args.join(" ")
-}
 
 /// `strtol(s, 0, 0)` — base 0, so `0x2` is 2 and a trailing non-digit stops the scan rather than
 /// failing it. Retail hands the result straight to a `1 <= n <= 3` test, and a string with no

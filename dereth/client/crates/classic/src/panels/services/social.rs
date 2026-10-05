@@ -1,5 +1,6 @@
 use super::*;
 use crate::int::i32_from;
+use dereth_client_contract::panels::numfmt::exact_number as comma;
 use dereth_client_contract::view::{AllegianceAction, AllegianceEntry, AllegianceRoster};
 
 pub fn make(id: &str) -> Option<Box<dyn Panel>> {
@@ -98,17 +99,6 @@ fn cost(c: &Context<'_>) -> u32 {
 }
 fn swear_target(c: &Context<'_>) -> Option<ObjectId> {
     dereth_client_contract::social::swear_target(c.game, &c.game.allegiance_roster())
-}
-fn comma(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i != 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
 }
 /// The rank on the header line: the allegiance's own, or, while a spell raises it, the raised
 /// rank and the difference ("5 (+1)").
@@ -1259,7 +1249,9 @@ mod tests {
     use super::*;
     #[test]
     fn counts_are_drawn_with_thousands_separators() {
-        assert_eq!(comma(1234567), "1,234,567");
+        assert_eq!(comma(1234567_u64), "1,234,567");
+        assert_eq!(comma(9_007_199_254_740_993_u64), "9,007,199,254,740,993");
+        assert_eq!(comma(u64::MAX), "18,446,744,073,709,551,615");
     }
 
     #[derive(Debug)]

@@ -151,6 +151,14 @@ pub fn find_all_words(s: &str) -> Vec<String> {
         .collect()
 }
 
+/// Pop one token, or the empty string and empty tail when no arguments remain.
+pub(crate) fn next_arg(args: &[String]) -> (&str, &[String]) {
+    match args.split_first() {
+        Some((first, rest)) => (first.as_str(), rest),
+        None => ("", &[]),
+    }
+}
+
 /// Re-join with a single space, which is why the original spacing is lost
 /// for a locally-handled command but preserved for a forwarded one.
 #[must_use]

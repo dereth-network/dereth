@@ -1202,21 +1202,9 @@ fn corpse_coordinate_string(cell: u32) -> Option<String> {
         dereth_physics::landdefs::gid_to_lcoord(dereth_primitives::CellId(cell))?;
     let east_west = f64::from(east_west - 0x400) * 0.1 + 0.5;
     let north_south = f64::from(north_south - 0x400) * 0.1 + 0.5;
-    let suffix = |value: f64, positive: &'static str, negative: &'static str| {
-        if value < 0.0 {
-            negative
-        } else if value > 0.0 {
-            positive
-        } else {
-            ""
-        }
-    };
-    Some(format!(
-        "{:.1}{}, {:.1}{}",
-        north_south.abs(),
-        suffix(north_south, "N", "S"),
-        east_west.abs(),
-        suffix(east_west, "E", "W"),
+    Some(dereth_client_model::quests::location_string(
+        north_south,
+        east_west,
     ))
 }
 
