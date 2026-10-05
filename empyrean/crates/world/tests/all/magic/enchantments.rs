@@ -1842,7 +1842,7 @@ const SWORD: ObjectGuid = ObjectGuid::new(0x8000_0010);
 fn swift_killer_world(rules: &'static empyrean_common::era::EraRules, armed: bool) -> World {
     let mut def = d(
         SWIFT_KILLER_I,
-        u32::from(SpellCategory::WeaponTimeRaising.0),
+        SpellCategory::WeaponTimeRaising.0,
         10,
         1800.0,
         true,
@@ -1883,7 +1883,7 @@ fn swift_killer_world(rules: &'static empyrean_common::era::EraRules, armed: boo
 fn holds(w: &World, this: ObjectGuid, spell: u32) -> bool {
     registry(w, this)
         .iter()
-        .any(|e| u32::from(e.spell_id.cast_unsigned()) == spell)
+        .any(|e| e.spell_id.cast_unsigned() == spell)
 }
 
 /// Divergence: V439
