@@ -861,6 +861,13 @@ impl UiShell {
         self.sync_text_mode(input, false);
     }
 
+    /// This interface is put away with the pointer's buttons possibly down: every held press
+    /// ends here, as one dragged off its element does, and the screens hear it now.
+    pub fn release_pointer(&mut self) {
+        self.ui.release_pointer();
+        self.deliver_pending(&mut None);
+    }
+
     /// Re-register this interface's scopes after its inactive period.
     pub fn resume_input(&mut self, input: &mut dyn UiInput) {
         self.mode_maps.clear();

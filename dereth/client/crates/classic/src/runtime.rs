@@ -876,6 +876,24 @@ impl ClassicUi {
         self.keyboard_focus_lost(cx);
         cx.mouse_look_button(false);
         cx.accept_actions(std::mem::take(&mut self.actions));
+        // A press still held ends here: its release reaches the other interface, and the
+        // window holding it would otherwise take this interface's next press for its own.
+        {
+            let view = cx.hud().view(cx.objects());
+            let context = Context {
+                resources: &self.resources,
+                layout: self.desktop.layout(),
+                now: dereth_primitives::LocalTime(cx.now()),
+                game: &view,
+                pregame: cx.pregame(),
+                keyboard: &self.keyboard,
+                settings: &self.settings,
+                map_teleport_allowed: false,
+                classic: &self.classic,
+            };
+            self.desktop.release_pointer(&context);
+        }
+        self.desktop.drag_payload = None;
         self.inputs.clear();
         self.ui_actions.clear();
         self.desktop.dismiss_dialog("resolution");

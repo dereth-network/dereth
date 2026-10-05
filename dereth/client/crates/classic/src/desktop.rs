@@ -906,6 +906,11 @@ impl Desktop {
             self.refresh(context);
         }
     }
+    /// Whether a window is holding the pointer's press.
+    #[must_use]
+    pub fn holds_pointer(&self) -> bool {
+        self.capture.is_some()
+    }
     pub fn pointer_over_panel(&self, x: i32, y: i32) -> bool {
         let visible = self.visible_tokens();
         // A notice over the side column covers only its own rectangle; any other dialog covers

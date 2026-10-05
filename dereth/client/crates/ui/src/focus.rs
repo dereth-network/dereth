@@ -665,6 +665,37 @@ impl UiSystem {
         }
     }
 
+    /// The pointer is taken from this interface with its buttons possibly still down: another
+    /// interface is shown, and the releases will reach that one. Every held press ends here as a
+    /// press dragged off its element ends — the element hears its release and no click — a drag
+    /// in flight drops on nothing, and the capture goes, so this interface's next press starts
+    /// clean whenever it is shown again.
+    pub fn release_pointer(&mut self) {
+        self.switch_mouse_over(None);
+        self.drag.last_drag_cursor_over = None;
+        let mut held: Vec<u32> = Vec::new();
+        for a in self
+            .mouse
+            .actions_triggering_capture
+            .iter()
+            .chain(self.mouse.pressed_on.iter().map(|(a, _)| a))
+        {
+            if !held.contains(a) {
+                held.push(*a);
+            }
+        }
+        let (x, y) = self.mouse.pos;
+        for action in held {
+            self.mouse_up(action, x, y, false);
+        }
+        self.stop_drag_and_drop();
+        self.drag.potential = None;
+        self.mouse.pressed_on.clear();
+        self.mouse.actions_triggering_capture.clear();
+        self.mouse.capture = None;
+        self.mouse.capture_count = 0;
+    }
+
     /// The input-device manager's mouse x and y — where the pointer is, in screen coordinates.
     ///
     /// The client reads these off the input-device manager singleton from anywhere; here the

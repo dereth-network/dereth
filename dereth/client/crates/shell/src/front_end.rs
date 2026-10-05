@@ -672,6 +672,9 @@ impl<H: Host> FrontEnd<H> for ModernFrontEnd {
     fn suspend(&mut self, _cx: &mut Cx<'_, H>) {
         if let Some(ui) = &mut self.ui {
             self.resolution_dialog.project(&mut ui.ui, None);
+            // The interface choice is made on a press, so the button can still be down: its
+            // release reaches the other interface, and the press ends here.
+            ui.release_pointer();
         }
     }
 }
@@ -2443,3 +2446,7 @@ mod tests {
 #[cfg(test)]
 #[path = "../tests/message_tests.rs"]
 mod message_tests;
+
+#[cfg(test)]
+#[path = "../tests/interface_switch_tests.rs"]
+mod interface_switch_tests;

@@ -968,6 +968,63 @@ fn mouse_capture_is_reference_counted() {
     assert_eq!(ui.mouse.capture, None);
 }
 
+/// Releasing the pointer ends a held press as a press dragged off its element ends: the element
+/// hears its release and no click, nothing holds the capture, and the next click is whole.
+#[test]
+fn a_released_pointer_ends_the_held_press_without_a_click() {
+    let mut ui = UiSystem::new((800, 600));
+    let l = layout(
+        0x2100_0001,
+        vec![desc(1, 3, 0, 0, 100, 100), desc(2, 3, 200, 0, 100, 100)],
+    );
+    let held = build(&mut ui, &l, ElementId(1));
+    let other = build(&mut ui, &l, ElementId(2));
+    ui.set_mouse_visible(held, true);
+    ui.set_mouse_visible(other, true);
+    let who = ListenerId::External(1);
+    for id in [ElementId(1), ElementId(2)] {
+        for m in [msgid::MOUSE_PRESS, msgid::MOUSE_RELEASE, msgid::MOUSE_CLICK] {
+            ui.register_for_element_message(id, m, who);
+        }
+    }
+    ui.drain_outbox();
+    let delivered = |ui: &mut UiSystem| -> Vec<(u32, u32)> {
+        ui.drain_outbox()
+            .into_iter()
+            .filter_map(|d| match d {
+                crate::Delivery::Element { msg, .. } => {
+                    let id = ui.node(msg.source).map_or(0, |n| n.element_id().0);
+                    Some((id, msg.id.0))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+
+    for _ in 0..3 {
+        ui.mouse_move(LocalTime(1.0), 50, 50);
+        ui.mouse_down(crate::focus::action::PRIMARY_CLICK, 50, 50);
+        ui.drain_outbox();
+        ui.release_pointer();
+        assert_eq!(
+            delivered(&mut ui),
+            vec![(1, 0x1D)],
+            "a release and no click"
+        );
+        assert_eq!(ui.mouse.capture, None);
+        assert_eq!(ui.mouse.capture_count, 0);
+        assert!(ui.mouse.pressed_on.is_empty() && ui.mouse.actions_triggering_capture.is_empty());
+    }
+    ui.mouse_move(LocalTime(1.0), 250, 50);
+    ui.mouse_down(crate::focus::action::PRIMARY_CLICK, 250, 50);
+    ui.mouse_up(crate::focus::action::PRIMARY_CLICK, 250, 50, false);
+    assert_eq!(
+        delivered(&mut ui),
+        vec![(2, 0x1C), (2, 0x1D), (2, 0x19)],
+        "the next click on another element is whole"
+    );
+}
+
 /// Oracle: the manager's mouse-up event → the element's `MouseUp` — 0x1D (release), then 0x19
 /// (click) "when the corresponding press was on the same element"; a tap action (0x0D/0x0E/0x0F)
 /// takes no capture and raises 0x40 instead.

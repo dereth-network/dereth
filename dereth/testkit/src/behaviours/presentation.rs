@@ -233,6 +233,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "presentation.interface.a-switch-mid-press-leaves-no-press-behind",
+        says: "An interface switched away from while a mouse button is held keeps nothing of                that press: the press ends there as one dragged off its element does, with no                click, and when the player comes back one click opens a panel and the next                closes it, however many times the interfaces were switched.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-SWITCH-MID-PRESS"),
+        station: "dereth-client-shell::lib::front_end::interface_switch_tests::one_click_opens_a_panel_after_switching_away_mid_press_three_times",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.intro-movie.every-frame-decodes-at-the-movies-rate-and-it-never-loops",
         says: "Every frame of the opening movie decodes to a full opaque 640 by 480 picture, and \
                after the last frame the movie is over and stays over rather than starting again.",
