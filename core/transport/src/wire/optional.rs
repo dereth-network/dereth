@@ -332,10 +332,7 @@ pub fn section_len(mask: u32, buf: &[u8]) -> Result<usize, WireError> {
     }
 }
 
-fn read_u32(buf: &[u8], at: usize) -> Option<u32> {
-    let s = buf.get(at..at + 4)?;
-    Some(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-}
+use super::le::read_u32;
 
 /// Length of a packed `PString`, including its length word and its 0-3 alignment bytes.
 ///

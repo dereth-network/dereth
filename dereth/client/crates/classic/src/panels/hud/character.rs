@@ -36,21 +36,17 @@ fn duration(age: i32) -> String {
 /// A date as the C library's `%c` writes it in the C locale; the classic interface never sets a
 /// locale, so the month and day names are always English.
 pub(super) fn date(timestamp: i64, offset: i32) -> String {
-    let asc = dereth_client_contract::ctime::asctime(timestamp, offset);
-    let p: Vec<_> = asc.split_whitespace().collect();
-    let month = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ]
-    .iter()
-    .position(|m| *m == p[1])
-    .unwrap()
-        + 1;
-    let year = p[4].parse::<i32>().unwrap();
+    let c = dereth_client_contract::ctime::broken_down(timestamp, offset);
+    // This interface accepts years in the signed 32-bit range.
+    let year = i32::try_from(c.year).expect("calendar year fits i32");
     format!(
-        "{month:02}/{:02}/{:02} {}",
-        p[2].parse::<u32>().unwrap(),
+        "{:02}/{:02}/{:02} {:02}:{:02}:{:02}",
+        c.month,
+        c.day,
         year.rem_euclid(100),
-        p[3]
+        c.hour,
+        c.minute,
+        c.second
     )
 }
 /// The string table the end-of-retail character sheet's rows are on.
@@ -257,6 +253,14 @@ mod tests {
     fn dates_use_c_locale_and_local_offset() {
         assert_eq!(date(0, 0), "01/01/70 00:00:00");
         assert_eq!(date(0, -3600), "12/31/69 23:00:00");
+        assert_eq!(date(-1, 0), "12/31/69 23:59:59");
+        assert_eq!(date(951_782_400, 0), "02/29/00 00:00:00");
+    }
+
+    #[test]
+    #[should_panic(expected = "calendar year fits i32")]
+    fn dates_reject_years_outside_the_signed_32_bit_range() {
+        let _ = date(i64::MAX, 0);
     }
 
     /// Two rows of the end-of-retail sheet: the luminance header, and Strength's augmentation

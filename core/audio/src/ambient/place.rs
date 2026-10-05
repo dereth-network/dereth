@@ -34,21 +34,10 @@ pub const RNMX_F32: f32 = RNMX as f32;
 ///
 /// `InViewerBlock`, `Unknown` and anything unrecognised return `0.0`; the heading jump
 /// table covers only `Direction` 1..8, and the `default:` arm loads 0.0, which is also what
-/// `NorthOfViewer` returns.
+/// `North` returns.
 #[must_use]
-#[allow(clippy::approx_constant)] // the eight constants the client's heading table holds
 pub fn heading(dir: Direction) -> f32 {
-    match dir {
-        Direction::NorthOfViewer => 0.0,
-        Direction::NortheastOfViewer => 0.785_398_2,
-        Direction::EastOfViewer => 1.570_796_4,
-        Direction::SoutheastOfViewer => 2.356_194_5,
-        Direction::SouthOfViewer => 3.141_592_7,
-        Direction::SouthwestOfViewer => 3.926_990_7,
-        Direction::WestOfViewer => 4.712_389,
-        Direction::NorthwestOfViewer => 5.497_787,
-        Direction::InViewerBlock | Direction::Unknown => 0.0,
-    }
+    dir.heading_rad()
 }
 
 /// The direction set an [`IntermitState`](super::IntermitState) accumulates, and the radius band for
@@ -179,9 +168,9 @@ mod tests {
     #[test]
     fn the_draw_order_is_direction_then_angle_then_radius() {
         let mut set = DirSet::default();
-        set.add_dir(Direction::NorthOfViewer, 10.0, 30.0);
-        set.add_dir(Direction::EastOfViewer, 20.0, 40.0);
-        set.add_dir(Direction::SouthOfViewer, 5.0, 15.0);
+        set.add_dir(Direction::North, 10.0, 30.0);
+        set.add_dir(Direction::East, 20.0, 40.0);
+        set.add_dir(Direction::South, 5.0, 15.0);
 
         let seed = 20_130_918;
         let mut a = Ran2::new(seed);
@@ -221,7 +210,7 @@ mod tests {
     #[test]
     fn the_radius_is_biased_towards_min_dist_by_squaring_u() {
         let mut set = DirSet::default();
-        set.add_dir(Direction::NorthOfViewer, 0.0, 100.0);
+        set.add_dir(Direction::North, 0.0, 100.0);
         let mut rng = Ran2::new(99);
         let mut near = 0;
         let n = 10_000;
@@ -246,9 +235,9 @@ mod tests {
     #[test]
     fn add_dir_widens_an_existing_direction_and_never_duplicates_one() {
         let mut set = DirSet::default();
-        set.add_dir(Direction::NorthOfViewer, 20.0, 40.0);
-        set.add_dir(Direction::NorthOfViewer, 10.0, 30.0);
-        set.add_dir(Direction::NorthOfViewer, 25.0, 50.0);
+        set.add_dir(Direction::North, 20.0, 40.0);
+        set.add_dir(Direction::North, 10.0, 30.0);
+        set.add_dir(Direction::North, 25.0, 50.0);
         assert_eq!(set.num_dir, 1);
         assert_eq!(set.min_dist[0], 10.0, "min widens downward");
         assert_eq!(set.max_dist[0], 50.0, "max widens upward");
@@ -261,12 +250,12 @@ mod tests {
     /// Oracle: the heading table documented in section 4.8.
     #[test]
     fn the_compass_headings_match_the_documented_table() {
-        assert_eq!(heading(Direction::NorthOfViewer), 0.0);
-        assert_eq!(heading(Direction::EastOfViewer), 1.570_796_4);
+        assert_eq!(heading(Direction::North), 0.0);
+        assert_eq!(heading(Direction::East), 1.570_796_4);
         #[allow(clippy::approx_constant)] // the client stores this as a float constant
         let south = 3.141_592_7;
-        assert_eq!(heading(Direction::SouthOfViewer), south);
-        assert_eq!(heading(Direction::WestOfViewer), 4.712_389);
+        assert_eq!(heading(Direction::South), south);
+        assert_eq!(heading(Direction::West), 4.712_389);
         assert_eq!(
             heading(Direction::InViewerBlock),
             0.0,
@@ -275,7 +264,7 @@ mod tests {
         assert_eq!(heading(Direction::Unknown), 0.0);
         // Compass convention: x is sin(theta), y is cos(theta), so heading 0 is +Y (north).
         let mut set = DirSet::default();
-        set.add_dir(Direction::NorthOfViewer, 10.0, 10.0);
+        set.add_dir(Direction::North, 10.0, 10.0);
         let mut rng = Ran2::new(7);
         let p = get_sound_pos(&set, &mut rng).expect("non-empty");
         assert!(p.y > 9.0, "north means +Y, got {p:?}");

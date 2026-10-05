@@ -9,9 +9,9 @@ description = "The landscape's block window: which landblocks are resident aroun
 # A stray tests/*.rs cannot become a test target silently.
 autotests = false
 
-# Nothing: the window is index arithmetic over its own slots, and the geometry a slot holds is the
-# caller's type.
+# Shared compass identities; the geometry a slot holds remains the caller's type.
 [dependencies]
+dereth-primitives.workspace = true
 
 [lints]
 workspace = true

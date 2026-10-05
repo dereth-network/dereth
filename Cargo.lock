@@ -1128,6 +1128,9 @@ dependencies = [
 [[package]]
 name = "dereth-landscape"
 version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+]
 
 [[package]]
 name = "dereth-launch"

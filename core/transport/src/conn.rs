@@ -364,11 +364,7 @@ impl LoginRequest {
     }
 }
 
-fn read_u32(buf: &[u8], at: &mut usize) -> Option<u32> {
-    let s = buf.get(*at..at.checked_add(4)?)?;
-    *at += 4;
-    Some(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
-}
+use crate::wire::le::take_u32 as read_u32;
 
 /// A packed `PString` as single-byte characters.
 fn read_pstring(buf: &[u8], at: &mut usize) -> Option<String> {
@@ -451,7 +447,7 @@ impl ConnectRequest {
                 need: 32,
                 have: buf.len(),
             })?;
-        let rd32 = |at: usize| u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+        let rd32 = |at: usize| crate::wire::le::read_u32(b, at).expect("field in admitted section");
         let rd64 = |at: usize| u64::from(rd32(at)) | (u64::from(rd32(at + 4)) << 32);
         Ok(Self {
             server_time: f64::from_bits(rd64(0)),
@@ -538,7 +534,7 @@ impl ServerSwitch {
                 need: 8,
                 have: buf.len(),
             })?;
-        let rd32 = |at: usize| u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+        let rd32 = |at: usize| crate::wire::le::read_u32(b, at).expect("field in admitted section");
         Ok(
             ServerSwitchType::from_wire(rd32(4)).map(|switch_type| Self {
                 seq_no: rd32(0),
@@ -628,8 +624,8 @@ impl Referral {
                 need: 32,
                 have: buf.len(),
             })?;
-        let rd32 = |at: usize| u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
-        let rd16 = |at: usize| u16::from_le_bytes([b[at], b[at + 1]]);
+        let rd32 = |at: usize| crate::wire::le::read_u32(b, at).expect("field in admitted section");
+        let rd16 = |at: usize| crate::wire::le::read_u16(b, at).expect("field in admitted section");
         Ok(Self {
             cookie: u64::from(rd32(0)) | (u64::from(rd32(4)) << 32),
             family: rd16(8),

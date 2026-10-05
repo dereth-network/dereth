@@ -764,7 +764,7 @@ mod tests {
             "the fixture's intermittent entry has base_chance 1.0"
         );
         let mut dirs = DirSet::default();
-        dirs.add_dir(Direction::NorthOfViewer, 40.0 - 10.0, 40.0 + 10.0);
+        dirs.add_dir(Direction::North, 40.0 - 10.0, 40.0 + 10.0);
         let off = place::get_sound_pos(&dirs, &mut hand).expect("one direction");
         let interval = hand.roll_f32(1.0, 5.0);
 
@@ -838,12 +838,7 @@ mod tests {
             ..s
         };
         s2.kind = Kind::Intermit(IntermitState::default());
-        add_to(
-            &mut s2,
-            1.0,
-            Vec3::new(0.0, 50.0, 0.0),
-            Direction::NorthOfViewer,
-        );
+        add_to(&mut s2, 1.0, Vec3::new(0.0, 50.0, 0.0), Direction::North);
         let Kind::Intermit(i) = s2.kind else {
             panic!("intermittent")
         };

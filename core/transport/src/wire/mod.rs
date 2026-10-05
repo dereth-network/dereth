@@ -17,6 +17,7 @@
 
 pub mod frag;
 pub mod header;
+pub(crate) mod le;
 pub mod optional;
 pub mod packet;
 

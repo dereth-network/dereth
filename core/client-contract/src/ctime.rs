@@ -65,6 +65,43 @@
 /// one type rather than a bare `i32`.
 pub type UtcOffsetSecs = i32;
 
+/// A local Gregorian calendar value, after applying the supplied UTC offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BrokenDown {
+    /// Full signed year.
+    pub year: i64,
+    /// Month, 1 through 12.
+    pub month: i64,
+    /// Day of the month, 1 through 31.
+    pub day: i64,
+    /// Weekday, 0 for Sunday through 6 for Saturday.
+    pub weekday: usize,
+    /// Hour on the 24-hour clock.
+    pub hour: i64,
+    /// Minute within the hour.
+    pub minute: i64,
+    /// Second within the minute.
+    pub second: i64,
+}
+
+/// Split a Unix instant into calendar fields using the caller's zone offset.
+#[must_use]
+pub fn broken_down(t: i64, utc_offset_secs: UtcOffsetSecs) -> BrokenDown {
+    let local = t + i64::from(utc_offset_secs);
+    let days = local.div_euclid(86_400);
+    let secs = local.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    BrokenDown {
+        year,
+        month,
+        day,
+        weekday: usize::try_from((days + 4).rem_euclid(7)).unwrap_or(0),
+        hour: secs / 3600,
+        minute: (secs / 60) % 60,
+        second: secs % 60,
+    }
+}
+
 /// `strftime(buf, n, "%c", tm)` under `setlocale(LC_ALL, "English")` — i.e.
 /// `English_United States.1252`'s `M/d/yyyy h:mm:ss tt`.
 ///
@@ -94,10 +131,15 @@ pub type UtcOffsetSecs = i32;
 /// with no dependency that carries a calendar. The choice is recorded rather than hidden.
 #[must_use]
 pub fn strftime_c(t: i64, utc_offset_secs: UtcOffsetSecs) -> String {
-    let local = t + i64::from(utc_offset_secs);
-    let (y, m, d) = civil_from_days(local.div_euclid(86_400));
-    let secs = local.rem_euclid(86_400);
-    let (h24, mi, s) = (secs / 3600, (secs / 60) % 60, secs % 60);
+    let BrokenDown {
+        year: y,
+        month: m,
+        day: d,
+        hour: h24,
+        minute: mi,
+        second: s,
+        ..
+    } = broken_down(t, utc_offset_secs);
     // `h:mm:ss tt` — a 12-hour clock in which both midnight and noon read 12, and the hour has no
     // leading zero. `12:00:00 AM` and `12:00:00 PM` are both measured values, not a guess.
     let h12 = match h24 % 12 {
@@ -123,23 +165,18 @@ pub fn asctime(t: i64, utc_offset_secs: UtcOffsetSecs) -> String {
     const MON: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
-    let local = t + i64::from(utc_offset_secs);
-    let days = local.div_euclid(86_400);
-    let secs = local.rem_euclid(86_400);
-    let (y, m, d) = civil_from_days(days);
-    // 1970-01-01 was a Thursday, and `WDAY[4]` is "Thu". `rem_euclid(7)` is 0..=6 and
-    // `civil_from_days` returns a month in 1..=12, so neither conversion can fail.
-    let wday = usize::try_from((days + 4).rem_euclid(7)).unwrap_or(0);
-    let mon = usize::try_from(m - 1).unwrap_or(0);
+    let calendar = broken_down(t, utc_offset_secs);
+    // The month is in 1..=12, and the weekday is in 0..=6.
+    let mon = usize::try_from(calendar.month - 1).unwrap_or(0);
     format!(
         "{} {} {:02} {:02}:{:02}:{:02} {}",
-        WDAY[wday],
+        WDAY[calendar.weekday],
         MON[mon],
-        d,
-        secs / 3600,
-        (secs / 60) % 60,
-        secs % 60,
-        y
+        calendar.day,
+        calendar.hour,
+        calendar.minute,
+        calendar.second,
+        calendar.year
     )
 }
 

@@ -29,53 +29,28 @@ use crate::table::MovementType;
 
 /// 192 m per landblock, and **z is always 0**.
 ///
-/// Physics owns the landscape; this is the one line of it the move-to distance needs, and it is
-/// reproduced rather than depended on so that the two crates stay independent.
+/// Shared position arithmetic keeps movement and collision distances in the same block space.
 #[must_use]
 pub fn block_offset(from: CellId, to: CellId) -> Vec3 {
-    let (a, b) = (from.landblock(), to.landblock());
-    Vec3::new(
-        (f32::from(b.x()) - f32::from(a.x())) * dereth_primitives::num::consts::LANDBLOCK_SIZE,
-        (f32::from(b.y()) - f32::from(a.y())) * dereth_primitives::num::consts::LANDBLOCK_SIZE,
-        0.0,
-    )
+    dereth_primitives::position::block_offset(from, to)
 }
 
 /// The offset between two positions.
 #[must_use]
 pub fn get_offset(from: &Position, to: &Position) -> Vec3 {
-    block_offset(from.cell, to.cell)
-        .add(to.frame.origin)
-        .sub(from.frame.origin)
+    dereth_primitives::position::get_offset(from, to)
 }
 
 /// The distance between two positions.
 #[must_use]
 pub fn distance(a: &Position, b: &Position) -> f32 {
-    get_offset(a, b).mag2().sqrt()
+    dereth_primitives::position::distance(a, b)
 }
 
 /// The horizontal term is the **3-D** centre distance.
 #[must_use]
 pub fn cylinder_distance(r1: f32, h1: f32, p1: &Position, r2: f32, h2: f32, p2: &Position) -> f32 {
-    let d = get_offset(p1, p2).mag2().sqrt() - (r1 + r2);
-    let (z1, z2) = (p1.frame.origin.z, p2.frame.origin.z);
-    let gap = if z1 <= z2 {
-        z2 - (z1 + h1)
-    } else {
-        z1 - (z2 + h2)
-    };
-    if gap <= 0.0 {
-        if d > 0.0 {
-            d
-        } else {
-            -(d * d + gap * gap).sqrt()
-        }
-    } else if d > 0.0 {
-        (d * d + gap * gap).sqrt()
-    } else {
-        gap
-    }
+    dereth_primitives::position::cylinder_distance(r1, h1, p1, r2, h2, p2)
 }
 
 /// The bearing from `from` to `to`, in degrees, with the same

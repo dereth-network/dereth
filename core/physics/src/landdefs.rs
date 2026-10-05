@@ -104,34 +104,7 @@ pub fn lcoord_to_gid(x: i32, y: i32) -> CellId {
 /// Z is always `0`; landblocks are not stacked.
 #[must_use]
 pub fn get_block_offset(from: CellId, to: CellId) -> Vec3 {
-    if from.0 >> 16 == to.0 >> 16 {
-        return Vec3::ZERO;
-    }
-    // Note: the original does NOT bounds-check here; it only special-cases id 0.
-    #[allow(clippy::cast_possible_wrap)]
-    let (fx, fy) = if from.0 == 0 {
-        (0_i32, 0_i32)
-    } else {
-        (
-            (((from.0 >> 21) & 0x7F8) as i32),
-            ((((from.0 >> 16) & 0xFF) << 3) as i32),
-        )
-    };
-    #[allow(clippy::cast_possible_wrap)]
-    let (tx, ty) = if to.0 == 0 {
-        (0_i32, 0_i32)
-    } else {
-        (
-            (((to.0 >> 21) & 0x7F8) as i32),
-            ((((to.0 >> 16) & 0xFF) << 3) as i32),
-        )
-    };
-    #[allow(clippy::cast_precision_loss)]
-    Vec3::new(
-        (tx - fx) as f32 * CELL_SIZE,
-        (ty - fy) as f32 * CELL_SIZE,
-        0.0,
-    )
+    dereth_primitives::position::block_offset(from, to)
 }
 
 /// The global cell coordinates a landblock-relative

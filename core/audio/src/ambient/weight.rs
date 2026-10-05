@@ -27,36 +27,20 @@ pub const DIR_EPSILON: f32 = 0.000_2;
 pub const DIR_RATIO: f32 = 2.0;
 
 /// Numeric direction values used by the ambient scheduler.
-///
-/// The numbering matters: direction calculation returns these values and intermittent sounds key their
-/// eight-slot set on them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u32)]
-pub enum Direction {
-    InViewerBlock = 0,
-    NorthOfViewer = 1,
-    SouthOfViewer = 2,
-    EastOfViewer = 3,
-    WestOfViewer = 4,
-    NorthwestOfViewer = 5,
-    SouthwestOfViewer = 6,
-    NortheastOfViewer = 7,
-    SoutheastOfViewer = 8,
-    Unknown = 9,
-}
+pub use dereth_primitives::direction::BlockDirection as Direction;
 
 /// The eight compass directions seeded for an in-viewer-block cell, **in the
 /// order it calls `add_dir`** — that order decides the contents of `sound_dir[]`, and therefore which
 /// direction a uniform index picks.
 pub const IN_BLOCK_DIRECTIONS: [Direction; 8] = [
-    Direction::NorthOfViewer,
-    Direction::SouthOfViewer,
-    Direction::EastOfViewer,
-    Direction::WestOfViewer,
-    Direction::NorthwestOfViewer,
-    Direction::NortheastOfViewer,
-    Direction::SouthwestOfViewer,
-    Direction::SoutheastOfViewer,
+    Direction::North,
+    Direction::South,
+    Direction::East,
+    Direction::West,
+    Direction::NorthWest,
+    Direction::NorthEast,
+    Direction::SouthWest,
+    Direction::SouthEast,
 ];
 
 /// The distance weight of one cell.
@@ -97,28 +81,28 @@ pub fn calc_dir(off: Vec3) -> Direction {
     let ay = off.y.abs();
     if ax < DIR_EPSILON || ay / ax > DIR_RATIO {
         return if off.y >= 0.0 {
-            Direction::NorthOfViewer
+            Direction::North
         } else {
-            Direction::SouthOfViewer
+            Direction::South
         };
     }
     if ay < DIR_EPSILON || ax / ay > DIR_RATIO {
         return if off.x >= 0.0 {
-            Direction::EastOfViewer
+            Direction::East
         } else {
-            Direction::WestOfViewer
+            Direction::West
         };
     }
     if off.x < 0.0 {
         if off.y >= 0.0 {
-            Direction::NorthwestOfViewer
+            Direction::NorthWest
         } else {
-            Direction::SouthwestOfViewer
+            Direction::SouthWest
         }
     } else if off.y >= 0.0 {
-        Direction::NortheastOfViewer
+        Direction::NorthEast
     } else {
-        Direction::SoutheastOfViewer
+        Direction::SouthEast
     }
 }
 
@@ -168,21 +152,21 @@ mod tests {
             ))
         };
         // Due north +/- 26.5 degrees is still NORTH.
-        assert_eq!(at(90.0), Direction::NorthOfViewer);
-        assert_eq!(at(90.0 - 26.0), Direction::NorthOfViewer);
-        assert_eq!(at(90.0 + 26.0), Direction::NorthOfViewer);
+        assert_eq!(at(90.0), Direction::North);
+        assert_eq!(at(90.0 - 26.0), Direction::North);
+        assert_eq!(at(90.0 + 26.0), Direction::North);
         // Past 26.57 degrees it becomes a diagonal.
-        assert_eq!(at(90.0 - 27.0), Direction::NortheastOfViewer);
-        assert_eq!(at(45.0), Direction::NortheastOfViewer);
-        assert_eq!(at(27.0), Direction::NortheastOfViewer);
+        assert_eq!(at(90.0 - 27.0), Direction::NorthEast);
+        assert_eq!(at(45.0), Direction::NorthEast);
+        assert_eq!(at(27.0), Direction::NorthEast);
         // And past 63.43 degrees from north it is EAST.
-        assert_eq!(at(26.0), Direction::EastOfViewer);
-        assert_eq!(at(0.0), Direction::EastOfViewer);
-        assert_eq!(at(180.0), Direction::WestOfViewer);
-        assert_eq!(at(-90.0), Direction::SouthOfViewer);
-        assert_eq!(at(-135.0), Direction::SouthwestOfViewer);
-        assert_eq!(at(-45.0), Direction::SoutheastOfViewer);
-        assert_eq!(at(135.0), Direction::NorthwestOfViewer);
+        assert_eq!(at(26.0), Direction::East);
+        assert_eq!(at(0.0), Direction::East);
+        assert_eq!(at(180.0), Direction::West);
+        assert_eq!(at(-90.0), Direction::South);
+        assert_eq!(at(-135.0), Direction::SouthWest);
+        assert_eq!(at(-45.0), Direction::SouthEast);
+        assert_eq!(at(135.0), Direction::NorthWest);
     }
 
     /// The in-viewer-block radius is `sqrt(200)` = 14.142 m in the XY plane, and z does not count
@@ -193,10 +177,7 @@ mod tests {
             calc_dir(Vec3::new(14.14, 0.0, 0.0)),
             Direction::InViewerBlock
         );
-        assert_eq!(
-            calc_dir(Vec3::new(14.15, 0.0, 0.0)),
-            Direction::EastOfViewer
-        );
+        assert_eq!(calc_dir(Vec3::new(14.15, 0.0, 0.0)), Direction::East);
         // z is excluded from this test even though it counts for the weight.
         assert_eq!(
             calc_dir(Vec3::new(0.0, 0.0, 100.0)),
@@ -212,14 +193,14 @@ mod tests {
         assert_eq!(
             IN_BLOCK_DIRECTIONS,
             [
-                Direction::NorthOfViewer,
-                Direction::SouthOfViewer,
-                Direction::EastOfViewer,
-                Direction::WestOfViewer,
-                Direction::NorthwestOfViewer,
-                Direction::NortheastOfViewer,
-                Direction::SouthwestOfViewer,
-                Direction::SoutheastOfViewer,
+                Direction::North,
+                Direction::South,
+                Direction::East,
+                Direction::West,
+                Direction::NorthWest,
+                Direction::NorthEast,
+                Direction::SouthWest,
+                Direction::SouthEast,
             ]
         );
     }

@@ -1,7 +1,7 @@
 //! The landscape's block window: which landblocks are resident around the viewer, at what level of
 //! detail, and which way each one stitches to its neighbours.
 //!
-//! **Depends on** no other workspace crate. **Used by** the client runtime's world streamer
+//! **Depends on** `dereth-primitives` for compass identities. **Used by** the client runtime's world streamer
 //! (`dereth-client-runtime`), which keeps the window resident as the viewer moves, and the SDK
 //! (`dereth-client-sdk`).
 //!
@@ -25,50 +25,8 @@ pub const BLOCK_LENGTH: f32 = 192.0;
 /// The window's `mid_radius` presets for graphics quality 1..=5.
 pub const MID_RADIUS_PRESETS: [u32; 5] = [3, 5, 8, 11, 15];
 
-/// Which edges of a block are stitched toward the finer ring beside it. Returned by the ring
-/// calculation ([`block_orient`]) and consumed by landblock mesh generation. The discriminants are
-/// the client's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Direction {
-    InViewerBlock = 0,
-    North = 1,
-    South = 2,
-    East = 3,
-    West = 4,
-    NorthWest = 5,
-    SouthWest = 6,
-    NorthEast = 7,
-    SouthEast = 8,
-}
-
-impl Direction {
-    /// True for N, NW and NE — the three directions whose "outward" edge is the block's max-y edge.
-    #[must_use]
-    pub const fn has_north(self) -> bool {
-        matches!(self, Self::North | Self::NorthWest | Self::NorthEast)
-    }
-    /// True for S, SW and SE.
-    #[must_use]
-    pub const fn has_south(self) -> bool {
-        matches!(self, Self::South | Self::SouthWest | Self::SouthEast)
-    }
-    /// True for E, NE and SE.
-    #[must_use]
-    pub const fn has_east(self) -> bool {
-        matches!(self, Self::East | Self::NorthEast | Self::SouthEast)
-    }
-    /// True for W, NW and SW.
-    #[must_use]
-    pub const fn has_west(self) -> bool {
-        matches!(self, Self::West | Self::NorthWest | Self::SouthWest)
-    }
-    /// True for the four cardinals, which is the guard on the inward crack fix of stitching.
-    #[must_use]
-    pub const fn is_cardinal(self) -> bool {
-        matches!(self, Self::North | Self::South | Self::East | Self::West)
-    }
-}
+/// The direction used for stitching and neighbour selection.
+pub use dereth_primitives::direction::BlockDirection as Direction;
 
 /// Compute the four LOD rings and stitch direction.
 ///

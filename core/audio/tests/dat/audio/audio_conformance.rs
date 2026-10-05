@@ -433,7 +433,7 @@ fn a_seeded_ran2_reproduces_the_ambient_schedule_including_the_draw_order() {
     // Re-derive the same run by hand.
     let mut hand = Ran2::new(seed);
     let mut dirs = DirSet::default();
-    dirs.add_dir(Direction::NorthOfViewer, 30.0, 50.0);
+    dirs.add_dir(Direction::North, 30.0, 50.0);
     // `base_chance` 1.0 at a terrain share of 1 gives `play_chance` 1.0, so `play_now` always passes.
     let mut want: Vec<(f64, Vec3, f32)> = Vec::new();
     let mut fired_at = 0.0f64;

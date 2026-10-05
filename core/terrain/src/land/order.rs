@@ -20,34 +20,7 @@ use crate::narrow::u16_of_i32;
 /// and the positive-x branch starts at `dx >= 1`, so there is no "same column" case for `dx > 0`.
 #[must_use]
 pub fn get_dir(dx: i32, dy: i32) -> Direction {
-    if dx < 0 {
-        if dy < 0 {
-            return Direction::SouthWest;
-        }
-        return if dy > 0 {
-            Direction::NorthWest
-        } else {
-            Direction::West
-        };
-    }
-    if dx < 1 {
-        if dy < 0 {
-            return Direction::South;
-        }
-        return if dy > 0 {
-            Direction::North
-        } else {
-            Direction::InViewerBlock
-        };
-    }
-    if dy < 0 {
-        return Direction::SouthEast;
-    }
-    if dy > 0 {
-        Direction::NorthEast
-    } else {
-        Direction::East
-    }
+    Direction::from_delta(dx, dy)
 }
 
 /// The ring calculation and the cell count it implies, shared with the landscape window.
@@ -121,6 +94,7 @@ pub fn block_draw_order(mid_width: u32) -> Vec<u32> {
 pub fn closest_cell(n: u8, dir: Direction, cell_xy: (u8, u8)) -> (u8, u8) {
     let last = n.saturating_sub(1);
     match dir {
+        Direction::Unknown => unreachable!("grid directions are always known"),
         Direction::InViewerBlock => (cell_xy.0, cell_xy.1),
         Direction::North => (cell_xy.0, 0),
         Direction::South => (cell_xy.0, last),

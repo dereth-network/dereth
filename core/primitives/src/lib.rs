@@ -21,12 +21,14 @@
 //! transcendental functions, each reproducing a behaviour observable in play.
 
 pub mod asset;
+pub mod direction;
 pub mod era;
 pub mod frame;
 pub mod host;
 pub mod ids;
 pub mod motion;
 pub mod num;
+pub mod position;
 pub mod property;
 pub mod records;
 pub mod render;

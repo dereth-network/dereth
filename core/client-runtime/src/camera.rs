@@ -1442,11 +1442,7 @@ pub fn vector_heading(v: Vec3) -> f32 {
     if flat.normalize_check_small() {
         return 0.0;
     }
-    #[allow(clippy::cast_possible_truncation)] // the client's own float return
-    {
-        ((450.0 - math::atan2(f64::from(flat.y), f64::from(flat.x)) * 57.295_779_513_082_32)
-            % 360.0) as f32
-    }
+    dereth_primitives::frame::vector_get_heading(flat)
 }
 
 /// Pitch in **degrees**, `asin(z)` after normalising.
