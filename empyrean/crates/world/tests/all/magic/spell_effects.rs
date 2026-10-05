@@ -1622,7 +1622,7 @@ fn scarab_power_and_level_agree_with_dereth_client_model() {
         let client_level = if client_power == 0 {
             0
         } else {
-            dereth_client_model::magic::spell_level_by_rough_heuristic(client_power)
+            dereth_rules::magic::spell_level_by_rough_heuristic(client_power)
         };
         assert_eq!(f.level(), client_level, "level of component {c}");
     }

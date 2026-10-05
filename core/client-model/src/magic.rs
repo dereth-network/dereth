@@ -96,17 +96,7 @@ use dereth_rules::magic::{
 };
 use dereth_rules::magic::{num_spell_components, scarab_only_formula};
 
-/// Computes the 1–8 spell level the UI shows.
-#[must_use]
-pub fn spell_level_by_rough_heuristic(power: u32) -> u32 {
-    if power <= 6 {
-        power
-    } else if power <= 8 {
-        power - 1
-    } else {
-        power - 2
-    }
-}
+pub use dereth_rules::magic::spell_level_by_rough_heuristic;
 
 /// A formula is complete only when its first **five** slots are non-zero.
 ///

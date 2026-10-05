@@ -118,3 +118,15 @@ pub fn scarab_only_formula(comps: &[u32; 8]) -> [u32; 8] {
     }
     out
 }
+
+/// Computes the 1–8 spell level the UI shows.
+#[must_use]
+pub fn spell_level_by_rough_heuristic(power: u32) -> u32 {
+    if power <= 6 {
+        power
+    } else if power <= 8 {
+        power - 1
+    } else {
+        power - 2
+    }
+}

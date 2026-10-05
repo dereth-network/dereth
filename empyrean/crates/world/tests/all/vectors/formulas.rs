@@ -910,12 +910,10 @@ fn allegiance_titles_agree_with_dereth_client_model() {
             for rank in 0..=12u32 {
                 let ours = titles::get_title(HeritageGroup(h), Gender(g), rank);
                 let theirs = match (u8::try_from(h), u8::try_from(g)) {
-                    (Ok(h8), Ok(g8)) => dereth_client_model::allegiance::get_title(
-                        u16::try_from(rank).unwrap(),
-                        h8,
-                        g8,
-                    )
-                    .unwrap_or(""),
+                    (Ok(h8), Ok(g8)) => {
+                        dereth_rules::allegiance::get_title(u16::try_from(rank).unwrap(), h8, g8)
+                            .unwrap_or("")
+                    }
                     _ => "",
                 };
                 if ours != theirs {
