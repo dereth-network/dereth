@@ -893,7 +893,9 @@ fn classic_resolution_draft_survives_idle_frames_and_rejected_choice_reads_back_
         !app.resolution.pending(),
         "applying another setting cannot resubmit the rejected size"
     );
-    shell.ui.settings.resolution = 1;
+    // A later size change reaches the page; the finished test must not be read back over it.
+    shell.ui.set_display((1024, 768));
+    assert_eq!(shell.ui.settings.resolution, 1);
     shell.ui.sync_settings(&mut app.ui_context()).unwrap();
     assert_eq!(
         shell.ui.settings.resolution, 1,
