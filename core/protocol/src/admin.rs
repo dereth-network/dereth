@@ -23,36 +23,6 @@ use crate::opcodes::Opcode;
 use crate::Message;
 use dereth_primitives::ObjectId;
 
-macro_rules! empty_message {
-    ($(#[$m:meta])* $name:ident, $op:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub struct $name;
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-            fn read(_: &mut Reader<'_>) -> Result<Self, MessageError> { Ok(Self) }
-            fn write(&self, _: &mut Writer) -> Result<(), MessageError> { Ok(()) }
-        }
-    };
-}
-
-macro_rules! string_message {
-    ($(#[$m:meta])* $name:ident, $op:ident, $field:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, PartialEq, Eq, Default)]
-        pub struct $name { pub $field: String }
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-            fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self { $field: r.pstring()? })
-            }
-            fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
-                w.pstring(&self.$field)
-            }
-        }
-    };
-}
-
 // ---------------------------------------------------------------------------------------------
 // 1. Character progression
 // ---------------------------------------------------------------------------------------------

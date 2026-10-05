@@ -18,6 +18,9 @@ use dereth_primitives::IncomingMessage;
 use dereth_protocol::events::split_ui_blob;
 use dereth_protocol::{self as proto, Message, MessageError, Opcode, Reader, Writer};
 
+#[cfg(test)]
+mod tests;
+
 /// One decoder: the type's name and a function that reads a body of it and writes the decoded
 /// value back (at the reader's blob offset, so the alignment rule is the same).
 type Decoder = (
@@ -43,220 +46,35 @@ pub const KNOWN_TRAILING: &[(u32, &str)] = &[
     (0x02BE, "ACE appends a FellowshipLocks table after the departed fellows; the retail client stops before it"),
 ];
 
+macro_rules! add_decoder {
+    ($table:ident, $t:ident, $ty:ty, skip) => {};
+    ($table:ident, $t:ident, $ty:ty, $rank:literal) => {
+        $table
+            .entry(<$ty as Message>::OPCODE.0)
+            .or_default()
+            .push(($rank, (stringify!($t), read_as::<$ty>)));
+    };
+}
+
 macro_rules! decoders {
-    ($($m:ident :: $t:ident),* $(,)?) => {
+    (messages { $( $m:ident :: $t:ident, $ty:ty, $capture:ident, $rank:tt, $fields:ident; )* }
+     opaque { $( $om:ident :: $ot:ident, $oty:ty, $orank:tt, $ofields:ident; )* }) => {
         fn table() -> &'static BTreeMap<u32, Vec<Decoder>> {
             static TABLE: OnceLock<BTreeMap<u32, Vec<Decoder>>> = OnceLock::new();
             TABLE.get_or_init(|| {
-                let mut t: BTreeMap<u32, Vec<Decoder>> = BTreeMap::new();
-                $( t.entry(<proto::$m::$t as Message>::OPCODE.0).or_default().push((stringify!($t), read_as::<proto::$m::$t>)); )*
-                t
+                let mut candidates: BTreeMap<u32, Vec<(usize, Decoder)>> = BTreeMap::new();
+                $( add_decoder!(candidates, $t, $ty, $rank); )*
+                $( add_decoder!(candidates, $ot, $oty, $orank); )*
+                candidates.into_iter().map(|(op, mut rows)| {
+                    rows.sort_by_key(|(rank, _)| *rank);
+                    (op, rows.into_iter().map(|(_, decoder)| decoder).collect())
+                }).collect()
             })
         }
     };
 }
 
-decoders!(
-    admin::AdminEnvirons,
-    admin::AdminQueryPlugin,
-    admin::AdminQueryPluginList,
-    admin::AdminQueryPluginResponseRecv,
-    admin::AdminReceiveAccountData,
-    admin::AdminReceivePlayerData,
-    admin::CharacterQueryAgeResponse,
-    admin::CharacterReturnPing,
-    admin::DddBeginDdd,
-    admin::DddData,
-    admin::DddEndDdd,
-    admin::DddError,
-    admin::DddInterrogation,
-    admin::DddPatchtimePending,
-    combat::AttackerNotification,
-    combat::CombatHandleAttackDoneEvent,
-    combat::CombatHandleCommenceAttackEvent,
-    combat::CombatHandlePlayerDeathEvent,
-    combat::CombatQueryHealthResponse,
-    combat::DefenderNotification,
-    combat::EvasionAttackerNotification,
-    combat::EvasionDefenderNotification,
-    combat::VictimNotificationOther,
-    combat::VictimNotificationSelf,
-    comms::CharacterConfirmationDone,
-    comms::CharacterConfirmationRequest,
-    comms::ChatRoomMembership,
-    comms::CommunicationChannelBroadcast,
-    comms::CommunicationChannelBroadcastRecv,
-    comms::CommunicationChannelIndexRecv,
-    comms::CommunicationChannelIndexRequest,
-    comms::CommunicationChannelListRecv,
-    comms::CommunicationChannelListRequest,
-    comms::CommunicationHearDirectSpeech,
-    comms::CommunicationHearEmote,
-    comms::CommunicationHearRangedSpeech,
-    comms::CommunicationHearSoulEmote,
-    comms::CommunicationHearSpeech,
-    comms::CommunicationPopUpString,
-    comms::CommunicationSetSquelchDb,
-    comms::CommunicationTextboxString,
-    comms::CommunicationTransientString,
-    comms::CommunicationTurbineChat,
-    comms::CommunicationWeenieError,
-    comms::CommunicationWeenieErrorWithString,
-    items::ItemGetInscriptionResponse,
-    items::ItemQueryItemManaResponse,
-    items::ItemUpdateStackSize,
-    items::SalvageResultMessage,
-    login::CharGenVerificationResponse,
-    login::CharacterDeleteAck,
-    login::CharacterDeleteRequest,
-    login::CharacterError,
-    login::LoginAccountBanned,
-    login::LoginAccountBooted,
-    login::LoginAwaitingSubscriptionExpiration,
-    login::LoginCharacterScreenMessage,
-    login::LoginCharacterSet,
-    login::LoginEnterGameServerReady,
-    login::LoginExecuteLogOff,
-    login::LoginExecuteLogOffRequest,
-    login::LoginPlayerDescription,
-    login::LoginWorldInfo,
-    login::PlayerAppearanceMessage,
-    movement::MovementPositionAndMovementEvent,
-    movement::MovementPositionEvent,
-    movement::MovementSetObjectMovement,
-    movement::MovementVectorUpdate,
-    objects::CharacterServerSaysAttemptFailed,
-    objects::EffectsPlayScriptId,
-    objects::EffectsPlayScriptType,
-    objects::EffectsPlayerTeleport,
-    objects::EffectsSoundEvent,
-    objects::InventoryPickupEvent,
-    objects::ItemAppraiseDone,
-    objects::ItemCreateObject,
-    objects::ItemDeleteObject,
-    objects::ItemObjDescEvent,
-    objects::ItemOnViewContents,
-    objects::ItemParentEvent,
-    objects::ItemServerSaysContainId,
-    objects::ItemServerSaysMoveItem,
-    objects::ItemServerSaysRemove,
-    objects::ItemSetAppraiseInfo,
-    objects::ItemSetState,
-    objects::ItemStopViewingObjectContents,
-    objects::ItemUpdateObject,
-    objects::ItemUseDone,
-    objects::ItemWearItem,
-    objects::LoginCreatePlayer,
-    qualities::MagicDispelEnchantment,
-    qualities::MagicDispelMultipleEnchantments,
-    qualities::MagicPurgeBadEnchantments,
-    qualities::MagicPurgeEnchantments,
-    qualities::MagicRemoveEnchantment,
-    qualities::MagicRemoveMultipleEnchantments,
-    qualities::MagicRemoveSpell,
-    qualities::MagicUpdateEnchantment,
-    qualities::MagicUpdateMultipleEnchantments,
-    qualities::MagicUpdateSpell,
-    qualities::QualitiesPrivateRemoveBool,
-    qualities::QualitiesPrivateRemoveDataId,
-    qualities::QualitiesPrivateRemoveFloat,
-    qualities::QualitiesPrivateRemoveInstanceId,
-    qualities::QualitiesPrivateRemoveInt,
-    qualities::QualitiesPrivateRemoveInt64,
-    qualities::QualitiesPrivateRemovePosition,
-    qualities::QualitiesPrivateRemoveString,
-    qualities::QualitiesPrivateUpdateAttribute,
-    qualities::QualitiesPrivateUpdateAttribute2nd,
-    qualities::QualitiesPrivateUpdateAttribute2ndLevel,
-    qualities::QualitiesPrivateUpdateAttributeLevel,
-    qualities::QualitiesPrivateUpdateBool,
-    qualities::QualitiesPrivateUpdateDataId,
-    qualities::QualitiesPrivateUpdateFloat,
-    qualities::QualitiesPrivateUpdateInstanceId,
-    qualities::QualitiesPrivateUpdateInt,
-    qualities::QualitiesPrivateUpdateInt64,
-    qualities::QualitiesPrivateUpdatePosition,
-    qualities::QualitiesPrivateUpdateSkill,
-    qualities::QualitiesPrivateUpdateSkillAc,
-    qualities::QualitiesPrivateUpdateSkillLevel,
-    qualities::QualitiesPrivateUpdateString,
-    qualities::QualitiesRemoveBool,
-    qualities::QualitiesRemoveDataId,
-    qualities::QualitiesRemoveFloat,
-    qualities::QualitiesRemoveInstanceId,
-    qualities::QualitiesRemoveInt,
-    qualities::QualitiesRemoveInt64,
-    qualities::QualitiesRemovePosition,
-    qualities::QualitiesRemoveString,
-    qualities::QualitiesUpdateAttribute,
-    qualities::QualitiesUpdateAttribute2nd,
-    qualities::QualitiesUpdateAttribute2ndLevel,
-    qualities::QualitiesUpdateAttributeLevel,
-    qualities::QualitiesUpdateBool,
-    qualities::QualitiesUpdateDataId,
-    qualities::QualitiesUpdateFloat,
-    qualities::QualitiesUpdateInstanceId,
-    qualities::QualitiesUpdateInt,
-    qualities::QualitiesUpdateInt64,
-    qualities::QualitiesUpdatePosition,
-    qualities::QualitiesUpdateSkill,
-    qualities::QualitiesUpdateSkillAc,
-    qualities::QualitiesUpdateSkillLevel,
-    qualities::QualitiesUpdateString,
-    social::AllegianceInfoResponse,
-    social::AllegianceLoginNotification,
-    social::AllegianceUpdate,
-    social::AllegianceUpdateAborted,
-    social::CharacterTitlesMessage,
-    social::FellowshipDisband,
-    social::FellowshipDismiss,
-    social::FellowshipFellowStatsDone,
-    social::FellowshipFellowUpdateDone,
-    social::FellowshipFullUpdate,
-    social::FellowshipQuitNotice,
-    social::FellowshipQuitRequest,
-    social::FellowshipUpdateFellow,
-    social::SocialAddOrSetCharacterTitle,
-    social::SocialFriendsUpdate,
-    social::SocialSendClientContractTracker,
-    social::SocialSendClientContractTrackerTable,
-    trade::BookPageDataResponse,
-    trade::CharacterStartBarber,
-    trade::GameGameOver,
-    trade::GameJoinGameResponse,
-    trade::GameMoveResponse,
-    trade::GameOpponentStalemateState,
-    trade::GameOpponentTurn,
-    trade::GameStartGame,
-    trade::HouseAvailableHouses,
-    trade::HouseDataMessage,
-    trade::HouseHouseStatus,
-    trade::HouseHouseTransaction,
-    trade::HouseProfileMessage,
-    trade::HouseUpdateHar,
-    trade::HouseUpdateRentPayment,
-    trade::HouseUpdateRentTime,
-    trade::HouseUpdateRestrictions,
-    trade::MiscPortalStorm,
-    trade::MiscPortalStormBrewing,
-    trade::MiscPortalStormImminent,
-    trade::MiscPortalStormSubsided,
-    trade::TradeAcceptTradeRecv,
-    trade::TradeAddToTradeRecv,
-    trade::TradeClearTradeAcceptance,
-    trade::TradeCloseTrade,
-    trade::TradeDeclineTradeRecv,
-    trade::TradeOpenTrade,
-    trade::TradeRegisterTrade,
-    trade::TradeRemoveFromTrade,
-    trade::TradeResetTradeRecv,
-    trade::TradeTradeFailure,
-    trade::VendorInfo,
-    trade::WritingBookAddPageResponse,
-    trade::WritingBookDeletePageResponse,
-    trade::WritingBookOpen,
-    turbine::SendToRoomById,
-);
+dereth_protocol::for_each_message!(decoders);
 
 /// What one received message is: its kind (the game-event type inside a `0xF7B0`, else the
 /// opcode), the dereth-protocol type it decoded as, and why it did not decode when it did not.
@@ -334,14 +152,14 @@ fn try_decoders<'a>(
 /// Decodes one received message with dereth-protocol.
 #[must_use]
 pub fn decode(m: &IncomingMessage) -> Decoded {
-    if m.opcode == 0xF7B0 {
+    if m.opcode == proto::OrderedEventHeader::MAGIC {
         let mut blob = m.opcode.to_le_bytes().to_vec();
         blob.extend_from_slice(&m.body);
         let kind = match split_ui_blob(&blob) {
             Ok(split) => split.sub_type.0,
             Err(e) => {
                 return Decoded {
-                    kind: 0xF7B0,
+                    kind: proto::OrderedEventHeader::MAGIC,
                     event: true,
                     result: Err(format!("wrapper: {e:?}")),
                 }
@@ -414,21 +232,22 @@ pub fn all_of<M: Message>(messages: &[IncomingMessage]) -> Vec<M> {
     messages
         .iter()
         .filter_map(|m| {
-            if m.opcode == op && op != 0xF7B0 {
+            if m.opcode == op && op != proto::OrderedEventHeader::MAGIC {
                 return Some(
                     proto::read_body_padded::<M>(&m.body)
                         .unwrap_or_else(|e| panic!("0x{op:04X} decodes: {e:?}")),
                 );
             }
-            if m.opcode != 0xF7B0
-                || m.body.len() < 12
-                || u32::from_le_bytes([m.body[8], m.body[9], m.body[10], m.body[11]]) != op
-            {
+            if m.opcode != proto::OrderedEventHeader::MAGIC {
                 return None;
             }
             let mut blob = m.opcode.to_le_bytes().to_vec();
             blob.extend_from_slice(&m.body);
-            let mut body = split_ui_blob(&blob).expect("a game event").body;
+            let split = split_ui_blob(&blob).ok()?;
+            if split.order.is_none() || split.sub_type.0 != op {
+                return None;
+            }
+            let mut body = split.body;
             Some(M::read(&mut body).unwrap_or_else(|e| panic!("event 0x{op:04X} decodes: {e:?}")))
         })
         .collect()

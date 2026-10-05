@@ -1,6 +1,8 @@
 //! Message structure: opcodes, labels, and where a message names its object. Layouts are the ones
 //! ACE's `GameMessage*` writers produce (`Source/ACE.Server/Network/GameMessages/Messages`).
 
+use dereth_protocol::{events::split_ui_blob, Opcode, OrderedActionHeader, Reader};
+
 /// A little-endian `u32` at `at`, if the payload is long enough.
 #[must_use]
 pub fn u32_at(b: &[u8], at: usize) -> Option<u32> {
@@ -20,35 +22,35 @@ pub fn f32_at(b: &[u8], at: usize) -> Option<f32> {
     u32_at(b, at).map(f32::from_bits)
 }
 
-pub const GAME_EVENT: u32 = 0xF7B0;
-pub const GAME_ACTION: u32 = 0xF7B1;
-pub const CREATE_OBJECT: u32 = 0xF745;
-pub const PLAYER_CREATE: u32 = 0xF746;
-pub const DELETE_OBJECT: u32 = 0xF747;
-pub const UPDATE_POSITION: u32 = 0xF748;
-pub const PARENT_EVENT: u32 = 0xF749;
-pub const SET_STATE: u32 = 0xF74B;
-pub const UPDATE_MOTION: u32 = 0xF74C;
-pub const VECTOR_UPDATE: u32 = 0xF74E;
-pub const PLAYER_TELEPORT: u32 = 0xF751;
-pub const UPDATE_OBJECT: u32 = 0xF7DB;
-pub const LOGOFF: u32 = 0xF653;
-pub const CHARACTER_LIST: u32 = 0xF658;
-pub const CHAR_GEN: u32 = 0xF656;
-pub const CHAR_GEN_RESPONSE: u32 = 0xF643;
-pub const ENTER_WORLD: u32 = 0xF657;
-pub const ENTER_WORLD_REQUEST: u32 = 0xF7C8;
-pub const SERVER_READY: u32 = 0xF7DF;
+pub const GAME_EVENT: u32 = dereth_protocol::OrderedEventHeader::MAGIC;
+pub const GAME_ACTION: u32 = OrderedActionHeader::MAGIC;
+pub const CREATE_OBJECT: u32 = Opcode::ITEM_CREATE_OBJECT.0;
+pub const PLAYER_CREATE: u32 = Opcode::LOGIN_CREATE_PLAYER.0;
+pub const DELETE_OBJECT: u32 = Opcode::ITEM_DELETE_OBJECT.0;
+pub const UPDATE_POSITION: u32 = Opcode::MOVEMENT_POSITION_EVENT.0;
+pub const PARENT_EVENT: u32 = Opcode::ITEM_PARENT_EVENT.0;
+pub const SET_STATE: u32 = Opcode::ITEM_SET_STATE.0;
+pub const UPDATE_MOTION: u32 = Opcode::MOVEMENT_SET_OBJECT_MOVEMENT.0;
+pub const VECTOR_UPDATE: u32 = Opcode::MOVEMENT_VECTOR_UPDATE.0;
+pub const PLAYER_TELEPORT: u32 = Opcode::EFFECTS_PLAYER_TELEPORT.0;
+pub const UPDATE_OBJECT: u32 = Opcode::ITEM_UPDATE_OBJECT.0;
+pub const LOGOFF: u32 = Opcode::LOGIN_EXECUTE_LOG_OFF.0;
+pub const CHARACTER_LIST: u32 = Opcode::LOGIN_LOGIN_CHARACTER_SET.0;
+pub const CHAR_GEN: u32 = Opcode::CHARACTER_SEND_CHAR_GEN_RESULT.0;
+pub const CHAR_GEN_RESPONSE: u32 = Opcode::CHARACTER_CHAR_GEN_VERIFICATION_RESPONSE.0;
+pub const ENTER_WORLD: u32 = Opcode::LOGIN_SEND_ENTER_WORLD.0;
+pub const ENTER_WORLD_REQUEST: u32 = Opcode::LOGIN_SEND_ENTER_WORLD_REQUEST.0;
+pub const SERVER_READY: u32 = Opcode::LOGIN_ENTER_GAME_SERVER_READY.0;
 
-pub const EV_PLAYER_DESCRIPTION: u32 = 0x0013;
-pub const EV_USE_DONE: u32 = 0x01C7;
-pub const EV_UPDATE_HEALTH: u32 = 0x01C0;
+pub const EV_PLAYER_DESCRIPTION: u32 = Opcode::LOGIN_PLAYER_DESCRIPTION.0;
+pub const EV_USE_DONE: u32 = Opcode::ITEM_USE_DONE.0;
+pub const EV_UPDATE_HEALTH: u32 = Opcode::COMBAT_QUERY_HEALTH_RESPONSE.0;
 
-pub const ACT_MOVE_TO_STATE: u32 = 0xF61C;
-pub const ACT_AUTONOMOUS_POSITION: u32 = 0xF753;
-pub const ACT_JUMP: u32 = 0xF61B;
-pub const ACT_LOGIN_COMPLETE: u32 = 0x00A1;
-pub const ACT_CONFIRMATION_RESPONSE: u32 = 0x0275;
+pub const ACT_MOVE_TO_STATE: u32 = Opcode::MOVEMENT_MOVE_TO_STATE.0;
+pub const ACT_AUTONOMOUS_POSITION: u32 = Opcode::MOVEMENT_AUTONOMOUS_POSITION.0;
+pub const ACT_JUMP: u32 = Opcode::MOVEMENT_JUMP.0;
+pub const ACT_LOGIN_COMPLETE: u32 = Opcode::CHARACTER_LOGIN_COMPLETE_NOTIFICATION.0;
+pub const ACT_CONFIRMATION_RESPONSE: u32 = Opcode::CHARACTER_CONFIRMATION_RESPONSE.0;
 
 /// The game-action opcodes whose handlers can end with `UseDone` (`Player.SendUseDoneEvent`):
 /// Use, UseWithTarget, the two casts, and the vendor Buy and Sell.
@@ -62,17 +64,16 @@ pub const PRIVATE_UPDATES: [u32; 12] = [
 /// The game-event type of a `0xF7B0` payload.
 #[must_use]
 pub fn event_type(p: &[u8]) -> Option<u32> {
-    (u32_at(p, 0) == Some(GAME_EVENT))
-        .then(|| u32_at(p, 12))
-        .flatten()
+    let event = split_ui_blob(p).ok()?;
+    event.order.map(|_| event.sub_type.0)
 }
 
 /// The game-action type of a `0xF7B1` payload.
 #[must_use]
 pub fn action_type(p: &[u8]) -> Option<u32> {
-    (u32_at(p, 0) == Some(GAME_ACTION))
-        .then(|| u32_at(p, 8))
-        .flatten()
+    let mut reader = Reader::new(p);
+    OrderedActionHeader::read(&mut reader).ok()?;
+    reader.u32().ok()
 }
 
 /// A client movement action (MoveToState, AutonomousPosition, Jump).

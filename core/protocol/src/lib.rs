@@ -29,6 +29,9 @@
 
 #![doc(html_no_source)]
 
+#[macro_use]
+mod macros;
+
 pub mod actions;
 pub mod admin;
 pub mod archive;
@@ -46,6 +49,7 @@ pub mod order;
 pub mod property;
 pub(crate) mod property_types;
 pub mod qualities;
+mod registry;
 pub mod social;
 pub mod trade;
 pub mod turbine;

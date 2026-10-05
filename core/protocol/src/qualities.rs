@@ -505,33 +505,12 @@ layered_spell_list_message!(
     MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS
 );
 
-/// A message with no body beyond the event type.
-macro_rules! bodyless_message {
-    ($(#[$m:meta])* $name:ident, $op:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub struct $name;
-
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-
-            fn read(_: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self)
-            }
-
-            fn write(&self, _: &mut Writer) -> Result<(), MessageError> {
-                Ok(())
-            }
-        }
-    };
-}
-
-bodyless_message!(
+empty_message!(
     /// `0x02C6 Magic_PurgeEnchantments`.
     MagicPurgeEnchantments,
     MAGIC_PURGE_ENCHANTMENTS
 );
-bodyless_message!(
+empty_message!(
     /// `0x0312 Magic_PurgeBadEnchantments` — drops only the non-`Beneficial` ones.
     MagicPurgeBadEnchantments,
     MAGIC_PURGE_BAD_ENCHANTMENTS

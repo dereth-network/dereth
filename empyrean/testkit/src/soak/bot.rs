@@ -428,17 +428,20 @@ pub struct Bot {
 /// The kind of a received message: the game-event type inside a `0xF7B0`, else the opcode.
 #[must_use]
 pub fn kind(m: &IncomingMessage) -> u32 {
-    if m.opcode == 0xF7B0 && m.body.len() >= 12 {
-        u32::from_le_bytes([m.body[8], m.body[9], m.body[10], m.body[11]])
-    } else {
-        m.opcode
+    if m.opcode == proto::OrderedEventHeader::MAGIC {
+        let mut blob = m.opcode.to_le_bytes().to_vec();
+        blob.extend_from_slice(&m.body);
+        if let Ok(event) = split_ui_blob(&blob) {
+            return event.sub_type.0;
+        }
     }
+    m.opcode
 }
 
 /// Reads a received message as `M` (plain, or a game event), or `None` if it does not decode.
 #[must_use]
 pub fn read<M: Message>(m: &IncomingMessage) -> Option<M> {
-    if m.opcode == 0xF7B0 {
+    if m.opcode == proto::OrderedEventHeader::MAGIC {
         let mut blob = m.opcode.to_le_bytes().to_vec();
         blob.extend_from_slice(&m.body);
         let mut body = split_ui_blob(&blob).ok()?.body;

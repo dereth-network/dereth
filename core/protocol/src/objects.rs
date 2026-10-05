@@ -544,64 +544,40 @@ impl Message for ItemWearItem {
     }
 }
 
-/// A message whose body is a single object id.
-macro_rules! object_id_message {
-    ($(#[$m:meta])* $name:ident, $op:expr, $field:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub struct $name {
-            pub $field: ObjectId,
-        }
-
-        impl Message for $name {
-            const OPCODE: Opcode = $op;
-
-            fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self { $field: ObjectId(r.u32()?) })
-            }
-
-            fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
-                w.u32(self.$field.0);
-                Ok(())
-            }
-        }
-    };
-}
-
-object_id_message!(
+id_message!(
     /// `0x019A Item_ServerSaysMoveItem` — the item leaves your inventory entirely. It is **not**
     /// destroyed; a `0xF745` usually follows for the world instance.
     ItemServerSaysMoveItem,
-    Opcode::ITEM_SERVER_SAYS_MOVE_ITEM,
+    ITEM_SERVER_SAYS_MOVE_ITEM,
     item
 );
 
-object_id_message!(
+id_message!(
     /// `0x0024 Item_ServerSaysRemove` — the only inventory message on the UI queue that is
     /// **unordered**. Everything inside the object is queued for destruction too.
     ItemServerSaysRemove,
-    Opcode::ITEM_SERVER_SAYS_REMOVE,
+    ITEM_SERVER_SAYS_REMOVE,
     object
 );
 
-object_id_message!(
+id_message!(
     /// `0x0052 Item_StopViewingObjectContents`.
     ItemStopViewingObjectContents,
-    Opcode::ITEM_STOP_VIEWING_OBJECT_CONTENTS,
+    ITEM_STOP_VIEWING_OBJECT_CONTENTS,
     object
 );
 
-object_id_message!(
+id_message!(
     /// `0x00C8 Item_Appraise` (C2S) — an ordered game action.
     ItemAppraise,
-    Opcode::ITEM_APPRAISE,
+    ITEM_APPRAISE,
     target
 );
 
-object_id_message!(
+id_message!(
     /// `0x0195 Inventory_NoLongerViewingContents` (C2S).
     InventoryNoLongerViewingContents,
-    Opcode::INVENTORY_NO_LONGER_VIEWING_CONTENTS,
+    INVENTORY_NO_LONGER_VIEWING_CONTENTS,
     container
 );
 

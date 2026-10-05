@@ -2,10 +2,30 @@
 //! require the registry to name them all.
 //!
 //! Two shapes define a message there: a direct `impl Message for Name` at the top level of a
-//! module, and an invocation of a module-local `macro_rules!` whose body implements `Message` for
+//! module, and an invocation of a local or shared `macro_rules!` whose body implements `Message` for
 //! its first argument (for `quality_messages!`, for every `Name = OPCODE` line of the block).
 
 use std::path::Path;
+
+fn declaring_macros(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("macro_rules! ") {
+        let after = &rest[i + "macro_rules! ".len()..];
+        let name: String = after
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        let end = after.find("\n}").unwrap_or(after.len());
+        if after[..end].contains("impl Message for")
+            || after[..end].contains("impl $crate::Message for")
+        {
+            names.push(name);
+        }
+        rest = &after[end..];
+    }
+    names
+}
 
 /// `module::Type` for every message, in file order.
 pub fn message_types(src: &Path) -> Vec<String> {
@@ -16,6 +36,9 @@ pub fn message_types(src: &Path) -> Vec<String> {
         .filter(|p| p.extension().is_some_and(|x| x == "rs"))
         .collect();
     files.sort();
+    let shared =
+        std::fs::read_to_string(src.join("macros.rs")).expect("shared message declarations");
+    let shared_macros = declaring_macros(&shared);
     let mut out = Vec::new();
     for f in files {
         let module = f
@@ -31,20 +54,10 @@ pub fn message_types(src: &Path) -> Vec<String> {
             .split("\n#[cfg(test)]\nmod tests")
             .next()
             .unwrap_or_default();
-        let mut macros = Vec::new();
-        let mut rest = text;
-        while let Some(i) = rest.find("macro_rules! ") {
-            let after = &rest[i + "macro_rules! ".len()..];
-            let name: String = after
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_')
-                .collect();
-            let end = after.find("\n}").unwrap_or(after.len());
-            if after[..end].contains("impl Message for") {
-                macros.push(name);
-            }
-            rest = &after[end..];
-        }
+        let mut macros = declaring_macros(text);
+        macros.extend(shared_macros.iter().cloned());
+        macros.sort();
+        macros.dedup();
         for line in text.split('\n') {
             if let Some(t) = line.strip_prefix("impl Message for ") {
                 let name: String = t

@@ -143,63 +143,43 @@ targeted_attack!(
     COMBAT_TARGETED_MISSILE_ATTACK
 );
 
-macro_rules! empty_body {
-    ($(#[$m:meta])* $name:ident, $op:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub struct $name;
-
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-
-            fn read(_: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self)
-            }
-
-            fn write(&self, _: &mut Writer) -> Result<(), MessageError> {
-                Ok(())
-            }
-        }
-    };
-}
-
-empty_body!(
+empty_message!(
     /// `0x01B7 Combat_CancelAttack` (C2S) — no payload.
     CombatCancelAttack,
     COMBAT_CANCEL_ATTACK
 );
-empty_body!(
+empty_message!(
     /// `0x01B8 Combat_HandleCommenceAttackEvent` (S2C) — no payload. It increments the UI busy
     /// count, so a server that sends it must eventually send `0x01A7`.
     CombatHandleCommenceAttackEvent,
     COMBAT_HANDLE_COMMENCE_ATTACK_EVENT
 );
-empty_body!(
+empty_message!(
     /// `0x0026 Character_TeleToPKLArena`.
     CharacterTeleToPklArena,
     CHARACTER_TELE_TO_PKLARENA
 );
-empty_body!(
+empty_message!(
     /// `0x0027 Character_TeleToPKArena`.
     CharacterTeleToPkArena,
     CHARACTER_TELE_TO_PKARENA
 );
-empty_body!(
+empty_message!(
     /// `0x028F Character_EnterPKLite` — the server answers with a confirmation request.
     CharacterEnterPkLite,
     CHARACTER_ENTER_PKLITE
 );
-empty_body!(
+empty_message!(
     /// `0x0279 Character_Suicide` — the client shows its own confirmation dialog first.
     CharacterSuicide,
     CHARACTER_SUICIDE
 );
-empty_body!(
+empty_message!(
     /// `0x0063 Character_TeleToLifestone`.
     CharacterTeleToLifestone,
     CHARACTER_TELE_TO_LIFESTONE
 );
-empty_body!(
+empty_message!(
     /// `0x028D Character_TeleToMarketplace`.
     CharacterTeleToMarketplace,
     CHARACTER_TELE_TO_MARKETPLACE
@@ -359,29 +339,6 @@ impl Message for DefenderNotification {
         w.u32(self.attack_conditions_high);
         Ok(())
     }
-}
-
-/// A message whose body is one length-prefixed narrow string.
-macro_rules! string_message {
-    ($(#[$m:meta])* $name:ident, $op:ident, $field:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, PartialEq, Eq, Default)]
-        pub struct $name {
-            pub $field: String,
-        }
-
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-
-            fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self { $field: r.pstring()? })
-            }
-
-            fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
-                w.pstring(&self.$field)
-            }
-        }
-    };
 }
 
 string_message!(

@@ -179,32 +179,11 @@ impl Message for LoginWorldInfo {
     }
 }
 
-/// A message whose body is empty — the opcode dword is the whole blob.
-macro_rules! empty_message {
-    ($(#[$m:meta])* $name:ident, $op:expr) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub struct $name;
-
-        impl Message for $name {
-            const OPCODE: Opcode = $op;
-
-            fn read(_: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self)
-            }
-
-            fn write(&self, _: &mut Writer) -> Result<(), MessageError> {
-                Ok(())
-            }
-        }
-    };
-}
-
 empty_message!(
     /// `0xF7C8 Login_SendEnterWorldRequest` (C2S).
     /// A bare 4-byte body on the Logon queue; the first half of the two-step enter-world exchange.
     LoginSendEnterWorldRequest,
-    Opcode::LOGIN_SEND_ENTER_WORLD_REQUEST
+    LOGIN_SEND_ENTER_WORLD_REQUEST
 );
 
 empty_message!(
@@ -212,7 +191,7 @@ empty_message!(
     /// leaves the retail client stuck at "connecting" with no timeout of its own; the 110 s
     /// `ServerDied` timer keys off `0x0013`, not this.
     LoginEnterGameServerReady,
-    Opcode::LOGIN_ENTER_GAME_SERVER_READY
+    LOGIN_ENTER_GAME_SERVER_READY
 );
 
 empty_message!(
@@ -223,20 +202,20 @@ empty_message!(
     /// (the login-complete gate). The reference server consumes this notification as the signal
     /// that it may complete the player's login.
     CharacterLoginCompleteNotification,
-    Opcode::CHARACTER_LOGIN_COMPLETE_NOTIFICATION
+    CHARACTER_LOGIN_COMPLETE_NOTIFICATION
 );
 
 empty_message!(
     /// `0xF653 Login_ExecuteLogOff`, **server to client**: the body is only the opcode.
     /// See [`LoginExecuteLogOffRequest`] for the client's side, which carries the character id.
     LoginExecuteLogOff,
-    Opcode::LOGIN_EXECUTE_LOG_OFF
+    LOGIN_EXECUTE_LOG_OFF
 );
 
 empty_message!(
     /// `0xF655 Character_CharacterDelete`, **server to client**: the body is only the opcode.
     CharacterDeleteAck,
-    Opcode::CHARACTER_CHARACTER_DELETE
+    CHARACTER_CHARACTER_DELETE
 );
 
 /// `0xF653 Login_ExecuteLogOff`, **client to server** —,

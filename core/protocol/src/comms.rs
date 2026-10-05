@@ -14,53 +14,6 @@ use crate::opcodes::Opcode;
 use crate::Message;
 use dereth_primitives::ObjectId;
 
-/// A message whose body is one length-prefixed narrow string.
-macro_rules! string_message {
-    ($(#[$m:meta])* $name:ident, $op:ident, $field:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, PartialEq, Eq, Default)]
-        pub struct $name {
-            pub $field: String,
-        }
-
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-
-            fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self { $field: r.pstring()? })
-            }
-
-            fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
-                w.pstring(&self.$field)
-            }
-        }
-    };
-}
-
-/// A message whose body is one dword.
-macro_rules! dword_message {
-    ($(#[$m:meta])* $name:ident, $op:ident, $field:ident, $ty:ty, $rd:ident, $wr:ident) => {
-        $(#[$m])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-        pub struct $name {
-            pub $field: $ty,
-        }
-
-        impl Message for $name {
-            const OPCODE: Opcode = Opcode::$op;
-
-            fn read(r: &mut Reader<'_>) -> Result<Self, MessageError> {
-                Ok(Self { $field: r.$rd()? })
-            }
-
-            fn write(&self, w: &mut Writer) -> Result<(), MessageError> {
-                w.$wr(self.$field);
-                Ok(())
-            }
-        }
-    };
-}
-
 // ---------------------------------------------------------------------------------------------
 // Client → server
 // ---------------------------------------------------------------------------------------------
@@ -90,7 +43,7 @@ string_message!(
     message
 );
 
-dword_message!(
+scalar_message!(
     /// `0x000F Communication_SetAFKMode`.
     CommunicationSetAfkMode,
     COMMUNICATION_SET_AFKMODE,
@@ -99,7 +52,7 @@ dword_message!(
     i32,
     i32
 );
-dword_message!(
+scalar_message!(
     /// `0x0145 Communication_AddToChannel`.
     CommunicationAddToChannel,
     COMMUNICATION_ADD_TO_CHANNEL,
@@ -108,7 +61,7 @@ dword_message!(
     u32,
     u32
 );
-dword_message!(
+scalar_message!(
     /// `0x0146 Communication_RemoveFromChannel`.
     CommunicationRemoveFromChannel,
     COMMUNICATION_REMOVE_FROM_CHANNEL,
@@ -117,7 +70,7 @@ dword_message!(
     u32,
     u32
 );
-dword_message!(
+scalar_message!(
     /// `0x0148 Communication_ChannelList`, **client to server**: which channel to list.
     CommunicationChannelListRequest,
     COMMUNICATION_CHANNEL_LIST,
@@ -524,7 +477,7 @@ string_message!(
     message
 );
 
-dword_message!(
+scalar_message!(
     /// `0x028A Communication_WeenieError` — the numeric code only.
     ///
     /// The English text lives in the client's own switch; resolve it through the string table
