@@ -53,9 +53,28 @@ pub enum MouseButton {
     Other(u16),
 }
 
-/// A physical key supported by the message tables, independent of the window system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeyCode {
+macro_rules! key_codes {
+    ($($name:ident),+ $(,)?) => {
+        /// A physical key supported by the message tables, independent of the window system.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum KeyCode {
+            $($name),+
+        }
+
+        impl KeyCode {
+            /// Resolve an exact physical key name, as supplied by a host's code-name field.
+            #[must_use]
+            pub fn from_code_name(name: &str) -> Option<Self> {
+                match name {
+                    $(stringify!($name) => Some(Self::$name),)+
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+key_codes! {
     AltLeft,
     AltRight,
     ArrowDown,
