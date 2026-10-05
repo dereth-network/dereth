@@ -765,7 +765,7 @@ impl ClassicUi {
             self.desktop.focus_control("");
             return;
         }
-        if event.action.0 == dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE
+        if event.action == dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE
             && event.start
             && self.chat_recall()
         {
@@ -915,13 +915,15 @@ impl ClassicUi {
         cx: &mut Cx<'_, S>,
         action: dereth_client_contract::actions::Action,
     ) {
-        use dereth_client_contract::actions::{chat_entry, dereth as own, names};
-        let id = action.id.0;
+        use dereth_client_contract::actions::{
+            camera, chat_entry, dereth as own, names, quickslot,
+        };
+        let id = action.id;
         let start = action.is_start();
         let quiet = self.desktop.modal_open();
         // The mouse look key and the keys that flip one of this interface's settings.
         let host_command = match id {
-            0x3D => Some("ShiftView"),
+            camera::TOGGLE_MOUSELOOK => Some("ShiftView"),
             own::PLAYER_OPTION_AUTO_CREATE_SHORTCUTS => Some("AutoCreateShortcuts"),
             own::TOGGLE_INVERT_MOUSE_LOOK => Some("InvertMouseLook"),
             own::TOGGLE_RIGHT_CLICK_MOUSE_LOOK => Some("RightClickToMouseLook"),
@@ -940,10 +942,7 @@ impl ClassicUi {
             return;
         }
         let name = names::enum_name_for_action(action.id);
-        let shortcut = name
-            .strip_prefix("UseQuickSlot_")
-            .and_then(|n| n.parse::<u32>().ok())
-            .filter(|n| (1..=9).contains(n));
+        let shortcut = quickslot::classic_number(id);
         match id {
             _ if !start => {}
             _ if shortcut.is_some() => {
@@ -951,7 +950,7 @@ impl ClassicUi {
                     self.use_shortcut(cx, shortcut.unwrap_or(1) - 1);
                 }
             }
-            0x1000_010D if !quiet => self.create_shortcut(cx),
+            quickslot::CREATE if !quiet => self.create_shortcut(cx),
             own::CANCEL => self.inputs.push(Input::Key {
                 key: crate::widgets::Key::Escape,
                 shift: false,
@@ -959,7 +958,7 @@ impl ClassicUi {
             own::REPEAT_LAST_MESSAGE => {}
             own::TOGGLE_TRADE_PANEL => self.ui_actions.push("TradePanel".into()),
             own::TOGGLE_SPELL_RESEARCH_PANEL => self.ui_actions.push("SpellResearchPanel".into()),
-            _ if (id == chat_entry::BEGIN_CHAT_MODE.0 || id == chat_entry::TOGGLE_CHAT_ENTRY.0)
+            _ if (id == chat_entry::BEGIN_CHAT_MODE || id == chat_entry::TOGGLE_CHAT_ENTRY)
                 && quiet => {}
             _ if is_ui_action(&name) => self.ui_actions.push(name.clone()),
             _ => {}
@@ -2016,7 +2015,7 @@ impl ClassicUi {
             self.desktop.tick(&context);
             // The combat bar shows in melee and missile combat, unless the "advanced combat
             // interface" character option hides it.
-            let advanced_combat = self.classic.option_words[0] & 0x1000 != 0;
+            let advanced_combat = self.classic.advanced_combat_ui();
             if self.last_in_world {
                 match context.game.combat_mode() {
                     2 | 4 if advanced_combat => {
@@ -2766,15 +2765,12 @@ fn is_ui_action(name: &str) -> bool {
 
 /// The actions this interface answers itself and the game is not to see: the shortcut bar's
 /// keys, the help key, and this interface's cancel, repeat-message, trade and research keys.
-fn is_interface_action(id: u32) -> bool {
-    use dereth_client_contract::actions::dereth as own;
-    let name = dereth_client_contract::actions::names::enum_name_for_action(
-        dereth_client_contract::actions::ActionId(id),
-    );
-    name.starts_with("UseQuickSlot_")
+fn is_interface_action(id: dereth_client_contract::actions::ActionId) -> bool {
+    use dereth_client_contract::actions::{dereth as own, quickslot};
+    quickslot::number(id).is_some()
         || matches!(
             id,
-            0x1000_010D
+            quickslot::CREATE
                 | own::CANCEL
                 | own::REPEAT_LAST_MESSAGE
                 | own::TOGGLE_TRADE_PANEL

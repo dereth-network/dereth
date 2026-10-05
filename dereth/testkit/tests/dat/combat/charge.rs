@@ -9,8 +9,8 @@ use super::*;
 
 /// A click starts a charge; the swing comes on the frame the bar reaches the gauge setting.
 pub(super) fn one_click_charges_the_bar_and_swings_when_it_fills() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::PowerBarMode;
-    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = Bench::new();
     let gauge_starts_half_way = (b.combat().ui_requested_power - 0.5).abs() < 1e-9;
@@ -18,8 +18,8 @@ pub(super) fn one_click_charges_the_bar_and_swings_when_it_fills() {
     // The click: press and release in the same frame.
     b.frame(
         vec![
-            key(ia::COMBAT_MEDIUM_ATTACK, true),
-            key(ia::COMBAT_MEDIUM_ATTACK, false),
+            key(ia::COMBAT_MEDIUM_ATTACK.0, true),
+            key(ia::COMBAT_MEDIUM_ATTACK.0, false),
         ],
         10.0,
     );
@@ -65,11 +65,11 @@ pub(super) fn one_click_charges_the_bar_and_swings_when_it_fills() {
 
 /// Held, the bar charges past the gauge to full and fires nothing; the release swings.
 pub(super) fn a_held_control_charges_to_full_and_swings_on_release() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::AttackHeight;
-    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = Bench::new();
-    b.frame(vec![key(ia::COMBAT_LOW_ATTACK, true)], 50.0);
+    b.frame(vec![key(ia::COMBAT_LOW_ATTACK.0, true)], 50.0);
     let asks_for_full_power = (b.combat().requested_attack_power - 1.0).abs() < 1e-9;
 
     // Well past the gauge setting and past full charge. A client that fired on arrival regardless
@@ -81,7 +81,7 @@ pub(super) fn a_held_control_charges_to_full_and_swings_on_release() {
     }
     let saturates_at_full = (b.combat().latest_power_bar_level - 1.0).abs() < 1e-9;
 
-    b.frame(vec![key(ia::COMBAT_LOW_ATTACK, false)], 52.1);
+    b.frame(vec![key(ia::COMBAT_LOW_ATTACK.0, false)], 52.1);
     // **Two**, and it is the client's: the release swings at the level reached and again clamped
     // to the gauge setting. That is what makes a hold and a click tellable apart.
     let release_swings =
@@ -96,16 +96,16 @@ pub(super) fn a_held_control_charges_to_full_and_swings_on_release() {
 
 /// The window's two messages and the key's two edges start the very same charge.
 pub(super) fn the_button_and_the_key_start_the_same_charge() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::AttackHeight;
-    use dereth_client_runtime::interaction::action as ia;
     use dereth_ui_screens::view::UiRequest;
 
     let by_key = {
         let mut b = Bench::new();
         b.frame(
             vec![
-                key(ia::COMBAT_HIGH_ATTACK, true),
-                key(ia::COMBAT_HIGH_ATTACK, false),
+                key(ia::COMBAT_HIGH_ATTACK.0, true),
+                key(ia::COMBAT_HIGH_ATTACK.0, false),
             ],
             10.0,
         );

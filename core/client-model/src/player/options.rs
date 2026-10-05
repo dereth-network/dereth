@@ -145,6 +145,34 @@ pub mod option {
     /// Whether player-killer death broadcasts are shown. Off drops a system line that carries
     /// the death tag; on shows the line with the tag removed. On by default (second word bit 25).
     pub const HEAR_PK_DEATHS: usize = 52;
+    pub const USE_DECEPTION: usize = 9;
+    pub const VIVID_TARGETING_INDICATOR: usize = 14;
+    pub const FELLOWSHIP_SHARE_XP: usize = 15;
+    pub const ACCEPT_LOOT_PERMITS: usize = 16;
+    pub const FELLOWSHIP_SHARE_LOOT: usize = 17;
+    pub const SIDE_BY_SIDE_VITALS: usize = 19;
+    pub const COORDINATES_ON_RADAR: usize = 20;
+    pub const SPELL_DURATION: usize = 21;
+    pub const DISPLAY_ALLEGIANCE_LOGON_NOTIFICATIONS: usize = 24;
+    pub const USE_CHARGE_ATTACK: usize = 25;
+    pub const HEAR_ALLEGIANCE_CHAT: usize = 27;
+    pub const DISPLAY_DATE_OF_BIRTH: usize = 28;
+    pub const DISPLAY_AGE: usize = 29;
+    pub const DISPLAY_CHESS_RANK: usize = 30;
+    pub const DISPLAY_FISHING_SKILL: usize = 31;
+    pub const DISPLAY_NUMBER_DEATHS: usize = 32;
+    pub const HEAR_GENERAL_CHAT: usize = 35;
+    pub const HEAR_TRADE_CHAT: usize = 36;
+    pub const HEAR_LFG_CHAT: usize = 37;
+    pub const HEAR_ROLEPLAY_CHAT: usize = 38;
+    pub const APPEAR_OFFLINE: usize = 39;
+    pub const DISPLAY_NUMBER_CHARACTER_TITLES: usize = 40;
+    pub const LEAD_MISSILE_TARGETS: usize = 42;
+    pub const USE_FAST_MISSILES: usize = 43;
+    pub const HEAR_SOCIETY_CHAT: usize = 46;
+    pub const SHOW_HELM: usize = 47;
+    pub const USE_MOUSE_TURNING: usize = 49;
+    pub const SHOW_CLOAK: usize = 50;
 }
 
 /// The default first character-options word.

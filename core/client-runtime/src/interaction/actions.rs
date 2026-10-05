@@ -138,7 +138,7 @@ impl Interaction {
             // event in `NonCombat` and `Melee` and asserts both answers. New action tests
             // must set `combat.combat_mode`; refusal tests also need a reachable positive
             // case, or silence proves nothing.
-            if e.id.0 == action::COMBAT_TOGGLE_COMBAT {
+            if e.id == action::COMBAT_TOGGLE_COMBAT {
                 if e.is_start() {
                     self.pending_combat_toggle = true;
                 }
@@ -157,7 +157,7 @@ impl Interaction {
             if handled {
                 continue;
             }
-            match e.id.0 {
+            match e.id {
                 // ---- no start-flag gate on USE and EXAMINE --------------------------------------
                 //
                 // The UI action handler owns both actions. Its dispatch subtracts the radar
@@ -814,8 +814,8 @@ impl Interaction {
                 // the same setter the Character Options page uses, so the change hook, the
                 // fellowship exclusions and the save-at-once split all apply. Lock-UI has an
                 // action name but no arm, and falls through unhandled.
-                id if player_option_action(id).is_some() => {
-                    if let Some(ordinal) = player_option_action(id) {
+                id if player_option_action(id.0).is_some() => {
+                    if let Some(ordinal) = player_option_action(id.0) {
                         self.toggle_player_option(game, &mut req, ordinal, srv);
                     }
                 }
@@ -958,7 +958,7 @@ impl Interaction {
                 // Escape with nothing selected toggles the gameplay options panel. `App`
                 // performs the UI operation; a missing manager consumes the action without
                 // opening anything, corresponding here to a request with no host drain.
-                self.visibility_toggle_requested = Some(action::TOGGLE_GAMEPLAY_OPTIONS_PANEL);
+                self.visibility_toggle_requested = Some(action::TOGGLE_GAMEPLAY_OPTIONS_PANEL.0);
                 self.stats.escape_options_toggles += 1;
             } else {
                 // Mark the target as willingly lost. **This is the only writer of `true` in
@@ -1035,7 +1035,7 @@ impl Interaction {
         // The release table: the same six actions, and only those six.
         if !e.is_start() {
             if !matches!(
-                e.id.0,
+                e.id,
                 action::COMBAT_LOW_ATTACK
                     | action::COMBAT_MEDIUM_ATTACK
                     | action::COMBAT_HIGH_ATTACK
@@ -1056,7 +1056,7 @@ impl Interaction {
             }
             return true;
         }
-        match e.id.0 {
+        match e.id {
             // The gauge. `CombatIncreaseAttackPower` and `CombatIncreaseMissileAccuracy` are the
             // increase arm (action ids `0x1000005C` / `0x100000F0`); the
             // other two step down. The desired-attack-power-changed notice is the
@@ -1127,7 +1127,7 @@ impl Interaction {
         if !e.is_start() {
             return false;
         }
-        let n = match e.id.0 {
+        let n = match e.id {
             action::COMBAT_CAST_CURRENT_SPELL => N::CastCurrentSpell,
             action::COMBAT_PREV_SPELL => N::PrevSpellSelection,
             action::COMBAT_NEXT_SPELL => N::NextSpellSelection,
@@ -1140,7 +1140,7 @@ impl Interaction {
             a if (action::USE_SPELL_SLOT_FIRST..=action::USE_SPELL_SLOT_LAST).contains(&a) => {
                 // The slot is `action - 0x10000065`.
                 N::CastQuickslotSpell {
-                    slot: (a - action::USE_SPELL_SLOT_FIRST) as usize,
+                    slot: (a.0 - action::USE_SPELL_SLOT_FIRST.0) as usize,
                 }
             }
             _ => return false,

@@ -45,7 +45,7 @@ use crate::common::client_dir;
 
 use std::path::{Path, PathBuf};
 
-use dereth_client_runtime::interaction::action as ia;
+use dereth_client_contract::actions::mapped as ia;
 
 /// A disposable directory standing in for the default preferences file's directory.
 fn scratch(tag: &str) -> PathBuf {
@@ -79,7 +79,7 @@ fn app_in_gameplay(prefs_dir: &Path) -> dereth_client::app::App {
 /// synthesize an OS key press.
 fn press_screenshot(app: &mut dereth_client::app::App) {
     let e = dereth_input::InputEvent {
-        action: dereth_input::ActionId(ia::CAPTURE_SCREENSHOT),
+        action: dereth_input::ActionId(ia::CAPTURE_SCREENSHOT.0),
         input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,
         extent: 1.0,
@@ -122,7 +122,7 @@ fn the_shipped_numpad_star_resolves_to_capture_screenshot() {
     let km = &shell.manager.keymap;
     let ui_commands = InputMapId(0x1000_0009);
     let section = km.section(ui_commands).expect("the UICommands section");
-    let mut keys = section.keys_for_action(ActionId(ia::CAPTURE_SCREENSHOT));
+    let mut keys = section.keys_for_action(ActionId(ia::CAPTURE_SCREENSHOT.0));
     assert_eq!(keys.len(), 1, "one shipped default binding");
     let qc = keys.pop().expect("one");
     assert_eq!(
@@ -140,7 +140,7 @@ fn the_shipped_numpad_star_resolves_to_capture_screenshot() {
     let hit = walk_input_maps(&stack, &live, true, |m| km.section(m)).expect("reaches dispatch");
     assert_eq!(
         (hit.input_map, hit.action),
-        (ui_commands, ActionId(ia::CAPTURE_SCREENSHOT)),
+        (ui_commands, ActionId(ia::CAPTURE_SCREENSHOT.0)),
         "the resolved shipped binding must reach action 0x55 through UICommands, not a shadow"
     );
 }

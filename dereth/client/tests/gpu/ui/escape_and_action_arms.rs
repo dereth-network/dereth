@@ -46,8 +46,7 @@ use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::Gpu;
 use dereth_ui_screens::view::UiRequest;
 use {
-    dereth_client_runtime::interaction::action as ia,
-    dereth_client_runtime::interaction::Interaction,
+    dereth_client_contract::actions::mapped as ia, dereth_client_runtime::interaction::Interaction,
     dereth_client_runtime::interaction::TargetMode,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
@@ -265,7 +264,7 @@ fn a_click_with_a_target_mode_up_arms_the_leave_flag_and_the_frame_tail_drops_th
     // mode.
     let mut b = Bench::new();
     b.arm_use_cursor();
-    b.click(ia::SELECT_LEFT, true);
+    b.click(ia::SELECT_LEFT.0, true);
     b.frame();
     assert_eq!(
         b.s().leave_target_mode_armed,
@@ -285,7 +284,7 @@ fn a_click_with_a_target_mode_up_arms_the_leave_flag_and_the_frame_tail_drops_th
 
     // (b) the same press with **no** target mode: the target-mode test returns.
     let mut b = Bench::new();
-    b.click(ia::SELECT_LEFT, true);
+    b.click(ia::SELECT_LEFT.0, true);
     b.frame();
     assert_eq!(
         b.s().leave_target_mode_armed,
@@ -297,7 +296,7 @@ fn a_click_with_a_target_mode_up_arms_the_leave_flag_and_the_frame_tail_drops_th
     // (c) the **release** edge with the cursor armed: the event-start test returns.
     let mut b = Bench::new();
     b.arm_use_cursor();
-    b.click(ia::SELECT_LEFT, false);
+    b.click(ia::SELECT_LEFT.0, false);
     b.frame();
     assert_eq!(
         b.s().leave_target_mode_armed,
@@ -313,7 +312,7 @@ fn a_click_with_a_target_mode_up_arms_the_leave_flag_and_the_frame_tail_drops_th
     // (d) the right button shares the arm: the index table sends 0x07 and 0x08 to one target.
     let mut b = Bench::new();
     b.arm_use_cursor();
-    b.click(ia::SELECT_RIGHT, true);
+    b.click(ia::SELECT_RIGHT.0, true);
     b.frame();
     assert_eq!(
         b.s().leave_target_mode_armed,
@@ -351,7 +350,7 @@ fn escape_finishes_a_jump_before_it_looks_at_anything_else() {
         "premise: jump power is strictly positive while jumping"
     );
 
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(b.s().escape_finish_jumps, 1, "the finish-jump leg ran");
     assert!(
         !b.objects.world.combat.jump_pending,
@@ -387,7 +386,7 @@ fn escape_cancels_the_target_cursor_before_it_drops_the_target() {
     );
     b.arm_use_cursor();
 
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(
         b.s().escape_target_mode_clears,
         1,
@@ -418,7 +417,7 @@ fn escape_cancels_the_target_cursor_before_it_drops_the_target() {
 fn escape_with_nothing_selected_asks_for_the_gameplay_options_panel() {
     let mut b = Bench::new();
     assert_eq!(b.objects.world.selected, None, "premise: nothing selected");
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(
         b.s().escape_options_toggles,
         1,
@@ -426,7 +425,7 @@ fn escape_with_nothing_selected_asks_for_the_gameplay_options_panel() {
     );
     assert_eq!(
         b.inter.take_visibility_toggle(),
-        Some(ia::TOGGLE_GAMEPLAY_OPTIONS_PANEL),
+        Some(ia::TOGGLE_GAMEPLAY_OPTIONS_PANEL.0),
         "it asked for action 0x1000001B, the gameplay-options toggle"
     );
     assert_eq!(b.s().escape_deselects, 0, "there was nothing to deselect");
@@ -454,7 +453,7 @@ fn escape_with_a_target_drops_it_and_marks_the_loss_as_willing() {
         "premise: the flag starts clear"
     );
 
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(
         b.s().escape_deselects,
         1,
@@ -491,7 +490,7 @@ fn escape_while_moving_stops_the_body_and_prints_action_interrupted() {
     );
     b.stand_still(false);
 
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(
         b.s().escape_stops,
         1,
@@ -527,7 +526,7 @@ fn escape_while_moving_stops_the_body_and_prints_action_interrupted() {
         &mut dereth_client_model::RecordingSink::default(),
     );
     b.stand_still(true);
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(b.s().escape_stops, 0, "standing still: no stop");
     assert_eq!(b.s().escape_interrupts, 0, "and no line");
     assert_eq!(b.s().escape_deselects, 1, "the cascade ran instead");
@@ -561,7 +560,7 @@ fn escape_during_an_automatic_attack_aborts_it_without_printing() {
         "premise: repeat attack is in progress"
     );
 
-    b.press(ia::ESCAPE_KEY);
+    b.press(ia::ESCAPE_KEY.0);
     assert_eq!(
         b.s().escape_stops,
         1,
@@ -602,7 +601,7 @@ fn escape_no_longer_falls_through_the_action_dispatch() {
         let mut b = Bench::new();
         b.stand_still(still);
         assert_eq!(
-            b.deliver(vec![ia::ESCAPE_KEY]),
+            b.deliver(vec![ia::ESCAPE_KEY.0]),
             0,
             "still={still}: the arm consumed it rather than leaving it for the next handler"
         );
@@ -624,7 +623,7 @@ fn the_screenshot_key_asks_for_one_and_is_consumed() {
         !b.inter.take_screenshot_request(),
         "premise: nothing is pending"
     );
-    b.press(ia::CAPTURE_SCREENSHOT);
+    b.press(ia::CAPTURE_SCREENSHOT.0);
     assert_eq!(
         b.s().screenshots_requested,
         1,
@@ -654,9 +653,9 @@ fn the_screenshot_key_asks_for_one_and_is_consumed() {
 #[test]
 fn the_help_key_reaches_its_arm_rather_than_falling_through() {
     let mut b = Bench::new();
-    b.press(ia::TOGGLE_HELP);
+    b.press(ia::TOGGLE_HELP.0);
     assert_eq!(b.s().help_opens, 1);
-    b.press(ia::TOGGLE_HELP);
+    b.press(ia::TOGGLE_HELP.0);
     assert_eq!(
         b.s().help_opens,
         2,
@@ -685,14 +684,14 @@ fn the_plugin_manager_key_is_a_toggle_and_not_a_set() {
         "premise: the plugin manager starts closed"
     );
 
-    b.press(ia::TOGGLE_PLUGIN_MANAGER);
+    b.press(ia::TOGGLE_PLUGIN_MANAGER.0);
     assert!(b.inter.plugin_manager_open(), "press 1 opened it");
     assert_eq!(
         (b.s().plugin_manager_opens, b.s().plugin_manager_closes),
         (1, 0)
     );
 
-    b.press(ia::TOGGLE_PLUGIN_MANAGER);
+    b.press(ia::TOGGLE_PLUGIN_MANAGER.0);
     assert!(
         !b.inter.plugin_manager_open(),
         "press 2 closed the plugin manager"
@@ -702,7 +701,7 @@ fn the_plugin_manager_key_is_a_toggle_and_not_a_set() {
         (1, 1)
     );
 
-    b.press(ia::TOGGLE_PLUGIN_MANAGER);
+    b.press(ia::TOGGLE_PLUGIN_MANAGER.0);
     assert!(b.inter.plugin_manager_open(), "press 3 opened it again");
     assert_eq!(
         (b.s().plugin_manager_opens, b.s().plugin_manager_closes),
@@ -730,11 +729,11 @@ fn the_radar_key_toggles_a_flag_that_starts_true() {
         "the constructor's `= true`, not `bool::default()`"
     );
 
-    b.press(ia::TOGGLE_RADAR_PANEL);
+    b.press(ia::TOGGLE_RADAR_PANEL.0);
     assert!(!b.inter.radar_visible(), "press 1 flips it off");
     assert_eq!(b.s().radar_visibility_notices, 1, "and sent the notice");
 
-    b.press(ia::TOGGLE_RADAR_PANEL);
+    b.press(ia::TOGGLE_RADAR_PANEL.0);
     assert!(
         b.inter.radar_visible(),
         "press 2 flips it back: a toggle, not a set"
@@ -819,7 +818,7 @@ fn the_screenshot_arm_reaches_the_device_and_writes_the_chat_line() {
     );
     let before = app.objects().world.scroll.added;
 
-    inject(&mut app, ia::CAPTURE_SCREENSHOT);
+    inject(&mut app, ia::CAPTURE_SCREENSHOT.0);
 
     let (.., saved, failed) = app.probe().action_arm_host_stats();
     assert_eq!(saved + failed, 1, "the drain ran exactly once");
@@ -877,7 +876,7 @@ fn escapes_options_leg_reaches_the_live_ui_tree() {
     );
 
     let before = visibility_snapshot(&mut app);
-    inject(&mut app, ia::ESCAPE_KEY);
+    inject(&mut app, ia::ESCAPE_KEY.0);
     let moved = flips(&before, &visibility_snapshot(&mut app));
 
     let (dispatched, answered, ..) = app.probe().action_arm_host_stats();

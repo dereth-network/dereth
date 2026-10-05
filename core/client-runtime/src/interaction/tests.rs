@@ -248,12 +248,12 @@ fn the_four_stance_icons_are_the_ids_the_toolbar_names() {
 #[test]
 fn the_action_ids_are_the_ones_the_shipped_action_map_names() {
     let name = |a: u32| crate::actions::names::enum_name_for_action(crate::actions::ActionId(a));
-    assert_eq!(name(action::COMBAT_TOGGLE_COMBAT), "CombatToggleCombat");
-    assert_eq!(name(action::COMBAT_LOW_ATTACK), "CombatLowAttack");
-    assert_eq!(name(action::COMBAT_MEDIUM_ATTACK), "CombatMediumAttack");
-    assert_eq!(name(action::COMBAT_HIGH_ATTACK), "CombatHighAttack");
-    assert_eq!(name(action::SELECTION_EXAMINE), "SelectionExamine");
-    assert_eq!(name(action::USE), "USE");
+    assert_eq!(name(action::COMBAT_TOGGLE_COMBAT.0), "CombatToggleCombat");
+    assert_eq!(name(action::COMBAT_LOW_ATTACK.0), "CombatLowAttack");
+    assert_eq!(name(action::COMBAT_MEDIUM_ATTACK.0), "CombatMediumAttack");
+    assert_eq!(name(action::COMBAT_HIGH_ATTACK.0), "CombatHighAttack");
+    assert_eq!(name(action::SELECTION_EXAMINE.0), "SelectionExamine");
+    assert_eq!(name(action::USE.0), "USE");
 }
 
 /// Oracle: `SplitState`'s contract: `split_size == max_split_size` means *move everything*;
@@ -555,7 +555,7 @@ fn the_select_self_give_drop_and_main_pack_keys_act_on_the_selection() {
     };
 
     game.selected = Some(ROCK);
-    press(&mut game, action::SELECTION_SELF);
+    press(&mut game, action::SELECTION_SELF.0);
     assert_eq!(
         game.selected,
         Some(PLAYER),
@@ -564,12 +564,12 @@ fn the_select_self_give_drop_and_main_pack_keys_act_on_the_selection() {
 
     // The main pack: the player has no room in it, and says so.
     game.selected = Some(ROCK);
-    assert!(press(&mut game, action::SELECTION_MOVE_TO_MAIN_PACK).is_empty());
+    assert!(press(&mut game, action::SELECTION_MOVE_TO_MAIN_PACK.0).is_empty());
     assert!(said(&game, "is completely full!"));
 
     game.selected = Some(COAT);
     game.prev_selected = Some(GUARD);
-    let sent = press(&mut game, action::SELECTION_GIVE);
+    let sent = press(&mut game, action::SELECTION_GIVE.0);
     assert!(
         sent.iter().any(
             |r| matches!(r, Request::GiveObjectRequest(g) if g.item == COAT
@@ -585,14 +585,14 @@ fn the_select_self_give_drop_and_main_pack_keys_act_on_the_selection() {
 
     game.selected = Some(COAT);
     game.prev_selected = Some(ROCK);
-    assert!(press(&mut game, action::SELECTION_GIVE).is_empty());
+    assert!(press(&mut game, action::SELECTION_GIVE.0).is_empty());
     assert!(said(
         &game,
         "You must select a creature or a character to give that to."
     ));
 
     game.selected = Some(ROCK);
-    assert!(press(&mut game, action::SELECTION_DROP).is_empty());
+    assert!(press(&mut game, action::SELECTION_DROP.0).is_empty());
     assert!(said(&game, "You must pick that up first"));
 }
 

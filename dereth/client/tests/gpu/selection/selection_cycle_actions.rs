@@ -48,8 +48,7 @@ use dereth_primitives::num::math;
 use dereth_primitives::{CellId, Frame, LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 use {
-    dereth_client_runtime::interaction::action as ia,
-    dereth_client_runtime::interaction::Interaction,
+    dereth_client_contract::actions::mapped as ia, dereth_client_runtime::interaction::Interaction,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
@@ -383,7 +382,7 @@ fn three(kind: fn(&mut Bench, ObjectId)) -> Bench {
 #[test]
 fn the_bench_can_select_and_can_refuse() {
     let mut b = three(Bench::make_monster);
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR), "the bench selects");
     assert_eq!(b.inter.stats.selection_cycles, 1, "one arm ran, once");
     assert_eq!(
@@ -396,7 +395,7 @@ fn the_bench_can_select_and_can_refuse() {
     let mut b = Bench::new();
     b.place(FAR, (60.0, 80.0, 0.0), 0);
     b.make_monster(FAR);
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(
         b.selected(),
         None,
@@ -432,7 +431,7 @@ fn the_seam_reads_both_state_bits_off_the_live_word() {
     // Both are monsters, so the only difference between them is the state word.
     b.make_monster(NEAR);
     b.make_monster(MID);
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(MID),
@@ -469,7 +468,7 @@ fn an_object_with_no_position_is_refused_by_the_seam() {
 
     // ...and it does not win the cycle, which is what the `None` is for. Driven through the wire
     // so the refusal is the production one.
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(NEAR),
@@ -498,7 +497,7 @@ fn with_no_body_the_snapshot_is_empty_and_the_counter_says_so() {
         &mut b.objects,
         None,
         vec![dereth_client_runtime::actions::Action {
-            id: ActionId(ia::SELECTION_CLOSEST_MONSTER),
+            id: ActionId(ia::SELECTION_CLOSEST_MONSTER.0),
             phase: dereth_client_runtime::actions::ActionPhase::Begin,
             extent: 1.0,
             repeats: 0,
@@ -531,7 +530,7 @@ fn with_no_body_the_snapshot_is_empty_and_the_counter_says_so() {
 #[test]
 fn closest_compass_item() {
     let mut b = three(Bench::make_compass_item);
-    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM);
+    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -539,7 +538,7 @@ fn closest_compass_item() {
 fn previous_compass_item() {
     let mut b = three(Bench::make_compass_item);
     b.select(Some(MID));
-    b.press(ia::SELECTION_PREVIOUS_COMPASS_ITEM);
+    b.press(ia::SELECTION_PREVIOUS_COMPASS_ITEM.0);
     assert_eq!(b.selected(), Some(NEAR), "previous is inward");
     assert_eq!(
         b.inter.stats.selection_cycle_wraps, 0,
@@ -551,7 +550,7 @@ fn previous_compass_item() {
 fn next_compass_item() {
     let mut b = three(Bench::make_compass_item);
     b.select(Some(MID));
-    b.press(ia::SELECTION_NEXT_COMPASS_ITEM);
+    b.press(ia::SELECTION_NEXT_COMPASS_ITEM.0);
     assert_eq!(b.selected(), Some(FAR), "next is outward");
     assert_eq!(b.inter.stats.selection_cycle_wraps, 0);
 }
@@ -559,7 +558,7 @@ fn next_compass_item() {
 #[test]
 fn closest_item() {
     let mut b = three(Bench::make_item);
-    b.press(ia::SELECTION_CLOSEST_ITEM);
+    b.press(ia::SELECTION_CLOSEST_ITEM.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -567,7 +566,7 @@ fn closest_item() {
 fn previous_item() {
     let mut b = three(Bench::make_item);
     b.select(Some(MID));
-    b.press(ia::SELECTION_PREVIOUS_ITEM);
+    b.press(ia::SELECTION_PREVIOUS_ITEM.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -575,14 +574,14 @@ fn previous_item() {
 fn next_item() {
     let mut b = three(Bench::make_item);
     b.select(Some(MID));
-    b.press(ia::SELECTION_NEXT_ITEM);
+    b.press(ia::SELECTION_NEXT_ITEM.0);
     assert_eq!(b.selected(), Some(FAR));
 }
 
 #[test]
 fn closest_monster() {
     let mut b = three(Bench::make_monster);
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -590,7 +589,7 @@ fn closest_monster() {
 fn previous_monster() {
     let mut b = three(Bench::make_monster);
     b.select(Some(MID));
-    b.press(ia::SELECTION_PREVIOUS_MONSTER);
+    b.press(ia::SELECTION_PREVIOUS_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -598,14 +597,14 @@ fn previous_monster() {
 fn next_monster() {
     let mut b = three(Bench::make_monster);
     b.select(Some(MID));
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(b.selected(), Some(FAR));
 }
 
 #[test]
 fn closest_player() {
     let mut b = three(Bench::make_player);
-    b.press(ia::SELECTION_CLOSEST_PLAYER);
+    b.press(ia::SELECTION_CLOSEST_PLAYER.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -613,7 +612,7 @@ fn closest_player() {
 fn previous_player() {
     let mut b = three(Bench::make_player);
     b.select(Some(MID));
-    b.press(ia::SELECTION_PREVIOUS_PLAYER);
+    b.press(ia::SELECTION_PREVIOUS_PLAYER.0);
     assert_eq!(b.selected(), Some(NEAR));
 }
 
@@ -621,7 +620,7 @@ fn previous_player() {
 fn next_player() {
     let mut b = three(Bench::make_player);
     b.select(Some(MID));
-    b.press(ia::SELECTION_NEXT_PLAYER);
+    b.press(ia::SELECTION_NEXT_PLAYER.0);
     assert_eq!(b.selected(), Some(FAR));
 }
 
@@ -629,7 +628,7 @@ fn next_player() {
 #[test]
 fn closest_unopened_corpse_selects_and_does_not_use() {
     let mut b = three(Bench::make_corpse);
-    b.press(ia::SELECTION_CLOSEST_UNOPENED_CORPSE);
+    b.press(ia::SELECTION_CLOSEST_UNOPENED_CORPSE.0);
     assert_eq!(b.selected(), Some(NEAR));
     assert_eq!(
         b.inter.stats.selection_corpse_uses, 0,
@@ -642,7 +641,7 @@ fn closest_unopened_corpse_selects_and_does_not_use() {
 fn next_unopened_corpse_selects_and_does_not_use() {
     let mut b = three(Bench::make_corpse);
     b.select(Some(MID));
-    b.press(ia::SELECTION_NEXT_UNOPENED_CORPSE);
+    b.press(ia::SELECTION_NEXT_UNOPENED_CORPSE.0);
     assert_eq!(b.selected(), Some(FAR));
     assert_eq!(b.inter.stats.selection_corpse_uses, 0);
 }
@@ -651,7 +650,7 @@ fn next_unopened_corpse_selects_and_does_not_use() {
 #[test]
 fn use_closest_unopened_corpse_selects_and_uses() {
     let mut b = three(Bench::make_corpse);
-    b.press(ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE);
+    b.press(ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE.0);
     assert_eq!(b.selected(), Some(NEAR));
     assert_eq!(
         b.inter.stats.selection_corpse_uses, 1,
@@ -664,7 +663,7 @@ fn use_closest_unopened_corpse_selects_and_uses() {
 fn use_next_unopened_corpse_selects_and_uses() {
     let mut b = three(Bench::make_corpse);
     b.select(Some(MID));
-    b.press(ia::SELECTION_USE_NEXT_UNOPENED_CORPSE);
+    b.press(ia::SELECTION_USE_NEXT_UNOPENED_CORPSE.0);
     assert_eq!(b.selected(), Some(FAR));
     assert_eq!(b.inter.stats.selection_corpse_uses, 1);
 }
@@ -681,7 +680,7 @@ fn the_use_tail_is_gated_on_is_corpse() {
     // Take the corpse bit off the one that will win, leaving everything else identical.
     b.weenie_mut(NEAR).pwd.bitfield &= !bitfield::CORPSE;
     b.select(Some(NEAR));
-    b.press(ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE);
+    b.press(ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE.0);
     assert_eq!(
         b.selected(),
         Some(MID),
@@ -698,7 +697,7 @@ fn the_use_tail_is_gated_on_is_corpse() {
         b.weenie_mut(id).pwd.bitfield &= !bitfield::CORPSE;
     }
     b.select(Some(MID));
-    b.press(ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE);
+    b.press(ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE.0);
     assert_eq!(
         b.selected(),
         Some(MID),
@@ -729,7 +728,7 @@ fn the_use_tail_is_gated_on_is_corpse() {
 fn next_past_the_farthest_wraps_to_the_nearest() {
     let mut b = three(Bench::make_monster);
     b.select(Some(FAR));
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(NEAR),
@@ -752,7 +751,7 @@ fn next_past_the_farthest_wraps_to_the_nearest() {
 fn previous_past_the_nearest_wraps_to_the_farthest() {
     let mut b = three(Bench::make_monster);
     b.select(Some(NEAR));
-    b.press(ia::SELECTION_PREVIOUS_MONSTER);
+    b.press(ia::SELECTION_PREVIOUS_MONSTER.0);
     assert_eq!(b.selected(), Some(FAR));
     assert_eq!(b.inter.stats.selection_cycle_wraps, 1);
 }
@@ -770,7 +769,7 @@ fn the_closest_arms_never_re_call() {
     b.place(MID, MID_AT, 0);
     b.make_monster(MID);
     b.select(Some(MID));
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(MID), "unchanged");
     assert_eq!(b.inter.stats.selection_cycles, 1);
     assert_eq!(
@@ -780,7 +779,7 @@ fn the_closest_arms_never_re_call() {
 
     // The positive that proves the station really is a "nothing was found" one: the same world,
     // the same standing selection, driven through an arm that *does* wrap, moves.
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(
         b.inter.stats.selection_cycle_wraps, 1,
         "the station can produce a wrap"
@@ -826,12 +825,12 @@ fn exclude_own_wielded_is_inert_at_the_one_pairing_that_ships_it() {
     let mut b = three(Bench::make_item);
     b.weenie_mut(NEAR).pwd.wielder_id = Some(PLAYER_OBJECT_ID);
 
-    b.press(ia::SELECTION_CLOSEST_ITEM);
+    b.press(ia::SELECTION_CLOSEST_ITEM.0);
     assert_eq!(b.selected(), Some(MID), "0x10000032 skips the wielded NEAR");
 
     // `SelectionPreviousItem` clears the own-wielded exclusion and still cannot reach it: the
     // filter refused it, so the first call finds nothing nearer than MID and the arm wraps to FAR.
-    b.press(ia::SELECTION_PREVIOUS_ITEM);
+    b.press(ia::SELECTION_PREVIOUS_ITEM.0);
     assert_eq!(
         b.selected(),
         Some(FAR),
@@ -846,7 +845,7 @@ fn exclude_own_wielded_is_inert_at_the_one_pairing_that_ships_it() {
     // rejection rather than the flag's.
     let mut b = three(Bench::make_item);
     b.weenie_mut(NEAR).pwd.wielder_id = Some(ObjectId(0x5000_00FF));
-    b.press(ia::SELECTION_CLOSEST_ITEM);
+    b.press(ia::SELECTION_CLOSEST_ITEM.0);
     assert_eq!(
         b.selected(),
         Some(MID),
@@ -923,7 +922,7 @@ fn closest_with(
 fn next_with_nothing_selected_selects_the_farthest() {
     let mut b = three(Bench::make_monster);
     assert_eq!(b.selected(), None, "premise: nothing is selected");
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(FAR),
@@ -958,11 +957,11 @@ fn each_kind_selects_its_own_and_no_other() {
     b.make_corpse(CORPSE);
 
     for (action, want, what) in [
-        (ia::SELECTION_CLOSEST_MONSTER, NEAR, "monster"),
-        (ia::SELECTION_CLOSEST_ITEM, MID, "item"),
-        (ia::SELECTION_CLOSEST_PLAYER, FAR, "player"),
+        (ia::SELECTION_CLOSEST_MONSTER.0, NEAR, "monster"),
+        (ia::SELECTION_CLOSEST_ITEM.0, MID, "item"),
+        (ia::SELECTION_CLOSEST_PLAYER.0, FAR, "player"),
         (
-            ia::SELECTION_CLOSEST_UNOPENED_CORPSE,
+            ia::SELECTION_CLOSEST_UNOPENED_CORPSE.0,
             CORPSE,
             "unopened corpse",
         ),
@@ -980,7 +979,7 @@ fn each_kind_selects_its_own_and_no_other() {
     // attackability half is skipped, so anything the radar shows qualifies — the monster and the
     // player here, and the nearest of those is the monster.
     b.select(None);
-    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM);
+    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM.0);
     assert_eq!(
         b.selected(),
         Some(NEAR),
@@ -1005,22 +1004,22 @@ fn no_shipped_binding_for_the_sixteen_is_a_hold() {
     let shell =
         dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables decode");
     let sixteen = [
-        ia::SELECTION_CLOSEST_COMPASS_ITEM,
-        ia::SELECTION_PREVIOUS_COMPASS_ITEM,
-        ia::SELECTION_NEXT_COMPASS_ITEM,
-        ia::SELECTION_CLOSEST_ITEM,
-        ia::SELECTION_PREVIOUS_ITEM,
-        ia::SELECTION_NEXT_ITEM,
-        ia::SELECTION_CLOSEST_MONSTER,
-        ia::SELECTION_PREVIOUS_MONSTER,
-        ia::SELECTION_NEXT_MONSTER,
-        ia::SELECTION_CLOSEST_PLAYER,
-        ia::SELECTION_PREVIOUS_PLAYER,
-        ia::SELECTION_NEXT_PLAYER,
-        ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE,
-        ia::SELECTION_USE_NEXT_UNOPENED_CORPSE,
-        ia::SELECTION_CLOSEST_UNOPENED_CORPSE,
-        ia::SELECTION_NEXT_UNOPENED_CORPSE,
+        ia::SELECTION_CLOSEST_COMPASS_ITEM.0,
+        ia::SELECTION_PREVIOUS_COMPASS_ITEM.0,
+        ia::SELECTION_NEXT_COMPASS_ITEM.0,
+        ia::SELECTION_CLOSEST_ITEM.0,
+        ia::SELECTION_PREVIOUS_ITEM.0,
+        ia::SELECTION_NEXT_ITEM.0,
+        ia::SELECTION_CLOSEST_MONSTER.0,
+        ia::SELECTION_PREVIOUS_MONSTER.0,
+        ia::SELECTION_NEXT_MONSTER.0,
+        ia::SELECTION_CLOSEST_PLAYER.0,
+        ia::SELECTION_PREVIOUS_PLAYER.0,
+        ia::SELECTION_NEXT_PLAYER.0,
+        ia::SELECTION_USE_CLOSEST_UNOPENED_CORPSE.0,
+        ia::SELECTION_USE_NEXT_UNOPENED_CORPSE.0,
+        ia::SELECTION_CLOSEST_UNOPENED_CORPSE.0,
+        ia::SELECTION_NEXT_UNOPENED_CORPSE.0,
     ];
     assert_eq!(
         sixteen.len(),
@@ -1053,7 +1052,7 @@ fn a_release_event_runs_the_cycle_because_the_action_handler_never_reads_the_sta
     let mut b = three(Bench::make_monster);
     b.now += 1.0;
     let e = dereth_client_runtime::actions::Action {
-        id: ActionId(ia::SELECTION_CLOSEST_MONSTER),
+        id: ActionId(ia::SELECTION_CLOSEST_MONSTER.0),
         phase: dereth_client_runtime::actions::ActionPhase::End,
         extent: 0.0,
         repeats: 0,
@@ -1102,7 +1101,7 @@ fn the_players_own_cell_picks_the_radius_the_cycle_gates_at() {
         dereth_physics::landdefs::is_outdoors(b.player.cell),
         "premise: outdoors, so the radius is 75.0"
     );
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(FAR), "40 m is inside the outdoor 75");
 
     // Move the body into a real resident interior cell of the same landblock, at a point inside it,
@@ -1140,7 +1139,7 @@ fn the_players_own_cell_picks_the_radius_the_cycle_gates_at() {
         "premise: {FAR:?} is {far_2d:.1} m from the room, outside the indoor 25"
     );
     b.select(None);
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(
         b.selected(),
         None,

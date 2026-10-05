@@ -447,8 +447,10 @@ impl Interaction {
         // function because in retail it runs before the viewport wrapper ever sees the
         // click.
         if e.start
-            && (e.action == crate::interaction::action::SELECT_LEFT
-                || e.action == crate::interaction::action::SELECT_RIGHT)
+            && (dereth_client_contract::actions::ActionId(e.action)
+                == dereth_client_contract::actions::mapped::SELECT_LEFT
+                || dereth_client_contract::actions::ActionId(e.action)
+                    == dereth_client_contract::actions::mapped::SELECT_RIGHT)
             && self.target_mode != TargetMode::None
         {
             self.leave_target_mode = true;

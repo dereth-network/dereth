@@ -79,7 +79,7 @@ pub fn press_on_map(
 /// `USE` -- the action the shipped keymap binds to `R`, and the one a player presses to use what
 /// is selected. The use-feedback and interaction scenarios drive it.
 pub const USE: dereth_input::ActionId =
-    dereth_input::ActionId(dereth_client_runtime::interaction::action::USE);
+    dereth_input::ActionId(dereth_client_contract::actions::mapped::USE.0);
 
 /// The input map the UI commands live on, which is the one `USE` is bound in.
 pub const UI_COMMANDS: dereth_input::InputMapId = dereth_input::InputMapId(0x1000_0009);

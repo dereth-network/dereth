@@ -45,6 +45,7 @@ pub mod keyfile;
 pub mod keymap;
 pub mod keys;
 pub mod labels;
+pub mod maps;
 mod message;
 pub mod mouse;
 pub mod names;
@@ -88,7 +89,7 @@ pub struct CallbackId(pub u32);
 /// that constant) when it takes focus, and `DebugConsole` at 3999. Mouse controls
 /// pass it,
 /// which is why you can still click-to-select in the world while the chat bar has focus.
-pub const MAP_BLOCK_KEYBOARD: InputMapId = InputMapId(1);
+pub use maps::BLOCK_KEYBOARD as MAP_BLOCK_KEYBOARD;
 
 /// Input map **9**, `DialogBoxes` — the pre-game screens' own map.
 ///
@@ -103,18 +104,18 @@ pub const MAP_BLOCK_KEYBOARD: InputMapId = InputMapId(1);
 /// in [`RETAIL_MAP_REGISTRATIONS`] at all: an element registers its own
 /// input-map attribute, and the only two elements in the whole shipped corpus that carry
 /// attribute `0x4E` name **this** map. See [`RETAIL_PER_ELEMENT_REGISTRATIONS`].
-pub const MAP_DIALOG_BOXES: InputMapId = InputMapId(9);
+pub use maps::DIALOG_BOXES as MAP_DIALOG_BOXES;
 
 /// The alternate-camera input map, registered at the unfocused-UI priority while the camera's
 /// alternate-mode action (`0x3E`) is held.
 /// It exists for keyboards without a numeric keypad: its default bindings put Rotate Camera
 /// Left/Right/Up/Down on the arrow keys.
-pub const ALTERNATE_CAMERA_MAP: InputMapId = InputMapId(6);
+pub use maps::CAMERA_ALTERNATE as ALTERNATE_CAMERA_MAP;
 
 /// Pseudo-map **2**: stops **everything**. Implemented in the fire path and **never registered**
 /// anywhere in the retail client. Exposed because the barrier is three lines and the contract
 /// should exist; nothing here registers it.
-pub const MAP_BLOCK_ALL: InputMapId = InputMapId(2);
+pub use maps::BLOCK_ALL as MAP_BLOCK_ALL;
 
 /// The `InputEvent` delivered to an input-action callback or, if it declines, to the global
 /// action-handler list.
@@ -316,6 +317,19 @@ impl InputManager {
         Ok(m)
     }
 
+    /// Parse an optional user keymap over already decoded defaults, in their supplied order.
+    /// Malformed user text is discarded; callers choose whether to replace their map or merge
+    /// these bindings into an existing map whose header must be retained.
+    #[must_use]
+    pub fn load_over_defaults(
+        user_file: Option<&str>,
+        defaults: &[&MasterInputMap],
+        actions: Option<&ActionMap>,
+    ) -> MasterInputMap {
+        let user = user_file.and_then(|text| MasterInputMap::from_keymap_text(text).ok());
+        scheme::over_defaults(user.as_ref(), defaults, actions)
+    }
+
     /// Step 2 of start-up: the user `.keymap` file, then the game default map
     /// (keymap `0x10000001` → DID `0x14000000`), then `DefaultMap`
     /// (keymap 1 → DID `0x14000002`).
@@ -334,13 +348,11 @@ impl InputManager {
         gm_default_map: &[u8],
         default_map: &[u8],
     ) -> Result<(), InputError> {
-        // A user file that will not read is as good as none.
-        let user = user_file.and_then(|text| MasterInputMap::from_keymap_text(text).ok());
         let gm = MasterInputMap::read(gm_default_map)?;
         let mut dm = MasterInputMap::read(default_map)?;
         // Keep the registered client-action section in the saved map even when it has no keys.
         dm.create_input_map(dereth::INPUT_MAP);
-        let merged = scheme::over_defaults(user.as_ref(), &[&gm, &dm], Some(&self.action_map));
+        let merged = Self::load_over_defaults(user_file, &[&gm, &dm], Some(&self.action_map));
         self.keymap.clear();
         self.keymap.merge(&merged, true);
         self.shipped_maps = Some(Box::new((gm, dm)));

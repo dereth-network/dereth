@@ -74,7 +74,7 @@ fn has(keys: &[(u16, u8, u32, u32)], scan: u16, action: u32) -> bool {
 fn each_interface_keeps_its_own_key_map_and_its_own_saved_ones() {
     let dir = folder("own");
     let mut input = shell(&dir);
-    let research = dereth_client_contract::actions::dereth::TOGGLE_SPELL_RESEARCH_PANEL;
+    let research = dereth_client_contract::actions::dereth::TOGGLE_SPELL_RESEARCH_PANEL.0;
 
     // The classic default scheme is the 2004 map: W walks, F7 the research page, Escape cancels.
     let keys = classic(&mut input);
@@ -83,7 +83,7 @@ fn each_interface_keeps_its_own_key_map_and_its_own_saved_ones() {
     assert!(has(
         &keys,
         0x01,
-        dereth_client_contract::actions::dereth::CANCEL
+        dereth_client_contract::actions::dereth::CANCEL.0
     ));
 
     // A classic rebind: Q walks forward in place of W. The modern map is unchanged.

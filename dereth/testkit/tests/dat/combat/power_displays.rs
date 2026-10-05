@@ -239,14 +239,14 @@ pub(super) fn a_notice_with_no_panel_to_hear_it_is_dropped() {
 }
 
 pub(super) fn the_power_bar_follows_the_clock_at_one_full_charge_a_second() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::PowerBarMode;
-    use dereth_client_runtime::interaction::action as ia;
 
     let readable = bars::the_readback_can_produce_a_non_zero();
     let mut b = bars::Bench::new();
     b.enter_advanced_combat();
 
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 100.0);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 100.0);
     let building =
         b.combat().power_bar_mode == PowerBarMode::AdvancedCombat && b.combat().build_in_progress;
 
@@ -277,13 +277,13 @@ pub(super) fn the_power_bar_follows_the_clock_at_one_full_charge_a_second() {
 }
 
 pub(super) fn a_two_handed_style_charges_a_quarter_faster() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     let mut b = bars::Bench::new();
     b.enter_advanced_combat();
     b.set_style(dereth_client_model::combat::DUAL_WIELD_COMBAT_STYLE);
 
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 200.0);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 200.0);
     let mut drawn = Vec::new();
     for step in 1..=6 {
         b.frame(vec![], 200.0 + f64::from(step) * 0.1);
@@ -300,14 +300,14 @@ pub(super) fn a_two_handed_style_charges_a_quarter_faster() {
 }
 
 pub(super) fn exactly_one_of_the_two_power_displays_is_live() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::PowerBarMode;
-    use dereth_client_runtime::interaction::action as ia;
     use dereth_ui_screens::hud::powerbar as pb;
 
     let readable = bars::the_readback_can_produce_a_non_zero();
     // Ordinary combat: the window's meter carries it and the standalone bars are never written.
     let mut classic = bars::Bench::new();
-    classic.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 300.0);
+    classic.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 300.0);
     let classic_mode = classic.combat().power_bar_mode == PowerBarMode::Combat;
     let mut classic_shown = Vec::new();
     let mut classic_holds = true;
@@ -331,7 +331,7 @@ pub(super) fn exactly_one_of_the_two_power_displays_is_live() {
     // The advanced interface: the standalone bar carries it and the window's meter refuses.
     let mut advanced = bars::Bench::new();
     advanced.enter_advanced_combat();
-    advanced.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 400.0);
+    advanced.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 400.0);
     let never_written = advanced.window_meter().is_none()
         && advanced.combat().power_bar_mode == PowerBarMode::AdvancedCombat;
     let mut advanced_shown = Vec::new();
@@ -371,14 +371,14 @@ pub(super) fn exactly_one_of_the_two_power_displays_is_live() {
 }
 
 pub(super) fn the_power_bar_is_shown_when_a_charge_begins_and_emptied_when_it_ends() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_ui_screens::hud::powerbar as pb;
 
     let mut b = bars::Bench::new();
     b.enter_advanced_combat();
     let down_at_first = b.bars_visible() == vec![false, false];
 
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 500.0);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 500.0);
     b.frame(vec![], 500.4);
     let sub = b.subscriber();
     let shown = b.bars_visible() == vec![false, true]
@@ -388,7 +388,7 @@ pub(super) fn the_power_bar_is_shown_when_a_charge_begins_and_emptied_when_it_en
     b.frame(vec![], 500.5);
     let charged = b.drawn_level() > 0.0;
 
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, false)], 500.6);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, false)], 500.6);
     b.hide_the_bar();
     b.frame(vec![], 500.7);
     let put_away = b.bars_visible() == vec![false, false]
@@ -472,11 +472,11 @@ pub(super) fn the_power_drag_is_continuous_and_lands_between_the_notches() {
 }
 
 pub(super) fn the_notch_and_the_fill_are_different_things() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     let mut b = bars::Bench::new();
     b.set_requested_power_from_a_drag(833);
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 600.0);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 600.0);
     b.frame(vec![], 600.25);
     b.frame(vec![], 600.5);
 
@@ -493,11 +493,11 @@ pub(super) fn the_notch_and_the_fill_are_different_things() {
 }
 
 pub(super) fn the_display_holds_the_level_the_swing_went_out_at() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_primitives::LocalTime;
 
     let mut b = bars::Bench::new();
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, true)], 700.0);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 700.0);
     b.frame(vec![], 700.5);
     // While the charge is building the clock and what was last sent agree, which is why a display
     // that recomputed looked right until the swing.
@@ -505,7 +505,7 @@ pub(super) fn the_display_holds_the_level_the_swing_went_out_at() {
         .abs()
         < 1e-5;
 
-    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK, false)], 700.55);
+    b.frame(vec![bars::key(ia::COMBAT_MEDIUM_ATTACK.0, false)], 700.55);
     let closed = !b.combat().attack_request_in_progress;
     b.the_swing_goes_out();
     let gone = !b.combat().build_in_progress

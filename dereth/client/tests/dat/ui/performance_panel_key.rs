@@ -11,9 +11,8 @@ const DIK_F7: u16 = 0x41;
 /// Behaviour: presentation.performance.a-key-or-the-option-shows-the-panel-over-any-interface
 #[test]
 fn the_performance_panel_has_no_key_until_one_is_bound_and_then_fires_on_every_screen() {
-    use dereth_input::ActionId;
     use winit::keyboard::KeyCode;
-    let perf = ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL);
+    let perf = dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL;
     let store = dereth_dat::testing::open_store().expect("required DATs");
     let mut input = dereth_client_shell::input::InputShell::new(&store, None).unwrap();
     assert!(

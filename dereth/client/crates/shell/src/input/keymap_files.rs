@@ -242,14 +242,13 @@ impl InputShell {
         }
         let path = dir.join(file_name);
         let text = dereth_client_runtime::platform::files::read_to_string(&path)?;
-        let user = dereth_input::MasterInputMap::from_keymap_text(&text).ok();
         let Some(maps) = self.manager.shipped_maps.take() else {
             return Err(dereth_input::InputError::KeymapFile(
                 "the shipped keymaps are unavailable".to_owned(),
             ));
         };
-        let merged = dereth_input::scheme::over_defaults(
-            user.as_ref(),
+        let merged = dereth_input::InputManager::load_over_defaults(
+            Some(&text),
             &[&maps.0, &maps.1],
             Some(&self.manager.action_map),
         );
@@ -291,10 +290,9 @@ impl InputShell {
                 .map(|dir| dir.join(CLASSIC_KEYMAP_FILE));
             let file = path
                 .as_ref()
-                .and_then(|p| dereth_client_runtime::platform::files::read_to_string(p).ok())
-                .and_then(|text| dereth_input::MasterInputMap::from_keymap_text(&text).ok());
-            let map = dereth_input::scheme::over_defaults(
-                file.as_ref(),
+                .and_then(|p| dereth_client_runtime::platform::files::read_to_string(p).ok());
+            let map = dereth_input::InputManager::load_over_defaults(
+                file.as_deref(),
                 &[&defaults],
                 Some(&self.manager.action_map),
             );
@@ -322,7 +320,7 @@ impl InputShell {
             .collect();
         let mut maps: Vec<u32> = dereth_input::presentation::ROWS
             .iter()
-            .map(|r| r.map)
+            .map(|r| r.map.0)
             .collect();
         maps.sort_unstable();
         maps.dedup();
@@ -348,7 +346,7 @@ impl InputShell {
                     .toggle_type(r.input_map(), r.action())
                     .is_hold()
             })
-            .map(|r| (r.map, r.action().0))
+            .map(|r| (r.map.0, r.action().0))
             .collect();
         let classic = self.classic_keymap();
         // The keys of the rows the key pages list.
@@ -517,7 +515,7 @@ impl InputShell {
         let Some((game, base)) = self.manager.shipped_maps.as_deref() else {
             return false;
         };
-        let restored = dereth_input::scheme::over_defaults(
+        let restored = dereth_input::InputManager::load_over_defaults(
             None,
             &[game, base],
             Some(&self.manager.action_map),

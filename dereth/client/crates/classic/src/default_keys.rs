@@ -288,7 +288,7 @@ mod tests {
                     .next()
                     .expect("a row")
                     .map;
-                (home, action.0)
+                (home.0, action.0)
             })
             .collect();
         let unused: Vec<_> = ROWS
@@ -298,7 +298,7 @@ mod tests {
         assert_eq!(unused.len(), 18);
         for r in unused {
             assert!(
-                !defaults.contains(&(r.map, r.action().0)),
+                !defaults.contains(&(r.map.0, r.action().0)),
                 "{} has a default key here",
                 r.action_name
             );

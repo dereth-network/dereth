@@ -884,12 +884,12 @@ impl<H: Host> Ui<'_, '_, H> {
         };
         let (mine, rest): (Vec<_>, Vec<_>) = input.take_events().into_iter().partition(|e| {
             e.input_map == dereth_input::dereth::INPUT_MAP
-                && e.action.0 != own::TOGGLE_PERFORMANCE_PANEL
-                && e.action.0 != own::MOVEMENT_HOLD_SIDESTEP
+                && e.action != own::TOGGLE_PERFORMANCE_PANEL
+                && e.action != own::MOVEMENT_HOLD_SIDESTEP
         });
         input.put_back_unconsumed(rest);
         for e in mine {
-            let id = e.action.0;
+            let id = e.action;
             if !e.start {
                 continue;
             }
@@ -901,7 +901,7 @@ impl<H: Host> Ui<'_, '_, H> {
                                 &mut shell.ui,
                                 screen,
                                 dereth_ui_screens::screens::gameplay_host::GameCall::OwnWindowAction(
-                                    id, false,
+                                    id.0, false,
                                 ),
                             );
                         }

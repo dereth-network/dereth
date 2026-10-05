@@ -91,8 +91,8 @@ pub(super) fn turning_the_advanced_option_on_while_the_window_is_up_takes_it_dow
 }
 
 pub(super) fn the_strip_comes_up_while_an_attack_key_is_held_and_goes_on_release() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::{CombatMode, PowerBarMode};
-    use dereth_client_runtime::interaction::action as ia;
 
     let mut b = advanced::Bench::new();
     b.set_advanced(true);
@@ -104,7 +104,7 @@ pub(super) fn the_strip_comes_up_while_an_attack_key_is_held_and_goes_on_release
     b.frame(vec![], 400.0);
     let starts_down = b.strip() == vec![false, false];
 
-    b.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK, true)], 400.1);
+    b.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 400.1);
     let building = b.world().combat.power_bar_mode == PowerBarMode::AdvancedCombat
         && b.world().combat.build_in_progress;
     b.frame(vec![], 400.2);
@@ -116,7 +116,10 @@ pub(super) fn the_strip_comes_up_while_an_attack_key_is_held_and_goes_on_release
     let held = b.strip_levels();
     let charging = held[1].is_some_and(|v| v > 0.0) && held[0].is_none();
 
-    b.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK, false)], 400.5);
+    b.frame(
+        vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK.0, false)],
+        400.5,
+    );
     let did_not_send = !b.world().combat.attack_server_response_pending
         && b.world().combat.power_bar_mode == PowerBarMode::Undef;
     b.frame(vec![], 400.6);
@@ -132,8 +135,8 @@ pub(super) fn the_strip_comes_up_while_an_attack_key_is_held_and_goes_on_release
 }
 
 pub(super) fn a_release_that_reaches_the_shard_holds_the_strip_until_the_answer() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::{CombatMode, PowerBarMode};
-    use dereth_client_runtime::interaction::action as ia;
     use dereth_primitives::LocalTime;
 
     let mut b = advanced::Bench::new();
@@ -143,11 +146,14 @@ pub(super) fn a_release_that_reaches_the_shard_holds_the_strip_until_the_answer(
     b.set_auto_repeat(false);
     b.frame(vec![], 500.0);
 
-    b.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK, true)], 500.1);
+    b.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 500.1);
     b.frame(vec![], 500.5);
     let held = b.strip() == vec![false, true];
 
-    b.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK, false)], 500.6);
+    b.frame(
+        vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK.0, false)],
+        500.6,
+    );
     let sent =
         b.world().combat.attack_server_response_pending && !b.world().combat.build_in_progress;
     b.frame(vec![], 500.7);
@@ -166,13 +172,13 @@ pub(super) fn a_release_that_reaches_the_shard_holds_the_strip_until_the_answer(
 }
 
 pub(super) fn the_advanced_option_chooses_which_display_is_live() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::{CombatMode, PowerBarMode};
-    use dereth_client_runtime::interaction::action as ia;
 
     let mut classic = advanced::Bench::new();
     classic.set_mode(CombatMode::Melee);
     classic.frame(vec![], 600.0);
-    classic.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK, true)], 600.1);
+    classic.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 600.1);
     for i in 1..=3 {
         classic.frame(vec![], 600.1 + f64::from(i) * 0.1);
     }
@@ -185,7 +191,7 @@ pub(super) fn the_advanced_option_chooses_which_display_is_live() {
     adv.set_advanced(true);
     adv.set_mode(CombatMode::Melee);
     adv.frame(vec![], 600.0);
-    adv.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK, true)], 600.1);
+    adv.frame(vec![advanced::key(ia::COMBAT_MEDIUM_ATTACK.0, true)], 600.1);
     for i in 1..=3 {
         adv.frame(vec![], 600.1 + f64::from(i) * 0.1);
     }

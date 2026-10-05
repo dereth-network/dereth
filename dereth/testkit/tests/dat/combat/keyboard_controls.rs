@@ -62,8 +62,8 @@ pub(super) fn one_set_of_keys_means_three_different_things() {
 }
 
 pub(super) fn every_height_key_moves_the_height_in_both_modes() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::{AttackHeight, CombatMode};
-    use dereth_client_runtime::interaction::action as ia;
 
     // The calibration: the driver produces an action and the arm moves the world.
     let calibrated = keys::the_driver_and_the_arm_both_work();
@@ -75,18 +75,18 @@ pub(super) fn every_height_key_moves_the_height_in_both_modes() {
             CombatMode::Melee,
             dereth_input::combat::MELEE_COMBAT_MAP,
             [
-                ia::COMBAT_LOW_ATTACK,
-                ia::COMBAT_HIGH_ATTACK,
-                ia::COMBAT_MEDIUM_ATTACK,
+                ia::COMBAT_LOW_ATTACK.0,
+                ia::COMBAT_HIGH_ATTACK.0,
+                ia::COMBAT_MEDIUM_ATTACK.0,
             ],
         ),
         (
             CombatMode::Missile,
             dereth_input::combat::MISSILE_COMBAT_MAP,
             [
-                ia::COMBAT_AIM_LOW,
-                ia::COMBAT_AIM_HIGH,
-                ia::COMBAT_AIM_MEDIUM,
+                ia::COMBAT_AIM_LOW.0,
+                ia::COMBAT_AIM_HIGH.0,
+                ia::COMBAT_AIM_MEDIUM.0,
             ],
         ),
     ] {
@@ -146,8 +146,8 @@ pub(super) fn every_height_key_moves_the_height_in_both_modes() {
 }
 
 pub(super) fn the_gauge_keys_step_by_a_sixth_in_both_modes() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::CombatMode;
-    use dereth_client_runtime::interaction::action as ia;
 
     let sixth = 1.0_f32 / 6.0;
     let mut both_modes_hold = true;
@@ -155,14 +155,14 @@ pub(super) fn the_gauge_keys_step_by_a_sixth_in_both_modes() {
         (
             CombatMode::Melee,
             dereth_input::combat::MELEE_COMBAT_MAP,
-            ia::COMBAT_DECREASE_ATTACK_POWER,
-            ia::COMBAT_INCREASE_ATTACK_POWER,
+            ia::COMBAT_DECREASE_ATTACK_POWER.0,
+            ia::COMBAT_INCREASE_ATTACK_POWER.0,
         ),
         (
             CombatMode::Missile,
             dereth_input::combat::MISSILE_COMBAT_MAP,
-            ia::COMBAT_DECREASE_MISSILE_ACCURACY,
-            ia::COMBAT_INCREASE_MISSILE_ACCURACY,
+            ia::COMBAT_DECREASE_MISSILE_ACCURACY.0,
+            ia::COMBAT_INCREASE_MISSILE_ACCURACY.0,
         ),
     ] {
         let mut shell = maps::shell();
@@ -309,8 +309,8 @@ pub(super) fn holding_a_height_key_refuses_once_and_not_once_per_repeat() {
 }
 
 pub(super) fn at_peace_no_combat_key_reaches_an_arm() {
+    use dereth_client_contract::actions::mapped as ia;
     use dereth_client_model::combat::{AttackHeight, CombatMode};
-    use dereth_client_runtime::interaction::action as ia;
 
     let mut shell = maps::shell();
     shell.set_combat_input_maps(dereth_input::combat::mode::MELEE);
@@ -318,7 +318,7 @@ pub(super) fn at_peace_no_combat_key_reaches_an_arm() {
     let qc = maps::the_shipped_control(
         &shell,
         dereth_input::combat::MELEE_COMBAT_MAP.0,
-        ia::COMBAT_HIGH_ATTACK,
+        ia::COMBAT_HIGH_ATTACK.0,
     );
     let (down, _) = d.press_release(&mut shell, &qc);
     let the_event_exists = down.len() == 1;

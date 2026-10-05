@@ -268,39 +268,6 @@ pub(crate) const JOYSTICK_NAMES: &[(&str, u16)] = &[
 
 pub(crate) const VIRTUAL_NAMES: &[(&str, u16)] = &[("DIV_MOUSELOOK", 0x01)];
 
-/// `EnumMapper 0x22000022` chained to `0x22000032` -- the input-map section names.
-pub(crate) const INPUT_MAP_ENUM_NAMES: &[(u32, &str)] = &[
-    (0x00000000, "Invalid"),
-    (0x00000001, "EatKeyboardInput"),
-    (0x00000002, "IgnoreRemainingMaps"),
-    (0x00000003, "MouseCommands"),
-    (0x00000004, "MovementCommands"),
-    (0x00000005, "CameraControls"),
-    (0x00000006, "CameraAlternateControls"),
-    (0x00000007, "EditControls"),
-    (0x00000008, "CopyAndPasteControls"),
-    (0x00000009, "DialogBoxes"),
-    (0x0000000A, "ScrollableControls"),
-    (0x0000000B, "DebugConsole"),
-    (0x0000000C, "ProfilerUI"),
-    (0x0000000D, "UIDebugger"),
-    (0x0000000E, "DebugCommands"),
-    (0x0000000F, "PreprocCommands"),
-    (0x00000010, "SystemKeys"),
-    (0x10000002, "Combat"),
-    (0x10000003, "MeleeCombat"),
-    (0x10000004, "MissileCombat"),
-    (0x10000005, "MagicCombat"),
-    (0x10000006, "Emotes"),
-    (0x10000007, "ItemSelectionCommands"),
-    (0x10000008, "CharacterOptionCommands"),
-    (0x10000009, "UICommands"),
-    (0x1000000A, "ChatCommands"),
-    (0x1000000B, "TargetedUsage"),
-    (0x1000000C, "QuickslotCommands"),
-    (0x1000000D, "ToggleChatEntry"),
-];
-
 use crate::InputMapId;
 
 /// The action names are the shared action vocabulary's; the key, device and input-map names
@@ -309,18 +276,18 @@ pub use dereth_client_contract::actions::names::{action_for_enum_name, enum_name
 
 #[must_use]
 pub fn enum_name_for_input_map(m: InputMapId) -> String {
-    INPUT_MAP_ENUM_NAMES
+    crate::maps::ENUM_NAMES
         .iter()
-        .find(|(k, _)| *k == m.0)
+        .find(|(k, _)| *k == m)
         .map_or_else(|| m.0.to_string(), |(_, n)| (*n).to_owned())
 }
 
 /// The input-map parser's "ERROR - invalid input map name" test.
 #[must_use]
 pub fn input_map_for_enum_name(name: &str) -> Option<InputMapId> {
-    INPUT_MAP_ENUM_NAMES
+    crate::maps::ENUM_NAMES
         .iter()
         .find(|(_, n)| *n == name)
-        .map(|(k, _)| InputMapId(*k))
+        .map(|(k, _)| *k)
         .or_else(|| name.parse().ok().map(InputMapId))
 }

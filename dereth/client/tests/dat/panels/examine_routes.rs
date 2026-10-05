@@ -350,7 +350,7 @@ impl Bench {
                 assert_eq!(self.objects.world.selected, Some(target));
                 self.use_time(
                     vec![key(
-                        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+                        dereth_client_contract::actions::mapped::SELECTION_EXAMINE.0,
                     )],
                     now + 0.1,
                 );

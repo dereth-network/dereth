@@ -71,9 +71,7 @@ impl TestShell {
                 dereth_input::dereth::INPUT_MAP,
                 3001,
                 CallbackId(2),
-                Some(dereth_input::ActionId(
-                    dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE,
-                )),
+                Some(dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE),
             );
         }
         if modal {
@@ -610,7 +608,7 @@ fn mapped_chat_toggle_recall_and_capture_keep_physical_messages_in_order() {
         shell
             .mapped
             .iter()
-            .filter(|e| e.action.0 == own::REPEAT_LAST_MESSAGE && e.start)
+            .filter(|e| e.action == own::REPEAT_LAST_MESSAGE && e.start)
             .count(),
         1
     );

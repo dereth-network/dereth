@@ -20,7 +20,7 @@ impl<S: Shell> App<S> {
         // The performance panel's key belongs to no interface and no game system: it flips the
         // option, and the panel follows the option.
         actions.retain(|a| {
-            if a.id.0 != dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL {
+            if a.id != dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL {
                 return true;
             }
             if a.is_start() {

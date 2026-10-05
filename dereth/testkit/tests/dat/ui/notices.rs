@@ -370,7 +370,7 @@ pub(super) fn a_swing_with_nothing_selected_says_so_on_the_strip() {
     let nothing_said_yet = c.view().expect_app().interaction().last_refusal.is_none();
 
     c.when(Player::Press(dereth_input::ActionId(
-        dereth_client_runtime::interaction::action::COMBAT_LOW_ATTACK,
+        dereth_client_contract::actions::mapped::COMBAT_LOW_ATTACK.0,
     )));
     c.tick(2);
 

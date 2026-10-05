@@ -265,9 +265,7 @@ impl InputShell {
                 map,
                 3001,
                 self.text_callback,
-                Some(ActionId(
-                    dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE,
-                )),
+                Some(dereth_client_contract::actions::dereth::REPEAT_LAST_MESSAGE),
             );
         } else {
             self.manager.unregister_input_map(map, self.text_callback);
@@ -1122,6 +1120,15 @@ mod tests {
             shell.manager.keymap.to_keymap_text(),
             classic,
             "Modern load cannot replace Classic's live map"
+        );
+        assert_eq!(
+            (
+                shell.modern_map().did,
+                shell.modern_map().name.as_str(),
+                shell.modern_map().guid
+            ),
+            (0, "User Defined Keymap", [0; 16]),
+            "a named load creates a fresh document"
         );
         let modern = shell.modern_map().to_keymap_text();
         assert_ne!(modern, classic);

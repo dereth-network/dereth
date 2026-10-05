@@ -536,7 +536,7 @@ impl Panel for Effects {
                     );
                 }
                 // The time left is shown only with the "show spell durations" character option.
-                let timer = if ctx.classic.option_words[0] & 0x80_0000 != 0 {
+                let timer = if ctx.classic.spell_duration() {
                     effect_timer(e.remaining, e.permanent)
                 } else {
                     String::new()

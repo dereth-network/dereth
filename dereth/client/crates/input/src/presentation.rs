@@ -15,24 +15,7 @@
 use crate::{ActionId, InputMapId};
 
 /// The input maps the rows are bound in.
-pub mod map {
-    pub const MOVEMENT: u32 = 4;
-    pub const CAMERA: u32 = 5;
-    pub const CAMERA_ALTERNATE: u32 = 6;
-    pub const COMBAT: u32 = 0x1000_0002;
-    pub const MELEE: u32 = 0x1000_0003;
-    pub const MISSILE: u32 = 0x1000_0004;
-    pub const MAGIC: u32 = 0x1000_0005;
-    pub const EMOTES: u32 = 0x1000_0006;
-    pub const ITEM_SELECTION: u32 = 0x1000_0007;
-    pub const CHARACTER_OPTIONS: u32 = 0x1000_0008;
-    pub const UI: u32 = 0x1000_0009;
-    pub const CHAT: u32 = 0x1000_000A;
-    pub const QUICKSLOTS: u32 = 0x1000_000C;
-    pub const TOGGLE_CHAT_ENTRY: u32 = 0x1000_000D;
-    /// This client's own actions' map.
-    pub const OWN: u32 = crate::dereth::INPUT_MAP.0;
-}
+pub use crate::maps as map;
 
 /// What a row is about. Each page filters and orders the shared catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -108,7 +91,7 @@ pub mod why {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Row {
     /// The input map the action is bound in.
-    pub map: u32,
+    pub map: InputMapId,
     /// The action, by the name a key map file gives it.
     pub action_name: &'static str,
     pub group: Group,
@@ -136,7 +119,7 @@ impl Row {
     /// The input map the action is bound in.
     #[must_use]
     pub const fn input_map(&self) -> InputMapId {
-        InputMapId(self.map)
+        self.map
     }
 
     /// Whether the keyboard editor lists this action. Hidden actions remain bindable.
@@ -168,7 +151,7 @@ impl Row {
 /// The row of `action` in `map`, when both pages list it.
 #[must_use]
 pub fn find(map: InputMapId, action: ActionId) -> Option<&'static Row> {
-    ROWS.iter().find(|r| r.map == map.0 && r.action() == action)
+    ROWS.iter().find(|r| r.map == map && r.action() == action)
 }
 
 /// The rows of `action`, in whichever map: the camera actions are in two.
@@ -180,7 +163,7 @@ pub fn rows_of(action: ActionId) -> impl Iterator<Item = &'static Row> {
 /// Weather Effects, under the Character Options page's own words for it.
 #[must_use]
 pub fn retail_caption(map: InputMapId, action: ActionId) -> Option<&'static str> {
-    (map.0 == map::CHARACTER_OPTIONS
+    (map == map::CHARACTER_OPTIONS
         && action
             == dereth_client_contract::actions::names::action_for_enum_name(
                 "PlayerOption_DisableMostWeatherEffects",
@@ -202,7 +185,7 @@ use why as Why;
 use Group as G;
 
 const fn row(
-    map: u32,
+    map: InputMapId,
     action_name: &'static str,
     group: Group,
     category: usize,
@@ -220,7 +203,7 @@ const fn row(
 }
 
 const fn row_not_used(
-    map: u32,
+    map: InputMapId,
     action_name: &'static str,
     group: Group,
     category: usize,
@@ -614,5 +597,86 @@ mod tests {
             assert!(ROWS.iter().all(|r| r.action_name != name), "{name}");
         }
         assert!(ROWS.iter().any(|r| r.action_name == "UseQuickSlot_9"));
+    }
+    #[test]
+    fn option_rows_agree_with_the_sheet_without_equating_visibility_and_support() {
+        use dereth_client_contract::{options::sheet, view::PlayerOption};
+        for key in ROWS.iter().filter(|r| r.group == Group::CharacterOptions) {
+            let Some(name) = key.action_name.strip_prefix("PlayerOption_") else {
+                continue;
+            };
+            let sheet_row = if name == "AutoCreateShortcuts" {
+                sheet::PAGES
+                    .iter()
+                    .flat_map(|p| p.headings)
+                    .flat_map(|h| h.rows)
+                    .find(|r| r.value == sheet::Value::Bit { mask: 1 })
+                    .expect("shortcut option")
+            } else {
+                let option = PlayerOption::ALL
+                    .into_iter()
+                    .find(|o| format!("{o:?}") == name)
+                    .expect("named player option");
+                sheet::row_of_option(option).expect("option on the sheet")
+            };
+            for (face, interface) in [
+                (sheet::Face::Retail, Interface::Retail),
+                (sheet::Face::Classic, Interface::Classic),
+            ] {
+                assert_eq!(
+                    sheet_row.shown.on(face),
+                    key.not_used(interface).is_none(),
+                    "{} {face:?}",
+                    key.action_name
+                );
+            }
+        }
+        for (action, preference) in [
+            (
+                "ToggleStretchUI",
+                dereth_client_contract::options::classic::STRETCH_UI,
+            ),
+            (
+                "ToggleRightClickMouseLook",
+                dereth_client_contract::options::classic::RIGHT_CLICK_MOUSE_LOOK,
+            ),
+        ] {
+            let row = sheet::row_of_preference(sheet::PageId::Client, preference)
+                .expect("classic preference");
+            let key = ROWS
+                .iter()
+                .find(|r| r.action_name == action)
+                .expect("key row");
+            assert_eq!(
+                row.shown.on(sheet::Face::Classic),
+                key.not_used(Interface::Classic).is_none()
+            );
+            assert_eq!(
+                row.shown.on(sheet::Face::Retail),
+                key.not_used(Interface::Retail).is_none()
+            );
+        }
+        // These are supported controls deliberately omitted only from the Modern key editor.
+        for name in [
+            "ToggleInvertMouseLook",
+            "ToggleMuteOnLosingFocus",
+            "TogglePerformancePanel",
+            "ToggleTradePanel",
+            "ToggleSpellResearchPanel",
+            "MovementHoldSidestep",
+        ] {
+            let key = ROWS
+                .iter()
+                .find(|r| r.action_name == name)
+                .expect("hidden key row");
+            assert_eq!(key.not_used(Interface::Retail), None);
+            assert!(!key.shown(Interface::Retail));
+        }
+        // Era capabilities affect the options page; they do not delete the binding vocabulary.
+        let cloak = sheet::row_of_option(PlayerOption::ShowCloak).expect("cloak option");
+        assert_eq!(cloak.needs, sheet::Needs::Cloaks);
+        assert!(ROWS
+            .iter()
+            .any(|r| r.action_name == "PlayerOption_ShowCloak"));
     }
 }

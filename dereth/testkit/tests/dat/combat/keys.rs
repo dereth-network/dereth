@@ -48,17 +48,17 @@ pub fn shared_controls(shell: &InputShell) -> Vec<ControlChord> {
 /// **The calibration**, which every silence below rests on: the driver can produce an action
 /// and the arm can move the world. The known positive is the key that toggles combat itself.
 pub fn the_driver_and_the_arm_both_work() -> bool {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     let mut shell = maps::shell();
     let mut d = maps::Driver::new();
     let qc = maps::the_shipped_control(
         &shell,
         dereth_input::combat::COMBAT_MAP.0,
-        ia::COMBAT_TOGGLE_COMBAT,
+        ia::COMBAT_TOGGLE_COMBAT.0,
     );
     let (down, _) = d.press_release(&mut shell, &qc);
-    if !down.iter().map(|e| e.id.0).eq([ia::COMBAT_TOGGLE_COMBAT]) {
+    if !down.iter().map(|e| e.id.0).eq([ia::COMBAT_TOGGLE_COMBAT.0]) {
         return false;
     }
     // ...and it reaches the world. This bench has no body, so the client queues the change

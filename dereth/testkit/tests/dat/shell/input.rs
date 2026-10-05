@@ -375,15 +375,15 @@ pub(super) fn the_desktops_four_are_taken_last_and_do_nothing() {
     use dereth_input::ActionId;
     use dereth_primitives::{LocalTime, ObjectId};
     use {
-        dereth_client_runtime::interaction::action as ia,
+        dereth_client_contract::actions::mapped as ia,
         dereth_client_runtime::interaction::Interaction,
     };
 
     const THE_FOUR: [u32; 4] = [
-        ia::SYSTEM_ALT_TAB,
-        ia::SYSTEM_ALT_ENTER,
-        ia::SYSTEM_ALT_F4,
-        ia::SYSTEM_CTRL_SHIFT_ESC,
+        ia::SYSTEM_ALT_TAB.0,
+        ia::SYSTEM_ALT_ENTER.0,
+        ia::SYSTEM_ALT_F4.0,
+        ia::SYSTEM_CTRL_SHIFT_ESC.0,
     ];
 
     let store = dereth_dat::testing::open_store()
@@ -1280,14 +1280,14 @@ fn a_fellowship(members: &[dereth_primitives::ObjectId]) -> ActionBench {
 
 /// One key walks the fellowship forward and the other back, both wrapping.
 pub(super) fn the_two_keys_walk_the_fellowship_both_ways_and_wrap() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     // The shipped keys really reach the two actions, rather than the scenario naming them.
     let store = dereth_dat::testing::open_store().expect("the retail data files");
     let shell =
         dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
     let mut both_bound = true;
-    for action in [ia::SELECTION_NEXT_FELLOW, ia::SELECTION_PREVIOUS_FELLOW] {
+    for action in [ia::SELECTION_NEXT_FELLOW.0, ia::SELECTION_PREVIOUS_FELLOW.0] {
         let qc = the_only_binding(&shell, ITEM_SELECTION, action);
         both_bound &= qc.meta_mode == 0
             && resolves_to(&shell, &qc) == Some((ITEM_SELECTION, dereth_input::ActionId(action)));
@@ -1299,7 +1299,7 @@ pub(super) fn the_two_keys_walk_the_fellowship_both_ways_and_wrap() {
     b.select(Some(ME));
     let mut forward_walk = Vec::new();
     for _ in 0..3 {
-        b.hit(ITEM_SELECTION, ia::SELECTION_NEXT_FELLOW);
+        b.hit(ITEM_SELECTION, ia::SELECTION_NEXT_FELLOW.0);
         forward_walk.push(b.selected());
     }
     let forward_cycles = b.inter.stats.selection_fellow_cycles;
@@ -1309,7 +1309,7 @@ pub(super) fn the_two_keys_walk_the_fellowship_both_ways_and_wrap() {
     b.select(Some(CAI));
     let mut backward_walk = Vec::new();
     for _ in 0..3 {
-        b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_FELLOW);
+        b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_FELLOW.0);
         backward_walk.push(b.selected());
     }
 
@@ -1327,12 +1327,12 @@ pub(super) fn the_two_keys_walk_the_fellowship_both_ways_and_wrap() {
 
 /// An outsider starts the walk at one end, and with no fellowship nothing moves.
 pub(super) fn an_outsider_starts_at_one_end_and_no_fellowship_moves_nothing() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     let mut ends = Vec::new();
     for (action, want) in [
-        (ia::SELECTION_NEXT_FELLOW, ME),
-        (ia::SELECTION_PREVIOUS_FELLOW, CAI),
+        (ia::SELECTION_NEXT_FELLOW.0, ME),
+        (ia::SELECTION_PREVIOUS_FELLOW.0, CAI),
     ] {
         // A selection outside the fellowship...
         let mut b = a_fellowship(&[ME, BOB, CAI]);
@@ -1349,7 +1349,7 @@ pub(super) fn an_outsider_starts_at_one_end_and_no_fellowship_moves_nothing() {
     // The negative control: with no fellowship at all neither key touches the selection. A wire
     // that selected "the first fellow" out of an absent table would pass everything above.
     let mut untouched = true;
-    for action in [ia::SELECTION_NEXT_FELLOW, ia::SELECTION_PREVIOUS_FELLOW] {
+    for action in [ia::SELECTION_NEXT_FELLOW.0, ia::SELECTION_PREVIOUS_FELLOW.0] {
         let mut b = a_fellowship(&[]);
         assert!(
             b.objects.world.fellowship.is_none(),
@@ -1368,7 +1368,7 @@ pub(super) fn an_outsider_starts_at_one_end_and_no_fellowship_moves_nothing() {
 
 /// The cycle follows the order the fellowship panel shows.
 pub(super) fn the_fellow_cycle_follows_the_panels_order() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     // The members arrive in an order that is not the panel's, so a reader that walked the message
     // rather than the model would answer the other way round.
@@ -1386,7 +1386,7 @@ pub(super) fn the_fellow_cycle_follows_the_panels_order() {
     b.select(Some(panel_order[0]));
     let mut walked = vec![panel_order[0]];
     for _ in 0..2 {
-        b.hit(ITEM_SELECTION, ia::SELECTION_NEXT_FELLOW);
+        b.hit(ITEM_SELECTION, ia::SELECTION_NEXT_FELLOW.0);
         walked.push(b.selected().expect("a selection"));
     }
 
@@ -1419,18 +1419,18 @@ fn three_targets() -> ActionBench {
 
 /// The key that goes back selects the one before, and is a toggle rather than a stack.
 pub(super) fn the_key_that_goes_back_is_a_toggle_and_not_a_stack() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     // The shipped key really reaches the action.
     let store = dereth_dat::testing::open_store().expect("the retail data files");
     let shell =
         dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables");
-    let qc = the_only_binding(&shell, ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+    let qc = the_only_binding(&shell, ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
     let bound = qc.meta_mode == 0
         && resolves_to(&shell, &qc)
             == Some((
                 ITEM_SELECTION,
-                dereth_input::ActionId(ia::SELECTION_PREVIOUS_SELECTION),
+                dereth_input::ActionId(ia::SELECTION_PREVIOUS_SELECTION.0),
             ));
 
     // Two selections and one press: the first comes back.
@@ -1438,7 +1438,7 @@ pub(super) fn the_key_that_goes_back_is_a_toggle_and_not_a_stack() {
     b.select(Some(TARGET_A));
     b.select(Some(TARGET_B));
     let recorded = b.objects.world.prev_selected == Some(TARGET_A);
-    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
     let went_back =
         b.selected() == Some(TARGET_A) && b.inter.stats.selection_previous_restores == 1;
 
@@ -1450,7 +1450,7 @@ pub(super) fn the_key_that_goes_back_is_a_toggle_and_not_a_stack() {
     }
     let mut walk = Vec::new();
     for _ in 0..3 {
-        b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+        b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
         walk.push(b.selected());
     }
     let restores = b.inter.stats.selection_previous_restores;
@@ -1471,11 +1471,11 @@ pub(super) fn the_key_that_goes_back_is_a_toggle_and_not_a_stack() {
 
 /// With nothing behind it, the key selects nothing.
 pub(super) fn with_nothing_behind_it_the_key_selects_nothing() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     let mut b = three_targets();
     let nothing_yet = b.objects.world.prev_selected.is_none();
-    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
     let selected_nothing = b.selected().is_none() && b.inter.stats.selection_previous_restores == 0;
 
     // The same leg one step later: the very first selection of a session has nothing behind it
@@ -1483,7 +1483,7 @@ pub(super) fn with_nothing_behind_it_the_key_selects_nothing() {
     // was really there" would pass everything else.
     b.select(Some(TARGET_A));
     let still_nothing_behind = b.objects.world.prev_selected.is_none();
-    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
     let unchanged =
         b.selected() == Some(TARGET_A) && b.inter.stats.selection_previous_restores == 0;
 
@@ -1496,7 +1496,7 @@ pub(super) fn with_nothing_behind_it_the_key_selects_nothing() {
 
 /// A target that was cleared comes back.
 pub(super) fn a_cleared_target_comes_back() {
-    use dereth_client_runtime::interaction::action as ia;
+    use dereth_client_contract::actions::mapped as ia;
 
     let mut b = three_targets();
     b.select(Some(TARGET_A));
@@ -1504,11 +1504,11 @@ pub(super) fn a_cleared_target_comes_back() {
     b.select(None);
     let cleared = b.selected().is_none() && b.objects.world.prev_selected == Some(TARGET_B);
 
-    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
     let came_back = b.selected() == Some(TARGET_B) && b.objects.world.prev_selected.is_none();
 
     // ...and going back again is the empty step, so it stays where it is.
-    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION);
+    b.hit(ITEM_SELECTION, ia::SELECTION_PREVIOUS_SELECTION.0);
     let stayed = b.selected() == Some(TARGET_B) && b.inter.stats.selection_previous_restores == 1;
 
     let mut c = HeadlessClient::model();

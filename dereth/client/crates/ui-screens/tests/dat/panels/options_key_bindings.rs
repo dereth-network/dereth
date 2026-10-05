@@ -1441,7 +1441,7 @@ mod defaults {
 fn own_action_conflicts_show_the_action_name_in_the_actual_overwrite_dialog() {
     let (mut ui, mut m, mut p) = page();
     let own = dereth_input::dereth::INPUT_MAP;
-    let action = ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL);
+    let action = dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL;
     m.bind_action(keyboard(DIK_F7), action, own);
     let i = p.row_of(MOVEMENT, MOVE_FORWARD).unwrap();
     let button = p.rows[i].key_buttons[0];

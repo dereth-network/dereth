@@ -52,6 +52,33 @@ pub struct ClassicState {
     /// tables; empty when the world's era has neither.
     pub augmentations: String,
 }
+impl ClassicState {
+    /// Whether the classic layout stretches to the window height.
+    pub fn stretched(&self) -> bool {
+        self.option_words[0] & crate::keyboard_runtime::STRETCH_UI != 0
+    }
+
+    fn option(&self, ordinal: usize) -> bool {
+        dereth_client_model::player::options::Options {
+            options: self.option_words[0],
+            options2: self.option_words[1],
+        }
+        .get(ordinal)
+    }
+
+    pub fn coordinates_on_radar(&self) -> bool {
+        self.option(dereth_client_model::player::options::option::COORDINATES_ON_RADAR)
+    }
+
+    pub fn spell_duration(&self) -> bool {
+        self.option(dereth_client_model::player::options::option::SPELL_DURATION)
+    }
+
+    pub fn advanced_combat_ui(&self) -> bool {
+        self.option(dereth_client_model::player::options::option::ADVANCED_COMBAT_UI)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ClassicPortrait {
     pub textures: [u32; 3],

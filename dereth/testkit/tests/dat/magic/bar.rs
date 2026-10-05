@@ -11,8 +11,7 @@ use dereth_ui::{Delivery, ElemHandle, ElementMessage, Screen as _, UiSystem};
 use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 use dereth_ui_screens::view::{CombatBar, GameView, MagicNotice, PlayerOption, SpellEntry};
 use {
-    dereth_client_runtime::interaction::action as ia,
-    dereth_client_runtime::interaction::Interaction,
+    dereth_client_contract::actions::mapped as ia, dereth_client_runtime::interaction::Interaction,
 };
 
 const PLAYER: ObjectId = ObjectId(0x5410_1002);
@@ -139,7 +138,7 @@ pub fn the_shipped_control(s: &InputShell, map: InputMapId, action: u32) -> Cont
 
 /// Which instruction a key stands for, as the client's own arm decides it.
 pub fn the_instruction_for(action: u32) -> MagicNotice {
-    match action {
+    match ActionId(action) {
         ia::COMBAT_CAST_CURRENT_SPELL => MagicNotice::CastCurrentSpell,
         ia::COMBAT_PREV_SPELL => MagicNotice::PrevSpellSelection,
         ia::COMBAT_NEXT_SPELL => MagicNotice::NextSpellSelection,
@@ -150,7 +149,7 @@ pub fn the_instruction_for(action: u32) -> MagicNotice {
         ia::COMBAT_FIRST_SPELL_TAB => MagicNotice::FirstSpellTab,
         ia::COMBAT_LAST_SPELL_TAB => MagicNotice::LastSpellTab,
         a => MagicNotice::CastQuickslotSpell {
-            slot: usize::try_from(a - ia::USE_SPELL_SLOT_FIRST).expect("a small slot"),
+            slot: usize::try_from(a.0 - ia::USE_SPELL_SLOT_FIRST.0).expect("a small slot"),
         },
     }
 }

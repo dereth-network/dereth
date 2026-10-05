@@ -11,14 +11,14 @@ use crate::spec::{ControlChord, ControlCode};
 use crate::{ActionId, InputMapId};
 
 /// The input map this client's own actions are bound in.
-pub const INPUT_MAP: InputMapId = InputMapId(0x2000_0000);
+pub use crate::maps::OWN as INPUT_MAP;
 
 /// One of this client's actions: its id, toggle type, action class (the key page's tab:
 /// 1 movement, 3 interface, 7 character settings), and name. The shipped string table has no
 /// name for it, so the name is this client's own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DerethAction {
-    pub action: u32,
+    pub action: ActionId,
     pub toggle: ToggleType,
     pub class: u32,
     pub name: &'static str,
@@ -37,16 +37,13 @@ pub const SECTION_NAME: &str = "Dereth";
 /// The name the key page shows for one of this client's actions.
 #[must_use]
 pub fn name(action: ActionId) -> Option<&'static str> {
-    ACTIONS
-        .iter()
-        .find(|a| a.action == action.0)
-        .map(|a| a.name)
+    ACTIONS.iter().find(|a| a.action == action).map(|a| a.name)
 }
 
 /// This client's actions.
 pub const ACTIONS: &[DerethAction] = {
     use dereth_client_contract::actions::dereth as a;
-    const fn one_shot(action: u32, class: u32, name: &'static str) -> DerethAction {
+    const fn one_shot(action: ActionId, class: u32, name: &'static str) -> DerethAction {
         DerethAction {
             action,
             toggle: ToggleType::OneShot,
@@ -115,21 +112,21 @@ impl ActionMap {
     /// else had it, after the page asks, and a key given to anything else is taken from these,
     /// as the shipped maps' own conflicts work.
     pub fn add_dereth_actions(&mut self) {
-        let mut maps: Vec<u32> = crate::presentation::ROWS.iter().map(|r| r.map).collect();
+        let mut maps: Vec<InputMapId> = crate::presentation::ROWS.iter().map(|r| r.map).collect();
         maps.sort_unstable();
         maps.dedup();
-        for m in maps.into_iter().filter(|m| *m != INPUT_MAP.0) {
-            self.add_conflict(INPUT_MAP, InputMapId(m));
+        for m in maps.into_iter().filter(|m| *m != INPUT_MAP) {
+            self.add_conflict(INPUT_MAP, m);
         }
         for a in ACTIONS {
             self.insert(
                 INPUT_MAP,
-                ActionId(a.action),
+                a.action,
                 ActionMapValue {
                     toggle_type: a.toggle,
                     action_class: a.class,
-                    action_name: a.action,
-                    description: a.action,
+                    action_name: a.action.0,
+                    description: a.action.0,
                 },
             );
         }
@@ -168,7 +165,7 @@ mod tests {
     fn the_actions_are_in_their_own_map_with_their_toggle_type() {
         let mut m = ActionMap::default();
         m.add_dereth_actions();
-        let perf = ActionId(dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL);
+        let perf = dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL;
         assert!(m.is_action_allowed_in_input_map(INPUT_MAP, perf));
         assert_eq!(m.toggle_type(INPUT_MAP, perf), ToggleType::OneShot);
         assert!(
@@ -178,11 +175,7 @@ mod tests {
         assert_eq!(m.action_class(INPUT_MAP, perf), class::INTERFACE);
         assert_eq!(name(perf), Some("Performance Panel"));
         for a in ACTIONS {
-            assert!(
-                m.is_user_bindable(INPUT_MAP, ActionId(a.action)),
-                "{}",
-                a.name
-            );
+            assert!(m.is_user_bindable(INPUT_MAP, a.action), "{}", a.name);
         }
     }
 }

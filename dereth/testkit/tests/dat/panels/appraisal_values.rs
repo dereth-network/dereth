@@ -885,7 +885,7 @@ fn a_thing_to_look_at(c: &mut HeadlessClient) {
 fn press_the_key(c: &mut HeadlessClient) {
     let e = dereth_input::InputEvent {
         action: dereth_input::ActionId(
-            dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+            dereth_client_contract::actions::mapped::SELECTION_EXAMINE.0,
         ),
         input_map: dereth_client_shell::ui::UI_INPUT_MAP,
         toggle: dereth_input::ToggleType::OneShot,

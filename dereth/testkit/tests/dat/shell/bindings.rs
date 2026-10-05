@@ -1435,11 +1435,11 @@ pub(super) fn each_of_this_clients_actions_works_on_a_key_the_page_gives_it() {
     let mut hands = Hands::new();
     // Keys no shipped map binds, one for each action.
     let free = [
-        (own::TOGGLE_PERFORMANCE_PANEL, KeyCode::F7),
-        (own::TOGGLE_INVERT_MOUSE_LOOK, KeyCode::KeyV),
-        (own::TOGGLE_MUTE_ON_LOSING_FOCUS, KeyCode::ScrollLock),
-        (own::TOGGLE_TRADE_PANEL, KeyCode::Numpad7),
-        (own::MOVEMENT_HOLD_SIDESTEP, KeyCode::Numpad9),
+        (own::TOGGLE_PERFORMANCE_PANEL.0, KeyCode::F7),
+        (own::TOGGLE_INVERT_MOUSE_LOOK.0, KeyCode::KeyV),
+        (own::TOGGLE_MUTE_ON_LOSING_FOCUS.0, KeyCode::ScrollLock),
+        (own::TOGGLE_TRADE_PANEL.0, KeyCode::Numpad7),
+        (own::MOVEMENT_HOLD_SIDESTEP.0, KeyCode::Numpad9),
     ];
     let mut bound = Vec::new();
     for (action, code) in free {
@@ -1535,7 +1535,7 @@ pub(super) fn a_key_in_use_given_to_this_clients_action_asks_first_and_is_taken(
     const KB_F: u16 = 0x21;
     let mut c = a_client_on_the_key_bindings("own-conflict");
     let mut hand = KeyHand::new();
-    let perf = ActionId(own::TOGGLE_PERFORMANCE_PANEL);
+    let perf = own::TOGGLE_PERFORMANCE_PANEL;
     let picks_up_on_f = |c: &mut dereth_client::app::App| {
         c.input_manager_mut()
             .expect("the input manager")

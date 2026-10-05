@@ -249,7 +249,7 @@ impl<S: Shell> App<S> {
             // The client UI system's complete first Escape leg returns before a following input
             // event. Leaving it in the declined end-of-batch queue would let an old Space-up
             // launch before cancellation. Non-jump Escape remains with its existing owner.
-            if e.id.0 == crate::interaction::action::ESCAPE_KEY
+            if e.id == dereth_client_contract::actions::mapped::ESCAPE_KEY
                 && self.interaction.try_finish_jump_from_escape(
                     &mut self.objects.world,
                     dereth_primitives::LocalTime(self.timer.cur_time),

@@ -59,6 +59,39 @@ fn parse_consumes_every_payload_exactly() {
     assert_eq!(am.string_table, 0x2300_0005);
     assert_eq!(am.conflict_count(), 16, "the conflict table has 16 entries");
 
+    // Startup keeps its current document header while replacing bindings. A loaded scheme
+    // constructs a fresh document, including when malformed user text falls back to defaults.
+    let mut manager = dereth_input::InputManager::on_startup(am_bytes, dm_bytes).expect("startup");
+    manager.keymap.did = 73;
+    manager.keymap.name = "retained header".to_owned();
+    manager.keymap.guid = [19; 16];
+    manager
+        .init_keymap(Some("invalid keymap"), gm_bytes, dm_bytes)
+        .expect("defaults");
+    assert_eq!(
+        (
+            manager.keymap.did,
+            manager.keymap.name.as_str(),
+            manager.keymap.guid
+        ),
+        (73, "retained header", [19; 16])
+    );
+    let loaded = dereth_input::InputManager::load_over_defaults(
+        Some("invalid keymap"),
+        &[&gm, &dm],
+        Some(&am),
+    );
+    assert_eq!(
+        (loaded.did, loaded.name.as_str(), loaded.guid),
+        (0, "User Defined Keymap", [0; 16])
+    );
+    let mut expected = loaded;
+    expected.create_input_map(dereth_input::dereth::INPUT_MAP);
+    expected.did = manager.keymap.did;
+    expected.name.clone_from(&manager.keymap.name);
+    expected.guid = manager.keymap.guid;
+    assert_eq!(manager.keymap.to_keymap_text(), expected.to_keymap_text());
+
     assert_eq!(gm.name, "gmDefaultMap");
     assert_eq!(dm.name, "DefaultMap");
     for (map, want, count) in [(&gm, "gmDefaultMap", 133), (&dm, "DefaultMap", 51)] {

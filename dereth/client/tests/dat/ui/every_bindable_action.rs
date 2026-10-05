@@ -194,7 +194,7 @@ fn every_bindable_action_is_taken_by_some_handler_in_the_retail_interface() {
 
 fn press(app: &mut App, action: u32, start: bool) {
     let toggle =
-        if start || action == dereth_client_contract::actions::dereth::MOVEMENT_HOLD_SIDESTEP {
+        if start || action == dereth_client_contract::actions::dereth::MOVEMENT_HOLD_SIDESTEP.0 {
             ToggleType::Hold
         } else {
             ToggleType::OneShot
@@ -224,24 +224,27 @@ fn the_retail_interface_answers_this_clients_own_keys_with_its_own_equivalents()
     let mut app = in_the_world();
 
     // Hold sidestep is held for as long as its key is.
-    press(&mut app, own::MOVEMENT_HOLD_SIDESTEP, true);
+    press(&mut app, own::MOVEMENT_HOLD_SIDESTEP.0, true);
     assert!(app.movement.lists.hold_sidestep, "held");
-    press(&mut app, own::MOVEMENT_HOLD_SIDESTEP, false);
+    press(&mut app, own::MOVEMENT_HOLD_SIDESTEP.0, false);
     assert!(!app.movement.lists.hold_sidestep, "let go");
 
     // The shared settings flip, both ways.
     for (action, name) in [
-        (own::TOGGLE_INVERT_MOUSE_LOOK, "Input.InvertMouseLookYAxis"),
         (
-            own::TOGGLE_MUTE_ON_LOSING_FOCUS,
+            own::TOGGLE_INVERT_MOUSE_LOOK.0,
+            "Input.InvertMouseLookYAxis",
+        ),
+        (
+            own::TOGGLE_MUTE_ON_LOSING_FOCUS.0,
             "Sound.PlaySoundOnlyWhenActive",
         ),
         (
-            own::TOGGLE_STRETCH_UI,
+            own::TOGGLE_STRETCH_UI.0,
             dereth_client_contract::options::classic::STRETCH_UI,
         ),
         (
-            own::TOGGLE_RIGHT_CLICK_MOUSE_LOOK,
+            own::TOGGLE_RIGHT_CLICK_MOUSE_LOOK.0,
             dereth_client_contract::options::classic::RIGHT_CLICK_MOUSE_LOOK,
         ),
     ] {
@@ -271,8 +274,8 @@ fn the_retail_interface_answers_this_clients_own_keys_with_its_own_equivalents()
             .is_some_and(|n| n.region.flags.visible)
     };
     assert!(!visible(&app));
-    press(&mut app, own::TOGGLE_TRADE_PANEL, true);
+    press(&mut app, own::TOGGLE_TRADE_PANEL.0, true);
     assert!(visible(&app), "the trade key shows the window");
-    press(&mut app, own::TOGGLE_TRADE_PANEL, true);
+    press(&mut app, own::TOGGLE_TRADE_PANEL.0, true);
     assert!(!visible(&app), "and hides it");
 }

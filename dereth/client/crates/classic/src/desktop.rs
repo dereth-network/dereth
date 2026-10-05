@@ -705,7 +705,7 @@ impl Desktop {
         self.focus = None;
     }
     pub fn open(&mut self, id: &str, context: &Context<'_>) -> Option<u64> {
-        self.stretched = context.classic.option_words[0] & 0x20_0000 != 0;
+        self.stretched = context.classic.stretched();
         let current = self.panel_context(context);
         let context = &current;
         let service = matches!(id, "trade" | "maintenance" | "salvage");
@@ -765,7 +765,7 @@ impl Desktop {
         let regions = crate::panels::hud::regions_stretched(
             self.size.0,
             self.size.1,
-            context.classic.option_words[0] & 0x20_0000 != 0,
+            context.classic.stretched(),
             self.chat_expanded,
         );
         panel.set_layout(context.layout);
@@ -853,7 +853,7 @@ impl Desktop {
         }
     }
     pub fn resize(&mut self, size: (u32, u32), context: &Context<'_>) {
-        self.stretched = context.classic.option_words[0] & 0x20_0000 != 0;
+        self.stretched = context.classic.stretched();
         self.size = size;
         let bottom_width = self.bottom_width();
         let current = self.panel_context(context);
@@ -862,7 +862,7 @@ impl Desktop {
             let r = crate::panels::hud::regions_stretched(
                 size.0,
                 size.1,
-                context.classic.option_words[0] & 0x20_0000 != 0,
+                context.classic.stretched(),
                 self.chat_expanded,
             );
             let full = w.key == "hud" || crate::panels::pregame::IDS.contains(&w.key.as_str());

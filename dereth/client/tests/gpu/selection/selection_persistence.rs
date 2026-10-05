@@ -48,8 +48,7 @@ use dereth_primitives::num::math;
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, ServerTime, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 use {
-    dereth_client_runtime::interaction::action as ia,
-    dereth_client_runtime::interaction::Interaction,
+    dereth_client_contract::actions::mapped as ia, dereth_client_runtime::interaction::Interaction,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
@@ -560,10 +559,10 @@ fn the_bench_can_select_can_advance_and_can_end_up_empty() {
         "nothing is selected before the first press"
     );
 
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR), "the closest of the three");
 
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(b.selected(), Some(MID), "and it advances");
 
     // And it can be emptied, which is the negative every measurement below rests on.
@@ -595,16 +594,16 @@ fn the_bench_can_select_can_advance_and_can_end_up_empty() {
 fn the_cycle_advances_one_object_per_press_across_the_acts_between_them() {
     let mut b = three_monsters();
 
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
 
     // Act 1: examine the thing you just selected, then let two frames run.
-    b.press(ia::SELECTION_EXAMINE);
+    b.press(ia::SELECTION_EXAMINE.0);
     b.idle();
     b.idle();
     assert_eq!(b.selected(), Some(NEAR), "an examine must not retarget");
 
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(MID),
@@ -612,13 +611,13 @@ fn the_cycle_advances_one_object_per_press_across_the_acts_between_them() {
     );
 
     // Act 2: use it, and let more frames run.
-    b.press(ia::USE);
+    b.press(ia::USE.0);
     for _ in 0..3 {
         b.idle();
     }
     assert_eq!(b.selected(), Some(MID), "a use must not retarget either");
 
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(b.selected(), Some(FAR), "press 3 advances again");
 
     // The discrimination: had any act emptied the selection, this walk would have been
@@ -634,12 +633,12 @@ fn the_cycle_advances_one_object_per_press_across_the_acts_between_them() {
 #[test]
 fn the_wrap_is_a_re_call_and_not_a_cleared_selection() {
     let mut b = three_monsters();
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
-    b.press(ia::SELECTION_NEXT_MONSTER);
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(b.selected(), Some(FAR), "at the outer end of the walk");
 
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(NEAR),
@@ -667,7 +666,7 @@ fn the_wrap_is_a_re_call_and_not_a_cleared_selection() {
 #[test]
 fn the_draw_time_setter_matches_the_id_and_not_merely_the_fact_that_something_was_drawn() {
     let mut b = three_monsters();
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
     b.idle();
     assert!(
@@ -712,7 +711,7 @@ fn the_draw_time_setter_matches_the_id_and_not_merely_the_fact_that_something_wa
 #[test]
 fn a_world_click_takes_the_latch_down_and_the_next_draw_puts_it_back_up() {
     let mut b = three_monsters();
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     b.idle();
     assert!(
         b.objects.world.selected_object_in_view,
@@ -789,7 +788,7 @@ fn a_world_click_takes_the_latch_down_and_the_next_draw_puts_it_back_up() {
 fn a_driven_run_keeps_the_selection_across_every_range_exit_once_the_object_has_been_drawn() {
     // (a) The drawn arm, using the manual frame plus the scene helper.
     let mut b = three_monsters();
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
     b.idle(); // arms the range-exit watch
     assert!(
@@ -853,7 +852,7 @@ fn a_driven_run_keeps_the_selection_across_every_range_exit_once_the_object_has_
     // never drawn. It reselects after each clear to start the next cycle.
     let mut c = three_monsters();
     c.draw_frames = false;
-    c.press(ia::SELECTION_CLOSEST_MONSTER);
+    c.press(ia::SELECTION_CLOSEST_MONSTER.0);
     c.idle();
     assert_eq!(
         c.parts_drawn_for(NEAR),
@@ -866,7 +865,7 @@ fn a_driven_run_keeps_the_selection_across_every_range_exit_once_the_object_has_
         c.idle();
         c.move_to(NEAR, NEAR_AT);
         c.idle();
-        c.press(ia::SELECTION_CLOSEST_MONSTER);
+        c.press(ia::SELECTION_CLOSEST_MONSTER.0);
         c.idle();
     }
     assert_eq!(c.rearms(), 0, "with the latch down, nothing ever re-armed");
@@ -906,7 +905,7 @@ fn a_driven_run_keeps_the_selection_across_every_range_exit_once_the_object_has_
 fn a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view() {
     // (a) In front of the player, so every frame draws it.
     let mut b = three_monsters();
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
     b.idle(); // arms the range-exit watch
     b.move_to(NEAR, OUT_OF_RANGE_AT);
@@ -949,7 +948,7 @@ fn a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view() {
 
     // (b) The control: 90 m behind the player, never drawn there.
     let mut c = three_monsters();
-    c.press(ia::SELECTION_CLOSEST_MONSTER);
+    c.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(c.selected(), Some(NEAR));
     c.idle();
     c.move_to(NEAR, OUT_OF_RANGE_BEHIND_AT);
@@ -979,7 +978,7 @@ fn a_drawn_far_selection_is_kept_while_the_pointer_rests_on_the_world_view() {
 fn after_a_drop_the_cycle_still_continues_from_the_dropped_object() {
     let mut b = three_monsters();
     b.draw_frames = false;
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     assert_eq!(b.selected(), Some(NEAR));
     b.idle();
 
@@ -994,7 +993,7 @@ fn after_a_drop_the_cycle_still_continues_from_the_dropped_object() {
     // Bring it back to 3 m without re-selecting it: the reference is now the nearest object.
     b.move_to(NEAR, NEAR_AT);
     b.idle();
-    b.press(ia::SELECTION_NEXT_MONSTER);
+    b.press(ia::SELECTION_NEXT_MONSTER.0);
     assert_eq!(
         b.selected(),
         Some(MID),
@@ -1028,7 +1027,7 @@ fn the_range_edge_is_the_radar_radius_on_both_arms_and_not_before_it() {
 
     // (a) Drawn: the exit re-arms, and the selection survives it.
     let mut b = three_monsters();
-    b.press(ia::SELECTION_CLOSEST_MONSTER);
+    b.press(ia::SELECTION_CLOSEST_MONSTER.0);
     b.idle();
     assert!(
         b.parts_drawn_for(NEAR) > 0,
@@ -1066,7 +1065,7 @@ fn the_range_edge_is_the_radar_radius_on_both_arms_and_not_before_it() {
     // (b) Never drawn: the same boundary, the other arm.
     let mut c = three_monsters();
     c.draw_frames = false;
-    c.press(ia::SELECTION_CLOSEST_MONSTER);
+    c.press(ia::SELECTION_CLOSEST_MONSTER.0);
     c.idle();
 
     c.move_to(NEAR, inside);

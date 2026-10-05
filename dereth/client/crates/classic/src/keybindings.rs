@@ -189,10 +189,10 @@ impl KeyBindings {
         };
         let row = |r: &presentation::Row| KeyBinding {
             action: r.action().0,
-            map: r.map,
+            map: r.map.0,
             label: r.label.to_owned(),
             keys: self
-                .row_keys(r.action().0, r.map)
+                .row_keys(r.action().0, r.map.0)
                 .iter()
                 .take(3)
                 .map(|b| chord_name(b.key, b.chord))
@@ -705,17 +705,17 @@ mod tests {
         };
         ClassicKeys {
             bindings: vec![
-                b(W, 0, FORWARD, map::MOVEMENT),
-                b(X, 0, BACK, map::MOVEMENT),
-                b(Q, 0, AUTORUN, map::MOVEMENT),
-                b(DELETE, 0, action("CombatLowAttack"), map::MELEE),
-                b(DELETE, 0, action("CombatAimLow"), map::MISSILE),
-                b(DELETE, 0, action("CombatPrevSpell"), map::MAGIC),
+                b(W, 0, FORWARD, map::MOVEMENT.0),
+                b(X, 0, BACK, map::MOVEMENT.0),
+                b(Q, 0, AUTORUN, map::MOVEMENT.0),
+                b(DELETE, 0, action("CombatLowAttack"), map::MELEE.0),
+                b(DELETE, 0, action("CombatAimLow"), map::MISSILE.0),
+                b(DELETE, 0, action("CombatPrevSpell"), map::MAGIC.0),
             ],
             files: vec!["pvp".into(), "wer".into()],
             active: "dereth".into(),
-            conflicts: vec![(map::MOVEMENT, vec![map::MOVEMENT])],
-            holds: vec![(map::MOVEMENT, FORWARD), (map::MOVEMENT, BACK)],
+            conflicts: vec![(map::MOVEMENT.0, vec![map::MOVEMENT.0])],
+            holds: vec![(map::MOVEMENT.0, FORWARD), (map::MOVEMENT.0, BACK)],
         }
     }
 
@@ -729,7 +729,7 @@ mod tests {
     fn a_captured_key_is_asked_of_the_map_and_replaces_the_slot_it_was_given() {
         let mut k = KeyBindings::new(&keys());
         assert_eq!(
-            bind(&mut k, FORWARD, map::MOVEMENT, 0, 0x45, 0).capture,
+            bind(&mut k, FORWARD, map::MOVEMENT.0, 0, 0x45, 0).capture,
             CaptureResult::Finished
         );
         assert!(k.key(0x45, false, false, 0).unwrap().consumed);
@@ -739,7 +739,7 @@ mod tests {
                 scan: 0x12,
                 modifiers: 0,
                 action: FORWARD,
-                map: map::MOVEMENT,
+                map: map::MOVEMENT.0,
                 replaced: Some((W, 0)),
             }]
         );
@@ -753,7 +753,7 @@ mod tests {
         let mut k = KeyBindings::new(&keys());
         k.handle(&HostAction::CaptureBinding {
             action: BACK,
-            map: map::MOVEMENT,
+            map: map::MOVEMENT.0,
             slot: 1,
         })
         .unwrap();
@@ -780,7 +780,7 @@ mod tests {
         // Left Shift alone, as the run key is bound.
         k.handle(&HostAction::CaptureBinding {
             action: AUTORUN,
-            map: map::MOVEMENT,
+            map: map::MOVEMENT.0,
             slot: 0,
         })
         .unwrap();
@@ -797,7 +797,7 @@ mod tests {
         let mut k = KeyBindings::new(&keys());
         k.handle(&HostAction::ClearBindingSlot {
             action: FORWARD,
-            map: map::MOVEMENT,
+            map: map::MOVEMENT.0,
             slot: 0,
         })
         .unwrap();
@@ -807,7 +807,7 @@ mod tests {
                 scan: W,
                 modifiers: 0,
                 action: FORWARD,
-                map: map::MOVEMENT,
+                map: map::MOVEMENT.0,
             }]
         );
         assert!(k.key(0x57, true, false, 0).unwrap().actions.is_empty());
@@ -817,7 +817,7 @@ mod tests {
     fn conflict_requires_confirmation_before_displacing_another_action() {
         let mut k = KeyBindings::new(&keys());
         assert_eq!(
-            bind(&mut k, FORWARD, map::MOVEMENT, 0, 0x58, 0).capture,
+            bind(&mut k, FORWARD, map::MOVEMENT.0, 0, 0x58, 0).capture,
             CaptureResult::Conflict("Walk Backwards".into())
         );
         assert_eq!(k.confirm_capture(false).unwrap(), CaptureResult::Waiting);
@@ -836,14 +836,14 @@ mod tests {
         let mut k = KeyBindings::new(&keys());
         for vk in [0x09, 0x0D, 0x31, 0x70] {
             assert_eq!(
-                bind(&mut k, FORWARD, map::MOVEMENT, 2, vk, 0).capture,
+                bind(&mut k, FORWARD, map::MOVEMENT.0, 2, vk, 0).capture,
                 CaptureResult::Finished
             );
             k.key(vk, false, false, 0).unwrap();
         }
         k.handle(&HostAction::CaptureBinding {
             action: FORWARD,
-            map: map::MOVEMENT,
+            map: map::MOVEMENT.0,
             slot: 0,
         })
         .unwrap();
@@ -853,7 +853,7 @@ mod tests {
         );
         assert!(!k.is_capturing());
         assert!(matches!(
-            bind(&mut k, FORWARD, map::MOVEMENT, 0, 0x90, 0).capture,
+            bind(&mut k, FORWARD, map::MOVEMENT.0, 0, 0x90, 0).capture,
             CaptureResult::Rejected(_)
         ));
     }

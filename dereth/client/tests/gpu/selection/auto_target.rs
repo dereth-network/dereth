@@ -38,8 +38,7 @@ use dereth_input::{ActionId, InputMapId};
 use dereth_primitives::{LocalTime, ObjectId, Position, Quat, Vec3};
 use dereth_render::device::{DeviceConfig, Gpu};
 use {
-    dereth_client_runtime::interaction::action as ia,
-    dereth_client_runtime::interaction::Interaction,
+    dereth_client_contract::actions::mapped as ia, dereth_client_runtime::interaction::Interaction,
 };
 use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
 use {dereth_rules::weenie::bitfield, dereth_rules::weenie::item_type};
@@ -339,13 +338,13 @@ fn the_bench_can_select_and_can_refuse() {
     let mut b = Bench::new();
     b.place(NEAR, NEAR_AT);
     b.make_compass_item(NEAR);
-    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM);
+    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM.0);
     assert_eq!(b.selected(), Some(NEAR), "the bench can select");
 
     let mut b = Bench::new();
     b.place(NEAR, NEAR_AT);
     // Not shown on the radar and not `COMPASS_ALWAYS`: the arm's first gate rejects it.
-    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM);
+    b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM.0);
     assert_eq!(b.selected(), None, "and it can refuse");
 }
 
@@ -529,7 +528,7 @@ fn the_compass_item_stance_gate_admits_a_vendor_while_casting() {
         b.place(NEAR, NEAR_AT);
         b.make_attackable_vendor(NEAR);
         b.objects.world.combat.combat_mode = mode;
-        b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM);
+        b.press(ia::SELECTION_CLOSEST_COMPASS_ITEM.0);
         answers.push((mode, b.selected()));
     }
     assert_eq!(
@@ -693,7 +692,7 @@ fn a_pending_combat_retry_auto_targets_on_the_first_ready_frame_only() {
         .motions_pending());
     assert_eq!(b.objects.world.combat.combat_mode, CombatMode::NonCombat);
 
-    b.press(ia::COMBAT_TOGGLE_COMBAT);
+    b.press(ia::COMBAT_TOGGLE_COMBAT.0);
     assert_eq!(
         b.objects.world.combat.pending_combat_mode,
         CombatMode::Melee
@@ -798,7 +797,7 @@ fn an_incompatible_pending_combat_retry_is_dropped_without_auto_target() {
         .player_system
         .options
         .set(AUTO_TARGET_OPTION, true);
-    b.press(ia::COMBAT_TOGGLE_COMBAT);
+    b.press(ia::COMBAT_TOGGLE_COMBAT.0);
     assert_eq!(
         b.objects.world.combat.pending_combat_mode,
         CombatMode::Melee
@@ -844,7 +843,7 @@ fn the_last_attacker_action_selects_him() {
     b.set_last_attacker(ATTACKER);
     assert_eq!(b.selected(), None, "the premise: nothing is selected");
 
-    b.press(ia::SELECTION_LAST_ATTACKER);
+    b.press(ia::SELECTION_LAST_ATTACKER.0);
 
     assert_eq!(b.selected(), Some(ATTACKER));
     assert_eq!(b.inter.stats.selection_last_attacker, 1, "the arm ran once");
@@ -873,7 +872,7 @@ fn the_last_attacker_arm_carries_the_radar_range_on_both_sides() {
         let mut b = Bench::new();
         b.place(ATTACKER, at);
         b.set_last_attacker(ATTACKER);
-        b.press(ia::SELECTION_LAST_ATTACKER);
+        b.press(ia::SELECTION_LAST_ATTACKER.0);
         assert_eq!(b.selected(), expected, "{why}");
         assert_eq!(
             b.inter.stats.selection_last_attacker, 1,
@@ -947,7 +946,7 @@ fn neither_shipped_binding_for_use_or_examine_is_a_hold() {
     let shell =
         dereth_client_shell::input::InputShell::new(&store, None).expect("the input tables decode");
     let mut examined = 0;
-    for a in [ia::USE, ia::SELECTION_EXAMINE] {
+    for a in [ia::USE.0, ia::SELECTION_EXAMINE.0] {
         let t = shell.manager.action_map.toggle_type(MAP, ActionId(a));
         assert!(
             !t.is_hold(),
@@ -971,7 +970,7 @@ fn a_release_event_runs_the_examine_arm() {
     b.select(Some(NEAR));
 
     assert_eq!(
-        b.deliver(ia::SELECTION_EXAMINE, true),
+        b.deliver(ia::SELECTION_EXAMINE.0, true),
         0,
         "the press is consumed"
     );
@@ -983,7 +982,7 @@ fn a_release_event_runs_the_examine_arm() {
 
     b.objects.world.appraisal.examining = None;
     assert_eq!(
-        b.deliver(ia::SELECTION_EXAMINE, false),
+        b.deliver(ia::SELECTION_EXAMINE.0, false),
         0,
         "the release is consumed too"
     );
@@ -1007,10 +1006,14 @@ fn a_release_event_runs_the_use_arm() {
     b.weenie_mut(NEAR).pwd.useability = Some(0x0000_0080);
     b.select(Some(NEAR));
 
-    assert_eq!(b.deliver(ia::USE, true), 0, "the press is consumed");
+    assert_eq!(b.deliver(ia::USE.0, true), 0, "the press is consumed");
     assert_eq!(b.uses(), 1, "the control: the press runs the use action");
 
-    assert_eq!(b.deliver(ia::USE, false), 0, "the release is consumed too");
+    assert_eq!(
+        b.deliver(ia::USE.0, false),
+        0,
+        "the release is consumed too"
+    );
     assert_eq!(
         b.uses(),
         2,
@@ -1864,7 +1867,7 @@ mod selection_change {
     use dereth_render::device::{DeviceConfig, Gpu};
     use dereth_ui_screens::view::UiRequest;
     use {
-        dereth_client_runtime::interaction::action as ia,
+        dereth_client_contract::actions::mapped as ia,
         dereth_client_runtime::interaction::Interaction,
     };
     use {dereth_client_runtime::scene::SceneConfig, dereth_scene::world_scene::WorldScene};
@@ -2389,7 +2392,7 @@ mod selection_change {
         // deliberate deviation of the queued notice path; the retail client dispatches it
         // synchronously from inside the selection setter.
         b.now += 1.0;
-        press(&mut b, ia::ESCAPE_KEY);
+        press(&mut b, ia::ESCAPE_KEY.0);
         assert_eq!(
             b.inter.stats.escape_deselects, 1,
             "Escape took its deselect leg"

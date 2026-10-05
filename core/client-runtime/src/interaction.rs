@@ -66,6 +66,7 @@ use dereth_client_contract::view::{AllegianceAction, DropTarget, UiRequest};
 use dereth_client_contract::ElementId;
 use dereth_client_model::combat::AttackHeight;
 use dereth_client_model::inventory::SplitState;
+use dereth_client_model::player::options::option;
 use dereth_client_model::{Notice, NoticeSink, RecordingRequests, Request};
 use dereth_dat::RetailDatStore;
 use dereth_primitives::{ObjectId, ServerTime, Viewport};
@@ -1044,9 +1045,7 @@ impl Interaction {
     }
 }
 
-/// The action ids this module handles, from the shipped `ActionMap`'s own enum names
-/// (`crate::actions::names::ACTION_ENUM_NAMES`).
-pub mod action;
+use dereth_client_contract::actions::mapped as action;
 
 /// The `PlayerOption_*` input actions the player system handles, each with the `PlayerOption`
 /// ordinal it flips.
@@ -1055,59 +1054,59 @@ pub mod action;
 /// action handled. Hear-PK-deaths is the newest retail row; the show-cloak row is this client's
 /// (the end-of-retail client names the action and does nothing with it).
 pub const PLAYER_OPTION_ACTIONS: [(u32, usize); 51] = [
-    (0x1000_0071, 0),  // AutoRepeatAttack
-    (0x1000_0072, 1),  // IgnoreAllegianceRequests
-    (0x1000_0073, 2),  // IgnoreFellowshipRequests
-    (0x1000_0074, 3),  // IgnoreTradeRequests
-    (0x1000_0075, 4),  // DisableMostWeatherEffects
-    (0x1000_0076, 5),  // PersistentAtDay
-    (0x1000_0077, 6),  // AllowGive
-    (0x1000_0078, 7),  // ViewCombatTarget
-    (0x1000_0079, 8),  // ShowTooltips
-    (0x1000_007A, 9),  // UseDeception
-    (0x1000_007B, 10), // ToggleRun
-    (0x1000_007C, 11), // StayInChatMode
-    (0x1000_007D, 12), // AdvancedCombatUI
-    (0x1000_007E, 13), // AutoTarget
-    (0x1000_007F, 14), // VividTargetingIndicator
-    (0x1000_0080, 15), // FellowshipShareXP
-    (0x1000_0081, 16), // AcceptLootPermits
-    (0x1000_0082, 17), // FellowshipShareLoot
-    (0x1000_0083, 18), // FellowshipAutoAcceptRequests
-    (0x1000_0085, 20), // CoordinatesOnRadar
-    (0x1000_0086, 21), // SpellDuration
-    (0x1000_0087, 22), // DisableHouseRestrictionEffects
-    (0x1000_0088, 23), // DragItemOnPlayerOpensSecureTrade
-    (0x1000_0089, 24), // DisplayAllegianceLogonNotifications
-    (0x1000_008A, 25), // UseChargeAttack
-    (0x1000_008B, 26), // UseCraftSuccessDialog
-    (0x1000_008C, 27), // HearAllegianceChat
-    (0x1000_008D, 28), // DisplayDateOfBirth
-    (0x1000_008E, 29), // DisplayAge
-    (0x1000_008F, 30), // DisplayChessRank
-    (0x1000_0090, 31), // DisplayFishingSkill
-    (0x1000_0091, 32), // DisplayNumberDeaths
-    (0x1000_0092, 33), // DisplayTimeStamps
-    (0x1000_0093, 34), // SalvageMultiple
-    (0x1000_010E, 35), // HearGeneralChat
-    (0x1000_010F, 36), // HearTradeChat
-    (0x1000_0110, 37), // HearLFGChat
-    (0x1000_0112, 38), // HearRoleplayChat
-    (0x1000_011B, 40), // DisplayNumberCharacterTitles
-    (0x1000_011D, 41), // MainPackPreferred
-    (0x1000_011E, 42), // LeadMissileTargets
-    (0x1000_011F, 43), // UseFastMissiles
-    (0x1000_0120, 44), // FilterLanguage
-    (0x1000_0123, 45), // ConfirmVolatileRareUse
-    (0x1000_0125, 46), // HearSocietyChat
-    (0x1000_012A, 47), // ShowHelm
-    (0x1000_012C, 48), // DisableDistanceFog
-    (0x1000_012D, 49), // UseMouseTurning
-    (0x1000_013E, 19), // SideBySideVitals
-    (0x1000_013F, 52), // HearPKDeaths
+    (0x1000_0071, option::AUTO_REPEAT_ATTACK), // AutoRepeatAttack
+    (0x1000_0072, option::IGNORE_ALLEGIANCE_REQUESTS), // IgnoreAllegianceRequests
+    (0x1000_0073, option::IGNORE_FELLOWSHIP_REQUESTS), // IgnoreFellowshipRequests
+    (0x1000_0074, option::IGNORE_TRADE_REQUESTS), // IgnoreTradeRequests
+    (0x1000_0075, option::DISABLE_MOST_WEATHER_EFFECTS), // DisableMostWeatherEffects
+    (0x1000_0076, option::PERSISTENT_AT_DAY),  // PersistentAtDay
+    (0x1000_0077, option::ALLOW_GIVE),         // AllowGive
+    (0x1000_0078, option::VIEW_COMBAT_TARGET), // ViewCombatTarget
+    (0x1000_0079, option::SHOW_TOOLTIPS),      // ShowTooltips
+    (0x1000_007A, option::USE_DECEPTION),      // UseDeception
+    (0x1000_007B, option::TOGGLE_RUN),         // ToggleRun
+    (0x1000_007C, option::STAY_IN_CHAT_MODE),  // StayInChatMode
+    (0x1000_007D, option::ADVANCED_COMBAT_UI), // AdvancedCombatUI
+    (0x1000_007E, option::AUTO_TARGET),        // AutoTarget
+    (0x1000_007F, option::VIVID_TARGETING_INDICATOR), // VividTargetingIndicator
+    (0x1000_0080, option::FELLOWSHIP_SHARE_XP), // FellowshipShareXP
+    (0x1000_0081, option::ACCEPT_LOOT_PERMITS), // AcceptLootPermits
+    (0x1000_0082, option::FELLOWSHIP_SHARE_LOOT), // FellowshipShareLoot
+    (0x1000_0083, option::FELLOWSHIP_AUTO_ACCEPT_REQUESTS), // FellowshipAutoAcceptRequests
+    (0x1000_0085, option::COORDINATES_ON_RADAR), // CoordinatesOnRadar
+    (0x1000_0086, option::SPELL_DURATION),     // SpellDuration
+    (0x1000_0087, option::DISABLE_HOUSE_RESTRICTION_EFFECTS), // DisableHouseRestrictionEffects
+    (0x1000_0088, option::DRAG_ITEM_ON_PLAYER_OPENS_SECURE_TRADE), // DragItemOnPlayerOpensSecureTrade
+    (0x1000_0089, option::DISPLAY_ALLEGIANCE_LOGON_NOTIFICATIONS), // DisplayAllegianceLogonNotifications
+    (0x1000_008A, option::USE_CHARGE_ATTACK),                      // UseChargeAttack
+    (0x1000_008B, option::USE_CRAFT_SUCCESS_DIALOG),               // UseCraftSuccessDialog
+    (0x1000_008C, option::HEAR_ALLEGIANCE_CHAT),                   // HearAllegianceChat
+    (0x1000_008D, option::DISPLAY_DATE_OF_BIRTH),                  // DisplayDateOfBirth
+    (0x1000_008E, option::DISPLAY_AGE),                            // DisplayAge
+    (0x1000_008F, option::DISPLAY_CHESS_RANK),                     // DisplayChessRank
+    (0x1000_0090, option::DISPLAY_FISHING_SKILL),                  // DisplayFishingSkill
+    (0x1000_0091, option::DISPLAY_NUMBER_DEATHS),                  // DisplayNumberDeaths
+    (0x1000_0092, option::DISPLAY_TIME_STAMPS),                    // DisplayTimeStamps
+    (0x1000_0093, option::SALVAGE_MULTIPLE),                       // SalvageMultiple
+    (0x1000_010E, option::HEAR_GENERAL_CHAT),                      // HearGeneralChat
+    (0x1000_010F, option::HEAR_TRADE_CHAT),                        // HearTradeChat
+    (0x1000_0110, option::HEAR_LFG_CHAT),                          // HearLFGChat
+    (0x1000_0112, option::HEAR_ROLEPLAY_CHAT),                     // HearRoleplayChat
+    (0x1000_011B, option::DISPLAY_NUMBER_CHARACTER_TITLES),        // DisplayNumberCharacterTitles
+    (0x1000_011D, option::MAIN_PACK_PREFERRED),                    // MainPackPreferred
+    (0x1000_011E, option::LEAD_MISSILE_TARGETS),                   // LeadMissileTargets
+    (0x1000_011F, option::USE_FAST_MISSILES),                      // UseFastMissiles
+    (0x1000_0120, option::FILTER_LANGUAGE),                        // FilterLanguage
+    (0x1000_0123, option::CONFIRM_VOLATILE_RARE_USE),              // ConfirmVolatileRareUse
+    (0x1000_0125, option::HEAR_SOCIETY_CHAT),                      // HearSocietyChat
+    (0x1000_012A, option::SHOW_HELM),                              // ShowHelm
+    (0x1000_012C, option::DISABLE_DISTANCE_FOG),                   // DisableDistanceFog
+    (0x1000_012D, option::USE_MOUSE_TURNING),                      // UseMouseTurning
+    (0x1000_013E, option::SIDE_BY_SIDE_VITALS),                    // SideBySideVitals
+    (0x1000_013F, option::HEAR_PK_DEATHS),                         // HearPKDeaths
     // Not the end-of-retail client's: its show-cloak action does nothing. Here it flips the
     // option as the others do.
-    (0x1000_012F, 50), // ShowCloak
+    (0x1000_012F, option::SHOW_CLOAK), // ShowCloak
 ];
 
 /// The option a `PlayerOption_*` input action flips, or `None` for any other action.

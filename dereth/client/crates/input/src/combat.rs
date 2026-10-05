@@ -45,13 +45,13 @@ pub mod mode {
 /// `Combat` -- `CombatToggleCombat` and the power-bar keys. Registered by the combat system at
 /// the gameplay priority (1000) and never
 /// unregistered until the session ends.
-pub const COMBAT_MAP: InputMapId = InputMapId(0x1000_0002);
-/// `MeleeCombat` — the attack heights and the attack-power keys.
-pub const MELEE_COMBAT_MAP: InputMapId = InputMapId(0x1000_0003);
-/// `MissileCombat` — the aim heights and the missile-accuracy keys.
-pub const MISSILE_COMBAT_MAP: InputMapId = InputMapId(0x1000_0004);
+pub use crate::maps::COMBAT as COMBAT_MAP;
 /// `MagicCombat` — the spell list, the spell tabs and `UseSpellSlot_1`…`_9` on `DIK_1`…`DIK_9`.
-pub const MAGIC_COMBAT_MAP: InputMapId = InputMapId(0x1000_0005);
+pub use crate::maps::MAGIC as MAGIC_COMBAT_MAP;
+/// `MeleeCombat` — the attack heights and the attack-power keys.
+pub use crate::maps::MELEE as MELEE_COMBAT_MAP;
+/// `MissileCombat` — the aim heights and the missile-accuracy keys.
+pub use crate::maps::MISSILE as MISSILE_COMBAT_MAP;
 
 /// The three maps that are mutually exclusive, in mode order. **Never register more than one.**
 pub const MODE_COMBAT_MAPS: [InputMapId; 3] =

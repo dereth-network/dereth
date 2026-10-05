@@ -340,7 +340,7 @@ impl AppBench {
     pub fn one_real_attack(&mut self) {
         let k = self.control(
             dereth_input::combat::MELEE_COMBAT_MAP,
-            ActionId(dereth_client_runtime::interaction::action::COMBAT_MEDIUM_ATTACK),
+            ActionId(dereth_client_contract::actions::mapped::COMBAT_MEDIUM_ATTACK.0),
         );
         let mut sent = self.press(k, true, 1);
         sent.extend(self.press(k, false, 1));

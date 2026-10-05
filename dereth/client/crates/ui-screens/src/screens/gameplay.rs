@@ -4085,7 +4085,7 @@ impl GamePlayScreen {
                 .find(|p| p.element == element)
                 .copied()
         };
-        match action {
+        match dereth_client_contract::actions::ActionId(action) {
             dereth::TOGGLE_TRADE_PANEL => {
                 if let Some(p) = page_of(self, crate::panels::trade::WINDOW) {
                     let shown = ui.node(p.handle).is_some_and(|n| n.region.flags.visible);

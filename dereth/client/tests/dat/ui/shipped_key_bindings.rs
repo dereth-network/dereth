@@ -170,7 +170,7 @@ fn e_with_nothing_selected_arms_the_identify_cursor() {
     let mut app = screen_only();
     let e = key_for(
         &mut app,
-        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+        dereth_client_contract::actions::mapped::SELECTION_EXAMINE.0,
         UI_COMMANDS,
     );
     assert_eq!(
@@ -237,7 +237,7 @@ fn e_with_a_selection_appraises_and_arms_nothing() {
     let mut app = screen_only();
     let e = key_for(
         &mut app,
-        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+        dereth_client_contract::actions::mapped::SELECTION_EXAMINE.0,
         UI_COMMANDS,
     );
     let target = ObjectId(0x8000_09A4);
@@ -285,12 +285,12 @@ fn escape_puts_the_identify_cursor_away() {
     let mut app = screen_only();
     let e = key_for(
         &mut app,
-        dereth_client_runtime::interaction::action::SELECTION_EXAMINE,
+        dereth_client_contract::actions::mapped::SELECTION_EXAMINE.0,
         UI_COMMANDS,
     );
     let esc = key_for(
         &mut app,
-        dereth_client_runtime::interaction::action::ESCAPE_KEY,
+        dereth_client_contract::actions::mapped::ESCAPE_KEY.0,
         UI_COMMANDS,
     );
     assert_eq!(esc, KeyCode::Escape);

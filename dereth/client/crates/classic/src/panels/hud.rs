@@ -489,11 +489,11 @@ impl Panel for Hud {
         let r = regions_stretched(
             self.width,
             self.height,
-            c.classic.option_words[0] & 0x200000 != 0,
+            c.classic.stretched(),
             c.layout.chat_expanded,
         );
         let mut f = PanelFrame::new(self.width, self.height);
-        let stretch = c.classic.option_words[0] & 0x200000 != 0;
+        let stretch = c.classic.stretched();
         let side_open = !c.classic.active_right.is_empty();
         let (w, h) = (self.width as i32, self.height as i32);
         let radar = radar_rect(w, h, stretch, side_open);
@@ -557,7 +557,7 @@ impl Panel for Hud {
         f.button("radar-hit", radar, "", true).paint = false;
         // The player's coordinates under the radar dial, in the final client's form
         // ("42.2N, 33.8E"), with the "coordinates below radar" character option.
-        if c.classic.option_words[0] & 0x40_0000 != 0 {
+        if c.classic.coordinates_on_radar() {
             if let Some(coords) = c.game.player_coords() {
                 let text = dereth_presentation::coordinates::update_coordinates(coords).combined;
                 f.text_box(
@@ -817,7 +817,7 @@ impl Panel for Hud {
             let r = radar_rect(
                 self.width as i32,
                 self.height as i32,
-                c.classic.option_words[0] & 0x200000 != 0,
+                c.classic.stretched(),
                 !c.classic.active_right.is_empty(),
             );
             if x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h {
