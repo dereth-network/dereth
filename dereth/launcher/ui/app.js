@@ -204,7 +204,15 @@ function render() {
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
   const screens = { home, worlds, world: worldPage, library, accounts, "first-run": firstRun };
+  // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
+  // update arriving, leaves the list where the player had it.
+  const sameScreen = main.dataset.screen === ui.screen;
+  const scrolled = sameScreen ? [...main.querySelectorAll(".scroll")].map((el) => el.scrollTop) : [];
   main.innerHTML = (screens[ui.screen] ?? home)();
+  main.dataset.screen = ui.screen;
+  main.querySelectorAll(".scroll").forEach((el, i) => {
+    if (scrolled[i] !== undefined) el.scrollTop = scrolled[i];
+  });
 
   if (keep) {
     const el = document.getElementById(keep.id);
