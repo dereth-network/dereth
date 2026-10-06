@@ -455,6 +455,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "net.dat-patch.the-overlay-extension-is-offered-only-with-an-overlay-kept",
+        says: "The client answers the shard's update question with the overlay extension, and the \
+               base files it holds, only when it keeps an overlay folder for the world (on disk, \
+               or in a browser's own storage); a client that keeps none answers with neither, \
+               and what it writes into a folder its host keeps is read over the data files at \
+               the next open.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
+        evidence: Evidence::Private("AC-EVID-WEB-OVERLAY"),
+        station: "dereth-client-runtime::lib::world_overlay::tests::a_host_kept_overlay_folder_is_written_and_laid_and_only_a_run_keeping_one_offers_the_extension",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "net.dat-patch.the-owners-client-directory-is-never-written",
         says: "Downloaded data never goes into the installed data files: it is written to the \
                world's overlay folder, the installed files are byte for byte as they were, the \

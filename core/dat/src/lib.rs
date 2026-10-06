@@ -42,6 +42,7 @@ pub mod cursor;
 pub mod decompose;
 pub mod divine;
 pub mod error;
+pub mod folder;
 pub mod inflate;
 pub mod iteration;
 pub mod locate;
@@ -62,6 +63,7 @@ pub use divine::{
     classify_cell_id, dat_for_type, divine_type, divine_type_in, DatKind, DbType, ITERATION_LIST,
 };
 pub use error::DatError;
+pub use folder::{DatFolder, DatStorageMut, DiskFolder, MemoryFile, MemoryFolder};
 pub use inflate::{inflate_raw, inflate_zlib};
 pub use locate::{
     holds_classic_dats, holds_modern_dats, locate_modern_dats, protect_install, ClassicDat, DatDir,

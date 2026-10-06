@@ -811,6 +811,10 @@ pub struct App<S: Shell> {
     /// a front end that keeps anything read from them compares it with the count it last saw and
     /// reads again when it has moved.
     store_generation: u64,
+    /// The data files as the platform opened them, when it opened them itself
+    /// ([`Self::bring_up_with_store`]): the base a reopen lays the world's overlay over again, in
+    /// place of opening [`crate::config::Config::dat_dir`].
+    base_store: Option<std::sync::Arc<dereth_dat::RetailDatStore>>,
     /// `0x0013` has arrived and the automatic screen layout has not been applied
     /// yet. The front end's UI step ([`Shell::ui_frame`]) is where the notice's own arm runs.
     pub pending_auto_layout: bool,

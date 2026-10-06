@@ -1,19 +1,27 @@
-// The playable client's worker. It opens the player's data files, brings the client up drawing
-// into the canvas the page handed it, carries datagrams between the client and the server's
-// WebSocket (a server's own endpoint, or dereth-web-relay on this machine), runs
-// one client frame per animation frame, and hands the client the page's input events.
+// The playable client's worker. It answers the front page's launcher (the module's, over the
+// player's files kept in this browser), opens the player's data files and the world's overlay,
+// brings the client up drawing into the canvas the page handed it, carries datagrams between the
+// client and the server's WebSocket (a server's own endpoint, or dereth-web-relay on this
+// machine), runs one client frame per animation frame, and hands the client the page's input
+// events.
 
 import init, * as dereth from './pkg/dereth_web.js';
-import { openFiles, openStore } from './datfiles.js';
+import {
+  FULL, flushOverlay, holdOverlay, listOverlays, openFiles, openStore, removeOverlay, removeSet,
+  scanSets, storeSet,
+} from './datfiles.js';
 
 const log = (text) => postMessage({ log: String(text) });
 const params = new URLSearchParams(location.search);
 
 let wasm = null;
-const ready = init().then((exports) => {
+const ready = init().then(async (exports) => {
   wasm = exports;
   // `?log=debug` (or `trace`, `warn`, ...) sets how much of the client's log reaches the console.
   dereth.start(params.get('log') || 'info');
+  // The client's own files first: the overlay blocklist the front page shows is one of them.
+  await openSettings();
+  dereth.installSettings();
 });
 
 let canvas = null;
@@ -76,9 +84,11 @@ globalThis.derethSettingsSave = (bytes) => {
   settings.flush();
 };
 
-let datsOpen = false;
-// The era the store was opened for: a later start for another era opens it again.
-let storeEra = null;
+// The data files open now, by what was asked for (a later start for other files opens them
+// again), and the store opened over them, by the files and the set the world is drawn from.
+let datsKey = null;
+let storeKey = null;
+const datsOpen = () => datsKey !== null;
 
 async function start(msg) {
   marks.start = performance.now();
@@ -87,34 +97,40 @@ async function start(msg) {
   const refused = dereth.serverUrlProblem(msg.server);
   if (refused) throw new Error(refused);
   // A second start (after the client ended) keeps the data files and the settings file open.
-  if (!datsOpen) {
+  const wanted = msg.dats.mode === 'files' ? `files:${msg.dats.files.map((f) => f.name).join(',')}` : JSON.stringify(msg.dats);
+  if (datsKey !== wanted) {
+    datsKey = null;
+    storeKey = null;
     if (!(await openFiles(msg.dats))) {
-      throw new Error(msg.dats.mode === 'opfs' && !msg.dats.files?.length
-        ? 'This browser has no copy of the data files yet: pick them and keep a copy.'
-        : 'The data files did not open: pick the four client_*.dat files (and portal.dat and cell.dat for the classic interface).');
+      throw new Error('The data files did not open: choose a data set with the four client_*.dat files (and portal.dat and cell.dat for the classic interface and the early worlds).');
     }
-    datsOpen = true;
+    datsKey = wanted;
   }
-  const era = msg.era || '';
-  if (storeEra !== era) {
+  // The world's overlay, kept in this browser by its address, when it can be: another tab of this
+  // site may hold it, and then the client keeps none this visit (and says so to the server).
+  const overlay = await holdOverlay(msg.overlay || '');
+  const args = msg.args || [];
+  const set = dereth.worldSet(args, overlay);
+  if (storeKey !== `${datsKey}|${set}`) {
     try {
-      openStore(dereth, era);
+      openStore(dereth, args, overlay);
     } catch (e) {
-      // The files picked are not enough for this world: the form offers the picker again.
-      datsOpen = false;
-      storeEra = null;
+      // The files picked are not enough for this world: the front page offers others.
+      datsKey = null;
+      storeKey = null;
       throw new Error(`The data files did not open: ${e?.message ?? e}`);
     }
-    storeEra = era;
+    storeKey = `${datsKey}|${set}`;
     log(`WebAssembly memory with the data files open: ${memoryMiB().toFixed(0)} MiB`);
   }
   marks.dats = performance.now();
   if (!settings) await openSettings();
+  log(overlay ? `the world's overlay is kept in ${overlay}` : 'no overlay is kept for this world');
   const sequence = (Date.now() % 0x100000000) >>> 0;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   play = await dereth.WebPlay.create(
     canvas, msg.width, msg.height, msg.account, msg.password, sequence,
-    params.get('gpu') === 'webgl', era, msg.features || '',
+    params.get('gpu') === 'webgl', args, overlay,
   );
   marks.up = performance.now();
   log(`client up on ${play.backend()} in ${(marks.up - marks.dats).toFixed(0)} ms`);
@@ -131,7 +147,7 @@ async function start(msg) {
     // later is the client's to notice, as it notices a silent server.
     if (!opened && play) {
       shutDown();
-      postMessage({ ended: true, datsOpen, error: `${msg.server} did not accept the connection.` });
+      postMessage({ ended: true, datsOpen: datsOpen(), error: `${msg.server} did not accept the connection.` });
     }
   };
   ws.onopen = () => {
@@ -186,6 +202,8 @@ function loop() {
     if (cursor) showCursor(cursor);
     sound(now);
     for (const url of play.takeOpenedUrls()) postMessage({ open: url });
+    // What a patch wrote into the world's overlay this frame goes to disk.
+    flushOverlay();
     const spent = performance.now() - f0;
     if (frames === 0 && marks.firstFrame === undefined) {
       marks.firstFrame = performance.now();
@@ -209,7 +227,7 @@ function loop() {
     } else {
       log('the client shut down');
       shutDown();
-      postMessage({ ended: true, datsOpen });
+      postMessage({ ended: true, datsOpen: datsOpen() });
     }
   };
   raf(tick);
@@ -259,9 +277,71 @@ function input(ev) {
   }
 }
 
+// ---- the front page's launcher ---------------------------------------------------------------
+
+// What the front page asks of the launcher: the module's own calls, and the files kept in this
+// browser. Each answers a value, or throws with what to tell the player.
+const calls = {
+  listUrl: () => dereth.frontListUrl(),
+  listFresh: (fetchedAt, now) => dereth.frontListFresh(fetchedAt, now),
+  list: (xml) => dereth.frontList(xml),
+  setState: (json) => dereth.frontSetState(json),
+  state: () => dereth.frontState(),
+  status: (slug, text) => dereth.frontStatus(slug, new TextEncoder().encode(text)),
+  statusFailed: (slug) => dereth.frontStatusFailed(slug),
+  worlds: () => JSON.parse(dereth.frontWorlds()),
+  world: (slug) => {
+    const page = dereth.frontWorld(slug);
+    return page ? JSON.parse(page) : null;
+  },
+  addWorld: (name, host, port, ruleset, emulator) => dereth.frontAddWorld(name, host, port, ruleset, emulator),
+  removeWorld: (slug) => dereth.frontRemoveWorld(slug),
+  setEra: (slug, era) => dereth.frontSetEra(slug, era),
+  setFeature: (slug, name, on) => dereth.frontSetFeature(slug, name, on),
+  remember: (slug, prefs) => dereth.frontRemember(slug, JSON.stringify(prefs)),
+  scanSets: (known, again) => scanSets(dereth, known, again),
+  storeSet: async (name, files) => {
+    datsKey = null;
+    storeKey = null;
+    return storeSet(dereth, name, files);
+  },
+  removeSet: async (path) => {
+    datsKey = null;
+    storeKey = null;
+    return removeSet(dereth, path);
+  },
+  overlayFolder: (address) => dereth.overlayFolder(address),
+  // The world's overlay as the folder holds it: held open for the world being looked at.
+  overlay: async (path) => {
+    const held = await holdOverlay(path);
+    dereth.holdOverlay(held);
+    return held ? { ...JSON.parse(dereth.overlayInfo()), held } : null;
+  },
+  overlays: () => listOverlays(),
+  removeOverlay: (path) => removeOverlay(path),
+  blocklist: () => dereth.overlayBlocklist(),
+  setBlocked: (key, on) => dereth.setOverlayBlocked(key, on),
+  storage: async () => {
+    const e = await navigator.storage?.estimate?.().catch(() => null);
+    const persisted = await navigator.storage?.persisted?.().catch(() => false);
+    return { usage: e?.usage ?? null, quota: e?.quota ?? null, persisted: !!persisted };
+  },
+};
+
 onmessage = async (ev) => {
   await ready;
   const msg = ev.data;
+  if (msg.call) {
+    try {
+      if (play) throw new Error('the client is running');
+      const value = await calls[msg.call](...(msg.args ?? []));
+      postMessage({ reply: msg.id, value });
+    } catch (e) {
+      const error = String(e?.message ?? e);
+      postMessage({ reply: msg.id, error: e?.name === 'QuotaExceededError' ? FULL : error });
+    }
+    return;
+  }
   try {
     if (msg.canvas) canvas = msg.canvas;
     if (msg.input) input(msg.input);
@@ -278,7 +358,7 @@ onmessage = async (ev) => {
       const error = String(e?.message ?? e);
       log(`error: ${error}`);
       shutDown();
-      postMessage({ ended: true, datsOpen, error });
+      postMessage({ ended: true, datsOpen: datsOpen(), error });
     }
   }
 };

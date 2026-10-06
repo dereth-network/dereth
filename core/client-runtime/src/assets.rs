@@ -656,8 +656,8 @@ mod tests {
             let bare = open_retail_files(&dir, None, era).expect("both sets open");
             for product in [1, 1 | crate::app::PRODUCT_HIGHRES] {
                 assert_eq!(
-                    crate::app::ddd_interrogation_response(&store, product),
-                    crate::app::ddd_interrogation_response(&bare, product),
+                    crate::app::ddd_interrogation_response(&store, product, true),
+                    crate::app::ddd_interrogation_response(&bare, product, true),
                     "{era:?}"
                 );
             }

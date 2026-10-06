@@ -238,7 +238,7 @@ fn a_client_drawing_the_february_2005_world_answers_ddd_with_that_worlds_iterati
     let store =
         dereth_dat::RetailDatStore::open_classic_with_modern(&old, &dereth_dat::testing::dat_dir())
             .expect("the two dat sets");
-    let r = ddd_interrogation_response(&store, 0);
+    let r = ddd_interrogation_response(&store, 0, true);
     let by = |ty: u32, id: u32| {
         r.iters_with_keys
             .iter()

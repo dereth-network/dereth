@@ -54,6 +54,7 @@ pub const FILES: &[&str] = &[
     "_headers",
     "audio-worklet.js",
     "datfiles.js",
+    "front.js",
     "index.html",
     "pkg/dereth_web.js",
     "pkg/dereth_web_bg.wasm",

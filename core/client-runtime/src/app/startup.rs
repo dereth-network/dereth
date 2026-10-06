@@ -27,9 +27,9 @@ impl<S: Shell> App<S> {
 
     /// [`Self::bring_up`] with the data files already open: step 10 takes `store` instead of
     /// opening [`Config::dat_dir`]. A platform with no file the client can open by path (a
-    /// browser, which reads the player's files from its own storage) opens them itself. A later
-    /// data patch still reopens [`Config::dat_dir`], which such a platform cannot, so the old view
-    /// stands there.
+    /// browser, which reads the player's files from its own storage) opens them itself. The
+    /// world's overlay is laid over `store` as over the files a folder opens, and a later data
+    /// patch reopens the overlay over the same `store`, so the patch is read there too.
     ///
     /// # Errors
     /// As [`Self::bring_up`].
@@ -125,10 +125,19 @@ impl<S: Shell> App<S> {
         let server_stub =
             (link.is_none() && cfg.headless).then(crate::server_stub::ServerStub::default);
 
-        // Step 10: open the data files.
-        let store = match store {
-            Some(store) => store,
-            None => std::sync::Arc::new(crate::assets::open_store(&cfg)?),
+        // Step 10: open the data files. Files the platform opened carry the world's overlay as
+        // files opened from a folder do; they are kept as the base a reopen lays it over again.
+        let (store, base_store) = match store {
+            Some(base) => {
+                let laid = crate::world_overlay::lay_over((*base).clone(), &cfg);
+                let store = if laid.has_overlay() {
+                    std::sync::Arc::new(laid)
+                } else {
+                    std::sync::Arc::clone(&base)
+                };
+                (store, Some(base))
+            }
+            None => (std::sync::Arc::new(crate::assets::open_store(&cfg)?), None),
         };
 
         // Step 12: UI initialization -> (windowed, title, 800, 600, visible, "").
@@ -286,6 +295,7 @@ impl<S: Shell> App<S> {
             ddd,
             ddd_invalidation: None,
             store_generation: 0,
+            base_store,
             pending_auto_layout: false,
             duties: FrameDuties::default(),
             applied_full_screen: started_full_screen,

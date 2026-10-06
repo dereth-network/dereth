@@ -75,45 +75,39 @@ impl std::fmt::Debug for Play {
     }
 }
 
-/// The era a server's status names (`"infiltration"`, `"eor"`, ...), or `None` for an empty or
-/// unknown name, which leaves the client to read the era from the data files.
-#[must_use]
-pub fn announced_era(name: &str) -> Option<dereth_primitives::EraId> {
-    let era = dereth_primitives::EraId::parse(name.trim());
-    if era.is_none() && !name.trim().is_empty() {
-        tracing::warn!("the server names an era this client does not know: {name:?}");
-    }
-    era
-}
+/// Where the page holds the data files: a name only, never opened, because the store is already
+/// open.
+const DATS_HELD_BY_THE_PAGE: &str = "dats-held-by-the-page";
 
-/// The systems a server's status lists (`name=true,...`, as `--era-features` reads them); empty,
-/// malformed or naming no system this client knows, the era's own table stands.
-#[must_use]
-pub fn announced_features(text: &str) -> dereth_primitives::EraFeatureOverrides {
-    match dereth_primitives::EraFeatureOverrides::parse(text) {
-        Ok((features, unknown)) => {
-            if !unknown.is_empty() {
-                tracing::warn!("the server names systems this client does not know: {unknown:?}");
-            }
-            features
-        }
-        Err(e) => {
-            tracing::warn!("the server's systems do not read: {e}");
-            dereth_primitives::EraFeatureOverrides::default()
-        }
-    }
+/// The configuration a world's words give (`world_args`: what the launcher puts on the desktop
+/// client's command line about the world, `--era`, `--era-features`, `--world-base`,
+/// `--logon-version`, `--world-profile`), read with the desktop client's own parser, with the
+/// world's overlay kept in `overlay` (a folder in the browser's storage) when there is one.
+///
+/// # Errors
+/// Words the parser refuses, as it would refuse them on the desktop's command line.
+pub fn world_config(world_args: &[String], overlay: Option<PathBuf>) -> Result<Config, String> {
+    let mut cfg = Config {
+        dat_dir: PathBuf::from(DATS_HELD_BY_THE_PAGE),
+        connect: false,
+        overlay_dat_dir: overlay,
+        ..Config::default()
+    };
+    cfg.apply_args(world_args).map_err(|e| e.to_string())?;
+    Ok(cfg)
 }
 
 impl Play {
     /// Bring the client up over `store` in a `width` by `height` canvas, on the device
     /// `dereth_render::wgpu::install` prepared, and start logging in to `host` as `account`.
-    /// `era` is the era the server's status announces, as the launcher passes the desktop client
-    /// `--era`; without one the client reads it from the data files. `era_features` are the
-    /// systems the status lists, as the launcher passes `--era-features`.
+    /// `world_args` are what the launcher tells the desktop client about the world on its command
+    /// line (its era and systems, the set its world is drawn from, its logon version and rules;
+    /// [`world_config`]), and `overlay` the folder in the browser's storage the world's overlay is
+    /// kept in, when one is kept.
     ///
     /// # Errors
-    /// A startup step the client treats as fatal, no prepared device, or a host the connection
-    /// refuses.
+    /// A startup step the client treats as fatal, no prepared device, words about the world the
+    /// parser refuses, or a host the connection refuses.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<RetailDatStore>,
@@ -123,8 +117,8 @@ impl Play {
         sequence: u32,
         width: u32,
         height: u32,
-        era: Option<dereth_primitives::EraId>,
-        era_features: dereth_primitives::EraFeatureOverrides,
+        world_args: &[String],
+        overlay: Option<PathBuf>,
     ) -> Result<Self, String> {
         let preferences_file = crate::settings::preferences_file();
         let mut cfg = Config {
@@ -132,7 +126,7 @@ impl Play {
             account_as_typed: account.to_string(),
             host: host.to_string(),
             // Never opened: the store is already open.
-            dat_dir: PathBuf::from("dats-held-by-the-page"),
+            dat_dir: PathBuf::from(DATS_HELD_BY_THE_PAGE),
             // The WebSocket is the connection, attached below; bring-up must not open a socket.
             connect: false,
             headless: false,
@@ -140,15 +134,17 @@ impl Play {
             width,
             height,
             preferences_file: preferences_file.clone(),
-            era,
-            era_features,
+            overlay_dat_dir: overlay,
             ..Config::default()
         };
         // The saved profile, read where the host keeps the client's files, as the desktop client
-        // reads it before anything else starts.
+        // reads it before anything else starts; then the words about the world over it, as the
+        // desktop client reads its command line over its profile.
         cfg.apply_preferences(&dereth_client_runtime::config::Preferences::load(
             &preferences_file,
         ));
+        cfg.apply_args(world_args).map_err(|e| e.to_string())?;
+        let logon_version = cfg.logon_version.clone();
         // The world is built where the server puts the player, so it waits for world entry, as
         // the desktop client's does when it connects. The profile's scene policy, with the
         // browser's one difference: the WebSocket is not the runtime's socket connection, so the
@@ -192,8 +188,11 @@ impl Play {
         .map_err(|e| e.to_string())?;
         app.start_shell().map_err(|e| e.to_string())?;
         app.defer_static_scene(scene);
-        let net = ClientNetwork::new(&nominal_host(host), 9000, account, password, sequence)
+        let mut net = ClientNetwork::new(&nominal_host(host), 9000, account, password, sequence)
             .map_err(|e| e.to_string())?;
+        // Before the first login request goes: a world whose server wants another logon version
+        // is sent that one, as the desktop client sends it.
+        net.set_logon_version(&logon_version);
         let server = net.logon_addr().ip();
         app.attach_relay_network(net)
             .map_err(|_| "the client already has a connection".to_string())?;
@@ -374,21 +373,41 @@ impl Play {
 mod tests {
     use super::*;
 
-    /// The era a server's status names is the one the client plays; an empty or unknown name
-    /// leaves it to the data files.
+    /// What the launcher says about a world is read as the desktop client reads its command line:
+    /// the era and systems, the set the world is drawn from, the logon version and the rules.
     #[test]
-    fn the_era_a_servers_status_names_is_the_one_the_client_plays() {
-        use dereth_primitives::EraId;
-        assert_eq!(announced_era("infiltration"), Some(EraId::Infiltration));
-        assert_eq!(announced_era("Infiltration"), Some(EraId::Infiltration));
-        let f = announced_features("trade=false,later_system=true");
-        assert_eq!((f.get("trade"), f.get("chess")), (Some(false), None));
-        assert!(
-            announced_features("trade").is_empty(),
-            "malformed: the era's table"
+    fn the_words_about_a_world_are_read_as_the_desktop_client_reads_its_command_line() {
+        use dereth_primitives::{ContainerEra, EraId};
+        let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let cfg = world_config(
+            &words(&[
+                "--world-base",
+                "modern",
+                "--era",
+                "infiltration",
+                "--era-features",
+                "trade=false",
+                "--logon-version",
+                "c118",
+                "--world-profile",
+                "classicace-customdm",
+            ]),
+            Some(PathBuf::from("overlays/127.0.0.1-19960")),
+        )
+        .unwrap();
+        assert_eq!(cfg.era, Some(EraId::Infiltration));
+        assert_eq!(cfg.era_features.get("trade"), Some(false));
+        assert_eq!(cfg.world_base, Some(ContainerEra::Modern));
+        assert_eq!(cfg.logon_version, "c118");
+        assert_eq!(
+            cfg.overlay_dat_dir,
+            Some(PathBuf::from("overlays/127.0.0.1-19960"))
         );
-        assert_eq!(announced_era(""), None);
-        assert_eq!(announced_era("tod"), None);
+        assert!(!cfg.connect, "the page's WebSocket is the connection");
+        let plain = world_config(&[], None).unwrap();
+        assert_eq!((plain.era, plain.logon_version.as_str()), (None, "1802"));
+        assert!(world_config(&words(&["--era-features", "trade"]), None).is_err());
+        assert!(world_config(&words(&["--world-profile", "nobody"]), None).is_err());
     }
 
     /// An address is kept as given; a name keeps its port and is addressed at loopback, and a

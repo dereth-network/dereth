@@ -14,6 +14,18 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- **The web client opens on a launcher**: pick a world from the community list or add one by
+  address, choose the data files kept in the browser that the world takes, and play. The client
+  is told the world's era, systems, logon version and rules as the desktop launcher tells it. The
+  page says which worlds the browser reaches directly (Empyrean with its WebSocket endpoint on)
+  and which need a local web relay.
+- **The web client keeps each world's overlay** in the browser's own storage: a world that patches
+  its data files is drawn with its patch at once, and a later visit downloads nothing it already
+  sent. A world's overlay can be removed or refused from its page.
+- **A world that updates its data files no longer needs a private copy of them** in the desktop
+  launcher when it is played with the Dereth client, which keeps the update in the world's own
+  overlay.
+
 ## 0.2.0 (2026-10-05)
 
 ### Added

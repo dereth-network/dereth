@@ -701,8 +701,11 @@ impl<S: Shell> App<S> {
                         }
                         self.ddd.set_bases(&self.store);
                     }
-                    let response =
-                        ddd_interrogation_response(&self.store, interrogation.product_id);
+                    let response = ddd_interrogation_response(
+                        &self.store,
+                        interrogation.product_id,
+                        self.ddd.keeps_overlay(),
+                    );
                     tracing::debug!(
                         "0xF7E6 answering with {} iteration list(s): {:?}",
                         response.iters_with_keys.len(),
@@ -919,7 +922,7 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
-        match crate::assets::open_store(&self.cfg) {
+        match self.reopen_store() {
             Ok(fresh) => {
                 self.adopt_store(std::sync::Arc::new(fresh));
                 tracing::info!(
@@ -939,6 +942,21 @@ impl<S: Shell> App<S> {
                  restart is needed to see the patch",
                 e.cause
             ),
+        }
+    }
+
+    /// The data files opened again after a patch, with the world's overlay over them: from
+    /// [`crate::config::Config::dat_dir`], or, when the platform opened the files itself, over the
+    /// files it opened ([`Self::bring_up_with_store`]), which a patch never changes.
+    ///
+    /// # Errors
+    /// The files will not open.
+    pub fn reopen_store(
+        &self,
+    ) -> Result<dereth_dat::RetailDatStore, crate::assets::DataFilesError> {
+        match &self.base_store {
+            Some(base) => Ok(crate::world_overlay::lay_over((**base).clone(), &self.cfg)),
+            None => crate::assets::open_store(&self.cfg),
         }
     }
 
@@ -992,7 +1010,7 @@ impl<S: Shell> App<S> {
             // The patch is on disk; the land source is still reading through the handle it took
             // at world entry. `invalidate_after_ddd` replaced `App::store` for the *patch* phase;
             // a run-time answer arrives with no `0xF7EA` behind it, so the reopen happens here.
-            match crate::assets::open_store(&self.cfg) {
+            match self.reopen_store() {
                 Ok(fresh) => {
                     let fresh = std::sync::Arc::new(fresh);
                     self.adopt_store(std::sync::Arc::clone(&fresh));
@@ -1371,10 +1389,15 @@ pub fn character_set_from_login(
 /// `dereth_protocol::admin::DddInterrogation::PRODUCT_HIGHRES` is the same bit on the wire side.
 pub const PRODUCT_HIGHRES: u32 = 4;
 
+///
+/// `keeps_overlay` is whether the client keeps the world's records in an overlay this run
+/// ([`crate::ddd::DddPatcher::keeps_overlay`]): only then does the answer carry the overlay
+/// extension.
 #[must_use]
 pub fn ddd_interrogation_response(
     store: &dereth_dat::RetailDatStore,
     product_id: u32,
+    keeps_overlay: bool,
 ) -> dereth_protocol::admin::DddInterrogationResponse {
     use dereth_protocol::admin::{
         DddInterrogationResponse, MostlyConsecutiveIntSet, TaggedIterationList,
@@ -1429,7 +1452,8 @@ pub fn ddd_interrogation_response(
     }
     // Not retail: the overlay extension. The flag says the client keeps the world's records in an
     // overlay over its locked files, and the bases it holds follow; a server that does not know the
-    // extension reads none of it (see `dereth_protocol::admin::DddInterrogationResponse`).
+    // extension reads none of it (see `dereth_protocol::admin::DddInterrogationResponse`). A run
+    // that keeps no overlay answers as retail does, with neither.
     let mut overlay_bases = Vec::new();
     let mut base = |ty: u32, id: u32, f: &dereth_dat::DatFile| {
         overlay_bases.push(dereth_protocol::admin::OverlayBase {
@@ -1438,12 +1462,14 @@ pub fn ddd_interrogation_response(
             fingerprint: dereth_dat::overlay::fingerprint(f),
         });
     };
-    base(0, 1, store.portal());
-    base(1, 2, store.cell());
-    base(1, 3, store.local());
-    if product_id & PRODUCT_HIGHRES != 0 {
-        if let Some(hi) = store.highres() {
-            base(HIFI, 1, hi);
+    if keeps_overlay {
+        base(0, 1, store.portal());
+        base(1, 2, store.cell());
+        base(1, 3, store.local());
+        if product_id & PRODUCT_HIGHRES != 0 {
+            if let Some(hi) = store.highres() {
+                base(HIFI, 1, hi);
+            }
         }
     }
     DddInterrogationResponse {
@@ -1453,7 +1479,11 @@ pub fn ddd_interrogation_response(
         iters_with_keys,
         // "a second `CAllIterationList`, always empty in practice" -- and ACE does not read it.
         iters_without_keys: Vec::new(),
-        flags: DddInterrogationResponse::FLAG_OVERLAY,
+        flags: if keeps_overlay {
+            DddInterrogationResponse::FLAG_OVERLAY
+        } else {
+            0
+        },
         overlay_bases,
     }
 }

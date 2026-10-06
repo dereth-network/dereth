@@ -63,9 +63,11 @@ pub fn default_client(
 
 /// The Modern sets the Dereth client may be given on this world.
 ///
-/// A world that neither patches nor ships its own gets the shared set (and any set the player has
-/// not assigned). One that does gets only its own private set, or a custom set matching what it
-/// published: never a set another world might be using.
+/// A world that does not ship its own gets the shared set (and any set the player has not
+/// assigned), whether or not it updates its files over the network: the Dereth client keeps a
+/// world's updates in that world's own overlay and never writes a set. One that ships its own gets
+/// only its own private set, or a custom set matching what it published: never a set another world
+/// might be using.
 pub fn dat_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
     // A world that publishes no hash for its own files (the ones the launcher knows by their list
     // id) is matched by what its files report: any set of the player's that reports it, wherever
@@ -88,7 +90,7 @@ pub fn dat_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
                     .as_deref()
                     .is_none_or(|h| h.eq_ignore_ascii_case(sha256))
             }),
-            DatOrigin::Shared | DatOrigin::Unassigned => !world.needs_private_dats(),
+            DatOrigin::Shared | DatOrigin::Unassigned => world.dats.custom.is_none(),
         })
         .cloned()
         .collect()

@@ -5,12 +5,14 @@
 //! state lives in thread-locals.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use dereth_client_sdk::dat::RetailDatStore;
 use wasm_bindgen::prelude::*;
 
 use crate::dats::{self, BrowserFile};
+use crate::front::Front;
 
 #[wasm_bindgen]
 extern "C" {
@@ -22,6 +24,11 @@ extern "C" {
     /// Whether the worker has file `file` at all.
     #[wasm_bindgen(js_namespace = globalThis, js_name = derethDatPresent)]
     fn dat_present(file: u32) -> bool;
+
+    /// Fill `buf` from `offset` of the file `file` the worker is reading a data set's files from
+    /// (to say what each reports); `false` when it is too short.
+    #[wasm_bindgen(js_namespace = globalThis, js_name = derethProbeRead)]
+    fn probe_read(file: u32, offset: f64, buf: &mut [u8]) -> bool;
 
     /// The client's files as the page last saved them; empty for none. See [`crate::settings`].
     #[wasm_bindgen(js_namespace = globalThis, js_name = derethSettingsLoad)]
@@ -64,6 +71,39 @@ impl Drop for ConsoleLine {
 
 thread_local! {
     static STORE: RefCell<Option<Arc<RetailDatStore>>> = const { RefCell::new(None) };
+    static FRONT: RefCell<Front> = RefCell::new(Front::default());
+}
+
+/// A file of a data set the worker is reading, by its place in the worker's list.
+#[derive(Debug, Clone, Copy)]
+struct ProbeFile(u32);
+
+impl dereth_dat::DatStorage for ProbeFile {
+    fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        // A dat file is under 4 GiB, so the offset is exact as a JavaScript number.
+        #[allow(clippy::cast_precision_loss)]
+        let at = offset as f64;
+        if probe_read(self.0, at, buf) {
+            Ok(())
+        } else {
+            Err(std::io::ErrorKind::UnexpectedEof.into())
+        }
+    }
+}
+
+/// A whole, non-negative JavaScript number (a size, a time in seconds) as an integer; 0 for
+/// anything else.
+fn whole(x: f64) -> u64 {
+    u64::try_from(dereth_primitives::num::to_i64_f64(x)).unwrap_or(0)
+}
+
+fn js_err(e: impl std::fmt::Display) -> JsError {
+    JsError::new(&e.to_string())
+}
+
+/// The overlay folder a page names (empty for none), as the client's configuration names it.
+fn overlay_path(overlay: &str) -> Option<PathBuf> {
+    (!overlay.is_empty()).then(|| PathBuf::from(overlay))
 }
 
 fn store() -> Result<Arc<RetailDatStore>, JsError> {
@@ -88,15 +128,45 @@ pub fn start(filter: &str) {
         .try_init();
 }
 
-/// Open the player's data files through the worker for a world of `era` (the name a server's
-/// status gives it; empty when none is named), and describe each. The era decides which set is
-/// the world's ([`dats::plan`]).
+/// Keep the client's own files (preferences, keymaps, the overlay blocklist) in the page's
+/// settings file from now on: the worker opened it before it asks anything of them.
+#[wasm_bindgen(js_name = installSettings)]
+pub fn install_settings() {
+    crate::settings::install(&settings_load(), Some(settings_save));
+}
+
+/// The set a world is drawn from, by the desktop client's rule (its overlay's base, else
+/// `--world-base`, else its era's): `"modern"`, `"classic"`, or empty when nothing names one.
+/// `args` are what the launcher says about the world, and `overlay` the folder the worker holds
+/// its overlay in (empty for none).
 ///
 /// # Errors
-/// The first required file that is missing or will not open.
+/// Words about the world the parser refuses.
+#[wasm_bindgen(js_name = worldSet)]
+pub fn world_set(args: Vec<String>, overlay: &str) -> Result<String, JsError> {
+    crate::overlay::hold(overlay);
+    let cfg = crate::play::world_config(&args, overlay_path(overlay)).map_err(js_err)?;
+    Ok(match dereth_client_runtime::assets::world_set(&cfg) {
+        Some(dereth_primitives::ContainerEra::Modern) => "modern",
+        Some(dereth_primitives::ContainerEra::Classic) => "classic",
+        None => "",
+    }
+    .to_owned())
+}
+
+/// Open the player's data files through the worker for the world `args` describe (what the
+/// launcher says about it: its era, the set its world is drawn from, ...), with its overlay kept in
+/// the folder `overlay` the worker holds (empty for none), and describe each. Which set is the
+/// world's follows the desktop client's rule ([`world_set`], [`dats::plan`]).
+///
+/// # Errors
+/// Words about the world the parser refuses, or the first required file that is missing or will
+/// not open.
 #[wasm_bindgen(js_name = openDats)]
-pub fn open_dats(era: &str) -> Result<String, JsError> {
-    let world_set = crate::play::announced_era(era).map(dereth_primitives::EraId::container_era);
+pub fn open_dats(args: Vec<String>, overlay: &str) -> Result<String, JsError> {
+    crate::overlay::hold(overlay);
+    let cfg = crate::play::world_config(&args, overlay_path(overlay)).map_err(js_err)?;
+    let world_set = dereth_client_runtime::assets::world_set(&cfg);
     let (store, reports) = dats::open_store(
         |index| {
             let index = u32::try_from(index).ok()?;
@@ -122,15 +192,16 @@ pub struct WebPlay {
 #[wasm_bindgen]
 impl WebPlay {
     /// Bring the client up in `canvas` at `width` by `height` and start logging in as `account`,
-    /// on WebGL 2 when `webgl_only`, in the `era` the server's status names (empty when it names
-    /// none) with the systems its status lists in `features` (`name=true,...`; empty for the era's
-    /// own table). The data files must be open. The server is whatever the
+    /// on WebGL 2 when `webgl_only`, told about the world what the launcher tells the desktop
+    /// client on its command line (`args`: its era and systems, the set its world is drawn from,
+    /// its logon version and rules), with the world's overlay kept in the folder `overlay` the
+    /// worker holds (empty for none). The data files must be open. The server is whatever the
     /// worker's WebSocket reaches; the client addresses it at its nominal ports
     /// ([`crate::server_url::NOMINAL_SERVER`]).
     ///
     /// # Errors
-    /// The data files are not open, no GPU backend comes up, or bring-up or the connection
-    /// refuses.
+    /// The data files are not open, no GPU backend comes up, the words about the world do not
+    /// read, or bring-up or the connection refuses.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
         canvas: web_sys::OffscreenCanvas,
@@ -140,16 +211,17 @@ impl WebPlay {
         password: String,
         sequence: u32,
         webgl_only: bool,
-        era: String,
-        features: String,
+        args: Vec<String>,
+        overlay: String,
     ) -> Result<WebPlay, JsError> {
         let store = store()?;
         let prepared = dereth_render::wgpu::prepare_canvas(canvas, width, height, webgl_only)
             .await
             .map_err(|e| JsError::new(&e))?;
         dereth_render::wgpu::install(prepared);
-        crate::settings::install(&settings_load(), Some(settings_save));
+        install_settings();
         tracing::info!("settings kept: {:?}", crate::settings::paths());
+        crate::overlay::hold(&overlay);
         let play = crate::play::Play::new(
             store,
             crate::server_url::NOMINAL_SERVER,
@@ -158,8 +230,8 @@ impl WebPlay {
             sequence,
             width,
             height,
-            crate::play::announced_era(&era),
-            crate::play::announced_features(&features),
+            &args,
+            overlay_path(&overlay),
         )
         .map_err(|e| JsError::new(&e))?;
         let backend = play.app().renderer().adapter_name();
@@ -334,4 +406,213 @@ impl WebPlay {
 #[must_use]
 pub fn server_url_problem(url: &str) -> Option<String> {
     crate::server_url::problem(url)
+}
+
+// ---- the front page's launcher ---------------------------------------------------------------
+
+/// Where the community list is read from: the desktop launcher's address for it.
+#[wasm_bindgen(js_name = frontListUrl)]
+#[must_use]
+pub fn front_list_url() -> String {
+    dereth_launch::serverlist::COMMUNITY_LIST_URL.to_owned()
+}
+
+/// Read the community list (`Servers.xml`, as fetched); answers how many worlds it lists.
+///
+/// # Errors
+/// The list does not read; the worlds read before stand.
+#[wasm_bindgen(js_name = frontList)]
+pub fn front_list(xml: &str) -> Result<u32, JsError> {
+    let n = FRONT
+        .with(|f| f.borrow_mut().set_list(xml))
+        .map_err(js_err)?;
+    Ok(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
+/// Whether a copy of the list fetched at `fetched_at` (seconds since the epoch) is the day's at
+/// `now`.
+#[wasm_bindgen(js_name = frontListFresh)]
+#[must_use]
+pub fn front_list_fresh(fetched_at: f64, now: f64) -> bool {
+    let secs = whole;
+    crate::front::list_is_fresh(secs(fetched_at), secs(now))
+}
+
+/// Take the launcher's state record as the page kept it (empty for none).
+///
+/// # Errors
+/// A record that does not read.
+#[wasm_bindgen(js_name = frontSetState)]
+pub fn front_set_state(json: &str) -> Result<(), JsError> {
+    FRONT
+        .with(|f| f.borrow_mut().set_state(json))
+        .map_err(js_err)
+}
+
+/// The launcher's state record, for the page to keep.
+#[wasm_bindgen(js_name = frontState)]
+#[must_use]
+pub fn front_state() -> String {
+    FRONT.with(|f| f.borrow().state_json())
+}
+
+/// A world's status document, as fetched; answers whether it was one.
+#[wasm_bindgen(js_name = frontStatus)]
+#[must_use]
+pub fn front_status(slug: &str, body: &[u8]) -> bool {
+    FRONT.with(|f| f.borrow_mut().set_status(slug, body))
+}
+
+/// A world's status document did not answer.
+#[wasm_bindgen(js_name = frontStatusFailed)]
+pub fn front_status_failed(slug: &str) {
+    FRONT.with(|f| f.borrow_mut().status_failed(slug));
+}
+
+/// Every world, with the eras and systems on offer, as JSON.
+#[wasm_bindgen(js_name = frontWorlds)]
+#[must_use]
+pub fn front_worlds() -> String {
+    FRONT.with(|f| f.borrow().worlds().to_string())
+}
+
+/// One world's page as JSON: [`Front::world`]. `None` for a world not shown.
+#[wasm_bindgen(js_name = frontWorld)]
+#[must_use]
+pub fn front_world(slug: &str) -> Option<String> {
+    FRONT.with(|f| f.borrow().world(slug).map(|v| v.to_string()))
+}
+
+/// Add a server by host and port; answers its slug.
+///
+/// # Errors
+/// What is wrong with the host or port, for the player.
+#[wasm_bindgen(js_name = frontAddWorld)]
+pub fn front_add_world(
+    name: &str,
+    host: &str,
+    port: &str,
+    ruleset: &str,
+    emulator: &str,
+) -> Result<String, JsError> {
+    FRONT
+        .with(|f| {
+            f.borrow_mut()
+                .add_world(name, host, port, ruleset, emulator)
+        })
+        .map_err(js_err)
+}
+
+/// Take a server the player added off the list.
+#[wasm_bindgen(js_name = frontRemoveWorld)]
+pub fn front_remove_world(slug: &str) {
+    FRONT.with(|f| f.borrow_mut().remove_world(slug));
+}
+
+/// The era the player chose for a world that does not say its own (empty for none).
+#[wasm_bindgen(js_name = frontSetEra)]
+pub fn front_set_era(slug: &str, era: &str) {
+    FRONT.with(|f| f.borrow_mut().set_era(slug, era));
+}
+
+/// One of a world's systems on or off; answers whether `name` is a system's.
+#[wasm_bindgen(js_name = frontSetFeature)]
+#[must_use]
+pub fn front_set_feature(slug: &str, name: &str, on: bool) -> bool {
+    FRONT.with(|f| f.borrow_mut().set_feature(slug, name, on))
+}
+
+/// Remember the player's choices on a world (JSON: `account`, `dat_set_id`, `classic_set_id`).
+///
+/// # Errors
+/// Choices that do not read.
+#[wasm_bindgen(js_name = frontRemember)]
+pub fn front_remember(slug: &str, prefs: &str) -> Result<(), JsError> {
+    FRONT
+        .with(|f| f.borrow_mut().remember(slug, prefs))
+        .map_err(js_err)
+}
+
+/// Read the files the worker holds open for a data set kept in the browser's folder `folder`:
+/// `names[i]` (of `sizes[i]` bytes) is read through the worker's file `i`. Answers the ids of the
+/// folder's sets.
+#[wasm_bindgen(js_name = frontAddSets)]
+#[must_use]
+pub fn front_add_sets(folder: &str, names: Vec<String>, sizes: Vec<f64>) -> Vec<String> {
+    let files = names
+        .into_iter()
+        .zip(sizes)
+        .enumerate()
+        .map(|(i, (name, size))| {
+            let storage: Box<dyn dereth_dat::DatStorage> =
+                Box::new(ProbeFile(u32::try_from(i).unwrap_or(u32::MAX)));
+            (name, whole(size), storage)
+        })
+        .collect();
+    FRONT.with(|f| f.borrow_mut().add_sets(folder, files))
+}
+
+/// Forget the sets kept in the browser's folder `folder`.
+#[wasm_bindgen(js_name = frontRemoveSets)]
+pub fn front_remove_sets(folder: &str) {
+    FRONT.with(|f| f.borrow_mut().remove_sets(folder));
+}
+
+/// The folder a world's overlay is kept in, from its address (`host:port`).
+#[wasm_bindgen(js_name = overlayFolder)]
+#[must_use]
+pub fn overlay_folder(address: &str) -> String {
+    format!("overlays/{}", crate::front::overlay_folder(address))
+}
+
+// ---- the world's overlay -----------------------------------------------------------------------
+
+/// The worker now holds the overlay folder `folder` open (empty for none).
+#[wasm_bindgen(js_name = holdOverlay)]
+pub fn hold_overlay(folder: &str) {
+    crate::overlay::hold(folder);
+}
+
+/// What the folder the worker holds open keeps, as JSON: the world its overlay belongs to, the set
+/// it was made against and its containers; `null` when the worker holds none.
+#[wasm_bindgen(js_name = overlayInfo)]
+#[must_use]
+pub fn overlay_info() -> String {
+    let Some(folder) = crate::overlay::BrowserFolder::held() else {
+        return "null".into();
+    };
+    match dereth_dat::overlay::OverlayDir::in_folder(Arc::new(folder)) {
+        Ok(dir) => serde_json::json!({
+            "folder": dir.path().display().to_string(),
+            "world_key": dir.world_key(),
+            "base": dir.base_era().map(|e| match e {
+                dereth_primitives::ContainerEra::Modern => "modern",
+                dereth_primitives::ContainerEra::Classic => "classic",
+            }),
+            "containers": dir
+                .containers()
+                .iter()
+                .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .collect::<Vec<_>>(),
+        })
+        .to_string(),
+        Err(e) => serde_json::json!({ "error": e.to_string() }).to_string(),
+    }
+}
+
+/// The worlds whose overlays the player refuses: the client's overlay blocklist, kept with its
+/// settings.
+#[wasm_bindgen(js_name = overlayBlocklist)]
+#[must_use]
+pub fn overlay_blocklist() -> Vec<String> {
+    crate::settings::blocklist().into_iter().collect()
+}
+
+/// Refuse the overlay of the world `key` (as the world names itself), or take it off the list.
+///
+/// # Errors
+/// The settings file will not take it.
+#[wasm_bindgen(js_name = setOverlayBlocked)]
+pub fn set_overlay_blocked(key: &str, blocked: bool) -> Result<(), JsError> {
+    crate::settings::set_blocked(key, blocked).map_err(js_err)
 }

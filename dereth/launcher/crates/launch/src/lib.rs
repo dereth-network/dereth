@@ -3,8 +3,8 @@
 //! **Depends on** the transport crate (`dereth-transport`), for the server-tracker login that asks
 //! a server whether it is up, the primitives crate (`dereth-primitives`), for the client's era
 //! table, and the data-file crate (`dereth-dat`), for a dat's identity and iterations in either
-//! layout. **Used by** the launcher's window, the Tauri app in `dereth/launcher`, which is a
-//! workspace of its own.
+//! layout. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
+//! workspace of its own), and the web client's front page (`dereth-web`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
 //! it reads and writes files (a dat, an executable, its own state and folders), because a launcher
@@ -19,6 +19,7 @@
 //! | [`world`] | a registry entry, read tolerantly: which clients a world accepts, which dats it expects |
 //! | [`serverlist`] | the community's world list, and its day-old copy |
 //! | [`known`] | the worlds that run a client of their own, by list id: logon, files, rules |
+//! | [`worlds`] | the worlds a launcher shows, each with what it said of itself and what the player chose |
 //! | [`eras`] | the eras and systems a world can play, and the player's choice for a world that does not say |
 //! | [`dat`] | a dat's iteration number, read straight off disk in a few small reads |
 //! | [`datset`] | a Modern set (the four later dats, identified by iterations) or a Classic one (`portal.dat` and `cell.dat`) |
@@ -26,7 +27,7 @@
 //! | [`library`] | the one retail client, and the dat sets, as the player adds them |
 //! | [`choices`] | which clients and dat sets a world may be played with |
 //! | [`mod@check`] | the pre-launch check: what the world would refuse, and the fix for each |
-//! | [`launch`] | the command line per client and server, and a form of it that is safe to log |
+//! | [`launch`] | the command line per client and server, a form of it that is safe to log, and what the client is told about the world |
 //! | [`copy`] | a private dat set, copied from the shared one |
 //! | [`state`] | `launcher-state.json`: the retail client, sets, accounts, favourites, per-world choices |
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
@@ -38,8 +39,9 @@
 //! | [`status`] | Empyrean's public status document |
 //! | [`probe`] | whether any server is up, asked with the server-tracker login |
 //!
-//! The launcher's window is one front end over this. A web or phone world picker, or the game
-//! client's own, would be another.
+//! The launcher's window is one front end over this. The web client's front page is another: it
+//! builds for `wasm32-unknown-unknown` and reaches files only where a caller hands it a path, so a
+//! page uses the same list, table, matching and command words through its own storage.
 
 #![forbid(unsafe_code)]
 
@@ -64,6 +66,7 @@ pub mod status;
 pub mod swap;
 pub mod vault;
 pub mod world;
+pub mod worlds;
 
 #[cfg(any(test, feature = "testing"))]
 #[doc(hidden)]

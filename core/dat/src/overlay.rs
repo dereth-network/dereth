@@ -34,10 +34,15 @@
 //! An overlay opens only over the base it was made against: a different base is refused
 //! ([`OverlayError::BaseMismatch`]), as is a folder holding another world's overlay
 //! ([`OverlayError::OtherWorld`]) and a folder holding base files ([`OverlayError::BaseFolder`]).
+//!
+//! The folder is a [`DatFolder`]: a folder on disk ([`OverlayDir::new`]), or any other storage
+//! that keeps named containers ([`OverlayDir::in_folder`]), such as a browser's. The containers
+//! and every read and write of them are the same in each.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use dereth_primitives::DataId;
 use sha2::{Digest, Sha256};
@@ -47,6 +52,7 @@ use crate::container::{ContainerEra, DatFile};
 use crate::cursor::Cursor;
 use crate::divine::ITERATION_LIST;
 use crate::error::DatError;
+use crate::folder::{DatFolder, DiskFolder};
 use crate::locate::ModernDat;
 use crate::write::{DatWriter, SaveOutcome};
 
@@ -328,6 +334,9 @@ pub struct Layer {
     /// How many reads the overlay has answered with its own record, and how many with a deletion.
     served: AtomicU64,
     hidden: AtomicU64,
+    /// The folder the container was opened from, and its name there, to reopen it from; `None`
+    /// for a container opened by path, which is reopened by its path.
+    source: Option<(Arc<dyn DatFolder>, &'static str)>,
 }
 
 impl Layer {
@@ -400,6 +409,7 @@ impl Layer {
             len: 0,
             served: AtomicU64::new(0),
             hidden: AtomicU64::new(0),
+            source: None,
         };
         let kept = base
             .base_entries()
@@ -428,6 +438,7 @@ impl Layer {
             len,
             served: AtomicU64::new(0),
             hidden: AtomicU64::new(0),
+            source: None,
         }
     }
 
@@ -436,11 +447,16 @@ impl Layer {
     /// # Errors
     /// As [`Self::over`].
     pub fn reopen_over(&self, base: &DatFile) -> Result<Self, OverlayError> {
-        Self::over(
-            base,
-            DatFile::open(&self.path)?,
-            Some(&self.manifest.world_key),
-        )
+        let file = match &self.source {
+            Some((folder, name)) => DatFile::from_storage(
+                self.path.clone(),
+                folder.open(name).map_err(DatError::from)?,
+            )?,
+            None => DatFile::open(&self.path)?,
+        };
+        let mut me = Self::over(base, file, Some(&self.manifest.world_key))?;
+        me.source.clone_from(&self.source);
+        Ok(me)
     }
 
     /// The overlay's own entry for a world record `id`.
@@ -565,32 +581,55 @@ where
 }
 
 /// A world's overlay folder.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct OverlayDir {
     dir: PathBuf,
+    folder: Arc<dyn DatFolder>,
 }
 
+/// Two overlay folders are the same folder when they have the same name.
+impl PartialEq for OverlayDir {
+    fn eq(&self, other: &Self) -> bool {
+        self.dir == other.dir
+    }
+}
+
+impl Eq for OverlayDir {}
+
 impl OverlayDir {
-    /// The overlay folder at `dir`, which need not exist yet.
+    /// The overlay folder at `dir` on disk, which need not exist yet.
     ///
     /// # Errors
     /// [`OverlayError::BaseFolder`] when `dir` holds base data files.
     pub fn new(dir: &Path) -> Result<Self, OverlayError> {
-        let holds_base = ModernDat::ALL.iter().any(|d| d.in_dir(dir).is_file())
+        Self::in_folder(Arc::new(DiskFolder::new(dir)))
+    }
+
+    /// The overlay folder kept in `folder`, wherever that keeps its containers.
+    ///
+    /// # Errors
+    /// [`OverlayError::BaseFolder`] when the folder holds base data files.
+    pub fn in_folder(folder: Arc<dyn DatFolder>) -> Result<Self, OverlayError> {
+        let holds_base = ModernDat::ALL.iter().any(|d| folder.is_file(d.file_name()))
             || crate::ClassicDat::ALL
                 .iter()
-                .any(|d| d.in_dir(dir).is_file());
+                .any(|d| folder.is_file(d.file_name()));
+        let dir = folder.path().to_path_buf();
         if holds_base {
-            return Err(OverlayError::BaseFolder(dir.to_path_buf()));
+            return Err(OverlayError::BaseFolder(dir));
         }
-        Ok(Self {
-            dir: dir.to_path_buf(),
-        })
+        Ok(Self { dir, folder })
     }
 
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.dir
+    }
+
+    /// The storage the folder's containers are kept in.
+    #[must_use]
+    pub fn folder(&self) -> &Arc<dyn DatFolder> {
+        &self.folder
     }
 
     /// Where the overlay container over `target`'s file is.
@@ -599,15 +638,67 @@ impl OverlayDir {
         self.dir.join(container_name(target))
     }
 
+    /// Whether the folder holds the overlay container over `target`'s file.
+    #[must_use]
+    pub fn holds(&self, target: ModernDat) -> bool {
+        self.folder.is_file(container_name(target))
+    }
+
+    /// The overlay container over `target`'s file, opened for reading.
+    ///
+    /// # Errors
+    /// No such container, and its read errors.
+    pub fn open(&self, target: ModernDat) -> Result<DatFile, DatError> {
+        DatFile::from_storage(
+            self.container(target),
+            self.folder.open(container_name(target))?,
+        )
+    }
+
+    /// Remove the overlay container over `target`'s file.
+    ///
+    /// # Errors
+    /// No such container, and the storage's errors.
+    pub fn remove(&self, target: ModernDat) -> std::io::Result<()> {
+        self.folder.remove(container_name(target))
+    }
+
+    /// The writer of the overlay container over `target`'s file: [`OverlayWriter::open_or_create`]
+    /// in this folder.
+    ///
+    /// # Errors
+    /// As [`OverlayWriter::open_or_create`].
+    pub fn writer(
+        &self,
+        target: ModernDat,
+        base: &DatFile,
+        base_name: &str,
+        world_key: &str,
+        date: u32,
+    ) -> Result<OverlayWriter, OverlayError> {
+        OverlayWriter::open_or_create_in(
+            &*self.folder,
+            container_name(target),
+            base,
+            base_name,
+            world_key,
+            date,
+        )
+    }
+
+    fn manifest_of(&self, target: ModernDat) -> Option<ContainerManifest> {
+        let f = self.open(target).ok()?;
+        ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()
+    }
+
     /// The world the folder's overlay belongs to, from the first container that says; `None` for
     /// a folder with no container yet.
     #[must_use]
     pub fn world_key(&self) -> Option<String> {
-        ModernDat::ALL.iter().find_map(|t| {
-            let f = DatFile::open(&self.container(*t)).ok()?;
-            let m = ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()?;
-            Some(m.world_key)
-        })
+        ModernDat::ALL
+            .iter()
+            .find_map(|t| self.manifest_of(*t))
+            .map(|m| m.world_key)
     }
 
     /// The dat set the folder's overlay was made against, from the first container's base file
@@ -616,8 +707,7 @@ impl OverlayDir {
     #[must_use]
     pub fn base_era(&self) -> Option<ContainerEra> {
         ModernDat::ALL.iter().find_map(|t| {
-            let f = DatFile::open(&self.container(*t)).ok()?;
-            let m = ContainerManifest::decode(&f.read(MANIFEST).ok()?).ok()?;
+            let m = self.manifest_of(*t)?;
             let older = crate::ClassicDat::ALL
                 .iter()
                 .any(|d| d.file_name().eq_ignore_ascii_case(&m.base_name));
@@ -640,12 +730,13 @@ impl OverlayDir {
         base: &DatFile,
         world_key: Option<&str>,
     ) -> Result<Option<Layer>, OverlayError> {
-        let path = self.container(target);
-        if !path.is_file() {
+        if !self.holds(target) {
             return Ok(None);
         }
-        let file = DatFile::open(&path)?;
-        Layer::over(&base.base(), file, world_key).map(Some)
+        let file = self.open(target)?;
+        let mut layer = Layer::over(&base.base(), file, world_key)?;
+        layer.source = Some((Arc::clone(&self.folder), container_name(target)));
+        Ok(Some(layer))
     }
 
     /// Every overlay container's path in the folder.
@@ -653,8 +744,8 @@ impl OverlayDir {
     pub fn containers(&self) -> Vec<PathBuf> {
         ModernDat::ALL
             .iter()
+            .filter(|t| self.holds(**t))
             .map(|t| self.container(*t))
-            .filter(|p| p.is_file())
             .collect()
     }
 }
@@ -683,24 +774,52 @@ impl OverlayWriter {
         world_key: &str,
         date: u32,
     ) -> Result<Self, OverlayError> {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let dir = path.parent().unwrap_or_else(|| Path::new(""));
+        Self::open_or_create_in(
+            &DiskFolder::new(dir),
+            &name,
+            base,
+            base_name,
+            world_key,
+            date,
+        )
+    }
+
+    /// [`Self::open_or_create`] for the container `name` in `folder`, wherever that keeps it.
+    ///
+    /// # Errors
+    /// As [`Self::open_or_create`].
+    pub fn open_or_create_in(
+        folder: &dyn DatFolder,
+        name: &str,
+        base: &DatFile,
+        base_name: &str,
+        world_key: &str,
+        date: u32,
+    ) -> Result<Self, OverlayError> {
+        let path = folder.path().join(name);
         let base = base.base();
         let fp = fingerprint(&base);
-        if path.is_file() {
-            let mut writer = DatWriter::open(path)?;
+        if folder.is_file(name) {
+            let mut writer = DatWriter::open_in(path.clone(), folder.open_mut(name)?)?;
             let manifest = writer
                 .read(MANIFEST)
                 .and_then(|b| ContainerManifest::decode(&b))
-                .map_err(|_| OverlayError::NotOverlay(path.to_path_buf()))?;
+                .map_err(|_| OverlayError::NotOverlay(path.clone()))?;
             if manifest.world_key != world_key {
                 return Err(OverlayError::OtherWorld {
-                    path: path.to_path_buf(),
+                    path,
                     found: manifest.world_key,
                     expected: world_key.to_owned(),
                 });
             }
             if manifest.base_fingerprint != fp {
                 return Err(OverlayError::BaseMismatch {
-                    path: path.to_path_buf(),
+                    path,
                     base_name: manifest.base_name,
                     expected: hex(&manifest.base_fingerprint),
                     found: hex(&fp),
@@ -718,13 +837,16 @@ impl OverlayWriter {
                 dirty: false,
             });
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(DatError::from)?;
-        }
         let hd = base.header();
         let block = hd.block_size.max(0x100);
-        let mut writer =
-            DatWriter::create(path, block, hd.data_set, hd.data_subset, 0x400 + block * 64)?;
+        let mut writer = DatWriter::create_in(
+            path,
+            folder.create(name)?,
+            block,
+            hd.data_set,
+            hd.data_subset,
+            0x400 + block * 64,
+        )?;
         writer.save(ITERATION_LIST, &crate::iteration::encode(&[]), 1, 0, date)?;
         #[allow(clippy::cast_possible_truncation)]
         let manifest = ContainerManifest {

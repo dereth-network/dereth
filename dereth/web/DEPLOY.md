@@ -18,7 +18,7 @@ the bindings into `www/pkg/`. It needs the target installed once
 |---|---:|---:|
 | `pkg/dereth_web_bg.wasm` | about 12.6 MB | about 4.4 MB |
 | `pkg/dereth_web.js` | about 135 kB | about 22 kB |
-| `index.html`, `play.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 33 kB | about 12 kB |
+| `index.html`, `play.js`, `front.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 76 kB | about 22 kB |
 
 The build names the standard library's and the registry's sources `/rustc` and `/cargo` in the
 module, so it carries no path from the building machine.
@@ -173,20 +173,70 @@ WebGL 2. It has been run in:
 
 Chrome shares Edge's engine but has not been run itself.
 
+## The front page
+
+The page opens on a launcher, the desktop launcher's own logic run in the browser (the module
+carries it): pick a world or type an address, choose or add the data files, and play.
+
+- **The worlds** are the community list (`acresources/serverslist`'s `Servers.xml`, fetched from
+  the browser and kept for a day in its local storage), the launcher's table of worlds that run a
+  client of their own (their logon version, rules, era and files), and the servers the player adds
+  by address: `host:port`, a `wss://` URL, or an Empyrean status address (`https://…/status`).
+- **What the client is told about the world** (its era, the set its world is drawn from, its
+  systems, its logon version and the rules its client played by) is the launcher's one
+  description of it: the words the desktop launcher puts on the client's command line, read by the
+  client in the browser with the same parser. They come from the list, the table, the world's
+  status document when it has one, and what the player chose for what the world does not say. A
+  browser cannot ask a server over UDP whether it is up, so a world with no status document is
+  shown with its state unknown.
+- **Reaching a world.** The browser connects directly only to Empyrean servers that have their
+  WebSocket endpoint on. Any other server (ACE, GDLE, ClassicACE, or an Empyrean without it) needs
+  [`dereth-web-relay`](../../tools/web-relay/README.md) running on the player's machine; the page
+  says so on each such world and gives the command line. Worlds reached directly are listed first.
+
 ## The player's data files
 
 Every player uses their own Asheron's Call data files (`client_portal.dat`, `client_cell_1.dat`,
-`client_local_English.dat`, `client_highres.dat`), read in their own browser. A player may add the
-two files of a set from before Throne of Destiny (`portal.dat`, `cell.dat`), as on the desktop: the
-classic interface draws from that `portal.dat`, and a world of an era before Throne of Destiny (the
-`era` its status names, or `?era=`) is drawn from that set, with the later files beside it. The files
-are:
-- picked once and kept in the browser's private storage (the origin-private file system), then
-  opened from there on later visits;
-- or picked from disk for one visit.
+`client_local_English.dat`, `client_highres.dat`, and `portal.dat` and `cell.dat` from before
+Throne of Destiny), read in their own browser. The player adds them on the front page as named
+data sets, each kept in the browser's private storage (the origin-private file system, in
+`sets/<name>/`) and opened from there on later visits; files may also be picked for one visit. A
+world is offered the sets that report what its files report, as the desktop launcher matches them:
+the end of retail's for most worlds, and a world's own files (named in the launcher's table, with
+where they come from) for a world that ships them. The classic interface draws from the older
+`portal.dat`; a world of an era before Throne of Destiny is drawn from the older pair, with the
+later files beside it for the interface.
 
-They are never uploaded, and a deployment never hosts them. The dev runner's `--dat-dir` (and
+The files are never uploaded, and a deployment never hosts them. The dev runner's `--dat-dir` (and
 `--classic-dat-dir`) stands in for this on a developer's machine, on loopback only.
+
+## A world's overlay
+
+A world that updates its data files (an Empyrean world with `[dat_overlay]`, for one) patches them
+during login. The page keeps each world's patch in an overlay of its own in the browser's private
+storage, as the desktop client keeps it in a folder per server, and never writes the player's data
+files:
+
+- **One folder per world**, `overlays/<host>-<port>`, named by the world's address as the desktop
+  client names its per-server folder: the world's game address for a listed world or one added by
+  `host:port`, and the URL's host and port for one added by URL.
+- **Read at every start.** The overlay is laid over the data files when the client starts, and
+  after a patch the client reads the patched records at once. A second visit downloads nothing the
+  world already sent.
+- **Persistent storage.** Playing or adding files asks the browser to keep the page's files
+  (`navigator.storage.persist()`). A browser that declines may clear them when it runs short of
+  space; the front page says which, and how much of the browser's allowance is used.
+- **When the storage is full,** the browser refuses the write: the record is not kept, its revision
+  is not recorded, and the world offers it again on the next visit. Adding data files that do not
+  fit says so and keeps nothing of them.
+- **Removing and refusing.** The world's page removes its overlay, or refuses it: a refused world is
+  on the client's overlay blocklist (kept with its settings), its overlay is not read, and its
+  updates are not kept. The front page lists every overlay kept, with its size.
+- **One tab at a time.** A file in the private storage is open in one tab at a time. A second tab
+  of the page plays with no overlay, and tells the server it keeps none.
+
+The client tells the server it keeps an overlay only when it does, so a server that patches its
+own way patches a page that keeps none as it would a retail client.
 
 ## The classic interface
 
@@ -198,7 +248,7 @@ for them.
 
 ## Connecting to a server
 
-The page's **Server** field takes a WebSocket URL:
+The world's **Connect through** field takes a WebSocket URL:
 
 - **An Empyrean server with its WebSocket endpoint on** (its `[server.websocket]`, described in
   its `SETUP.md`). Use its `wss://` URL, or its status address (`https://…/status`); the page reads
@@ -221,15 +271,18 @@ chosen. The page takes only these:
 
 | Parameter | What it does |
 |---|---|
-| `server=<url>` | fills the Server field (a `wss://` URL, a status address, or the relay's `ws://127.0.0.1:<port>/`) |
+| `server=<url>` | adds that server (a `wss://` URL or a status address) and chooses it |
 | `account=<name>` | fills the Account field |
+| `era=<name>`, `features=<name=true,...>` | the era and systems of the server `server=` names, when its status does not say them |
+| `list=<url>` | reads the world list from another address |
 | `log`, `log=<level>` | shows the client's log and its frame rate over the canvas, and sets how much of the log reaches the browser console (`info` by default; `debug`, `trace`, `warn`, `error`), for reporting a problem |
 | `gpu=webgl` | draws with WebGL 2 even where the browser has WebGPU, for a browser whose WebGPU misbehaves |
 | `dats=http` | offers the dev runner's data files (development only; see below) |
 | `echo=1` | on a page served from this machine only: posts the log to the dev runner, which prints it |
 
-The password is never taken from the address. The form remembers the server, the account and the
-data source in the browser's local storage.
+The password is never taken from the address. The page remembers the servers added, the account
+and the data sets chosen per world, and the day's copy of the world list, in the browser's local
+storage.
 
 ## Developing
 

@@ -1,16 +1,19 @@
-// The playable client's page: the launch form, the canvas the worker draws into, and the page's
-// input events forwarded to the worker in the client's terms.
+// The playable client's page: the front page (the launcher, `front.js`), the canvas the worker
+// draws into, and the page's input events forwarded to the worker in the client's terms.
 //
 // The server is a WebSocket URL: a server's own wss:// endpoint, or ws://127.0.0.1:<port>/ for
 // dereth-web-relay on this machine. An http:// or https:// address is taken as the server's status
 // endpoint, and the WebSocket URL it reports is used.
 //
-// The query string may fill the form, so a server's operator can link to the page with the server
-// chosen: `?server=<url>&account=<name>`; `?era=<name>` names the era of a server reached by its
-// WebSocket URL, whose status the page does not read. `?dats=http` offers the dev runner's data files
-// (`cargo xtask web --dat-dir`). `?log` (or `?log=debug`, ...) shows the client's log and its frame
-// rate over the canvas, for reporting a problem, and `?gpu=webgl` draws with WebGL 2 where a
-// browser's WebGPU misbehaves.
+// The query string may choose the world, so a server's operator can link to the page with it
+// chosen: `?server=<url>&account=<name>` adds that server and chooses it; `?era=<name>` (and
+// `?features=<name=true,...>`) names the era and systems of a server reached by its WebSocket URL,
+// whose status the page does not read. `?dats=http` offers the dev runner's data files
+// (`cargo xtask web --dat-dir`), and `?list=<url>` reads the world list from another address.
+// `?log` (or `?log=debug`, ...) shows the client's log and its frame rate over the canvas, for
+// reporting a problem, and `?gpu=webgl` draws with WebGL 2 where a browser's WebGPU misbehaves.
+
+import { startFront } from './front.js';
 
 const $ = (id) => document.getElementById(id);
 const t0 = performance.now();
@@ -65,8 +68,29 @@ async function openAudio(rate) {
   }
 }
 
+// The front page's questions to the launcher in the worker, each answered once.
+let nextCall = 1;
+const pending = new Map();
+function call(name, ...args) {
+  return new Promise((resolve, reject) => {
+    const id = nextCall;
+    nextCall += 1;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ call: name, args, id });
+  });
+}
+
+let front = null;
+
 worker.onmessage = (ev) => {
   const m = ev.data;
+  if (m.reply !== undefined) {
+    const p = pending.get(m.reply);
+    pending.delete(m.reply);
+    if (m.error !== undefined) p?.reject(new Error(m.error));
+    else p?.resolve(m.value);
+    return;
+  }
   if (m.pcm) audio?.node.port.postMessage(m.pcm, [m.pcm.buffer]);
   if (m.log) show(m.log);
   if (m.error) show(`error: ${m.error}`);
@@ -83,113 +107,36 @@ worker.onmessage = (ev) => {
   if (m.open) window.open(m.open, '_blank', 'noopener');
   // The interface's own cursor, at its own size.
   if (m.cursor) view.style.cursor = `url(${m.cursor.url}) ${m.cursor.hx} ${m.cursor.hy}, default`;
-  // The client ended (its own Exit, or a lost connection) or could not start: the form comes back,
-  // saying what went wrong. Data files already open stay open for the next start.
+  // The client ended (its own Exit, or a lost connection) or could not start: the front page
+  // comes back, saying what went wrong. Data files already open stay open for the next start.
   if (m.ended) {
-    if (m.datsOpen) {
-      $('source').disabled = true;
-      $('files').style.display = 'none';
-    }
     $('go').disabled = false;
     $('go').textContent = 'Play again';
-    $('problem').textContent = m.error ?? '';
-    $('launch').style.display = 'grid';
+    $('launch').style.display = 'block';
+    front?.back().then(() => {
+      $('problem').textContent = m.error ?? '';
+    });
   }
 };
 worker.onerror = (e) => show(`worker error: ${e.message}`);
 
-// ---- the launch form -------------------------------------------------------------------------
+// ---- the front page ------------------------------------------------------------------------------
 
-// The dev runner's data files are offered only to a page that asks for them.
-if (params.get('dats') === 'http') {
-  $('source').add(new Option('From the dev runner (cargo xtask web --dat-dir)', 'http'), 0);
-}
-
-// The form as the player last filled it. Private browsing may refuse storage; the form is then
-// simply not remembered.
-const FIELDS = ['source', 'server', 'account'];
-function remembered(f) {
-  try {
-    return localStorage.getItem(`dereth.${f}`);
-  } catch {
-    return null;
-  }
-}
-for (const f of FIELDS) {
-  const saved = params.get(f === 'source' ? 'dats' : f) ?? remembered(f);
-  const offered = f !== 'source' || [...$('source').options].some((o) => o.value === saved);
-  if (saved && offered) $(f).value = saved;
-}
-$('source').onchange = () => {
-  $('files').style.display = ['files', 'store'].includes($('source').value) ? 'block' : 'none';
-};
-$('source').onchange();
-
-// The era the world plays: the one its status names, else `?era=<name>`, else none (the client
-// reads it from the data files). With it, the systems the world has: its status's `features`
-// object as `name=true,...`, else `?features=<name=true,...>`, else none (the era's own table).
-let era = params.get('era') || '';
-let features = params.get('features') || '';
-
-// The WebSocket URL a status address reports, filled into the server field; the era and the
-// systems it names are kept for the client.
-async function fromStatus(address) {
-  const url = new URL(address);
-  if (url.pathname === '/' || url.pathname === '') url.pathname = '/status';
-  const status = await (await fetch(url, { cache: 'no-store' })).json();
-  if (!status.websocket_url) throw new Error(`${url}: the server has no WebSocket endpoint`);
-  if (status.era) era = status.era;
-  if (status.features && typeof status.features === 'object') {
-    features = Object.entries(status.features)
-      .filter(([, on]) => typeof on === 'boolean')
-      .map(([name, on]) => `${name}=${on}`)
-      .join(',');
-  }
-  return status.websocket_url;
-}
-
-async function launch(ev) {
-  ev?.preventDefault();
-  if (/^https?:\/\//i.test($('server').value.trim())) {
-    try {
-      $('server').value = await fromStatus($('server').value.trim());
-      show(`server from its status: ${$('server').value}`);
-    } catch (e) {
-      $('problem').textContent = `The server's status did not answer: ${e?.message ?? e}`;
-      show(`status: ${e?.message ?? e}`);
-      return;
-    }
-  }
-  $('problem').textContent = '';
-  for (const f of FIELDS) {
-    try {
-      localStorage.setItem(`dereth.${f}`, $(f).value);
-    } catch {
-      // Not remembered; see `remembered`.
-    }
-  }
-  const source = $('source').value;
-  const files = [...$('files').files];
-  const dats = source === 'store'
-    ? { mode: 'opfs', files }
-    : { mode: source, files };
+// Start the client on what the front page chose: the data files, the server, the account, what
+// the launcher says about the world, and the folder its overlay is kept in.
+function launch(choice) {
   $('go').disabled = true;
   if (!audio) openAudio(48000);
   $('launch').style.display = 'none';
-  worker.postMessage({
-    cmd: 'start',
-    dats,
-    width: size[0],
-    height: size[1],
-    server: $('server').value.trim(),
-    account: $('account').value.trim(),
-    password: $('password').value,
-    era,
-    features,
-  });
+  worker.postMessage({ cmd: 'start', ...choice, width: size[0], height: size[1] });
   view.focus();
 }
-$('form').onsubmit = launch;
+
+front = startFront({ call, launch, params, log: show });
+front.begin().catch((e) => {
+  show(`front page: ${e?.message ?? e}`);
+  $('list-note').textContent = `The launcher did not start: ${e?.message ?? e}`;
+});
 
 // ---- input -----------------------------------------------------------------------------------
 

@@ -136,6 +136,43 @@ pub fn preferences_file() -> PathBuf {
     Path::new("/settings").join("UserPreferences.ini")
 }
 
+/// Where the overlay blocklist is kept: beside the preferences profile, as the desktop client
+/// keeps it.
+fn blocklist_file() -> PathBuf {
+    dereth_client_runtime::world_overlay::blocklist_file(&dereth_client_runtime::config::Config {
+        preferences_file: preferences_file(),
+        ..dereth_client_runtime::config::Config::default()
+    })
+}
+
+/// The worlds whose overlays the player refuses, as the client reads its blocklist.
+#[must_use]
+pub fn blocklist() -> std::collections::BTreeSet<String> {
+    dereth_client_runtime::world_overlay::parse_blocklist(
+        &files::read_to_string(&blocklist_file()).unwrap_or_default(),
+    )
+}
+
+/// Put the world `key` on the blocklist, or take it off; the file's other lines (comments
+/// included) are kept as they were.
+///
+/// # Errors
+/// The store will not take the file.
+pub fn set_blocked(key: &str, blocked: bool) -> io::Result<()> {
+    let key = key.trim();
+    let path = blocklist_file();
+    let text = files::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<&str> = text.lines().filter(|l| l.trim() != key).collect();
+    if blocked && !key.is_empty() {
+        lines.push(key);
+    }
+    let mut out = lines.join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    files::write(&path, out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,6 +214,30 @@ mod tests {
         );
         assert_eq!(decode(&SAVED.with(|s| s.borrow().clone()))[&path].len(), 37);
     }
+    /// The overlay blocklist is the client's own file beside the preferences: a world is put on
+    /// it and taken off it, and its other lines stay.
+    #[test]
+    fn a_world_is_put_on_the_overlay_blocklist_and_taken_off_it() {
+        install(&[], None);
+        files::write(&blocklist_file(), "# refused worlds\nOld World\n").unwrap();
+        set_blocked("Infiltration", true).unwrap();
+        set_blocked("Infiltration", true).unwrap();
+        assert_eq!(
+            blocklist().into_iter().collect::<Vec<_>>(),
+            ["Infiltration", "Old World"]
+        );
+        set_blocked("Old World", false).unwrap();
+        assert_eq!(
+            files::read_to_string(&blocklist_file()).unwrap(),
+            "# refused worlds\nInfiltration\n"
+        );
+        assert_eq!(
+            blocklist_file(),
+            Path::new("/settings").join("overlay-blocklist.txt")
+        );
+        files::install(files::DISK);
+    }
+
     #[test]
     fn deletion_saves_once_and_nested_files_prevent_directory_retirement() {
         thread_local! {

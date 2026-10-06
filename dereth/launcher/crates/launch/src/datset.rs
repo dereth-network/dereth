@@ -14,7 +14,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dat::{read_dat, ContainerEra, DatKind};
+use crate::dat::{read_dat, read_dat_from, ContainerEra, DatError, DatInfo, DatKind};
 
 /// One count per file. Any of them may be unknown: a world that has not said, or a file that is
 /// not there.
@@ -302,19 +302,7 @@ pub fn scan_classic_dir(dir: &Path) -> Vec<DatFileState> {
         .filter_map(|&(role, name)| {
             let path = dir.join(name);
             let meta = std::fs::metadata(&path).ok().filter(|m| m.is_file())?;
-            let (iterations, error) = match read_dat(&path) {
-                Ok(info) if info.era == ContainerEra::Classic && kind_matches(role, info.kind) => {
-                    (Some(info.iterations.count), None)
-                }
-                Ok(_) => (
-                    None,
-                    Some(format!(
-                        "this is not the {} file from before Throne of Destiny",
-                        role.label()
-                    )),
-                ),
-                Err(e) => (None, Some(e.to_string())),
-            };
+            let (iterations, error) = reading(role, ContainerEra::Classic, read_dat(&path));
             Some(DatFileState {
                 role,
                 file_name: name.to_owned(),
@@ -388,20 +376,7 @@ fn scan_files(dir: &Path, previous: &[DatFileState]) -> Vec<DatFileState> {
                 continue;
             }
         }
-        let (iterations, error) = match read_dat(&path) {
-            Ok(info) if info.era == ContainerEra::Modern && kind_matches(role, info.kind) => {
-                (Some(info.iterations.count), None)
-            }
-            Ok(info) => (
-                None,
-                Some(format!(
-                    "this is a {:?} file, not {}",
-                    info.kind,
-                    role.label()
-                )),
-            ),
-            Err(e) => (None, Some(e.to_string())),
-        };
+        let (iterations, error) = reading(role, ContainerEra::Modern, read_dat(&path));
         out.push(DatFileState {
             role,
             file_name: name,
@@ -413,6 +388,86 @@ fn scan_files(dir: &Path, previous: &[DatFileState]) -> Vec<DatFileState> {
         });
     }
     out
+}
+
+/// What one file of a set reports, from its reading: its iteration count when it is the file its
+/// role names in the layout `era`, else why it is not.
+fn reading(
+    role: DatRole,
+    era: ContainerEra,
+    read: Result<DatInfo, DatError>,
+) -> (Option<u32>, Option<String>) {
+    match read {
+        Ok(info) if info.era == era && kind_matches(role, info.kind) => {
+            (Some(info.iterations.count), None)
+        }
+        Ok(_) if era == ContainerEra::Classic => (
+            None,
+            Some(format!(
+                "this is not the {} file from before Throne of Destiny",
+                role.label()
+            )),
+        ),
+        Ok(info) => (
+            None,
+            Some(format!(
+                "this is a {:?} file, not {}",
+                info.kind,
+                role.label()
+            )),
+        ),
+        Err(e) => (None, Some(e.to_string())),
+    }
+}
+
+/// The role a file named `name` plays in a set of `kind`: the later set's four files (any
+/// language's local file), or the older set's `portal.dat` and `cell.dat`. `None` for a name that
+/// is no file of such a set.
+#[must_use]
+pub fn role_of(kind: SetKind, name: &str) -> Option<DatRole> {
+    let lower = name.to_ascii_lowercase();
+    match kind {
+        SetKind::Classic => CLASSIC_FILES
+            .iter()
+            .find(|(_, n)| *n == lower)
+            .map(|(r, _)| *r),
+        SetKind::Modern => DatRole::ALL
+            .iter()
+            .copied()
+            .find(|r| r.file_name().eq_ignore_ascii_case(name))
+            .or_else(|| {
+                (lower.starts_with("client_local_") && lower.ends_with(".dat"))
+                    .then_some(DatRole::Local)
+            }),
+    }
+}
+
+/// One file of a set of `kind` whose bytes are kept in `storage` rather than in a folder this crate
+/// can read (a browser's storage): its role from its name, its size as the storage gives it, and
+/// what it reports, read as a folder's files are read. `None` for a name that is no file of such a
+/// set.
+#[must_use]
+pub fn file_in_storage(
+    kind: SetKind,
+    name: &str,
+    size: u64,
+    storage: Box<dyn dereth_dat::DatStorage>,
+) -> Option<DatFileState> {
+    let role = role_of(kind, name)?;
+    let era = match kind {
+        SetKind::Modern => ContainerEra::Modern,
+        SetKind::Classic => ContainerEra::Classic,
+    };
+    let (iterations, error) = reading(role, era, read_dat_from(name, storage));
+    Some(DatFileState {
+        role,
+        file_name: name.to_owned(),
+        size,
+        modified: 0,
+        read_only: false,
+        iterations,
+        error,
+    })
 }
 
 fn kind_matches(role: DatRole, kind: DatKind) -> bool {

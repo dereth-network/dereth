@@ -14,18 +14,56 @@
 //!   line: those worlds' overlays are never opened or written, wherever their folder is.
 //! - **Refusal is not failure.** An overlay that is refused (another base, another world, a
 //!   blocked world) is reported and left out, and the world is read from the locked files alone.
+//! - **Where it is kept.** On disk, unless the host keeps its folders elsewhere
+//!   ([`install_folders`]): a browser keeps them in its own storage, and the overlay is the same.
 
+use std::cell::Cell;
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use dereth_dat::overlay::OverlayDir;
-use dereth_dat::RetailDatStore;
+use dereth_dat::overlay::{OverlayDir, OverlayError};
+use dereth_dat::{DatFolder, RetailDatStore};
 
 use crate::config::Config;
 use crate::platform::files as host_files;
 
 /// The blocklist's file name, beside the preferences file.
 pub const BLOCKLIST_FILE: &str = "overlay-blocklist.txt";
+
+/// Where a host keeps the overlay folder named by a path: its storage for that folder, or `None`
+/// when it keeps none there.
+pub type FolderOpener = fn(&Path) -> Option<Arc<dyn DatFolder>>;
+
+thread_local! {
+    static FOLDERS: Cell<Option<FolderOpener>> = const { Cell::new(None) };
+}
+
+/// Keep this thread's overlay folders where `open` says, rather than on disk. A host with no disk
+/// the client can write by path (a browser) installs one before the client starts.
+pub fn install_folders(open: FolderOpener) {
+    FOLDERS.with(|f| f.set(Some(open)));
+}
+
+/// The overlay folder at `dir`: on disk, or in the host's storage when it keeps its folders there.
+///
+/// # Errors
+/// [`OverlayError::BaseFolder`] for a folder holding base files, and an I/O error when the host
+/// keeps no folder at `dir`.
+pub fn open_folder(dir: &Path) -> Result<OverlayDir, OverlayError> {
+    match FOLDERS.with(Cell::get) {
+        None => OverlayDir::new(dir),
+        Some(open) => match open(dir) {
+            Some(folder) => OverlayDir::in_folder(folder),
+            None => Err(OverlayError::Dat(dereth_dat::DatError::Io(
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("{} is not kept here", dir.display()),
+                ),
+            ))),
+        },
+    }
+}
 
 /// The folder this run keeps the world's overlay in: `--overlay-dat-dir`, else the per-user
 /// cache's folder for the server when the client connects; `None` for a run with neither.
@@ -97,7 +135,7 @@ pub fn parse_blocklist(text: &str) -> BTreeSet<String> {
 #[must_use]
 pub fn folder(cfg: &Config) -> Option<OverlayDir> {
     let dir = overlay_dir(cfg)?;
-    match OverlayDir::new(&dir) {
+    match open_folder(&dir) {
         Ok(d) => Some(d),
         Err(e) => {
             tracing::warn!("no world overlay is kept: {e}");
@@ -175,6 +213,127 @@ mod tests {
         assert_eq!(
             b.into_iter().collect::<Vec<_>>(),
             vec!["another".to_owned(), "bad world".to_owned()]
+        );
+    }
+
+    /// A store of three small files kept in memory, each with one record and the iteration list.
+    fn memory_store() -> RetailDatStore {
+        use dereth_dat::{write::DatWriter, DatFile, MemoryFile, ITERATION_LIST};
+        let file = |name: &str, set: u32, subset: u32| {
+            let bytes = MemoryFile::default();
+            let mut w = DatWriter::create_in(
+                PathBuf::from(name),
+                Box::new(bytes.clone()),
+                0x400,
+                set,
+                subset,
+                0x400 * 17,
+            )
+            .unwrap();
+            w.save(
+                ITERATION_LIST,
+                &dereth_dat::iteration::encode(&[1, 2]),
+                1,
+                0,
+                1,
+            )
+            .unwrap();
+            w.save(dereth_primitives::DataId(0x0600_0001), b"base", 1, 2, 1)
+                .unwrap();
+            drop(w);
+            DatFile::from_storage(PathBuf::from(name), Box::new(bytes)).unwrap()
+        };
+        RetailDatStore::open_with(
+            file("client_portal.dat", 1, 0),
+            file("client_cell_1.dat", 2, 1),
+            file("client_local_English.dat", 3, 1),
+            None,
+        )
+    }
+
+    thread_local! {
+        static KEPT: dereth_dat::MemoryFolder =
+            dereth_dat::MemoryFolder::new(Path::new("overlays/127.0.0.1-9000"));
+    }
+
+    fn kept(dir: &Path) -> Option<Arc<dyn DatFolder>> {
+        KEPT.with(|f| (f.path() == dir).then(|| Arc::new(f.clone()) as Arc<dyn DatFolder>))
+    }
+
+    /// Behaviour: net.dat-patch.the-overlay-extension-is-offered-only-with-an-overlay-kept
+    #[test]
+    fn a_host_kept_overlay_folder_is_written_and_laid_and_only_a_run_keeping_one_offers_the_extension(
+    ) {
+        use dereth_protocol::admin::DddInterrogationResponse;
+        let store = memory_store();
+        let offline = Config {
+            connect: false,
+            ..Config::default()
+        };
+        let none = patcher(&store, &offline);
+        assert!(!none.keeps_overlay());
+        let r = crate::app::ddd_interrogation_response(&store, 0, none.keeps_overlay());
+        assert_eq!(r.flags & DddInterrogationResponse::FLAG_OVERLAY, 0);
+        assert!(r.overlay_bases.is_empty(), "no overlay, no bases");
+
+        install_folders(kept);
+        let cfg = Config {
+            connect: false,
+            overlay_dat_dir: Some(PathBuf::from("overlays/127.0.0.1-9000")),
+            ..Config::default()
+        };
+        let p = patcher(&store, &cfg);
+        assert!(p.keeps_overlay());
+        let r = crate::app::ddd_interrogation_response(&store, 0, p.keeps_overlay());
+        assert_ne!(r.flags & DddInterrogationResponse::FLAG_OVERLAY, 0);
+        assert_eq!(r.overlay_bases.len(), 3);
+        // A folder the host does not keep is no folder.
+        let elsewhere = Config {
+            overlay_dat_dir: Some(PathBuf::from("overlays/other-9000")),
+            ..cfg.clone()
+        };
+        assert!(!patcher(&store, &elsewhere).keeps_overlay());
+
+        // What is written into the host's folder is laid over the store at the next open.
+        let dir = folder(&cfg).expect("the host keeps it");
+        let mut w = dir
+            .writer(
+                dereth_dat::ModernDat::Portal,
+                store.portal(),
+                "client_portal.dat",
+                "a world",
+                1,
+            )
+            .unwrap();
+        w.save(
+            store.portal(),
+            dereth_primitives::DataId(0x0600_0001),
+            b"patched",
+            1,
+            3,
+            1,
+        )
+        .unwrap();
+        w.add_iteration(3, 1).unwrap();
+        w.flush(1).unwrap();
+        drop(w);
+        assert_eq!(
+            KEPT.with(dereth_dat::MemoryFolder::names),
+            ["overlay_portal.dat"]
+        );
+        let laid = lay_over(store.clone(), &cfg);
+        assert!(laid.has_overlay());
+        assert_eq!(
+            laid.read_portal(dereth_primitives::DataId(0x0600_0001))
+                .unwrap(),
+            b"patched"
+        );
+        assert_eq!(
+            store
+                .read_portal(dereth_primitives::DataId(0x0600_0001))
+                .unwrap(),
+            b"base",
+            "the base is never written"
         );
     }
 }

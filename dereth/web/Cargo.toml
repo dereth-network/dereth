@@ -37,10 +37,17 @@ dereth-input.workspace = true
 # The classic interface's text: its font atlas, drawn from the fonts the client carries.
 dereth-classic-dat.workspace = true
 dereth-classic-fonts.workspace = true
+# The front page's launcher: the desktop launcher's own logic (the world list, the table of worlds
+# that run a client of their own, a world's data sets by iterations, what the client is told
+# about the world), so the two launchers show and start a world alike.
+dereth-launch.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 dereth-client-sdk = { workspace = true, features = ["test-support"] }
+# Small, well-formed dats built in memory, for the front page's set matching.
+dereth-launch = { workspace = true, features = ["testing"] }
 # Blocks on the GPU backend's asynchronous set-up in the native tests.
 pollster.workspace = true
 

@@ -92,6 +92,17 @@ pub fn read_dat(path: &Path) -> Result<DatInfo, DatError> {
     dereth_dat::DatFile::read_iterations(path).map(DatInfo::from)
 }
 
+/// The same, from bytes kept in `storage` (a browser's, say), named `name` in errors.
+///
+/// # Errors
+/// As [`read_dat`].
+pub fn read_dat_from(
+    name: &str,
+    storage: Box<dyn dereth_dat::DatStorage>,
+) -> Result<DatInfo, DatError> {
+    dereth_dat::DatFile::read_iterations_from(name.into(), storage).map(DatInfo::from)
+}
+
 /// The same, from bytes in memory. Tests build dats this way.
 ///
 /// # Errors

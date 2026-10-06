@@ -249,7 +249,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-031",
         title: "A world's own data is kept in an overlay over the installed files",
         change: "Data a server sends during the update exchange is written into that world's \
-                 overlay folder (--overlay-dat-dir, else one per server in the per-user cache), \
+                 overlay folder (--overlay-dat-dir, else one per server in the per-user cache, \
+                 or in a browser one per server in its own storage), \
                  never into the installed data files; a purge hides records there rather than \
                  deleting them. With a server that sends the world's overlay manifest, an \
                  overlay made against other files, for a blocked world or for another world's \

@@ -501,6 +501,13 @@ impl DddPatcher {
         }
     }
 
+    /// Whether this run keeps the world's overlay: it has a folder to write the world's patches
+    /// into. A run with none refuses every patch.
+    #[must_use]
+    pub fn keeps_overlay(&self) -> bool {
+        self.target.is_some()
+    }
+
     /// Why this world's overlay is refused, when it is.
     #[must_use]
     pub fn refused(&self) -> Option<&str> {
@@ -528,7 +535,7 @@ impl DddPatcher {
             // What this session made of the overlay goes with it.
             if let Some(t) = &self.target {
                 for c in std::mem::take(&mut self.created) {
-                    let _ = std::fs::remove_file(t.dir.container(c));
+                    let _ = t.dir.remove(c);
                 }
             }
         }
@@ -1096,14 +1103,8 @@ impl DddPatcher {
             let t = self.target.as_ref().ok_or(DatError::NotFound(DataId(0)))?;
             let (base, name) = t.bases.get(&target).ok_or(DatError::NotFound(DataId(0)))?;
             let date = entry_date(crate::platform::clock::system_unix_time());
-            let fresh = !t.dir.container(target).is_file();
-            let w = match OverlayWriter::open_or_create(
-                &t.dir.container(target),
-                base,
-                name,
-                &t.world_key,
-                date,
-            ) {
+            let fresh = !t.dir.holds(target);
+            let w = match t.dir.writer(target, base, name, &t.world_key, date) {
                 Ok(w) => w,
                 Err(OverlayError::Dat(e)) => return Err(e),
                 Err(e) => {

@@ -1155,6 +1155,16 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Read `argv` over this configuration with the command line's own parser: what a platform
+    /// with no command line (a web page) is told about the world it plays (the words the launcher
+    /// puts on the desktop client's command line) is read exactly as the desktop client reads them.
+    ///
+    /// # Errors
+    /// [`ConfigError`] for any parse failure.
+    pub fn apply_args(&mut self, argv: &[String]) -> Result<(), ConfigError> {
+        self.parse_args(argv)
+    }
+
     /// The registered display-preference names and defaults, plus the one
     /// `Render.*` preference whose owner is a `SceneConfig` field.
     pub fn apply_preferences(&mut self, prefs: &Preferences) {

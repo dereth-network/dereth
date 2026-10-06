@@ -53,8 +53,6 @@
 //! * **No LRU.** The LRU-in-use flag is 0 in all four retail dats and initialization forces it
 //!   false, so the LRU list is never used.
 
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use dereth_primitives::DataId;
@@ -62,6 +60,7 @@ use dereth_primitives::DataId;
 use crate::btree::{BtEntry, NODE_SIZE};
 use crate::container::{DiskFileInfo, FIRST_BLOCK, HEADER_OFFSET, TRANSACTION_OFFSET};
 use crate::error::DatError;
+use crate::folder::DatStorageMut;
 
 /// A node's entry count may not exceed this; the node search rejects 0x3E and above.
 pub const MAX_ENTRIES: usize = 61;
@@ -270,10 +269,14 @@ impl RawNode {
 ///
 /// [`DatWriter::open`] **refuses any path in a directory declared read-only** with
 /// [`crate::protect_install`]: a pristine install is not disposable. Work on a copy.
+///
+/// The container is read and written through a [`DatStorageMut`]: a file on disk for
+/// [`DatWriter::open`] and [`DatWriter::create`], or any other storage for
+/// [`DatWriter::open_in`] and [`DatWriter::create_in`], which write the same bytes.
 #[derive(Debug)]
 pub struct DatWriter {
     path: PathBuf,
-    file: File,
+    file: Box<dyn DatStorageMut>,
     /// The header's 0x50 bytes exactly as they are on disk, so that the fields native never touches
     /// -- the 0xCD padding after the LRU-in-use flag, the version GUID -- survive a rewrite.
     raw_header: [u8; 0x50],
@@ -290,15 +293,23 @@ impl DatWriter {
     /// [`DatError::PendingTransaction`] when the journal slot at 0x100 holds an unfinished
     /// operation this writer cannot replay, plus the usual header and I/O errors.
     pub fn open(path: &Path) -> Result<Self, DatError> {
-        Self::refuse_owner_dat(path)?;
         // A reader that walked this file may be in the process-wide table, and
-        // what follows may change the file without changing its length or its mtime tick. Drop
-        // the entry rather than trust a timestamp.
-        crate::store::shared::forget(path);
-        let file = OpenOptions::new().read(true).write(true).open(path)?;
+        // what follows may change the file without changing its length or its mtime tick. The
+        // open drops the entry rather than trust a timestamp.
+        let file = crate::folder::open_disk_mut(path)?;
+        Self::open_in(path.to_path_buf(), Box::new(file))
+    }
+
+    /// Open an existing container kept in `storage` for writing; `path` names it in errors.
+    ///
+    /// # Errors
+    ///
+    /// [`DatError::PendingTransaction`] as [`DatWriter::open`], plus the usual header and storage
+    /// errors.
+    pub fn open_in(path: PathBuf, storage: Box<dyn DatStorageMut>) -> Result<Self, DatError> {
         let mut me = Self {
-            path: path.to_path_buf(),
-            file,
+            path,
+            file: storage,
             raw_header: [0u8; 0x50],
             header: blank_header(),
             fault: None,
@@ -329,27 +340,38 @@ impl DatWriter {
         data_subset: u32,
         file_size: u32,
     ) -> Result<Self, DatError> {
-        Self::refuse_owner_dat(path)?;
-        if block_size < 8 || !block_size.is_multiple_of(4) {
-            return Err(DatError::BadBlockSize(block_size));
-        }
-        if file_size <= FIRST_BLOCK || !(file_size - FIRST_BLOCK).is_multiple_of(block_size) {
-            return Err(DatError::BadCreateSize {
-                file_size,
-                block_size,
-            });
-        }
+        crate::folder::refuse_protected(path)?;
+        check_create(block_size, file_size)?;
         // As in `open`: this truncates, and a path can be reused.
-        crate::store::shared::forget(path);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(path)?;
+        let file = crate::folder::create_disk(path)?;
+        Self::create_in(
+            path.to_path_buf(),
+            Box::new(file),
+            block_size,
+            data_set,
+            data_subset,
+            file_size,
+        )
+    }
+
+    /// Build a new container in `storage`, which is empty: [`DatWriter::create`]'s container,
+    /// byte for byte, kept wherever the storage keeps it. `path` names it in errors.
+    ///
+    /// # Errors
+    ///
+    /// As [`DatWriter::create`], with the storage's errors for I/O errors.
+    pub fn create_in(
+        path: PathBuf,
+        storage: Box<dyn DatStorageMut>,
+        block_size: u32,
+        data_set: u32,
+        data_subset: u32,
+        file_size: u32,
+    ) -> Result<Self, DatError> {
+        check_create(block_size, file_size)?;
         let mut me = Self {
-            path: path.to_path_buf(),
-            file,
+            path,
+            file: storage,
             raw_header: retail_shaped_header(block_size, data_set, data_subset, file_size),
             header: blank_header(),
             fault: None,
@@ -403,28 +425,18 @@ impl DatWriter {
         Ok(())
     }
 
-    /// Refuse to open anything inside a read-only install for writing.
-    fn refuse_owner_dat(path: &Path) -> Result<(), DatError> {
-        if crate::locate::is_protected(path) {
-            return Err(DatError::RetailDatRefused(path.to_path_buf()));
-        }
-        Ok(())
-    }
-
     // ---------------------------------------------------------------------------------------
     // Raw I/O. The client's synchronous write is `SetFilePointer` + `WriteFile` with no flush,
     // which is what `seek` + `write_all` on an unbuffered `File` is.
     // ---------------------------------------------------------------------------------------
 
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<(), DatError> {
-        self.file.seek(SeekFrom::Start(offset))?;
-        self.file.read_exact(buf)?;
+        self.file.read_exact_at(offset, buf)?;
         Ok(())
     }
 
     fn write_at(&mut self, offset: u64, buf: &[u8]) -> Result<(), DatError> {
-        self.file.seek(SeekFrom::Start(offset))?;
-        self.file.write_all(buf)?;
+        self.file.write_all_at(offset, buf)?;
         Ok(())
     }
 
@@ -1702,6 +1714,22 @@ fn self_create_free_list(w: &mut DatWriter, block_size: u32, blocks: u32) -> Res
     w.header.free_tail = last;
     w.write_at(u64::from(last), &FREE_BIT.to_le_bytes())?;
     w.header.file_size = cur;
+    Ok(())
+}
+
+/// Refuse the parameters retail's file creation could not have produced: a block size that is not a
+/// whole number of dwords of at least 8, or a size that is not a whole number of blocks past the
+/// 0x400-byte prologue.
+fn check_create(block_size: u32, file_size: u32) -> Result<(), DatError> {
+    if block_size < 8 || !block_size.is_multiple_of(4) {
+        return Err(DatError::BadBlockSize(block_size));
+    }
+    if file_size <= FIRST_BLOCK || !(file_size - FIRST_BLOCK).is_multiple_of(block_size) {
+        return Err(DatError::BadCreateSize {
+            file_size,
+            block_size,
+        });
+    }
     Ok(())
 }
 

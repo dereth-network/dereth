@@ -11,7 +11,8 @@
 //! device on its `wgpu` backend (`dereth-render`), and what its host names by crate:
 //! `dereth-client-runtime`, `dereth-client-contract`, `dereth-client-net`, `dereth-client-sdk`
 //! (the data store), `dereth-dat`, `dereth-primitives`, `dereth-ui-screens` and `dereth-input`;
-//! `dereth-transport` for the WebSocket frame; and `dereth-classic-dat` and `dereth-classic-fonts`
+//! `dereth-transport` for the WebSocket frame; `dereth-launch` (with `serde_json`) for the front
+//! page's launcher; and `dereth-classic-dat` and `dereth-classic-fonts`
 //! for the classic interface's text, drawn from the fonts the client carries. The WebAssembly build adds `wasm-bindgen`,
 //! `js-sys`, `web-sys` and a `tracing-subscriber` that writes to the browser console. **Used by**
 //! the page and worker under `www/`, which load it as a WebAssembly module.
@@ -22,13 +23,16 @@
 //! unencrypted protocol over plain `ws://` to anything but this machine ([`server_url`]).
 //!
 //! The browser half, `browser`, compiles only for `wasm32`: the data files arrive through a
-//! synchronous read the worker answers (`dats::BrowserFile`), datagrams cross the WebSocket with a
-//! two-byte port in front ([`frame`]), and [`play`] runs the client shell's whole application on
-//! the browser's host ([`host`]), one frame per animation frame. Everything else here is
+//! synchronous read the worker answers (`dats::BrowserFile`), a world's overlay is kept in the
+//! browser's own storage through the same kind of calls (`overlay`), datagrams cross the
+//! WebSocket with a two-byte port in front ([`frame`]), and [`play`] runs the client shell's whole
+//! application on the browser's host ([`host`]), one frame per animation frame. The front page's
+//! launcher ([`front`]) is the desktop launcher's own logic. Everything else here is
 //! platform-neutral and tested on the host.
 
 pub mod dats;
 pub mod frame;
+pub mod front;
 pub mod host;
 pub mod keycodes;
 pub mod play;
@@ -37,3 +41,5 @@ pub mod settings;
 
 #[cfg(target_arch = "wasm32")]
 pub mod browser;
+#[cfg(target_arch = "wasm32")]
+pub mod overlay;

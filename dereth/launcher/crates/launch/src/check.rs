@@ -387,19 +387,25 @@ fn data_findings(input: &CheckInput<'_>, f: &mut Vec<Finding>) {
         });
     }
     if !c.older.is_empty() {
-        let private_here = set.owner_world() == Some(w.slug.as_str());
-        if w.patches() && private_here {
+        if w.patches() {
+            // The Dereth client keeps the update in the world's own overlay; a retail client
+            // takes it into the files beside it, which the ownership finding stops.
+            let into = if input.install.kind == ClientKind::Dereth {
+                ", into its own overlay over them; the files themselves are never written"
+            } else {
+                ""
+            };
             f.push(Finding {
                 id: CheckId::Data,
                 verdict: Verdict::Warn,
                 title: "The world will update these files".into(),
                 detail: format!(
-                    "{}. It patches them when you connect.",
+                    "{}. It updates them when you connect{into}.",
                     describe(&c.older, true)
                 ),
                 fixes: Vec::new(),
             });
-        } else if !w.patches() {
+        } else {
             f.push(Finding {
                 id: CheckId::Data,
                 verdict: block,
@@ -411,7 +417,6 @@ fn data_findings(input: &CheckInput<'_>, f: &mut Vec<Finding>) {
                 fixes: vec![Fix::ChooseDatSet, Fix::DatGuide],
             });
         }
-        // Older on a patching world with a set it may not write to is the ownership finding's job.
     }
     if c.matches() {
         let label = if expected.is_end_of_retail() {
@@ -427,7 +432,8 @@ fn data_findings(input: &CheckInput<'_>, f: &mut Vec<Finding>) {
     highres_finding(w, &have, f);
 }
 
-/// A world that writes to dats, or ships its own, must never be handed a set another world uses.
+/// A world that ships its own dats must never be handed a set another world uses, and a world
+/// that writes to dats is never played on the files beside a retail client.
 fn ownership_finding(w: &World, kind: ClientKind, set: &DatSet, f: &mut Vec<Finding>) {
     // A world that does neither may use any set; one patched by its owner shows up in the
     // iteration comparison instead.
@@ -441,7 +447,7 @@ fn ownership_finding(w: &World, kind: ClientKind, set: &DatSet, f: &mut Vec<Find
             format!("{} ships its own data files, and the retail client only plays with the ones beside it. Play this world with the Dereth client.", w.name)
         } else {
             format!(
-                "{} updates data files over the network, and the retail client would take the update into the files beside it. Play this world with the Dereth client and a private copy.",
+                "{} updates data files over the network, and the retail client would take the update into the files beside it. Play this world with the Dereth client, which keeps the world's updates apart from your files.",
                 w.name
             )
         };
@@ -452,6 +458,11 @@ fn ownership_finding(w: &World, kind: ClientKind, set: &DatSet, f: &mut Vec<Find
             detail,
             fixes: vec![Fix::ChooseClient],
         });
+        return;
+    }
+    // The Dereth client keeps a world's updates in that world's own overlay and never writes a
+    // set, so a world that only updates its files over the network may use any of them.
+    if w.dats.custom.is_none() {
         return;
     }
     let ok = match &set.origin {
@@ -470,31 +481,25 @@ fn ownership_finding(w: &World, kind: ClientKind, set: &DatSet, f: &mut Vec<Find
     let (title, detail) = match &set.origin {
         DatOrigin::World { slug } => (
             "These data files belong to another world".to_owned(),
-            format!("This set is {slug}'s private copy. {} needs its own.", w.name),
-        ),
-        _ if w.patches() => (
-            "This world would change the shared data files".to_owned(),
             format!(
-                "{} updates data files over the network. Give it a private copy (about 1.4 GB) so the files your other worlds use stay as they are.",
+                "This set is {slug}'s private copy. {} needs its own.",
                 w.name
             ),
         ),
         _ => (
             "This world needs its own data files".to_owned(),
-            format!("{} ships custom data files, which go in a set of their own.", w.name),
+            format!(
+                "{} ships custom data files, which go in a set of their own.",
+                w.name
+            ),
         ),
-    };
-    let fixes = if w.dats.custom.is_some() {
-        vec![Fix::ChooseDatSet]
-    } else {
-        vec![Fix::CreatePrivateCopy, Fix::ChooseDatSet]
     };
     f.push(Finding {
         id: CheckId::DatSetOwnership,
         verdict: Verdict::Block,
         title,
         detail,
-        fixes,
+        fixes: vec![Fix::ChooseDatSet],
     });
 }
 
@@ -636,48 +641,53 @@ mod tests {
     }
 
     #[test]
-    fn older_dats_on_a_patching_world_warn_only_on_its_own_private_set() {
+    fn older_dats_on_a_patching_world_warn_on_any_set_the_dereth_client_is_given() {
         let mut w = world();
         w.dats.patches_over_wire = Some(true);
         let mut it = Iterations::END_OF_RETAIL;
         it.portal = Some(2000);
-
         let own = set(
             DatOrigin::World {
                 slug: "eulmore".into(),
             },
             it,
         );
-        let r = run(&w, &dereth(), Some(&own));
-        assert_eq!(r.worst(), Verdict::Warn, "{r:#?}");
-        assert!(r.can_play(false));
-
-        let shared = set(DatOrigin::Shared, it);
-        let r = run(&w, &dereth(), Some(&shared));
-        assert_eq!(r.verdict_of(CheckId::DatSetOwnership), Some(Verdict::Block));
-        assert!(r
-            .get(CheckId::DatSetOwnership)
-            .unwrap()
-            .fixes
-            .contains(&Fix::CreatePrivateCopy));
+        for s in [own, set(DatOrigin::Shared, it)] {
+            let r = run(&w, &dereth(), Some(&s));
+            assert_eq!(r.worst(), Verdict::Warn, "{r:#?}");
+            assert!(r.can_play(false));
+            assert_eq!(r.get(CheckId::DatSetOwnership), None);
+        }
     }
 
     #[test]
-    fn a_patching_world_never_gets_the_shared_set_even_when_it_matches() {
+    fn a_patching_world_takes_the_shared_set_or_another_worlds_with_the_dereth_client() {
+        // The client keeps the world's updates in the world's own overlay, never in the set.
         let mut w = world();
         w.dats.patches_over_wire = Some(true);
-        let r = run(
-            &w,
-            &dereth(),
-            Some(&set(DatOrigin::Shared, Iterations::END_OF_RETAIL)),
+        let other = set(
+            DatOrigin::World {
+                slug: "coldeve".into(),
+            },
+            Iterations::END_OF_RETAIL,
         );
-        assert_eq!(r.worst(), Verdict::Block);
+        for s in [set(DatOrigin::Shared, Iterations::END_OF_RETAIL), other] {
+            let r = run(&w, &dereth(), Some(&s));
+            assert!(r.can_play(false), "{r:#?}");
+            assert_eq!(r.get(CheckId::DatSetOwnership), None);
+        }
     }
 
     #[test]
-    fn another_worlds_private_set_is_refused_by_a_patching_world() {
+    fn another_worlds_private_set_is_refused_by_a_world_that_ships_its_own() {
         let mut w = world();
-        w.dats.patches_over_wire = Some(true);
+        w.dats.custom = Some(CustomDats {
+            url: "https://frostfell.example/dats".into(),
+            sha256: None,
+            size: None,
+            iterations: Iterations::END_OF_RETAIL,
+            license_note: None,
+        });
         let s = set(
             DatOrigin::World {
                 slug: "coldeve".into(),
@@ -685,11 +695,9 @@ mod tests {
             Iterations::END_OF_RETAIL,
         );
         let r = run(&w, &dereth(), Some(&s));
-        assert!(r
-            .get(CheckId::DatSetOwnership)
-            .unwrap()
-            .detail
-            .contains("coldeve"));
+        let o = r.get(CheckId::DatSetOwnership).unwrap();
+        assert!(o.detail.contains("coldeve"));
+        assert_eq!(o.fixes, [Fix::ChooseDatSet]);
     }
 
     #[test]

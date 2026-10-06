@@ -104,6 +104,59 @@ fn plain(s: impl Into<String>) -> Arg {
     Arg::Plain(s.into())
 }
 
+/// What the Dereth client is told about the world it plays, whatever starts it: one description,
+/// built from the world as the launcher shows it (its list row, the built-in table of worlds that
+/// run a client of their own, its status document, and what the player chose for what it does not
+/// say). The desktop launcher puts it on the client's command line ([`plan`]); the web page hands
+/// the same words to the client in the browser, which reads them with the same parser.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WorldLaunch {
+    /// The data set the world is drawn from, which the player's files must hold.
+    pub set: crate::datset::SetKind,
+    /// `--world-base`: the set the world names for its world, when it names one.
+    pub world_base: Option<String>,
+    /// `--era`.
+    pub era: Option<String>,
+    /// `--era-features`: the world's whole set of systems as the shared bitfield.
+    pub era_features: Option<String>,
+    /// `--logon-version`, for a world whose server wants another than the end of retail's.
+    pub logon_version: Option<String>,
+    /// `--world-profile`: the rules the world's own client played by.
+    pub world_profile: Option<String>,
+}
+
+/// The description of `world` for the client: [`WorldLaunch`].
+#[must_use]
+pub fn describe(world: &World) -> WorldLaunch {
+    let some = |v: Option<&str>| v.filter(|s| !s.is_empty()).map(str::to_owned);
+    WorldLaunch {
+        set: crate::choices::required_set_for(world),
+        world_base: some(world.world_base.as_deref()),
+        era: some(world.era.as_deref()),
+        era_features: era_feature_bits(world).map(|b| b.to_string()),
+        logon_version: some(world.logon_version.as_deref()),
+        world_profile: some(world.world_profile.as_deref()),
+    }
+}
+
+impl WorldLaunch {
+    /// The description as the client's switches, each only when it is said.
+    #[must_use]
+    pub fn args(&self) -> Vec<String> {
+        [
+            ("--world-base", &self.world_base),
+            ("--era", &self.era),
+            ("--era-features", &self.era_features),
+            ("--logon-version", &self.logon_version),
+            ("--world-profile", &self.world_profile),
+        ]
+        .into_iter()
+        .filter_map(|(switch, v)| v.as_ref().map(|v| [switch.to_owned(), v.clone()]))
+        .flatten()
+        .collect()
+    }
+}
+
 /// Build the command line for a launch.
 pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
     let ep = req.world.endpoint.as_ref().ok_or(PlanError::NoEndpoint)?;
@@ -132,21 +185,7 @@ pub fn plan(req: &LaunchRequest<'_>) -> Result<LaunchPlan, PlanError> {
                     plain(classic.display().to_string()),
                 ]);
             }
-            if let Some(base) = req.world.world_base.as_deref().filter(|b| !b.is_empty()) {
-                args.extend([plain("--world-base"), plain(base)]);
-            }
-            if let Some(era) = req.world.era.as_deref().filter(|e| !e.is_empty()) {
-                args.extend([plain("--era"), plain(era)]);
-            }
-            if let Some(bits) = era_feature_bits(req.world) {
-                args.extend([plain("--era-features"), plain(bits.to_string())]);
-            }
-            if let Some(v) = req.world.logon_version.as_deref().filter(|v| !v.is_empty()) {
-                args.extend([plain("--logon-version"), plain(v)]);
-            }
-            if let Some(p) = req.world.world_profile.as_deref().filter(|p| !p.is_empty()) {
-                args.extend([plain("--world-profile"), plain(p)]);
-            }
+            args.extend(describe(req.world).args().into_iter().map(Arg::Plain));
         }
         ClientKind::Retail if req.world.emulator == Emulator::Gdle => {
             args.extend([
@@ -287,6 +326,38 @@ mod tests {
         let mut r = req(&w, &i);
         r.dat_dir = None;
         assert_eq!(plan(&r), Err(PlanError::NoDats));
+    }
+
+    #[test]
+    fn what_the_client_is_told_about_the_world_is_the_tail_of_its_command_line() {
+        let (mut w, i) = (world(Emulator::Gdle), inst(ClientKind::Dereth));
+        assert!(describe(&w).args().is_empty(), "a world that says nothing");
+        assert_eq!(describe(&w).set, crate::datset::SetKind::Modern);
+        w.list_id = Some("394c58d0-885d-466b-b17f-d7e0b96fe3e2".into());
+        crate::known::apply(&mut w);
+        let d = describe(&w);
+        assert_eq!(
+            d.set,
+            crate::datset::SetKind::Modern,
+            "drawn from the later files"
+        );
+        assert_eq!(d.era_features.as_deref(), Some("1:0000df"));
+        let words = d.args();
+        assert_eq!(
+            words[..4],
+            ["--world-base", "modern", "--era", "infiltration"]
+        );
+        assert_eq!(
+            words[6..],
+            [
+                "--logon-version",
+                "1802",
+                "--world-profile",
+                "classicdereth"
+            ]
+        );
+        let argv = plan(&req(&w, &i)).unwrap().argv("pw");
+        assert_eq!(argv[argv.len() - words.len()..], words[..]);
     }
 
     #[test]

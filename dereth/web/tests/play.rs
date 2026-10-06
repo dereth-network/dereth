@@ -51,8 +51,8 @@ fn the_retail_interface_draws_on_the_web_device() {
         1,
         width,
         height,
+        &[],
         None,
-        Default::default(),
     )
     .expect("bring-up");
     for _ in 0..10 {
@@ -110,8 +110,8 @@ fn a_live_login_reaches_the_character_screen() {
         1,
         width,
         height,
+        &[],
         None,
-        Default::default(),
     )
     .expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
@@ -202,8 +202,8 @@ fn a_live_session_enters_walks_and_talks_through_the_interface() {
         1,
         width,
         height,
+        &[],
         None,
-        Default::default(),
     )
     .expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
@@ -322,18 +322,8 @@ fn a_live_exit_from_the_character_screen_ends_the_client() {
         }
     }
     let server: SocketAddr = host.parse().expect("an address");
-    let mut play = Play::new(
-        store,
-        &host,
-        &account,
-        &password,
-        1,
-        800,
-        600,
-        None,
-        Default::default(),
-    )
-    .expect("bring-up");
+    let mut play =
+        Play::new(store, &host, &account, &password, 1, 800, 600, &[], None).expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
     udp.set_nonblocking(true).expect("non-blocking");
     let mut buf = vec![0u8; 65_536];

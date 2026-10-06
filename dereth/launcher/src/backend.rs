@@ -25,7 +25,10 @@ use dereth_launch::serverlist::{self, ListCache};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, Vault};
-use dereth_launch::world::{AccountModel, Emulator, StatusMethod, Told, World, WorldState};
+#[cfg(test)]
+use dereth_launch::world::WorldState;
+use dereth_launch::world::{AccountModel, Emulator, StatusMethod, Told, World};
+use dereth_launch::worlds;
 use serde::{Deserialize, Serialize};
 
 /// Where the world list comes from unless `DERETH_SERVERS_LIST` says otherwise: the community's
@@ -434,73 +437,10 @@ impl Backend {
         self.state.library_dir(&self.folders.data)
     }
 
-    fn with_live(&self, mut w: World) -> World {
-        // A world with no status document is up or down by whether it answered the probe.
-        if let Some(up) = self.probed.get(&w.slug) {
-            w.state = if *up {
-                WorldState::Online
-            } else {
-                WorldState::Offline
-            };
-        }
-        if w.era_features.is_some() {
-            w.features_source = Some(Told::World);
-        }
-        if let Some(l) = self.live.get(&w.slug) {
-            // Only Empyrean publishes the document and answers the status ping.
-            if l.software
-                .as_deref()
-                .is_none_or(|s| s.eq_ignore_ascii_case("Empyrean"))
-            {
-                w.emulator = Emulator::Empyrean;
-            }
-            // A server the player added without naming it is called what it calls itself.
-            if let Some(name) = &l.world_name {
-                if self
-                    .state
-                    .custom_worlds
-                    .iter()
-                    .any(|c| c.slug == w.slug && c.name == c.host)
-                {
-                    w.name.clone_from(name);
-                }
-            }
-            if l.version.is_some() {
-                w.emulator_version.clone_from(&l.version);
-            }
-            w.state = l.state;
-            if l.players.is_some() {
-                w.players = l.players;
-            }
-            if l.patching.is_some() {
-                w.dats.patches_over_wire = l.patching;
-            }
-            if l.era.is_some() {
-                w.era.clone_from(&l.era);
-                w.era_source = Some(Told::World);
-            }
-            if l.era_features.is_some() {
-                w.era_features.clone_from(&l.era_features);
-                w.features_source = Some(Told::World);
-            }
-            if w.account_model == AccountModel::Unknown && l.auto_create_accounts == Some(true) {
-                w.account_model = AccountModel::AutoCreateOnFirstLogin;
-            }
-        }
-        // What the world does not say, the player may have chosen.
-        if let Some(c) = self.state.world_eras.get(&w.slug) {
-            if w.era.is_none() && c.era.is_some() {
-                w.era.clone_from(&c.era);
-                w.era_source = Some(Told::Player);
-            }
-            if w.era_features.is_none() {
-                if let Some(text) = c.features_text() {
-                    w.era_features = Some(text);
-                    w.features_source = Some(Told::Player);
-                }
-            }
-        }
-        w
+    fn with_live(&self, w: World) -> World {
+        let probed = self.probed.get(&w.slug).copied();
+        let live = self.live.get(&w.slug);
+        worlds::shown(w, probed, live, &self.state)
     }
 
     /// Forget Play Again's entries for worlds the list read last no longer names. Only after a list
@@ -517,11 +457,7 @@ impl Backend {
 
     /// Every world: the list's, then the servers the player added.
     fn all_worlds(&self) -> impl Iterator<Item = World> + '_ {
-        self.worlds
-            .iter()
-            .cloned()
-            .chain(self.state.custom_worlds.iter().map(|c| c.to_world()))
-            .map(|w| self.with_live(w))
+        worlds::all(&self.worlds, &self.state).map(|w| self.with_live(w))
     }
 
     pub fn snapshot(&self) -> Snapshot {
