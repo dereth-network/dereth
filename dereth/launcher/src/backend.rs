@@ -230,7 +230,8 @@ pub struct WorldView {
     pub dat_sets: Vec<DatSet>,
     /// The Classic sets the Dereth client may be given here.
     pub classic_sets: Vec<DatSet>,
-    /// Which kind of set the world's era needs; the other is optional.
+    /// Which kind of set the world is drawn from. A Modern set is always needed besides; a
+    /// Classic one is optional when this is Modern.
     pub requires: SetKind,
     pub offers_private_copy: bool,
     pub accounts: Vec<Account>,

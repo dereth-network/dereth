@@ -43,11 +43,10 @@ dereth-launch` from the repository root.
 
 On a world's page the player chooses **Dereth** or **Retail**. The retail client plays with the
 data files beside it. The Dereth client plays with the Modern set and the Classic set the player
-picks: the world's era decides which one it needs (a Classic set for an era before Throne of
-Destiny, a Modern set for any other, or when the era is not known), and the other is optional
-(a Classic set beside a Modern one gives the classic interface and looks). The Modern set is
-`--dat-dir`, the Classic set `--classic-dat-dir` (`--dat-dir` when no Modern set is chosen for a
-Classic-era world), and the world's era and systems `--era` and `--era-features` (the systems as
+picks. Every world needs a Modern set. An era before Throne of Destiny needs a Classic set too,
+which its world is drawn from, with the Modern set beside it for the interface; for any other era,
+or when the era is not known, the Classic set is optional (beside the Modern one it gives the
+classic interface and looks). The Modern set is `--dat-dir`, the Classic set `--classic-dat-dir`, and the world's era and systems `--era` and `--era-features` (the systems as
 the shared bitfield, `<table version>:<hex>`: the era's table with what the world or the player
 turned on or off over it). A world that patches data files over the network, or ships its own, gets a private copy, and only the
 Dereth client can use one.

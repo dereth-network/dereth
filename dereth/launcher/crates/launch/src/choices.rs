@@ -195,7 +195,8 @@ pub struct DatDirs {
 /// Why a launch's data files do not do for the world's era.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MissingSet {
-    /// The era's world is drawn from the Modern set, and none was chosen.
+    /// No Modern set was chosen. Every world needs one: it is the world's own set for an era
+    /// from Throne of Destiny on, and the interface's for an era before it.
     Modern,
     /// The era is before Throne of Destiny, and no Classic set was chosen.
     Classic,
@@ -206,7 +207,7 @@ impl core::fmt::Display for MissingSet {
         f.write_str(match self {
             MissingSet::Modern => "Choose the Modern data files for the Dereth client.",
             MissingSet::Classic => {
-                "This world's era is before Throne of Destiny: choose Classic data files (portal.dat and cell.dat)."
+                "This world's era is before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) as well as the Modern ones."
             }
         })
     }
@@ -214,10 +215,10 @@ impl core::fmt::Display for MissingSet {
 
 /// The folders for a launch, from the world's era and the sets chosen.
 ///
-/// The era decides which set is required: the Classic set for an era before Throne of Destiny,
-/// the Modern set for any other (and for no era). The other is optional. The Modern set is
-/// `--dat-dir` and the Classic set `--classic-dat-dir`; a Classic-era world with no Modern set
-/// chosen is started with the Classic set as `--dat-dir`, which the client then plays alone.
+/// The Modern set is always required. An era before Throne of Destiny also requires the Classic
+/// set, which its world is drawn from, with the Modern set beside it for the interface; for any
+/// other era (and for no era) the Classic set is optional. The Modern set is `--dat-dir` and the
+/// Classic set `--classic-dat-dir`.
 ///
 /// # Errors
 /// [`MissingSet`] when the required set was not chosen.
@@ -236,7 +237,7 @@ pub fn dat_dirs(
         }
         SetKind::Classic => {
             let classic = classic.ok_or(MissingSet::Classic)?;
-            let dat_dir = modern.unwrap_or(classic).to_path_buf();
+            let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
             Ok(DatDirs {
                 classic_dat_dir: (dat_dir != classic).then(|| classic.to_path_buf()),
                 dat_dir,
@@ -300,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn the_era_decides_which_set_is_required_and_the_other_is_optional() {
+    fn every_world_needs_the_modern_set_and_an_era_before_throne_of_destiny_the_classic_one_too() {
         let (m, c) = (Path::new("/lib/modern"), Path::new("/lib/classic"));
         // The end of retail, or no era: the Modern set, with the Classic one beside it if chosen.
         for era in [None, Some("eor")] {
@@ -332,12 +333,10 @@ mod tests {
         );
         assert_eq!(
             dat_dirs(pre, None, Some(c)),
-            Ok(DatDirs {
-                dat_dir: c.into(),
-                classic_dat_dir: None
-            }),
-            "the Classic set alone is the data folder"
+            Err(MissingSet::Modern),
+            "the Classic set alone does not start: the interface reads the later files"
         );
+        assert_eq!(dat_dirs(pre, None, None), Err(MissingSet::Classic));
         // One folder holding both kinds is named once.
         assert_eq!(
             dat_dirs(pre, Some(m), Some(m)),

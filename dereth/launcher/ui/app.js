@@ -572,12 +572,13 @@ function requiredKind(world) {
   return ui.snap.eras.find((e) => e.name === world.era)?.needs ?? "modern";
 }
 
-// Whether the Dereth client has the data files the world's era needs.
+// Whether the Dereth client has the data files the world's era needs: the Modern files always,
+// and the Classic pair too for an era before Throne of Destiny.
 function hasRequiredSet() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   if (w.form.client !== "dereth") return true;
-  return requiredKind(world) === "classic" ? !!w.form.classic_set_id : !!w.form.dat_set_id;
+  return !!w.form.dat_set_id && (requiredKind(world) !== "classic" || !!w.form.classic_set_id);
 }
 
 // Whether PLAY can go, and what the account field warns about: redrawn in place while typing, so
@@ -645,7 +646,7 @@ function worldPage() {
   const dataNote = world.world_base === "modern" && world.dats.custom
     ? `${world.name} plays ${eraName || "its era"} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
     : needs === "classic"
-    ? `${eraName} is before Throne of Destiny: it needs Classic data files. Modern ones are optional.`
+    ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
     : `${eraName ? `${eraName} needs` : "With no era named, the Dereth client plays the end of retail, which needs"} Modern data files. Classic ones are optional, for the classic interface and looks.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
   // A world that plays with its own files, and none of the player's sets is them: where they come
