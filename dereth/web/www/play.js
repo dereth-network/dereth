@@ -197,6 +197,9 @@ function key(ev, pressed) {
 view.addEventListener('keydown', (ev) => key(ev, true));
 view.addEventListener('keyup', (ev) => key(ev, false));
 document.addEventListener('paste', (ev) => {
+  // A paste into one of the page's own fields (the server, the account, the password) is that
+  // field's; only one made while the game has the keyboard goes to the game.
+  if (document.activeElement !== view) return;
   send({ kind: 'paste', text: ev.clipboardData?.getData('text/plain') ?? '' });
   // The client pastes on its own Ctrl+V, a frame later, once its copy of the clipboard has the
   // text: the page's paste (Cmd+V on a Mac) becomes that key chord.
