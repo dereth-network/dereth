@@ -9,6 +9,11 @@
 //! [`PROFILES`] are the sets compiled into the client, each named for the worlds it is for and
 //! chosen by `--world-profile`. Each reproduces what those worlds' own client changed, so a
 //! character there carries, runs, jumps and reads what the world's server expects.
+//!
+//! [`VOCABULARY`]: crate::world::VOCABULARY
+//! [`WorldRules`]: dereth_primitives::WorldRules
+//! [`rules_of`]: crate::world::rules_of
+//! [`PROFILES`]: crate::world::PROFILES
 
 use std::borrow::Cow;
 

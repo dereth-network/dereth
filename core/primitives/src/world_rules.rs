@@ -137,7 +137,7 @@ pub struct WorldRules {
     /// Whether wielding a trinket while wearing one asks the server to wield the new one in its
     /// place, rather than refusing with "You're already wearing a trinket."
     pub trinket_replaces_worn: bool,
-    /// Whether an enchantment's expiry writes "<spell> has expired." to chat. On at the end of
+    /// Whether an enchantment's expiry writes "`<spell>` has expired." to chat. On at the end of
     /// retail.
     pub enchantment_expiry_line: bool,
     /// Whether selecting any object that is not a creature or a player, or a stack, asks the

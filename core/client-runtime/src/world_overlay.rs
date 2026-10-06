@@ -15,7 +15,8 @@
 //! - **Refusal is not failure.** An overlay that is refused (another base, another world, a
 //!   blocked world) is reported and left out, and the world is read from the locked files alone.
 //! - **Where it is kept.** On disk, unless the host keeps its folders elsewhere
-//!   ([`install_folders`]): a browser keeps them in its own storage, and the overlay is the same.
+//!   ([`install_folders`](crate::world_overlay::install_folders)): a browser keeps them in its
+//!   own storage, and the overlay is the same.
 
 use std::cell::Cell;
 use std::collections::BTreeSet;
