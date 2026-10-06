@@ -87,6 +87,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "login.classic.the-reason-a-session-ended-reads-as-a-sentence",
+        says: "When the session ends, the classic interface's character screen says why in a \
+               sentence and never shows the string id the reason travels as: a lost connection \
+               and every character error read the classic client's own sentences (two errors \
+               that share one id each read their own), a network refusal reads the later \
+               client's sentence for it, and a boot or a ban reads its own sentence.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-DISCONNECT-TEXT"),
+        station: "dereth-client-shell::lib::front_end::classic_text_tests::a_lost_connection_reads_the_classic_sentence_and_never_its_id",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "login.connect.credentials-decide-whether-the-client-connects",
         says: "The client means to connect by default and does so whenever it is started with an \
                account and a host; with neither it runs offline, told not to connect it stays \

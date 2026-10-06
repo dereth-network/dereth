@@ -1,5 +1,14 @@
 use super::*;
 
+/// Behaviour: chat.version.names-the-running-program-in-every-session
+#[test]
+fn the_programs_identity_outlives_the_end_of_a_character_session() {
+    let mut interaction = Interaction::new();
+    interaction.client_build_id = "dereth-client 9.8.7";
+    interaction.on_end_character_session();
+    assert_eq!(interaction.client_build_id, "dereth-client 9.8.7");
+}
+
 /// Behaviour: map.teleport.refuses-invalid-coordinates
 #[test]
 fn map_teleport_uses_bounded_landscape_cells_and_preserves_destination() {

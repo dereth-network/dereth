@@ -103,6 +103,14 @@ impl<'a, S: Shell> UiContext<'a, S> {
         &self.app.host_state
     }
 
+    /// The running program's version: what follows its name in the identity `@version` prints
+    /// (`0.2.0` of `dereth-client 0.2.0`).
+    #[must_use]
+    pub fn client_version(&self) -> &'static str {
+        let id = self.app.interaction.client_build_id;
+        id.rsplit(' ').next().unwrap_or(id)
+    }
+
     /// The scripted entry (`--enter-world`) the pre-game screens are driving.
     #[must_use]
     pub fn entry_script(&self) -> EnterWorldScript {

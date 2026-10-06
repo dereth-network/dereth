@@ -181,8 +181,9 @@ fn profile(frame: &mut PanelFrame, game: &dyn GameView) {
         text(
             frame,
             rect(129, 85, 101, 14),
-            if xp.at_cap {
-                "Infinity!".into()
+            // The classic interface's own word, in capitals and without the later "!".
+            if xp.shows_infinity() {
+                "INFINITY".into()
             } else {
                 number(xp.to_level)
             },
@@ -932,5 +933,49 @@ mod tests {
                 assert_eq!(y, c.layout.side_height() as i32 - 39);
             }
         });
+    }
+    /// Behaviour: stats.classic.next-level-at-the-cap-reads-infinity
+    #[test]
+    fn the_experience_for_the_next_level_reads_infinity_once_nothing_more_is_owed() {
+        #[derive(Debug)]
+        struct Header(XpHeader);
+        impl GameView for Header {
+            fn experience_header(&self) -> Option<XpHeader> {
+                Some(self.0)
+            }
+        }
+        let shown = |xp: XpHeader| {
+            let frame = context(&Header(xp), |c| Stats::new(false).frame(c));
+            frame
+                .screen
+                .commands
+                .into_iter()
+                .find_map(|c| match c {
+                    crate::Command::TextBox { text, rect, .. } if rect[0] == 129 => Some(text),
+                    _ => None,
+                })
+                .expect("the experience for the next level is drawn")
+        };
+        // The last level the table has: the next level's total is the character's own.
+        let last = XpHeader {
+            total: 191_226_310_247,
+            level: 275,
+            ..Default::default()
+        };
+        assert_eq!(shown(last), "INFINITY");
+        // The capped account at 126, whatever the table would still ask.
+        let capped = XpHeader {
+            level: 126,
+            to_level: 9_000,
+            at_cap: true,
+            ..Default::default()
+        };
+        assert_eq!(shown(capped), "INFINITY");
+        let owed = XpHeader {
+            level: 20,
+            to_level: 12_345,
+            ..Default::default()
+        };
+        assert_eq!(shown(owed), "12,345");
     }
 }

@@ -1716,6 +1716,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "panels.layout.a-taller-panel-keeps-its-list-rows-in-place",
+        says: "A panel made taller than its default, by a saved screen layout or by dragging its \
+               edge, stretches its lists with it, and every row of a list stays where the list \
+               laid it out, one under the next: a row is never put back at its own template \
+               position by the resize.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-TALL-PANEL-LIST-ROWS"),
+        station: "dereth-ui-screens::dat::panels::tall_panels::a_taller_panel_keeps_every_list_row_where_the_list_put_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "panels.quickbar.shows-nine-numbered-slots-and-their-items",
         says: "The toolbar's first row of nine shortcut slots shows the numbers one to nine as \
                nine different empty pictures, while the second row of nine, which lies outside the \
@@ -2106,6 +2117,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O65-FILTER"),
         station: "dereth-testkit::dat::panels::scenario_turning_a_school_off_hides_its_spells_and_sends_the_whole_list",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "stats.classic.next-level-at-the-cap-reads-infinity",
+        says: "The classic character page writes INFINITY for the experience to the next level once nothing more is owed: at the experience table's last level, and at the capped account's level 126. Below the cap it writes the grouped number.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-NEXT-LEVEL-INFINITY"),
+        station: "dereth-classic-ui::lib::panels::game::stats::tests::the_experience_for_the_next_level_reads_infinity_once_nothing_more_is_owed",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "stats.classic.skill-cost-meter-follows-stretched-footer",

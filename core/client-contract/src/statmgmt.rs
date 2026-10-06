@@ -24,11 +24,21 @@ pub struct XpHeader {
     pub to_level: u64,
     /// Integer quality `0x19`, the character level.
     pub level: i32,
-    /// True when the level cap has replaced the number with "Infinity!".
+    /// True at the level cap of an account without Throne of Destiny, where the number is
+    /// replaced whatever the experience table says.
     pub at_cap: bool,
 }
 
 impl XpHeader {
+    /// Whether the panel shows its "infinity" word in place of the experience to the next level:
+    /// whenever nothing more is owed. That is the last level the experience table has (the next
+    /// level's total is the last one's, which the character has reached), and the capped
+    /// account's level 126.
+    #[must_use]
+    pub fn shows_infinity(&self) -> bool {
+        self.at_cap || self.to_level == 0
+    }
+
     /// The experience meter's fraction: `into_level / level_span`, 0 on a zero
     /// span. Both operands go through `float`.
     #[must_use]

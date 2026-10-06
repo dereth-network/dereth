@@ -72,6 +72,9 @@ impl UiSystem {
         for c in self.children(h) {
             self.update_for_parent_size_change(c);
         }
+        // The anchoring above put each of a list box's rows back at its own design place; the
+        // rows' places are the list's to give.
+        crate::widgets::listbox::lay_out_again(self, h);
         if notify {
             self.broadcast_global(msg::global::ELEMENT_GEOMETRY, 0);
         }
@@ -120,6 +123,9 @@ impl UiSystem {
         for c in self.children(h) {
             self.update_for_parent_size_change(c);
         }
+        // A list box lays its rows out again at its new size: the anchoring above moved each row
+        // as though it were a fixed child, and the rows' places are the list's to give.
+        crate::widgets::listbox::lay_out_again(self, h);
         if notify {
             self.broadcast_element_message(h, msg::element::id::RESIZED, 0, 0);
             self.broadcast_global(msg::global::ELEMENT_GEOMETRY, 0);

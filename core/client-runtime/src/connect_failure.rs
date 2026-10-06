@@ -113,6 +113,14 @@ pub fn resolve_row(
     }
 }
 
+/// The sentence the connection-error table gives the network error whose string id is
+/// `string_id`, as the box shows it inside its parentheses; `None` when the row is not there.
+#[must_use]
+pub fn net_error_sentence(assets: &dyn AssetSource, string_id: u32) -> Option<String> {
+    let table_enum = u32::try_from(dereth_transport::conn::NET_ERROR_TABLE_ID).unwrap_or(0);
+    resolve_row(assets, table_enum, string_id).1.ok()
+}
+
 /// The box's body for an error, given what [`resolve_row`] found.
 #[must_use]
 pub fn connect_failure_text(

@@ -1575,6 +1575,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "options.classic.the-options-window-names-the-running-programs-version",
+        says: "The classic options window's foot names the running program's own version, the one @version prints, not the version of a library inside it.",
+        since: THIS_CLIENT,
+        divergence: "CD-015",
+        evidence: Evidence::Private("AC-EVID-CLASSIC-VERSION-LINE"),
+        station: "dereth-client-shell::lib::front_end::classic_text_tests::the_classic_interface_names_the_running_programs_version",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "options.client-page.a-slider-drag-writes-the-preference-every-tick",
         says: "A press on the client options page's sound volume slider writes the sound volume at \
                once, and no other setting, as the position the bar then reports: a press near the \

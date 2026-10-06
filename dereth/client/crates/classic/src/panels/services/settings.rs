@@ -163,7 +163,7 @@ impl Settings {
         centered(
             &mut f,
             rect(0, height - 23, 300, 18),
-            concat!("Version ", env!("CARGO_PKG_VERSION")),
+            format!("Version {}", c.classic.client_version),
             "15-6",
         );
         f

@@ -155,6 +155,11 @@ pub struct ClassicUi {
     /// When Configure Keyboard asked to leave the world for the key page, until the world is
     /// left.
     keyboard_on_leaving: Option<f64>,
+    /// The ending reason the message box's text was last made from.
+    disconnect_seen: Option<(
+        String,
+        Option<dereth_client_contract::pregame::DisconnectNotice>,
+    )>,
     pub errors: Vec<String>,
 }
 
@@ -255,6 +260,7 @@ impl ClassicUi {
             },
             last_in_world: false,
             keyboard_on_leaving: None,
+            disconnect_seen: None,
             errors: vec![],
         }
     }
@@ -1737,6 +1743,24 @@ impl ClassicUi {
     }
     /// The classic interface's step of the frame: the game's notices to its windows, its windows'
     /// input, and what they ask for, carried out through the context.
+    /// The message box's text for why the session ended, made again only when the reason changes:
+    /// a network refusal's sentence is read out of the later files.
+    fn refresh_disconnect_message<S: Host>(&mut self, cx: &Cx<'_, S>) {
+        let pregame = cx.pregame();
+        let seen = pregame
+            .error
+            .clone()
+            .map(|e| (e, pregame.disconnect.clone()));
+        if seen == self.disconnect_seen {
+            return;
+        }
+        self.classic.disconnect_message = seen.as_ref().map(|(error, notice)| {
+            let later = cx.store().interface_files();
+            crate::disconnect::message(error, notice.as_ref(), Some(&*later))
+        });
+        self.disconnect_seen = seen;
+    }
+
     pub fn ui_frame<S: Host>(
         &mut self,
         cx: &mut Cx<'_, S>,
@@ -1745,6 +1769,11 @@ impl ClassicUi {
     ) {
         if let Err(error) = self.sync_settings(cx) {
             self.errors.push(error);
+        }
+        self.refresh_disconnect_message(cx);
+        let version = cx.client_version();
+        if self.classic.client_version != version {
+            version.clone_into(&mut self.classic.client_version);
         }
         let in_world = cx.pregame().in_world;
         if in_world != self.last_in_world {

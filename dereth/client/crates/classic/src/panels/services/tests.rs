@@ -209,6 +209,41 @@ fn the_options_page_has_the_shared_buttons_and_the_interface_choice_is_a_client_
         "{applied:?}"
     );
 }
+/// Behaviour: options.classic.the-options-window-names-the-running-programs-version
+#[test]
+fn the_options_window_foot_names_the_programs_version_and_not_this_librarys() {
+    dereth_client_contract::options::store::init();
+    let v = View::default();
+    let p = make("options").unwrap();
+    let classic = ClassicState {
+        client_version: "9.8.7".into(),
+        ..ClassicState::default()
+    };
+    let pregame = PregameView::default();
+    let shown = p.frame(&Context {
+        resources: &crate::resources::Resources::default(),
+        layout: crate::panels::Layout::default(),
+        now: dereth_primitives::LocalTime(0.0),
+        game: &v,
+        pregame: &pregame,
+        keyboard: &KeyboardState::default(),
+        settings: &ClassicSettings::default(),
+        map_teleport_allowed: false,
+        classic: &classic,
+    });
+    let versions: Vec<&str> = shown
+        .screen
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            crate::Command::TextBox { text, .. } if text.starts_with("Version ") => {
+                Some(text.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(versions, ["Version 9.8.7"]);
+}
 #[test]
 fn subscriptions_switch_once_and_close_unsubscribes() {
     let v = View::default();

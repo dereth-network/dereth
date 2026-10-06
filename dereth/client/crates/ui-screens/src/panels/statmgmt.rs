@@ -643,7 +643,7 @@ impl Footer {
         } else {
             "???".to_owned()
         };
-        let xp_to_level = if x.at_cap || x.to_level == 0 {
+        let xp_to_level = if x.shows_infinity() {
             label(ui, string::INFINITY)
         } else {
             num(x.to_level)

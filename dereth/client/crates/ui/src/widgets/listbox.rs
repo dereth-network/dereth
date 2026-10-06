@@ -814,6 +814,39 @@ pub fn set_selected_item_of(
     ok
 }
 
+/// A list box moved or resized, after its children were re-anchored to its new box.
+///
+/// A resize marks the layout dirty, and the layout update then puts every row back on the grid
+/// from the rows' sizes, so a row's place never comes from its own edge modes. The grid is laid
+/// out again over the item list; a list whose rows this element does not hold as items, or whose
+/// cells are the item list's own, has its rows put back where it last placed them. Then the
+/// scrollable half refreshes at the new size: the paper, the bars and the offset, clamped to what
+/// is left to scroll.
+pub(crate) fn lay_out_again(ui: &mut UiSystem, list: ElemHandle) {
+    let is_list = ui
+        .node(list)
+        .and_then(|n| n.behaviour.as_ref())
+        .and_then(|b| b.as_any())
+        .is_some_and(|a| a.is::<ListBox>());
+    if !is_list {
+        return;
+    }
+    let Some(mut b) = ui.take_behaviour(list) else {
+        return;
+    };
+    if let Some(l) = b.as_any_mut().and_then(|a| a.downcast_mut::<ListBox>()) {
+        if l.items.is_empty() || l.items_are_authoritative {
+            for (h, x, y, _, _) in l.placed.clone() {
+                ui.move_to(h, x, y);
+            }
+        } else {
+            l.update_layout(ui, list);
+        }
+        l.refresh_scroll(ui, list);
+    }
+    ui.put_behaviour(list, b);
+}
+
 /// The list box's layout-update tail — the scrollable-area resize
 /// over the row grid, then the second pass that places every row at
 /// `running_sum - scroll offset`.

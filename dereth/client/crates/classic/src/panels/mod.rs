@@ -51,6 +51,11 @@ pub struct ClassicState {
     /// The character sheet's augmentation and luminance section, composed from the world's string
     /// tables; empty when the world's era has neither.
     pub augmentations: String,
+    /// The character screen's message box text for why the session ended, in this interface's
+    /// own words ([`crate::disconnect::message`]); `None` while nothing has ended it.
+    pub disconnect_message: Option<String>,
+    /// The running program's version, as the options window's foot shows it.
+    pub client_version: String,
 }
 impl ClassicState {
     /// Whether the classic layout stretches to the window height.
@@ -105,6 +110,8 @@ impl Default for ClassicState {
             game_status: String::new(),
             chat: vec![],
             augmentations: String::new(),
+            disconnect_message: None,
+            client_version: String::new(),
         }
     }
 }

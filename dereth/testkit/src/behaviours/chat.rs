@@ -1609,6 +1609,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.version.names-the-running-program-in-every-session",
+        says: "@version names the running program's own version, read once at start-up, and goes on \
+               naming it after a character session ends: a later session's @version and the \
+               classic options window's version line say the same as the first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-VERSION-ACROSS-SESSIONS"),
+        station: "dereth-client-runtime::lib::interaction::tests::the_programs_identity_outlives_the_end_of_a_character_session",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.window.a-small-window-writes-its-place-size-openness-and-title-back",
         says: "Each of the four small chat windows writes back where it was put, how big it is, \
                whether it is open and what it is called, so a player's arrangement survives him \

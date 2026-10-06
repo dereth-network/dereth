@@ -2503,3 +2503,7 @@ mod interface_switch_tests;
 #[cfg(test)]
 #[path = "../tests/patch_reread_tests.rs"]
 mod patch_reread_tests;
+
+#[cfg(test)]
+#[path = "../tests/classic_text_tests.rs"]
+mod classic_text_tests;

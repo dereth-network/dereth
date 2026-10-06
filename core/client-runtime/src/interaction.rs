@@ -898,6 +898,9 @@ impl Interaction {
     ///   to the device, not the character; clearing it would put the cursor at `(0, 0)`
     ///   for one frame and measure picking against an empty rectangle.
     /// * **[`Interaction::last_use_time`]** — the local timer, a process clock.
+    /// * **[`Interaction::client_build_id`]** — the program's own identity, named once at
+    ///   start-up. A session ending must not put the library's fallback in its place, or
+    ///   `@version` and the version line would name that instead from the next session on.
     /// * **[`Interaction::chat_pose_table`]** — a process-lifetime cached dat table.
     ///   The original pose path re-fetches enum
     ///   `(7, 2, 0x11)` on every call and fails when absent; session cleanup does not
@@ -918,6 +921,7 @@ impl Interaction {
         let screen = self.screen;
         let game_viewport = self.game_viewport;
         let last_use_time = self.last_use_time;
+        let client_build_id = self.client_build_id;
         // Keep the process-cached `(7, 2, 0x11)` result across this
         // session reset; see the lifetime list above.
         let chat_pose_table = self.chat_pose_table.take();
@@ -929,6 +933,7 @@ impl Interaction {
             game_viewport,
             last_use_time,
             chat_pose_table,
+            client_build_id,
             ..Self::new()
         };
     }

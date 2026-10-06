@@ -33,6 +33,7 @@ pub mod cursor;
 pub mod default_keys;
 pub mod desktop;
 pub mod dialogs;
+pub mod disconnect;
 pub mod help;
 pub mod int;
 pub mod item_art;

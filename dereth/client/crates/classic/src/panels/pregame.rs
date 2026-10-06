@@ -883,7 +883,12 @@ impl Pregame {
         f.image("06001115", rect(293, 285, 450, 278), true, false);
         let mut status = self.status.clone();
         if let Some(e) = &c.pregame.error {
-            status = e.clone();
+            // In this interface's words, never the id the reason travels as.
+            status = c
+                .classic
+                .disconnect_message
+                .clone()
+                .unwrap_or_else(|| e.clone());
         }
         if status.is_empty() {
             // The world's own message first, as this interface's era showed it.
@@ -1302,7 +1307,11 @@ impl Panel for Pregame {
             }
             if self.page == "startup" {
                 if self.startup_error.is_none() && c.pregame.error.is_some() {
-                    self.startup_error = c.pregame.error.clone();
+                    self.startup_error = c
+                        .classic
+                        .disconnect_message
+                        .clone()
+                        .or_else(|| c.pregame.error.clone());
                     if let Some(error) = &self.startup_error {
                         actions.push(PanelAction::Message {
                             id: "startup-error".into(),
