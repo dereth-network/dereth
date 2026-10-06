@@ -732,7 +732,7 @@ function library() {
         <div class="btns">${defaultBtn}${d.origin.kind === "world" ? `<button class="btn" data-reset-set="${esc(d.id)}">Reset</button>` : ""}<button class="btn" data-delete-set="${esc(d.id)}">${d.created_by_launcher ? "Delete" : "Remove"}</button></div></div>`;
   };
   const modern = s.dat_sets.filter((d) => d.kind !== "classic").map(setRow).join("")
-    || `<p class="muted">No Modern data files yet. Add a folder that holds the four client_*.dat files.</p>`;
+    || `<p class="muted">No Modern data files yet. Add a folder that holds the client_*.dat files.</p>`;
   const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
     || `<p class="muted">No Classic data files yet. Add a folder that holds portal.dat and cell.dat.</p>`;
 
@@ -871,7 +871,7 @@ document.addEventListener("click", async (ev) => {
     case "add-account": ui.world.form = { ...ui.world.form, adding: true, account: "", password: "", remembered: false }; render(); focusSoon("acct-name"); break;
     case "known-accounts": { const a = ui.world.view.accounts[0]; ui.world.form = { ...ui.world.form, adding: false, account: a.username, password: "", remember: a.remember }; await recallPassword(); render(); break; }
     case "choose-retail": { const f = await act("pick_folder", { title: "Choose the folder that holds acclient.exe" }); if (f) { ui.addFind = { purpose: "retail", find: f }; render(); } break; }
-    case "add-dats": { const f = await act("pick_folder", { title: "Choose a folder of data files: the four client_*.dat files, or portal.dat and cell.dat" }); if (f) { ui.addFind = { purpose: "dats", find: f }; render(); } break; }
+    case "add-dats": { const f = await act("pick_folder", { title: "Choose a folder of data files: the client_*.dat files, or portal.dat and cell.dat" }); if (f) { ui.addFind = { purpose: "dats", find: f }; render(); } break; }
     case "add-cancel": ui.addFind = null; render(); break;
     case "add-confirm": {
       const { purpose, find } = ui.addFind;

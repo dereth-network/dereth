@@ -36,10 +36,11 @@ pub struct FolderFind {
 pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
     let retail = identify_retail(path, "retail").ok();
     let files = scan_dir(path);
-    // A Modern set is all four files; a Classic set both of its pair.
+    // A Modern set is the portal, cell and language files, with the high-resolution file when it
+    // has one (the client plays without it); a Classic set both of its pair.
     let modern_missing: Vec<&str> = DatRole::ALL
         .iter()
-        .filter(|r| !files.iter().any(|f| f.role == **r))
+        .filter(|r| **r != DatRole::Highres && !files.iter().any(|f| f.role == **r))
         .map(|r| r.file_name())
         .collect();
     let classic_files = scan_classic_dir(path);
@@ -88,7 +89,8 @@ pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
                 classic_missing.join(", ")
             )
         } else {
-            "No data files in this folder: a Modern set is the four client_*.dat files, a \
+            "No data files in this folder: a Modern set is client_portal.dat, client_cell_1.dat \
+             and client_local_English.dat (with client_highres.dat when there is one), a \
              Classic set portal.dat and cell.dat."
                 .to_owned()
         }
@@ -185,6 +187,24 @@ mod tests {
     }
 
     #[test]
+    fn a_modern_folder_without_the_high_resolution_file_is_still_a_set() {
+        let d = tmp("lib-no-highres");
+        fake_set(
+            &d,
+            Iterations {
+                highres: None,
+                ..Iterations::END_OF_RETAIL
+            },
+        );
+        let s = LauncherState::default();
+        let find = read_folder(&d, &s);
+        assert!(find.error.is_none(), "{:?}", find.error);
+        let set = find.dats.expect("a Modern set");
+        assert!(set.files.iter().all(|f| f.role != DatRole::Highres));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn there_is_only_ever_one_retail_client() {
         let (a, b) = (tmp("lib-a"), tmp("lib-b"));
         let mut s = LauncherState::default();
@@ -244,21 +264,21 @@ mod tests {
     }
 
     #[test]
-    fn a_modern_set_is_all_four_files_and_no_data_folder_asks_for_acclient() {
+    fn a_modern_set_needs_its_language_file_and_no_data_folder_asks_for_acclient() {
         let s = LauncherState::default();
-        // Three of the four: not a set, and the missing one is named.
+        // Without the language file: not a set, and the missing one is named.
         let d = tmp("lib-three");
         fake_set(
             &d,
             Iterations {
-                highres: None,
+                local: None,
                 ..Iterations::END_OF_RETAIL
             },
         );
         let find = read_folder(&d, &s);
         assert!(find.dats.is_none());
         let e = find.error.unwrap();
-        assert!(e.contains("client_highres.dat is missing"), "{e}");
+        assert!(e.contains("client_local_English.dat is missing"), "{e}");
         assert!(!e.contains("acclient"), "{e}");
 
         // A Classic pair alone is a set, with nothing said about a client.
@@ -275,7 +295,7 @@ mod tests {
         std::fs::create_dir_all(&e).unwrap();
         let msg = read_folder(&e, &s).error.unwrap();
         assert!(
-            msg.contains("client_*.dat") && msg.contains("portal.dat"),
+            msg.contains("client_portal.dat") && msg.contains("portal.dat and cell.dat"),
             "{msg}"
         );
         assert!(!msg.contains("acclient"), "{msg}");

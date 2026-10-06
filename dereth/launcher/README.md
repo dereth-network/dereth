@@ -33,8 +33,9 @@ dereth-launch` from the repository root.
   the folder that holds `acclient.exe`. There is only ever one; choosing another replaces it. On
   macOS and Linux the launcher offers the Dereth client alone and never mentions retail.
 - **Data sets**: a library of folders of data files, of two kinds, each with its own default.
-  A **Modern** set is all four `client_*.dat` files of a modern install (`client_portal.dat`,
-  `client_cell_1.dat`, `client_local_English.dat`, `client_highres.dat`); a **Classic** set is
+  A **Modern** set is the `client_*.dat` files of a modern install: `client_portal.dat`,
+  `client_cell_1.dat` and `client_local_English.dat`, with `client_highres.dat` when the folder has
+  it (the client plays without it); a **Classic** set is
   both files of an older install, `portal.dat` and `cell.dat`. A folder with only some of either is
   refused, naming what it lacks. One folder may hold both kinds, and is then two sets. The retail
   client is `acclient.exe` with a Modern set beside it. The Library lists the two kinds apart. Adding the retail install
