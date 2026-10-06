@@ -106,7 +106,7 @@ pub const KNOWN_WORLDS: &[KnownWorld] = &[
         name: "Seedsow",
         emulator: Emulator::Gdle,
         logon_version: "1802",
-        logon_confirmed: false,
+        logon_confirmed: true,
         era: EraId::Infiltration,
         features: EraFeatures::INFILTRATION,
         world_base: "modern",
@@ -123,7 +123,7 @@ pub const KNOWN_WORLDS: &[KnownWorld] = &[
         name: "Snowreap",
         emulator: Emulator::Gdle,
         logon_version: "1802",
-        logon_confirmed: false,
+        logon_confirmed: true,
         era: EraId::Infiltration,
         features: EraFeatures::INFILTRATION,
         world_base: "modern",
@@ -220,7 +220,10 @@ mod tests {
                 (g.logon_version, g.profile, g.emulator),
                 ("1802", "classicdereth", Emulator::Gdle)
             );
-            assert!(!g.logon_confirmed, "its own client has not been seen");
+            assert!(
+                g.logon_confirmed,
+                "the server answered a 1802 logon with an account refusal, not a version one"
+            );
             assert_eq!(g.expected.label(), "2072/4/-/-");
         }
         for k in KNOWN_WORLDS {
