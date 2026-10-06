@@ -233,6 +233,8 @@ mod windows {
 mod tests {
     //! Behaviour: none (host font rasterisation; the pixels are this machine's fonts).
     use super::*;
+    // The cell geometry, which the module imports for the Windows rasteriser only.
+    use dereth_classic_dat::fonts::{CELL, PAD};
 
     #[test]
     fn the_western_code_page_maps_its_upper_half_and_leaves_five_bytes_undefined() {

@@ -4,6 +4,8 @@
 //! Behaviour: none (the classic interface's text drawn from carried fonts; the reference is this
 //! machine's Windows font system, not the game).
 
+// Only the comparison with the Windows font system measures.
+#[cfg(windows)]
 mod measure;
 
 use dereth_classic_dat::fonts::{FontSpec, REQUESTS};
