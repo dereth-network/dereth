@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.2.1 (2026-10-06)
+
 - **The web client opens on a launcher**: pick a world from the community list or add one by
   address, choose the data files kept in the browser that the world takes, and play. The client
   is told the world's era, systems, logon version and rules as the desktop launcher tells it. The

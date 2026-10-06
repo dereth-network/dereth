@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-client"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-web"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "dereth-classic-dat",
  "dereth-classic-fonts",
