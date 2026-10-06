@@ -25,6 +25,20 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - **A world that updates its data files no longer needs a private copy of them** in the desktop
   launcher when it is played with the Dereth client, which keeps the update in the world's own
   overlay.
+- **Worlds that run a client of their own** (Dekarutide, Unfamiliar Shores, Seedsow, Snowreap) are
+  known to the launcher: it sends their logon version, plays by their rules, and says where their
+  own data files come from.
+- **A world that patches its data files is drawn from the patch at once**, the character screen
+  included, without a restart.
+- The classic interface says why a session ended in a sentence ("Server connection lost") rather
+  than a string id; `@version` and the classic options window name the running version in every
+  session, not 0.0.0; lists in panels made taller than their default keep their rows in place; and
+  the experience to the next level reads INFINITY (classic) or Infinity! at the cap.
+- The launcher keeps the world list where it was scrolled, takes a Modern data set without
+  `client_highres.dat`, and asks for the Modern files beside the Classic ones for a world before
+  Throne of Destiny.
+- Sharper icons in the title bar and the taskbar, at every display scale.
+- The web page's fields take a paste, the password included.
 
 ## 0.2.0 (2026-10-05)
 
