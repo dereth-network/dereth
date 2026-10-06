@@ -103,8 +103,12 @@ const IDI_APP: u16 = 1;
 /// default. That is why the icon was visible on the exe and absent from the title bar.
 ///
 /// Two sizes, because Windows asks for two and scales badly when it has to invent one: `ICON_SMALL`
-/// (the title bar and the Alt-Tab row) at 16x16 and `ICON_BIG` (the taskbar button) at 32x32.
-/// `assets/dereth.ico` carries both as real frames, so `LoadImage` picks rather than resamples.
+/// (the title bar and the Alt-Tab row) and `ICON_BIG` (the taskbar button), at 16x16 and 32x32
+/// times the display's scale ([`icon_sizes`]). The window is made at the scale it is not yet
+/// known to have, so the attributes carry the 100% pair and [`set_application_icon`] sets the
+/// pair again for the window's real scale, once it exists and whenever that scale changes.
+/// `assets/dereth.ico` carries a real frame for each common scale, so `LoadImage` picks rather
+/// than resamples.
 ///
 /// A failure here is not a startup failure. `Icon::from_resource` can only fail when the resource
 /// is missing, and a client that runs with the wrong icon is worth more than one that refuses to
@@ -126,6 +130,44 @@ fn with_application_icon(
         .with_window_icon(load(16, 16))
         .with_taskbar_icon(load(32, 32))
 }
+
+/// The title bar's and the taskbar's icon sizes, in pixels, at a display scale: 16 and 32 times
+/// the scale, rounded, as Windows sizes `SM_CXSMICON` and `SM_CXICON` per monitor.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn icon_sizes(scale_factor: f64) -> (u32, u32) {
+    // Icons are never drawn below 100%, nor above 8x (a 256-pixel taskbar frame).
+    let scale = if scale_factor.is_finite() {
+        scale_factor.clamp(1.0, 8.0)
+    } else {
+        1.0
+    };
+    let at = |base: u32| {
+        let px = (f64::from(base) * scale).round();
+        // In range by the clamp: at most 256.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let px = px as u32;
+        px
+    };
+    (at(16), at(32))
+}
+
+/// The application icon again, at the window's current scale. See [`with_application_icon`].
+#[cfg(windows)]
+fn set_application_icon(window: &winit::window::Window) {
+    use winit::platform::windows::{IconExtWindows as _, WindowExtWindows as _};
+
+    let (small, big) = icon_sizes(window.scale_factor());
+    let load = |px: u32| {
+        winit::window::Icon::from_resource(IDI_APP, Some(winit::dpi::PhysicalSize::new(px, px)))
+            .map_err(|e| tracing::warn!("icon resource {IDI_APP} at {px}x{px}: {e}"))
+            .ok()
+    };
+    window.set_window_icon(load(small));
+    window.set_taskbar_icon(load(big));
+}
+
+#[cfg(not(windows))]
+fn set_application_icon(_window: &winit::window::Window) {}
 
 /// The window's icon, as pixels, for the window systems that want it that way.
 ///
@@ -677,6 +719,7 @@ pub fn open_window(
         wait = std::time::Duration::from_millis(10);
     };
     events.borrow_mut().append(&mut opening.queue);
+    set_application_icon(&window);
 
     // The process is DPI-aware (see above), so these are physical pixels; an OS-side query of the
     // window's geometry stays the independent measurement if an external compatibility override
@@ -842,6 +885,7 @@ fn route_window_event(
         if pins_size_limits && !full_screen {
             window.set_size_limits(Some((requested.width, requested.height)));
         }
+        set_application_icon(window);
     }
     if let winit::event::WindowEvent::Resized(size) = &event {
         tracing::debug!("window resized to {}x{}", size.width, size.height);
@@ -1453,6 +1497,19 @@ mod tests {
     ) -> (u32, u32) {
         set_fixed_window_full_screen(window, held, false, pin_limits);
         resize_fixed_window(window, held, size, pin_limits)
+    }
+
+    /// The title bar's and the taskbar's icons are asked for at the display's scale, so Windows
+    /// is handed the frame it draws rather than one it has to enlarge.
+    #[test]
+    fn the_window_icons_are_asked_for_at_the_displays_scale() {
+        assert_eq!(icon_sizes(1.0), (16, 32));
+        assert_eq!(icon_sizes(1.25), (20, 40));
+        assert_eq!(icon_sizes(1.5), (24, 48));
+        assert_eq!(icon_sizes(1.75), (28, 56));
+        assert_eq!(icon_sizes(2.0), (32, 64));
+        assert_eq!(icon_sizes(0.0), (16, 32), "never below the 100% pair");
+        assert_eq!(icon_sizes(f64::NAN), (16, 32));
     }
 
     /// In windowed mode, choosing a resolution resizes the window to it and it stays that size.
