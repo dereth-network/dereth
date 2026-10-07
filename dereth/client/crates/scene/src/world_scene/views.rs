@@ -523,7 +523,8 @@ impl SceneDraw {
     }
 
     /// Every building portal opening of the resident blocks, in the renderer's world space:
-    /// its centre, and the outward direction a viewer has to be on to see through it.
+    /// its centre, and the outward direction a viewer has to be on to see through it. These
+    /// are the full-detail shell's openings, whichever level the shell draws this frame.
     ///
     /// The outward direction is the sidedness gate read as geometry: `portal_side == 0` admits
     /// a viewer on the polygon's **positive** side, `portal_side == 1` one on its negative
@@ -534,7 +535,10 @@ impl SceneDraw {
         let mut out = Vec::new();
         for block in self.blocks.values() {
             for b in &block.building_views {
-                for node in &b.bsp.nodes {
+                let Some(openings) = b.full_openings() else {
+                    continue;
+                };
+                for node in &openings.bsp.nodes {
                     for &(poly, portal) in &node.in_portals {
                         let (Ok(poly), Ok(portal)) =
                             (usize::try_from(poly), usize::try_from(portal))
@@ -542,7 +546,7 @@ impl SceneDraw {
                             continue;
                         };
                         let (Some(p), Some(bp)) =
-                            (b.portal_polygons.get(&poly), b.portals.get(portal))
+                            (openings.portal_polygons.get(&poly), b.portals.get(portal))
                         else {
                             continue;
                         };
@@ -573,6 +577,24 @@ impl SceneDraw {
                         ));
                     }
                 }
+            }
+        }
+        out
+    }
+
+    /// Every resident building that has openings, with the detail level its shell draws this
+    /// frame: the building's origin in the renderer's world space, and the level whose
+    /// openings the outdoor pass walks. A shell that does not degrade reads 0.
+    #[must_use]
+    pub fn building_shell_levels(&self) -> Vec<(Vec3, usize)> {
+        let mut out = Vec::new();
+        for block in self.blocks.values() {
+            for b in &block.building_views {
+                let o = b.frame.origin;
+                out.push((
+                    Vec3::new(o.x + block.origin.0, o.y + block.origin.1, o.z),
+                    b.drawn_level(&block.degrade),
+                ));
             }
         }
         out
@@ -616,9 +638,13 @@ impl SceneDraw {
                     ws.camera.position.y - block.origin.1,
                     ws.camera.position.z,
                 );
+                // The openings of the level the shell draws, as the pass walks them.
+                let Some(openings) = b.drawn_openings(&block.degrade) else {
+                    continue;
+                };
                 let viewpoint = dereth_physics::math::globaltolocal(&b.frame, block_local);
-                for poly in build_draw_portals_only(&b.bsp, viewpoint) {
-                    let Some(p) = b.portal_polygons.get(&poly.polygon) else {
+                for poly in build_draw_portals_only(&openings.bsp, viewpoint) {
+                    let Some(p) = openings.portal_polygons.get(&poly.polygon) else {
                         continue;
                     };
                     let d = p.plane_normal.x.mul_add(

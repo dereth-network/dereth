@@ -8,6 +8,7 @@ mod billboards;
 pub(crate) mod building_boundary_draw;
 mod clipped_outdoor_pass;
 mod degrade_marker_parts;
+mod degraded_shell_interiors;
 mod detail_textures;
 mod foliage_occlusion;
 mod game_viewport;

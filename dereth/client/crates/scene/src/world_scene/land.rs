@@ -354,6 +354,18 @@ impl LandContext {
         // look's degrading placements follow the world's, so its batches' chunks are moved up
         // by the world's count.
         let mut baked: BakedGroups = (Vec::new(), Vec::new(), Vec::new());
+        // Each building's shell placement, in the block's placement numbering, for its
+        // openings to follow. Building items are pushed in `info.buildings` order.
+        let mut shell_placements: Vec<Option<u32>> = vec![None; buildings];
+        let building_of: Vec<Option<usize>> = items
+            .iter()
+            .scan(0usize, |next, it| {
+                Some(it.3.then(|| {
+                    *next += 1;
+                    *next - 1
+                }))
+            })
+            .collect();
         for from_look in [false, true] {
             if !items.iter().any(|it| it.4 == from_look) {
                 continue;
@@ -376,15 +388,20 @@ impl LandContext {
             } else {
                 None
             };
-            for (id, frame, scale, building, _) in items.iter().filter(|it| it.4 == from_look) {
-                baker.add_object_kind(*id, frame, *scale, *building);
+            // LINT-OK: a placement count bounded by the block's part count. Not a float.
+            #[allow(clippy::cast_possible_truncation)]
+            let offset = baked.2.len() as u32;
+            for (i, (id, frame, scale, building, _)) in
+                items.iter().enumerate().filter(|(_, it)| it.4 == from_look)
+            {
+                let shell = baker.add_object_kind(*id, frame, *scale, *building);
+                if let Some(slot) = building_of[i].and_then(|k| shell_placements.get_mut(k)) {
+                    *slot = shell.map(|p| p + offset);
+                }
             }
             let (mut opaque, mut blended, degrade) = baker
                 .finish(gpu)
                 .map_err(|e| WorldError::Render(e.to_string()))?;
-            // LINT-OK: a placement count bounded by the block's part count. Not a float.
-            #[allow(clippy::cast_possible_truncation)]
-            let offset = baked.2.len() as u32;
             for b in opaque.iter_mut().chain(blended.iter_mut()) {
                 for c in &mut b.chunks {
                     if c.placement != NO_PLACEMENT {
@@ -426,7 +443,19 @@ impl LandContext {
         let building_views = lbi
             .as_ref()
             .filter(|_| full_detail)
-            .map_or_else(Vec::new, |info| bake_building_views(store, block, info));
+            .map_or_else(Vec::new, |info| {
+                // A shell the look draws opens through the look's own files and record.
+                let look = self.objects.as_mut().map(|l| (&*l.files, &mut l.cache));
+                bake_building_views(
+                    (store, &mut self.bake),
+                    look,
+                    block,
+                    info,
+                    &shells,
+                    &shell_placements,
+                    part_degrades && degrade_levels,
+                )
+            });
         let look_pending = self
             .objects
             .as_ref()

@@ -795,11 +795,16 @@ impl SceneDraw {
     ///   is clipped to the viewport, and each cell the traversal reaches is clipped to what is
     ///   left of the opening it was reached through.
     ///
+    /// **The openings are the drawn level's.** The shell's degrade level is chosen once per
+    /// frame with every other baked placement's ([`Self::refresh_degrade_levels`]), before
+    /// this pass, and the pass walks the drawing BSP of that same level. A level whose BSP has
+    /// no portal node opens nothing: the building gets no stamp, no cell views and no cells,
+    /// so neither its rooms, their statics nor the objects standing in them are drawn from
+    /// outdoors. Most shells' degraded levels are like that, so a building seen from far
+    /// enough away to degrade shows no interior.
+    ///
     /// **What is still not performed, named rather than skipped silently.**
     ///
-    /// * The viewer-distance update of the shell itself, here: the shell's degrade level is
-    ///   chosen once per frame with every other baked placement's
-    ///   ([`Self::refresh_degrade_levels`]), not in this traversal.
     /// * The per-object test against the view polygons. The traversal is
     ///   clipped at **cell** granularity here; the client also culls each object in a cell
     ///   against every one of that cell's view polygons. A cell that survives the clip
@@ -893,10 +898,13 @@ impl SceneDraw {
             // Part drawing runs inside the building's own position push, so the BSP's
             // splitting planes and its portal polygons' planes are read against a viewpoint in
             // the *building's* space.
+            let Some(openings) = b.drawn_openings(&block.degrade) else {
+                continue;
+            };
             let viewpoint = dereth_physics::math::globaltolocal(&b.frame, block_local);
-            let order = build_draw_portals_only(&b.bsp, viewpoint);
+            let order = build_draw_portals_only(&openings.bsp, viewpoint);
             for (mode, poly) in portal_pass(&order) {
-                let Some(p) = b.portal_polygons.get(&poly.polygon) else {
+                let Some(p) = openings.portal_polygons.get(&poly.polygon) else {
                     continue;
                 };
                 // `d` is the polygon plane's normal dotted with the viewpoint, plus its `d`.

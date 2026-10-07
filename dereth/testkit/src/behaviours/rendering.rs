@@ -335,6 +335,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.interior.a-room-object-across-a-doorway-is-drawn-from-outdoors",
+        says: "A door placed in a house's room but standing across its doorway is also one of \
+               the land cell's objects outside, so a viewer outdoors sees it whether the house's \
+               shell is drawn at full detail or below it, when none of the house's rooms is \
+               drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ROOM-OBJECT-OUTDOOR-SHADOW"),
+        station: "dereth-client::gpu::rendering::degraded_shell_interiors::a_door_in_a_room_that_crosses_its_doorway_is_drawn_from_outdoors_at_any_shell_level",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.interior.a-shells-openings-follow-its-detail-level",
+        says: "A building's doors and windows are read from each level of detail its shell is \
+               drawn at, and only the full-detail shell of every Holtburg building has any: the \
+               cottage's next level, the one it is drawn with from further away, has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SHELL-LEVEL-OPENINGS"),
+        station: "dereth-scene::lib::world_scene::imp::building_openings::holtburgs_building_shells_have_openings_at_their_full_detail_level_only",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.interior.a-visible-door-survives-depth-testing-at-the-recorded-pose",
         says: "A villa's gate door that reaches into the courtyard is drawn and seen by a player \
                whose camera has settled at the front gate, painting well over a hundred pixels \
@@ -342,6 +363,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P199-INTERIOR"),
         station: "dereth-client::gpu::rendering::villa_door_visibility::the_villa_courtyard_door_is_visible_at_the_recorded_pose",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.interior.degraded-shell-opens-no-interior",
+        says: "A building seen from outdoors shows its rooms only through the doors and windows \
+               of the shell it is drawing: once a Holtburg house is drawn below full detail, as \
+               it is from far enough away, none of its rooms is drawn and nothing standing in \
+               them is either, where at full detail the room behind its front door and the \
+               object in it are seen through the doorway.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DEGRADED-SHELL-INTERIOR"),
+        station: "dereth-client::gpu::rendering::degraded_shell_interiors::a_house_drawn_below_full_detail_shows_no_room_and_nothing_standing_in_it",
         tier: Tier::Gpu,
     },
     behaviour! {

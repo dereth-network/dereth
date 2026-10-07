@@ -604,6 +604,12 @@ struct EnvPortal {
 /// away: the building's outdoor portal list, its shell graphics object's **drawing** BSP,
 /// and the portal polygons named by that BSP's portal nodes. The
 /// shell's triangles stay in [`BlockDraw::opaque`] where the bake put them.
+///
+/// **The openings belong to the level the shell draws.** Both halves of a building's draw,
+/// the openings pass and the shell, take the graphics object of the shell's current degrade
+/// level, so the openings are kept per level ([`Self::levels`]) and the pass walks the level
+/// [`Self::shell_placement`] selected this frame. A level with no openings opens nothing: no
+/// stamp, no cell, nothing inside is drawn from outdoors.
 #[derive(Debug)]
 struct BuildingView {
     /// One-based outdoor land-cell index. Native reaches this building through that cell's
@@ -613,12 +619,26 @@ struct BuildingView {
     /// Portal traversal runs inside this position push, so the BSP planes and polygons below are in
     /// **building** space and the viewpoint is transformed into it.
     frame: Frame,
+    /// The openings of each of the shell's degrade levels, nearest level first. `None` is a
+    /// level that opens nothing: its graphics object id is 0, or its drawing BSP has no
+    /// portal node. A shell with no degrade record, or baked with levels off, has the one
+    /// level-0 entry. Levels that name the same graphics object share one entry.
+    levels: Vec<Option<Arc<LevelOpenings>>>,
+    /// The index into the block's degrade placements of the shell part's placement, whose
+    /// level is the one the shell draws this frame. `None` for a shell that does not degrade,
+    /// which always draws level 0.
+    shell_placement: Option<u32>,
+    /// The building's outdoor portal list, with `other_cell_id` widened by the landblock base.
+    portals: Vec<dereth_world_render::cells::portal_view::BuildingPortal>,
+}
+
+/// One shell level's openings: its drawing BSP and the portal polygons its portal nodes name.
+#[derive(Debug)]
+struct LevelOpenings {
     /// Walked per frame by
     /// `dereth_world_render::cells::portal_view::build_draw_portals_only`, because which portals it
     /// yields, and in what order, depends on where the viewer is.
     bsp: dereth_assets::common::BspTree,
-    /// The building's outdoor portal list, with `other_cell_id` widened by the landblock base.
-    portals: Vec<dereth_world_render::cells::portal_view::BuildingPortal>,
     /// The portals named by the BSP's `in_portals`, keyed by polygon index. Only the
     /// referenced ones are kept — a 226-polygon shell names two.
     // ORDER-OK: a lookup keyed by the polygon index the BSP hands back.
@@ -631,6 +651,28 @@ impl BuildingView {
         let n = u16::from(side_cell_count);
         let step = 8 / n.max(1);
         (native / 8 / step) * n + (native % 8 / step)
+    }
+
+    /// The degrade level the shell draws this frame, read from its placement among the
+    /// block's `degrade` placements; 0 for a shell that does not degrade.
+    fn drawn_level(&self, degrade: &[DegradePlacement]) -> usize {
+        self.shell_placement
+            .and_then(|i| degrade.get(i as usize))
+            .map_or(0, |p| p.level as usize)
+    }
+
+    /// The openings of the level the shell draws this frame. `None` when that level has none
+    /// (or the record has no such level): then nothing inside the building is drawn from
+    /// outdoors.
+    fn drawn_openings(&self, degrade: &[DegradePlacement]) -> Option<&LevelOpenings> {
+        self.levels
+            .get(self.drawn_level(degrade))
+            .and_then(Option::as_deref)
+    }
+
+    /// The full-detail shell's openings: where the building's doors and windows are.
+    fn full_openings(&self) -> Option<&LevelOpenings> {
+        self.levels.first().and_then(Option::as_deref)
     }
 }
 
@@ -2837,8 +2879,19 @@ impl<'a> ObjectBaker<'a> {
         self.add_object_kind(obj_id, frame, scale, false);
     }
 
-    fn add_object_kind(&mut self, obj_id: DataId, frame: &Frame, scale: f32, building_pass: bool) {
+    /// [`Self::add_object`] with the building-part flag, returning the degrade placement of
+    /// the object's **first** part when that part has one: a building's shell, whose level
+    /// the building's openings follow. The index is this baker's own, before
+    /// [`Self::finish`].
+    fn add_object_kind(
+        &mut self,
+        obj_id: DataId,
+        frame: &Frame,
+        scale: f32,
+        building_pass: bool,
+    ) -> Option<u32> {
         self.instances += 1;
+        let mut first_placement = None;
         let store = self.store;
         let parts = self
             .cache
@@ -2847,7 +2900,7 @@ impl<'a> ObjectBaker<'a> {
             .or_insert_with(|| resolve_parts(store, obj_id))
             .clone();
         let s = Vec3::new(scale, scale, scale);
-        for part in parts {
+        for (index, part) in parts.into_iter().enumerate() {
             // The part draw guard `if (gfxobj[deg_level] != NULL)`.
             // A baked mesh stands for the near band, and at `d = 0` eleven of the retail
             // dat's degrade records select their `FLT_MAX` terminator, whose `gfxobj_id` is 0:
@@ -2904,6 +2957,9 @@ impl<'a> ObjectBaker<'a> {
             // LINT-OK: a placement index bounded by the block's part count. Not a float.
             #[allow(clippy::cast_possible_truncation)]
             let placement = self.placements.len() as u32;
+            if index == 0 {
+                first_placement = Some(placement);
+            }
             // `get_degrade` returns a `degrade_mode` beside the level, and
             // draw-frame calculation turns `draw_pos.frame` toward the
             // viewer for modes 2-5. A world-space vertex cannot turn, so a placement whose
@@ -2952,6 +3008,7 @@ impl<'a> ObjectBaker<'a> {
                 );
             }
         }
+        first_placement
     }
 
     /// One graphics object's triangles into the group buffers, tagged with the placement and
@@ -3314,7 +3371,8 @@ struct PartSubmission<'a> {
     /// before the clear with env-cell lighting.
     before_depth_clear: bool,
     /// The cell whose object list drew this part, as
-    /// `WorldScene::object_draw_cell` resolves it.
+    /// `WorldScene::object_draw_cell` resolves it, or, for a part in a building's room that an
+    /// outdoor viewer's landscape walk draws through its registration outside, that land cell.
     ///
     /// Cell drawing installs *that* cell's own `portal_view` before drawing its objects, so the
     /// cone this part is tested against is the cell's
@@ -3433,6 +3491,10 @@ mod texture_minification;
 #[cfg(test)]
 #[path = "../world_building_shell_visibility_tests.rs"]
 mod building_shell_visibility;
+
+#[cfg(test)]
+#[path = "../world_building_openings_tests.rs"]
+mod building_openings;
 
 #[cfg(test)]
 #[path = "../world_part_scale_tests.rs"]
@@ -3887,6 +3949,12 @@ pub trait SceneReads: sealed::SceneHalves {
     fn building_portal_openings(&self) -> Vec<(Vec3, Vec3)> {
         let (_, draw) = self.halves();
         draw.building_portal_openings()
+    }
+
+    /// [`SceneDraw::building_shell_levels`] on the scene.
+    fn building_shell_levels(&self) -> Vec<(Vec3, usize)> {
+        let (_, draw) = self.halves();
+        draw.building_shell_levels()
     }
 
     /// [`SceneDraw::building_portal_screen_polygons`] on the scene.

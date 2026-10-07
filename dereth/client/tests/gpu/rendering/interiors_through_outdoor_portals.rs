@@ -460,7 +460,13 @@ fn the_indoor_path_follows_the_camera_and_not_the_body() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
     let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
-    let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
+    // Every shell at full detail, so the town's openings are open wherever the camera starts: a
+    // building far enough away draws a shell with no openings.
+    let c = SceneConfig {
+        degrade_levels: false,
+        ..cfg(true)
+    };
+    let mut scene = WorldScene::load(&store, &mut gpu, c).expect("the landscape loads");
     // A body, and with it a `CameraControl`. `cfg` has `character: false`, so ask for one.
     scene
         .attach_character(&store, &region, &mut gpu)

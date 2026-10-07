@@ -36,62 +36,65 @@ pub(super) fn clip_to_near_plane(poly: &[glam::Vec4]) -> Vec<glam::Vec4> {
 /// `portal_side = ((~flags) >> 1) & 1`, `other_cell_id` is the **low 16 bits** and needs the
 /// landblock base OR-ed in, and a portal index is an index and not an id.
 ///
-/// A `BuildInfo` whose graphics object has no drawing BSP, or no portal node in it, yields nothing:
+/// **One set of openings per degrade level.** The shell part takes each level's graphics
+/// object from its degrade record, and the openings drawn are those of the level the shell
+/// draws, so each level's drawing BSP is read here (see [`level_openings`]). With
+/// `per_level` clear (the scene's degrade switches off) or no record, the building has the one
+/// level-0 entry, as the shell bake does. `shell_placements[i]` is the degrade placement of
+/// `info.buildings[i]`'s shell part, as the block's object bake numbered it.
+///
+/// **The openings come from the files that drew the shell.** A shell the objects' look takes
+/// (`from_look[i]`) is baked from the look's files and record, and its placement's level
+/// indexes that record, so its openings are read through `look` too; every other shell's come
+/// from the world's files and cache.
+///
+/// A `BuildInfo` none of whose levels has a drawing BSP with a portal node yields nothing:
 /// that is a building with no interior, which is most of the world's walls and bridges.
 pub(super) fn bake_building_views(
-    store: &RetailDatStore,
+    (store, cache): (&RetailDatStore, &mut BakeCache),
+    mut look: Option<(&RetailDatStore, &mut BakeCache)>,
     block: u16,
     info: &LandblockInfo,
+    from_look: &[bool],
+    shell_placements: &[Option<u32>],
+    per_level: bool,
 ) -> Vec<BuildingView> {
     use dereth_world_render::cells::portal_view::BuildingPortal as BldPortal;
 
     let base = u32::from(block) << 16;
+    // Shared by graphics object within one set of files: a level that reuses another level's
+    // mesh, or a shell that appears twice in the block, is decoded once.
+    let mut by_gfxobj: HashMap<(bool, DataId), Option<Arc<LevelOpenings>>> = HashMap::new();
     let mut out = Vec::new();
-    for b in &info.buildings {
+    for (i, b) in info.buildings.iter().enumerate() {
         if b.portals.is_empty() {
             continue;
         }
-        let Ok(bytes) = store.read_typed(DbType::GfxObj, b.id) else {
-            continue;
+        let shell_from_look = from_look.get(i).copied().unwrap_or(false) && look.is_some();
+        let (files, files_cache): (&RetailDatStore, &mut BakeCache) =
+            match (shell_from_look, look.as_mut()) {
+                (true, Some((look_files, look_cache))) => (*look_files, &mut **look_cache),
+                _ => (store, &mut *cache),
+            };
+        let record = if per_level {
+            files_cache.degrade_record(files, b.id)
+        } else {
+            None
         };
-        let Ok(g) = dereth_assets::GfxObj::decode_payload_in(store.era_of(b.id), b.id, &bytes)
-        else {
-            continue;
-        };
-        let Some(bsp) = g.drawing_bsp.clone() else {
-            continue;
-        };
-        // Only the polygons the BSP's portal nodes name; a 226-polygon shell names two.
-        let mut portal_polygons: BTreeMap<usize, BuildingPortalPolygon> = BTreeMap::new();
-        for node in &bsp.nodes {
-            for &(poly, _) in &node.in_portals {
-                let Ok(i) = usize::try_from(poly) else {
-                    continue;
-                };
-                let Some(p) = g.polygons.get(i) else { continue };
-                let vertices: Vec<Vec3> = p
-                    .vertex_ids
-                    .iter()
-                    .filter_map(|&v| g.vertex_array.vertices.get(v as usize))
-                    .map(|v| v.position)
-                    .collect();
-                if vertices.len() < 3 {
-                    continue;
-                }
-                // Plane construction is the physics crate's, and the sidedness test has to read the same
-                // plane that the physics side does.
-                let plane = dereth_physics::geom::Polygon::new(vertices.clone()).plane;
-                portal_polygons.insert(
-                    i,
-                    BuildingPortalPolygon {
-                        plane_normal: plane.normal,
-                        plane_d: plane.d,
-                        vertices,
-                    },
-                );
-            }
-        }
-        if portal_polygons.is_empty() {
+        let ids: Vec<DataId> = record.as_ref().map_or_else(
+            || vec![b.id],
+            |r| r.degrades.iter().map(|e| e.gfxobj_id).collect(),
+        );
+        let levels: Vec<Option<Arc<LevelOpenings>>> = ids
+            .iter()
+            .map(|&id| {
+                by_gfxobj
+                    .entry((shell_from_look, id))
+                    .or_insert_with(|| level_openings(files, id).map(Arc::new))
+                    .clone()
+            })
+            .collect();
+        if levels.iter().all(Option::is_none) {
             continue;
         }
         let portals = b
@@ -111,12 +114,60 @@ pub(super) fn bake_building_views(
         out.push(BuildingView {
             cell_index: outside_cell_index(b.frame.origin.x, b.frame.origin.y),
             frame: b.frame,
-            bsp,
+            levels,
+            // Only a shell baked with its record has a placement to follow.
+            shell_placement: record.and(shell_placements.get(i).copied().flatten()),
             portals,
-            portal_polygons,
         });
     }
     out
+}
+
+/// One shell level's openings: the graphics object's drawing BSP and the polygons its portal
+/// nodes name. `None` for a level that opens nothing: graphics object id 0 (the level draws
+/// nothing at all), no drawing BSP, or no portal node in it, which is what most degraded
+/// shells are.
+pub(super) fn level_openings(store: &RetailDatStore, id: DataId) -> Option<LevelOpenings> {
+    if id.0 == 0 {
+        return None;
+    }
+    let bytes = store.read_typed(DbType::GfxObj, id).ok()?;
+    let g = dereth_assets::GfxObj::decode_payload_in(store.era_of(id), id, &bytes).ok()?;
+    let bsp = g.drawing_bsp.clone()?;
+    // Only the polygons the BSP's portal nodes name; a 226-polygon shell names two.
+    let mut portal_polygons: BTreeMap<usize, BuildingPortalPolygon> = BTreeMap::new();
+    for node in &bsp.nodes {
+        for &(poly, _) in &node.in_portals {
+            let Ok(i) = usize::try_from(poly) else {
+                continue;
+            };
+            let Some(p) = g.polygons.get(i) else { continue };
+            let vertices: Vec<Vec3> = p
+                .vertex_ids
+                .iter()
+                .filter_map(|&v| g.vertex_array.vertices.get(v as usize))
+                .map(|v| v.position)
+                .collect();
+            if vertices.len() < 3 {
+                continue;
+            }
+            // Plane construction is the physics crate's, and the sidedness test has to read the same
+            // plane that the physics side does.
+            let plane = dereth_physics::geom::Polygon::new(vertices.clone()).plane;
+            portal_polygons.insert(
+                i,
+                BuildingPortalPolygon {
+                    plane_normal: plane.normal,
+                    plane_d: plane.d,
+                    vertices,
+                },
+            );
+        }
+    }
+    (!portal_polygons.is_empty()).then_some(LevelOpenings {
+        bsp,
+        portal_polygons,
+    })
 }
 
 impl std::fmt::Debug for BakeCache {

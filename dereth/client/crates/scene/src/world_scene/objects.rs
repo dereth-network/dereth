@@ -105,37 +105,53 @@ impl SceneDraw {
             }
             seen.is_some_and(|cells| cells.contains(&cell.0))
         };
+        // Whether a part is drawn by this pass, and if so with which lighting (`true` is a land
+        // cell's) and by which cell's object list, which picks the cone it is tested against.
         let wanted_light = |cell: Option<CellId>, handle: Option<dereth_physics::PhysHandle>| {
             let outdoors = cell.is_some_and(dereth_physics::landdefs::is_outdoors);
             // The converse crossing matters too. An indoor-origin door can own
-            // an outdoor shadow (the villa courtyard door does). Landscape drawing reaches that
-            // landcell's shadow list before portal traversal clears depth, regardless of its origin.
+            // an outdoor shadow (the villa courtyard door does): its part crosses the room's
+            // outdoor opening, so it is registered in the land cells outside as well. Landscape
+            // drawing reaches that landcell's shadow list before portal traversal clears depth,
+            // regardless of its origin, and whatever detail level the building's shell is
+            // drawing. That land cell has no portal view, so the part is coned against the
+            // screen.
             let outdoor_shadow = || {
                 handle
                     .and_then(|h| ws.character.as_ref().and_then(|c| c.world.get(h)))
-                    .is_some_and(|body| {
-                        body.shadow_objects.iter().any(|shadow| {
-                            shadow.cell_present
-                                && dereth_physics::landdefs::is_outdoors(shadow.cell_id)
-                        })
+                    .and_then(|body| {
+                        body.shadow_objects
+                            .iter()
+                            .find(|shadow| {
+                                shadow.cell_present
+                                    && dereth_physics::landdefs::is_outdoors(shadow.cell_id)
+                            })
+                            .map(|shadow| shadow.cell_id)
                     })
             };
             match phase {
                 ObjectPhase::All => {
                     if outdoors {
-                        (!viewer_inside).then_some(true)
+                        (!viewer_inside).then_some((true, cell))
+                    } else if let Some(land) = outdoor_shadow().filter(|_| !viewer_inside) {
+                        // An outdoor viewer's landscape walk draws every land cell's objects,
+                        // so a part registered outside is drawn there even when no opening of
+                        // its building is drawn this frame.
+                        Some((true, Some(land)))
                     } else {
-                        interior_seen(cell, handle).then_some(false)
+                        interior_seen(cell, handle).then_some((false, cell))
                     }
                 }
                 ObjectPhase::Outdoors => {
-                    if outdoors || outdoor_shadow() {
-                        Some(true)
+                    if outdoors {
+                        Some((true, cell))
+                    } else if let Some(land) = outdoor_shadow() {
+                        Some((true, Some(land)))
                     } else {
-                        interior_seen(cell, handle).then_some(false)
+                        interior_seen(cell, handle).then_some((false, cell))
                     }
                 }
-                ObjectPhase::Interior => interior_seen(cell, handle).then_some(false),
+                ObjectPhase::Interior => interior_seen(cell, handle).then_some((false, cell)),
             }
         };
         // --- the server's objects -----------------------------------------------------
@@ -167,7 +183,7 @@ impl SceneDraw {
             }
             // Which of cell drawing's two object passes this object belongs to.
             let draw_cell = ws.object_draw_cell(o);
-            let Some(outdoors) = wanted_light(draw_cell, o.sim.physics_handle) else {
+            let Some((outdoors, list_cell)) = wanted_light(draw_cell, o.sim.physics_handle) else {
                 continue;
             };
             let d = self.object_draw(*id);
@@ -188,7 +204,7 @@ impl SceneDraw {
                     part,
                     outdoors,
                     before_depth_clear: phase == ObjectPhase::Outdoors,
-                    cell: draw_cell,
+                    cell: list_cell,
                     // The level's own sphere, chosen by the same index that chose
                     // `meshes` two lines above.
                     drawing_sphere: pl
@@ -211,7 +227,7 @@ impl SceneDraw {
                 let Some(meshes) = h.meshes.as_ref() else {
                     continue;
                 };
-                let Some(outdoors) = wanted_light(Some(h.cell), None) else {
+                let Some((outdoors, list_cell)) = wanted_light(Some(h.cell), None) else {
                     continue;
                 };
                 for (i, pl) in meshes.iter().enumerate() {
@@ -230,7 +246,7 @@ impl SceneDraw {
                         part,
                         outdoors,
                         before_depth_clear: phase == ObjectPhase::Outdoors,
-                        cell: Some(h.cell),
+                        cell: list_cell,
                         drawing_sphere: pl.drawing_sphere_at(level),
                         draw_pos: h.part_draw_pos.get(i).copied().unwrap_or(part.pos),
                         cypt: h.part_cypt.get(i).copied().unwrap_or(0.0),
@@ -260,9 +276,12 @@ impl SceneDraw {
             ws.character.as_ref().map(|c| c.position().cell),
             ws.character.as_ref().map(|c| c.handle),
         );
-        let body =
-            body_light.and_then(|outdoors| ws.character.as_ref().map(|c| (c.driver(), outdoors)));
-        if let Some((driver, outdoors)) = body.as_ref() {
+        let body = body_light.and_then(|(outdoors, list_cell)| {
+            ws.character
+                .as_ref()
+                .map(|c| (c.driver(), outdoors, list_cell))
+        });
+        if let Some((driver, outdoors, list_cell)) = body.as_ref() {
             for (i, pl) in self.character_parts.iter().enumerate() {
                 let Some(part) = driver.part_array.parts.get(i) else {
                     continue;
@@ -281,7 +300,7 @@ impl SceneDraw {
                     part,
                     outdoors: *outdoors,
                     before_depth_clear: phase == ObjectPhase::Outdoors,
-                    cell: ws.character.as_ref().map(|c| c.position().cell),
+                    cell: *list_cell,
                     // As above. The local body's level is always 0.
                     drawing_sphere: pl
                         .drawing_sphere_at(self.character_part_levels.get(i).copied().unwrap_or(0)),

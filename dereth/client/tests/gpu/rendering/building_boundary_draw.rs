@@ -43,13 +43,13 @@ const DOOR_SETUP: u32 = 0x0200_024F;
 /// animation `0x03000559`; the setup itself has no default motion table and its placement frame
 /// is the one-third-open fallback.
 const DOOR_MTABLE: u32 = 0x0900_0016;
-const DOOR: dereth_primitives::ObjectId = dereth_primitives::ObjectId(0x5000_0D25);
+pub(crate) const DOOR: dereth_primitives::ObjectId = dereth_primitives::ObjectId(0x5000_0D25);
 
 /// Create the door through the application's own object stream.
 ///
 /// **No datagram leaves this process** — the payload is encoded and handed straight to
 /// `ObjectStream::apply_event`, exactly as `rendering/objects_through_doorways.rs` does.
-fn place_door(stream: &mut ObjectStream, at: Position, now: f64, no_draw: bool) {
+pub(crate) fn place_door(stream: &mut ObjectStream, at: Position, now: f64, no_draw: bool) {
     let mut movement = dereth_protocol::Writer::new();
     let style = dereth_animation::MotionCommand::NON_COMBAT
         .to_index()

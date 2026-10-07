@@ -380,9 +380,16 @@ const SPILL: f32 = 8.0;
 fn the_screen_space_clip_changes_only_the_pixels_the_stub_was_costing() {
     let store = store();
 
+    // Every shell at full detail: a building far enough away draws a shell with no openings,
+    // which stamps nothing with either clip, and the claim is about the openings that do open
+    // behind the camera and off the sides of the screen.
+    let full_detail = |clip: bool| SceneConfig {
+        degrade_levels: false,
+        ..cfg(clip, true)
+    };
     let (Some((stubbed, _, stub_stamps)), Some((exact, polys, exact_stamps))) = (
-        shot(&store, false, true, OPENING, BACK, PITCH_DOWN),
-        shot(&store, true, true, OPENING, BACK, PITCH_DOWN),
+        shot_with(&store, full_detail(false), OPENING, BACK, PITCH_DOWN),
+        shot_with(&store, full_detail(true), OPENING, BACK, PITCH_DOWN),
     ) else {
         return;
     };
