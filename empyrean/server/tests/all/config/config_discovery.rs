@@ -514,13 +514,16 @@ fn relative_paths_resolve_beside_the_config_file_not_the_working_directory() {
         !cwd.join("shard.db").exists(),
         "not in the working directory:\n{log}"
     );
-    let no_dats = conf.join("no-dats").display().to_string();
+    // The server logs each path made absolute, which on Windows also spells every separator `\`:
+    // compare against the same spelling, whatever separators the scratch folder's path was given in.
+    let logged = |p: PathBuf| std::path::absolute(&p).unwrap().display().to_string();
+    let no_dats = logged(conf.join("no-dats"));
     assert!(
         log.contains("DatManager initialization failed") && log.contains(&no_dats),
         "{log}"
     );
     // The resolved paths are logged at info.
-    let shard = conf.join("shard.db").display().to_string();
+    let shard = logged(conf.join("shard.db"));
     assert!(
         log.contains("Paths: shard database: ") && log.contains(&shard),
         "{log}"
