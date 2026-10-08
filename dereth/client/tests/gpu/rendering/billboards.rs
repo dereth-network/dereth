@@ -17,6 +17,7 @@ use dereth_client_runtime::character::CharacterInput;
 use dereth_client_runtime::net::ClientNetwork;
 use dereth_client_runtime::objects::ObjectStream;
 use dereth_dat::{DbType, RetailDatStore};
+use dereth_primitives::num::math;
 use dereth_primitives::{DataId, LocalTime, ObjectId, Vec3};
 use dereth_render::device::Gpu;
 use dereth_world_render::objects::degrade::{
@@ -1146,12 +1147,81 @@ fn every_part_draws_the_frame_calc_draw_frame_names_at_four_stations() {
 // 2. The control arm, and the pixels, with the differ calibrated in both directions
 // ---------------------------------------------------------------------------------------------
 
+/// How far out along the ground, and how far up, the stations below stand from the object they
+/// look at. Past 50 m an object standing in a land cell is measured at its land cell's distance:
+/// horizontal, from the camera to the cell's centre, so the rise does not count and the cell's
+/// offset from the object moves it by up to about half a cell, 12 m, either way of
+/// `TARGET_RANGE` (70 to 91 m at these stations). 50 m of a viewer distance is taken off before
+/// the detail bands are read, and what is left here (20 to 41 m) is past every non-turning band
+/// of the records these objects' parts use (the furthest ends at 16 m) and inside their
+/// turning-card band (to 84 m), while a body is still a dozen pixels tall. Each station checks
+/// that the parts are on that band, and the test prints the spread of distances they measured.
+const TARGET_RANGE: f32 = 80.0;
+const TARGET_RISE: f32 = 40.0;
+
+/// The bearings, in degrees from north, the camera looks at each object from.
+const TARGET_BEARINGS: [f32; 4] = [0.0, 90.0, 180.0, 270.0];
+
+/// Every object standing in a land cell with a part on a billboarding level, seen from 60 m
+/// above the objects' centroid, in id order.
+///
+/// Only land cells: an object standing in a room is seen from outdoors only through the openings
+/// of the detail level its building's shell is drawing, and at these distances most shells draw a
+/// level with no openings, so a room's occupants would not be on screen at all.
+fn outdoor_billboarders(
+    store: &Arc<RetailDatStore>,
+    gpu: &mut Gpu,
+    scene: &mut WorldScene,
+    s: &mut ObjectStream,
+    centre: Vec3,
+) -> Vec<ObjectId> {
+    scene.camera.position = Vec3::new(centre.x, centre.y, centre.z + 60.0);
+    frame_parts(store, gpu, scene, s, 10.0);
+    frame_parts(store, gpu, scene, s, 10.5);
+    let mut ids: Vec<ObjectId> = scene
+        .part_degrade_probe()
+        .iter()
+        .filter(|p| p.outdoors && p.mode != DegradeMode::None)
+        .filter_map(|p| p.object)
+        .collect();
+    ids.sort_by_key(|id| id.0);
+    ids.dedup();
+    ids
+}
+
+/// Put the camera `TARGET_RANGE` out and `TARGET_RISE` up from `id`, at `bearing` degrees from
+/// north, looking at a point a metre above its origin.
+fn look_at_object(scene: &mut WorldScene, id: ObjectId, bearing: f32) {
+    let o = scene
+        .server_object_frame(id)
+        .expect("the object is still in the scene")
+        .origin;
+    let aim = Vec3::new(o.x, o.y, o.z + 1.0);
+    let b = bearing.to_radians();
+    let cam = Vec3::new(
+        aim.x + TARGET_RANGE * math::sinf(b),
+        aim.y + TARGET_RANGE * math::cosf(b),
+        aim.z + TARGET_RISE,
+    );
+    let (dx, dy, dz) = (aim.x - cam.x, aim.y - cam.y, aim.z - cam.z);
+    scene.camera.position = cam;
+    // The camera's forward is (-sin yaw cos pitch, cos yaw cos pitch, sin pitch).
+    scene.camera.yaw = math::atan2f(-dx, dy);
+    scene.camera.pitch = math::atan2f(dz, math::hypotf(dx, dy));
+}
+
 /// Behaviour: rendering.billboards.a-billboarding-part-faces-the-viewer
 /// Compare independently replayed scenes differing only in SceneConfig::part_billboards.
 /// Both use the same retained recording prefix, fixed dt and ordered stations. Before comparing
 /// pixels, require identical sorted object-id/animation-frame_parts/forward-command tuples for the
 /// enabled and disabled arms. This is the explicit animation-state gate, not a comparison of
 /// every model transform: an animation mismatch would otherwise read as a rendering change.
+///
+/// The stations look at each object standing outdoors that has a part on a billboarding level,
+/// from four bearings, at a distance that keeps its parts on that level. At every station the
+/// object's own parts are required to be on a billboarding level, turned in the enabled arm and
+/// left on their own frames in the disabled one, and every such object must change pixels from at
+/// least one bearing.
 ///
 /// Calibrate the differ with disabled-arm images at different stations and with repeated enabled
 /// builds at matching stations. Require a positive result for the former and zero for every
@@ -1160,51 +1230,93 @@ fn every_part_draws_the_frame_calc_draw_frame_names_at_four_stations() {
 fn a_billboarding_part_turns_and_the_control_arm_does_not() {
     let store = store();
     let mut gpu = crate::common::test_gpu(800, 600);
-    const STATIONS: [f32; 4] = [8.0, 15.0, 30.0, 60.0];
 
-    type Station = (
-        (Vec<u8>, u32, u32),
-        Vec<(ObjectId, i32, dereth_animation::MotionCommand)>,
-    );
+    type Pose = Vec<(ObjectId, i32, dereth_animation::MotionCommand)>;
+    type Station = (ObjectId, (Vec<u8>, u32, u32), Pose);
 
-    let mut arm = |on: bool| -> (Vec<Station>, usize, usize) {
+    let mut arm = |on: bool| -> (Vec<ObjectId>, Vec<Station>, usize, usize) {
         let mut r = populated("first-login-walk-jump");
         let mut scene = scene_for(&store, &mut gpu, &r, on);
         let centre = park_over_objects(&store, &mut gpu, &mut scene, &mut r.objects);
-        let mut out: Vec<Station> = Vec::with_capacity(STATIONS.len());
+        let targets = outdoor_billboarders(&store, &mut gpu, &mut scene, &mut r.objects, centre);
+        let mut out: Vec<Station> = Vec::new();
         let (mut asked, mut moved) = (0usize, 0usize);
-        for (i, dz) in STATIONS.iter().enumerate() {
-            scene.camera.position = Vec3::new(centre.x, centre.y, centre.z + dz);
-            // LINT-OK: a station index.
-            #[allow(clippy::cast_precision_loss)]
-            let t = 20.0 + 2.0 * i as f64;
-            let _ = shot(&store, &mut gpu, &mut scene, &mut r.objects, t);
-            let img = shot(&store, &mut gpu, &mut scene, &mut r.objects, t + 1.0);
-            asked = asked.max(scene.draw.stats.part_billboards);
-            moved = moved.max(scene.draw.stats.part_billboards_turned);
-            let mut pose: Vec<(ObjectId, i32, dereth_animation::MotionCommand)> = r
-                .objects
-                .presences()
-                .filter_map(|(id, _)| scene.server_object_motion(id).map(|(f, c)| (id, f, c)))
-                .collect();
-            pose.sort_by_key(|(id, _, _)| id.0);
-            out.push((img, pose));
+        let (mut near, mut far) = (f32::INFINITY, 0.0f32);
+        let mut i = 0u32;
+        for &id in &targets {
+            for &bearing in &TARGET_BEARINGS {
+                look_at_object(&mut scene, id, bearing);
+                let t = 20.0 + 2.0 * f64::from(i);
+                i += 1;
+                let _ = shot(&store, &mut gpu, &mut scene, &mut r.objects, t);
+                let img = shot(&store, &mut gpu, &mut scene, &mut r.objects, t + 1.0);
+                asked = asked.max(scene.draw.stats.part_billboards);
+                moved = moved.max(scene.draw.stats.part_billboards_turned);
+                // The object looked at is what this station is about: its parts have to be on a
+                // billboarding level, and turned only when the switch is on.
+                let own: Vec<_> = scene
+                    .part_degrade_probe()
+                    .into_iter()
+                    .filter(|p| p.object == Some(id) && p.mode != DegradeMode::None)
+                    .collect();
+                assert!(
+                    !own.is_empty(),
+                    "{id:?} from {bearing} deg: none of its parts is on a billboarding level"
+                );
+                for p in &own {
+                    near = near.min(p.cypt);
+                    far = far.max(p.cypt);
+                    assert_eq!(
+                        p.draw_pos != p.pos,
+                        on,
+                        "{id:?} part {} from {bearing} deg: billboards switched {on}",
+                        p.part
+                    );
+                }
+                let mut pose: Pose = r
+                    .objects
+                    .presences()
+                    .filter_map(|(id, _)| scene.server_object_motion(id).map(|(f, c)| (id, f, c)))
+                    .collect();
+                pose.sort_by_key(|(id, _, _)| id.0);
+                out.push((id, img, pose));
+            }
         }
+        eprintln!("billboards {on}: station viewer distances {near:.1} to {far:.1} m");
         scene.release_textures(&mut gpu);
-        (out, asked, moved)
+        (targets, out, asked, moved)
     };
 
-    let (off, asked_off, moved_off) = arm(false);
-    let (on, asked_on, moved_on) = arm(true);
-    let (again, _, _) = arm(true);
+    let (targets, off, asked_off, moved_off) = arm(false);
+    let (targets_on, on, asked_on, moved_on) = arm(true);
+    let (targets_again, again, _, _) = arm(true);
+    eprintln!(
+        "objects standing outdoors with a part on a billboarding level: {:?}",
+        targets
+            .iter()
+            .map(|id| format!("{:08X}", id.0))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !targets.is_empty(),
+        "no object standing outdoors has a part on a billboarding level: the arms cannot differ"
+    );
+    assert_eq!(
+        targets, targets_on,
+        "the two arms found different objects to look at"
+    );
+    assert_eq!(
+        targets, targets_again,
+        "the repeated arm found different objects to look at"
+    );
 
     for (k, (a, b)) in off.iter().zip(on.iter()).enumerate() {
         assert!(
-            !a.1.is_empty(),
+            !a.2.is_empty(),
             "station {k}: no object published an animation frame_parts"
         );
         assert_eq!(
-            a.1, b.1,
+            a.2, b.2,
             "station {k}: the two arms are at different points of their animations, so a pixel \
              differential between them would be about pose and not about billboarding"
         );
@@ -1212,10 +1324,10 @@ fn a_billboarding_part_turns_and_the_control_arm_does_not() {
     eprintln!(
         "pose gate: {} objects, identical in both arms at all {} stations; station 0 frame_parts \
          numbers {:?}",
-        off[0].1.len(),
-        STATIONS.len(),
+        off[0].2.len(),
+        off.len(),
         off[0]
-            .1
+            .2
             .iter()
             .take(6)
             .map(|(_, f, _)| *f)
@@ -1240,34 +1352,45 @@ fn a_billboarding_part_turns_and_the_control_arm_does_not() {
     assert_eq!(moved_off, 0, "the control arm turned a part");
     assert!(moved_on > 0, "the switched arm turned nothing");
 
-    let total = (on[0].0 .1 * on[0].0 .2) as usize;
-    let positive = diff_parts(&off[0].0, &off[STATIONS.len() - 1].0);
+    let total = (on[0].1 .1 * on[0].1 .2) as usize;
+    let positive = diff_parts(&off[0].1, &off[off.len() - 1].1);
     assert!(
         positive > 0,
         "the differ read 0 on a pair that is known to differ"
     );
     let mut negative = 0usize;
     for (k, (a, b)) in on.iter().zip(again.iter()).enumerate() {
-        let d = diff_parts(&a.0, &b.0);
+        let d = diff_parts(&a.1, &b.1);
         assert_eq!(d, 0, "two identical runs differ by {d} px at station {k}");
         negative += d;
     }
     eprintln!(
         "differ calibration: {positive} of {total} px on a known-different pair, {negative} px \
          over {} known-identical pairs (a separate replay, build, draw and capture each)",
-        STATIONS.len()
+        on.len()
     );
 
     let mut best = 0usize;
-    for (k, dz) in STATIONS.iter().enumerate() {
-        let changed = diff_parts(&off[k].0, &on[k].0);
-        eprintln!("  +{dz:5.0} m above the objects: {changed} of {total} px changed");
-        best = best.max(changed);
+    for &id in &targets {
+        let mut most = 0usize;
+        for (k, (a, b)) in off.iter().zip(on.iter()).enumerate() {
+            if a.0 != id {
+                continue;
+            }
+            let changed = diff_parts(&a.1, &b.1);
+            let bearing = TARGET_BEARINGS[k % TARGET_BEARINGS.len()];
+            eprintln!(
+                "  {:08X} from {bearing:3.0} deg: {changed} of {total} px changed",
+                id.0
+            );
+            most = most.max(changed);
+        }
+        assert!(
+            most > 0,
+            "{id:?}: turning its billboarding parts changed no pixel from any bearing"
+        );
+        best = best.max(most);
     }
-    assert!(
-        best > 0,
-        "turning every billboarding part changed no pixel at any station"
-    );
     assert!(
         best * 4 < total,
         "{best} of {total} px changed -- both arms hold the same objects in the same pose at the \
