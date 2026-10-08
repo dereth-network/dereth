@@ -62,13 +62,16 @@ pub fn game_message_character_list(
                 character.name.clone()
             };
 
-            // TODO: handle this better for char_delete_time=0
-            // `(uint)Math.Max(1, Time.GetUnixTime() - character.DeleteTime)`: the ulong converts to
-            // double, `Math.Max(double, double)`, then `(uint)` of the double.
+            // Not ACE's (a fix, V444): a character pending deletion is sent with the seconds left
+            // until it is deleted, at least 1 while the deletion is pending (one past its time
+            // but not yet purged is still pending). ACE subtracted the other way round,
+            // `(uint)Math.Max(1, Time.GetUnixTime() - character.DeleteTime)`, and since the
+            // deletion time is in the future every pending deletion went out as 1. The ulong
+            // converts to double, `Math.Max(double, double)`, then `(uint)` of the double, as ACE's.
             let delete = if character.delete_time != 0 {
                 #[allow(clippy::cast_precision_loss)]
-                let elapsed = w.now.unix_time - character.delete_time as f64;
-                let seconds: u32 = empyrean_common::dotnet::math::max(1.0, elapsed).cs_cast();
+                let remaining = character.delete_time as f64 - w.now.unix_time;
+                let seconds: u32 = empyrean_common::dotnet::math::max(1.0, remaining).cs_cast();
                 seconds
             } else {
                 0

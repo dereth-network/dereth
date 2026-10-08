@@ -248,6 +248,8 @@ pub mod dereth {
     pub const CANCEL: super::ActionId = super::ActionId(0x2000_000A);
     /// The classic interface's key that puts the last line sent back into the chat entry.
     pub const REPEAT_LAST_MESSAGE: super::ActionId = super::ActionId(0x2000_000B);
+    /// Hold to turn the camera round to the character's front (the Horizon interface's camera).
+    pub const LOOK_AT_FRONT: super::ActionId = super::ActionId(0x2000_000C);
 }
 
 /// The action names: the enum table the client writes an action out with (field `0x19` of a
@@ -719,6 +721,7 @@ pub mod names {
         ),
         (super::dereth::CANCEL.0, "Cancel"),
         (super::dereth::REPEAT_LAST_MESSAGE.0, "RepeatLastMessage"),
+        (super::dereth::LOOK_AT_FRONT.0, "LookAtFront"),
     ];
 
     /// Every named action: the retail table, then this client's own.

@@ -215,16 +215,17 @@ fn the_page_draws_a_row_per_bindable_action_with_the_keys_the_merged_map_reports
         m.action_map.entries().count()
     );
     // One row per row of the set both interfaces' pages list that this interface acts on: the
-    // bindable entries but the quickslots 10 to 18, the quest detail panel and the five rows only
-    // the classic interface answers, with Disable Most Weather Effects.
+    // bindable entries but the quickslots 10 to 18, the quest detail panel, the five rows only
+    // the classic interface answers and the Horizon interface's front view, with Disable Most
+    // Weather Effects.
     assert_eq!(
         p.rows.len(),
-        dereth_input::presentation::ROWS.len() - 11,
+        dereth_input::presentation::ROWS.len() - 12,
         "one row per listed (map, action)"
     );
     assert_eq!(
         bindable,
-        p.rows.len() + 10 - 1 + 11,
+        p.rows.len() + 10 - 1 + 12,
         "of the {bindable} bindable entries"
     );
     assert_eq!(
@@ -793,7 +794,7 @@ fn the_gameplay_screen_builds_the_key_binding_page() {
         .count();
     assert_eq!(
         n,
-        dereth_input::presentation::ROWS.len() - 11,
+        dereth_input::presentation::ROWS.len() - 12,
         "one row per listed (map, action), of the {bindable} bindable"
     );
     assert_eq!(s.key_bindings.failures, 0);

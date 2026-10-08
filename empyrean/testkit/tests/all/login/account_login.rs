@@ -440,20 +440,28 @@ fn delete_then_restore_then_the_deletion_timer() {
     assert_eq!(errors(&ts, id), vec![DELETE]);
 
     // Slot 0 is Bravo (last played first). The ack, then the list once the save is done: Bravo is
-    // greyed out with ACE's `Math.Max(1, now - DeleteTime)` = 1 (a future DeleteTime).
+    // greyed out with the seconds left until it is deleted (V444), the hour of `char_delete_time`
+    // less the moments since the delete; ACE sent 1.
     let before = ts.world.now.unix_time;
     ts.send_message(id, NetQueue::Logon, &delete_bravo);
     ts.advance(0.1);
     assert_eq!(ts.received::<CharacterDeleteAck>(id).len(), 1);
     let sets = ts.received::<LoginCharacterSet>(id);
     assert_eq!(sets.len(), 2);
+    let listed = names(&sets[1]);
     assert_eq!(
-        names(&sets[1]),
-        vec![
-            (BRAVO, "Bravo".to_owned(), 1),
-            (ALPHA, "Alpha".to_owned(), 0)
-        ]
+        listed
+            .iter()
+            .map(|(gid, name, _)| (*gid, name.clone()))
+            .collect::<Vec<_>>(),
+        vec![(BRAVO, "Bravo".to_owned()), (ALPHA, "Alpha".to_owned())]
     );
+    assert!(
+        (3599..=3600).contains(&listed[0].2),
+        "seconds left: {}",
+        listed[0].2
+    );
+    assert_eq!(listed[1].2, 0, "Alpha is not pending deletion");
     let stub = ts.shard().get_character_stub_by_guid(BRAVO).expect("stub");
     #[allow(clippy::cast_precision_loss)]
     let delete_time = stub.delete_time as f64;

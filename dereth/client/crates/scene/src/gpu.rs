@@ -85,6 +85,10 @@ mod imp {
         overlay_textures: std::collections::BTreeMap<OverlayTexture, TextureSlot>,
         /// The overlay's three pipeline states, image / invert / text, built on first use.
         overlay_pipelines: Option<[PipelineKey; 3]>,
+        /// The picture a front end asked to lay on the ground, and the pipeline state it is drawn
+        /// with, built on first use. See [`Self::set_ground_markers`].
+        ground_markers: Vec<dereth_client_contract::overlay::GroundMarker>,
+        marker_pipeline: Option<PipelineKey>,
         /// The object identity verdicts the application worked out for its store, once it has
         /// them ([`Self::offer_object_identity`]): every world loaded after draws the other era's
         /// look with them.
@@ -167,6 +171,8 @@ mod imp {
                     * dereth_render::camera::DEG_TO_RAD,
                 overlay_textures: std::collections::BTreeMap::new(),
                 overlay_pipelines: None,
+                ground_markers: Vec::new(),
+                marker_pipeline: None,
                 object_identity: None,
             })
         }
@@ -591,6 +597,22 @@ mod imp {
             self.previews.get_mut(&id)
         }
 
+        /// Advance a preview space by `dt` seconds and give any emitter its objects' scripts made
+        /// a mesh. The meshes need the device, so this is called outside the frame bracket, as
+        /// adding an object is.
+        ///
+        /// # Errors
+        /// [`RenderError`] when a device resource cannot be created.
+        pub fn preview_use_time(&mut self, id: PreviewId, dt: f64) -> Result<(), RenderError> {
+            match self.previews.get_mut(&id) {
+                Some(space) => {
+                    space.use_time(dt);
+                    space.bring_up_particles(&mut self.gpu)
+                }
+                None => Ok(()),
+            }
+        }
+
         /// Add an object to a preview space. Loading its setup needs the device, which is why this
         /// method lives here rather than on the space.
         ///
@@ -679,6 +701,23 @@ mod imp {
             })
         }
 
+        /// Where an object's own origin stands on screen; see
+        /// `WorldScene::target_origin`. Nothing during a hidden world.
+        pub fn target_origin(
+            &self,
+            id: dereth_primitives::ObjectId,
+            ws: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<(i32, i32)> {
+            if self.world_hidden {
+                return None;
+            }
+            let world = self.world.as_ref()?;
+            let ws = ws?;
+            dereth_render::camera::view_distance_override::with(self.view_distance, || {
+                world.target_origin(ws, id, self.size())
+            })
+        }
+
         /// Draw the world scene when present and visible.
         ///
         /// # Errors
@@ -699,10 +738,27 @@ mod imp {
                 // the override FOV distance over the normal FOV for the whole of the
                 // world and sky passes.
                 let gpu = &mut self.gpu;
-                return dereth_render::camera::view_distance_override::with(
-                    self.view_distance,
-                    || world.draw(ws, gpu),
-                );
+                dereth_render::camera::view_distance_override::with(self.view_distance, || {
+                    world.draw(ws, gpu)
+                })?;
+                // The ground markers, over the finished world and under the overlay, in the order
+                // asked for: a later one lies over an earlier one.
+                let markers: Vec<_> = self
+                    .ground_markers
+                    .iter()
+                    .filter_map(|m| Some((*m, self.overlay_textures.get(&m.texture).copied()?)))
+                    .collect();
+                if !markers.is_empty() {
+                    let key = self.marker_pipeline();
+                    let (world, gpu) = (self.world.as_ref().expect("checked above"), &mut self.gpu);
+                    for (marker, slot) in &markers {
+                        dereth_render::camera::view_distance_override::with(
+                            self.view_distance,
+                            || world.draw_ground_marker(ws, gpu, marker, *slot, &key),
+                        )?;
+                    }
+                }
+                return Ok(());
             }
             let Some(scene) = &self.scene else {
                 return Ok(());
@@ -947,6 +1003,31 @@ mod imp {
             let p = [image, invert, text];
             self.overlay_pipelines = Some(p);
             p
+        }
+
+        /// Lay `markers` on the ground under their objects from the next drawn frame on, in that
+        /// order, until the next call; none takes them away. Their textures are ones the front end
+        /// uploaded to the overlay; one not resident is not drawn.
+        pub fn set_ground_markers(
+            &mut self,
+            markers: &[dereth_client_contract::overlay::GroundMarker],
+        ) {
+            self.ground_markers = markers.to_vec();
+        }
+
+        /// The ground marker's pipeline state: the overlay's image state, but tested against the
+        /// world's depth (so what stands in front of the marker hides it), writing none, and
+        /// blended over what is drawn.
+        fn marker_pipeline(&mut self) -> PipelineKey {
+            if let Some(k) = self.marker_pipeline {
+                return k;
+            }
+            let [image, _, _] = self.overlay_pipelines();
+            let mut key = image;
+            key.z_func = ZFunc::LessEqual;
+            key.z_write = false;
+            self.marker_pipeline = Some(key);
+            key
         }
 
         /// Draw the overlay over the finished world, in order, inside the frame bracket. A batch

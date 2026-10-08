@@ -36,15 +36,15 @@
 //!    where the events go. (`dereth-primitives` does not log at all; rule 0 keeps `tracing` out of
 //!    its tree.)
 //! 9. **The application's halves** ([`APPLICATION_HALVES`]): `dereth-scene`, the drawn world,
-//!    and the front ends: `dereth-client-shell`, the retail one and the shell that runs either,
-//!    and `dereth-classic-ui`, the classic one. They sit on the runtime, so rule 5's runtime ban
+//!    and the front ends: `dereth-client-shell`, the retail one and the shell that runs any of
+//!    them, `dereth-classic-ui`, the classic one, and `dereth-horizon`, the Horizon one. They sit on the runtime, so rule 5's runtime ban
 //!    does not apply to them, and they reach no platform: no table of theirs names a platform
 //!    crate or the desktop's own platform crates ([`HALVES_FORBIDDEN`]), and their code names none
 //!    of them ([`HALVES_NAMES_NOT`]). The platform arrives through the shell's host trait, which
 //!    the desktop host (`dereth-desktop`) and the browser client implement. The scene does not depend on the shell.
 //! 10. **A front end never holds the application.** A front end's code ([`FRONT_ENDS`]: the
 //!     shell's `src/`, but for [`FRONT_END_ASSEMBLY`], where the executable puts the application
-//!     and its front end side by side, and the classic interface's) names none of
+//!     and its front end side by side, and the classic and Horizon interfaces') names none of
 //!     [`FRONT_END_NAMES_NOT`]: the
 //!     application and the runtime's internals behind it. Each step of the frame hands a front end
 //!     a `UiContext`, and that is all of the game it reaches -- the same for the modern UI as for
@@ -202,11 +202,15 @@ pub const PRESENTATION_ON_CONTRACT: &[&str] = &[
 const PRESENTATION_FORBIDDEN: &[&str] = &["dereth-client-runtime"];
 
 /// The application's two halves: the drawn world and the front end over the runtime. Rule 9.
-pub const APPLICATION_HALVES: &[&str] =
-    &["dereth-scene", "dereth-client-shell", "dereth-classic-ui"];
+pub const APPLICATION_HALVES: &[&str] = &[
+    "dereth-scene",
+    "dereth-client-shell",
+    "dereth-classic-ui",
+    "dereth-horizon",
+];
 
 /// The front ends rule 10 holds to their context.
-pub const FRONT_ENDS: &[&str] = &["dereth-client-shell", "dereth-classic-ui"];
+pub const FRONT_ENDS: &[&str] = &["dereth-client-shell", "dereth-classic-ui", "dereth-horizon"];
 
 /// What no dependency table of an application half may name directly: the window system, the
 /// operating system's bindings, the sound device, and the desktop's own platform crates.

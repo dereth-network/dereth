@@ -30,9 +30,13 @@ impl<S: Shell> App<S> {
         if !self.duties.hud_synced {
             self.sync_hud();
         }
-        // The game screen's size follows its construction and destruction. With no UI there is
-        // no screen to follow.
-        if shell.has_ui() && self.duties.gameplay_followed != Some(shell.in_gameplay()) {
+        // The game screen's size follows its construction and destruction, and an interface
+        // switched before the world, which may keep another size there. With no UI there is no
+        // screen to follow.
+        if shell.has_ui()
+            && (self.duties.gameplay_followed != Some(shell.in_gameplay())
+                || self.duties.login_size_followed != Some(shell.keeps_login_size()))
+        {
             self.follow_screen_forced_resolution(shell);
             self.follow_gameplay_full_screen(shell);
         }

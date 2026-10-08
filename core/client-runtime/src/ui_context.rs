@@ -182,10 +182,38 @@ impl<'a, S: Shell> UiContext<'a, S> {
         &self.app.objects
     }
 
+    /// Where `id` stands against the player: whether it is outdoors (on the landscape rather than
+    /// in a building or a dungeon) and how far it is, in metres. `None` while either has no place
+    /// in the world.
+    #[must_use]
+    pub fn object_place(&self, id: ObjectId) -> Option<(bool, f32)> {
+        let objects = &self.app.objects;
+        let me = objects.presence(objects.player()?)?.position.as_ref()?;
+        let it = objects.presence(id)?.position.as_ref()?;
+        let offset = dereth_physics::math::localtolocal(me, it, dereth_primitives::Vec3::ZERO);
+        Some((
+            dereth_physics::landdefs::is_outdoors(it.cell),
+            offset.magnitude(),
+        ))
+    }
+
     /// The drawn world as one read-only view, `None` before there is one.
     #[must_use]
     pub fn scene(&self) -> Option<Box<dyn Scene + '_>> {
         self.app.present.scene(self.app.world.as_ref())
+    }
+
+    /// The way the camera looks, in degrees clockwise from north, as the player heading is
+    /// given: the orbit camera's as shown while an interface uses it, else the game camera's.
+    /// `None` without a player in the world.
+    #[must_use]
+    pub fn camera_heading(&self) -> Option<f32> {
+        let c = self.app.world.as_ref()?.character.as_ref()?;
+        Some(if c.camera.orbit_active {
+            c.camera.orbit.facing_degrees()
+        } else {
+            dereth_physics::math::get_heading(&c.camera.viewer.frame)
+        })
     }
 
     /// The interaction layer's target mode.
@@ -223,6 +251,18 @@ impl<'a, S: Shell> UiContext<'a, S> {
     #[must_use]
     pub fn full_screen(&self) -> bool {
         self.app.applied_full_screen
+    }
+
+    /// Draw the world around `landblock` behind the screens before the player is in it, the
+    /// camera turned and tilted by `yaw` and `pitch` radians from where the scene starts it. See
+    /// [`App::show_backdrop`]. True while it is up.
+    pub fn show_backdrop(&mut self, landblock: u16, yaw: f32, pitch: f32) -> bool {
+        self.app.show_backdrop(landblock, yaw, pitch)
+    }
+
+    /// Release the backdrop [`Self::show_backdrop`] drew.
+    pub fn hide_backdrop(&mut self) {
+        self.app.hide_backdrop();
     }
 
     /// Whether the player is travelling through portal space.
@@ -417,6 +457,12 @@ impl<'a, S: Shell> UiContext<'a, S> {
             .consume_placement_requests(&mut self.app.objects.world, requests, now);
     }
 
+    /// The pointer's place for the next world pick, in window pixels: where an item an
+    /// interface dragged was let go over the world.
+    pub fn note_pointer(&mut self, x: i32, y: i32) {
+        self.app.interaction.note_cursor((x, y));
+    }
+
     /// A pointer event over the world.
     pub fn pointer(&mut self, event: UiMouseEvent) {
         let viewport = self.app.present.size();
@@ -593,6 +639,12 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.done();
     }
 
+    /// Leave the game from a front end's own Exit: from the world the character logs off first,
+    /// its player module saved ahead of the departure. See [`App::quit_game`].
+    pub fn quit_game(&mut self) {
+        self.app.quit_game();
+    }
+
     /// The teleport overlay's step. See [`App::teleport_use_time`].
     pub fn teleport_use_time(&mut self, shell: &S) {
         self.app.teleport_use_time(shell);
@@ -629,6 +681,47 @@ impl<'a, S: Shell> UiContext<'a, S> {
     /// The mouse-look button.
     pub fn mouse_look_button(&mut self, down: bool) {
         self.app.mouse_look_button(down);
+    }
+
+    /// Use the orbit camera in place of the game's own, with `settings`; `None` goes back to the
+    /// game's camera, which is where it was left. The orbit camera keeps its own place meanwhile.
+    pub fn set_orbit_camera(&mut self, settings: Option<crate::orbit::OrbitSettings>) {
+        if settings.is_none() {
+            self.app.orbit_keys = crate::orbit::MovementKeys::default();
+            self.app.orbit_pending.clear();
+        }
+        self.app.orbit = settings;
+    }
+
+    /// One of the orbit camera's mouse buttons, the right one for `right`, going down or up over
+    /// the world. Either held turns the camera with the pointer; both together run the player
+    /// forward where it looks. Under character-based movement the right one steers the player,
+    /// and the turning keys step sideways while it is held.
+    pub fn orbit_button(&mut self, right: bool, pressed: bool) {
+        let keys = &mut self.app.orbit_keys;
+        if right {
+            keys.buttons.1 = pressed;
+        } else {
+            keys.buttons.0 = pressed;
+        }
+        let (left, right) = keys.buttons;
+        self.app.mouse_look_button(left || right);
+        if let Some(settings) = self.app.orbit {
+            let run = self.app.orbit_keys.mouse_run(left && right, settings);
+            self.app.orbit_pending.extend(run);
+            let steps = self.app.orbit_keys.steering_changed(settings);
+            self.app.orbit_pending.extend(steps);
+        }
+    }
+
+    /// The orbit camera as the body's camera has it, when there is a body.
+    #[must_use]
+    pub fn orbit_camera(&self) -> Option<crate::orbit::OrbitCamera> {
+        self.app
+            .world
+            .as_ref()
+            .and_then(|w| w.character.as_ref())
+            .map(|c| c.camera.orbit)
     }
 
     /// The pointer moved, in window pixels.

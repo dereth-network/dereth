@@ -271,12 +271,7 @@ impl<S: Shell> App<S> {
                 UiRequest::SelectedAvatar(id) => self.host_state.selected_avatar = Some(id),
                 UiRequest::EndCharacterSession { .. } => self.log_off_character(),
                 UiRequest::DeviceDone => self.pump.done(),
-                // The log-off is queued now and framed by the next frame's packet step; the loop
-                // stops at that frame's UI step, so the server is told before the client goes.
-                UiRequest::Quit => {
-                    self.log_off_character();
-                    self.duties.quit_owed = true;
-                }
+                UiRequest::Quit => self.quit_game(),
                 UiRequest::SaveKeyMap => {
                     let outcome = shell.save_bindings();
                     tracing::debug!("key bindings saved: {outcome:?}");

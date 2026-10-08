@@ -56,6 +56,11 @@ impl InputMap {
 
     /// Bind -- a push to the tail, so a repeat of an existing key
     /// replaces the value in place rather than appending.
+    /// Keep only the bindings `keep` answers yes for.
+    pub fn retain(&mut self, mut keep: impl FnMut(&ControlChord, ActionId) -> bool) {
+        self.bindings.retain(|(k, a)| keep(k, *a));
+    }
+
     pub fn add_mapping(&mut self, qc: ControlChord, action: ActionId) {
         if let Some(slot) = self.bindings.iter_mut().find(|(k, _)| *k == qc) {
             slot.1 = action;

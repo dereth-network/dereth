@@ -1052,6 +1052,7 @@ dependencies = [
  "dereth-client-runtime",
  "dereth-client-shell",
  "dereth-dat",
+ "dereth-horizon",
  "dereth-input",
  "dereth-physics",
  "dereth-primitives",
@@ -1131,6 +1132,33 @@ dependencies = [
  "dereth-client-sdk",
  "thiserror 2.0.20",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "dereth-horizon"
+version = "0.0.0"
+dependencies = [
+ "dereth-animation",
+ "dereth-assets",
+ "dereth-chargen",
+ "dereth-client-contract",
+ "dereth-client-model",
+ "dereth-client-runtime",
+ "dereth-dat",
+ "dereth-input",
+ "dereth-presentation",
+ "dereth-primitives",
+ "dereth-protocol",
+ "dereth-rules",
+ "dereth-scene",
+ "dereth-ui",
+ "dereth-ui-screens",
+ "dereth-world-data",
+ "png",
+ "serde",
+ "serde_json",
+ "tracing",
+ "web-time",
 ]
 
 [[package]]

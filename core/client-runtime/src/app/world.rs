@@ -47,6 +47,8 @@ impl<S: Shell> App<S> {
         let Some(pos) = self.objects.presence(player).and_then(|p| p.position) else {
             return;
         };
+        // A view of the world drawn before the player came is not the player's world.
+        self.hide_backdrop();
         let block = pos.cell.landblock();
         let landblock = (u16::from(block.x()) << 8) | u16::from(block.y());
         // The world and the body are built with the options as they are now, not as they were
@@ -325,6 +327,60 @@ impl<S: Shell> App<S> {
         }
     }
 
+    /// Draw the world around `landblock` behind the screens before the player is in it, with
+    /// no body in it and the camera turned `yaw` radians from the one the scene starts with and
+    /// tilted `pitch` radians: a backdrop an interface may pan. Built on the first call, with the
+    /// same switches the player's world will be built with, and released when the player's own
+    /// world is built or [`Self::hide_backdrop`] is called. Nothing is drawn where there is no
+    /// landscape to build (`--no-world`), once the player is in the world, or while a world is
+    /// already up. True while the backdrop is up.
+    pub fn show_backdrop(&mut self, landblock: u16, yaw: f32, pitch: f32) -> bool {
+        let Some(armed) = self.pending_scene else {
+            return false;
+        };
+        if self.objects.player().is_some() {
+            return false;
+        }
+        if self.backdrop.is_some_and(|(block, _)| block != landblock) {
+            self.hide_backdrop();
+        }
+        if self.backdrop.is_none() {
+            if self.world.is_some() {
+                return false;
+            }
+            let cfg = crate::scene::SceneConfig {
+                landblock,
+                start_cell: None,
+                character: false,
+                ..with_stored_options(armed)
+            };
+            if let Err(e) = self.present.load_world(&self.store, cfg, &mut self.world) {
+                tracing::warn!("the backdrop at landblock 0x{landblock:04X} would not load: {e}");
+                return false;
+            }
+            let Some(world) = self.present.scene_mut(self.world.as_mut()) else {
+                return false;
+            };
+            let home = world.world().camera;
+            self.backdrop = Some((landblock, home));
+        }
+        let Some((_, home)) = self.backdrop else {
+            return false;
+        };
+        if let Some(mut world) = self.present.scene_mut(self.world.as_mut()) {
+            world.world_mut().camera =
+                crate::camera::FreeCamera::new(home.position, home.yaw + yaw, home.pitch + pitch);
+        }
+        true
+    }
+
+    /// Release the world [`Self::show_backdrop`] drew, if it is up.
+    pub fn hide_backdrop(&mut self) {
+        if self.backdrop.take().is_some() {
+            self.present.release_world(&mut self.world);
+        }
+    }
+
     /// Build the landscape now rather than at startup. `--connect` uses this.
     pub fn defer_static_scene(&mut self, scene: crate::scene::SceneConfig) {
         // Remembered as well as armed, so [`App::reset_world_view`] can arm it
@@ -358,6 +414,7 @@ impl<S: Shell> App<S> {
     /// (`ObjectStream`), and **retail has no such split**; releasing the scene is what retires the
     /// body here, and that is the only reason the two halves stay in step.
     pub(super) fn reset_world_view(&mut self) {
+        self.backdrop = None;
         let released = self.present.release_world(&mut self.world);
         self.events.push(FrameEvent::WorldReset {
             textures_released: released,

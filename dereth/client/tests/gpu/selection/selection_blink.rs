@@ -363,7 +363,7 @@ fn doll_lighting(app: &App) -> Vec<(f32, f32)> {
         .expect("the paper-doll space")
         .object(0)
         .expect("the paper-doll preview object")
-        .part_array
+        .part_array()
         .part_lighting()
 }
 

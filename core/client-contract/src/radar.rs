@@ -250,7 +250,7 @@ pub fn project(
                 to_i32(geometry.center.1) - to_i32(py * geometry.radius as f32 / range),
             )
         }
-        Interface::Modern => {
+        Interface::Modern | Interface::Horizon => {
             let range_sq = (range - 1.0) * (range - 1.0);
             if px * px + py * py >= range_sq {
                 return None;

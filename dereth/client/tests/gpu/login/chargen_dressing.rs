@@ -137,7 +137,7 @@ fn palettes(app: &mut App) -> Vec<Option<(Option<DataId>, Vec<PaletteRange>)>> {
         .expect("the space exists")
         .object(0)
         .expect("the model is object 0")
-        .part_array
+        .part_array()
         .parts
         .iter()
         .map(|p| {
@@ -221,7 +221,7 @@ fn the_descriptor_reaches_the_body_and_reports_success() {
         "`None` is an object added with no ObjDesc at all; `Some(false)` is a part index the \
          setup does not have"
     );
-    assert_eq!(o.part_array.parts.len(), 34, "the Aluvian male body");
+    assert_eq!(o.part_array().parts.len(), 34, "the Aluvian male body");
     assert_eq!(
         o.parts_with_surface_overrides(),
         34,

@@ -9,7 +9,7 @@
 use crate::world::World;
 use crate::{NoticeSink, Request, RequestSink};
 use dereth_assets::tables::{SpellBase, SpellTable};
-use dereth_primitives::ObjectId;
+use dereth_primitives::{LocalTime, ObjectId};
 use dereth_protocol::combat::{MagicCastTargetedSpell, MagicCastUntargetedSpell};
 use dereth_rules::weenie::item_type;
 use std::collections::{BTreeMap, BTreeSet};
@@ -1259,6 +1259,8 @@ impl World {
             })),
         }
         self.magic.busy_count += 1;
+        self.magic.casting = true;
+        self.magic.cast_seen = None;
     }
 
     /// Handles `0x01C7 Item_UseDone(error)`, the **universal "action finished" acknowledgement**.
@@ -1283,6 +1285,7 @@ impl World {
         // A matching shop refresh can precede its independently ordered inventory delivery.
         self.vendor_use_done(error);
         self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
+        self.magic.casting = false;
         error
     }
 }
@@ -1573,6 +1576,11 @@ pub struct MagicState {
     /// The busy count: how many actions the player asked for are still waiting on their answer.
     /// While it is not zero the pointer is the hourglass.
     pub busy_count: u32,
+    /// A spell the player cast is still being cast: asked for, and not yet answered by the
+    /// acknowledgement that ends an action, nor given up on ([`MagicState::still_casting`]).
+    pub casting: bool,
+    /// When the cast in progress was first seen being cast.
+    pub cast_seen: Option<LocalTime>,
     /// The spell table the client lazily loads as `(6, 2, 0x10000005)` on the **first** cast or
     /// spell-compatibility test and then keeps.
     ///
@@ -1592,7 +1600,29 @@ pub struct MagicState {
     pub school_pack_wcid: BTreeMap<u32, u32>,
 }
 
+/// Seconds after which a cast never acknowledged counts as over: a little over the longest a
+/// cast takes. The longest spell in the shipped spell table winds up through six scarabs' gestures
+/// and then its talisman's, 11.6 seconds at the casting pace; the rest covers turning to the
+/// target first and the answer's way back.
+pub const CAST_TIMEOUT: f64 = 13.0;
+
 impl MagicState {
+    /// Whether a spell is still being cast at `now`. A cast whose acknowledgement never comes is
+    /// over [`CAST_TIMEOUT`] seconds after it was first seen here, so a lost answer cannot leave
+    /// it cast for ever.
+    pub fn still_casting(&mut self, now: LocalTime) -> bool {
+        if !self.casting {
+            self.cast_seen = None;
+            return false;
+        }
+        let seen = *self.cast_seen.get_or_insert(now);
+        if now.0 - seen.0 > CAST_TIMEOUT {
+            self.casting = false;
+            self.cast_seen = None;
+        }
+        self.casting
+    }
+
     /// Receipt identities outlive a character session; the pending test and its result do not.
     pub fn preserve_receipt_serials_from(&mut self, previous: &Self) {
         self.research_serial = previous.research_serial;

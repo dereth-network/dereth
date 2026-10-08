@@ -169,6 +169,19 @@ impl InputEvent {
     }
 }
 
+/// The Ctrl and Alt bits of `meta_mode`, by the meta keys `keymap` names: the modifiers that make
+/// a key a different command, where Shift does not.
+#[must_use]
+pub fn command_modifiers(keymap: &MasterInputMap, meta_mode: u32) -> u32 {
+    const COMMAND_KEYS: [u16; 4] = [0x1D, 0x9D, 0x38, 0xB8];
+    let mask = keymap
+        .meta_keys
+        .iter()
+        .filter(|(control, _)| COMMAND_KEYS.contains(&control.offset()))
+        .fold(0, |m, (_, bit)| m | bit);
+    meta_mode & mask
+}
+
 /// Action callbacks and input handlers share this shape.
 /// `true` means consumed.
 pub trait ActionHandler: std::fmt::Debug {
@@ -207,6 +220,10 @@ pub struct InputManager {
     pub text: TextMode,
     /// Whether the main window has focus.
     pub has_focus: bool,
+    /// A key pressed with Ctrl or Alt held fires only a binding that names the same Ctrl and Alt:
+    /// Ctrl+C is not C. Off, a key fires the binding of the key with fewer modifiers too, as the
+    /// game's own key handling does; an interface with its own key scheme turns it on.
+    pub exact_command_modifiers: bool,
     /// Events produced by the last call, in dispatch order. A caller drains this instead of the
     /// client's synchronous action call, and [`dispatch::TextMode`] carries the
     /// ignore-next-char latch across the seam, so the Enter that opens the chat bar is still not typed into it.
@@ -288,6 +305,7 @@ impl InputManager {
             mouse: MouseState::default(),
             text: TextMode::default(),
             has_focus: true,
+            exact_command_modifiers: false,
             pending: Vec::new(),
             keystone_help_focused: false,
             cursor_over_keystone: false,
@@ -654,6 +672,11 @@ impl InputManager {
         } else {
             fire::walk_input_maps(self.maps.entries(), &qc, is_keyboard, |m| keymap.section(m))
         };
+        let hit = hit.filter(|h| {
+            !(self.exact_command_modifiers && is_keyboard)
+                || command_modifiers(keymap, qc.meta_mode)
+                    == command_modifiers(keymap, h.binding.meta_mode)
+        });
 
         // 7. A release with a live hold-family ActionState releases it.
         let releasing = ty == ControlType::Button && act & activation::UP != 0;

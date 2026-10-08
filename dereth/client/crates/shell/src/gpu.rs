@@ -1029,6 +1029,13 @@ mod imp {
             SceneRenderer::draw_overlay(self, items).map_err(crate::present::present_error)
         }
 
+        fn set_ground_markers(
+            &mut self,
+            markers: &[dereth_client_contract::overlay::GroundMarker],
+        ) {
+            SceneRenderer::set_ground_markers(self, markers);
+        }
+
         fn preview_ensure(
             &mut self,
             id: PreviewId,
@@ -1174,8 +1181,8 @@ mod imp {
         }
 
         fn preview_use_time(&mut self, id: PreviewId, dt: f64) {
-            if let Some(s) = self.preview_mut(id) {
-                s.use_time(dt);
+            if let Err(e) = SceneRenderer::preview_use_time(self, id, dt) {
+                tracing::warn!("a preview's particles could not be drawn: {e}");
             }
         }
 
@@ -1256,6 +1263,14 @@ mod imp {
             world: Option<&dereth_client_runtime::world_state::WorldState>,
         ) -> Option<dereth_ui_screens::hud::target::Projection> {
             SceneRenderer::target_projection(self, id, world)
+        }
+
+        fn target_origin(
+            &self,
+            id: dereth_primitives::ObjectId,
+            world: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<(i32, i32)> {
+            SceneRenderer::target_origin(self, id, world)
         }
 
         fn preview_queue(

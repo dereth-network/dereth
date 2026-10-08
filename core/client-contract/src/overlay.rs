@@ -119,3 +119,22 @@ pub enum OverlayItem {
     /// A preview space, drawn into `rect` (in back-buffer pixels) at this point in the order.
     Preview { space: PreviewSpace, rect: Viewport },
 }
+
+/// A picture laid on the ground under a world object and drawn with the world: on the terrain
+/// or the floor under it, hidden where something stands in front of it, and under the overlay.
+/// A front end that wants one asks for it each frame; asking for none takes it away.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GroundMarker {
+    /// The object it lies under.
+    pub object: dereth_primitives::ObjectId,
+    /// The picture, an overlay texture the front end has uploaded, and the part of it to lay
+    /// down: `[left, top, right, bottom]` in texture coordinates.
+    pub texture: OverlayTexture,
+    pub uv: [f32; 4],
+    /// The colour the picture is multiplied by, packed `0xAARRGGBB`.
+    pub tint: u32,
+    /// How wide it is, as a multiple of the radius the object is selected within.
+    pub scale: f32,
+    /// How far it is turned about the object, in radians.
+    pub turn: f32,
+}

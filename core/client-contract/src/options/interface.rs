@@ -1,5 +1,5 @@
-//! Which interface the client shows: the modern interface, or the classic one the game had before
-//! its 2005 redesign.
+//! Which interface the client shows: the modern interface, the classic one the game had before its
+//! 2005 redesign, or Horizon, the client's own.
 //!
 //! This is this client's own option, not a retail one. [`INTERFACE`] holds a value of
 //! [`Interface`]. It is registered in the option value store beside the retail options
@@ -7,7 +7,8 @@
 //! text, so any front end lists it from [`crate::options::store::choice_rows`] and writes it with
 //! [`crate::view::UiRequest::SetPreference`], as it does a retail option. The client switches live.
 //! The classic interface draws from the early-2005 portal: without those files it is refused, the
-//! current interface stays, and the client says why ([`REQUIRES_CLASSIC_FILES`]).
+//! current interface stays, and the client says why ([`REQUIRES_CLASSIC_FILES`]). Horizon draws
+//! from its own art, which the client carries, and is always there to show.
 
 use crate::view::PrefValue;
 
@@ -23,7 +24,7 @@ pub const REQUIRES_CLASSIC_FILES: &str = "The classic interface requires classic
 /// What it says when the host cannot draw the classic interface's text.
 pub const REQUIRES_FONTS: &str = "The classic interface needs the system's fonts";
 
-/// The two interfaces.
+/// The interfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Interface {
     /// The modern interface.
@@ -31,11 +32,13 @@ pub enum Interface {
     Modern,
     /// The interface before the 2005 redesign.
     Classic,
+    /// Horizon, the client's own interface.
+    Horizon,
 }
 
 impl Interface {
-    /// Both, in the order the options list them.
-    pub const ALL: [Self; 2] = [Self::Modern, Self::Classic];
+    /// Every interface, in the order the options list them.
+    pub const ALL: [Self; 3] = [Self::Modern, Self::Classic, Self::Horizon];
 
     /// The preference value.
     #[must_use]
@@ -43,6 +46,7 @@ impl Interface {
         match self {
             Self::Modern => 0,
             Self::Classic => 1,
+            Self::Horizon => 2,
         }
     }
 
@@ -51,6 +55,7 @@ impl Interface {
     pub const fn from_value(v: i32) -> Self {
         match v {
             1 => Self::Classic,
+            2 => Self::Horizon,
             _ => Self::Modern,
         }
     }
@@ -61,6 +66,7 @@ impl Interface {
         match self {
             Self::Modern => "Modern",
             Self::Classic => "Classic",
+            Self::Horizon => "Horizon",
         }
     }
 
@@ -143,10 +149,11 @@ mod tests {
             assert_eq!(parse_value("ui.interface", word), Some(0));
         }
         assert_eq!(parse_value("UI.Interface", "classic"), Some(1));
+        assert_eq!(parse_value("UI.Interface", "horizon"), Some(2));
         for word in ["Retail", "retail", " RETAIL ", "unknown"] {
             assert_eq!(parse_value("UI.Interface", word), None);
         }
-        for (word, value) in [("1", 1), ("0", 0), ("9", 0), ("-1", 0), ("+1", 1)] {
+        for (word, value) in [("1", 1), ("0", 0), ("2", 2), ("9", 0), ("-1", 0), ("+1", 1)] {
             assert_eq!(parse_value("UI.Interface", word), Some(value));
         }
         assert_eq!(parse_value("Render.Sky", "classic"), None);
@@ -159,7 +166,7 @@ mod tests {
             rows.iter()
                 .map(|r| (r.label.as_str(), r.value))
                 .collect::<Vec<_>>(),
-            [("Modern", 0), ("Classic", 1)]
+            [("Modern", 0), ("Classic", 1), ("Horizon", 2)]
         );
     }
 

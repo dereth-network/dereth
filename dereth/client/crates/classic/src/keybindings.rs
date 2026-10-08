@@ -917,7 +917,7 @@ mod tests {
     fn the_page_lists_the_rows_this_interface_acts_on_and_no_others() {
         let page = KeyBindings::new(&keys()).snapshot();
         let rows = page.bindings.iter().filter(|b| b.action != 0).count();
-        assert_eq!(rows, presentation::ROWS.len() - 18);
+        assert_eq!(rows, presentation::ROWS.len() - 19);
         assert_eq!(
             page.bindings.iter().filter(|b| b.action == 0).count(),
             presentation::CATEGORIES.len(),

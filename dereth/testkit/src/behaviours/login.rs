@@ -375,6 +375,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "logout.quit.an-exit-before-the-world-stops-the-client-at-once",
+        says: "Leaving the game through an interface's own Exit before any character is in the \
+               world stops the client on that frame, with nothing sent: there is no character to \
+               log off and no settings to save.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-QUIT-NOSAVE"),
+        station: "dereth-testkit::dat::login::scenario_an_exit_before_the_world_stops_at_once_and_sends_nothing",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "logout.quit.an-exit-from-the-world-saves-the-characters-settings-before-the-client-stops",
+        says: "Leaving the game through an interface's own Exit while a character is in the world \
+               first sends the character's settings and window layout to the server, then logs \
+               the character off, and only then does the client stop: a change made since the \
+               last save is kept for the next login.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-QUIT-SAVE"),
+        station: "dereth-testkit::dat::login::scenario_a_front_ends_own_exit_from_the_world_saves_the_settings_then_logs_off",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops",
         says: "Leaving the game from the world ends the character's session with the server \
                before the client stops, so the account is not left logged in until the server's \

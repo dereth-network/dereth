@@ -1,0 +1,61 @@
+[package]
+name = "dereth-horizon"
+description = "The Horizon interface: the client's third interface, beside the modern and the classic one, drawn from its own art."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
+# under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+dereth-client-contract.workspace = true
+dereth-client-runtime.workspace = true
+dereth-client-model.workspace = true
+dereth-dat.workspace = true
+# The string tables the option labels and the game's messages are read from.
+dereth-assets.workspace = true
+dereth-input.workspace = true
+# Character creation's model, and the rules its skill classes come from.
+dereth-chargen.workspace = true
+dereth-rules.workspace = true
+# The game's presentation rules shared by every interface: the creation model's camera.
+dereth-presentation.workspace = true
+# The creation model's animation, read for its length.
+dereth-animation.workspace = true
+# The game's item, spell and effect icons, decoded as the scene decodes them.
+dereth-scene.workspace = true
+# The game's text: its string tables' variables and its chat text tags.
+dereth-ui.workspace = true
+# The game's words and rules the retail screens keep free of their widgets.
+dereth-ui-screens.workspace = true
+tracing.workspace = true
+# The player's own clock on the HUD, in the browser too.
+web-time.workspace = true
+# The interface's own pieces: their manifest and their atlases.
+png.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+dereth-client-runtime = { workspace = true, features = ["test-support"] }
+dereth-client-model = { workspace = true, features = ["test-support"] }
+dereth-dat = { workspace = true, features = ["test-support"] }
+# The animation records a real install holds, for the idle a model stands in.
+dereth-world-data.workspace = true
+# The server's messages, built for the tests.
+dereth-protocol.workspace = true
+
+[lints]
+workspace = true
+
+# The interface's behaviour, driven frame by frame with no art, no device and no server.
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"

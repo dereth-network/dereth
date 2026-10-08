@@ -205,6 +205,14 @@ pub const GATES: &[Gate] = &[
         crates: &["dereth-classic-ui", "dereth-classic-dat"],
         harnesses: &[],
     },
+    Gate {
+        name: "horizon",
+        title: "The Horizon interface",
+        // The Horizon interface's dat tests read the retail dats for the game's own item pictures;
+        // none of them holds a device or reads an art overlay.
+        crates: &["dereth-horizon"],
+        harnesses: &[],
+    },
 ];
 
 fn find(name: &str) -> Option<&'static Gate> {
@@ -295,7 +303,8 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         | "dereth-chargen"
         | "dereth-headless"
         | "dereth-classic-ui"
-        | "dereth-classic-dat" => &["retail-dats"],
+        | "dereth-classic-dat"
+        | "dereth-horizon" => &["retail-dats"],
         _ => &[],
     }
 }
@@ -684,7 +693,7 @@ mod tests {
     /// The gate catalogue is what this unit measured.
     #[test]
     fn the_gate_catalogue_is_what_this_unit_measured() {
-        assert_eq!(GATES.len(), 17, "seventeen areas");
+        assert_eq!(GATES.len(), 18, "eighteen areas");
         let harnesses: usize = GATES.iter().map(|g| g.harnesses.len()).sum();
         assert_eq!(harnesses, 0, "every oracle is a crate's own test tier");
         let retail_harnesses: Vec<&str> = GATES

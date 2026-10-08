@@ -295,7 +295,7 @@ mod tests {
             .iter()
             .filter(|r| r.not_used(Interface::Classic).is_some())
             .collect();
-        assert_eq!(unused.len(), 18);
+        assert_eq!(unused.len(), 19);
         for r in unused {
             assert!(
                 !defaults.contains(&(r.map.0, r.action().0)),

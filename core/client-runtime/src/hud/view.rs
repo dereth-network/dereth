@@ -1580,6 +1580,10 @@ impl GameView for HudView<'_> {
     }
 
     /// Whether the item's target-use flags permit using it on the player.
+    fn useability(&self, object: ObjectId) -> Option<u32> {
+        self.world.weenie(object)?.pwd.useability
+    }
+
     fn item_useable_self_target(&self, item: ObjectId) -> bool {
         let Some(w) = self.world.weenie(item) else {
             return false;

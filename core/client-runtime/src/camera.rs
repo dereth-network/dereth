@@ -1811,6 +1811,24 @@ pub struct CameraControl {
     /// heading; only the press edge that arrives through [`Self::apply_input`] sees the previous
     /// frame's, and it is followed by a repeat on the very next frame.
     player_heading: Option<f32>,
+    /// The orbit camera an interface may use in place of this one, kept apart from it.
+    pub orbit: crate::orbit::OrbitCamera,
+    /// Whether the orbit camera is the one in use.
+    pub orbit_active: bool,
+    /// How far short of where it was set the orbit camera is shown standing because something
+    /// behind it is in the way: taken at once when the way closes, let out gently when it opens.
+    pub orbit_shortfall: f32,
+    /// How far from where physics has the player the body is drawn this frame; the orbit camera
+    /// follows the body where it is drawn.
+    pub drawn_offset: Vec3,
+    /// How far, in degrees clockwise, the body is drawn turned from the way physics has it facing
+    /// this frame; the orbit camera turns with the body as it is drawn.
+    pub drawn_turn: f32,
+    /// The player's own turning carries the orbit camera round with them (character-based
+    /// movement, the turning keys held and no mouse button).
+    pub orbit_turns_with_player: bool,
+    /// The way the body was drawn facing last frame, while the orbit camera is in use.
+    orbit_last_heading: Option<f32>,
 }
 
 /// Counters for the log line and for the tests. Rebuild-only.
@@ -1861,6 +1879,13 @@ impl CameraControl {
             attached: false,
             applied_input: CameraInput::default(),
             player_heading: None,
+            orbit: crate::orbit::OrbitCamera::default(),
+            orbit_active: false,
+            orbit_shortfall: 0.0,
+            drawn_offset: Vec3::ZERO,
+            drawn_turn: 0.0,
+            orbit_turns_with_player: false,
+            orbit_last_heading: None,
         }
     }
 
@@ -1966,6 +1991,13 @@ impl CameraControl {
     /// the mouse-input filter's 0.25 s one-pole smoother, the `sensitivity / 15` scale, the invert that
     /// negates **both** axes and the six-frame per-axis dead zone.
     pub fn mouse_look(&mut self, dx: i32, dy: i32, now: LocalTime) {
+        // The orbit camera takes the pointer as it comes: no filter, no dead zone, and the body is
+        // not turned by it.
+        if self.orbit_active {
+            #[allow(clippy::cast_precision_loss)]
+            self.orbit.rotate(dx as f32, dy as f32);
+            return;
+        }
         let in_head = CameraState::in_head(&self.manager);
         let r = self.mouse_look.handle(dx, dy, &self.prefs, in_head, now);
         let t = self.tick(now.0);
@@ -1998,6 +2030,25 @@ impl CameraControl {
         now: f64,
     ) {
         use crate::actions::camera::CameraCommand as C;
+        if let C::FrontView(on) = cmd {
+            self.orbit.front_view = on;
+            return;
+        }
+        // The orbit camera answers the wheel's zoom and leaves the game camera's modes alone; the
+        // look keys turn it from the held-key latch in [`Self::update`].
+        if self.orbit_active {
+            match cmd {
+                C::Closer { .. } => self.orbit.start_zoom(true),
+                C::Farther { .. } => self.orbit.start_zoom(false),
+                C::StopCloser | C::StopFarther => self.orbit.stop_zoom(),
+                C::ToggleMouseLook(on) | C::AlternateMode { on } => {
+                    self.mouse_look.toggle(on);
+                    self.set.mouselook_active = self.mouse_look.active;
+                }
+                _ => {}
+            }
+            return;
+        }
         let t = self.tick(now);
         let cm = &mut self.manager;
         match cmd {
@@ -2029,7 +2080,7 @@ impl CameraControl {
                 }
                 self.set.mouselook_active = self.mouse_look.active;
             }
-            C::NotHandled => {}
+            C::FrontView(_) | C::NotHandled => {}
         }
     }
 
@@ -2110,6 +2161,11 @@ impl CameraControl {
         player_physics_updated: bool,
     ) {
         self.frame_rate.push(dt);
+        if self.orbit_active {
+            self.update_orbit(world, player_handle, input, dt);
+            return;
+        }
+        self.orbit_last_heading = None;
         // **Gameplay applies the 1.1 scale every frame, and it is the camera's pitch.**
         //
         // Client simulation runs UI-element simulation before the camera update and applies
@@ -2162,7 +2218,119 @@ impl CameraControl {
         // `update_viewer`. So the sought position a tick produces is swept **in that same
         // frame**, not the next one; with the sweep above the smoother the camera would move
         // one frame *after* every tick and the shimmer would remain, only shifted.
-        self.update_viewer(world, player_handle, &pivot);
+        let offset = self.manager.pivot_offset;
+        self.update_viewer(world, player_handle, &pivot, offset);
+        self.update_translucency(&pivot);
+    }
+
+    /// One frame of the orbit camera: placed behind the player the first time, turned by the look
+    /// keys held, set at its distance looking at the player, and brought in by the same swept
+    /// sphere the game's camera uses, so it stops at walls and floors. The game camera's own state
+    /// is not touched.
+    fn update_orbit(
+        &mut self,
+        world: &mut dereth_physics::PhysicsWorld,
+        player_handle: dereth_physics::PhysHandle,
+        input: CameraInput,
+        dt: f64,
+    ) {
+        let Some(pivot) = pivot_state(world, player_handle) else {
+            return;
+        };
+        let heading = pmath::get_heading(&pivot.position.frame);
+        self.player_heading = Some(heading);
+        // The way the body is drawn facing, which between ticks is not quite the way physics has
+        // it: followed rather than the ticks' own, the camera turns with it every frame.
+        let heading = (heading + self.drawn_turn).rem_euclid(360.0);
+        if !self.orbit.placed {
+            self.orbit.place_behind(heading);
+        }
+        if self.orbit_turns_with_player {
+            if let Some(last) = self.orbit_last_heading {
+                self.orbit
+                    .turn_with_player((heading - last + 540.0).rem_euclid(360.0) - 180.0);
+            }
+        }
+        self.orbit_last_heading = Some(heading);
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = dt as f32;
+        self.orbit.turn_held(
+            input.look_left,
+            input.look_right,
+            input.look_up,
+            input.look_down,
+            dt,
+        );
+        // The game turning the player toward something brings the camera round behind them,
+        // but not against the player's own turning of it this frame.
+        if self.orbit.follow_behind && !(input.look_left || input.look_right) {
+            self.orbit.ease_behind(heading, dt);
+            // A turn of the game's is often over in a moment (a turn to face what is fought):
+            // the camera goes on round once it ends, until it is directly behind, as it does
+            // after a turn of the player's.
+            self.orbit.settling_behind = true;
+        } else {
+            // A turn of the player's own: the camera goes on round behind them until it is there.
+            self.orbit.settle_behind(heading, dt);
+        }
+        self.orbit.step_zoom(dt);
+        // The held-key latch is kept current, so going back to the game camera starts from the
+        // keys as they are.
+        self.applied_input = input;
+        if !self.attached {
+            self.attach(&pivot);
+        }
+        // The body where it is drawn, which between ticks is not quite where physics has it.
+        let o = pivot.position.frame.origin;
+        let feet = Vec3::new(
+            o.x + self.drawn_offset.x,
+            o.y + self.drawn_offset.y,
+            o.z + self.drawn_offset.z,
+        );
+        let at = self.orbit.raised_pivot(feet);
+        self.orbit.ease(at, dt);
+        let eye = self.orbit.shown_eye(at);
+        self.sought = Position::new(pivot.position.cell, eye);
+        // The eye is swept out from the body where it is drawn, not where physics last put it:
+        // where a sweep against a slope or a wall stops would otherwise step with the ticks.
+        let mut drawn = pivot;
+        drawn.position.frame.origin = feet;
+        self.update_viewer(
+            world,
+            player_handle,
+            &drawn,
+            Vec3::new(0.0, 0.0, crate::orbit::PIVOT_HEIGHT),
+        );
+        // What stands in the way pulls the eye in along its line at once; when the way clears
+        // it is let out over a moment rather than in one frame.
+        let look_from = Position::new(pivot.position.cell, Frame::new(at, eye.rotation));
+        let swept = pmath::distance(&look_from, &self.viewer);
+        let sought = pmath::distance(&look_from, &self.sought);
+        let short = (sought - swept).max(0.0);
+        self.orbit_shortfall = crate::orbit::eased_shortfall(self.orbit_shortfall, short, dt);
+        if self.orbit_shortfall > short + 1e-4 && swept > 1e-4 {
+            let v = pmath::pos_localtoglobal(&look_from, &self.viewer, Vec3::ZERO);
+            let keep = ((sought - self.orbit_shortfall) / swept).clamp(0.0, 1.0);
+            let origin = Vec3::new(
+                at.x + (v.x - at.x) * keep,
+                at.y + (v.y - at.y) * keep,
+                at.z + (v.z - at.z) * keep,
+            );
+            // The eye held in is swept to as well, so its cell is the one it stands in. The cell
+            // the longer sweep ended in can lie past an opening behind the eye, and the world
+            // drawn from there shows nothing in front of it.
+            let full = self.sought;
+            self.sought = Position::new(pivot.position.cell, Frame::new(origin, eye.rotation));
+            self.update_viewer(
+                world,
+                player_handle,
+                &drawn,
+                Vec3::new(0.0, 0.0, crate::orbit::PIVOT_HEIGHT),
+            );
+            self.sought = full;
+        }
+        // The sweep brings the eye in along its line to the player; it still looks the same way.
+        self.viewer.frame.rotation = eye.rotation;
         self.update_translucency(&pivot);
     }
 
@@ -2196,6 +2364,7 @@ impl CameraControl {
         world: &mut dereth_physics::PhysicsWorld,
         player_handle: dereth_physics::PhysHandle,
         pivot: &PivotState,
+        pivot_offset: Vec3,
     ) {
         let Some(player_cell) = world.get(player_handle).and_then(|o| o.cell) else {
             // `reenter_visibility` belongs to the physics object, and this build never leaves the cell graph;
@@ -2214,7 +2383,7 @@ impl CameraControl {
             _ => pivot.position.frame,
         };
         let mut pivot_frame = src;
-        pivot_frame.origin = pmath::localtoglobal(&src, self.manager.pivot_offset);
+        pivot_frame.origin = pmath::localtoglobal(&src, pivot_offset);
 
         // Outdoors the player's own cell is the start; indoors `AdjustPosition` picks the interior
         // cell the pivot point falls in, because the pivot is 1.5 m above the feet and may be in a

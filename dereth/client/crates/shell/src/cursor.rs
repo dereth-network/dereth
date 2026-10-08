@@ -563,6 +563,26 @@ impl CursorSystem {
         choice
     }
 
+    /// The cursor-state update for an interface with no element tree of its own: the game's
+    /// cursor it chooses is put straight on the window, each change once.
+    pub fn update_cursor_without_ui(
+        &mut self,
+        store: &dereth_dat::RetailDatStore,
+        inputs: CursorInputs,
+    ) -> CursorChoice {
+        let choice = self.update_cursor_state(store, None, inputs);
+        if let Some(did) =
+            dereth_client_runtime::assets::enum_did(store, UICURSOR_GROUP, choice.enum_value)
+        {
+            let key = (did, choice.hot.0, choice.hot.1);
+            if self.picture != Some(key) {
+                self.picture = Some(key);
+                self.install(store, did, choice.hot.0, choice.hot.1);
+            }
+        }
+        choice
+    }
+
     /// The cursor-update tail loads the image by qualified data id, then sets the cursor from the
     /// image surface and hotspot.
     ///

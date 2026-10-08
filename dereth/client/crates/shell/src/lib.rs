@@ -6,10 +6,10 @@
 //! `dereth-client-model`, `dereth-client-contract`, `dereth-client-net`, `dereth-protocol`, `dereth-rules`,
 //! `dereth-primitives`, `dereth-chargen`, `dereth-dat`, `dereth-assets`, `dereth-physics`, `dereth-animation`,
 //! `dereth-audio`, `dereth-world-data`), the drawn world (`dereth-scene`, with `dereth-render` and `dereth-world-render`),
-//! the UI crates (`dereth-ui`, `dereth-ui-screens`, `dereth-input`), and the classic interface it
+//! the UI crates (`dereth-ui`, `dereth-ui-screens`, `dereth-input`), the classic interface it
 //! runs when that is chosen (`dereth-classic-ui`, with `dereth-classic-dat` for its portal and its
-//! fonts). **Used by** the desktop
-//! client (`dereth-client`) and the browser client (`dereth-web`).
+//! fonts), and the Horizon interface it runs when that is chosen (`dereth-horizon`). **Used by** the
+//! desktop client (`dereth-client`) and the browser client (`dereth-web`).
 //!
 //! **Must never** reach a platform itself: no window system, no operating system call and no sound
 //! device (`cargo xtask seams`, `seam: application halves`). Everything platform-specific arrives

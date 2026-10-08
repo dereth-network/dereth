@@ -89,6 +89,8 @@ dereth_testkit::scenarios! {
     scenario_two_bodies_cannot_share_one_id => two_bodies_cannot_share_one_id ["login.player-identity.two-bodies-cannot-share-one-id"],
     scenario_any_front_end_tells_the_server_the_character_arrived => any_front_end_tells_the_server_the_character_arrived ["login.arrival.any-front-end-tells-the-server-the-character-arrived"],
     scenario_any_front_end_logs_the_character_off_when_it_quits => any_front_end_logs_the_character_off_when_it_quits ["logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops"],
+    scenario_a_front_ends_own_exit_from_the_world_saves_the_settings_then_logs_off => a_front_ends_own_exit_from_the_world_saves_the_settings_then_logs_off ["logout.quit.an-exit-from-the-world-saves-the-characters-settings-before-the-client-stops"],
+    scenario_an_exit_before_the_world_stops_at_once_and_sends_nothing => an_exit_before_the_world_stops_at_once_and_sends_nothing ["logout.quit.an-exit-before-the-world-stops-the-client-at-once"],
     scenario_every_front_end_follows_one_game_flow => every_front_end_follows_one_game_flow ["login.phase.every-front-end-follows-one-game-flow"],
     scenario_a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it => a_boot_ends_the_session_with_the_servers_reason_whatever_draws_it ["login.disconnect.a-boot-ends-the-session-with-the-servers-reason-whatever-draws-it"],
 }
@@ -596,6 +598,85 @@ pub fn any_front_end_logs_the_character_off_when_it_quits() {
     );
     dereth_testkit::behaviours::note_asserted(
         "logout.quit.leaving-the-game-logs-the-character-off-before-the-client-stops",
+    );
+}
+
+/// The character-options save, as an action.
+const CHARACTER_OPTIONS: u32 = 0x01A1;
+
+/// A front end's own Exit, pressed in the world after a change the client keeps until the way
+/// out: the settings go to the server, then the log-off, and the client stops a frame later.
+pub fn a_front_ends_own_exit_from_the_world_saves_the_settings_then_logs_off() {
+    let mut bare = BareLayer;
+    let mut seen = Seen::default();
+    let mut app = logged_in(&mut bare, true, &mut seen);
+    run_frames(&mut app, &mut bare, &mut seen, 2);
+    // A change the client keeps to itself until the way out, such as where a window sits, only
+    // marks the settings as changed; nothing goes to the server for it at the time.
+    let now = dereth_primitives::ServerTime(app.clock().cur_time);
+    let player = &mut app.probe_mut().objects_mut().world.player_system;
+    assert!(
+        player.module.is_some(),
+        "the recording gave the character its settings"
+    );
+    player.mark_dirty(now);
+    let before = (seen.wire.sub_types().len(), seen.wire.messages().len());
+    app.ui_context().quit_game();
+    let running = run_frames(&mut app, &mut bare, &mut seen, 10);
+    let actions_after = seen.wire.sub_types()[before.0..].to_vec();
+    let messages_after = seen.wire.messages()[before.1..].to_vec();
+    let saved_at_logout = app.probe().player_modules_saved_at_logout();
+    app.shutdown(&mut bare);
+    assert!(!running, "the client stops after the Exit");
+    assert!(
+        actions_after.contains(&CHARACTER_OPTIONS) && saved_at_logout == 1,
+        "the settings went out on the way out: {actions_after:04X?}, saved {saved_at_logout}"
+    );
+    assert!(
+        messages_after.contains(&LOG_OFF),
+        "the character's log-off went out before the client stopped: {messages_after:08X?}"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "logout.quit.an-exit-from-the-world-saves-the-characters-settings-before-the-client-stops",
+    );
+}
+
+/// A front end's own Exit at character select: no character to log off, no settings to save, and
+/// the client stops on that frame.
+pub fn an_exit_before_the_world_stops_at_once_and_sends_nothing() {
+    use dereth_client_net::client_session::SessionState;
+
+    let mut bare = BareLayer;
+    let mut seen = Seen::default();
+    let mut app = brought_up(&mut bare, true);
+    let records = recording(FIRST_LOGIN);
+    app.attach_replay_network(endpoint(&records, "seam"))
+        .expect("a fresh client has no link");
+    for r in records.iter().filter(|r| !r.c2s) {
+        let now = LocalTime(app.clock().local_time);
+        let net = app.replay_network_mut().expect("the endpoint is attached");
+        net.feed(&r.raw, r.peer(), now);
+        assert!(app.frame(&mut bare), "the client stopped during the log-in");
+        seen.observe(&mut app);
+        let net = app.replay_network_mut().expect("the endpoint is attached");
+        if net.session_state() == SessionState::CharacterSelect {
+            break;
+        }
+    }
+    let before = (seen.wire.sub_types().len(), seen.wire.messages().len());
+    app.ui_context().quit_game();
+    let running = app.frame(&mut bare);
+    seen.observe(&mut app);
+    let actions_after = seen.wire.sub_types()[before.0..].to_vec();
+    let messages_after = seen.wire.messages()[before.1..].to_vec();
+    app.shutdown(&mut bare);
+    assert!(!running, "the client stops on the frame of the Exit");
+    assert!(
+        !actions_after.contains(&CHARACTER_OPTIONS) && !messages_after.contains(&LOG_OFF),
+        "nothing of a log-off went out: {actions_after:04X?} {messages_after:08X?}"
+    );
+    dereth_testkit::behaviours::note_asserted(
+        "logout.quit.an-exit-before-the-world-stops-the-client-at-once",
     );
 }
 

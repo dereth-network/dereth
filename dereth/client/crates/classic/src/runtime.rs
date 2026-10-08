@@ -1080,7 +1080,7 @@ impl ClassicUi {
             }
             HostAction::Quit => {
                 self.quit_requested = true;
-                cx.quit();
+                cx.quit_game();
             }
             HostAction::VendorSellAll => ask(cx, UiRequest::VendorSellAll),
             HostAction::CloseGroundForced => {

@@ -221,6 +221,46 @@ pub enum CharacterError {
     Land(#[from] LandSourceError),
 }
 
+/// The furthest one physics tick carries a body that is still drawn between ticks; a longer step
+/// (a portal, a teleport) is drawn where it lands at once.
+pub const DRAWN_STEP_LIMIT: f32 = 4.0;
+
+/// The sharpest turn, in degrees, one physics tick makes of a body that is still drawn turning
+/// between ticks; a sharper one (the server setting its heading) is drawn where it lands at once.
+pub const DRAWN_TURN_LIMIT: f32 = 45.0;
+
+/// The time the drawn body's spring takes to settle onto its way between ticks, in seconds: short
+/// against a tick (a thirtieth of a second), long enough to spread a double step over a few frames.
+pub const DRAWN_SPRING_SECONDS: f32 = 0.05;
+
+/// The body as it is drawn between ticks: the place physics had it when last stepped, the offset
+/// from that place it is drawn at, and how fast that offset is changing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DrawnBody {
+    at: Position,
+    offset: Vec3,
+    speed: Vec3,
+}
+
+/// The body's turn as it is drawn between ticks: the heading physics had it at when last turned,
+/// in degrees, the turn from that heading it is drawn at, and how fast that turn is changing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DrawnTurn {
+    at: f32,
+    offset: f32,
+    speed: f32,
+}
+
+/// One frame of `dt` seconds of the drawn body's critically damped spring: `x` from where it is
+/// drawn to where it is going, `v` how fast it is closing, both after the frame. No overshoot, at
+/// any frame rate.
+fn drawn_spring(x: f32, v: f32, dt: f32) -> (f32, f32) {
+    let w = 2.0 / DRAWN_SPRING_SECONDS;
+    let e = dereth_primitives::num::math::expf(-w * dt);
+    let t = (v + w * x) * dt;
+    ((x + t) * e, (v - w * t) * e)
+}
+
 /// Which of the character's controls are held this frame.
 ///
 /// **This is written only by the input seam.** Latching it straight out of the raw host key
@@ -1140,6 +1180,23 @@ pub struct Character {
     /// camera pivots on that body and its swept sphere runs through [`Self::world`], sharing
     /// the same physics simulation the body walks in.
     pub camera: crate::camera::CameraControl,
+    /// Whether the body is drawn moving smoothly between physics ticks rather than standing
+    /// still between them: an interface whose camera eases every frame asks for it, because
+    /// against a camera that moves between ticks a body that does not stutters at the tick rate.
+    /// The game's own camera moves only on ticks, so it leaves this off and the body is drawn
+    /// where physics has it, as the game draws it.
+    pub drawn_between_ticks: bool,
+    /// The body's place at its last two physics ticks and the time of each, for drawing it
+    /// between them; and the time the frame being drawn is at.
+    ticks: [Option<(Position, f64)>; 2],
+    frame_time: f64,
+    /// Where the body is drawn, as an offset from where physics has it, and how fast that point
+    /// moves: it follows the way between ticks on a short spring, so a tick that carries the body
+    /// twice as far does not show as a lurch. `None` while it is not drawn between ticks.
+    drawn: Option<DrawnBody>,
+    /// The same for the way it is drawn facing: it follows its turn between ticks on the same
+    /// spring. `None` while it is not drawn turning between ticks.
+    turning: Option<DrawnTurn>,
     /// Whether the last [`Self::update`] raised
     /// [`dereth_physics::PhysicsNotice::PlayerPhysicsUpdated`] — that is, whether
     /// the physics-update gate opened and the object it stepped was the player.
@@ -1415,6 +1472,11 @@ impl Character {
             land: Arc::clone(&land),
             camera: crate::camera::CameraControl::new(PLAYER_OBJECT_ID),
             player_physics_updated: false,
+            drawn_between_ticks: false,
+            ticks: [None, None],
+            frame_time: 0.0,
+            drawn: None,
+            turning: None,
             collision_scripts: Vec::new(),
             restriction_effects: Vec::new(),
             input: CharacterInput::default(),
@@ -1873,6 +1935,14 @@ impl Character {
         )
     }
 
+    /// Face `degrees` (clockwise from north) at once: the orbit camera's camera-based movement
+    /// turning the player to run where the camera looks.
+    pub fn face_heading(&mut self, degrees: f32) {
+        if let Some(o) = self.world.get_mut(self.handle) {
+            o.set_heading(degrees);
+        }
+    }
+
     /// The position expressed in the renderer's **viewer-block-relative** space — the same space
     /// landscape rendering uses, whose origin is the south-west
     /// corner of the block the scene was built around.
@@ -2066,6 +2136,13 @@ impl Character {
             }
         }
         self.player_physics_updated = player_updated;
+        let dt = (now.0 - self.frame_time).max(0.0);
+        self.frame_time = now.0;
+        if ticked {
+            self.ticks = [self.ticks[1], Some((self.position(), now.0))];
+        }
+        self.step_drawn(dt);
+        self.step_drawn_turn(dt);
 
         // **The part placement is not here.** `WorldScene::update` runs
         // `place_local_body()` immediately after `recenter()`, with the same driver state and
@@ -2112,6 +2189,8 @@ impl Character {
     /// running it every frame
     /// makes the drawn body slide against the drawn camera between physics ticks.
     pub fn update_camera(&mut self, input: crate::camera::CameraInput, now: LocalTime, dt: f64) {
+        self.camera.drawn_offset = self.drawn_offset();
+        self.camera.drawn_turn = self.drawn_turn();
         self.camera.update(
             &mut self.world,
             self.handle,
@@ -2173,8 +2252,201 @@ impl Character {
     /// that has not chosen a block has nothing to pass and does not compile. The token is
     /// otherwise unused — it is a proof, not a parameter.
     pub fn place_parts(&self, _space: RenderSpace) {
-        let world_frame = self.render_frame();
+        let mut world_frame = self.render_frame();
+        let offset = self.drawn_offset();
+        world_frame.origin = Vec3::new(
+            world_frame.origin.x + offset.x,
+            world_frame.origin.y + offset.y,
+            world_frame.origin.z + offset.z,
+        );
+        let turn = self.drawn_turn();
+        if turn != 0.0 {
+            let heading = dereth_primitives::frame::get_heading(&world_frame);
+            dereth_primitives::frame::set_heading(&mut world_frame, heading + turn);
+        }
         self.driver.borrow_mut().update_parts(&world_frame);
+    }
+
+    /// Move the drawn body one frame of `dt` seconds along its spring toward its way between
+    /// ticks ([`Self::way_offset`]), first keeping it where it was drawn while physics moved the
+    /// body under it.
+    fn step_drawn(&mut self, dt: f64) {
+        let way = self.way_offset();
+        let here = self.position();
+        let Some(mut d) = self
+            .drawn
+            .filter(|_| way != Vec3::ZERO || self.at_last_tick())
+        else {
+            self.drawn = (way != Vec3::ZERO).then_some(DrawnBody {
+                at: here,
+                offset: way,
+                speed: Vec3::ZERO,
+            });
+            return;
+        };
+        // Physics moved the body; the drawn point stays where it was in the world.
+        let (a, b) = (
+            self.render_frame_of(d.at).origin,
+            self.render_frame_of(here).origin,
+        );
+        let moved = Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z);
+        if moved.magnitude() > DRAWN_STEP_LIMIT {
+            self.drawn = None;
+            return;
+        }
+        d.offset = Vec3::new(
+            d.offset.x - moved.x,
+            d.offset.y - moved.y,
+            d.offset.z - moved.z,
+        );
+        d.at = here;
+        // A critically damped spring onto the way: no overshoot, at any frame rate.
+        #[allow(clippy::cast_possible_truncation)]
+        // LINT-OK: one frame's seconds, a small number.
+        let dt = dt as f32;
+        let (x, vx) = drawn_spring(d.offset.x - way.x, d.speed.x, dt);
+        let (y, vy) = drawn_spring(d.offset.y - way.y, d.speed.y, dt);
+        let (z, vz) = drawn_spring(d.offset.z - way.z, d.speed.z, dt);
+        d.offset = Vec3::new(way.x + x, way.y + y, way.z + z);
+        d.speed = Vec3::new(vx, vy, vz);
+        self.drawn = Some(d);
+    }
+
+    /// Whether the body stands where its last tick left it: nothing but a tick has moved it.
+    fn at_last_tick(&self) -> bool {
+        let here = self.position();
+        self.ticks[1].is_some_and(|(last, _)| {
+            here.cell == last.cell && here.frame.origin == last.frame.origin
+        })
+    }
+
+    /// How far from where physics has it the body is drawn this frame, when it is drawn between
+    /// ticks ([`Self::drawn_between_ticks`]): its way between ticks ([`Self::way_offset`]) taken
+    /// on a short spring, so that a tick carrying it further than the others is spread over a
+    /// few frames.
+    #[must_use]
+    pub fn drawn_offset(&self) -> Vec3 {
+        if self.way_offset() == Vec3::ZERO && !self.at_last_tick() {
+            return Vec3::ZERO;
+        }
+        self.drawn.map_or_else(|| self.way_offset(), |d| d.offset)
+    }
+
+    /// The body's way between ticks: back along its way from the last tick toward the
+    /// one before, by the share of a tick still to run, so that it is drawn a tick behind and
+    /// moving every frame. Nothing when it is not drawn between ticks, before two ticks, when
+    /// something other than a tick has moved it since the last one (the server placing it; a turn
+    /// alone is not a move), or
+    /// when the last tick carried it further than a step (a portal, a teleport).
+    #[must_use]
+    pub fn way_offset(&self) -> Vec3 {
+        let [Some((before, t0)), Some((last, t1))] = self.ticks else {
+            return Vec3::ZERO;
+        };
+        // Only a change of place counts as something other than a tick moving it: the body
+        // turned between ticks (to face where the camera looks) is still drawn on its way.
+        let here = self.position();
+        if !self.drawn_between_ticks
+            || here.cell != last.cell
+            || here.frame.origin != last.frame.origin
+            || t1 <= t0
+        {
+            return Vec3::ZERO;
+        }
+        let (a, b) = (
+            self.render_frame_of(before).origin,
+            self.render_frame_of(last).origin,
+        );
+        let back = Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z);
+        if back.magnitude() > DRAWN_STEP_LIMIT {
+            return Vec3::ZERO;
+        }
+        let to_run = self.tick_left(t0, t1);
+        Vec3::new(back.x * to_run, back.y * to_run, back.z * to_run)
+    }
+
+    /// The share of the tick from `t0` to `t1` the frame being drawn still has to run.
+    fn tick_left(&self, t0: f64, t1: f64) -> f32 {
+        #[allow(clippy::cast_possible_truncation)]
+        // LINT-OK: a share of one tick, between zero and one.
+        let to_run = (1.0 - ((self.frame_time - t1) / (t1 - t0)).clamp(0.0, 1.0)) as f32;
+        to_run
+    }
+
+    /// How far, in degrees clockwise, the body is drawn turned from the way physics has it facing
+    /// this frame, when it is drawn between ticks: its turn between ticks ([`Self::way_turn`])
+    /// taken on the drawn body's spring, so that a tick turning it further than the others is
+    /// spread over a few frames.
+    #[must_use]
+    pub fn drawn_turn(&self) -> f32 {
+        if self.way_turn() == 0.0 && !self.turned_by_last_tick() {
+            return 0.0;
+        }
+        self.turning.map_or_else(|| self.way_turn(), |d| d.offset)
+    }
+
+    /// Whether the body faces the way its last tick left it, standing where it left it: nothing
+    /// but a tick has turned or moved it.
+    fn turned_by_last_tick(&self) -> bool {
+        let here = self.position();
+        self.at_last_tick()
+            && self.ticks[1].is_some_and(|(last, _)| here.frame.rotation == last.frame.rotation)
+    }
+
+    /// Turn the drawn body one frame of `dt` seconds along its spring toward its turn between
+    /// ticks ([`Self::way_turn`]), first keeping it facing the way it was drawn while physics
+    /// turned the body under it.
+    fn step_drawn_turn(&mut self, dt: f64) {
+        let way = self.way_turn();
+        let here = dereth_primitives::frame::get_heading(&self.position().frame);
+        let Some(mut d) = self
+            .turning
+            .filter(|_| way != 0.0 || self.turned_by_last_tick())
+        else {
+            self.turning = (way != 0.0).then_some(DrawnTurn {
+                at: here,
+                offset: way,
+                speed: 0.0,
+            });
+            return;
+        };
+        // Physics turned the body; the drawn body keeps facing the way it did.
+        let turned = (here - d.at + 540.0).rem_euclid(360.0) - 180.0;
+        if turned.abs() > DRAWN_TURN_LIMIT {
+            self.turning = None;
+            return;
+        }
+        d.offset -= turned;
+        d.at = here;
+        #[allow(clippy::cast_possible_truncation)]
+        // LINT-OK: one frame's seconds, a small number.
+        let (x, v) = drawn_spring(d.offset - way, d.speed, dt as f32);
+        d.offset = way + x;
+        d.speed = v;
+        self.turning = Some(d);
+    }
+
+    /// The body's turn between ticks, in degrees clockwise: back along its turn from the last tick
+    /// toward the one before, by the share of a tick still to run, so that a body the game turns
+    /// is drawn turning every frame, a tick behind, as it is drawn moving. Nothing when it is not
+    /// drawn between ticks, before two ticks, when something other than a tick has turned or
+    /// moved it since the last one (facing it where the camera looks), or when the last tick
+    /// turned it further than [`DRAWN_TURN_LIMIT`].
+    #[must_use]
+    pub fn way_turn(&self) -> f32 {
+        let [Some((before, t0)), Some((last, t1))] = self.ticks else {
+            return 0.0;
+        };
+        if !self.drawn_between_ticks || !self.turned_by_last_tick() || t1 <= t0 {
+            return 0.0;
+        }
+        let heading = dereth_primitives::frame::get_heading;
+        let back =
+            (heading(&before.frame) - heading(&last.frame) + 540.0).rem_euclid(360.0) - 180.0;
+        if back.abs() > DRAWN_TURN_LIMIT {
+            return 0.0;
+        }
+        back * self.tick_left(t0, t1)
     }
 
     /// A `Position` expressed in the renderer's viewer-block-relative space. [`Self::render_frame`]

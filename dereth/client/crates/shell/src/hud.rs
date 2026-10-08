@@ -27,6 +27,11 @@ pub struct Hud {
     pub classic: dereth_classic_ui::runtime::ClassicHudPanels,
     /// Whether the classic interface is the one shown.
     pub classic_active: bool,
+    /// The Horizon interface's receivers, which take the model's offers while it is the interface
+    /// shown.
+    pub horizon: dereth_horizon::runtime::HorizonHudPanels,
+    /// Whether the Horizon interface is the one shown.
+    pub horizon_active: bool,
 }
 
 impl Default for Hud {
@@ -38,6 +43,8 @@ impl Default for Hud {
             panels: RemainingPanels::default(),
             classic: Default::default(),
             classic_active: false,
+            horizon: Default::default(),
+            horizon_active: false,
         }
     }
 }
@@ -92,6 +99,8 @@ impl HudSlot for Hud {
     fn split(&mut self) -> (&mut dereth_client_runtime::hud::Hud, &mut dyn HudPanels) {
         if self.classic_active {
             (&mut self.model, &mut self.classic)
+        } else if self.horizon_active {
+            (&mut self.model, &mut self.horizon)
         } else {
             (&mut self.model, &mut self.panels)
         }

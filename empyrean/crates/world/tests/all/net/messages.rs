@@ -843,7 +843,7 @@ fn character_list_serializes_deletion_times_and_server_options() {
             id: 0x5000_0002,
             name: "Bbb".into(),
             is_deleted: false,
-            delete_time: 999_000,
+            delete_time: 1_003_600,
             ..Default::default()
         },
     ];
@@ -858,8 +858,8 @@ fn character_list_serializes_deletion_times_and_server_options() {
     want += "02000050";
     want += "0300426262" /* "Bbb" */;
     want += "000000" /* 2 + 3 = 5, pad 3 */;
-    // (uint)Math.Max(1, 1_000_000 - 999_000) = 1000
-    want += &hex(&1000_u32.to_le_bytes());
+    // V444: the seconds left, 1_003_600 - 1_000_000
+    want += &hex(&3600_u32.to_le_bytes());
     want += "00000000" /* 0u */;
     want += "0B000000" /* slot count: max_chars_per_account, ACE's default 11 */;
     want += "0400616363740000" /* "acct" */;
@@ -881,6 +881,36 @@ fn character_list_serializes_deletion_times_and_server_options() {
         "03002B4161000000",
         "+Aa, padded to 4"
     );
+}
+
+/// A character pending deletion is listed in `Login_LoginCharacterSet` (`0xF658`) with the
+/// seconds left until it is deleted, at least 1 while the deletion is pending; a character not
+/// pending deletion is listed with 0.
+/// Divergence: V444
+#[test]
+fn character_list_sends_the_seconds_left_until_a_pending_deletion() {
+    let w = world(); // unix time 1_000_000
+    let ses = SessionData {
+        account: Some("acct".into()),
+        ..Default::default()
+    };
+    let listed = |delete_time: u64| -> u32 {
+        let characters = vec![CharacterSummary {
+            id: 0x5000_0001,
+            name: "Aa".into(),
+            delete_time,
+            ..Default::default()
+        }];
+        let m = game_message_character_list::game_message_character_list(&w, &characters, &ses);
+        let d = hex(&m.data);
+        // opcode, 0u, count, id, "Aa" (4 bytes): the seconds follow at byte 20.
+        u32::from_str_radix(&d[40..48], 16).unwrap().swap_bytes()
+    };
+    assert_eq!(listed(0), 0, "not pending deletion");
+    assert_eq!(listed(1_003_600), 3600, "an hour left");
+    assert_eq!(listed(1_000_090), 90, "a minute and a half left");
+    assert_eq!(listed(1_000_000), 1, "due now, not yet purged");
+    assert_eq!(listed(999_000), 1, "past due, not yet purged");
 }
 
 /// `Login_LoginCharacterSet` (`0xF658`) ends with the era's Throne of Destiny flag: 1 on the end

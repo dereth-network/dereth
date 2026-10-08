@@ -1855,6 +1855,41 @@ impl SceneDraw {
     /// Project a target's selection sphere for `VividTargetIndicator`.
     /// This uses the setup selection sphere, not a part's drawing sphere or the
     /// selected-part visibility latch. The default-view setup deliberately ignores portals.
+    /// Where `id`'s own origin stands on screen, raised to the height of its selection sphere's
+    /// centre, in pixels: the point over the object that does not move as it turns, as the
+    /// centre of [`Self::target_projection`]'s rectangle does wherever the sphere sits off the
+    /// origin. `None` behind the camera or for an object not in the world.
+    #[must_use]
+    pub fn target_origin(
+        &self,
+        ws: &WorldState,
+        id: ObjectId,
+        viewport: (u32, u32),
+    ) -> Option<(i32, i32)> {
+        use dereth_physics::math::localtoglobal;
+        let object = ws.objects.get(&id)?;
+        let driver = object.sim.driver.borrow();
+        let parts = &driver.part_array;
+        let height = parts
+            .setup
+            .as_ref()
+            .map_or(0.1, |s| s.selection_sphere.center.z * parts.scale.z);
+        let view = self.view_params(ws, viewport.0, viewport.1);
+        let eye = self.eye_transform(ws, &view);
+        let matrix = dereth_render::camera::projection(&view) * view.view;
+        let p = localtoglobal(&object.frame, Vec3::new(0.0, 0.0, height));
+        let q = matrix * glam::Vec4::new(p.x, p.z, p.y, 1.0);
+        if q.w < 0.0002 {
+            return None;
+        }
+        let x = (q.x / q.w) * eye.width * 0.5 + eye.width * 0.5;
+        let y = eye.height * 0.5 - (q.y / q.w) * eye.height * 0.5;
+        Some((
+            dereth_primitives::num::to_i32_f64(f64::from(x)),
+            dereth_primitives::num::to_i32_f64(f64::from(y)),
+        ))
+    }
+
     #[must_use]
     pub fn target_projection(
         &self,

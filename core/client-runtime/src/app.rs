@@ -657,6 +657,13 @@ pub struct App<S: Shell> {
     pub movement: crate::character::MovementCommands,
     /// Right button held: the cursor drives the look direction.
     pub mouse_look: bool,
+    /// The orbit camera an interface asked for in place of the game's own, with its movement
+    /// scheme and pointer directions; `None` is the game's camera.
+    pub orbit: Option<crate::orbit::OrbitSettings>,
+    /// The movement keys and mouse buttons as the orbit camera's movement reads them.
+    pub orbit_keys: crate::orbit::MovementKeys,
+    /// What the orbit camera's mouse buttons asked of the game since the last dispatch.
+    pub orbit_pending: Vec<dereth_client_contract::actions::Action>,
     /// When the cursor last moved under mouse look, for the input poll's 0.2 s idle tick.
     last_mouse_move: f64,
     pub last_cursor: Option<(f64, f64)>,
@@ -743,6 +750,9 @@ pub struct App<S: Shell> {
     /// `None` is a build with no landscape at all (`--no-world`, the char-gen and intro slices);
     /// there is nothing to rebuild and the teardown is a no-op.
     pub scene_config: Option<crate::scene::SceneConfig>,
+    /// The world drawn behind the screens before the player is in it, while one is: the block it
+    /// was built around and the camera it was built with. See [`App::show_backdrop`].
+    backdrop: Option<(u16, crate::camera::FreeCamera)>,
     /// What the landblock line last printed, so a crossing is logged once rather than
     /// every frame. Not the block alone; see [`ViewerBlockReport`].
     last_viewer_block: Option<ViewerBlockReport>,
@@ -981,6 +991,9 @@ struct FrameDuties {
     hud_synced: bool,
     /// The game-screen answer the screen size last followed; `None` before the first.
     gameplay_followed: Option<bool>,
+    /// Whether the interface the screen size last followed keeps the login size before the
+    /// world; `None` before the first.
+    login_size_followed: Option<bool>,
     /// [`App::start_preferences`] has run.
     preferences_started: bool,
     /// [`App::portal_space_use_time`] ran this frame.

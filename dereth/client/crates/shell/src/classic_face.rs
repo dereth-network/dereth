@@ -1,13 +1,15 @@
-//! The classic interface in the modern interface's place, when the player chooses it.
+//! The classic interface in the modern interface's place, when the player chooses it, and the
+//! choice of interface itself.
 //!
 //! The client shows one interface at a time, chosen by the `UI.Interface` option, and switches on
 //! the frame after the choice changes, in the world or out of it. The classic interface draws from
 //! the early-2005 portal (the world's own on a world of that era, else the older portal attached
-//! beside a later world) and the host's system fonts: without either it is refused, the retail
-//! interface stays, and the chat says why.
+//! beside a later world) and the host's system fonts; the Horizon interface draws from its own art,
+//! which the client carries. An interface that cannot be shown is refused, the one shown stays,
+//! and the chat says why.
 //!
 //! A switch keeps the game: the character, the selection, the world and everything the server has
-//! said are the game's and both interfaces read them. Each interface keeps its own windows; the
+//! said are the game's and every interface reads them. Each interface keeps its own windows; the
 //! chat history the player has seen is handed to the interface switched to.
 
 use dereth_classic_ui::runtime::ClassicUi;
@@ -27,7 +29,7 @@ pub(crate) struct ClassicFace {
     seen: Option<Interface>,
     /// The chat lines the game delivered lately, kept for the interface switched to.
     history: VecDeque<dereth_client_contract::chat::interface::ChatMessage>,
-    /// The lines delivered while the classic interface was shown, which the retail one missed.
+    /// The lines delivered while another interface was shown, which the modern one missed.
     missed: Vec<dereth_client_contract::chat::interface::ChatMessage>,
 }
 
@@ -49,7 +51,7 @@ impl Refusal {
         match self {
             Self::Files => interface::REQUIRES_CLASSIC_FILES.into(),
             Self::Fonts => interface::REQUIRES_FONTS.into(),
-            Self::Failed(why) => format!("The classic interface could not start: {why}"),
+            Self::Failed(why) => format!("The interface could not start: {why}"),
         }
     }
 }
@@ -73,14 +75,19 @@ impl ClassicFace {
         }
     }
 
-    /// Keep a copy of the chat lines the chat windows were handed, each once.
-    pub fn remember(&mut self, lines: &[dereth_client_contract::chat::interface::ChatMessage]) {
+    /// Keep a copy of the chat lines the chat windows were handed, each once; `modern_shown` is
+    /// whether the modern interface is the one they were handed to.
+    pub fn remember(
+        &mut self,
+        lines: &[dereth_client_contract::chat::interface::ChatMessage],
+        modern_shown: bool,
+    ) {
         for line in lines {
             if self.history.len() == HISTORY {
                 self.history.pop_front();
             }
             self.history.push_back(line.clone());
-            if self.active && self.missed.len() < HISTORY {
+            if !modern_shown && self.missed.len() < HISTORY {
                 self.missed.push(line.clone());
             }
         }
@@ -94,7 +101,7 @@ impl ClassicFace {
         }
     }
 
-    /// The lines the modern interface missed while the classic one was shown.
+    /// The lines the modern interface missed while another was shown.
     pub fn take_missed(&mut self) -> Vec<dereth_client_contract::chat::interface::ChatMessage> {
         std::mem::take(&mut self.missed)
     }
@@ -116,14 +123,16 @@ impl ClassicFace {
         Some(want)
     }
 
-    /// The choice is put back to the modern interface, as a refused choice is.
-    pub fn refused(&mut self) {
+    /// The choice is put back to `shown`, the interface still shown, as a refused choice is.
+    pub fn refused(&mut self, shown: Interface) {
         dereth_client_contract::options::store::set_value(
             interface::INTERFACE,
-            PrefValue::Int(Interface::Modern.value()),
+            PrefValue::Int(shown.value()),
         );
-        self.seen = Some(Interface::Modern);
-        self.active = false;
+        self.seen = Some(shown);
+        if shown != Interface::Classic {
+            self.active = false;
+        }
     }
 }
 
@@ -143,10 +152,46 @@ mod tests {
             PrefValue::Int(Interface::Classic.value()),
         );
         assert_eq!(face.changed_choice(), Some(Interface::Classic));
-        face.refused();
+        face.refused(Interface::Modern);
         assert_eq!(Interface::chosen(), Interface::Modern);
         assert_eq!(face.changed_choice(), None);
         assert!(face.active_mut().is_none());
+    }
+
+    /// Behaviour: none (experimental Horizon interface)
+    #[test]
+    fn a_refused_horizon_choice_goes_back_to_the_interface_still_shown() {
+        dereth_client_contract::options::store::init();
+        let mut face = ClassicFace::default();
+        let _ = face.changed_choice();
+        dereth_client_contract::options::store::set_value(
+            interface::INTERFACE,
+            PrefValue::Int(Interface::Horizon.value()),
+        );
+        assert_eq!(face.changed_choice(), Some(Interface::Horizon));
+        face.refused(Interface::Classic);
+        assert_eq!(Interface::chosen(), Interface::Classic);
+        assert_eq!(face.changed_choice(), None);
+    }
+
+    /// Behaviour: none (experimental Horizon interface)
+    #[test]
+    fn lines_the_modern_interface_did_not_see_are_kept_for_it() {
+        let mut face = ClassicFace::default();
+        let line = |n: usize| dereth_client_contract::chat::interface::ChatMessage {
+            body: format!("line {n}"),
+            ..Default::default()
+        };
+        face.remember(&[line(0)], true);
+        face.remember(&[line(1)], false);
+        assert_eq!(
+            face.take_missed()
+                .iter()
+                .map(|m| m.body.as_str())
+                .collect::<Vec<_>>(),
+            ["line 1"]
+        );
+        assert_eq!(face.history().count(), 2);
     }
 
     /// Behaviour: presentation.interface.a-switch-follows-the-choice-and-a-refused-one-goes-back
@@ -158,7 +203,7 @@ mod tests {
             ..Default::default()
         };
         let lines: Vec<_> = (0..HISTORY + 5).map(line).collect();
-        face.remember(&lines);
+        face.remember(&lines, true);
         assert_eq!(face.history().count(), HISTORY);
         assert_eq!(
             face.history().next().map(|m| m.body.as_str()),

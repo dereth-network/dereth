@@ -178,7 +178,7 @@ fn the_eight_drop_downs_carry_thirty_two_entries_between_them() {
     }
     assert_eq!(
         p.menu_entries,
-        32 + 8 + 3 + 2,
+        32 + 8 + 3 + 3,
         "the page's own counter agrees with the twelve list boxes"
     );
     assert_eq!(
@@ -523,8 +523,9 @@ fn with_no_preference_registry_no_drop_down_has_an_entry() {
         "all 29 controls are still bound"
     );
     // This client's three era rows and its interface row ask the option value store, not this
-    // registry, so they keep their literal entries (four, four, three and two).
-    assert_eq!(p.menu_entries, 13, "and not one retail drop-down has a row");
+    // registry, so they keep their literal entries (four, four, three, and the three
+    // interfaces).
+    assert_eq!(p.menu_entries, 14, "and not one retail drop-down has a row");
     assert_eq!(
         p.menu_popups, 12,
         "…while all twelve popups exist: make_popup does not ask the registry"

@@ -135,6 +135,55 @@ fn real_targeted_cast_announces_dynamic_spell_name_as_warning_and_unknown_stays_
     assert!(!requests.0.is_empty());
 }
 
+/// Behaviour: none (what an interface reads to know a spell is being cast).
+#[test]
+fn a_spell_cast_is_being_cast_until_the_action_is_acknowledged() {
+    let mut world = World::new();
+    let mut requests = crate::RecordingRequests::default();
+    world.player = Some(ObjectId(1));
+    world.free_hands_and_cast(&mut requests, 1, None);
+    assert!(world.magic.casting, "asked for, not yet answered");
+    assert!(!requests.0.is_empty());
+    world.use_done(0);
+    assert!(!world.magic.casting, "answered");
+}
+
+/// Behaviour: none (what an interface reads to know a spell is being cast).
+#[test]
+fn a_cast_never_acknowledged_is_over_a_little_after_the_longest_cast() {
+    use dereth_primitives::LocalTime;
+    let mut world = World::new();
+    let mut requests = crate::RecordingRequests::default();
+    world.free_hands_and_cast(&mut requests, 1, None);
+    let start = 100.0;
+    assert!(world.magic.still_casting(LocalTime(start)));
+    assert!(
+        world.magic.still_casting(LocalTime(start + 11.6)),
+        "held through the longest cast"
+    );
+    assert!(
+        world
+            .magic
+            .still_casting(LocalTime(start + CAST_TIMEOUT - 0.01)),
+        "held until just before the timeout"
+    );
+    assert!(
+        !world
+            .magic
+            .still_casting(LocalTime(start + CAST_TIMEOUT + 0.01)),
+        "over just after it"
+    );
+    assert!(!world.magic.casting);
+    // A cast asked for while the last is still unanswered is timed from when it is first seen.
+    world.free_hands_and_cast(&mut requests, 1, None);
+    assert!(world.magic.still_casting(LocalTime(start + 50.0)));
+    world.free_hands_and_cast(&mut requests, 1, None);
+    assert!(world.magic.still_casting(LocalTime(start + 60.0)));
+    assert!(world
+        .magic
+        .still_casting(LocalTime(start + 60.0 + CAST_TIMEOUT - 0.01)));
+}
+
 /// Oracle: the client's scarab table, including the fact that 0x6F maps to 0.
 #[test]
 fn scarab_power_levels_match_the_documented_table() {

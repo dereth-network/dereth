@@ -76,12 +76,67 @@ pub mod why {
         look on or off; this interface has no such mode.";
     pub const STRETCH_UI: &str = "It turns the classic interface's stretched layout on or off; \
         this interface has no such layout.";
+    pub const HORIZON_ONLY: &str = "Only the Horizon interface answers it.";
     pub const AUTO_CREATE_SHORTCUTS: &str = "Only the classic interface makes a shortcut of an \
         item used.";
     pub const CANCEL: &str = "Escape is this interface's own cancel key, and it is not bound.";
     pub const REPEAT_MESSAGE: &str = "This interface's chat entry brings back earlier lines with \
         the Up and Down arrows.";
 }
+
+/// The actions with no place in the Horizon interface, which its key page leaves out: the camera
+/// views and the alternate camera its own camera has no use for, the windows and panels it does
+/// not have or opens from elsewhere, the other interfaces' own switches, and the keys it does
+/// without (holding a sidestep, switching the chat line, making a shortcut, ending the session).
+/// The alternate camera's own map and the character options are left out whole.
+pub const HORIZON_HIDDEN: &[&str] = &[
+    "MovementHoldSidestep",
+    "CameraActivateAlternateMode",
+    "ToggleFellowshipPanel",
+    "ToggleSpellManagementPanel",
+    "ToggleSpellComponentsPanel",
+    "ToggleSkillManagementPanel",
+    "ToggleAttributesPanel",
+    "ToggleSkillsPanel",
+    "ToggleWorldPanel",
+    "ToggleHousePanel",
+    "ToggleCharacterOptionsPanel",
+    "ToggleConfigOptionsPanel",
+    "ToggleKeyboardPanel",
+    "ToggleFriendsPanel",
+    "ToggleCharacterTitlePanel",
+    "ToggleContractsPanel",
+    "ToggleChatEntry",
+    "CreateShortcut",
+    "LOGOUT",
+    "CameraViewDefault",
+    "CameraViewFirstPerson",
+    "CameraViewLookDown",
+    "CameraViewMapMode",
+    "ToggleAbusePanel",
+    "TogglePositiveEffectsPanel",
+    "ToggleNegativeEffectsPanel",
+    "ToggleLinkStatusPanel",
+    "ToggleUrgentAssistancePanel",
+    "TogglePageListPanel",
+    "ToggleRadarPanel",
+    "ToggleFloatingChatWindow1",
+    "ToggleFloatingChatWindow2",
+    "ToggleFloatingChatWindow3",
+    "ToggleFloatingChatWindow4",
+    "ToggleHelp",
+    "TogglePluginManager",
+    "TogglePerformancePanel",
+    "ToggleTradePanel",
+    "ToggleSpellResearchPanel",
+    "ToggleInvertMouseLook",
+    "ToggleRightClickMouseLook",
+    "ToggleStretchUI",
+    "PlayerOption_SideBySideVitals",
+    "PlayerOption_AutoCreateShortcuts",
+    "Cancel",
+    "RepeatLastMessage",
+];
 
 /// One row of both key pages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +177,10 @@ impl Row {
     #[must_use]
     pub fn shown(&self, interface: Interface) -> bool {
         self.not_used(interface).is_none()
+            && !(interface == Interface::Horizon
+                && (HORIZON_HIDDEN.contains(&self.action_name)
+                    || self.map == map::CAMERA_ALTERNATE
+                    || self.group == Group::CharacterOptions))
             && !(interface == Interface::Modern
                 && matches!(
                     self.action_name,
@@ -131,17 +190,51 @@ impl Row {
                         | "ToggleTradePanel"
                         | "ToggleSpellResearchPanel"
                         | "MovementHoldSidestep"
+                        | "LookAtFront"
                 ))
+    }
+
+    /// The row's caption in `interface`: the Horizon interface names a few actions by what they do
+    /// there.
+    #[must_use]
+    pub fn label_in(&self, interface: Interface) -> &'static str {
+        match (interface, self.action_name) {
+            (Interface::Horizon, "MovementWalkMode") => "Toggle Walk/Run",
+            _ => self.label,
+        }
     }
 
     /// Why the row does nothing in `interface`, when it does nothing there.
     #[must_use]
     pub const fn not_used(&self, interface: Interface) -> Option<&'static str> {
         match interface {
-            Interface::Modern => self.modern_not_used,
+            Interface::Modern | Interface::Horizon => self.modern_not_used,
             Interface::Classic => self.classic_not_used,
         }
     }
+}
+
+/// The rows only the Horizon interface's page lists: its shortcut bar's tenth to twelfth slots, which
+/// the game binds to 0, `-` and `=` and its own pages do not list.
+#[rustfmt::skip]
+pub const HORIZON_ROWS: &[Row] = &[
+    row(M::QUICKSLOTS, "UseQuickSlot_10", G::Shortcuts, C::PERMANENT, "Use Shortcut 10"),
+    row(M::QUICKSLOTS, "UseQuickSlot_11", G::Shortcuts, C::PERMANENT, "Use Shortcut 11"),
+    row(M::QUICKSLOTS, "UseQuickSlot_12", G::Shortcuts, C::PERMANENT, "Use Shortcut 12"),
+];
+
+/// The Horizon interface's page, in order: the rows it shows, with its own after the ninth shortcut.
+pub fn horizon_page_rows() -> impl Iterator<Item = &'static Row> {
+    ROWS.iter()
+        .filter(|r| r.shown(Interface::Horizon))
+        .flat_map(|r| {
+            let after: &'static [Row] = if r.action_name == "UseQuickSlot_9" {
+                HORIZON_ROWS
+            } else {
+                &[]
+            };
+            std::iter::once(r).chain(after)
+        })
 }
 
 /// The row of `action` in `map`, when both pages list it.
@@ -529,6 +622,7 @@ pub const ROWS: &[Row] = &[
     row(M::OWN, "TogglePerformancePanel", G::Other, C::MISCELLANEOUS, "Performance Panel"),
     row_not_used(M::OWN, "Cancel", G::Other, C::PERMANENT, "Cancel / Options Panel", Some(Why::CANCEL), None),
     row_not_used(M::OWN, "RepeatLastMessage", G::Chat, C::PERMANENT, "Repeat Message (in chat box)", Some(Why::REPEAT_MESSAGE), None),
+    row_not_used(M::OWN, "LookAtFront", G::Camera, C::CAMERA, "Look At Your Front", None, Some(Why::HORIZON_ONLY)),
 ];
 
 #[cfg(test)]
@@ -536,6 +630,68 @@ mod tests {
     //! Behaviour: none (the table's own consistency; the shipped action map is checked against it
     //! in the dat tier).
     use super::*;
+
+    #[test]
+    fn the_horizon_page_leaves_out_what_its_interface_has_no_place_for_and_only_that() {
+        let shown = |name: &str, i| {
+            ROWS.iter()
+                .filter(|r| r.action_name == name)
+                .any(|r| r.shown(i))
+        };
+        assert!(!shown("CameraViewFirstPerson", Interface::Horizon));
+        assert!(shown("CameraViewFirstPerson", Interface::Modern));
+        assert!(shown("CameraMoveToward", Interface::Horizon));
+        for name in HORIZON_HIDDEN {
+            assert!(
+                ROWS.iter().any(|r| r.action_name == *name),
+                "{name} is a row"
+            );
+        }
+    }
+
+    #[test]
+    fn the_horizon_page_leaves_out_the_alternate_camera_the_character_options_and_the_dropped_keys()
+    {
+        let shown = |i| {
+            ROWS.iter()
+                .filter(|r| r.shown(i))
+                .map(|r| (r.map, r.action_name))
+                .collect::<Vec<_>>()
+        };
+        let (horizon, modern) = (shown(Interface::Horizon), shown(Interface::Modern));
+        assert!(!horizon.iter().any(|(m, _)| *m == map::CAMERA_ALTERNATE));
+        assert!(modern.iter().any(|(m, _)| *m == map::CAMERA_ALTERNATE));
+        assert!(!horizon.iter().any(|(m, _)| *m == map::CHARACTER_OPTIONS));
+        for name in [
+            "MovementHoldSidestep",
+            "CameraActivateAlternateMode",
+            "ToggleFriendsPanel",
+            "ToggleChatEntry",
+            "CreateShortcut",
+            "LOGOUT",
+        ] {
+            assert!(!horizon.iter().any(|(_, n)| *n == name), "{name}");
+        }
+        assert!(horizon.contains(&(map::CAMERA, "CameraMoveToward")));
+        assert!(horizon.contains(&(map::CHAT, "EnterChatMode")));
+        // The shortcut bar's last three slots: on the Horizon page only, after the ninth.
+        let page: Vec<&str> = horizon_page_rows().map(|r| r.action_name).collect();
+        let ninth = page.iter().position(|n| *n == "UseQuickSlot_9").unwrap();
+        assert_eq!(
+            page[ninth + 1..ninth + 4],
+            ["UseQuickSlot_10", "UseQuickSlot_11", "UseQuickSlot_12"]
+        );
+        for r in HORIZON_ROWS {
+            let _ = r.action();
+            assert!(!ROWS.iter().any(|x| x.action_name == r.action_name));
+        }
+        let walk = ROWS
+            .iter()
+            .find(|r| r.action_name == "MovementWalkMode")
+            .unwrap();
+        assert_eq!(walk.label_in(Interface::Horizon), "Toggle Walk/Run");
+        assert_eq!(walk.label_in(Interface::Modern), "Hold Run");
+    }
 
     #[test]
     fn every_row_names_a_known_action_once_in_its_map() {
@@ -550,7 +706,7 @@ mod tests {
             assert!(r.category < CATEGORIES.len(), "{}", r.action_name);
             assert!(!r.label.is_empty(), "{}", r.action_name);
         }
-        assert_eq!(ROWS.len(), 308);
+        assert_eq!(ROWS.len(), 309);
     }
 
     #[test]
@@ -575,8 +731,8 @@ mod tests {
             .filter(|r| r.not_used(Interface::Classic).is_some())
             .count();
         // The alternate camera mode and its ten keys, the four floating chat windows, the plugin
-        // manager, the compass and side-by-side vitals.
-        assert_eq!(classic, 18);
+        // manager, the compass and side-by-side vitals, and the Horizon interface's front view.
+        assert_eq!(classic, 19);
         assert!(ROWS
             .iter()
             .all(|r| r.not_used(Interface::Modern).is_none()

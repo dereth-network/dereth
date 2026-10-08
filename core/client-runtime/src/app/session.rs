@@ -289,6 +289,25 @@ impl<S: Shell> App<S> {
         }
     }
 
+    /// Leave the game. With a character in the world it logs off first, as the game's own quit
+    /// does: the player module goes to the server ahead of the departure, and the loop ends at
+    /// the next frame's UI step, once that frame's packet step has carried both out. A dead
+    /// server costs that one frame and no more. Anywhere else the device is done at once.
+    pub fn quit_game(&mut self) {
+        use dereth_client_net::client_session::SessionState;
+        let in_world = !self.duties.leaving_world
+            && self
+                .link
+                .as_ref()
+                .is_some_and(|link| link.net.session.state() == SessionState::Playable);
+        if in_world {
+            self.log_off_character();
+            self.duties.quit_owed = true;
+        } else {
+            self.pump.done();
+        }
+    }
+
     /// The player system's three character calls, made on the session instead of on a singleton.
     ///
     /// Log-on is the two-step `0xF7C8` / `0xF657` exchange (`Session::enter_world` is that state

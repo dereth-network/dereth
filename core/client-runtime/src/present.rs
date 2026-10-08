@@ -325,6 +325,11 @@ pub trait Presentation: std::fmt::Debug {
     /// # Errors
     /// Whatever the device answers; the rest of the list is not drawn.
     fn draw_overlay(&mut self, items: &[OverlayItem]) -> Result<(), PresentError>;
+    /// Lay `marker` on the ground under its object for the frames until the next call; `None`
+    /// takes it away. A presentation with no world draws nothing.
+    fn set_ground_markers(&mut self, markers: &[dereth_client_contract::overlay::GroundMarker]) {
+        let _ = markers;
+    }
 
     // ---------------------------------------------------------------------------------------
     // the preview spaces -- small 3D scenes a UI draws into its overlay
@@ -468,6 +473,7 @@ pub struct NullPresentation {
     size: (u32, u32),
     texture_filtering: u32,
     counts: NullPresentationCounts,
+    ground_markers: Vec<dereth_client_contract::overlay::GroundMarker>,
 }
 
 impl NullPresentation {
@@ -478,6 +484,7 @@ impl NullPresentation {
             size: (width, height),
             texture_filtering: 0,
             counts: NullPresentationCounts::default(),
+            ground_markers: Vec::new(),
         }
     }
 
@@ -490,6 +497,12 @@ impl NullPresentation {
     /// The counters, for a front end that asks this presentation for its overlay too.
     pub fn counts_mut(&mut self) -> &mut NullPresentationCounts {
         &mut self.counts
+    }
+
+    /// The ground markers last asked for, as a world would draw them.
+    #[must_use]
+    pub fn ground_markers(&self) -> &[dereth_client_contract::overlay::GroundMarker] {
+        &self.ground_markers
     }
 }
 
@@ -556,6 +569,9 @@ impl Presentation for NullPresentation {
     fn draw_overlay(&mut self, _items: &[OverlayItem]) -> Result<(), PresentError> {
         self.counts.draw_overlay += 1;
         Ok(())
+    }
+    fn set_ground_markers(&mut self, markers: &[dereth_client_contract::overlay::GroundMarker]) {
+        self.ground_markers = markers.to_vec();
     }
 
     fn preview_ensure(

@@ -219,6 +219,7 @@ pub const CRATE_GROUPS: &[&str] = &[
 pub(crate) const NAMED_OTHERWISE: &[(&str, &str)] = &[
     ("dereth/client/crates/shell", "dereth-client-shell"),
     ("dereth/client/crates/classic", "dereth-classic-ui"),
+    ("dereth/client/crates/horizon", "dereth-horizon"),
 ];
 
 /// The directory of the workspace crate `krate` (a package name). An `empyrean-*` crate is looked

@@ -29,6 +29,7 @@ use dereth_client_runtime::shell::ControlNotice;
 use dereth_input::{ActionId, CallbackId, InputEvent, InputManager, InputMapId};
 use dereth_primitives::LocalTime;
 
+pub mod horizon_scheme;
 mod keymap_files;
 mod registrations;
 
@@ -172,6 +173,9 @@ pub struct InputShell {
     classic: Option<ClassicKeymap>,
     modern: dereth_input::MasterInputMap,
     classic_active: bool,
+    /// The Horizon interface's key map, once it is wanted, and whether it is the one in use.
+    horizon: Option<horizon_scheme::HorizonKeymap>,
+    horizon_active: bool,
     focused_maps: Vec<(u32, i32)>,
     mode_maps: Vec<u32>,
     retiring_session: bool,
@@ -209,7 +213,7 @@ impl InputShell {
     }
 
     fn modern_map(&self) -> &dereth_input::MasterInputMap {
-        if self.classic_active {
+        if self.classic_active || self.horizon_active {
             &self.modern
         } else {
             &self.manager.keymap
@@ -217,7 +221,7 @@ impl InputShell {
     }
 
     fn modern_map_mut(&mut self) -> &mut dereth_input::MasterInputMap {
-        if self.classic_active {
+        if self.classic_active || self.horizon_active {
             &mut self.modern
         } else {
             &mut self.manager.keymap
@@ -365,6 +369,8 @@ impl InputShell {
             classic: None,
             modern,
             classic_active: false,
+            horizon: None,
+            horizon_active: false,
             focused_maps: Vec::new(),
             mode_maps: Vec::new(),
             retiring_session: false,

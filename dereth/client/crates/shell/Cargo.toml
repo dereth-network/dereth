@@ -49,6 +49,8 @@ dereth-input.workspace = true
 # The classic interface, which the shell runs in the modern interface's place when it is chosen.
 dereth-classic-ui.workspace = true
 dereth-classic-dat.workspace = true
+# The Horizon interface, which the shell runs in the modern interface's place when it is chosen.
+dereth-horizon.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

@@ -1064,6 +1064,13 @@ pub trait GameView: std::fmt::Debug {
         false
     }
 
+    /// Where `object` may be used from, its useability word's source half (usable at a distance,
+    /// while viewed, from a container, wielded, on itself); `None` when the object or the word is
+    /// not known.
+    fn useability(&self, _object: ObjectId) -> Option<u32> {
+        None
+    }
+
     /// Whether the selected target is compatible with the item, queried quietly.
     ///
     /// The argument order is **target first, source second**. The game-layer compatibility query

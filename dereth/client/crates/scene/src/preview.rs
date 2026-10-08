@@ -58,6 +58,82 @@ pub const ENUM_PAPERDOLL_ANIMATION: u32 = 0x1000_0005;
 pub const ENUM_CHARGEN_ANIMATION: u32 = 0x1000_0006;
 
 // =================================================================================================
+// A preview object's body: its parts, its animation, its scripts and its particle emitters
+// =================================================================================================
+
+/// The body a preview object is: the setup's part array and animation sequence, as in the world,
+/// with the setup's default script queued on its script manager.
+///
+/// Creating an object from a setup queues that setup's default script, in a preview space as in
+/// the world, and the script is what puts an object's own particles on it: the smoke an Umbraen
+/// or Penumbraen body trails, an Empyrean's glow, an Undead's wisps. The script and the emitters
+/// it makes run through the same driver every object in the world has, so a preview model and the
+/// same body in the world show the same effects.
+///
+/// The setup's motion table is **not** started: a preview object plays only the animations its
+/// space is told to play (the setup's default animation until then), never its table's default
+/// state. `None` when the setup will not load.
+#[must_use]
+pub fn preview_body(
+    assets: std::sync::Arc<dyn dereth_animation::data::AnimAssets>,
+    setup: std::sync::Arc<dereth_animation::data::SetupData>,
+) -> Option<dereth_animation::MotionDriver> {
+    let mut body = dereth_animation::MotionDriver::new(std::sync::Arc::clone(&assets));
+    body.part_array = PartArray::create_setup(
+        std::sync::Arc::clone(&setup),
+        true,
+        &mut body.sequence,
+        &*assets,
+    )?;
+    // The setup's own default animation, queued at the client's default 30 fps. A caller that
+    // wants another one replaces it.
+    if let Some(anim) = setup.default_animation {
+        body.sequence.clear_animations();
+        body.sequence.append_animation(
+            dereth_animation::data::AnimData {
+                anim_id: anim,
+                low_frame: 0,
+                high_frame: -1,
+                framerate: 30.0,
+            },
+            &*assets,
+        );
+    }
+    body.script_table = setup.default_phs_table;
+    if let Some(script) = setup.default_script {
+        body.scripts.add_script(script, &*assets, body.cur_time);
+    }
+    // A preview object stands in its space's own cell.
+    body.env.in_cell = true;
+    Some(body)
+}
+
+/// One step of a preview object's body at `now` seconds on its space's clock, `dt` after the last:
+/// the animation advances, the parts are placed at `frame`, the hooks the animation passed run,
+/// then the scripts, the emitters and the timed hooks, in the order a placed object in the world
+/// runs them. The parts are placed before the scripts run because an emitter born on a part takes
+/// that part's frame as where its particles start. What the body raises for the world (sounds,
+/// movement) has nowhere to go in a preview and is let go.
+pub fn step_preview_body(
+    body: &mut dereth_animation::MotionDriver,
+    frame: &dereth_primitives::Frame,
+    dt: f64,
+    now: f64,
+) {
+    use dereth_physics::MotionSource;
+    body.cur_time = dereth_primitives::ServerTime(now);
+    // No root motion: a preview object does not walk anywhere.
+    let _ = body.advance(dt);
+    body.update_parts(frame);
+    body.process_hooks();
+    body.update_scripts();
+    body.update_particles(true);
+    body.update_fp_hooks();
+    let _ = body.take_events();
+    let _ = body.take_effects();
+}
+
+// =================================================================================================
 // The character-generation update tail that dresses the preview model
 // =================================================================================================
 
@@ -675,10 +751,9 @@ mod imp {
     pub struct PreviewObject {
         /// The setup the object was made from.
         pub setup: DataId,
-        /// The object's part array.
-        pub part_array: PartArray,
-        /// The object's animation sequence.
-        pub sequence: Sequence,
+        /// The object's body: its part array, its animation sequence, and the scripts and
+        /// particle emitters its setup's default script starts. See [`super::preview_body`].
+        pub body: dereth_animation::MotionDriver,
         /// The preview object's frame. Adding the object places it at the cell origin;
         /// the preview heading setter turns it.
         pub frame: Frame,
@@ -704,6 +779,18 @@ mod imp {
     }
 
     impl PreviewObject {
+        /// The object's part array.
+        #[must_use]
+        pub fn part_array(&self) -> &PartArray {
+            &self.body.part_array
+        }
+
+        /// The object's animation sequence.
+        #[must_use]
+        pub fn sequence(&self) -> &Sequence {
+            &self.body.sequence
+        }
+
         /// How many of this object's parts contributed geometry, for the tests. An object whose
         /// every part refused to draw is the failure this count exists to make visible.
         #[must_use]
@@ -726,7 +813,8 @@ mod imp {
         /// changed.
         #[must_use]
         pub fn parts_with_surface_overrides(&self) -> usize {
-            self.part_array
+            self.body
+                .part_array
                 .parts
                 .iter()
                 .filter(|p| p.surface_overrides.is_some())
@@ -753,7 +841,7 @@ mod imp {
         pub fn bounding_box(&self, store: &RetailDatStore) -> dereth_physics::geom::BBox {
             use dereth_assets::Decode;
             let mut out = dereth_physics::geom::BBox::default();
-            for part in &self.part_array.parts {
+            for part in &self.body.part_array.parts {
                 // Use the graphics-object array base, `gfxobj[0]`, not `part.gfxobj_id`: on the
                 // player body that is a different, smaller mesh for 16 of 34 parts, and the
                 // identify portrait's camera is placed from this box.
@@ -805,6 +893,11 @@ mod imp {
         /// from [`Self::cache`] because the two eras hold different records under the same ids.
         look_cache: BakeCache,
         assets: Arc<dereth_world_data::anim_assets::DatAnimAssets>,
+        /// The space's own clock, in seconds since it was made: the time its objects' scripts
+        /// and emitters run on.
+        clock: f64,
+        /// One mesh per emitter graphics object its objects' emitters draw, as the world keeps.
+        particle_gfx: crate::particles::ParticleGeometry,
     }
 
     // `BakeCache` and `DatAnimAssets` are decode memos with no `Debug`, which is why this is
@@ -834,6 +927,8 @@ mod imp {
                 cache: BakeCache::default(),
                 look_cache: BakeCache::default(),
                 assets,
+                clock: 0.0,
+                particle_gfx: crate::particles::ParticleGeometry::default(),
             }
         }
 
@@ -901,31 +996,17 @@ mod imp {
             let Some(data) = self.assets.setup(setup) else {
                 return Ok(None);
             };
-            let mut sequence = Sequence::new();
-            let Some(mut part_array) =
-                PartArray::create_setup(Arc::clone(&data), true, &mut sequence, &*self.assets)
-            else {
+            // The body: the setup's parts, its default animation (a caller that wants another
+            // calls `set_sequence_animation`, which is exactly what every consumer does) and its
+            // default script, whose emitters the space draws.
+            let assets: Arc<dyn AnimAssets> = Arc::clone(&self.assets) as _;
+            let Some(mut body) = super::preview_body(assets, Arc::clone(&data)) else {
                 return Ok(None);
             };
-            // the setup's own default animation, queued
-            // at the client's default 30 fps. A caller that wants another one calls
-            // `set_sequence_animation`, which is exactly what both consumers do.
-            if let Some(anim) = data.default_animation {
-                sequence.clear_animations();
-                sequence.append_animation(
-                    AnimData {
-                        anim_id: anim,
-                        low_frame: 0,
-                        high_frame: -1,
-                        framerate: 30.0,
-                    },
-                    &*self.assets,
-                );
-            }
             // Adding an object sets placement frame 0.
-            part_array.set_placement_frame(0, &mut sequence);
+            body.part_array.set_placement_frame(0, &mut body.sequence);
             let frame = Frame::new(Vec3::ZERO, Quat::IDENTITY);
-            part_array.update_parts(&frame, &sequence);
+            body.update_parts(&frame);
 
             // The creature redress's tail, **before** the bake. A descriptor naming a part index the
             // setup does not have returns false; the client ignores that return and so does this,
@@ -933,14 +1014,16 @@ mod imp {
             // `…_with(&*self.assets)`: there is no `MotionDriver` here — the preview
             // owns the part array directly — so the asset source is passed by hand, and it is the
             // same one `create_setup` above was given.
-            let dressed = objdesc
-                .map(|od| part_array.do_obj_desc_changes_from_default_with(od, &*self.assets));
+            let dressed = objdesc.map(|od| {
+                body.part_array
+                    .do_obj_desc_changes_from_default_with(od, &*self.assets)
+            });
 
-            let (meshes, built_from) = self.build_part_meshes(store, gpu, &part_array, look)?;
+            let (meshes, built_from) =
+                self.build_part_meshes(store, gpu, &body.part_array, look)?;
             self.objects.push(PreviewObject {
                 setup,
-                part_array,
-                sequence,
+                body,
                 frame,
                 meshes,
                 built_from,
@@ -1003,9 +1086,9 @@ mod imp {
                 return false;
             };
             if clear {
-                o.sequence.clear();
+                o.body.sequence.clear();
             }
-            o.sequence.append_animation(
+            o.body.sequence.append_animation(
                 AnimData {
                     anim_id: anim,
                     low_frame,
@@ -1014,7 +1097,7 @@ mod imp {
                 },
                 &*self.assets,
             );
-            o.sequence.has_anims()
+            o.body.sequence.has_anims()
         }
 
         /// Whether the object's sequence currently has animations.
@@ -1025,13 +1108,15 @@ mod imp {
         /// is not playing anything" -- which fires once for the same reason.
         #[must_use]
         pub fn has_anims(&self, i: usize) -> bool {
-            self.objects.get(i).is_some_and(|o| o.sequence.has_anims())
+            self.objects
+                .get(i)
+                .is_some_and(|o| o.body.sequence.has_anims())
         }
 
         /// Clear the object's queued sequence animations.
         pub fn clear_sequence_anims(&mut self, i: usize) {
             if let Some(o) = self.objects.get_mut(i) {
-                o.sequence.clear_animations();
+                o.body.sequence.clear_animations();
             }
         }
 
@@ -1048,7 +1133,7 @@ mod imp {
             // exit window relies on.
             self.objects
                 .get(i)
-                .map_or(0, |o| o.sequence.curr_frame_number() as u32)
+                .map_or(0, |o| o.body.sequence.curr_frame_number() as u32)
         }
 
         /// Set the preview object's heading in degrees.
@@ -1066,9 +1151,10 @@ mod imp {
                 } else {
                     1.0
                 };
-                o.part_array
+                o.body
+                    .part_array
                     .set_scale_internal(Vec3::new(scale, scale, scale));
-                o.part_array.update_parts(&o.frame, &o.sequence);
+                o.body.update_parts(&o.frame);
             }
         }
 
@@ -1079,16 +1165,68 @@ mod imp {
         /// same wall-clock interval reaches the same frame whatever the frame rate. That is the
         /// sky-scroll bug this project fixed twice, refused a third time.
         ///
-        /// The root-motion frame argument is `None` here, which is the display-only
-        /// path: hooks fire and frames advance, but no root motion is integrated. A preview object
-        /// does not walk anywhere.
+        /// No root motion is integrated: a preview object does not walk anywhere. The hooks the
+        /// animation passes run, and so do the object's scripts and its particle emitters, on the
+        /// space's own clock ([`super::step_preview_body`]).
         pub fn use_time(&mut self, dt: f64) {
-            let mut hooks = Vec::new();
+            self.clock += dt;
             for o in &mut self.objects {
-                o.sequence.update(dt, None, &mut hooks);
-                hooks.clear();
-                o.part_array.update_parts(&o.frame, &o.sequence);
+                super::step_preview_body(&mut o.body, &o.frame, dt, self.clock);
             }
+        }
+
+        /// How many particle emitters the space's objects have, and how many particles they are
+        /// giving off now.
+        #[must_use]
+        pub fn particle_counts(&self) -> (usize, usize) {
+            let emitters = self.objects.iter().map(|o| o.body.particles.len()).sum();
+            let live = self
+                .objects
+                .iter()
+                .flat_map(|o| o.body.particles.iter())
+                .map(|e| e.live().count())
+                .sum();
+            (emitters, live)
+        }
+
+        /// Give every emitter the space's objects have a mesh, as the world does for its own:
+        /// one per emitter graphics object, built once. Needs the device, so it is called outside
+        /// the frame bracket, beside [`Self::use_time`].
+        ///
+        /// # Errors
+        /// [`RenderError`] when a texture or a pipeline state cannot be created.
+        pub fn bring_up_particles(&mut self, gpu: &mut Gpu) -> Result<(), RenderError> {
+            let mut wanted: Vec<DataId> = Vec::new();
+            for o in &self.objects {
+                for e in o.body.particles.iter() {
+                    let id = e.info.hw_gfxobj_id;
+                    if !self.particle_gfx.contains(id) && !wanted.contains(&id) {
+                        wanted.push(id);
+                    }
+                }
+            }
+            if wanted.is_empty() {
+                return Ok(());
+            }
+            let store = Arc::clone(self.assets.store());
+            let textures = crate::textures::TextureStore::new(&store);
+            for id in wanted {
+                let groups = dereth_client_runtime::models::build_gfxobj(&store, id);
+                let entry = if groups.is_empty() {
+                    None
+                } else {
+                    let meshes =
+                        build_meshes(&store, &mut self.cache, &textures, gpu, &groups, None, None)?;
+                    Some(crate::particles::ParticleGfx {
+                        meshes,
+                        sort_center: crate::particles::read_sort_center(&store, id),
+                        degrade: crate::particles::read_degrade(&store, id),
+                        drawing_sphere: self.cache.drawing_sphere(&store, id),
+                    })
+                };
+                self.particle_gfx.insert(id, entry);
+            }
+            Ok(())
         }
 
         /// Draw the preview space inside the viewport bracket.
@@ -1194,7 +1332,7 @@ mod imp {
             for alpha_pass in [false, true] {
                 for o in &self.objects {
                     for (i, meshes) in o.meshes.iter().enumerate() {
-                        let Some(part) = o.part_array.parts.get(i) else {
+                        let Some(part) = o.body.part_array.parts.get(i) else {
                             continue;
                         };
                         if part.no_draw() || meshes.is_empty() {
@@ -1254,6 +1392,45 @@ mod imp {
                             )?;
                         }
                     }
+                }
+            }
+            // The objects' particles, over the parts, farthest first, each through the same
+            // card draw as a particle in the world. A preview pins every level of detail to the
+            // nearest, so no particle is cut for its distance; each is lit by the space's lights.
+            let mut parts = Vec::new();
+            for o in &self.objects {
+                crate::particles::collect(&o.body.particles, Vec3::ZERO, false, &mut parts);
+            }
+            if parts.is_empty() {
+                return Ok(());
+            }
+            let globals = dereth_world_render::objects::degrade::DegradeGlobals {
+                degrades_disabled: true,
+                ..dereth_world_render::objects::degrade::DegradeGlobals::default()
+            };
+            let lights = |centre: Vec3, radius: f32, _outdoors: bool| {
+                enabled_lights(
+                    &minimize_object_lighting(&pools, centre, radius),
+                    &pools,
+                    None,
+                )
+            };
+            let mut stats = crate::particles::ParticleStats::default();
+            let ready = crate::particles::prepare(
+                &self.particle_gfx,
+                self.mode.view_frame.origin,
+                &parts,
+                &dereth_world_render::degrade_loop::DegradeLevel::default(),
+                &globals,
+                Some(&lights),
+                &mut stats,
+            );
+            for r in &ready {
+                let Some(gfx) = self.particle_gfx.get(r.gfx) else {
+                    continue;
+                };
+                for m in &gfx.meshes {
+                    crate::particles::draw_one(gpu, per_frame, r, m, true, false, &mut stats)?;
                 }
             }
             Ok(())
@@ -1385,7 +1562,44 @@ mod imp {
         /// Returns the part array of object `i` for callers that light it. The paper-doll inventory
         /// object is object 0 of the doll's space.
         pub fn part_array_mut(&mut self, i: usize) -> Option<&mut PartArray> {
-            self.objects.get_mut(i).map(|o| &mut o.part_array)
+            self.objects.get_mut(i).map(|o| &mut o.body.part_array)
         }
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    //! Behaviour: none (the preview spaces' wiring to the shared script and emitter code, this client's own)
+    use super::{preview_body, step_preview_body};
+    use dereth_animation::data::AnimAssets;
+    use dereth_primitives::{DataId, Frame};
+    use std::sync::Arc;
+
+    /// Run the body of `setup` for two seconds at 60 steps a second; how many emitters it has.
+    fn emitters_after_two_seconds(setup: u32) -> (usize, usize) {
+        let store = Arc::new(dereth_dat::testing::open_store().expect("the retail dats"));
+        let assets: Arc<dyn AnimAssets> =
+            Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(store));
+        let data = assets.setup(DataId(setup)).expect("the setup");
+        let mut body = preview_body(Arc::clone(&assets), data).expect("the body");
+        let frame = Frame::default();
+        let mut now = 0.0;
+        for _ in 0..120 {
+            now += 1.0 / 60.0;
+            step_preview_body(&mut body, &frame, 1.0 / 60.0, now);
+        }
+        let live = body.particles.iter().map(|e| e.live().count()).sum();
+        (body.particles.len(), live)
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn an_umbraen_body_in_a_preview_trails_the_smoke_its_setup_s_default_script_makes() {
+        // The Umbraen male body names a default script whose hooks create its smoke.
+        let (emitters, live) = emitters_after_two_seconds(0x0200_196F);
+        assert!(emitters > 0, "the default script made emitters");
+        assert!(live > 0, "and they are giving off particles");
+        // The human body names no default script and gives off nothing.
+        assert_eq!(emitters_after_two_seconds(0x0200_0001), (0, 0));
     }
 }

@@ -715,6 +715,13 @@ impl UiShell {
         })
     }
 
+    /// The creation tables the screens read, when they loaded: what another interface's
+    /// appearance choices read too.
+    #[must_use]
+    pub fn chargen_tables(&self) -> Option<Rc<CharGenTables>> {
+        self.chargen_tables.clone()
+    }
+
     /// The Classic presentation of this shell's already loaded creation rules.
     ///
     /// # Errors

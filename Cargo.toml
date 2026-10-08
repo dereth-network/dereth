@@ -43,6 +43,7 @@ members = [
     "dereth/client/crates/classic-dat",
     "dereth/client/crates/classic-gdi",
     "dereth/client/crates/classic-fonts",
+    "dereth/client/crates/horizon",
     "dereth/headless",
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
@@ -129,6 +130,7 @@ dereth-text = { path = "core/text" }
 dereth-transport = { path = "core/transport" }
 dereth-ui = { path = "dereth/client/crates/ui" }
 dereth-ui-screens = { path = "dereth/client/crates/ui-screens" }
+dereth-horizon = { path = "dereth/client/crates/horizon" }
 dereth-web = { path = "dereth/web" }
 dereth-web-dev = { path = "tools/web-dev" }
 dereth-web-relay = { path = "tools/web-relay" }

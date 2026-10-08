@@ -31,8 +31,11 @@ mod views;
 pub use views::*;
 #[path = "cells.rs"]
 mod cells;
+#[path = "marker.rs"]
+mod marker;
 #[path = "objects.rs"]
 mod objects;
+pub use marker::{marker_mesh, MarkerCorner, MARKER_GRID, MARKER_LIFT, MARKER_MIN_RADIUS};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};

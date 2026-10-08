@@ -239,6 +239,9 @@ impl Presentation for SimPresentation {
     ) -> Result<(), PresentError> {
         self.device.draw_overlay(items)
     }
+    fn set_ground_markers(&mut self, markers: &[dereth_client_contract::overlay::GroundMarker]) {
+        self.device.set_ground_markers(markers);
+    }
 
     fn preview_ensure(
         &mut self,
@@ -708,6 +711,122 @@ mod tests {
         assert_eq!(app.interaction.stats.combat_style_bridges, 4);
         assert_eq!(app.objects.world.combat.current_style, 0x8000_003d);
         assert_eq!(app.objects.world.combat.forward_command, 0x4500_0005);
+    }
+
+    /// Backing up through a cast, under the orbit camera (`orbit`, character-based) or the game's
+    /// own: how far the body goes while the server plays the cast's gesture for the player and
+    /// brings them back to the ready.
+    fn backed_up_through_a_cast(orbit: bool) -> f32 {
+        let store = Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let mut app = App::<NullShell>::bring_up_with_store(
+            Config {
+                headless: true,
+                frames: None,
+                connect: false,
+                sound: false,
+                dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+                ..Config::default()
+            },
+            Some(store),
+            |_| Ok(Platform::headless(64, 64)),
+            |_, _, _, _| Ok(Box::new(SimPresentation::new(64, 64))),
+        )
+        .expect("bring-up");
+        let mut shell = NullShell;
+        app.start_shell(&mut shell).expect("the shell starts");
+        app.load_static_scene(SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        })
+        .expect("the world loads");
+        if orbit {
+            app.orbit = Some(crate::orbit::OrbitSettings {
+                movement: crate::orbit::MovementMode::Character,
+                ..crate::orbit::OrbitSettings::default()
+            });
+        }
+        // The server's motion for the player in the magic stance, at `forward` (an index into
+        // the command table: 3 is Ready, 51 a cast gesture).
+        let server_motion = |app: &mut App<NullShell>, stamp: u16, forward: u16| {
+            let buf = dereth_protocol::movement::MovementBuffer {
+                movement_timestamp: stamp,
+                server_control_timestamp: stamp,
+                autonomous: false,
+                body: dereth_protocol::movement::MovementBody {
+                    movement_type: 0,
+                    motion_flags: 0,
+                    current_style: 73,
+                    interpreted: Some(dereth_protocol::movement::InterpretedMotionState {
+                        current_style: Some(73),
+                        forward_command: Some(forward),
+                        forward_speed: Some(2.0),
+                        sidestep_command: None,
+                        sidestep_speed: None,
+                        turn_command: None,
+                        turn_speed: None,
+                        actions: Vec::new(),
+                    }),
+                    sticky_object: None,
+                    unhandled: Vec::new(),
+                },
+            };
+            let objects = &app.objects;
+            app.world
+                .as_mut()
+                .expect("a world")
+                .dispatch_player_movement(&buf, objects);
+        };
+        let position = |app: &App<NullShell>| {
+            app.world
+                .as_ref()
+                .and_then(|w| w.character.as_ref())
+                .map(crate::character::Character::position)
+                .expect("a body")
+                .frame
+                .origin
+        };
+        for _ in 0..10 {
+            assert!(app.frame(&mut shell));
+        }
+        server_motion(&mut app, 2, 3);
+        for _ in 0..60 {
+            assert!(app.frame(&mut shell));
+        }
+        app.objects.world.magic.casting = true;
+        let back = names::action_for_enum_name("MovementBackup").expect("a shipped name");
+        app.inject_action(Action::begin(back));
+        for _ in 0..5 {
+            assert!(app.frame(&mut shell));
+        }
+        let start = position(&app);
+        server_motion(&mut app, 3, 51);
+        for _ in 0..14 {
+            assert!(app.frame(&mut shell));
+        }
+        server_motion(&mut app, 4, 3);
+        for _ in 0..25 {
+            assert!(app.frame(&mut shell));
+        }
+        let end = position(&app);
+        dereth_primitives::num::math::hypotf(end.x - start.x, end.y - start.y)
+    }
+
+    /// Behaviour: none (the Horizon interface's own camera, not the retail client's)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn through_a_cast_the_orbit_camera_moves_the_body_exactly_as_the_game_s_camera_does() {
+        // The server's motion for the player during a cast holds the body by the game's rule,
+        // under either camera; moving through a long cast's windup comes from that same rule.
+        let orbit = backed_up_through_a_cast(true);
+        let game = backed_up_through_a_cast(false);
+        assert!(
+            (orbit - game).abs() < 0.05,
+            "the orbit camera {orbit} m, the game's {game} m"
+        );
     }
 
     /// The whole application with no device: a headless `App` over a `SimPresentation` loads a

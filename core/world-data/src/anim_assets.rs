@@ -56,6 +56,12 @@ impl std::fmt::Debug for DatAnimAssets {
 }
 
 impl DatAnimAssets {
+    /// The files the records are read from.
+    #[must_use]
+    pub fn store(&self) -> &Arc<RetailDatStore> {
+        &self.store
+    }
+
     #[must_use]
     pub fn new(store: Arc<RetailDatStore>) -> Self {
         Self {

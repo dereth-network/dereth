@@ -130,8 +130,8 @@ fn wanted(store: &RetailDatStore, parts: &[PhysicsPart]) -> Vec<DataId> {
 /// Compare baked-from IDs and mesh triangle counts with archive-derived level-zero results.
 /// Also report the own-ID total; the separate calibration establishes a nonconstant body case.
 fn assert_draws_level_zero(store: &RetailDatStore, o: &PreviewObject, who: &str) {
-    let want = wanted(store, &o.part_array.parts);
-    let model: Vec<DataId> = o.part_array.parts.iter().map(|p| p.gfxobj_id).collect();
+    let want = wanted(store, &o.part_array().parts);
+    let model: Vec<DataId> = o.part_array().parts.iter().map(|p| p.gfxobj_id).collect();
     let wrong: Vec<usize> = (0..want.len())
         .filter(|&i| o.built_from().get(i) != want.get(i))
         .collect();
@@ -485,7 +485,7 @@ fn the_identify_portrait_bakes_gfxobj_zero_and_frames_from_level_zeros_box() {
     let expected = |pick: &dyn Fn(DataId) -> DataId| -> (Vec3, Vec3) {
         let mut lo = Vec3::ZERO;
         let mut hi = Vec3::ZERO;
-        for p in &o.part_array.parts {
+        for p in &o.part_array().parts {
             let Some((bl, bh)) = bound_box(&store, pick(p.gfxobj_id)) else {
                 continue;
             };

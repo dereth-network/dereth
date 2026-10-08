@@ -100,6 +100,9 @@ pub mod object_physics;
 pub mod object_range;
 /// The objects the server puts in the world.
 pub mod objects;
+/// The orbit camera an interface may choose in place of the game's own, and the camera-based
+/// movement that goes with it.
+pub mod orbit;
 /// `WorldObjects`'s pick, and the geometry it sweeps. `impl PickScene for WorldScene` stays in
 /// the scene crate's `pick_scene` implementation, because `WorldScene` is `dereth-scene`'s.
 pub mod pick;

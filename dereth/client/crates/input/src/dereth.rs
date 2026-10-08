@@ -99,6 +99,14 @@ pub const ACTIONS: &[DerethAction] = {
             class::INTERFACE,
             "Repeat Last Message (classic interface)",
         ),
+        DerethAction {
+            toggle: ToggleType::Hold,
+            ..one_shot(
+                a::LOOK_AT_FRONT,
+                class::INTERFACE,
+                "Look At Your Front (Horizon interface)",
+            )
+        },
     ]
 };
 

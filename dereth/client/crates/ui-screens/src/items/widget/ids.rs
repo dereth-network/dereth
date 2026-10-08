@@ -158,7 +158,7 @@ pub mod child {
 /// This module owns the **enum lookups** — the four `DidMapper` groups the two composites
 /// index and the index arithmetic for each. The blending is
 /// [`dereth_ui::region::SurfaceOp::blit_3alpha`] / [`blit_4alpha`](dereth_ui::region::SurfaceOp::blit_4alpha)
-/// and the compositing is `dereth_client_shell::ui_draw::composite`.
+/// and the compositing is [`dereth_ui::region::composite`].
 pub mod icon_background {
     /// The `DidMapper 0x25000000` group `UIIconBackgrounds`.
     pub const ITEM_TYPE_GROUP: u32 = 0x1000_0004;
@@ -234,14 +234,20 @@ pub mod icon_background {
         ui: &dereth_ui::UiSystem,
         effects: u32,
     ) -> Option<dereth_primitives::DataId> {
-        ui.env()
-            .cloned()
-            .and_then(|e| e.did_by_enum(EFFECT_GROUP, effect_index(effects)))
-            .or_else(|| {
-                ui.env()
-                    .cloned()
-                    .and_then(|e| e.did_by_enum(EFFECT_GROUP, DEFAULT_INDEX))
-            })
+        effect_surface_by(
+            &|g, v| ui.env().cloned().and_then(|e| e.did_by_enum(g, v)),
+            effects,
+        )
+    }
+
+    /// [`effect_surface`] through any enum lookup `(group, value)`: the UI system's, or the
+    /// game data's own for an interface without one.
+    #[must_use]
+    pub fn effect_surface_by(
+        lookup: &dyn Fn(u32, u32) -> Option<dereth_primitives::DataId>,
+        effects: u32,
+    ) -> Option<dereth_primitives::DataId> {
+        lookup(EFFECT_GROUP, effect_index(effects)).or_else(|| lookup(EFFECT_GROUP, DEFAULT_INDEX))
     }
 
     /// The spell bitfield's `SelfTargeted` bit.
@@ -278,30 +284,39 @@ pub fn object_recipe(
     ui: &UiSystem,
     d: &crate::view::SlotDecoration,
 ) -> dereth_ui::region::IconRecipe {
+    object_recipe_by(
+        &|g, v| ui.env().cloned().and_then(|e| e.did_by_enum(g, v)),
+        d,
+    )
+}
+
+/// [`object_recipe`] through any enum lookup `(group, value)`: the UI system's, or the game
+/// data's own for an interface without one.
+#[must_use]
+pub fn object_recipe_by(
+    lookup: &dyn Fn(u32, u32) -> Option<DataId>,
+    d: &crate::view::SlotDecoration,
+) -> dereth_ui::region::IconRecipe {
     // "Is the local player", not "is a player": the icon renderer substitutes the backpack
     // picture and TYPE_CONTAINER for the local player only. The lookup is `(0x10000004, 7)` =
     // **(value, group)** — see `icon_background::PLAYER_ICON_GROUP` for what settles the order.
     let (item_type, icon) = if d.is_player {
         (
             0x200,
-            ui.env().cloned().and_then(|e| {
-                e.did_by_enum(
-                    icon_background::PLAYER_ICON_GROUP,
-                    icon_background::ITEM_TYPE_GROUP,
-                )
-            }),
+            lookup(
+                icon_background::PLAYER_ICON_GROUP,
+                icon_background::ITEM_TYPE_GROUP,
+            ),
         )
     } else {
         (d.obj_type, (d.icon_id != 0).then_some(DataId(d.icon_id)))
     };
     dereth_ui::region::IconRecipe::Object {
-        background: ui.env().cloned().and_then(|e| {
-            e.did_by_enum(
-                icon_background::ITEM_TYPE_GROUP,
-                icon_background::enum_index(item_type),
-            )
-        }),
-        effects: icon_background::effect_surface(ui, d.effects),
+        background: lookup(
+            icon_background::ITEM_TYPE_GROUP,
+            icon_background::enum_index(item_type),
+        ),
+        effects: icon_background::effect_surface_by(lookup, d.effects),
         icon,
         overlay: d.icon_overlay_id.filter(|x| x.0 != 0),
         underlay: d.icon_underlay_id.filter(|x| x.0 != 0),
@@ -324,22 +339,31 @@ pub fn spell_recipe(
     icon: Option<DataId>,
     bitfield: u32,
 ) -> dereth_ui::region::IconRecipe {
+    spell_recipe_by(
+        &|g, v| ui.env().cloned().and_then(|e| e.did_by_enum(g, v)),
+        power,
+        icon,
+        bitfield,
+    )
+}
+
+/// [`spell_recipe`] through any enum lookup `(group, value)`: the UI system's, or the game data's
+/// own for an interface without one.
+#[must_use]
+pub fn spell_recipe_by(
+    lookup: &dyn Fn(u32, u32) -> Option<DataId>,
+    power: u32,
+    icon: Option<DataId>,
+    bitfield: u32,
+) -> dereth_ui::region::IconRecipe {
     let layers = dereth_presentation::spell::SpellIconLayers::new(power, bitfield);
     dereth_ui::region::IconRecipe::Spell {
-        background: ui
-            .env()
-            .cloned()
-            .and_then(|e| e.did_by_enum(icon_background::SPELL_BACKGROUND_GROUP, layers.power)),
+        background: lookup(icon_background::SPELL_BACKGROUND_GROUP, layers.power),
         icon: icon.filter(|x| x.0 != 0),
-        tint: ui
-            .env()
-            .cloned()
-            .and_then(|e| e.did_by_enum(icon_background::SPELL_OVERLAY_GROUP, layers.tint_key())),
-        overlay: layers.badge_key().and_then(|i| {
-            ui.env()
-                .cloned()
-                .and_then(|e| e.did_by_enum(icon_background::SPELL_OVERLAY_GROUP, i))
-        }),
+        tint: lookup(icon_background::SPELL_OVERLAY_GROUP, layers.tint_key()),
+        overlay: layers
+            .badge_key()
+            .and_then(|i| lookup(icon_background::SPELL_OVERLAY_GROUP, i)),
     }
 }
 

@@ -78,13 +78,17 @@ pub enum Shown {
 }
 
 impl Shown {
-    /// Whether the interface `face` shows the row.
+    /// Whether the interface `face` shows the row. The Horizon interface shows the modern
+    /// interface's own rows: it plays with the modern key map, mouse and chat.
     #[must_use]
     pub const fn on(self, face: Interface) -> bool {
         matches!(
             (self, face),
             (Self::Both, _)
-                | (Self::Only(Interface::Modern), Interface::Modern)
+                | (
+                    Self::Only(Interface::Modern),
+                    Interface::Modern | Interface::Horizon
+                )
                 | (Self::Only(Interface::Classic), Interface::Classic)
         )
     }

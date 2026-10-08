@@ -219,6 +219,112 @@ pub fn location_line(lx: i32, ly: i32) -> String {
     format!("Location: {:.1}{}, {:.1}{}", axis(ly), ns, axis(lx), ew)
 }
 
+/// The no-house or purchase-price row: [`NO_HOUSE`] with no data, else [`PURCHASE_PRICE`] and the
+/// composed buy list, as one row.
+#[must_use]
+pub fn buy_payment_line(data: Option<&HouseDataView>) -> String {
+    match data {
+        None => NO_HOUSE.to_owned(),
+        Some(d) => format!("{PURCHASE_PRICE}{}", d.buy_text),
+    }
+}
+
+/// `"Rent:\n"` and the composed rent list.
+#[must_use]
+pub fn rent_payment_line(data: &HouseDataView) -> String {
+    format!("{RENT}{}", data.rent_text)
+}
+
+/// `"Bought: "` and [`convert_time`] of the buy time.
+#[must_use]
+pub fn buy_time_line(data: &HouseDataView) -> String {
+    format!(
+        "{BOUGHT}{}",
+        convert_time(data.buy_time, data.utc_offset_secs[0])
+    )
+}
+
+/// The maintenance period's end, then when it is next due (the period doubled when nothing
+/// more is owed).
+#[must_use]
+pub fn rent_time_lines(data: &HouseDataView) -> [String; 2] {
+    [
+        format!(
+            "{PERIOD_ENDS}{}",
+            convert_time(data.maintenance_period_end, data.utc_offset_secs[1])
+        ),
+        format!(
+            "{NEXT_DUE}{}",
+            convert_time(data.maintenance_next_due, data.utc_offset_secs[2])
+        ),
+    ]
+}
+
+/// The rent warning while rent is owed, else the already-paid sentence, with the colour each is
+/// drawn in.
+#[must_use]
+pub fn warning_line(data: &HouseDataView) -> (String, HousePanelTextColor) {
+    if data.rent_owed {
+        (data.rent_warning.clone(), HousePanelTextColor::RentNotPaid)
+    } else {
+        (
+            MAINTENANCE_ALREADY_PAID.to_owned(),
+            HousePanelTextColor::RentPaid,
+        )
+    }
+}
+
+/// The purchase-wait line; `None` without a player description.
+#[must_use]
+pub fn purchase_time_line(
+    data: Option<&HouseDataView>,
+    purchase: HousePurchaseView,
+) -> Option<String> {
+    if !purchase.have_player_desc {
+        return None;
+    }
+    Some(if purchase.wait_expired {
+        if data.is_some() {
+            BUY_AFTER_ABANDON
+        } else {
+            BUY_IMMEDIATELY
+        }
+        .to_owned()
+    } else {
+        // `0x278D00` — thirty days on to the quality, then `localtime` and `strftime("%c")`.
+        // Not [`convert_time`]: this arm formats inline and has no `"N/A"` and no NULL check.
+        let when = crate::ctime::strftime_c(
+            i64::from(purchase.purchase_timestamp) + PURCHASE_WAIT_SECONDS,
+            purchase.utc_offset_secs,
+        );
+        format!("{BUY_LANDSCAPE_AT}{when}{APARTMENT_EXEMPTION}")
+    })
+}
+
+/// Every row of the house pane, in the client's order, with its colour: what any interface's
+/// house pane shows.
+#[must_use]
+pub fn house_lines(
+    data: Option<&HouseDataView>,
+    purchase: HousePurchaseView,
+) -> Vec<(String, HousePanelTextColor)> {
+    let normal = |s: String| (s, HousePanelTextColor::Normal);
+    let mut out = vec![normal(buy_payment_line(data))];
+    if let Some(d) = data {
+        out.push(normal(rent_payment_line(d)));
+        out.push(normal(buy_time_line(d)));
+        out.extend(rent_time_lines(d).into_iter().map(normal));
+        if let Some((lx, ly)) = d.location {
+            out.push(normal(location_line(lx, ly)));
+        }
+        out.push(warning_line(d));
+    }
+    if let Some(line) = purchase_time_line(data, purchase) {
+        out.push(normal(line));
+    }
+    out
+}
+
 /// `HousePanelTextColor` — the colour each row is given, passed through to the row text's
 /// colour argument.
 ///
@@ -376,41 +482,28 @@ impl HousePanel {
     /// guard**, which is why the houseless pane is not empty: [`NO_HOUSE`] with no data, else
     /// [`PURCHASE_PRICE`] and the composed buy list, added as one row.
     pub fn display_buy_payment(&mut self, ui: &mut UiSystem, data: Option<&HouseDataView>) {
-        let line = match data {
-            None => NO_HOUSE.to_owned(),
-            Some(d) => format!("{PURCHASE_PRICE}{}", d.buy_text),
-        };
+        let line = buy_payment_line(data);
         self.add_house_panel_text(ui, &line, HousePanelTextColor::Normal);
     }
 
     /// `"Rent:\n"` and the composed rent list.
     pub fn display_rent_payment(&mut self, ui: &mut UiSystem, data: &HouseDataView) {
-        let line = format!("{RENT}{}", data.rent_text);
+        let line = rent_payment_line(data);
         self.add_house_panel_text(ui, &line, HousePanelTextColor::Normal);
     }
 
     /// `"Bought: "` and [`convert_time`] of the buy time.
     pub fn display_buy_time(&mut self, ui: &mut UiSystem, data: &HouseDataView) {
-        let line = format!(
-            "{BOUGHT}{}",
-            convert_time(data.buy_time, data.utc_offset_secs[0])
-        );
+        let line = buy_time_line(data);
         self.add_house_panel_text(ui, &line, HousePanelTextColor::Normal);
     }
 
     /// **Two** rows, and the second one's period is
     /// doubled when nothing more is owed.
     pub fn display_rent_times(&mut self, ui: &mut UiSystem, data: &HouseDataView) {
-        let ends = format!(
-            "{PERIOD_ENDS}{}",
-            convert_time(data.maintenance_period_end, data.utc_offset_secs[1])
-        );
-        self.add_house_panel_text(ui, &ends, HousePanelTextColor::Normal);
-        let due = format!(
-            "{NEXT_DUE}{}",
-            convert_time(data.maintenance_next_due, data.utc_offset_secs[2])
-        );
-        self.add_house_panel_text(ui, &due, HousePanelTextColor::Normal);
+        for line in rent_time_lines(data) {
+            self.add_house_panel_text(ui, &line, HousePanelTextColor::Normal);
+        }
     }
 
     /// See [`location_line`]. Draws **nothing** when
@@ -428,12 +521,8 @@ impl HousePanel {
     /// Index 2 and index 1: `RentNotPaid` for the warning,
     /// `RentPaid` for the already-paid sentence.
     pub fn display_warning_text(&mut self, ui: &mut UiSystem, data: &HouseDataView) {
-        if data.rent_owed {
-            let line = data.rent_warning.clone();
-            self.add_house_panel_text(ui, &line, HousePanelTextColor::RentNotPaid);
-        } else {
-            self.add_house_panel_text(ui, MAINTENANCE_ALREADY_PAID, HousePanelTextColor::RentPaid);
-        }
+        let (line, colour) = warning_line(data);
+        self.add_house_panel_text(ui, &line, colour);
     }
 
     /// The purchase-wait line.
@@ -447,25 +536,8 @@ impl HousePanel {
         data: Option<&HouseDataView>,
         purchase: HousePurchaseView,
     ) {
-        if !purchase.have_player_desc {
+        let Some(line) = purchase_time_line(data, purchase) else {
             return;
-        }
-        let line = if purchase.wait_expired {
-            if data.is_some() {
-                BUY_AFTER_ABANDON
-            } else {
-                BUY_IMMEDIATELY
-            }
-            .to_owned()
-        } else {
-            // `0x278D00` — thirty days on to the quality, then `localtime` and
-            // `strftime("%c")`. Not [`convert_time`]: this arm formats
-            // inline and has no `"N/A"` and no NULL check.
-            let when = crate::ctime::strftime_c(
-                i64::from(purchase.purchase_timestamp) + PURCHASE_WAIT_SECONDS,
-                purchase.utc_offset_secs,
-            );
-            format!("{BUY_LANDSCAPE_AT}{when}{APARTMENT_EXEMPTION}")
         };
         self.add_house_panel_text(ui, &line, HousePanelTextColor::Normal);
     }

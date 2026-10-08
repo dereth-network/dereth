@@ -621,10 +621,12 @@ impl<S: Shell> App<S> {
             return;
         }
         let gameplay = shell.in_gameplay();
+        let keeps = shell.keeps_login_size();
+        self.duties.login_size_followed = Some(keeps);
         // `self.forced_resolution` rather than the literal `800, 600` retail pushes: see
         // [`Self::unforced_resolution`]. For every client whose presentation came from the
         // preference the two are the same number, which is the only case the force acts in.
         let (w, h) = self.forced_resolution;
-        self.force_display_resolution(shell, !gameplay, w, h);
+        self.force_display_resolution(shell, !gameplay && keeps, w, h);
     }
 }

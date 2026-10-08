@@ -565,7 +565,7 @@ fn the_preview_refuses_a_swap_naming_an_absent_gfxobj_and_bakes_the_previous_lim
     // LOD_A names itself at level zero; the kept setup part below does not, so the bake is checked
     // against the selected geometry and not the model id.
     let drawn = |o: &PreviewObject, i: u8| -> DataId {
-        o.part_array.parts[usize::from(i)]
+        o.part_array().parts[usize::from(i)]
             .gfxobj_at(0)
             .expect("level 0 draws something")
     };
@@ -588,7 +588,7 @@ fn the_preview_refuses_a_swap_naming_an_absent_gfxobj_and_bakes_the_previous_lim
         gone.0
     );
     assert_eq!(
-        o.part_array.parts[usize::from(index)].gfxobj_id,
+        o.part_array().parts[usize::from(index)].gfxobj_id,
         base[usize::from(index)],
         "the refused swap left the part's model at the setup's own id"
     );

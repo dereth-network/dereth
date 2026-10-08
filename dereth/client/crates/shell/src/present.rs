@@ -63,6 +63,12 @@ pub trait ClientPresentation: Presentation {
         world: Option<&WorldState>,
     ) -> Option<dereth_ui_screens::hud::target::Projection>;
 
+    /// Where a tracked object's own origin stands on screen, at the height of its selection
+    /// sphere's centre: the point to centre a name or a marker on.
+    fn target_origin(&self, _id: ObjectId, _world: Option<&WorldState>) -> Option<(i32, i32)> {
+        None
+    }
+
     /// Draw preview space `id` into that element's rectangle this frame. The spaces themselves
     /// are the presentation's own (`Presentation::preview_ensure` and the rest).
     fn preview_queue(&mut self, id: PreviewId, who: dereth_ui::ElemHandle, rect: Viewport);

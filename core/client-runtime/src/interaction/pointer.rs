@@ -54,6 +54,13 @@ impl Interaction {
     ///
     /// `screen` is the back buffer; the 3D viewport's rectangle comes from
     /// [`Self::note_game_viewport`].
+    /// Where the pointer is, for the next world pick, from an interface that answers presses
+    /// itself and so sends the world none: an item it drags is dropped on the world where it was
+    /// let go, and the pick that decides what it was dropped on looks there.
+    pub fn note_cursor(&mut self, position: (i32, i32)) {
+        self.cursor = position;
+    }
+
     pub fn dispatch_ui_mouse(&mut self, event: UiMouseEvent, screen: (u32, u32)) {
         self.cursor = (event.x, event.y);
         self.wrapper_mouse(event, screen, is_world_click(event.over));

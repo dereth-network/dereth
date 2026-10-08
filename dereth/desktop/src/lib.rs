@@ -8,8 +8,8 @@
 //! input's key tables (`dereth-input`), the dat locator (`dereth-dat`), the two unsafe hops
 //! (`dereth-clipboard`, `dereth-console`), and the fonts it hands the classic interface (the
 //! Windows font system through `dereth-classic-gdi`, elsewhere the carried ones of
-//! `dereth-classic-fonts`, in the atlas format of `dereth-classic-dat`). **Used by** the desktop client
-//! (`dereth-client`), and by any other desktop product built on the client shell.
+//! `dereth-classic-fonts`, in the atlas format of `dereth-classic-dat`). **Used by** the desktop
+//! client (`dereth-client`), and by any other desktop product built on the client shell.
 //!
 //! **Must never** hold a UI, a screen or a game rule: it is the platform under the application, and
 //! a product is the [`Product`] it names -- its binary, its settings folder, its window's title and

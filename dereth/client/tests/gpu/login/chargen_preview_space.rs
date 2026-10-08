@@ -462,15 +462,15 @@ fn preview_part_translucency_reaches_the_draw_and_preserves_the_panel() {
                 .expect("the character preview remains")
                 .object(0)
                 .expect("the heritage body remains");
-            let pose = object.part_array.parts.iter().map(|p| p.pos).collect();
+            let pose = object.part_array().parts.iter().map(|p| p.pos).collect();
             let materials = object
-                .part_array
+                .part_array()
                 .parts
                 .iter()
                 .filter(|p| p.material.is_some())
                 .count();
             let nodraw = object
-                .part_array
+                .part_array()
                 .parts
                 .iter()
                 .filter(|p| p.no_draw())

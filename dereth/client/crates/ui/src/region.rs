@@ -373,7 +373,7 @@ impl SurfaceOp {
             Self::Colorize(c) => Self::colorize(texel, c),
             // A composite is a function of **several** surfaces and cannot be a function of one
             // texel. The host recognises this variant before it reaches here; see
-            // `dereth_client_shell::ui_draw::composite`. Returning the texel unchanged keeps a caller that
+            // [`composite`]. Returning the texel unchanged keeps a caller that
             // does not from corrupting the base image, which is what a `todo!()` here would not.
             Self::Icon(_) => texel,
         }
@@ -917,6 +917,167 @@ pub fn draw_steps(erase_background: bool, draw_after_children: bool) -> Vec<Draw
     }
     v.push(DrawStep::DrawDone);
     v
+}
+
+/// Compose the drag and base icon surfaces against decoded dat surfaces rather than a locked
+/// render surface.
+///
+/// The client makes a 32 × 32 `A8R8G8B8` local surface, blits into it, and hands the result to its
+/// texture cache. This does the same on the CPU and hands the result to the texture
+/// uploader, which is where every other runtime-generated UI surface in this build already goes
+/// (the shell's `ui_draw::derive`).
+///
+/// # What is faithful here and what is not
+///
+/// * The **order** and the **modes** are the client's, step for step, and they are
+///   the part that a reader can get wrong in a way that still looks plausible: an overlay under the
+///   base icon, or the background tile above it, draws a picture that is merely different rather
+///   than obviously broken.
+/// * The **blend arithmetic** is the client's three-channel and four-channel alpha blits — see
+///   [`SurfaceOp::blit_3alpha`] and [`SurfaceOp::blit_4alpha`].
+/// * The **extent** is the client's 32 × 32 surface. A source larger than that is
+///   clipped, a smaller one covers its own corner and leaves the rest, which is
+///   the colouring blit taking the smaller of the two extents on each axis.
+/// * **Not faithful:** a source that does not decode is skipped rather than aborting the whole
+///   composite. The client's icon renderer guards every blit with a null asset check and does the same.
+///
+/// Returns `None` when nothing in the recipe decoded, which the caller counts as a decode failure
+/// exactly as it counts a missing plain image.
+#[must_use]
+pub fn composite(
+    recipe: IconRecipe,
+    fetch: &dyn Fn(DataId) -> Option<dereth_primitives::TextureData>,
+) -> Option<dereth_primitives::TextureData> {
+    let n = SurfaceOp::ICON_EXTENT;
+    let mut got_any = false;
+    // A freshly created local surface is not cleared by the client either; every recipe whose first
+    // blit is present overwrites all of it with a plain blit, and one whose first blit is absent
+    // is a picture the client would leave uninitialised. Transparent black is the honest stand-in
+    // and it is what the alpha-blended layers above expect.
+    let mut main = vec![0u32; (n * n) as usize];
+
+    let load = |id: Option<DataId>| -> Option<Vec<u32>> {
+        let d = fetch(id?)?;
+        if d.format != dereth_primitives::TextureFormat::Bgra8 {
+            return None;
+        }
+        let src = d.levels.first()?;
+        let mut out = vec![0u32; (n * n) as usize];
+        for y in 0..n.min(d.height) {
+            for x in 0..n.min(d.width) {
+                let at = ((y * d.width + x) * 4) as usize;
+                let px = src.get(at..at + 4)?;
+                out[(y * n + x) as usize] = u32::from_le_bytes([px[0], px[1], px[2], px[3]]);
+            }
+        }
+        Some(out)
+    };
+
+    // `(dst, src, mode, 1.0)` over the whole 32x32.
+    fn blit(dst: &mut [u32], src: &[u32], f: fn(u32, u32) -> u32) {
+        for (d, s) in dst.iter_mut().zip(src.iter()) {
+            *d = f(*d, *s);
+        }
+    }
+    // `(dst, &white, src)` — the *same texel* of the source,
+    // not a constant colour, wherever the destination is exactly opaque white.
+    fn replace_from(dst: &mut [u32], src: &[u32]) {
+        for (d, s) in dst.iter_mut().zip(src.iter()) {
+            if *d == SurfaceOp::OPAQUE_WHITE {
+                *d = *s;
+            }
+        }
+    }
+
+    match recipe {
+        IconRecipe::Object {
+            background,
+            effects,
+            icon,
+            overlay,
+            underlay,
+        } => {
+            // The drag-icon pass uses `UIEffectIcons`, not the custom underlay.
+            // ---- drag icon: icon, custom overlay, effects by colour replacement --------------
+            let mut drag = vec![0u32; (n * n) as usize];
+            if let Some(p) = load(icon) {
+                got_any = true;
+                blit(&mut drag, &p, SurfaceOp::blit_normal);
+            }
+            if let Some(p) = load(overlay) {
+                got_any = true;
+                blit(&mut drag, &p, SurfaceOp::blit_4alpha);
+            }
+            if let Some(p) = load(effects) {
+                got_any = true;
+                replace_from(&mut drag, &p);
+            }
+            // The based-icon pass uses the custom underlay, not `UIEffectIcons`.
+            // ---- icon: type tile, custom underlay, then the drag surface --------------------
+            let mut based = false;
+            if let Some(p) = load(background) {
+                got_any = true;
+                based = true;
+                blit(&mut main, &p, SurfaceOp::blit_normal);
+            }
+            if let Some(p) = load(underlay) {
+                got_any = true;
+                blit(&mut main, &p, SurfaceOp::blit_3alpha);
+            }
+            // **One deliberate divergence, and it is in a case the client cannot reach.**
+            // The three-channel alpha blit preserves the *destination's* alpha byte, so blitting the drag surface
+            // onto a surface nothing has written leaves alpha 0 — an invisible icon. The client
+            // blits a `0x10000004` row into the icon surface first every single time (all 34 rows of the
+            // mapper resolve, which the backpack grid tests assert), so it never meets this; a
+            // rebuild whose mapper lookup failed for one type would silently blank that cell
+            // instead of drawing the icon. A plain blit for the un-based case keeps the failure visible as "no tile" rather than "no icon".
+            blit(
+                &mut main,
+                &drag,
+                if based {
+                    SurfaceOp::blit_3alpha
+                } else {
+                    SurfaceOp::blit_normal
+                },
+            );
+        }
+        IconRecipe::Spell {
+            background,
+            icon,
+            tint,
+            overlay,
+        } => {
+            if let Some(p) = load(background) {
+                got_any = true;
+                blit(&mut main, &p, SurfaceOp::blit_normal);
+            }
+            if let Some(p) = load(icon) {
+                got_any = true;
+                blit(&mut main, &p, SurfaceOp::blit_4alpha);
+            }
+            if let Some(p) = load(tint) {
+                got_any = true;
+                replace_from(&mut main, &p);
+            }
+            if let Some(p) = load(overlay) {
+                got_any = true;
+                blit(&mut main, &p, SurfaceOp::blit_4alpha);
+            }
+        }
+    }
+    if !got_any {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(main.len() * 4);
+    for t in &main {
+        bytes.extend_from_slice(&t.to_le_bytes());
+    }
+    Some(dereth_primitives::TextureData {
+        width: n,
+        height: n,
+        format: dereth_primitives::TextureFormat::Bgra8,
+        levels: vec![bytes],
+    })
 }
 
 #[cfg(test)]

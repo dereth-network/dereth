@@ -174,6 +174,7 @@ impl<S: Shell> App<S> {
         // therefore of the typing barrier. It is before `WorldScene::update` reads `char_input`,
         // and after step 7 because the UI gets first refusal.
         self.apply_input_actions(shell);
+        self.apply_orbit_camera();
         spans.step(FrameStep::WorldViewStep);
         self.events.push(FrameEvent::Step(FrameStep::WorldViewStep));
         // The landscape cannot be built until the server says where the player is, and the objects

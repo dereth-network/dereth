@@ -46,7 +46,8 @@ pub const CANCEL: ElementId = ElementId(0x1000_05A7);
 pub const OPTION1: ElementId = ElementId(0x1000_05C9);
 const OPTION2: ElementId = ElementId(0x1000_05CA);
 const OPTION3: ElementId = ElementId(0x1000_05CB);
-const CAPTION_STRING_TABLE: DataId = DataId(0x2300_0001);
+/// The string table the special option's caption tokens are rows of.
+pub const CAPTION_STRING_TABLE: DataId = DataId(0x2300_0001);
 const SHADOW_NO_CROWN_CAPTION: &str = "ID_Barber_Shadow_NoCrown";
 const EMPYREAN_EARTHBOUND_CAPTION: &str = "ID_Barber_Empyrean_Earthbound";
 const UNDEAD_NO_FLAME_CAPTION: &str = "ID_Barber_Undead_NoFlame";
@@ -137,6 +138,22 @@ impl BarberPanel {
 
     /// Pull one new native Start notice into the modal.
     pub fn update(&mut self, ui: &mut UiSystem, view: &dyn GameView) -> bool {
+        if !self.adopt(view) {
+            return false;
+        }
+        if let Some(root) = self.root {
+            ui.set_visible(root, true);
+        }
+        self.configure_special_chrome(ui);
+        // Page initialisation ends by selecting the hair part. Without this the
+        // authored shared wheel has no part and its inherited visible pointers can cover spots.
+        self.set_selection(ui, EParts::Hair);
+        true
+    }
+
+    /// Take a new Start notice, if one has arrived since the last: the appearance state is
+    /// initialized from it. True when one was taken. Any interface's barber starts here.
+    pub fn adopt(&mut self, view: &dyn GameView) -> bool {
         let Some(start) = view.barber() else {
             return false;
         };
@@ -145,13 +162,177 @@ impl BarberPanel {
         }
         self.active_generation = Some(start.generation);
         self.initialize(start);
-        if let Some(root) = self.root {
-            ui.set_visible(root, true);
+        true
+    }
+
+    /// The special option the heritage has, if any: its caption's token in
+    /// [`CAPTION_STRING_TABLE`], and whether it is on. Empyrean's Earthbound, the Undead's
+    /// no-flame and the shadow heritages' no-crown.
+    #[must_use]
+    pub fn special_option(&self) -> Option<(&'static str, bool)> {
+        match self.state.heritage_group {
+            9 => Some((EMPYREAN_EARTHBOUND_CAPTION, self.empyrean_earthbound)),
+            11 => Some((UNDEAD_NO_FLAME_CAPTION, self.undead_no_flame)),
+            5 | 10 => Some((SHADOW_NO_CROWN_CAPTION, self.no_crown)),
+            _ => None,
         }
-        self.configure_special_chrome(ui);
-        // Page initialisation ends by selecting the hair part. Without this the
-        // authored shared wheel has no part and its inherited visible pointers can cover spots.
-        self.set_selection(ui, EParts::Hair);
+    }
+
+    /// Turn the special option on or off. False when the heritage has none.
+    pub fn set_special_option(&mut self, on: bool) -> bool {
+        match self.state.heritage_group {
+            9 => self.empyrean_earthbound = on,
+            11 => {
+                self.undead_no_flame = on;
+                self.update_special_setup();
+            }
+            5 | 10 => {
+                self.no_crown = on;
+                self.update_special_setup();
+            }
+            _ => return false,
+        }
+        self.edits += 1;
+        true
+    }
+
+    /// The Apply gesture: the local preludes and the finish-barber request, in the order the
+    /// client sends them. Retail closes even when the appearance cannot be generated; only the
+    /// successful arm carries the finish request.
+    pub fn apply(&mut self) -> Vec<UiRequest> {
+        let mut out = Vec::new();
+        // Empyrean installs its selected motion table; heritages 5 and 10 replace local
+        // particles, including the zero-PES arm. These are native local preludes; the
+        // authoritative object-description update owns the lasting appearance.
+        if self.state.heritage_group == 9 {
+            out.push(UiRequest::BarberLocalMotionTable(
+                self.empyrean_motion_table(),
+            ));
+        }
+        if self.state.heritage_group == 11 {
+            if let Some((_, effect)) = self.undead_setup_and_effect() {
+                out.push(UiRequest::BarberLocalEffect(effect));
+            }
+        }
+        if matches!(self.state.heritage_group, 5 | 10) {
+            if let Some((_, effect)) = self.special_setup_and_effect() {
+                out.push(UiRequest::BarberLocalEffect(effect));
+            }
+        }
+        if let Some(appearance) = self.finish_appearance() {
+            out.push(UiRequest::BarberFinish(appearance));
+        }
+        self.applies += 1;
+        out
+    }
+
+    /// The Cancel gesture: nothing is sent.
+    pub fn cancel(&mut self) {
+        self.cancels += 1;
+    }
+
+    /// The choice `part` shows now and how many it has: hair, eyes, nose or mouth.
+    #[must_use]
+    pub fn choice(&self, part: EParts) -> Option<(i32, usize)> {
+        let tables = self.tables.as_ref()?;
+        let sx = self.state.sex(&tables.chargen)?;
+        Some(match part {
+            EParts::Hair => (self.state.hair_style, sx.hair_styles.len()),
+            EParts::Eyes => (self.state.eyes_strip, sx.eye_strips.len()),
+            EParts::Nose => (self.state.nose_strip, sx.nose_strips.len()),
+            EParts::Mouth => (self.state.mouth_strip, sx.mouth_strips.len()),
+            _ => return None,
+        })
+    }
+
+    /// The colours `part` offers, as the colour wheel shows them (`None` for one with no colour
+    /// to show), and the one chosen: hair and eyes have their own; nose, mouth and skin share the
+    /// skin's one.
+    #[must_use]
+    pub fn colors(&self, part: EParts) -> (Vec<Option<u32>>, Option<i32>) {
+        let chosen = match part {
+            EParts::Hair => Some(self.state.hair_color),
+            EParts::Eyes => Some(self.state.eye_color),
+            EParts::Nose | EParts::Mouth | EParts::Skin => Some(0),
+            _ => None,
+        };
+        (self.swatches(part), chosen)
+    }
+
+    /// The shade `part` has, where it has one: hair its own, nose, mouth and skin the skin's.
+    #[must_use]
+    pub fn shade(&self, part: EParts) -> Option<f64> {
+        match part {
+            EParts::Hair => Some(self.state.hair_shade),
+            EParts::Nose | EParts::Mouth | EParts::Skin => Some(self.state.skin_shade),
+            _ => None,
+        }
+    }
+
+    /// Choose colour `color` of `part`'s family. False when it has no such colour.
+    pub fn choose_color(&mut self, part: EParts, color: i32) -> bool {
+        if !self.apply_color(Some(part), color) {
+            return false;
+        }
+        self.current_part = Some(part);
+        self.current_color = Some(color);
+        self.edits += 1;
+        true
+    }
+
+    /// Choose shade `shade` (0 to 1) of `part`'s family. False when it has no shade.
+    pub fn choose_shade(&mut self, part: EParts, shade: f64) -> bool {
+        if !self.apply_shade(Some(part), shade) {
+            return false;
+        }
+        self.edits += 1;
+        true
+    }
+
+    /// Step `part`'s choice by `delta`, wrapping. False when the part has no choices.
+    pub fn step(&mut self, part: EParts, delta: i32) -> bool {
+        if !self.cycle(part, delta) {
+            return false;
+        }
+        self.edits += 1;
+        true
+    }
+
+    /// The colour `color` of `part`'s family, written to the appearance state; false when the
+    /// family has no such colour. Only hair and eyes own palette-list choices.
+    fn apply_color(&mut self, part: Option<EParts>, color: i32) -> bool {
+        let Some(tables) = self.tables.clone() else {
+            return false;
+        };
+        let Some(sx) = self.state.sex(&tables.chargen) else {
+            return false;
+        };
+        let count = match part {
+            Some(EParts::Hair) => sx.hair_colors.len(),
+            Some(EParts::Eyes) => sx.eye_colors.len(),
+            Some(EParts::Nose | EParts::Mouth | EParts::Skin) => 1,
+            _ => return false,
+        };
+        let Some(index) = usize::try_from(color).ok().filter(|i| *i < count) else {
+            return false;
+        };
+        match part {
+            Some(EParts::Hair) => self.state.set_hair_color(i32::try_from(index).unwrap_or(0)),
+            Some(EParts::Eyes) => self.state.set_eye_color(i32::try_from(index).unwrap_or(0)),
+            _ => {}
+        }
+        true
+    }
+
+    /// The shade written to the appearance state: hair has its own, nose, mouth and skin share
+    /// the skin's, and eyes have none.
+    fn apply_shade(&mut self, part: Option<EParts>, shade: f64) -> bool {
+        let shade = shade.clamp(0.0, 1.0);
+        match part {
+            Some(EParts::Hair) => self.state.set_hair_shade(shade),
+            Some(EParts::Nose | EParts::Mouth | EParts::Skin) => self.state.set_skin_shade(shade),
+            _ => return false,
+        }
         true
     }
 
@@ -332,34 +513,15 @@ impl BarberPanel {
         match id {
             CANCEL => {
                 self.close(ui);
-                self.cancels += 1;
+                self.cancel();
             }
             APPLY => {
                 // Retail closes even when base-appearance generation fails; only the successful
-                // arm sends the finish-barber request ([`UiRequest::BarberFinish`]). Empyrean installs its selected motion table;
-                // heritages 5 and 10 replace local particles, including the zero-PES arm. These
-                // are native local preludes; the authoritative object-description update owns
-                // the lasting appearance.
-                if self.state.heritage_group == 9 {
-                    ui.requests.emit(UiRequest::BarberLocalMotionTable(
-                        self.empyrean_motion_table(),
-                    ));
-                }
-                if self.state.heritage_group == 11 {
-                    if let Some((_, effect)) = self.undead_setup_and_effect() {
-                        ui.requests.emit(UiRequest::BarberLocalEffect(effect));
-                    }
-                }
-                if matches!(self.state.heritage_group, 5 | 10) {
-                    if let Some((_, effect)) = self.special_setup_and_effect() {
-                        ui.requests.emit(UiRequest::BarberLocalEffect(effect));
-                    }
-                }
-                if let Some(appearance) = self.finish_appearance() {
-                    ui.requests.emit(UiRequest::BarberFinish(appearance));
+                // arm sends the finish-barber request ([`UiRequest::BarberFinish`]).
+                for request in self.apply() {
+                    ui.requests.emit(request);
                 }
                 self.close(ui);
-                self.applies += 1;
             }
             ROTATE_CLOCKWISE => self.view3d.rotate(ERotateDirection::Clockwise),
             ROTATE_COUNTERCLOCKWISE => self.view3d.rotate(ERotateDirection::CounterClockwise),
@@ -367,16 +529,7 @@ impl BarberPanel {
                 let selected = ui
                     .node(m.source)
                     .is_some_and(|node| node.state == dereth_ui::StateId(6));
-                if self.state.heritage_group == 9 {
-                    self.empyrean_earthbound = selected;
-                } else if self.state.heritage_group == 11 {
-                    self.undead_no_flame = selected;
-                    self.update_special_setup();
-                } else {
-                    self.no_crown = selected;
-                    self.update_special_setup();
-                }
-                self.edits += 1;
+                self.set_special_option(selected);
             }
             PREVIOUS | NEXT => {
                 let Some(part) = row_part(ui, m.source) else {
@@ -475,21 +628,9 @@ impl BarberPanel {
 
     /// Set the colour: only Hair and Eyes own palette-list choices.
     fn set_color(&mut self, ui: &mut UiSystem, color: i32) -> bool {
-        let Some(tables) = self.tables.clone() else {
+        if !self.apply_color(self.current_part, color) {
             return false;
-        };
-        let Some(sx) = self.state.sex(&tables.chargen) else {
-            return false;
-        };
-        let count = match self.current_part {
-            Some(EParts::Hair) => sx.hair_colors.len(),
-            Some(EParts::Eyes) => sx.eye_colors.len(),
-            Some(EParts::Nose | EParts::Mouth | EParts::Skin) => 1,
-            _ => return false,
-        };
-        let Some(index) = usize::try_from(color).ok().filter(|i| *i < count) else {
-            return false;
-        };
+        }
         if let Some(root) = self.root {
             for (old, visible) in [(self.current_color, false), (Some(color), true)] {
                 let Some(id) = old
@@ -504,11 +645,6 @@ impl BarberPanel {
             }
         }
         self.current_color = Some(color);
-        match self.current_part {
-            Some(EParts::Hair) => self.state.set_hair_color(i32::try_from(index).unwrap_or(0)),
-            Some(EParts::Eyes) => self.state.set_eye_color(i32::try_from(index).unwrap_or(0)),
-            _ => {}
-        }
         self.do_grad_disk(ui, self.current_part == Some(EParts::Eyes));
         true
     }
@@ -517,10 +653,8 @@ impl BarberPanel {
     /// the skin shade. Eyes has no shade arm and hides this control.
     fn set_shade(&mut self, ui: &mut UiSystem, shade: f64) -> bool {
         let shade = shade.clamp(0.0, 1.0);
-        match self.current_part {
-            Some(EParts::Hair) => self.state.set_hair_shade(shade),
-            Some(EParts::Nose | EParts::Mouth | EParts::Skin) => self.state.set_skin_shade(shade),
-            _ => return false,
+        if !self.apply_shade(self.current_part, shade) {
+            return false;
         }
         if let Some(root) = self.root {
             if let Some(h) = ui.get_child_recursive(root, appearance::SHADE_SCROLL) {
@@ -539,17 +673,25 @@ impl BarberPanel {
     /// in a PalSet channel-by-channel; Eyes samples each Palette directly.
     fn fill_color_wheel(&mut self, part: EParts) {
         self.color_wheel = [None; 9];
-        self.color_count = 0;
+        let values = self.swatches(part);
+        self.color_count = values.len();
+        for (slot, color) in self.color_wheel.iter_mut().zip(values) {
+            *slot = color;
+        }
+    }
+
+    /// The colour wheel's colours for `part`'s family, every one of them.
+    fn swatches(&self, part: EParts) -> Vec<Option<u32>> {
         let Some(tables) = self.tables.clone() else {
-            return;
+            return Vec::new();
         };
         let Some(colors) = tables.colors.clone() else {
-            return;
+            return Vec::new();
         };
         let Some(sx) = self.state.sex(&tables.chargen) else {
-            return;
+            return Vec::new();
         };
-        let values: Vec<Option<u32>> = match part {
+        match part {
             EParts::Hair => sx
                 .hair_colors
                 .iter()
@@ -568,10 +710,6 @@ impl BarberPanel {
             | EParts::Shirt
             | EParts::Trousers
             | EParts::Footwear => Vec::new(),
-        };
-        self.color_count = values.len();
-        for (slot, color) in self.color_wheel.iter_mut().zip(values) {
-            *slot = color;
         }
     }
 

@@ -28,7 +28,7 @@ impl ChatEntry {
         self.history.push(text.to_owned());
         let limit = match interface {
             Interface::Classic => 10,
-            Interface::Modern => 100,
+            Interface::Modern | Interface::Horizon => 100,
         };
         if self.history.len() > limit {
             self.history.drain(..self.history.len() - limit);

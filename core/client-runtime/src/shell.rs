@@ -106,6 +106,11 @@ pub trait Shell: Sized {
     fn in_gameplay(&self) -> bool {
         false
     }
+    /// Whether the screens before the world run at the fixed login size. An interface drawn at
+    /// any size may keep the player's own size there too.
+    fn keeps_login_size(&self) -> bool {
+        true
+    }
     /// Whether the current screen hides the world (the credits, which draw on a cleared frame).
     fn hides_world(&self) -> bool {
         false

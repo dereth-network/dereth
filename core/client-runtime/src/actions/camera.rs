@@ -50,6 +50,9 @@ pub enum CameraCommand {
     AlternateMode {
         on: bool,
     },
+    /// Hold to look at the character's front: this client's own action, which the orbit camera
+    /// answers and the game's camera does not.
+    FrontView(bool),
     NotHandled,
 }
 
@@ -83,6 +86,7 @@ pub fn on_action(event: &Action) -> CameraCommand {
         (action::MAP_VIEW, true) => CameraCommand::ToggleMapMode,
         (action::TOGGLE_MOUSELOOK, s) => CameraCommand::ToggleMouseLook(s),
         (action::TOGGLE_ALTERNATE_MODE, s) => CameraCommand::AlternateMode { on: s },
+        (dereth_client_contract::actions::dereth::LOOK_AT_FRONT, s) => CameraCommand::FrontView(s),
         _ => CameraCommand::NotHandled,
     }
 }

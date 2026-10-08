@@ -13,6 +13,8 @@ use crate::platform::host::Host;
 use crate::present::ClientPresentation;
 
 mod frame;
+mod horizon;
+mod horizon_keys;
 mod key_bindings;
 mod previews;
 mod scripted_run;
@@ -183,6 +185,7 @@ pub struct ClientShell<H: Host> {
     pub(crate) modern: ModernFrontEnd,
     pub(crate) shared: FrontEndServices<H>,
     pub(crate) classic: crate::classic_face::ClassicFace,
+    pub(crate) horizon: horizon::HorizonFace,
 }
 
 /// Widget state, dialogs and preview caches owned by the modern interface.
@@ -352,6 +355,7 @@ impl<H: Host> ClientShell<H> {
                 files_read: 0,
             },
             classic: crate::classic_face::ClassicFace::default(),
+            horizon: horizon::HorizonFace::default(),
         }
     }
 }
@@ -1381,16 +1385,35 @@ impl<H: Host> ClientShell<H> {
                 &mut self.shared,
             );
         }
+        if let Some(ui) = self.horizon.ui.as_mut() {
+            <dereth_horizon::runtime::HorizonFrontEnd as FrontEnd<H>>::reread_files(
+                ui,
+                cx,
+                &mut self.shared,
+            );
+            ui.set_chargen_tables(
+                self.modern
+                    .ui
+                    .as_ref()
+                    .and_then(crate::ui::UiShell::chargen_tables),
+            );
+        }
     }
 
     fn front(&self) -> &dyn FrontEnd<H> {
-        match self.classic.active() {
+        if let Some(ui) = self.classic.active() {
+            return ui;
+        }
+        match self.horizon.active() {
             Some(ui) => ui,
             None => &self.modern,
         }
     }
     fn front_and_services(&mut self) -> (&mut dyn FrontEnd<H>, &mut FrontEndServices<H>) {
-        match self.classic.active_mut() {
+        if let Some(ui) = self.classic.active_mut() {
+            return (ui, &mut self.shared);
+        }
+        match self.horizon.active_mut() {
             Some(ui) => (ui, &mut self.shared),
             None => (&mut self.modern, &mut self.shared),
         }
@@ -1471,172 +1494,336 @@ impl<H: Host> ClientShell<H> {
         consumed
     }
 
-    /// Follow the interface choice: bring the classic interface up and show it, or put it away
-    /// and show this one; a classic choice that cannot be shown goes back, and the chat says why.
+    /// The Horizon interface's share of the input manager's actions this frame: its own keys and the
+    /// mouse actions over the world; the rest go on to the game. Then where the objects whose names
+    /// it shows are on screen, for its frame.
+    fn horizon_input(&mut self, cx: &mut Cx<'_, H>, now: dereth_primitives::LocalTime) {
+        let Some(ui) = self.horizon.ui.as_mut() else {
+            return;
+        };
+        if let Some(code) = cx.hud_mut().horizon.abuse.take() {
+            ui.abuse_response(code);
+        }
+        if let Some(input) = self.shared.input.as_mut() {
+            // The key bindings page: what it asked last frame, the key it waits for, and the
+            // bindings as they are now.
+            self.horizon
+                .keys
+                .serve(input, std::mem::take(&mut ui.key_requests));
+            for text in self.horizon.keys.lines.drain(..) {
+                ui.outbox
+                    .emit(dereth_client_contract::UiRequest::DisplayChatText {
+                        feedback: dereth_client_contract::feedback::Feedback::LOCAL,
+                        channel: dereth_ui_screens::options::config::MOUSE_TURNING_CHANNEL,
+                        text: text.to_owned(),
+                    });
+            }
+            if let Some(view) = self.horizon.keys.view(input, cx.store()) {
+                ui.keys = Some(view);
+            }
+            // The input maps this interface's state calls for, as the other interfaces register
+            // them: the character session's (movement, the panels, the shortcuts, combat, chat)
+            // while its game screen is up, the pre-game screen's otherwise, the text box's while
+            // one has the keyboard, and the target map while a use waits for its target.
+            let game = ui.in_gameplay();
+            input.set_character_session_input_maps(game);
+            input.set_mode_input_maps(if game { &[] } else { &[9] });
+            input.set_focused_input_maps(if ui.ui.text_focus {
+                &crate::input::FOCUSED_TEXT_MAP_REGISTRATIONS
+            } else {
+                &[]
+            });
+            input.set_target_input_map(
+                cx.target_mode() != dereth_client_runtime::interaction::TargetMode::None,
+            );
+            input.finish_session_retirement(|released| cx.accept_actions(released));
+            if input.manager.text.text_mode != ui.ui.text_focus {
+                input.set_text_mode(ui.ui.text_focus);
+            }
+            input.use_time(now);
+            let events = input.take_events();
+            let rest = ui.take_actions(cx, events, input.mouse_pos(), now);
+            input.put_back_unconsumed(rest);
+        }
+        let wanted = std::mem::take(&mut ui.wanted_projections);
+        let (present, world) = cx.present_with_world();
+        ui.origins = wanted
+            .iter()
+            .filter_map(|&id| Some((id, present.target_origin(id, world)?)))
+            .collect();
+        ui.projections = wanted
+            .into_iter()
+            .filter_map(|id| Some((id, present.target_projection(id, world)?)))
+            .collect();
+    }
+
+    /// The interface shown now.
+    fn shown_interface(&self) -> dereth_client_contract::options::interface::Interface {
+        use dereth_client_contract::options::interface::Interface;
+        if self.classic.active {
+            Interface::Classic
+        } else if self.horizon.active {
+            Interface::Horizon
+        } else {
+            Interface::Modern
+        }
+    }
+
+    /// Follow the interface choice: bring the chosen interface up if it is not up yet, put the
+    /// one shown away and show the chosen one; a choice that cannot be shown goes back to the one
+    /// shown, and the chat says why.
     fn follow_interface(&mut self, cx: &mut Cx<'_, H>) {
         use dereth_client_contract::options::interface::Interface;
+        let shown = self.shown_interface();
         // The lines a chat window was handed since the last frame, each once: a line still
         // waiting to be delivered is recorded when it is, however many frames it waits.
         let delivered = std::mem::take(&mut cx.hud_mut().delivered_chat);
-        self.classic.remember(&delivered);
+        self.classic
+            .remember(&delivered, shown == Interface::Modern);
         let Some(want) = self.classic.changed_choice() else {
             return;
         };
+        if want == shown {
+            return;
+        }
+        if let Err(refusal) = self.bring_up(cx, want) {
+            tracing::warn!("{}", refusal.notice());
+            cx.add_scroll_line(
+                &refusal.notice(),
+                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+            );
+            self.classic.refused(shown);
+            return;
+        }
+        match shown {
+            Interface::Modern => self.leave_modern(cx),
+            Interface::Classic => self.leave_classic(cx),
+            Interface::Horizon => self.leave_horizon(cx),
+        }
         match want {
+            Interface::Modern => self.enter_modern(cx),
+            Interface::Classic => self.enter_classic(cx),
+            Interface::Horizon => self.enter_horizon(cx),
+        }
+    }
+
+    /// Bring `want` up, if it is not up already.
+    fn bring_up(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        want: dereth_client_contract::options::interface::Interface,
+    ) -> Result<(), crate::classic_face::Refusal> {
+        use dereth_client_contract::options::interface::Interface;
+        match want {
+            Interface::Modern => {}
             Interface::Classic => {
                 if let Some(ui) = self.classic.ui.as_mut() {
                     ui.shown_again();
                     ui.set_classic_keys(classic_keys(self.shared.input.as_mut()));
-                }
-                if self.classic.ui.is_none() {
+                } else {
                     let creation = self.modern.ui.as_ref().map_or_else(
                         || Err("World creation tables unavailable".to_owned()),
                         crate::ui::UiShell::classic_creation_data,
                     );
-                    match build_classic(cx, classic_keys(self.shared.input.as_mut()), creation) {
-                        Ok(ui) => {
-                            self.classic.ui = Some(ui);
-                        }
-                        Err(refusal) => {
-                            tracing::warn!("{}", refusal.notice());
-                            cx.add_scroll_line(
-                                &refusal.notice(),
-                                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
-                            );
-                            self.classic.refused();
-                            return;
-                        }
-                    }
+                    self.classic.ui = Some(build_classic(
+                        cx,
+                        classic_keys(self.shared.input.as_mut()),
+                        creation,
+                    )?);
                 }
-                // Capture widget drafts before the incoming interface projects the shared sessions.
-                if let Some(shell) = self.modern.ui.as_mut() {
-                    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
-                        crate::hud_drive::game_call(
-                            &mut shell.ui,
-                            screen,
-                            dereth_ui_screens::screens::gameplay_host::GameCall::CaptureBookDraft,
-                        );
-                    }
-                    cx.hud_mut().panels.journal.save_this_page(&mut shell.ui);
-                    let now = dereth_primitives::LocalTime(cx.now());
-                    for request in shell.ui.requests.take() {
-                        if matches!(
-                            &request,
-                            dereth_client_contract::UiRequest::Book(_)
-                                | dereth_client_contract::UiRequest::Journal(_)
-                        ) {
-                            let _ = cx.run_request(request, now, &mut |_, _| false);
-                        } else {
-                            shell.ui.requests.emit(request);
-                        }
-                    }
-                }
-                flush_panel_sessions(cx);
-                service_journal(cx);
-                <ModernFrontEnd as FrontEnd<H>>::suspend(&mut self.modern, cx);
-                dereth_client_contract::panels::HudPanels::spew_clear_pending(
-                    &mut cx.hud_mut().panels,
-                );
-                if let Some(input) = self.shared.input.as_mut() {
-                    cx.accept_actions(input.release_actions());
-                    input.activate_classic(true);
-                }
-                self.classic.active = true;
-                cx.hud_mut().classic_active = true;
-                cx.apply_interface_overrides(
-                    dereth_client_runtime::ui_context::InterfaceOverrides::ClassicInput,
-                );
-                let size = cx.present().size();
-                let history: Vec<_> = self.classic.history().cloned().collect();
-                if let Some(ui) = self.classic.ui.as_mut() {
-                    ui.set_display((
-                        i32::try_from(size.0).unwrap_or(i32::MAX),
-                        i32::try_from(size.1).unwrap_or(i32::MAX),
-                    ));
-                    ui.classic.chat.clear();
-                    for line in history {
-                        ui.chat_line(
-                            u32::from(line.ty),
-                            line.prefix.unwrap_or_default(),
-                            &line.body,
-                            line.window,
-                        );
-                    }
-                }
-                if let Some(ui) = self.classic.ui.as_mut() {
-                    for draft in cx.chat_entry_drafts() {
-                        ui.apply_chat_entry(cx, draft);
-                    }
-                }
-                tracing::info!("the classic interface is shown");
             }
-            Interface::Modern => {
-                if !self.classic.active {
-                    return;
+            Interface::Horizon => {
+                if let Some(ui) = self.horizon.ui.as_mut() {
+                    ui.shown_again();
+                } else {
+                    self.horizon.ui = Some(horizon::build_horizon(cx)?);
                 }
-                if let Some(ui) = self.classic.ui.as_mut() {
-                    ui.suspend(cx);
+                // Creation and the barber read the creation tables the screens read.
+                let tables = self
+                    .modern
+                    .ui
+                    .as_ref()
+                    .and_then(crate::ui::UiShell::chargen_tables);
+                if let Some(ui) = self.horizon.ui.as_mut() {
+                    ui.set_chargen_tables(tables);
                 }
-                dereth_client_contract::panels::HudPanels::spew_clear_pending(
-                    &mut cx.hud_mut().classic,
-                );
-                if let Some(input) = self.shared.input.as_mut() {
-                    cx.accept_actions(input.release_actions());
-                    input.activate_classic(false);
-                    if let Some(ui) = self.modern.ui.as_mut() {
-                        ui.resume_input(input);
-                    }
-                }
-                self.classic.active = false;
-                cx.hud_mut().classic_active = false;
-                // This interface was not framed while the classic one was shown: it comes up on
-                // the screen the game is at, whatever it last showed.
-                if let Some(shell) = self.modern.ui.as_mut() {
-                    shell.catch_up(cx.pregame());
-                }
-                // The classic interface dressed the shared preview spaces with its own models:
-                // this one builds its own again.
-                self.modern.paper_doll_built = None;
-                self.modern.preview_chargen = None;
-                flush_panel_sessions(cx);
-                service_journal(cx);
-                // Discard widget caches; the shared notebook remains loaded.
-                cx.hud_mut().panels.journal.forget();
-                // The classic interface set two shared preferences live for itself alone (its own
-                // field of view, and the camera's inversion off while it inverts the vertical
-                // itself); the shared store's values take over again.
-                cx.apply_interface_overrides(
-                    dereth_client_runtime::ui_context::InterfaceOverrides::Modern,
-                );
-                // The other interface may have changed any option while this one was put
-                // away (the interface choice itself among them): every option page shows the
-                // store and the character as they are now.
-                if let Some(shell) = self.modern.ui.as_mut() {
-                    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
-                        let (hud, objects) = cx.hud_and_objects();
-                        let moved = hud.reread_option_pages(&mut shell.ui, screen, objects);
-                        tracing::debug!("the option pages read again: {moved} rows moved");
-                    }
-                }
-                if let Some(shell) = self.modern.ui.as_mut() {
-                    if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
-                        for draft in cx.chat_entry_drafts() {
-                            crate::hud_drive::game_call(
-                                &mut shell.ui,
-                                screen,
-                                dereth_ui_screens::screens::gameplay_host::GameCall::ChatEntry(
-                                    draft,
-                                ),
-                            );
-                        }
-                    }
-                }
-                // This interface's chat takes the lines it missed.
-                let missed: Vec<_> = self.classic.take_missed();
-                cx.hud_mut().replayed_chat.extend(missed);
-                tracing::info!("the modern interface is shown");
             }
         }
+        Ok(())
+    }
+
+    /// Put the modern interface away: its widget drafts are captured and its sessions flushed,
+    /// so the incoming interface projects the shared sessions as they stand.
+    fn leave_modern(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(shell) = self.modern.ui.as_mut() {
+            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                crate::hud_drive::game_call(
+                    &mut shell.ui,
+                    screen,
+                    dereth_ui_screens::screens::gameplay_host::GameCall::CaptureBookDraft,
+                );
+            }
+            cx.hud_mut().panels.journal.save_this_page(&mut shell.ui);
+            let now = dereth_primitives::LocalTime(cx.now());
+            for request in shell.ui.requests.take() {
+                if matches!(
+                    &request,
+                    dereth_client_contract::UiRequest::Book(_)
+                        | dereth_client_contract::UiRequest::Journal(_)
+                ) {
+                    let _ = cx.run_request(request, now, &mut |_, _| false);
+                } else {
+                    shell.ui.requests.emit(request);
+                }
+            }
+        }
+        flush_panel_sessions(cx);
+        service_journal(cx);
+        <ModernFrontEnd as FrontEnd<H>>::suspend(&mut self.modern, cx);
+        dereth_client_contract::panels::HudPanels::spew_clear_pending(&mut cx.hud_mut().panels);
+        if let Some(input) = self.shared.input.as_mut() {
+            cx.accept_actions(input.release_actions());
+        }
+    }
+
+    /// Show the modern interface again: it comes up on the screen the game is at, with the
+    /// options and the chat drafts as they are now and the lines it missed.
+    fn enter_modern(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(input) = self.shared.input.as_mut() {
+            if let Some(ui) = self.modern.ui.as_mut() {
+                ui.resume_input(input);
+            }
+        }
+        // This interface was not framed while another was shown: it comes up on the screen the
+        // game is at, whatever it last showed.
+        if let Some(shell) = self.modern.ui.as_mut() {
+            shell.catch_up(cx.pregame());
+        }
+        // Another interface may have dressed the shared preview spaces with its own models: this
+        // one builds its own again.
+        self.modern.paper_doll_built = None;
+        self.modern.preview_chargen = None;
+        flush_panel_sessions(cx);
+        service_journal(cx);
+        // Discard widget caches; the shared notebook remains loaded.
+        cx.hud_mut().panels.journal.forget();
+        // The other interface may have changed any option while this one was put away (the
+        // interface choice itself among them): every option page shows the store and the
+        // character as they are now.
+        if let Some(shell) = self.modern.ui.as_mut() {
+            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                let (hud, objects) = cx.hud_and_objects();
+                let moved = hud.reread_option_pages(&mut shell.ui, screen, objects);
+                tracing::debug!("the option pages read again: {moved} rows moved");
+            }
+        }
+        if let Some(shell) = self.modern.ui.as_mut() {
+            if let Some(screen) = crate::hud_drive::game_screen(&mut shell.flow) {
+                for draft in cx.chat_entry_drafts() {
+                    crate::hud_drive::game_call(
+                        &mut shell.ui,
+                        screen,
+                        dereth_ui_screens::screens::gameplay_host::GameCall::ChatEntry(draft),
+                    );
+                }
+            }
+        }
+        // This interface's chat takes the lines it missed.
+        let missed: Vec<_> = self.classic.take_missed();
+        cx.hud_mut().replayed_chat.extend(missed);
+        tracing::info!("the modern interface is shown");
+    }
+
+    /// Put the classic interface away, and the two shared preferences it set live for itself
+    /// alone (its own field of view, and the camera's inversion off while it inverts the vertical
+    /// itself) back to the shared store's values.
+    fn leave_classic(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(ui) = self.classic.ui.as_mut() {
+            ui.suspend(cx);
+        }
+        dereth_client_contract::panels::HudPanels::spew_clear_pending(&mut cx.hud_mut().classic);
+        if let Some(input) = self.shared.input.as_mut() {
+            cx.accept_actions(input.release_actions());
+            input.activate_classic(false);
+        }
+        self.classic.active = false;
+        cx.hud_mut().classic_active = false;
+        flush_panel_sessions(cx);
+        service_journal(cx);
+        cx.apply_interface_overrides(dereth_client_runtime::ui_context::InterfaceOverrides::Modern);
+    }
+
+    /// Show the classic interface, with the chat history and drafts the game holds.
+    fn enter_classic(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(input) = self.shared.input.as_mut() {
+            input.activate_classic(true);
+        }
+        self.classic.active = true;
+        cx.hud_mut().classic_active = true;
+        cx.apply_interface_overrides(
+            dereth_client_runtime::ui_context::InterfaceOverrides::ClassicInput,
+        );
+        let size = cx.present().size();
+        let history: Vec<_> = self.classic.history().cloned().collect();
+        if let Some(ui) = self.classic.ui.as_mut() {
+            ui.set_display((
+                i32::try_from(size.0).unwrap_or(i32::MAX),
+                i32::try_from(size.1).unwrap_or(i32::MAX),
+            ));
+            ui.classic.chat.clear();
+            for line in history {
+                ui.chat_line(
+                    u32::from(line.ty),
+                    line.prefix.unwrap_or_default(),
+                    &line.body,
+                    line.window,
+                );
+            }
+            for draft in cx.chat_entry_drafts() {
+                ui.apply_chat_entry(cx, draft);
+            }
+        }
+        tracing::info!("the classic interface is shown");
+    }
+
+    /// Put the Horizon interface away: every press it holds is let go.
+    fn leave_horizon(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(ui) = self.horizon.ui.as_mut() {
+            ui.suspend();
+        }
+        if let Some(input) = self.shared.input.as_mut() {
+            cx.accept_actions(input.release_actions());
+            input.set_text_mode(false);
+            input.activate_horizon(false);
+        }
+        // The game's camera again, where it was left.
+        cx.set_orbit_camera(None);
+        self.horizon.active = false;
+        cx.hud_mut().horizon_active = false;
+        flush_panel_sessions(cx);
+        service_journal(cx);
+    }
+
+    /// Show the Horizon interface, with the chat history the game holds.
+    fn enter_horizon(&mut self, cx: &mut Cx<'_, H>) {
+        // This interface's own keys, and its own camera.
+        if let Some(input) = self.shared.input.as_mut() {
+            input.activate_horizon(true);
+        }
+        if let Some(ui) = self.horizon.ui.as_ref() {
+            cx.set_orbit_camera(Some(ui.ui.options.orbit));
+        }
+        self.horizon.active = true;
+        // Another interface may have rebound keys while this one was put away.
+        self.horizon.keys.invalidate();
+        cx.hud_mut().horizon_active = true;
+        let history: Vec<_> = self.classic.history().cloned().collect();
+        if let Some(ui) = self.horizon.ui.as_mut() {
+            ui.chat_history(history);
+            // Another interface may have changed any option while this one was put away.
+            ui.reread_option_rows(cx);
+        }
+        tracing::info!("the Horizon interface is shown");
     }
 }
 
@@ -1668,12 +1855,14 @@ impl<H: Host> Shell for ClientShell<H> {
 
     /// The window's queued events, in arrival order, then the end of the drain.
     fn window_input(&mut self, cx: &mut Cx<'_, H>, time_ms: u32) {
-        cx.set_chat_interface(if self.classic.active {
-            dereth_client_contract::options::interface::Interface::Classic
-        } else {
-            dereth_client_contract::options::interface::Interface::Modern
-        });
+        cx.set_chat_interface(self.shown_interface());
         let events: Vec<_> = self.shared.window_events.borrow_mut().drain(..).collect();
+        if self.horizon.active {
+            for event in &events {
+                route_horizon_event(cx, self, event, time_ms);
+            }
+            return;
+        }
         if self.classic.active {
             for event in &events {
                 use dereth_input::host::HostEvent;
@@ -1776,6 +1965,11 @@ impl<H: Host> Shell for ClientShell<H> {
     /// back first so it wins. `Nothing` is the client's own skip when that filename is empty.
     fn save_bindings(&mut self) -> dereth_client_runtime::shutdown::Outcome {
         use dereth_client_runtime::shutdown::Outcome;
+        if let Some(input) = self.shared.input.as_mut() {
+            if let Err(e) = input.save_horizon_keymap() {
+                tracing::warn!("the Horizon key map was not saved: {e}");
+            }
+        }
         match self
             .shared
             .input
@@ -1801,12 +1995,19 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn has_ui(&self) -> bool {
-        self.modern.ui.is_some() || self.classic.active().is_some()
+        self.modern.ui.is_some()
+            || self.classic.active().is_some()
+            || self.horizon.active().is_some()
     }
 
     /// Whether the current UI mode is the gameplay screen, which means "the player is in the world".
     fn in_gameplay(&self) -> bool {
         self.front().in_gameplay()
+    }
+
+    /// The Horizon interface draws its screens before the world at the player's own size.
+    fn keeps_login_size(&self) -> bool {
+        !self.horizon.active
     }
 
     /// Credits has no backdrop element. Retail's black is the frame-start clear:
@@ -1824,6 +2025,9 @@ impl<H: Host> Shell for ClientShell<H> {
 
     fn clear_chat_history(&mut self) {
         self.classic.clear_history();
+        if let Some(ui) = self.horizon.ui.as_mut() {
+            ui.clear_chat();
+        }
     }
 
     fn ui_requests(&mut self) -> Option<&mut dereth_client_contract::requests::Outbox> {
@@ -1878,6 +2082,11 @@ impl<H: Host> Shell for ClientShell<H> {
                 self.modern.resolution_dialog.clear(&mut ui.ui);
             }
             classic.project_resolution(prompt);
+        } else if let Some(horizon) = self.horizon.active_mut() {
+            if let Some(ui) = self.modern.ui.as_mut() {
+                self.modern.resolution_dialog.clear(&mut ui.ui);
+            }
+            horizon.project_resolution(prompt);
         } else if let Some(ui) = self.modern.ui.as_mut() {
             ui.ui.now = dereth_primitives::LocalTime(cx.now());
             self.modern.resolution_dialog.project(&mut ui.ui, prompt);
@@ -1902,6 +2111,11 @@ impl<H: Host> Shell for ClientShell<H> {
     fn place_portal_space(&mut self, present: &mut Self::Present) {
         if let Some(ui) = self.classic.active_mut() {
             ui.place_portal_space(present.size());
+            return;
+        }
+        if let Some(ui) = self.horizon.active_mut() {
+            // The swirl goes under the whole interface, over the whole window.
+            ui.portal = true;
             return;
         }
         let id = crate::gpu::PreviewId::Portal;
@@ -1945,7 +2159,7 @@ impl<H: Host> Shell for ClientShell<H> {
 
     /// The screens carry `--enter-world` whenever they are up; with no UI the runtime does.
     fn drives_scripted_entry(&self) -> bool {
-        self.modern.ui.is_some() && !self.classic.active
+        self.modern.ui.is_some() && !self.classic.active && !self.horizon.active
     }
 
     fn ui_frame(
@@ -1957,11 +2171,7 @@ impl<H: Host> Shell for ClientShell<H> {
         service_journal(cx);
         self.reread_files_when_patched(cx);
         self.follow_interface(cx);
-        cx.set_chat_interface(if self.classic.active {
-            dereth_client_contract::options::interface::Interface::Classic
-        } else {
-            dereth_client_contract::options::interface::Interface::Modern
-        });
+        cx.set_chat_interface(self.shown_interface());
         if self.classic.active {
             self.sync_classic_input(cx, false, None, false);
             if let Some(input) = self.shared.input.as_mut() {
@@ -1973,6 +2183,9 @@ impl<H: Host> Shell for ClientShell<H> {
                     }
                 }
             }
+        }
+        if self.horizon.active {
+            self.horizon_input(cx, now);
         }
         let changed = {
             let (front, services) = self.front_and_services();
@@ -2070,6 +2283,10 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn draw_world_target(&mut self, cx: &mut Cx<'_, H>) {
+        // The Horizon interface marks the selection itself.
+        if self.horizon.active {
+            return;
+        }
         if self.classic.active {
             let selected = cx.model().selected;
             let projection = selected.and_then(|id| {
@@ -2096,6 +2313,27 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     fn update_cursor(&mut self, cx: &mut Cx<'_, H>) {
+        if let Some(ui) = self.horizon.active() {
+            // The game's own cursors, chosen as the modern interface chooses them, over the world
+            // only: over the interface the pointer is the plain arrow.
+            let over_world = !ui.ui.pointer_over_ui;
+            let found = cx.found_object();
+            let inputs = crate::cursor::CursorInputs {
+                busy: cx.busy_count(),
+                target_mode: cx.target_mode().into(),
+                combat_mode: cx.model().combat.combat_mode,
+                hovering: over_world && found.0 != 0,
+                target_compatible: over_world
+                    && crate::cursor::is_target_compatible_with_targeting_object(
+                        cx.model(),
+                        cx.model().targeting_object,
+                        found,
+                    ),
+            };
+            let store = std::sync::Arc::clone(cx.store());
+            self.shared.cursor.update_cursor_without_ui(&store, inputs);
+            return;
+        }
         if let Some(ui) = self.classic.active_mut() {
             // The classic interface chooses its pointer and the window system shows it, as it
             // shows this interface's; with none chosen the system's pointer is hidden.
@@ -2123,7 +2361,17 @@ impl<H: Host> Shell for ClientShell<H> {
     /// cheap -- the send happens only on a Copy, the read only when the clipboard's sequence number
     /// moved.
     fn sync_clipboard(&mut self) {
-        if self.classic.active {
+        if let Some(text) = self
+            .horizon
+            .active_mut()
+            .and_then(dereth_horizon::runtime::HorizonFrontEnd::take_copied)
+        {
+            use crate::clipboard::HostClipboard;
+            if let Err(e) = self.shared.host_clipboard.set_text(&text) {
+                tracing::warn!("clipboard write failed: {e:?}");
+            }
+        }
+        if self.classic.active || self.horizon.active {
             return;
         }
         if let Some(s) = self.modern.ui.as_mut() {
@@ -2163,6 +2411,8 @@ impl<H: Host> Shell for ClientShell<H> {
     fn cleanup_ui(&mut self, cx: &mut Cx<'_, H>) {
         self.classic.ui = None;
         self.classic.active = false;
+        self.horizon.ui = None;
+        self.horizon.active = false;
         let ui = self.modern.ui.take();
         if ui.is_some() {
             let r = cx.present_mut().release_ui_textures();
@@ -2356,6 +2606,80 @@ pub(crate) fn route_host_event<H: Host>(
     }
 }
 
+/// One host event while the Horizon interface is shown: a lifecycle event as any interface routes it;
+/// a device event to the interface first, and on to the latches, the window procedure and the
+/// input manager only when the interface does not keep it.
+fn route_horizon_event<H: Host>(
+    cx: &mut Cx<'_, H>,
+    shell: &mut ClientShell<H>,
+    event: &dereth_input::host::HostEvent,
+    time_ms: u32,
+) {
+    use dereth_input::host::HostEvent;
+    if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
+        cx.window_event(shell, &lifecycle, time_ms);
+        if let Some(input) = shell.shared.input.as_mut() {
+            for m in dereth_client_runtime::pump::Pump::map_window_event(&lifecycle) {
+                input.on_message(crate::pump::from_window(m, time_ms));
+            }
+        }
+        return;
+    }
+    // A paste key in a text box reads the clipboard on the keystroke.
+    if let HostEvent::KeyboardInput {
+        key, pressed: true, ..
+    } = event
+    {
+        if let Some(ui) = shell.horizon.active_mut() {
+            if ui.wants_paste(key.virtual_key) {
+                use crate::clipboard::HostClipboard;
+                let text = shell.shared.host_clipboard.get_text().ok().flatten();
+                ui.offer_paste(text);
+            }
+        }
+    }
+    let forward = shell
+        .horizon
+        .active_mut()
+        .is_none_or(|ui| ui.host_event(event, time_ms).forward);
+    match event {
+        HostEvent::CursorMoved { x, y } => cx.cursor_moved(*x, *y),
+        // Either button held over the world turns the camera with the pointer, and both together
+        // run forward; letting go ends it wherever the pointer is.
+        HostEvent::MouseInput {
+            button:
+                button
+                @ (dereth_input::keys::MouseButton::Left | dereth_input::keys::MouseButton::Right),
+            pressed,
+        } if forward || !*pressed => {
+            cx.orbit_button(*button == dereth_input::keys::MouseButton::Right, *pressed);
+        }
+        // The middle button over the world locks or frees the run.
+        HostEvent::MouseInput {
+            button: dereth_input::keys::MouseButton::Middle,
+            pressed: true,
+        } if forward => {
+            use dereth_client_runtime::actions::{Action, ActionId};
+            const AUTORUN: ActionId = dereth_client_contract::actions::movement::AUTORUN;
+            cx.inject_action(Action::begin(AUTORUN));
+            cx.inject_action(Action::end(AUTORUN));
+        }
+        HostEvent::KeyboardInput { key, pressed, .. } if forward => {
+            flycam_key(cx, shell, *key, *pressed);
+        }
+        _ => {}
+    }
+    if !forward {
+        return;
+    }
+    for m in shell.shared.devices.map_device_event(event, time_ms) {
+        cx.window_message(crate::pump::window_message(m), m.time_ms);
+        if let Some(input) = shell.shared.input.as_mut() {
+            input.on_message(m);
+        }
+    }
+}
+
 /// The residual flycam's two keys. See [`App::flycam_key`](crate::app::App::flycam_key).
 pub(crate) fn flycam_key<H: Host>(
     cx: &mut Cx<'_, H>,
@@ -2507,3 +2831,7 @@ mod patch_reread_tests;
 #[cfg(test)]
 #[path = "../tests/classic_text_tests.rs"]
 mod classic_text_tests;
+
+#[cfg(test)]
+#[path = "../tests/horizon_switch_tests.rs"]
+mod horizon_switch_tests;

@@ -1164,7 +1164,7 @@ fn the_live_paper_doll_uses_described_scale_and_updates_without_redressing() {
         let object = preview.object(0).unwrap();
         assert_eq!(object.setup, gear.setup);
         assert_eq!(
-            object.part_array.scale,
+            object.part_array().scale,
             dereth_primitives::Vec3::new(scale, scale, scale)
         );
         let bounds = object.bounding_box(&store);

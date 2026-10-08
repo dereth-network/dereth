@@ -227,7 +227,22 @@ impl<S: Shell> App<S> {
             }
             self.play_transient_motions();
         }
-        let events = self.actions.take();
+        let mut events = std::mem::take(&mut self.orbit_pending);
+        let taken = self.actions.take();
+        // Under the orbit camera the movement keys are turned into the game's movement as it reads
+        // them; the mouse's asks are already the game's.
+        match self.orbit {
+            Some(settings) => {
+                // While a spell is being cast the turning keys step sideways.
+                let now = dereth_primitives::LocalTime(self.timer.cur_time);
+                let casting = self.objects.world.magic.still_casting(now);
+                events.extend(self.orbit_keys.set_casting(casting, settings));
+                for e in taken {
+                    events.extend(self.orbit_keys.convert(e, settings));
+                }
+            }
+            None => events.extend(taken),
+        }
         if events.is_empty() {
             return;
         }
@@ -507,6 +522,42 @@ impl<S: Shell> App<S> {
         }
     }
 
+    /// The orbit camera, when an interface asked for it: put in use on the body's camera with
+    /// its settings, and under camera-based movement the player faced where the camera looks (or
+    /// straight away from it, Back alone held) while a movement key is held. Without it the
+    /// body's camera is the game's.
+    pub(super) fn apply_orbit_camera(&mut self) {
+        let settings = self.orbit;
+        let keys = self.orbit_keys;
+        let Some(c) = self.world.as_mut().and_then(|w| w.character.as_mut()) else {
+            return;
+        };
+        c.camera.orbit_active = settings.is_some();
+        // The orbit camera eases every frame, so the body it follows is drawn moving every frame.
+        c.drawn_between_ticks = settings.is_some();
+        let Some(settings) = settings else {
+            c.camera.orbit_turns_with_player = false;
+            return;
+        };
+        c.camera.orbit.apply_settings(settings);
+        if !c.camera.orbit.placed {
+            return;
+        }
+        let camera = c.camera.orbit.movement_heading(false);
+        let face = keys.facing(settings, camera);
+        c.camera.orbit_turns_with_player = keys.camera_turns_with_player(settings);
+        // A mouse button held keeps the camera where it is: it no longer settles behind.
+        if keys.buttons.0 || keys.buttons.1 {
+            c.camera.orbit.settling_behind = false;
+        }
+        // Turned by the game itself (a move or turn toward something used, cast at or fought)
+        // while the player neither steers nor holds a mouse button: the camera comes behind.
+        c.camera.orbit.follow_behind = keys.camera_follows_game_turn(face, c.is_moving_to());
+        if let Some(face) = face {
+            c.face_heading(face);
+        }
+    }
+
     pub(super) fn apply_camera_turn(&mut self, now: dereth_primitives::LocalTime) {
         let Some(mut world) = self
             .present
@@ -580,7 +631,8 @@ impl<S: Shell> App<S> {
             | C::SetInHead
             | C::ToggleLookDown
             | C::ToggleMapMode
-            | C::ToggleMouseLook(_) => {}
+            | C::ToggleMouseLook(_)
+            | C::FrontView(_) => {}
             C::AlternateMode { on } => {
                 shell.control_notice(crate::shell::ControlNotice::AlternateCamera(on));
             }
