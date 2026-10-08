@@ -25,8 +25,8 @@
 //! with none of those shapes provides the decorative control. The census below inspects asset
 //! metadata; the three walking tests separately exercise movement against selected examples.
 //!
-//! The scene bake carries generated placements into static-body registration, applying scale
-//! before calculating cross-cell coverage so that coverage uses the scaled bounds. A bake that
+//! The scene bake carries generated placements into static-body registration, calculating
+//! cross-cell coverage at the setup's own size and applying the scale afterwards. A bake that
 //! drew the placements but did not register them would let the body walk through the tree while
 //! the hand-registered collider control still stopped it.
 //!
@@ -361,11 +361,11 @@ fn the_scenery_census_says_which_pieces_retail_makes_solid() {
             }
             let has_building = |c: u16| building_cells.contains(&c);
             let scenes_fn = |d: DataId| load(d);
-            let sphere_fn = |d: DataId| dereth_client_runtime::models::sorting_sphere(&s, d);
+            let shape_fn = |d: DataId| dereth_client_runtime::models::within_block_shape(&s, d);
             let env = SceneryEnv {
                 scenes: &scenes_fn,
                 has_building: &has_building,
-                sorting_sphere: &sphere_fn,
+                shape: &shape_fn,
             };
             let placed = generate_scenery(&lb, &m, &r, bxi, byi, &env);
             total += placed.len();

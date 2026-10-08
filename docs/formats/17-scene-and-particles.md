@@ -43,7 +43,7 @@ Each record is 76 bytes:
 | `+52` | 4 | `max_rotation` | Degrees; **zero or less means "use the base transform's rotation"**. |
 | `+56` | 4 | `min_slope` | Bound on the terrain normal's z, **inclusive**. |
 | `+60` | 4 | `max_slope` | Also inclusive. |
-| `+64` | 4 | `align` | 0 = random heading; non-zero = align to the terrain normal. |
+| `+64` | 4 | `align` | 0 = random heading; non-zero = face directly downhill, turned about the vertical only (the object stays upright). |
 | `+68` | 4 | `orient` | Serialised, and **read by nothing**. A few dozen shipped records set it. |
 | `+72` | 4 | `server_object` | Non-zero means **the client does not place it** — the server spawns it as a real world object. |
 
@@ -84,11 +84,26 @@ for k, record in the scene's records:
     snap pos's z onto the terrain polygon
 
     frame = align == 0 ? base transform, with a random heading when max_rotation > 0
-                       : base transform facing directly downhill
-    if the object's sorting sphere, placed by frame, does not clear
-       every edge of the landblock by its radius:            skip
+                       : base transform turned to face directly downhill
+    if the object, placed by frame at its unscaled size, does not stay
+       within the landblock (below):                         skip
     place the object, scaled by scale(record, gx, gy, k)
 ```
+
+What has to stay within the landblock depends on the object's shape, and the first case that applies
+decides. The edge test for a point `p` with a clearance `r` is `r <= p.x < 192 - r` and the same for `y`.
+
+| The object | What is tested |
+|---|---|
+| A part's model has a physics mesh | the sorting sphere's centre, placed by the frame, with its radius |
+| It has collision cylinders | **every** cylinder's low point, placed, with that cylinder's radius |
+| It has collision spheres | the sorting sphere, as for a mesh |
+| None of these | the origin, with no clearance |
+
+So a tree whose trunk stands inside the block grows however far its canopy reaches over the line. A bare
+model id is wrapped in a one-part setup with no cylinders or spheres, whose sorting sphere is the model's
+physics sphere (its drawing sphere when it has no physics mesh): a rock with a physics mesh near the line is
+dropped, a model without one is tested at its origin.
 
 ### 2.1 The hash
 

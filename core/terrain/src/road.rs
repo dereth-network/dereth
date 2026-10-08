@@ -2,8 +2,9 @@
 //!
 //! Scenery suppression near roads follows the complete 16-case table below.
 //!
-//! **ACE's `Scenery.OnRoad` is a stub** — `(terrain & 3) != 0`, marked TODO in its own
-//! source — so ACE is not a valid oracle for scenery. Every case below decides which trees exist.
+//! ACE's older scenery placement, which only its landblock-mesh loader used and which is no longer
+//! called, stubs this test as `(terrain & 3) != 0`, marked TODO in its own source. The scenery ACE's
+//! server collides with has the full table. Every case below decides which trees exist.
 
 use crate::consts::{CELL_SIZE, ROAD_WIDTH, ROAD_WIDTH_FAR, SIDE_VERTEX_COUNT, VERTEX_COUNT};
 
@@ -86,8 +87,8 @@ mod tests {
 
     /// Oracle: the recovered 16-case road table. One case
     /// per row, each probed at a point the row's geometry says is on the road and at one it says is
-    /// off it. ACE's stub would answer "on road" for every row with any corner set, so every
-    /// `false` assertion here is also a regression test against porting the stub.
+    /// off it. The stub in ACE's older scenery path would answer "on road" for every row with any
+    /// corner set, so every `false` assertion here is also a regression test against porting it.
     #[test]
     fn every_one_of_the_sixteen_cases_matches_the_table() {
         // (A, B, C, D, on-road point, off-road point)
@@ -143,9 +144,10 @@ mod tests {
         }
     }
 
-    /// Oracle: ACE answers `(terrain & 3) != 0`, i.e. "on road" whenever *any* corner has
-    /// a road bit. The cell centre of a single-corner road cell is the cheapest place to see the
-    /// two disagree, and this test pins the disagreement so nobody "simplifies" it away.
+    /// Oracle: ACE's older scenery path answers `(terrain & 3) != 0`, i.e. "on road" whenever
+    /// *any* corner has a road bit. The cell centre of a single-corner road cell is the cheapest
+    /// place to see the two disagree, and this test pins the disagreement so nobody "simplifies"
+    /// it away.
     #[test]
     fn the_client_disagrees_with_aces_stub_at_the_cell_centre() {
         for corners in [(true, false, false, false), (false, true, false, false)] {

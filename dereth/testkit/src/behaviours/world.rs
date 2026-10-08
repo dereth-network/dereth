@@ -1642,6 +1642,36 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.scenery.a-bare-model-near-the-block-line-is-placed-when-its-mesh-sphere-stays-inside",
+        says: "A generated piece of scenery that is a bare model with a solid mesh is placed near \
+               the edge of its landblock when the sphere around its mesh stays inside the block: \
+               one 8 m from a block's north edge is placed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCENERY-MODEL-INSIDE"),
+        station: "dereth-client::dat::world::scenery_within_block::a_bare_model_whose_mesh_sphere_stays_inside_the_block_is_placed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.a-mesh-rock-over-the-block-line-is-not-placed",
+        says: "A generated rock with a solid mesh is not placed when the sphere around its mesh \
+               reaches over the edge of its landblock, even though it stands inside the block.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCENERY-MESH-EDGE"),
+        station: "dereth-client::dat::world::scenery_within_block::a_mesh_rock_whose_sphere_crosses_the_block_line_is_not_placed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.a-piece-whose-cylinder-reaches-over-the-block-line-is-not-placed",
+        says: "A generated piece of scenery with collision cylinders is not placed when one of \
+               its cylinders reaches over the edge of its landblock, even though the piece stands \
+               inside the block: one standing 0.86 m from a block's south edge, whose cylinder has \
+               a 1.15 m radius, is not placed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCENERY-CYLINDER-EDGE"),
+        station: "dereth-client::dat::world::scenery_within_block::a_piece_whose_cylinder_crosses_the_block_line_is_not_placed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.scenery.a-scaled-trees-trunk-is-solid-only-from-the-land-cells-its-setup-sized-trunk-reaches",
         says: "A tall tree just south of Holtburg, drawn at 2.43 times its size, whose trunk at \
                that size reaches over the line into the next land cell, lets a body walking at it \
@@ -1651,6 +1681,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-SCALED-REGISTRATION-TRUNK"),
         station: "dereth-client::dat::world::static_collision_cells::a_scaled_trees_trunk_reaching_over_a_land_cell_line_stops_a_body_only_at_that_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.a-slope-aligned-piece-faces-downhill-and-stays-upright",
+        says: "Generated scenery that follows the slope is turned to face downhill and stands \
+               upright, not tipped over onto the slope; on level ground it faces north.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCENERY-SLOPE-ALIGN"),
+        station: "dereth-client::dat::world::scenery_within_block::a_slope_aligned_piece_faces_downhill_and_stays_upright",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.a-tree-near-the-block-line-grows-while-its-trunk-is-inside",
+        says: "A generated tree near the edge of its landblock grows as long as its trunk stands \
+               inside the block, however far its canopy reaches over the line: a tree 3.2 m and \
+               6.5 m from two edges of the block south of Holtburg grows, though the 17 m \
+               sphere around its canopy reaches over both.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCENERY-TRUNK-INSIDE"),
+        station: "dereth-client::dat::world::scenery_within_block::a_tree_whose_canopy_crosses_the_block_line_grows_where_its_trunk_is_inside",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1667,8 +1717,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "world.scenery.scaled-scenery-is-registered-by-its-setup-sized-geometry",
         says: "Landscape scenery is registered in the cells its setup-sized geometry reaches, \
-               whatever size it is drawn at. All 556 outdoor statics in the nine landblocks \
-               around Holtburg are registered so; six of them are drawn large enough that the \
+               whatever size it is drawn at. All 606 outdoor statics in the nine landblocks \
+               around Holtburg are registered so; seven of them are drawn large enough that the \
                same geometry at their drawn size would reach a neighbouring land cell, and each \
                is in its own land cell alone, as is a large many-part object whose parts at its \
                drawn size would reach the next.",

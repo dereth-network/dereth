@@ -14,6 +14,7 @@ use dereth_assets::{decode_any, DecodedAsset};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::{DataId, Vec3};
 use dereth_terrain::land::water::WaterType;
+use dereth_terrain::scenery::{generate_scenery, SceneryEnv, WithinBlockShape};
 use {
     dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN, dereth_terrain::consts::SIDE_VERTEX_COUNT,
     dereth_terrain::consts::VERTEX_COUNT,
@@ -33,7 +34,6 @@ use {
     dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::sw_to_ne_cut,
     dereth_terrain::land::mesh::Direction,
 };
-use {dereth_terrain::scenery::generate_scenery, dereth_terrain::scenery::SceneryEnv};
 
 const REGION_ID: DataId = DataId(0x1300_0000);
 
@@ -585,12 +585,12 @@ fn scenery_over_retail_landblocks_satisfies_every_filter_and_is_deterministic() 
             }
         }
         let has_building = |c: u16| building_cells.contains(&c);
-        let no_sphere = |_: DataId| None;
+        let no_shape = |_: DataId| Some(WithinBlockShape::default());
         let scenes_fn = |d: DataId| load(d);
         let env = SceneryEnv {
             scenes: &scenes_fn,
             has_building: &has_building,
-            sorting_sphere: &no_sphere,
+            shape: &no_shape,
         };
         let placed = generate_scenery(&lb, &m, &r, bx, by, &env);
         // Determinism: the same inputs must give the same objects, in the same order.
@@ -678,7 +678,7 @@ fn scenery_is_a_function_of_global_cell_coordinates() {
         let env = SceneryEnv {
             scenes: &scenes_fn,
             has_building: &|_| false,
-            sorting_sphere: &|_| None,
+            shape: &|_| Some(WithinBlockShape::default()),
         };
         if generate_scenery(&lb, &m, &r, bx, by, &env).len() > 5 {
             chosen = Some((id, lb, m, bx, by));
@@ -690,7 +690,7 @@ fn scenery_is_a_function_of_global_cell_coordinates() {
     let env = SceneryEnv {
         scenes: &scenes_fn,
         has_building: &|_| false,
-        sorting_sphere: &|_| None,
+        shape: &|_| Some(WithinBlockShape::default()),
     };
     let here = generate_scenery(&lb, &m, &r, bx, by, &env);
     let elsewhere = generate_scenery(&lb, &m, &r, bx + 1, by, &env);

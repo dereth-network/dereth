@@ -596,7 +596,7 @@ fn a_scaled_scenery_object_reaching_over_a_land_cell_line_stops_a_body_only_at_t
 /// tree's land cell, then walks back out. A tree placed by a trunk as large as the one it is drawn
 /// with stops the same body at the trunk.
 ///
-/// Fixture: landblock `0xA9B3`, outdoor static 25 (the generated scenery comes first), in land
+/// Fixture: landblock `0xA9B3`, outdoor static 35 (the generated scenery comes first), in land
 /// cell `0xA9B30014`; the walk is in land cell `0xA9B3000C`, heading east from `x = 45.9` through
 /// the deepest point a standing body reaches into the trunk from that cell.
 #[test]
@@ -605,8 +605,8 @@ fn a_scaled_trees_trunk_reaching_over_a_land_cell_line_stops_a_body_only_at_that
     let block = 0xA9B3_u16;
     let land = resident(&s, block);
     let statics = outdoor_statics(&s, block);
-    let record = statics[25];
-    assert_eq!(record.id.0, 0x0200_0258, "outdoor static 25 is the tree");
+    let record = statics[35];
+    assert_eq!(record.id.0, 0x0200_0258, "outdoor static 35 is the tree");
     assert_eq!(record.cell.0, 0xA9B3_0014);
     assert!(
         (2.42..2.44).contains(&record.scale),
@@ -619,7 +619,7 @@ fn a_scaled_trees_trunk_reaching_over_a_land_cell_line_stops_a_body_only_at_that
     let start = Vec3::new(45.9, 85.044, 94.3);
 
     let (mut w, made) = world_with(&s, &land, &statics);
-    let tree = made[25].expect("the tree has a body");
+    let tree = made[35].expect("the tree has a body");
     let trunk = cylinders_of(&w, tree);
     assert_eq!(
         solid_in(&w, tree),
@@ -676,7 +676,7 @@ fn a_scaled_trees_trunk_reaching_over_a_land_cell_line_stops_a_body_only_at_that
 /// Generated landscape scenery is registered in the cells its setup-sized geometry reaches,
 /// whatever size it is drawn at: a tree by the trunk its setup gives it, and a many-part object
 /// by its parts at the offsets its setup gives them. In the nine landblocks around Holtburg,
-/// every outdoor static is registered so, and six pieces of scenery are drawn large enough that
+/// every outdoor static is registered so, and seven pieces of scenery are drawn large enough that
 /// the same geometry at their drawn size would reach a neighbouring land cell; each is
 /// registered in its own land cell alone. A large many-part object elsewhere, drawn at 1.09
 /// times its size, is likewise registered in its own land cell where its scaled parts would
@@ -719,16 +719,17 @@ fn scaled_scenery_around_holtburg_is_registered_by_its_setup_sized_geometry() {
             }
         }
     }
-    assert_eq!(checked, 556, "the nine blocks' outdoor statics with a body");
+    assert_eq!(checked, 606, "the nine blocks' outdoor statics with a body");
     assert_eq!(
         larger_when_scaled,
         vec![
-            (0xA8B3, 40),
-            (0xA8B3, 43),
+            (0xA8B3, 52),
+            (0xA8B3, 55),
             (0xA8B5, 39),
-            (0xA9B3, 25),
+            (0xA9B3, 6),
             (0xA9B3, 35),
-            (0xAAB3, 12),
+            (0xA9B3, 46),
+            (0xAAB3, 18),
         ],
         "the pieces whose geometry at their drawn size would be registered elsewhere"
     );
@@ -737,15 +738,15 @@ fn scaled_scenery_around_holtburg_is_registered_by_its_setup_sized_geometry() {
     let block = 0x84CE;
     let land = resident(&s, block);
     let statics = outdoor_statics(&s, block);
-    let record = statics[82];
+    let record = statics[88];
     assert_eq!(
         record.id.0, 0x0200_035F,
-        "outdoor static 82 is the many-part object"
+        "outdoor static 88 is the many-part object"
     );
     let g = static_geometry(&s, record.id, &mut stats).expect("decodes");
     assert!(!g.caches_physics_bsp() && g.cyl_spheres.is_empty() && g.parts.len() == 11);
     let (w, made) = world_with(&s, &land, &statics);
-    let object = made[82].expect("the object has a body");
+    let object = made[88].expect("the object has a body");
     assert_eq!(
         solid_in(&w, object),
         vec![0x84CE_003F],

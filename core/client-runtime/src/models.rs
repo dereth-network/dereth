@@ -597,19 +597,25 @@ pub fn draws_at_near_band(store: &RetailDatStore, gfxobj: DataId) -> bool {
         .is_some_and(|e| e.gfxobj_id.0 != 0)
 }
 
-/// Return the setup's sorting sphere, or a static zero sphere if no setup exists.
+/// What the last scenery filter, the within-block test, reads of the object `id` makes: a setup
+/// id's setup, or the one-part setup a graphics-object id is wrapped in, read through the same
+/// loader collision registers the object by. `None` when no object can be made from the id.
 ///
-/// This is the fifth scenery filter's input (`obj_within_block`): drawing asks for it rather than
-/// computing it, because part arrays and collision spheres have separate owners. A bare
-/// `GfxObj` has no setup and therefore no sphere, which is the zero-sphere case.
+/// Drawing asks for it rather than computing it, because part arrays and collision shapes have
+/// separate owners. Nothing is scaled: the test runs before the object is.
 #[must_use]
-pub fn sorting_sphere(store: &RetailDatStore, id: DataId) -> Option<(Vec3, f32)> {
-    if divine_type(id) != Some(DbType::Setup) {
-        return None;
-    }
-    let bytes = store.read_typed(DbType::Setup, id).ok()?;
-    let setup = Setup::decode_payload_in(store.era_of(id), id, &bytes).ok()?;
-    Some((setup.sorting_sphere.center, setup.sorting_sphere.radius))
+pub fn within_block_shape(
+    store: &RetailDatStore,
+    id: DataId,
+) -> Option<dereth_terrain::scenery::WithinBlockShape> {
+    let mut stats = dereth_world_data::setup::SetupPartStats::default();
+    let g = dereth_world_data::env_cells::static_geometry(store, id, &mut stats)?;
+    Some(dereth_terrain::scenery::WithinBlockShape {
+        physics_mesh: g.caches_physics_bsp(),
+        cylinders: g.cyl_spheres.iter().map(|c| (c.low_pt, c.radius)).collect(),
+        has_spheres: !g.spheres.is_empty(),
+        sorting_sphere: (g.sorting_sphere.center, g.sorting_sphere.radius),
+    })
 }
 
 /// Triangulate one `GfxObj`'s **drawing** polygons, grouped by positive surface.

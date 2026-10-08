@@ -27,7 +27,9 @@ use dereth_physics::PhysHandle;
 use dereth_primitives::{CellId, DataId, ObjectId, Vec3};
 use dereth_terrain::buildings::{Building, SortCells};
 use dereth_terrain::land::mesh::LandblockMesh;
-use dereth_terrain::scenery::{generate_scenery, outside_cell_index, PlacedScenery, SceneryEnv};
+use dereth_terrain::scenery::{
+    generate_scenery, outside_cell_index, PlacedScenery, SceneryEnv, WithinBlockShape,
+};
 
 use crate::camera::FreeCamera;
 use crate::environment::EnvironmentOverrideState;
@@ -190,12 +192,21 @@ pub fn land_content(
         }
     }
     let placed = {
+        // A block places the same few objects many times, so each id's shape is read once.
+        let shapes: std::cell::RefCell<BTreeMap<u32, Option<WithinBlockShape>>> =
+            std::cell::RefCell::new(BTreeMap::new());
         let env = SceneryEnv {
             scenes: &|id| read_scene(store, id),
             has_building: &|cell| cells.has_building(cell),
-            // The setup's sorting sphere, or a zero sphere for an object with no setup -- which
-            // is the fifth scenery filter's whole input.
-            sorting_sphere: &|id| crate::models::sorting_sphere(store, id),
+            // The object's cylinders, spheres, sorting sphere and physics mesh -- the last
+            // scenery filter's whole input.
+            shape: &|id| {
+                shapes
+                    .borrow_mut()
+                    .entry(id.0)
+                    .or_insert_with(|| crate::models::within_block_shape(store, id))
+                    .clone()
+            },
         };
         generate_scenery(lb, mesh, region, bx, by, &env)
     };

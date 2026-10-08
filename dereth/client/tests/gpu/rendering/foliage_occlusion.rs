@@ -229,11 +229,11 @@ fn census(
             }
             let has_building = |c: u16| building_cells.contains(&c);
             let scenes_fn = |d: DataId| load(d);
-            let sphere_fn = |d: DataId| dereth_client_runtime::models::sorting_sphere(s, d);
+            let shape_fn = |d: DataId| dereth_client_runtime::models::within_block_shape(s, d);
             let env = SceneryEnv {
                 scenes: &scenes_fn,
                 has_building: &has_building,
-                sorting_sphere: &sphere_fn,
+                shape: &shape_fn,
             };
             // LINT-OK: a landblock id is two bytes, one per axis. Not a float conversion.
             #[allow(clippy::cast_possible_truncation)]

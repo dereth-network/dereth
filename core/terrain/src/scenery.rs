@@ -12,10 +12,10 @@
 //!
 //! Two facts govern this file.
 //!
-//! * **ACE is not a valid oracle here.** Its six hashes match, but it stubs `OnRoad`, does
-//!   not implement the slope test at all, uses inclusive bounds where the client is strict, clamps
-//!   the scene index where the client skips, and has no within-block rejection. Every one of
-//!   those changes which trees exist.
+//! * **ACE follows the client here, with one exception.** Its hashes, its strict block bounds,
+//!   its road test, its slope test, its slope alignment and its four-way within-block test are
+//!   the client's; where an out-of-range scene index makes the client skip the vertex, ACE
+//!   clamps the index to 0.
 //! * Scene generation returns immediately unless `side_cell_count == 8`, so
 //!   **LOD blocks carry no scenery at all**.
 //!
@@ -30,7 +30,7 @@ use dereth_primitives::{CellId, DataId, Frame, LandblockId, Quat, Vec3};
 
 use crate::consts::{BLOCK_LENGTH, CELL_SIZE, SIDE_VERTEX_COUNT};
 use crate::land::mesh::{plane_set_height, LandblockMesh};
-use crate::math::{set_heading, set_vector_heading};
+use crate::math::{set_heading, vector_get_heading, V3};
 use crate::narrow::{i32_of, u16_of_i32, u32_of};
 use crate::road::on_road;
 use crate::Plane;
@@ -201,28 +201,82 @@ pub fn get_obj_frame(obj: &ObjectDesc, gx: i32, gy: i32, k: usize, p: Vec3) -> F
     f
 }
 
-/// When `align != 0`, copy `base_loc`, move the origin, and
-/// set the heading from the negated polygon normal — the object faces down the slope.
+/// When `align != 0`, copy `base_loc`, move the origin, and turn the object to face down the
+/// slope.
 ///
-/// The client sets vector heading from the negated normal, which also picks up the slope's pitch;
-/// `orient` is serialized but read by nothing,
-/// so `align` is the only field that matters.
+/// Only the heading changes: the downhill direction is the negated polygon normal's horizontal
+/// part, and the heading step keeps the frame's own forward tilt (`base_loc`'s), so the object is
+/// turned about the vertical and **not** pitched to lie along the slope. Level ground has no
+/// downhill direction and gives heading 0. `orient` is serialized but read by nothing, so `align`
+/// is the only field that matters.
 #[must_use]
 pub fn obj_align(obj: &ObjectDesc, plane: &Plane, p: Vec3) -> Frame {
     let mut f = Frame::new(p, obj.base_loc.rotation);
-    set_vector_heading(
-        &mut f,
-        Vec3::new(-plane.normal.x, -plane.normal.y, -plane.normal.z),
-    );
+    let mut downhill = Vec3::new(-plane.normal.x, -plane.normal.y, 0.0);
+    let heading = if downhill.normalize_check_small() {
+        0.0
+    } else {
+        vector_get_heading(downhill)
+    };
+    set_heading(&mut f, heading);
     f
 }
 
-/// The within-block test, which is what the object's own within-block check
-/// reduces to for a scenery object: the sorting sphere, transformed into block space, must clear
-/// every edge of the 192 m block by its own radius.
+/// The block-bounds half of the within-block test: a point, with a clearance `radius`, is inside
+/// the 192 m block when `radius <= x < 192 - radius` on both axes (inclusive at the near edges,
+/// strict at the far ones).
 #[must_use]
 pub fn within_block(p: Vec3, radius: f32) -> bool {
     radius <= p.x && radius <= p.y && p.x < BLOCK_LENGTH - radius && p.y < BLOCK_LENGTH - radius
+}
+
+/// What the within-block test reads of an object, in object space and at the object's own size:
+/// the test runs on the placed frame **before** the object is scaled, so nothing here is scaled.
+///
+/// For a setup this is the setup's cylinders, spheres and sorting sphere, plus whether any part's
+/// graphics object carries a physics mesh. A bare graphics-object id is wrapped in a one-part
+/// setup with no cylinders and no spheres whose sorting sphere is the mesh's physics sphere (its
+/// drawing sphere when it has no physics mesh), so it can only take the mesh or the origin arm.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WithinBlockShape {
+    /// Some part's graphics object carries a physics mesh. (Not the setup record's own
+    /// physics flag, which the test never reads.)
+    pub physics_mesh: bool,
+    /// Every cylinder's low point and radius.
+    pub cylinders: Vec<(Vec3, f32)>,
+    /// The setup lists at least one collision sphere.
+    pub has_spheres: bool,
+    /// The sorting sphere's centre and radius.
+    pub sorting_sphere: (Vec3, f32),
+}
+
+impl WithinBlockShape {
+    /// Whether the object, placed at `frame`, stays inside its block. The first arm that applies
+    /// decides:
+    ///
+    /// 1. a physics mesh: the sorting sphere must clear every edge by its radius;
+    /// 2. cylinders: **every** cylinder's low point must clear every edge by that cylinder's
+    ///    radius, so a tree whose trunk stands inside is kept however far its canopy reaches;
+    /// 3. collision spheres: the sorting sphere, as in arm 1;
+    /// 4. nothing: the origin alone, with no clearance.
+    #[must_use]
+    pub fn within_block(&self, frame: &Frame) -> bool {
+        let sorting = || {
+            let (centre, radius) = self.sorting_sphere;
+            within_block(crate::math::localtoglobal(frame, centre), radius)
+        };
+        if self.physics_mesh {
+            sorting()
+        } else if !self.cylinders.is_empty() {
+            self.cylinders
+                .iter()
+                .all(|&(low, radius)| within_block(crate::math::localtoglobal(frame, low), radius))
+        } else if self.has_spheres {
+            sorting()
+        } else {
+            within_block(frame.origin, 0.0)
+        }
+    }
 }
 
 /// What scenery generation needs from outside this crate.
@@ -232,14 +286,14 @@ pub struct SceneryEnv<'a> {
     /// A cell that owns a building grows no scenery. The argument
     /// is the outdoor cell index `1..=64`.
     pub has_building: &'a dyn Fn(u16) -> bool,
-    /// Sorting sphere for a `gfxobj` id: `(centre, radius)` in object space. The
-    /// client falls back to `(origin, 0)` for an object with no spheres, which is what `None` means
-    /// here.
+    /// What the within-block test reads of the object an id makes (a setup id, or a
+    /// graphics-object id wrapped in its one-part setup). `None` is an object that cannot be
+    /// made, and the client places nothing for it.
     ///
-    /// Part arrays belong to animation and collision spheres to physics, so this crate asks rather
-    /// than computes. With `None` for every object the within-block filter degenerates to the
-    /// point test, which is the client's own behaviour for a sphere-less object.
-    pub sorting_sphere: &'a dyn Fn(DataId) -> Option<(Vec3, f32)>,
+    /// Part arrays belong to animation and collision shapes to physics, so this crate asks rather
+    /// than computes. [`WithinBlockShape::default`] is an object with no shape at all, which the
+    /// test reduces to its origin.
+    pub shape: &'a dyn Fn(DataId) -> Option<WithinBlockShape>,
 }
 
 impl std::fmt::Debug for SceneryEnv<'_> {
@@ -414,8 +468,7 @@ pub fn generate_scenery(
                 let p = place(obj, gx, gy, k);
                 #[allow(clippy::cast_precision_loss)] // i, j <= 8
                 let mut p = Vec3::new(p.x + i as f32 * CELL_SIZE, p.y + j as f32 * CELL_SIZE, p.z);
-                // Filter 1: strict bounds. ACE uses inclusive bounds and keeps objects the client
-                // drops.
+                // Filter 1: strict bounds, `0 <= x < 192` on both axes, as ACE has them too.
                 if !(0.0..BLOCK_LENGTH).contains(&p.x) || !(0.0..BLOCK_LENGTH).contains(&p.y) {
                     continue;
                 }
@@ -431,7 +484,7 @@ pub fn generate_scenery(
                 let Some(plane) = find_terrain_poly(mesh, cell_index, p.x, p.y) else {
                     continue;
                 };
-                // Filter 4: slope, with inclusive bounds. ACE does not implement this at all.
+                // Filter 4: slope, with inclusive bounds (ACE's slope test is the same).
                 if !check_slope(obj, plane.normal.z) {
                     continue;
                 }
@@ -445,11 +498,13 @@ pub fn generate_scenery(
                 } else {
                     obj_align(obj, plane, p)
                 };
-                // Filter 5: within-block. ACE has no equivalent rejection.
-                let (centre, radius) =
-                    (env.sorting_sphere)(obj.obj_id).unwrap_or((Vec3::ZERO, 0.0));
-                let world_centre = crate::math::localtoglobal(&frame, centre);
-                if !within_block(world_centre, radius) {
+                // Filter 5: the object is made, then must stay within the block on the unscaled
+                // frame (the scale is applied only to an object that passes). ACE runs the same
+                // four-way test.
+                let Some(shape) = (env.shape)(obj.obj_id) else {
+                    continue;
+                };
+                if !shape.within_block(&frame) {
                     continue;
                 }
                 out.push(PlacedScenery {
@@ -643,8 +698,8 @@ mod tests {
         assert!(p.x.abs() < 24.0 && p.y.abs() < 24.0, "{p:?}");
     }
 
-    /// Oracle: the bounds check that `obj_within_block` applies to a scenery object. The bounds are
-    /// strict at the far edge and inclusive at the near one, exactly as
+    /// Oracle: the client's block-bounds check, which every arm of the within-block test uses. The
+    /// bounds are strict at the far edge and inclusive at the near one, exactly as
     /// `r <= p.x && p.x < 192 - r` reads.
     #[test]
     fn within_block_clears_the_edges_by_the_sphere_radius() {
@@ -656,6 +711,175 @@ mod tests {
             "a 2 m sphere at x=1 pokes out"
         );
         assert!(within_block(Vec3::new(2.0, 10.0, 0.0), 2.0));
+        assert!(
+            !within_block(Vec3::new(190.0, 10.0, 0.0), 2.0),
+            "the far edge is strict for a sphere too"
+        );
+    }
+
+    /// An unrotated frame at `(x, 96)`.
+    fn at(x: f32) -> Frame {
+        Frame::new(Vec3::new(x, 96.0, 0.0), Quat::IDENTITY)
+    }
+
+    /// A tree: one 0.5 m trunk cylinder at the origin and a 6 m canopy sorting sphere 5 m up.
+    fn tree() -> WithinBlockShape {
+        WithinBlockShape {
+            physics_mesh: false,
+            cylinders: vec![(Vec3::ZERO, 0.5)],
+            has_spheres: true,
+            sorting_sphere: (Vec3::new(0.0, 0.0, 5.0), 6.0),
+        }
+    }
+
+    /// Oracle: the client's within-block test takes a cylinder object's cylinders, not its
+    /// sorting sphere. A tree 3 m from the block line has its trunk inside and its canopy over
+    /// the line, and stays.
+    #[test]
+    fn a_tree_whose_canopy_crosses_the_block_line_is_kept_when_its_trunk_is_inside() {
+        assert!(
+            tree().within_block(&at(3.0)),
+            "trunk inside, canopy over the west line"
+        );
+        assert!(
+            tree().within_block(&at(189.0)),
+            "trunk inside, canopy over the east line"
+        );
+    }
+
+    /// Oracle: as above; the trunk's own radius has to clear the line.
+    #[test]
+    fn a_tree_whose_trunk_crosses_the_block_line_is_dropped() {
+        let mut t = tree();
+        t.has_spheres = false;
+        assert!(
+            !t.within_block(&at(0.3)),
+            "the trunk pokes over the west line"
+        );
+        assert!(
+            !t.within_block(&at(191.6)),
+            "the trunk pokes over the east line"
+        );
+        // Every cylinder must clear the line, not just the first.
+        let mut two = tree();
+        two.cylinders.push((Vec3::new(-2.0, 0.0, 0.0), 0.5));
+        assert!(
+            !two.within_block(&at(2.0)),
+            "the second trunk is over the line"
+        );
+        assert!(two.within_block(&at(2.5)));
+        // The low point is placed by the frame: a turned tree's offset trunk moves with it.
+        let mut turned = Frame::new(Vec3::new(0.2, 96.0, 0.0), Quat::IDENTITY);
+        set_heading(&mut turned, 90.0);
+        let mut offset = tree();
+        offset.cylinders = vec![(Vec3::new(0.0, 2.0, 0.0), 0.5)];
+        assert!(
+            offset.within_block(&turned),
+            "heading 90 carries the trunk 2 m east, to x=2.2"
+        );
+    }
+
+    /// Oracle: a mesh object's test is its sorting sphere, ahead of any cylinder. A bare graphics
+    /// object with a physics mesh is one of these: its sorting sphere is the mesh's sphere.
+    #[test]
+    fn a_physics_mesh_object_whose_sphere_crosses_the_block_line_is_dropped() {
+        let rock = WithinBlockShape {
+            physics_mesh: true,
+            cylinders: Vec::new(),
+            has_spheres: false,
+            sorting_sphere: (Vec3::new(0.0, 0.0, 1.0), 3.0),
+        };
+        assert!(
+            !rock.within_block(&at(2.0)),
+            "origin inside, sphere over the line"
+        );
+        assert!(rock.within_block(&at(3.0)));
+        let mut with_trunk = tree();
+        with_trunk.physics_mesh = true;
+        assert!(
+            !with_trunk.within_block(&at(3.0)),
+            "the mesh arm comes before the cylinders"
+        );
+    }
+
+    /// Oracle: a setup with collision spheres and no cylinder or mesh takes its sorting sphere.
+    #[test]
+    fn a_sphere_object_whose_sorting_sphere_crosses_the_block_line_is_dropped() {
+        let bush = WithinBlockShape {
+            physics_mesh: false,
+            cylinders: Vec::new(),
+            has_spheres: true,
+            sorting_sphere: (Vec3::ZERO, 2.0),
+        };
+        assert!(!bush.within_block(&at(1.0)));
+        assert!(bush.within_block(&at(2.0)));
+    }
+
+    /// Oracle: with no mesh, cylinder or sphere, the origin alone is tested, whatever the
+    /// sorting sphere says.
+    #[test]
+    fn a_shapeless_object_is_kept_when_its_origin_is_inside() {
+        let flower = WithinBlockShape {
+            physics_mesh: false,
+            cylinders: Vec::new(),
+            has_spheres: false,
+            sorting_sphere: (Vec3::ZERO, 10.0),
+        };
+        assert!(flower.within_block(&at(0.5)));
+        assert!(flower.within_block(&at(191.9)));
+        assert!(WithinBlockShape::default().within_block(&at(0.0)));
+    }
+
+    /// A plane through the origin with `normal`.
+    fn plane(normal: Vec3) -> Plane {
+        let mut n = normal;
+        assert!(!n.normalize_check_small());
+        Plane { normal: n, d: 0.0 }
+    }
+
+    /// Oracle: the client's slope alignment turns the object to face downhill and keeps
+    /// `base_loc`'s up axis: the object is not pitched onto the slope.
+    #[test]
+    fn a_slope_aligned_object_faces_downhill_and_stays_upright() {
+        let mut o = default_object_desc(DataId(1));
+        o.align = 1;
+        let p = Vec3::new(50.0, 60.0, 7.0);
+        // Uphill is +x+y; downhill is -x-y, heading 225.
+        let f = obj_align(&o, &plane(Vec3::new(0.3, 0.3, 0.9)), p);
+        assert_eq!(f.origin, p);
+        let up =
+            crate::math::localtoglobalvec(crate::math::l2g(f.rotation), Vec3::new(0.0, 0.0, 1.0));
+        assert!(
+            (up.z - 1.0).abs() < 1e-5 && up.x.abs() < 1e-5 && up.y.abs() < 1e-5,
+            "the object leans: up is {up:?}"
+        );
+        let h = crate::math::get_heading(&f);
+        assert!((h - 225.0).abs() < 0.01, "heading {h}");
+        // A base frame already turned about the vertical: only the heading is replaced.
+        o.base_loc = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        set_heading(&mut o.base_loc, 40.0);
+        let f = obj_align(&o, &plane(Vec3::new(-0.2, 0.0, 0.95)), p);
+        assert!((crate::math::get_heading(&f) - 90.0).abs() < 0.01);
+        let up =
+            crate::math::localtoglobalvec(crate::math::l2g(f.rotation), Vec3::new(0.0, 0.0, 1.0));
+        assert!((up.z - 1.0).abs() < 1e-5, "the object leans: up is {up:?}");
+    }
+
+    /// Oracle: level ground has no downhill direction and gives heading 0.
+    #[test]
+    fn a_slope_aligned_object_on_level_ground_faces_north() {
+        let mut o = default_object_desc(DataId(1));
+        o.align = 1;
+        let f = obj_align(
+            &o,
+            &plane(Vec3::new(0.0, 0.0, 1.0)),
+            Vec3::new(1.0, 2.0, 3.0),
+        );
+        let fwd = crate::math::get_vector_heading(&f);
+        assert!(
+            (fwd.y - 1.0).abs() < 1e-5 && fwd.x.abs() < 1e-5 && fwd.z.abs() < 1e-5,
+            "forward is {fwd:?}"
+        );
     }
 
     /// Oracle: the cell's terrain-polygon lookup and the 2-D point-in-polygon test.
