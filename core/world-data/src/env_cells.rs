@@ -506,43 +506,24 @@ pub fn static_geometry(
 ///
 /// The cells are what both halves of the object read: collision tests it in each of them, and
 /// each of them draws its parts with its own objects. So a lamp in a room whose box reaches out
-/// through the doorway is drawn by the land cells outside as well as by the room.
+/// through the doorway is drawn by the land cells outside as well as by the room, and a body in
+/// those land cells meets it. The rule is the physics crate's
+/// ([`dereth_physics::cell::CellResolver::find_static_cell_list`]), the one
+/// [`CellStaticObjects::init`] registers the collision body by.
 #[must_use]
 pub fn static_cross_cells(
     land: &dyn dereth_physics::LandSource,
     geometry: &SetupGeometry,
     s: &CellStatic,
 ) -> Vec<(CellId, bool)> {
-    use dereth_physics::cell::{CellArray, CellResolver, MAX_CELL_LIST_SPHERES};
-    use dereth_physics::V3;
     let pos = Position::new(s.cell, s.frame);
-    let resolver = CellResolver::new(land);
-    let mut arr = CellArray::new();
-    // Adding a static to its cell sets the do-not-load-cells flag.
-    arr.do_not_load_cells = true;
-    if !geometry.caches_physics_bsp() && !geometry.cyl_spheres.is_empty() {
-        // The cylinder spheres' low points, in the placement's block space, radius unchanged.
-        let m = dereth_physics::math::l2g(s.frame.rotation);
-        let spheres: Vec<Sphere> = geometry
-            .cyl_spheres
-            .iter()
-            .take(MAX_CELL_LIST_SPHERES)
-            .map(|c| {
-                Sphere::new(
-                    dereth_physics::math::localtoglobalvec(m, c.low_pt.mul(s.scale))
-                        .add(s.frame.origin),
-                    c.radius * s.scale,
-                )
-            })
-            .collect();
-        let mut interior = false;
-        resolver.find_cell_list(&pos, &spheres, &mut arr, false, &mut interior);
-    } else {
-        let parts: Vec<dereth_physics::source::PhysicsPart> = (0..geometry.parts.len())
-            .filter_map(|i| geometry.placed_part(i, &pos, s.scale))
-            .collect();
-        resolver.find_bbox_cell_list(&pos, &parts, &mut arr);
-    }
+    let mut arr = dereth_physics::cell::CellArray::new();
+    dereth_physics::cell::CellResolver::new(land).find_static_cell_list(
+        &pos,
+        geometry,
+        (geometry.caches_physics_bsp(), s.scale, None),
+        &mut arr,
+    );
     arr.cells
         .iter()
         .map(|c| (c.cell_id, c.cell.is_some()))
@@ -842,11 +823,12 @@ impl CellStaticObjects {
     ///     add_object_to_cell(static_objects[i], this, &static_object_frames[i])
     /// ```
     ///
-    /// Adding an object to a cell is `enter_cell` + `position.frame = frame` +
-    /// `calc_cross_cells_static`, and `calc_cross_cells_static` differs from
-    /// `calc_cross_cells` in exactly one store: the do-not-load-cells flag becomes 1.
-    /// The physics world's cross-cell calculation accepts that flag, so the three lines below are the
-    /// whole of it.
+    /// Adding an object to a cell is `enter_cell` + `position.frame = frame` + the static
+    /// cross-cell calculation ([`PhysicsWorld::calc_cross_cells_static`], the rule
+    /// [`static_cross_cells`] gives the draw), so the three lines below are the whole of it. It is
+    /// not the moving object's calculation: a static with neither a part physics mesh nor
+    /// cylinder spheres is registered by its parts' boxes, not by its sorting sphere, and collision
+    /// tests it in exactly the cells those boxes reach.
     ///
     /// A cell is skipped if it is already registered, so this is idempotent per cell: a landblock
     /// window slot that is re-meshed for a LOD change must not stack a second body on every chair.
@@ -948,17 +930,16 @@ impl CellStaticObjects {
                 o.set_frame(s.frame);
                 o.position = Position::new(s.cell, s.frame);
                 // The object's internal scale setter, which the scenery half runs between adding
-                // the object to the cell and registering it as a static object. It is set
-                // **before** `calc_cross_cells` here rather than after, because this build's
-                // `calc_cross_cells` reads `scale` to size the sphere it crosses cells with
-                // (`step.rs`, arm 2) — the client's object-scale setter calls the
-                // part-array scale setter, which rebuilds the parts, and the
-                // cross-cell set is recomputed on the object's next `set_position`. A tree scaled
-                // 2.4 that crossed its cells at scale 1 would be solid in one cell and thin air
-                // in the next.
+                // the object to the cell and registering it as a static object. Here it is set
+                // **before** the cross-cell calculation, which therefore places the parts at
+                // their scaled offsets and sizes the cylinder spheres by it; the parts' boxes,
+                // and the part spheres tested against a portal, keep the setup's own size. The
+                // client sets it after the first registration, so on a first load it registers
+                // scaled scenery at scale 1, and a static it registers again later (one that
+                // reached a cell not yet resident) at its set scale.
                 o.scale = s.scale;
             }
-            world.calc_cross_cells(h, true);
+            world.calc_cross_cells_static(h);
             self.handles.entry(s.cell.0).or_default().push(h);
             // `static_objects[i] = obj`: the placement's own slot, so
             // that the script half of the same physics object can find its body again.
@@ -1308,5 +1289,225 @@ mod tests {
             vec![0xA9B4_0101],
             "its sorting sphere stays in its own room"
         );
+    }
+
+    /// Which of the static rule's arms places a static, decided from its geometry alone.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    enum StaticArm {
+        /// A part carries a physics mesh: the parts' boxes.
+        Mesh,
+        /// No physics mesh, but cylinder spheres: those spheres.
+        Cylinders,
+        /// Neither: the parts' boxes, where a moving object takes its sorting sphere.
+        Boxes,
+    }
+
+    /// The static rule, written out here from its two arms rather than through
+    /// `find_static_cell_list`, so that a mistake in that function's arm choice or sphere
+    /// placement shows as a difference. The cell searches it hands to are the physics crate's own.
+    fn static_rule_by_hand(
+        land: &dyn dereth_physics::LandSource,
+        g: &SetupGeometry,
+        s: &CellStatic,
+    ) -> (StaticArm, Vec<(u32, bool)>) {
+        use dereth_physics::V3;
+        let pos = Position::new(s.cell, s.frame);
+        let resolver = dereth_physics::cell::CellResolver::new(land);
+        let mut arr = dereth_physics::cell::CellArray::new();
+        arr.do_not_load_cells = true;
+        let arm = if g.caches_physics_bsp() {
+            StaticArm::Mesh
+        } else if g.cyl_spheres.is_empty() {
+            StaticArm::Boxes
+        } else {
+            StaticArm::Cylinders
+        };
+        if arm == StaticArm::Cylinders {
+            // Each cylinder's low point, scaled and placed, with its radius; at most ten.
+            let spheres: Vec<Sphere> = g
+                .cyl_spheres
+                .iter()
+                .take(10)
+                .map(|c| {
+                    Sphere::new(
+                        dereth_physics::math::localtoglobal(&s.frame, c.low_pt.mul(s.scale)),
+                        c.radius * s.scale,
+                    )
+                })
+                .collect();
+            let mut interior = false;
+            resolver.find_cell_list(&pos, &spheres, &mut arr, false, &mut interior);
+        } else {
+            let parts: Vec<dereth_physics::source::PhysicsPart> = (0..g.parts.len())
+                .filter_map(|i| g.placed_part(i, &pos, s.scale))
+                .collect();
+            resolver.find_bbox_cell_list(&pos, &parts, &mut arr);
+        }
+        (
+            arm,
+            arr.cells
+                .iter()
+                .map(|c| (c.cell_id.0, c.cell.is_some()))
+                .collect(),
+        )
+    }
+
+    // Oracle: `client_cell_1.dat` and `client_portal.dat` through the physics land source over
+    // Holtburg and its eight neighbours, the residency a body in Holtburg has. The cells each
+    // body should be in come from the static rule written out in the test
+    // (`static_rule_by_hand`), and the per-arm counts and the two named pieces are fixed numbers
+    // read off the retail data; the moving rule is the physics world's own `calc_cross_cells`.
+    /// Behaviour: world.cell-statics.a-room-statics-collision-body-is-registered-in-every-cell-its-boxes-reach
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn holtburgs_room_static_bodies_are_registered_in_the_cells_the_static_rule_reaches() {
+        use dereth_physics::V3;
+        let store = Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {} -- \
+                 set DERETH_TEST_DAT_DIR",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let region = crate::landblock::load_region(&store).expect("the region decodes");
+        let resident = Arc::new(
+            crate::land_source::DatLandSource::new(Arc::clone(&store), &region)
+                .expect("the retail height table"),
+        );
+        for x in 0xA8..=0xAA_u16 {
+            for y in 0xB3..=0xB5_u16 {
+                resident.load_block_cells(dereth_primitives::LandblockId((x << 8) | y));
+            }
+        }
+        let decoded = EnvCellLoader::new().load_block(&store, 0xA9B4);
+        let mut world =
+            PhysicsWorld::new(Arc::clone(&resident) as Arc<dyn dereth_physics::LandSource>);
+        let mut statics = CellStaticObjects::new();
+        let mut bodies: BTreeMap<(u32, usize), PhysHandle> = BTreeMap::new();
+        let mut placements: BTreeMap<(u32, usize), CellStatic> = BTreeMap::new();
+        for d in &decoded {
+            let st = cell_statics(d);
+            let made = statics.init(&store, &mut world, &st);
+            for (i, h) in made.into_iter().enumerate() {
+                if let Some(h) = h {
+                    bodies.insert((d.id.0, i), h);
+                    placements.insert((d.id.0, i), st[i]);
+                }
+            }
+        }
+        assert_eq!(
+            bodies.len(),
+            405,
+            "every one of Holtburg's 405 room statics has a body"
+        );
+        let registered_in = |world: &PhysicsWorld, h: PhysHandle| -> Vec<(u32, bool)> {
+            world
+                .get(h)
+                .expect("a live body")
+                .shadow_objects
+                .iter()
+                .map(|s| (s.cell_id.0, s.cell_present))
+                .collect()
+        };
+
+        // Each body is registered in exactly the cells the rule written out above gives, and the
+        // pieces each arm places, and how many of them reach another cell, are fixed.
+        let mut stats = crate::setup::SetupPartStats::default();
+        let mut per_arm: BTreeMap<StaticArm, (usize, usize)> = BTreeMap::new();
+        for (k, h) in &bodies {
+            let s = &placements[k];
+            let g = static_geometry(&store, s.id, &mut stats).expect("every static decodes");
+            let (arm, want) = static_rule_by_hand(&*resident, &g, s);
+            let got = registered_in(&world, *h);
+            assert_eq!(
+                got, want,
+                "the body of {:#010X} #{} is registered where the static rule's {arm:?} arm puts it",
+                k.0, k.1
+            );
+            let e = per_arm.entry(arm).or_default();
+            e.0 += 1;
+            e.1 += usize::from(got.len() > 1);
+        }
+        assert_eq!(
+            per_arm,
+            BTreeMap::from([
+                (StaticArm::Mesh, (209, 26)),
+                (StaticArm::Cylinders, (24, 1)),
+                (StaticArm::Boxes, (172, 7)),
+            ]),
+            "Holtburg's room statics by arm: (pieces, pieces registered beyond their own cell)"
+        );
+
+        // The two pieces of Holtburg the moving rule places otherwise. Neither has a physics mesh
+        // or cylinder spheres; each is registered in the next room, which its box reaches and its
+        // sorting sphere does not. Neither can be touched from there: one has no collision
+        // spheres at all, and the other's sphere stays in its own room.
+        for (piece, next, spheres) in [
+            ((0xA9B4_0101, 2), 0xA9B4_010F, 1),
+            ((0xA9B4_0156, 0), 0xA9B4_0157, 0),
+        ] {
+            let s = &placements[&piece];
+            let g = static_geometry(&store, s.id, &mut stats).expect("decodes");
+            assert!(!g.caches_physics_bsp() && g.cyl_spheres.is_empty());
+            assert_eq!(
+                g.spheres.len(),
+                spheres,
+                "{:#010X} #{}'s spheres",
+                piece.0,
+                piece.1
+            );
+            let placed: Vec<Sphere> = g
+                .spheres
+                .iter()
+                .map(|c| {
+                    Sphere::new(
+                        dereth_physics::math::localtoglobal(&s.frame, c.center.mul(s.scale)),
+                        c.radius * s.scale,
+                    )
+                })
+                .collect();
+            if !placed.is_empty() {
+                let mut by_spheres = dereth_physics::cell::CellArray::new();
+                let mut interior = false;
+                dereth_physics::cell::CellResolver::new(&*resident).find_cell_list(
+                    &Position::new(s.cell, s.frame),
+                    &placed,
+                    &mut by_spheres,
+                    false,
+                    &mut interior,
+                );
+                assert_eq!(
+                    by_spheres
+                        .cells
+                        .iter()
+                        .map(|c| c.cell_id.0)
+                        .collect::<Vec<_>>(),
+                    vec![piece.0],
+                    "{:#010X} #{}'s collision sphere stays in its own room",
+                    piece.0,
+                    piece.1
+                );
+            }
+            let h = bodies[&piece];
+            assert_eq!(
+                registered_in(&world, h),
+                vec![(piece.0, true), (next, true)],
+                "{:#010X} #{} is registered in its own room and the one its box reaches",
+                piece.0,
+                piece.1
+            );
+            world.calc_cross_cells(h, true);
+            assert_eq!(
+                registered_in(&world, h),
+                vec![(piece.0, true)],
+                "the moving rule leaves {:#010X} #{} in its own room only",
+                piece.0,
+                piece.1
+            );
+            world.calc_cross_cells_static(h);
+        }
     }
 }

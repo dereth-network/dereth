@@ -536,7 +536,8 @@ impl PhysicsWorld {
     /// Recompute the crossed cells and re-add the shadows.
     ///
     /// A `PARTICLE_EMITTER_PS` object registers a single "particle shadow" in its own cell rather
-    /// than a full shadow set.
+    /// than a full shadow set. A static added to its cell is registered by
+    /// [`Self::calc_cross_cells_static`] instead.
     pub fn calc_cross_cells(&mut self, h: PhysHandle, do_not_load_cells: bool) {
         self.remove_shadows_from_cells(h);
         let Some(o) = self.objects.get(h) else { return };
@@ -589,29 +590,16 @@ impl PhysicsWorld {
         // cylinder-spheres and no part BSP).
         let spheres: Vec<crate::geom::Sphere> = if o.geometry.cyl_spheres.is_empty() {
             let sorting = o.geometry.sorting_sphere;
+            // The spheres must be in the position's block space, which is where find_cell_list
+            // works.
+            let m = math::l2g(pos.frame.rotation);
             vec![crate::geom::Sphere::new(
-                sorting.center.mul(scale),
+                math::localtoglobalvec(m, sorting.center.mul(scale)).add(pos.frame.origin),
                 sorting.radius * scale,
             )]
         } else {
-            o.geometry
-                .cyl_spheres
-                .iter()
-                .take(crate::cell::MAX_CELL_LIST_SPHERES)
-                .map(|c| crate::geom::Sphere::new(c.low_pt.mul(scale), c.radius * scale))
-                .collect()
+            crate::cell::cylinder_cell_spheres(&o.geometry, &pos, scale)
         };
-        // The spheres must be in the position's block space, which is where find_cell_list works.
-        let m = math::l2g(pos.frame.rotation);
-        let spheres: Vec<crate::geom::Sphere> = spheres
-            .into_iter()
-            .map(|s| {
-                crate::geom::Sphere::new(
-                    math::localtoglobalvec(m, s.center).add(pos.frame.origin),
-                    s.radius,
-                )
-            })
-            .collect();
 
         let mut arr = crate::cell::CellArray::new();
         arr.do_not_load_cells = do_not_load_cells;
@@ -619,6 +607,28 @@ impl PhysicsWorld {
         {
             let resolver = CellResolver::new(&*self.land);
             resolver.find_cell_list(&pos, &spheres, &mut arr, false, &mut interior);
+        }
+        self.store_shadow_set(h, &arr);
+    }
+
+    /// The static cross-cell calculation: what adding an object to its cell registers it by,
+    /// which is not [`Self::calc_cross_cells`]. See
+    /// [`CellResolver::find_static_cell_list`] for the rule. A static with neither a part
+    /// physics mesh nor cylinder spheres is registered by its parts' boxes, where a moving
+    /// object would be registered by its sorting sphere; the cells collision tests it in follow.
+    pub fn calc_cross_cells_static(&mut self, h: PhysHandle) {
+        self.remove_shadows_from_cells(h);
+        let Some(o) = self.objects.get(h) else { return };
+        let mut arr = crate::cell::CellArray::new();
+        {
+            let frames = o.part_frames.as_deref().map(Vec::as_slice);
+            let resolver = CellResolver::new(&*self.land);
+            resolver.find_static_cell_list(
+                &o.position,
+                &o.geometry,
+                (o.state.has_physics_bsp(), o.scale, frames),
+                &mut arr,
+            );
         }
         self.store_shadow_set(h, &arr);
     }

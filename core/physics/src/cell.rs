@@ -24,7 +24,7 @@ use crate::globals::{CELL_SIZE, EPSILON, HALF_SQUARE_LENGTH};
 use crate::land::{LandblockCollision, WaterType};
 use crate::landdefs;
 use crate::math::{self, V3};
-use crate::source::{EnvCellGeometry, LandSource};
+use crate::source::{EnvCellGeometry, LandSource, SetupGeometry};
 
 /// A resolved cell. The client has a class hierarchy; the two leaves that matter to physics are a
 /// land cell (two terrain triangles, possibly owning a building) and an env cell (a BSP and a
@@ -238,6 +238,25 @@ pub struct CellInfo {
 /// The cell-list builder clamps its sphere count to ten. The single-sphere form
 /// passes a count of one.
 pub const MAX_CELL_LIST_SPHERES: usize = 10;
+
+/// The spheres an object's cylinder spheres hand to the cell-list search: **all** of them up to
+/// [`MAX_CELL_LIST_SPHERES`], each centred on its low point with its radius, height discarded,
+/// scaled by the object and placed in the position's block space.
+#[must_use]
+pub fn cylinder_cell_spheres(geometry: &SetupGeometry, pos: &Position, scale: f32) -> Vec<Sphere> {
+    let m = math::l2g(pos.frame.rotation);
+    geometry
+        .cyl_spheres
+        .iter()
+        .take(MAX_CELL_LIST_SPHERES)
+        .map(|c| {
+            Sphere::new(
+                math::localtoglobalvec(m, c.low_pt.mul(scale)).add(pos.frame.origin),
+                c.radius * scale,
+            )
+        })
+        .collect()
+}
 
 /// The cell search result and controls: outside flag, load policy, count and cell entries.
 #[derive(Debug, Clone, Default)]
@@ -843,6 +862,38 @@ impl<'a> CellResolver<'a> {
                 }
             }
             i += 1;
+        }
+    }
+
+    /// The cells a **static** object is registered in when it is added to its cell. This is not
+    /// the rule a moving object is registered by ([`crate::PhysicsWorld::calc_cross_cells`]).
+    ///
+    /// A static whose parts carry no physics BSP but which has cylinder spheres hands those
+    /// spheres to [`Self::find_cell_list`] ([`cylinder_cell_spheres`]). **Every other static**
+    /// takes [`Self::find_bbox_cell_list`] over its parts, including one with only collision
+    /// spheres or none at all. A moving object in that last case is registered by its sorting
+    /// sphere instead, which can reach a cell its parts' boxes do not, and miss one they do.
+    ///
+    /// `has_physics_bsp` is the object's `HAS_PHYSICS_BSP_PS` state; `part_frames` poses the
+    /// parts as [`SetupGeometry::placed_part_posed`] does (`None` is the placement). The search
+    /// never loads a cell.
+    pub fn find_static_cell_list(
+        &self,
+        pos: &Position,
+        geometry: &SetupGeometry,
+        (has_physics_bsp, scale, part_frames): (bool, f32, Option<&[Frame]>),
+        arr: &mut CellArray,
+    ) {
+        arr.do_not_load_cells = true;
+        if !has_physics_bsp && !geometry.cyl_spheres.is_empty() {
+            let spheres = cylinder_cell_spheres(geometry, pos, scale);
+            let mut interior = false;
+            self.find_cell_list(pos, &spheres, arr, false, &mut interior);
+        } else {
+            let parts: Vec<crate::source::PhysicsPart> = (0..geometry.parts.len())
+                .filter_map(|i| geometry.placed_part_posed(i, pos, scale, part_frames))
+                .collect();
+            self.find_bbox_cell_list(pos, &parts, arr);
         }
     }
 

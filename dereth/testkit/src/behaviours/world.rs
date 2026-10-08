@@ -1292,6 +1292,44 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.cell-statics.a-room-statics-collision-body-is-registered-in-every-cell-its-boxes-reach",
+        says: "The collision body of a room's furniture is registered in exactly the cells it is \
+               placed in: by its cylinder spheres when it has those and no collision mesh, and \
+               otherwise by its parts' boxes through the room's doorways. All 405 of Holtburg's \
+               pieces are registered so, 24 by cylinder spheres and 381 by boxes. Two pieces \
+               without a collision mesh or cylinder spheres are registered in the next room, \
+               which their boxes reach and the sphere a moving object is placed by does not; \
+               neither can be touched from there, as one has no collision spheres and the \
+               other's sphere stays in its own room.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-COLLISION-CELLS"),
+        station: "dereth-world-data::lib::env_cells::tests::holtburgs_room_static_bodies_are_registered_in_the_cells_the_static_rule_reaches",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.cell-statics.a-static-reaching-into-the-next-cell-does-not-stop-a-body-there",
+        says: "A dungeon fire whose collision sphere reaches into the next cell, where its box \
+               does not, lets a body in that cell walk 0.8 metres into the sphere before the \
+               body reaches the fire's own cell, and the body walks back out; the fire is solid \
+               only from the cells it is placed in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-COLLISION-NEXT-CELL"),
+        station: "dereth-client::dat::world::static_collision_cells::a_fire_reaching_into_the_next_dungeon_cell_does_not_stop_a_body_in_that_cell",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.cell-statics.a-static-whose-box-reaches-the-next-cell-stops-a-body-there",
+        says: "An object on an upper-floor window's sill whose box reaches out through the \
+               window, where the sphere a moving object is placed by does not, is solid from the \
+               land cell outside: a body moving through the air outside the window toward it is \
+               stopped at its collision sphere, 0.3 metres before the wall beside it, and moves \
+               back away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-COLLISION-WINDOW"),
+        station: "dereth-client::dat::world::static_collision_cells::an_object_on_an_upper_windowsill_stops_a_body_outside_the_window_at_its_sphere",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.cell-statics.an-interior-cells-baked-objects-are-drawn-and-collide",
         says: "Standing in a room of the training dungeon draws the furniture baked into that \
                room: every pixel those placed objects add to the frame falls inside their own \
@@ -1534,6 +1572,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O415-ZERO"),
         station: "dereth-testkit::dat::world::scenario_the_scene_less_answer_names_nothing",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.an-object-reaching-over-a-land-cell-line-does-not-stop-a-body-on-the-other-side",
+        says: "A large piece of landscape scenery whose collision sphere reaches two metres \
+               over the line into the next land cell, where its box does not, stops a body \
+               walking at it from that cell only where the body reaches the object's own land \
+               cell, 1.5 metres inside the sphere, and the body walks back out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-COLLISION-SCENERY"),
+        station: "dereth-client::dat::world::static_collision_cells::a_scaled_scenery_object_reaching_over_a_land_cell_line_stops_a_body_only_at_that_line",
         tier: Tier::Dat,
     },
     behaviour! {
