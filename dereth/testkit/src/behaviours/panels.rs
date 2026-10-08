@@ -1697,6 +1697,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "panels.house-purchase.each-payment-is-paid-in-full-by-its-own-price",
+        says: "The purchase window counts the purchase as paid in full only when everything in \
+               the purchase price has been offered, and the maintenance only when everything in \
+               the rent has; paying one of them in full never counts the other as paid.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-HOUSING-PAID-IN-FULL-PER-LIST"),
+        station: "dereth-client-model::lib::housing::payments::tests::each_payment_is_paid_in_full_only_by_its_own_price",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "panels.house-purchase.each-profile-opens-the-payment-window-once",
         says: "Each received house profile opens the payment window once. Closing it keeps it \
                closed until another profile arrives, including a repeated use of the same house.",

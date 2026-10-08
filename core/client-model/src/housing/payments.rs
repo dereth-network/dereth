@@ -171,7 +171,7 @@ impl PaymentLists {
                     } else {
                         p.compose_text(op)
                     },
-                    paid_in_full: p.op_is_paid_in_full(HouseOp::Buy),
+                    paid_in_full: p.op_is_paid_in_full(op),
                 })
         };
         self.state.buy_payment = payment(HouseOp::Buy);
@@ -398,5 +398,24 @@ mod tests {
         assert!(list.submit().is_none());
         assert_eq!(list.current.as_ref().unwrap().buy.0[0].paid, 10);
         assert_eq!(list.original.as_ref().unwrap().1.buy.0[0].paid, 0);
+    }
+
+    /// Behaviour: panels.house-purchase.each-payment-is-paid-in-full-by-its-own-price
+    #[test]
+    fn each_payment_is_paid_in_full_only_by_its_own_price() {
+        for rent in [false, true] {
+            // Both prices are thirty Pyreals; only the open tab's list is paid.
+            let mut list = list(rent);
+            assert!(list.add(item(7, 30)));
+            let view = list.view();
+            assert_eq!(
+                view.buy_payment.paid_in_full, !rent,
+                "the purchase follows the purchase price (rent paid: {rent})"
+            );
+            assert_eq!(
+                view.rent_payment.paid_in_full, rent,
+                "the maintenance follows the rent (rent paid: {rent})"
+            );
+        }
     }
 }

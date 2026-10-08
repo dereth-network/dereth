@@ -1545,6 +1545,9 @@ fn a_partial_stack_is_split_then_the_authoritative_result_can_be_paid() {
 /// the wire: the recorded retail client sent
 /// `3af0da79 03000000 c2150080 c1150080 92150080`, which is the drop order preserved.
 ///
+/// A purchase goes out only with the whole price paid, as the recorded one was, so the three rows
+/// here cover all three lines of the recorded villa's price.
+///
 /// The window is emptied as the request goes out. This test observes the empty list after the
 /// request has traversed a frame and reached the replay endpoint; it does not independently time
 /// those two operations within the handler.
@@ -1569,12 +1572,19 @@ fn paying_sends_buy_house_with_the_items_in_the_windows_own_order() {
         "the window is open before the first drop"
     );
 
+    let note_wcid = app
+        .hud()
+        .trade_note_values
+        .iter()
+        .find(|(value, _)| *value == 100_000)
+        .map(|(_, wcid)| *wcid)
+        .expect("the retail TradeNotes mapper carries a 100,000 Pyreal note");
     for (i, id) in RECORDED_ITEMS.iter().enumerate() {
         // The recorded three: a Crude Lockpick, a Writ of Refuge and a split trade-note stack.
-        // This recorded-order test substitutes ordinary Pyreals; the whole-note and dragged-row
-        // tests separately exercise the trade-note arm.
-        let wcid = [511u32, WRIT, PYREAL][i];
-        let stack = [1u16, 5, 2_000][i];
+        // The price is one lockpick, five writs and 2,000,000 Pyreals, so the stack here is
+        // twenty 100,000 Pyreal notes.
+        let wcid = [511u32, WRIT, note_wcid][i];
+        let stack = [1u16, 5, 20][i];
         give_item(&mut app, *id, wcid, stack, true);
     }
     settle(&mut app);
@@ -1589,6 +1599,11 @@ fn paying_sends_buy_house_with_the_items_in_the_windows_own_order() {
             .collect::<Vec<_>>(),
         RECORDED_ITEMS.to_vec(),
         "the window holds them in drop order"
+    );
+    assert_eq!(
+        panel(&app).buy_button_state,
+        slumlord::ButtonState::Enabled,
+        "the three rows pay the whole price"
     );
 
     // Drain the startup traffic so what follows is this gesture's own.
