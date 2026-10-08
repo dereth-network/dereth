@@ -966,6 +966,16 @@ pub(crate) mod real {
         l.walk_toward(create_spot, 0.0);
         l.admin_command("@create drudgeskulker");
         assert_eq!(l.nearby_wcid(DRUDGE_SKULKER).len(), 1, "a second drudge");
+        // the room's furniture stands between the two, and a drudge's run at the character stops
+        // at it: the character steps up to the drudge
+        let drudge = l.nearby_wcid(DRUDGE_SKULKER)[0];
+        let drudge_at =
+            l.ts.world
+                .objects
+                .get(drudge)
+                .and_then(WorldObject::location)
+                .expect("placed");
+        l.walk_toward(&drudge_at, 1.0);
 
         let level = l.level().expect("a level");
         let xp = l.total_xp();

@@ -38,8 +38,7 @@ fn hash(x: u32, y: u32, k: u32, c: u32) -> u32 {
 ///
 /// Not ported: its only caller, `Landblock.LoadMeshes`, is never called (in ACE either). ACE's
 /// scenery collision is its physics landblock's scenery (`Landblock.get_land_scenes`), which the
-/// server does not build yet: no landscape scenery, landblock object or room furniture from the
-/// dats has a collision body here (DIVERGENCES.md V443).
+/// server builds with the landblock's other dat statics (`phys_ext::load_landblock`).
 pub fn load() -> Vec<ModelMesh> {
     Vec::new()
 }

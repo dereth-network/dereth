@@ -2129,7 +2129,14 @@ pub fn add_physics_obj(w: &mut crate::World, this: empyrean_entity::ObjectGuid) 
     let mut physics_location = phys_ext::to_physics_position(&location);
     physics_location.cell = cell;
 
-    let success = phys_ext::enter_world(w, h, &physics_location);
+    // DIVERGE (V445): an object of the world database (a static guid) stands where the database
+    // records it rather than being slid clear of, or refused by, a static of the cell dat it is
+    // recorded inside; the database's positions are the ones retail's server placed it at.
+    let success = if this.is_static() {
+        phys_ext::enter_world_as_recorded(w, h, &physics_location)
+    } else {
+        phys_ext::enter_world(w, h, &physics_location)
+    };
 
     if !success || phys_ext::cur_cell(w, h).is_none() {
         phys_ext::destroy_object(w, h);

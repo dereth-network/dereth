@@ -17,6 +17,20 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - A character waiting to be deleted shows how long is left before it goes, where ACE always shows
   one second.
 - Sharper icons in the title bar and the taskbar.
+- Creatures and missiles meet the furniture of rooms and dungeons and the trees, rocks and other
+  objects of the landscape, as on ACE: a monster stops at them or goes around, a missile that hits
+  one is spent, and a monster that cannot see past one picks another attack.
+- Objects the world database places stand where it records them wherever the cell dat's
+  furniture, landblock objects and scenery alone would move them or keep them out. Those on a
+  dais or a platform stay on it, where they used to sink to the floor below: the Town Network
+  portals by a quarter of a metre. Those it records partly inside something else stay there too,
+  where ACE moves them up to 4 m away or leaves them out: 25 portals stand on their stone plinths
+  and platforms rather than beside them, and 86 objects ACE does not create are there: 61 large
+  waterfalls, 21 hot, cold and putrid air effects and a volcano's heat, a pressure plate, a
+  spirit, and the portal to Samsur in its dungeon.
+- Rocks and other scenery that the landscape sets at a slight pitch stand at the angle they are
+  drawn at, where ACE posed them up to 4.4 degrees off it: 11,961 large rock formations and 564
+  smaller objects meet creatures and missiles where a player sees them.
 
 ## 0.2.0 (2026-10-05)
 

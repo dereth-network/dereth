@@ -412,6 +412,48 @@ fn destroying_an_object_unregisters_it_from_every_cell() {
 }
 
 #[test]
+fn destroying_many_objects_at_once_leaves_what_destroying_each_leaves() {
+    let spread = |w: &mut PhysicsWorld| -> Vec<dereth_physics::PhysHandle> {
+        // Some straddle a cell seam (x = 120), so they are registered in two cells.
+        (0..6u32)
+            .map(|i| {
+                #[allow(clippy::cast_precision_loss)]
+                let x = 110.0 + 2.0 * i as f32;
+                spawn(w, 10 + i, x, 108.0, 20.0)
+            })
+            .collect()
+    };
+    let gauges = |w: &PhysicsWorld| {
+        (
+            w.body_count(),
+            w.object_table_count(),
+            w.cell_object_count(),
+            w.cell_shadow_count(),
+        )
+    };
+    let (mut each, mut all) = (flat_world(), flat_world());
+    let (he, ha) = (spread(&mut each), spread(&mut all));
+    let keep_each = spawn(&mut each, 99, 60.0, 60.0, 20.0);
+    let keep_all = spawn(&mut all, 99, 60.0, 60.0, 20.0);
+    assert!(
+        gauges(&all).3 > 6,
+        "the seam objects are listed in two cells each"
+    );
+    for h in &he {
+        each.destroy(*h);
+    }
+    all.destroy_all(&ha);
+    assert_eq!(
+        gauges(&all),
+        gauges(&each),
+        "bodies, table, cell lists and registrations"
+    );
+    assert_eq!(gauges(&all), (1, 1, 1, 1), "only the kept body is left");
+    assert!(ha.iter().all(|h| all.get(*h).is_none()));
+    assert!(each.get(keep_each).is_some() && all.get(keep_all).is_some());
+}
+
+#[test]
 fn the_transition_pool_never_goes_deeper_than_one_during_ordinary_walking() {
     let mut w = flat_world();
     let h = spawn(&mut w, 1, 100.0, 100.0, 25.0);

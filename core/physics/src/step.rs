@@ -359,6 +359,37 @@ impl PhysicsWorld {
         self.objects.remove(h);
     }
 
+    /// [`Self::destroy`] for every body of `hs`, with one pass over the cells' object lists for
+    /// all of them rather than one each: releasing a landblock's thousands of statics would
+    /// otherwise walk every cell once per static.
+    pub fn destroy_all(&mut self, hs: &[PhysHandle]) {
+        let gone: std::collections::BTreeSet<PhysHandle> = hs.iter().copied().collect();
+        // The cells the bodies are registered in, each cleared of all of them at once.
+        let mut shadowed: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for &h in hs {
+            if let Some(o) = self.objects.get(h) {
+                let id = o.id;
+                self.object_table.remove(id.0);
+                shadowed.extend(o.shadow_objects.iter().map(|s| s.cell_id.0));
+            }
+            self.interpolation.remove(&h);
+            if self.player == Some(h) {
+                self.player = None;
+            }
+        }
+        for c in shadowed {
+            if let Some(rt) = self.cells.get_mut(&c) {
+                rt.shadow_object_list.retain(|x| !gone.contains(x));
+            }
+        }
+        for c in self.cells.values_mut() {
+            c.object_list.retain(|x| !gone.contains(x));
+        }
+        for &h in hs {
+            self.objects.remove(h);
+        }
+    }
+
     #[must_use]
     pub fn get(&self, h: PhysHandle) -> Option<&PhysicsObj> {
         self.objects.get(h)
@@ -1236,6 +1267,44 @@ impl PhysicsWorld {
         // by the create-object handler in this tree, which attaches no motion manager to a server
         // object — [`ObjectPhysics::spawn`] creates a body and a `SetupGeometry` and stops there.
         true
+    }
+
+    /// The placement [`Self::enter_world`] would make for an object that is not in the world yet,
+    /// without making it: the finished transition, whose sphere path's current cell and position
+    /// are where the object would stand, or `None` where entry would be refused or would find no
+    /// cell. Nothing is committed: the object keeps its position, cell and shadows (as any
+    /// transition, the placement still stops a velocity it is told to kill and raises the notice
+    /// of a house barrier it meets). A host uses it to ask how a placement would come out before
+    /// it commits one.
+    pub fn placement_transition(&mut self, h: PhysHandle, pos: &Position) -> Option<Transition> {
+        let target = {
+            let o = self.objects.get_mut(h)?;
+            if o.parent.is_some() {
+                return None;
+            }
+            // The position entry stores, normalised as storing it normalises it.
+            let kept = o.position;
+            o.store_position(pos);
+            let target = o.position;
+            o.position = kept;
+            target
+        };
+        let center = self.objects.get(h).map_or(Vec3::ZERO, |o| {
+            o.geometry
+                .path_spheres()
+                .first()
+                .map_or(Sphere::dummy().center, |s| s.center)
+        });
+        let (adjusted, cell) = self.adjust_position(&target, center)?;
+        let cell = cell?;
+        let t = self.run_transition(
+            h,
+            TransitionSeed::Placement {
+                begin_cell: Some(cell),
+            },
+            &adjusted,
+        )?;
+        t.sphere_path.curr_cell.is_some().then_some(t)
     }
 
     fn run_transition(

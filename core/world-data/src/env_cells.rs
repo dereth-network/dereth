@@ -865,6 +865,27 @@ impl CellStaticObjects {
         world: &mut PhysicsWorld,
         statics: &[CellStatic],
     ) -> Vec<Option<PhysHandle>> {
+        let mesh_collision = self.mesh_collision;
+        self.init_with(
+            &mut |id, stats| load_static_geometry(store, id, mesh_collision, stats),
+            world,
+            statics,
+        )
+    }
+
+    /// [`Self::init`] with each placement's collision half read through `geometry` rather than
+    /// from a dat store, for a host that keeps its own setup cache over its own dat reader (the
+    /// server). `geometry` is asked once per id, as the store is; `None` counts the placement as
+    /// undecodable. Everything else, the registration rule included, is [`Self::init`]'s.
+    pub fn init_with(
+        &mut self,
+        geometry: &mut dyn FnMut(
+            DataId,
+            &mut crate::setup::SetupPartStats,
+        ) -> Option<Arc<SetupGeometry>>,
+        world: &mut PhysicsWorld,
+        statics: &[CellStatic],
+    ) -> Vec<Option<PhysHandle>> {
         // `static_objects`, one slot per placement, all NULL until object creation fills them.
         let mut made: Vec<Option<PhysHandle>> = vec![None; statics.len()];
         // The cells that are new, taken first so that a cell counts as done even if every one of
@@ -885,7 +906,7 @@ impl CellStaticObjects {
                 self.stats.simple_setup += 1;
                 continue;
             }
-            let Some(geometry) = self.setup_geometry(store, s.id) else {
+            let Some(geometry) = self.setup_geometry(geometry, s.id) else {
                 self.stats.undecodable += 1;
                 continue;
             };
@@ -978,38 +999,55 @@ impl CellStaticObjects {
             .copied()
             .filter(|c| c & 0xFFFF_0000 == base)
             .collect();
-        let mut destroyed = 0u64;
+        let mut gone = Vec::new();
         for c in cells {
             self.done.remove(&c);
             self.stats.cells_released += 1;
-            for h in self.handles.remove(&c).unwrap_or_default() {
-                world.destroy(h);
-                destroyed += 1;
-            }
+            gone.extend(self.handles.remove(&c).unwrap_or_default());
         }
+        // One pass over the cells for the whole block.
+        world.destroy_all(&gone);
+        let destroyed = u64::try_from(gone.len()).unwrap_or(u64::MAX);
         self.stats.destroyed += destroyed;
         destroyed
     }
 
     /// One placement's collision half, memoised, or `None` for anything that cannot produce one.
-    fn setup_geometry(&mut self, store: &RetailDatStore, id: DataId) -> Option<Arc<SetupGeometry>> {
+    fn setup_geometry(
+        &mut self,
+        geometry: &mut dyn FnMut(
+            DataId,
+            &mut crate::setup::SetupPartStats,
+        ) -> Option<Arc<SetupGeometry>>,
+        id: DataId,
+    ) -> Option<Arc<SetupGeometry>> {
         if let Some(hit) = self.geometry.get(&id.0) {
             return hit.clone();
         }
-        // **With the parts**, so a table's own mesh is what the body meets. The same
-        // loader the object stream uses (`crate::setup`), because a chair baked into a
-        // cell and a door sent by the server are the same physics object to the client.
-        let loaded = if self.mesh_collision || id.0 >> 24 == 0x01 {
-            static_geometry(store, id, &mut self.part_stats).map(Arc::new)
-        } else {
-            store
-                .read_typed(DbType::Setup, id)
-                .ok()
-                .and_then(|b| Setup::decode_payload_in(store.era_of(id), id, &b).ok())
-                .map(|s| Arc::new(crate::setup::setup_geometry(&s)))
-        };
+        let loaded = geometry(id, &mut self.part_stats);
         self.geometry.insert(id.0, loaded.clone());
         loaded
+    }
+}
+
+/// One placement's collision half out of the dat store, as [`CellStaticObjects::init`] reads it.
+fn load_static_geometry(
+    store: &RetailDatStore,
+    id: DataId,
+    mesh_collision: bool,
+    stats: &mut crate::setup::SetupPartStats,
+) -> Option<Arc<SetupGeometry>> {
+    // **With the parts**, so a table's own mesh is what the body meets. The same
+    // loader the object stream uses (`crate::setup`), because a chair baked into a
+    // cell and a door sent by the server are the same physics object to the client.
+    if mesh_collision || id.0 >> 24 == 0x01 {
+        static_geometry(store, id, stats).map(Arc::new)
+    } else {
+        store
+            .read_typed(DbType::Setup, id)
+            .ok()
+            .and_then(|b| Setup::decode_payload_in(store.era_of(id), id, &b).ok())
+            .map(|s| Arc::new(crate::setup::setup_geometry(&s)))
     }
 }
 

@@ -21,8 +21,9 @@ mod real {
     use empyrean_world::managers::landblock_manager;
     use empyrean_world::physics::{object_maint, phys_ext};
     use empyrean_world::world_objects::container;
+    use empyrean_world::world_objects::world_object::WorldObject;
 
-    use crate::support::real_content_bot::real::{create_and_enter, Loop};
+    use crate::support::real_content_bot::real::{autonomous, create_and_enter, Loop};
 
     /// Jonathan, the Academy NPC who takes the exit token (ACE's world DB).
     const JONATHAN: u32 = 29324;
@@ -283,17 +284,46 @@ mod real {
         l.admin_command("@teleloc 0xA9B40003 16.4 55.6 78.2");
         arrive(&mut l, mark, 5.0);
         assert_arrival_objects(&l, mark, "@teleloc beside the portal");
-        // 2 m from the portal: within its use radius, so the Use needs no walk
+        // 2 m from the portal is inside the dais it stands on, so the arrival slides the character
+        // clear of the dais, 3.2 m from the portal: outside its use radius, so the Use is the
+        // server's MoveTo and the client walks in
         let portal = *l
             .nearby_wcid(TOWN_NETWORK_PORTAL)
             .first()
             .expect("the Portal to Town Network");
+        let portal_at =
+            l.ts.world
+                .objects
+                .get(portal)
+                .and_then(WorldObject::location)
+                .expect("placed");
 
         let before = visible(&l);
         let mark = l.mark();
         l.action(&InventoryUseEvent {
             object: ObjectId(portal.full()),
         });
+        // a quarter metre every 0.1 s, as a client's AutonomousPositions, until the MoveTo
+        // completes and the teleport begins
+        let id = l.id;
+        for _ in 0..40 {
+            if !decode::all_of::<EffectsPlayerTeleport>(&l.ts.received_raw(id)[mark..]).is_empty() {
+                break;
+            }
+            let mut at = l.location();
+            let (dx, dy) = (
+                portal_at.position_x - at.position_x,
+                portal_at.position_y - at.position_y,
+            );
+            let d = dx.hypot(dy);
+            if d > 0.01 {
+                let step = d.min(0.25);
+                at.position_x += dx / d * step;
+                at.position_y += dy / d * step;
+            }
+            l.action(&autonomous(&at));
+            l.advance(0.1);
+        }
         arrive(&mut l, mark, 10.0);
         assert_eq!(
             l.location().cell() >> 16,

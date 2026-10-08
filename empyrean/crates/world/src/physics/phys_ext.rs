@@ -74,6 +74,9 @@ use crate::physics::server_object_manager;
 use crate::physics::weenie_object::WeenieObject;
 use crate::World;
 
+mod dat_statics;
+pub use dat_statics::{rotate_obj, DatStatic, DatStaticKind, DatStatics};
+
 /// `PhysicsObj.CollisionTable`'s value: when the other object was last touched, and whether it
 /// was ethereal then.
 // ACE: CollisionRecord
@@ -155,6 +158,8 @@ pub struct PhysExtState {
     land: Option<Arc<DatLandSource>>,
     /// The motion tables, animations and setups every body's motion driver reads.
     pub(crate) motion_assets: Arc<crate::physics::motion::ServerAnimAssets>,
+    /// The bodies of the cell dat's statics, by landblock.
+    pub(crate) dat_statics: DatStatics,
 }
 
 impl std::fmt::Debug for PhysExtState {
@@ -188,6 +193,7 @@ impl PhysExtState {
             motion_assets: Arc::new(crate::physics::motion::ServerAnimAssets::new(Arc::clone(
                 dats,
             ))),
+            dat_statics: DatStatics::default(),
         };
         (state, physics)
     }
@@ -328,13 +334,16 @@ pub fn use_land_source(w: &mut World, land: Arc<dyn LandSource>) {
     w.phys_ext.landblocks.clear();
     w.phys_ext.cell_objects.clear();
     w.phys_ext.restriction_objs.clear();
+    w.phys_ext.dat_statics = DatStatics::default();
     w.phys_ext.land = None;
     w.server_object_manager.server_objects.clear();
 }
 
-/// Loads a landblock's interior cells and buildings into the dat land source (the landblock
-/// manager calls this when it loads a landblock). Answers whether the block is resident; a test
-/// land source is always resident.
+/// Loads a landblock's interior cells and buildings into the dat land source and gives every
+/// static the cell dat places on it a collision body (the landblock manager calls this when it
+/// loads a landblock). Answers whether the block is resident; a test land source is always
+/// resident, and has no dat statics.
+// ACE: Landblock.PostInit
 pub fn load_landblock(w: &mut World, landblock: u16) -> bool {
     w.phys_ext.landblocks.entry(landblock).or_default();
     let resident = match &w.phys_ext.land {
@@ -342,7 +351,34 @@ pub fn load_landblock(w: &mut World, landblock: u16) -> bool {
         None => true,
     };
     load_cell_restrictions(w, landblock);
+    dat_statics::build(w, landblock);
     resident
+}
+
+/// The server's dat-static bodies (room and dungeon statics, landblock objects, scenery).
+#[must_use]
+pub fn dat_statics(w: &World) -> &DatStatics {
+    &w.phys_ext.dat_statics
+}
+
+/// The dat statics one landblock was given bodies for, in the order they were built.
+#[must_use]
+pub fn landblock_dat_statics(w: &World, landblock: u16) -> &[DatStatic] {
+    w.phys_ext
+        .dat_statics
+        .by_block
+        .get(&landblock)
+        .map_or(&[], Vec::as_slice)
+}
+
+/// The dat statics of a landblock as ACE would place them, without making bodies: each with the
+/// initialiser that places it and the scale it is given after registration.
+#[must_use]
+pub fn dat_static_placements(
+    w: &World,
+    landblock: u16,
+) -> Vec<(DatStaticKind, dereth_world_data::env_cells::CellStatic, f32)> {
+    dat_statics::placements(w, landblock)
 }
 
 /// The landblock's house barriers from the cell dat: its `LandblockInfo` restriction table (land
@@ -406,8 +442,10 @@ pub fn set_cell_restriction(w: &mut World, cell: CellId, obj: u32) {
         .insert(obj);
 }
 
-/// Releases a landblock's interior cells and buildings from the dat land source.
+/// Releases a landblock's interior cells and buildings from the dat land source, and destroys
+/// the bodies of its dat statics.
 pub fn unload_landblock(w: &mut World, landblock: u16) {
+    dat_statics::release(w, landblock);
     w.phys_ext.landblocks.remove(&landblock);
     w.phys_ext.restriction_objs.remove(&landblock);
     if let Some(land) = &w.phys_ext.land {
@@ -809,6 +847,141 @@ pub fn enter_world(w: &mut World, h: PhysHandle, pos: &PPosition) -> bool {
         e.entering_world = false;
     }
     success
+}
+
+/// [`enter_world`] for an object of the world database, whose recorded positions are the ones
+/// retail's server placed it at: placed as any other, unless the cell dat's statics alone are
+/// what moves it or refuses it, in which case it stands where it is recorded.
+///
+/// An object recorded standing on a static keeps standing on it (the placement already ends
+/// where it is recorded). One the placement moves or refuses only because of the statics (it
+/// ends elsewhere, or nowhere, than the same placement with them out of the way) is put at its
+/// recorded position instead of being slid clear of them or not created; if the placement
+/// without them would have put it there, that placement is the one made. A placement the
+/// statics do not change (a step down onto the floor beneath, a door) is kept. Storage, corpses
+/// and scatter spawns are placed as any other.
+// DIVERGE (V445): ACE places a world-database object like any other, so one recorded overlapping
+// a dat static slides up to 4 m away or is not created.
+pub fn enter_world_as_recorded(w: &mut World, h: PhysHandle, pos: &PPosition) -> bool {
+    let plain = ext(w, h).is_some_and(|e| !e.weenie_obj.is_storage && !e.weenie_obj.is_corpse)
+        && scatter_pos(w, h).is_none();
+    if !plain {
+        return enter_world(w, h, pos);
+    }
+    let landblock = pos.cell.landblock();
+    // Where the same placement would put it with the statics out of the way, asked while it is
+    // not in the world yet, as the placement itself is.
+    let without = with_dat_statics_hidden(w, landblock, |w| {
+        prepare_mover(w, h);
+        w.physics.placement_transition(h, pos)
+    })
+    .and_then(|t| {
+        let cell = t.sphere_path.curr_cell?;
+        Some(PPosition::new(cell, t.sphere_path.curr_pos.frame))
+    })
+    .filter(|p| p.cell.landblock() == landblock);
+    let placed = enter_world(w, h, pos);
+    let target = {
+        let mut target = *pos;
+        if dereth_physics::landdefs::is_outdoors(target.cell) {
+            dereth_physics::landdefs::adjust_to_outside(&mut target.cell, &mut target.frame.origin);
+        }
+        target
+    };
+    // The same point and facing, to the last bits of a float: a placement onto what it is
+    // recorded standing on can land a few hundred-millionths of a metre off it.
+    let at = |p: &PPosition, q: &PPosition| {
+        let (a, b) = (p.frame.origin, q.frame.origin);
+        let (r, s) = (p.frame.rotation, q.frame.rotation);
+        p.cell.landblock() == q.cell.landblock()
+            && (a.x - b.x).abs() <= 1e-4
+            && (a.y - b.y).abs() <= 1e-4
+            && (a.z - b.z).abs() <= 1e-4
+            && (r.w - s.w).abs() <= 1e-6
+            && (r.x - s.x).abs() <= 1e-6
+            && (r.y - s.y).abs() <= 1e-6
+            && (r.z - s.z).abs() <= 1e-6
+    };
+    let now = |w: &World| {
+        w.physics
+            .get(h)
+            .filter(|o| o.cell.is_some())
+            .map(|o| o.position)
+    };
+    let with = now(w).filter(|_| placed);
+    if with.is_some_and(|p| at(&p, &target)) {
+        return true;
+    }
+    let same = match (&with, &without) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.cell == b.cell && at(a, b),
+        _ => false,
+    };
+    if same {
+        return placed;
+    }
+
+    // The statics alone moved or refused it: it stands where it is recorded.
+    if !placed {
+        w.physics.leave_cell(h);
+        w.physics.remove_shadows_from_cells(h);
+        if !with_dat_statics_hidden(w, landblock, |w| enter_world(w, h, pos)) {
+            return false;
+        }
+    }
+    if !now(w).is_some_and(|p| at(&p, &target)) {
+        w.physics.force_into_cell(h, &target);
+        // It rests there as on a level floor at its feet: the contact it has is the one of a
+        // placement somewhere else, against which gravity would take it off the spot.
+        if let Some(o) = w.physics.get_mut(h) {
+            o.contact_plane = dereth_primitives::shape::Plane {
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                d: -target.frame.origin.z,
+            };
+            o.contact_plane_cell_id = target.cell;
+            o.transient_state.set_contact(true);
+            o.transient_state.set_on_walkable_bit(true);
+            o.transient_state.set_sliding(false);
+            o.velocity_vector = Vec3::ZERO;
+            o.calc_acceleration();
+        }
+        sync_cell(w, h);
+        process_notices(w);
+    }
+    now(w).is_some_and(|p| at(&p, &target))
+}
+
+/// Runs `f` with every dat static of the landblock and its eight neighbours out of the way:
+/// ethereal and ignoring collisions, so a transition passes them by. Their states are put back
+/// afterwards.
+fn with_dat_statics_hidden<T>(
+    w: &mut World,
+    landblock: LandblockId,
+    f: impl FnOnce(&mut World) -> T,
+) -> T {
+    let (x, y) = (i32::from(landblock.0 >> 8), i32::from(landblock.0 & 0xFF));
+    let blocks = (-1..=1)
+        .flat_map(|dx| (-1..=1).map(move |dy| (x + dx, y + dy)))
+        .filter_map(|(bx, by)| Some((u16::try_from(bx).ok()? << 8) | u16::try_from(by).ok()?));
+    let bodies: Vec<PhysHandle> = blocks
+        .filter_map(|b| w.phys_ext.dat_statics.by_block.get(&b))
+        .flat_map(|statics| statics.iter().map(|s| s.body))
+        .collect();
+    let mut kept = Vec::with_capacity(bodies.len());
+    for &b in &bodies {
+        if let Some(o) = w.physics.get_mut(b) {
+            kept.push((b, o.state));
+            o.state.set_ethereal_bit(true);
+            o.state.set_ignores_collisions(true);
+        }
+    }
+    let r = f(w);
+    for (b, state) in kept {
+        if let Some(o) = w.physics.get_mut(b) {
+            o.state = state;
+        }
+    }
+    r
 }
 
 /// The scatter request of the body's world object (a generator's scatter spawn), if any.
