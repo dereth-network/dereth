@@ -537,21 +537,14 @@ impl PhysicsWorld {
     ///
     /// A `PARTICLE_EMITTER_PS` object registers a single "particle shadow" in its own cell rather
     /// than a full shadow set. A static added to its cell is registered by
-    /// [`Self::calc_cross_cells_static`] instead.
+    /// [`Self::calc_cross_cells_static`] instead, and a body without a physics mesh that has just
+    /// moved by the cells its move found its collision spheres in, not by this.
     pub fn calc_cross_cells(&mut self, h: PhysHandle, do_not_load_cells: bool) {
         self.remove_shadows_from_cells(h);
-        let Some(o) = self.objects.get(h) else { return };
-        if o.state.is_particle_emitter() {
-            let Some(cell) = o.cell else { return };
-            if let Some(obj) = self.objects.get_mut(h) {
-                obj.shadow_objects.push(crate::obj::ShadowObj {
-                    cell_id: cell,
-                    cell_present: true,
-                });
-            }
-            self.cell_mut(cell).shadow_object_list.push(h);
+        if self.add_particle_shadow(h) {
             return;
         }
+        let Some(o) = self.objects.get(h) else { return };
         let pos = o.position;
         let scale = o.scale;
 
@@ -588,17 +581,21 @@ impl PhysicsWorld {
         // arm**: an `if sorting.radius > 0 { .. } else { path_spheres() }` fallback would change
         // the shadow set of 163 shipped setups (a sphere list, zero sorting sphere, no
         // cylinder-spheres and no part BSP).
+        //
+        // Both sphere arms take the setup's own spheres **unscaled**: an object at twice its
+        // setup's size is registered by its setup-sized sorting sphere. Only the part arm above
+        // sees the scale, through the parts' posed offsets.
         let spheres: Vec<crate::geom::Sphere> = if o.geometry.cyl_spheres.is_empty() {
             let sorting = o.geometry.sorting_sphere;
             // The spheres must be in the position's block space, which is where find_cell_list
             // works.
             let m = math::l2g(pos.frame.rotation);
             vec![crate::geom::Sphere::new(
-                math::localtoglobalvec(m, sorting.center.mul(scale)).add(pos.frame.origin),
-                sorting.radius * scale,
+                math::localtoglobalvec(m, sorting.center).add(pos.frame.origin),
+                sorting.radius,
             )]
         } else {
-            crate::cell::cylinder_cell_spheres(&o.geometry, &pos, scale)
+            crate::cell::cylinder_cell_spheres(&o.geometry, &pos)
         };
 
         let mut arr = crate::cell::CellArray::new();
@@ -616,6 +613,9 @@ impl PhysicsWorld {
     /// [`CellResolver::find_static_cell_list`] for the rule. A static with neither a part
     /// physics mesh nor cylinder spheres is registered by its parts' boxes, where a moving
     /// object would be registered by its sorting sphere; the cells collision tests it in follow.
+    ///
+    /// The parts are posed at the object's scale at the time of the call, which is why a static
+    /// is registered before it is scaled.
     pub fn calc_cross_cells_static(&mut self, h: PhysHandle) {
         self.remove_shadows_from_cells(h);
         let Some(o) = self.objects.get(h) else { return };
@@ -633,8 +633,30 @@ impl PhysicsWorld {
         self.store_shadow_set(h, &arr);
     }
 
+    /// A `PARTICLE_EMITTER_PS` object is registered by a single "particle shadow" in its own cell,
+    /// whatever cells it would otherwise reach. Answers whether the object is one (and so has
+    /// been registered so, or, with no cell, not at all).
+    fn add_particle_shadow(&mut self, h: PhysHandle) -> bool {
+        let Some(o) = self.objects.get(h) else {
+            return false;
+        };
+        if !o.state.is_particle_emitter() {
+            return false;
+        }
+        let Some(cell) = o.cell else { return true };
+        if let Some(obj) = self.objects.get_mut(h) {
+            obj.shadow_objects.push(crate::obj::ShadowObj {
+                cell_id: cell,
+                cell_present: true,
+            });
+        }
+        self.cell_mut(cell).shadow_object_list.push(h);
+        true
+    }
+
     /// The tail all three arms of
-    /// [`Self::calc_cross_cells`] share.
+    /// [`Self::calc_cross_cells`] share, and what a step leaves a body without a physics mesh
+    /// registered by.
     fn store_shadow_set(&mut self, h: PhysHandle, arr: &crate::cell::CellArray) {
         let entries: Vec<(CellId, bool)> = arr
             .cells
@@ -1431,8 +1453,21 @@ impl PhysicsWorld {
             old_transient.on_walkable(),
         );
 
-        if self.objects.get(h).and_then(|o| o.cell).is_some() && !t.cell_array.is_empty() {
+        // The cells the object is registered in after the move. One with a physics mesh is
+        // registered again by its parts. Any other takes the cells the transition found its own
+        // collision spheres in at the position it settled on, not the cells its sorting sphere
+        // or cylinder spheres would reach; with no such cells it keeps the ones it had.
+        let Some(o) = self.objects.get(h) else { return };
+        if o.cell.is_none() {
+            return;
+        }
+        if o.state.has_physics_bsp() {
             self.calc_cross_cells(h, false);
+        } else if !t.cell_array.is_empty() {
+            self.remove_shadows_from_cells(h);
+            if !self.add_particle_shadow(h) {
+                self.store_shadow_set(h, &t.cell_array);
+            }
         }
     }
 

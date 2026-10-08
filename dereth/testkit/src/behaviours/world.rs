@@ -881,6 +881,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "physics.cells.a-body-in-a-doorway-is-registered-outdoors-once-its-spheres-are-outside",
+        says: "A player walking out through a Holtburg house's door is registered in the land \
+               cell outside, which draws it with the landscape, only from the step its own \
+               collision spheres reach out through the doorway, nine steps after the sphere a \
+               moved body used to be placed by reaches out; at every step it is registered in \
+               exactly the cells its collision spheres reach.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STEP-REGISTRATION-DOORWAY"),
+        station: "dereth-client::dat::world::moved_body_cells::a_player_walking_out_of_a_holtburg_door_is_registered_outdoors_once_its_spheres_are_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "physics.cells.a-body-resting-on-a-cell-line-reports-the-same-cell-from-both-directions",
         says: "A body that walks onto the line between two 24-metre squares of ground and stops \
                there is placed in the same square whichever side it came from: the one the \
@@ -889,6 +901,61 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-O439-CELLS"),
         station: "dereth-physics::cpu::cells::boundary_cell::a_walk_resting_on_a_24_m_line_reports_the_same_cell_from_both_directions",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.cells.a-moved-body-is-registered-where-its-collision-spheres-are",
+        says: "After it moves, a body without a collision mesh is counted as present in the \
+               squares of ground its move found its collision spheres in, not where its larger \
+               or smaller sorting sphere reaches: a body with a small collision sphere and a \
+               large sorting sphere 1.5 metres from a line is in its own square alone, and one \
+               whose collision sphere reaches over a line its sorting sphere does not is in both.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STEP-REGISTRATION-CELLS"),
+        station: "dereth-physics::cpu::cells::step_registration::a_body_without_a_physics_mesh_is_registered_where_its_step_found_its_collision_spheres",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.cells.a-moved-body-with-a-physics-mesh-is-registered-by-its-parts",
+        says: "After it moves, a body whose parts carry a collision mesh is counted as present in \
+               the squares of ground its parts' boxes reach, not only where its move found its \
+               collision spheres: a body whose sphere stays 1.5 metres from a line and whose \
+               part reaches 1.5 metres over it is in both squares.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STEP-REGISTRATION-MESH"),
+        station: "dereth-physics::cpu::cells::step_registration::a_moving_body_with_a_physics_mesh_is_registered_where_its_parts_reach_after_a_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.cells.a-moving-particle-emitter-is-registered-in-its-own-cell",
+        says: "After it moves, a particle emitter is counted as present in the square of ground it \
+               is in alone, even when its collision sphere reaches over a line into the next.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STEP-REGISTRATION-EMITTER"),
+        station: "dereth-physics::cpu::cells::step_registration::a_moving_particle_emitter_is_registered_in_its_own_cell_alone_after_a_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.cells.a-scaled-object-is-registered-by-its-setup-sized-spheres",
+        says: "An object drawn larger or smaller than its setup is counted as present in the \
+               squares of ground its setup-sized spheres reach: a body at three times its size \
+               1.5 metres from a line is in its own square alone, and one at half its size 0.75 \
+               metres from a line is in both squares, whether it is placed by its sorting sphere \
+               or by cylinder spheres, moving or standing still.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCALED-REGISTRATION-SPHERES"),
+        station: "dereth-physics::cpu::cells::scaled_registration::a_scaled_body_is_registered_in_the_cells_its_setup_sized_spheres_reach",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.cells.a-teleported-body-is-registered-where-its-placement-found-its-spheres",
+        says: "A player teleported to a point in or near a Holtburg house's front doorway is \
+               counted as present in exactly the cells its collision spheres reach where it was \
+               placed, before it takes a step, including at the points where the sorting sphere \
+               a moved body used to be placed by reaches another cell.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STEP-REGISTRATION-TELEPORT"),
+        station: "dereth-client::dat::world::moved_body_cells::a_player_teleported_into_a_holtburg_doorway_is_registered_where_its_spheres_reach",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "physics.cells.an-outdoor-object-registers-every-land-cell-its-part-boxes-reach",
@@ -1575,6 +1642,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.scenery.a-scaled-trees-trunk-is-solid-only-from-the-land-cells-its-setup-sized-trunk-reaches",
+        says: "A tall tree just south of Holtburg, drawn at 2.43 times its size, whose trunk at \
+               that size reaches over the line into the next land cell, lets a body walking at it \
+               from that cell 0.9 metres into the trunk before the body reaches the tree's own \
+               land cell, and the body walks back out; the trunk the tree's setup gives it is \
+               what places it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCALED-REGISTRATION-TRUNK"),
+        station: "dereth-client::dat::world::static_collision_cells::a_scaled_trees_trunk_reaching_over_a_land_cell_line_stops_a_body_only_at_that_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.scenery.an-object-reaching-over-a-land-cell-line-does-not-stop-a-body-on-the-other-side",
         says: "A large piece of landscape scenery whose collision sphere reaches two metres \
                over the line into the next land cell, where its box does not, stops a body \
@@ -1583,6 +1662,19 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-STATIC-COLLISION-SCENERY"),
         station: "dereth-client::dat::world::static_collision_cells::a_scaled_scenery_object_reaching_over_a_land_cell_line_stops_a_body_only_at_that_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.scenery.scaled-scenery-is-registered-by-its-setup-sized-geometry",
+        says: "Landscape scenery is registered in the cells its setup-sized geometry reaches, \
+               whatever size it is drawn at. All 556 outdoor statics in the nine landblocks \
+               around Holtburg are registered so; six of them are drawn large enough that the \
+               same geometry at their drawn size would reach a neighbouring land cell, and each \
+               is in its own land cell alone, as is a large many-part object whose parts at its \
+               drawn size would reach the next.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-SCALED-REGISTRATION-SCENERY"),
+        station: "dereth-client::dat::world::static_collision_cells::scaled_scenery_around_holtburg_is_registered_by_its_setup_sized_geometry",
         tier: Tier::Dat,
     },
     behaviour! {

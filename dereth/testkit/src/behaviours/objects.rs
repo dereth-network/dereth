@@ -187,6 +187,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "objects.collision.a-creature-is-solid-from-every-cell-its-collision-spheres-reach",
+        says: "A pile of bones placed a few centimetres from the corner of four squares of \
+               ground, whose collision sphere reaches all four and whose sorting sphere has no \
+               size, stops a player walking at it from a neighbouring square at its sphere, and \
+               the player walks back; registered by its sorting sphere it would let the player \
+               0.36 metres into it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STEP-REGISTRATION-CREATURE"),
+        station: "dereth-client::dat::world::moved_body_cells::a_creature_whose_sphere_reaches_the_next_land_cell_stops_a_body_walking_from_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "objects.collision.a-cylsphere-only-object-stops-a-body",
         says: "An object in the training dungeon whose only collision shape is an upright cylinder \
                keeps a walking body outside that cylinder, where the same object without it would \

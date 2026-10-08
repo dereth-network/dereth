@@ -2,17 +2,20 @@
 //! which a static without a physics mesh or cylinder spheres reaches by its parts' boxes. A body in
 //! a cell the object's collision spheres reach into but its boxes do not is not stopped by those
 //! spheres until the body itself reaches a cell the object is registered in. A cell its boxes
-//! reach and its sorting sphere does not is one it is solid from.
+//! reach and its sorting sphere does not is one it is solid from. Scenery drawn larger than its
+//! setup is registered by its setup-sized geometry, so a large tree's trunk that reaches over a
+//! land-cell line only at its drawn size is not solid from the cell beyond.
 //!
 //! Each walk is a differential: the same body, start and steps twice, once with the object
-//! registered as the client registers statics and once with the same body re-registered by the
-//! moving-object rule, which reaches the next cell by its sorting sphere. After the walk the body
-//! walks back the way it came, so a walk that ends inside the object's spheres, or against them,
-//! is shown not to leave the body stuck.
+//! registered as the client registers statics and once with the object registered so that it
+//! reaches the next cell (by the moving-object rule's sorting sphere, or by geometry already the
+//! size it is drawn at). After the walk the body walks back the way it came, so a walk that ends
+//! inside the object's geometry, or against it, is shown not to leave the body stuck.
 //!
-//! Fixture: the retail cell and portal dats (a dungeon fire, a scaled piece of landscape scenery
-//! and an object on an upper window's sill) through the physics land source with the static's
-//! block and its eight neighbours resident. Missing dats fail. No server or GPU.
+//! Fixture: the retail cell and portal dats (a dungeon fire, scaled landscape scenery, a tall tree
+//! south of Holtburg, the outdoor statics around Holtburg and an object on an upper window's
+//! sill) through the physics land source with the static's block and its eight neighbours
+//! resident. Missing dats fail. No server or GPU.
 
 use std::sync::Arc;
 
@@ -24,7 +27,9 @@ use dereth_physics::{
     Sphere, V3,
 };
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
-use dereth_world_data::env_cells::{cell_statics, CellStatic, CellStaticObjects, EnvCellLoader};
+use dereth_world_data::env_cells::{
+    cell_statics, static_geometry, CellStatic, CellStaticObjects, EnvCellLoader,
+};
 use dereth_world_data::land_source::DatLandSource;
 
 /// One walking step, 1.5 m/s at one step a frame.
@@ -90,6 +95,149 @@ fn gap(a: &[Sphere], b: &[Sphere]) -> f32 {
         .fold(f32::MAX, f32::min)
 }
 
+/// An object's cylinder spheres as collision meets them: each one's low point placed, and its
+/// radius and height, all at the object's scale.
+fn cylinders_of(w: &PhysicsWorld, h: PhysHandle) -> Vec<(Vec3, f32, f32)> {
+    let o = w.get(h).expect("a live body");
+    o.geometry
+        .cyl_spheres
+        .iter()
+        .map(|c| {
+            (
+                dereth_physics::math::localtoglobal(&o.position.frame, c.low_pt.mul(o.scale)),
+                c.radius * o.scale,
+                c.height * o.scale,
+            )
+        })
+        .collect()
+}
+
+/// How far a body's spheres are from upright cylinders, sideways, among the spheres level with
+/// one; negative when they overlap, by the overlap.
+fn cylinder_gap(body: &[Sphere], cylinders: &[(Vec3, f32, f32)]) -> f32 {
+    body.iter()
+        .flat_map(|b| {
+            cylinders
+                .iter()
+                .filter(|(low, _, height)| {
+                    b.center.z + b.radius > low.z && b.center.z - b.radius < low.z + height
+                })
+                .map(move |(low, radius, _)| {
+                    let (dx, dy) = (b.center.x - low.x, b.center.y - low.y);
+                    (dx * dx + dy * dy).sqrt() - radius - b.radius
+                })
+        })
+        .fold(f32::MAX, f32::min)
+}
+
+/// The land cells upright cylinders reach, each searched as a sphere of its radius about its low
+/// point, from `cell`.
+fn cylinders_reach(land: &DatLandSource, cell: CellId, cylinders: &[(Vec3, f32, f32)]) -> Vec<u32> {
+    let spheres: Vec<Sphere> = cylinders
+        .iter()
+        .map(|(low, r, _)| Sphere::new(*low, *r))
+        .collect();
+    let mut arr = CellArray::new();
+    arr.do_not_load_cells = true;
+    let mut interior = false;
+    CellResolver::new(land).find_cell_list(
+        &Position::new(cell, Frame::new(Vec3::ZERO, Quat::IDENTITY)),
+        &spheres,
+        &mut arr,
+        false,
+        &mut interior,
+    );
+    arr.cells.iter().map(|c| c.cell_id.0).collect()
+}
+
+/// One landblock's outdoor statics as the client generates them: its scenery, then its
+/// landblock objects.
+fn outdoor_statics(store: &Arc<RetailDatStore>, block: u16) -> Vec<CellStatic> {
+    let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
+    let table = dereth_terrain::land::mesh::height_table(&region);
+    let (bx, by) = (i32::from(block >> 8), i32::from(block & 0xFF));
+    let lb = read_landblock(store, bx, by).expect("the landblock");
+    let mesh = dereth_terrain::land::mesh::generate_landblock_with_table(
+        &lb,
+        &region,
+        &table,
+        bx,
+        by,
+        1,
+        dereth_terrain::land::mesh::Direction::InViewerBlock,
+    );
+    land_content(store, &region, &lb, &mesh, bx, by, true).land_statics
+}
+
+/// The cells a static placement is registered in, written out here rather than through the
+/// physics crate's static rule: its cylinder spheres when it has those and no physics mesh,
+/// each at `cylinder_scale`; otherwise its parts' boxes with the parts posed at `part_scale`.
+/// The two cell searches it hands to are the physics crate's.
+fn registered_by_hand(
+    land: &DatLandSource,
+    g: &SetupGeometry,
+    s: &CellStatic,
+    cylinder_scale: f32,
+    part_scale: f32,
+) -> Vec<u32> {
+    let pos = Position::new(s.cell, s.frame);
+    let resolver = CellResolver::new(land);
+    let mut arr = CellArray::new();
+    arr.do_not_load_cells = true;
+    if !g.caches_physics_bsp() && !g.cyl_spheres.is_empty() {
+        let spheres: Vec<Sphere> = g
+            .cyl_spheres
+            .iter()
+            .take(10)
+            .map(|c| {
+                Sphere::new(
+                    dereth_physics::math::localtoglobal(&s.frame, c.low_pt.mul(cylinder_scale)),
+                    c.radius * cylinder_scale,
+                )
+            })
+            .collect();
+        let mut interior = false;
+        resolver.find_cell_list(&pos, &spheres, &mut arr, false, &mut interior);
+    } else {
+        let parts: Vec<dereth_physics::source::PhysicsPart> = (0..g.parts.len())
+            .filter_map(|i| g.placed_part(i, &pos, part_scale))
+            .collect();
+        resolver.find_bbox_cell_list(&pos, &parts, &mut arr);
+    }
+    arr.cells.iter().map(|c| c.cell_id.0).collect()
+}
+
+/// Replace `object` with a static whose setup is already the size the object is drawn at (its
+/// spheres, cylinder spheres and sorting sphere scaled, the object itself at scale 1), at the
+/// same place and in the same cell, and not yet registered anywhere. Collision meets the copy
+/// exactly as it meets the object; only what the copy is registered by grows with it.
+fn drawn_size(w: &mut PhysicsWorld, object: PhysHandle) -> PhysHandle {
+    let (position, scale, mut drawn) = {
+        let o = w.get(object).expect("a live body");
+        (o.position, o.scale, (*o.geometry).clone())
+    };
+    for c in &mut drawn.cyl_spheres {
+        c.low_pt = c.low_pt.mul(scale);
+        c.radius *= scale;
+        c.height *= scale;
+    }
+    for s in &mut drawn.spheres {
+        *s = Sphere::new(s.center.mul(scale), s.radius * scale);
+    }
+    drawn.sorting_sphere = Sphere::new(
+        drawn.sorting_sphere.center.mul(scale),
+        drawn.sorting_sphere.radius * scale,
+    );
+    w.destroy(object);
+    let copy = w.create(ObjectId(0), Arc::new(drawn), false);
+    w.enter_cell(copy, position.cell);
+    if let Some(o) = w.get_mut(copy) {
+        o.set_frame(position.frame);
+        o.position = position;
+    }
+    copy
+}
+
 /// The cells a body is registered (solid) in.
 fn solid_in(w: &PhysicsWorld, h: PhysHandle) -> Vec<u32> {
     w.get(h)
@@ -97,6 +245,15 @@ fn solid_in(w: &PhysicsWorld, h: PhysHandle) -> Vec<u32> {
         .shadow_objects
         .iter()
         .map(|s| s.cell_id.0)
+        .collect()
+}
+
+/// The cells a static is drawn in: the registration the draw computes for it, apart from the
+/// collision body.
+fn drawn_in(land: &DatLandSource, geometry: &SetupGeometry, s: &CellStatic) -> Vec<u32> {
+    dereth_world_data::env_cells::static_cross_cells(land, geometry, s)
+        .into_iter()
+        .map(|(c, _)| c.0)
         .collect()
 }
 
@@ -130,11 +287,23 @@ fn walk(
     w: &mut PhysicsWorld,
     player: &Arc<SetupGeometry>,
     object: PhysHandle,
-    (cell, start): (CellId, Vec3),
+    at: (CellId, Vec3),
     dir: Vec3,
     forward: usize,
 ) -> Walk {
     let target = spheres_of(w, object);
+    walk_by(w, player, &|body| gap(body, &target), at, dir, forward)
+}
+
+/// [`walk`], measuring how close the body comes to the object by `gap_to`.
+fn walk_by(
+    w: &mut PhysicsWorld,
+    player: &Arc<SetupGeometry>,
+    gap_to: &dyn Fn(&[Sphere]) -> f32,
+    (cell, start): (CellId, Vec3),
+    dir: Vec3,
+    forward: usize,
+) -> Walk {
     let h = w.create(ObjectId(0x5000_0001), Arc::clone(player), true);
     w.enter_cell(h, cell);
     {
@@ -167,7 +336,7 @@ fn walk(
             o.position.cell.0
         );
         assert!(
-            gap(&spheres_of(w, h), &target) > 0.0,
+            gap_to(&spheres_of(w, h)) > 0.0,
             "the body starts clear of the object"
         );
     }
@@ -186,7 +355,7 @@ fn walk(
             panic!("the walk left the landblock");
         }
         if i < forward {
-            closest = closest.min(gap(&spheres_of(w, h), &target));
+            closest = closest.min(gap_to(&spheres_of(w, h)));
             turned_at = o.position.frame.origin;
         }
     }
@@ -344,8 +513,8 @@ fn a_fire_reaching_into_the_next_dungeon_cell_does_not_stop_a_body_in_that_cell(
 /// collision sphere reaches 2 m over the land-cell line, where its unscaled part box does not.
 /// A body in the neighbouring
 /// land cell walking at the object walks 1.5 m into the sphere, is stopped where its own spheres
-/// reach the object's land cell, and walks back; registered by the moving rule, the object would
-/// have stopped it at the sphere.
+/// reach the object's land cell, and walks back; registered by the moving rule with the sorting
+/// sphere of the size it is drawn at, the object would have stopped it at the sphere.
 ///
 /// Fixture: landblock `0xC5F0`, outdoor static 165 (the generated scenery comes first), in land
 /// cell `0xC5F00037`; the walk is in land cell `0xC5F0002F`, heading east at the object.
@@ -393,10 +562,12 @@ fn a_scaled_scenery_object_reaching_over_a_land_cell_line_stops_a_body_only_at_t
     );
     let static_rule = walk(&mut w, &player, object, (next, start), dir, 110);
 
+    let object = drawn_size(&mut w, object);
     w.calc_cross_cells(object, true);
     assert!(
         solid_in(&w, object).contains(&next.0),
-        "the moving rule registers the object in the next land cell by its sorting sphere"
+        "at the size it is drawn, the moving rule registers the object in the next land cell by \
+         its sorting sphere"
     );
     let moving_rule = walk(&mut w, &player, object, (next, start), dir, 110);
 
@@ -414,6 +585,181 @@ fn a_scaled_scenery_object_reaching_over_a_land_cell_line_stops_a_body_only_at_t
         static_rule.walked_back > 1.0,
         "the body walks back out ({:.3} m)",
         static_rule.walked_back
+    );
+}
+
+/// Behaviour: world.scenery.a-scaled-trees-trunk-is-solid-only-from-the-land-cells-its-setup-sized-trunk-reaches
+/// A tall tree just south of Holtburg (setup `0x02000258`, drawn at 2.43 times its setup's size)
+/// whose trunk, at that size, reaches over the land-cell line into the next land cell, while the
+/// trunk its setup gives it, which is what places it, does not. A body in that next cell walking
+/// east at the tree walks 0.9 m into the trunk and is stopped where its own spheres reach the
+/// tree's land cell, then walks back out. A tree placed by a trunk as large as the one it is drawn
+/// with stops the same body at the trunk.
+///
+/// Fixture: landblock `0xA9B3`, outdoor static 25 (the generated scenery comes first), in land
+/// cell `0xA9B30014`; the walk is in land cell `0xA9B3000C`, heading east from `x = 45.9` through
+/// the deepest point a standing body reaches into the trunk from that cell.
+#[test]
+fn a_scaled_trees_trunk_reaching_over_a_land_cell_line_stops_a_body_only_at_that_line() {
+    let s = store();
+    let block = 0xA9B3_u16;
+    let land = resident(&s, block);
+    let statics = outdoor_statics(&s, block);
+    let record = statics[25];
+    assert_eq!(record.id.0, 0x0200_0258, "outdoor static 25 is the tree");
+    assert_eq!(record.cell.0, 0xA9B3_0014);
+    assert!(
+        (2.42..2.44).contains(&record.scale),
+        "the tree is drawn at 2.43 times its size ({})",
+        record.scale
+    );
+    let player = player(&s);
+    let next = CellId(0xA9B3_000C);
+    let dir = Vec3::new(1.0, 0.0, 0.0);
+    let start = Vec3::new(45.9, 85.044, 94.3);
+
+    let (mut w, made) = world_with(&s, &land, &statics);
+    let tree = made[25].expect("the tree has a body");
+    let trunk = cylinders_of(&w, tree);
+    assert_eq!(
+        solid_in(&w, tree),
+        vec![0xA9B3_0014],
+        "the tree is placed by its setup-sized trunk, in its own land cell"
+    );
+    assert!(
+        cylinders_reach(&land, record.cell, &trunk).contains(&next.0),
+        "the trunk it is drawn with reaches the next land cell"
+    );
+    let placed_by_setup = walk_by(
+        &mut w,
+        &player,
+        &|body| cylinder_gap(body, &trunk),
+        (next, start),
+        dir,
+        100,
+    );
+
+    // The same tree placed by the trunk it is drawn with.
+    let large = drawn_size(&mut w, tree);
+    w.calc_cross_cells_static(large);
+    assert!(
+        solid_in(&w, large).contains(&next.0),
+        "placed by the trunk it is drawn with, the tree is in the next land cell too"
+    );
+    let placed_as_drawn = walk_by(
+        &mut w,
+        &player,
+        &|body| cylinder_gap(body, &trunk),
+        (next, start),
+        dir,
+        100,
+    );
+
+    assert!(
+        placed_by_setup.closest < -0.8,
+        "the body walks into the trunk from the next land cell ({:.3} m)",
+        placed_by_setup.closest
+    );
+    assert!(
+        placed_as_drawn.closest > -0.05,
+        "placed by the trunk it is drawn with, the tree stops the body at the trunk ({:.3} m)",
+        placed_as_drawn.closest
+    );
+    assert!(
+        placed_by_setup.walked_back > 1.0,
+        "the body walks back out ({:.3} m)",
+        placed_by_setup.walked_back
+    );
+}
+
+/// Behaviour: world.scenery.scaled-scenery-is-registered-by-its-setup-sized-geometry
+/// Generated landscape scenery is registered in the cells its setup-sized geometry reaches,
+/// whatever size it is drawn at: a tree by the trunk its setup gives it, and a many-part object
+/// by its parts at the offsets its setup gives them. In the nine landblocks around Holtburg,
+/// every outdoor static is registered so, and six pieces of scenery are drawn large enough that
+/// the same geometry at their drawn size would reach a neighbouring land cell; each is
+/// registered in its own land cell alone. A large many-part object elsewhere, drawn at 1.09
+/// times its size, is likewise registered in its own land cell where its scaled parts would
+/// reach the next. The draw's registration of every one of them, computed apart from the
+/// collision body, is the same cells.
+///
+/// Fixture: the outdoor statics of landblocks `0xA8B3`-`0xAAB5` and `0x84CE`, generated as the
+/// client generates them, each block registered with it and its eight neighbours resident.
+#[test]
+fn scaled_scenery_around_holtburg_is_registered_by_its_setup_sized_geometry() {
+    let s = store();
+    let mut stats = dereth_world_data::setup::SetupPartStats::default();
+    let mut larger_when_scaled = Vec::new();
+    let mut checked = 0usize;
+    for x in 0xA8_u16..=0xAA {
+        for y in 0xB3_u16..=0xB5 {
+            let block = (x << 8) | y;
+            let land = resident(&s, block);
+            let statics = outdoor_statics(&s, block);
+            let (w, made) = world_with(&s, &land, &statics);
+            for (i, (st, h)) in statics.iter().zip(&made).enumerate() {
+                let Some(h) = *h else { continue };
+                let g = static_geometry(&s, st.id, &mut stats).expect("every static decodes");
+                assert_eq!(
+                    solid_in(&w, h),
+                    registered_by_hand(&land, &g, st, 1.0, 1.0),
+                    "{block:04X} #{i} is registered by its setup-sized geometry"
+                );
+                assert_eq!(
+                    drawn_in(&land, &g, st),
+                    solid_in(&w, h),
+                    "{block:04X} #{i} is drawn in the cells it is solid in"
+                );
+                checked += 1;
+                if registered_by_hand(&land, &g, st, st.scale, st.scale)
+                    != registered_by_hand(&land, &g, st, 1.0, 1.0)
+                {
+                    larger_when_scaled.push((block, i));
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 556, "the nine blocks' outdoor statics with a body");
+    assert_eq!(
+        larger_when_scaled,
+        vec![
+            (0xA8B3, 40),
+            (0xA8B3, 43),
+            (0xA8B5, 39),
+            (0xA9B3, 25),
+            (0xA9B3, 35),
+            (0xAAB3, 12),
+        ],
+        "the pieces whose geometry at their drawn size would be registered elsewhere"
+    );
+
+    // A many-part object, placed by its parts' boxes.
+    let block = 0x84CE;
+    let land = resident(&s, block);
+    let statics = outdoor_statics(&s, block);
+    let record = statics[82];
+    assert_eq!(
+        record.id.0, 0x0200_035F,
+        "outdoor static 82 is the many-part object"
+    );
+    let g = static_geometry(&s, record.id, &mut stats).expect("decodes");
+    assert!(!g.caches_physics_bsp() && g.cyl_spheres.is_empty() && g.parts.len() == 11);
+    let (w, made) = world_with(&s, &land, &statics);
+    let object = made[82].expect("the object has a body");
+    assert_eq!(
+        solid_in(&w, object),
+        vec![0x84CE_003F],
+        "the object is registered by its parts at their setup-sized offsets"
+    );
+    assert_eq!(
+        drawn_in(&land, &g, &record),
+        vec![0x84CE_003F],
+        "the object is drawn in the cell it is solid in"
+    );
+    assert_eq!(
+        registered_by_hand(&land, &g, &record, 1.0, record.scale),
+        vec![0x84CE_003F, 0x84CE_003E],
+        "its parts posed at its drawn size would reach the next land cell"
     );
 }
 

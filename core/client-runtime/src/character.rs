@@ -1845,15 +1845,17 @@ impl Character {
         // state of wherever the body used to be standing. Leaving that state stale accounted for
         // fourteen of twenty-six measured wall penetrations in the interiors tests.
         if self.world.set_position(self.handle, &there) {
+            // The commit registered the body in the cells the placement found its spheres in.
             self.stats.teleports_committed += 1;
         } else {
             // `CheckPositionInternal` answered 0, or the ten-deep transition pool was
             // exhausted. The client discards this too — its player-teleport path ignores
             // `SetPositionSimple`'s `SetPositionError` entirely — so the body keeps the position
-            // written above and the only record is this counter.
+            // written above and the only record is this counter. That position has no cells
+            // yet, so the body is registered at it here.
             self.stats.teleports_uncommitted += 1;
+            self.world.calc_cross_cells(self.handle, false);
         }
-        self.world.calc_cross_cells(self.handle, false);
         self.refresh_env();
         // The viewer reset arm: a teleport must not leave the smoother
         // chasing the body across the world, and the sweep must not try to slide a sphere from

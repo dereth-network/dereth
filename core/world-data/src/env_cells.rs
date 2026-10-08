@@ -449,8 +449,9 @@ pub struct CellStatic {
     /// **1.0 for everything but generated scenery.** Interior and landblock static-object
     /// initialization never set the scale, so those objects keep the constructor's 1.0.
     /// Scenery generation applies the object description's random scale draw after adding
-    /// the object to its cell — which is why the
-    /// registration below sets the frame, the scale and only then crosses the cells.
+    /// the object to its cell, and adding it is what registers it in the cells it reaches. So
+    /// the registration ([`CellStaticObjects::init`], [`static_cross_cells`]) sets the frame,
+    /// crosses the cells and only then sets the scale.
     pub scale: f32,
 }
 
@@ -510,6 +511,9 @@ pub fn static_geometry(
 /// those land cells meets it. The rule is the physics crate's
 /// ([`dereth_physics::cell::CellResolver::find_static_cell_list`]), the one
 /// [`CellStaticObjects::init`] registers the collision body by.
+///
+/// [`CellStatic::scale`] does not enter it: the placement is registered before it is scaled, so
+/// its parts are posed at their setup-sized offsets.
 #[must_use]
 pub fn static_cross_cells(
     land: &dyn dereth_physics::LandSource,
@@ -521,7 +525,7 @@ pub fn static_cross_cells(
     dereth_physics::cell::CellResolver::new(land).find_static_cell_list(
         &pos,
         geometry,
-        (geometry.caches_physics_bsp(), s.scale, None),
+        (geometry.caches_physics_bsp(), 1.0, None),
         &mut arr,
     );
     arr.cells
@@ -929,17 +933,17 @@ impl CellStaticObjects {
             if let Some(o) = world.get_mut(h) {
                 o.set_frame(s.frame);
                 o.position = Position::new(s.cell, s.frame);
-                // The object's internal scale setter, which the scenery half runs between adding
-                // the object to the cell and registering it as a static object. Here it is set
-                // **before** the cross-cell calculation, which therefore places the parts at
-                // their scaled offsets and sizes the cylinder spheres by it; the parts' boxes,
-                // and the part spheres tested against a portal, keep the setup's own size. The
-                // client sets it after the first registration, so on a first load it registers
-                // scaled scenery at scale 1, and a static it registers again later (one that
-                // reached a cell not yet resident) at its set scale.
+            }
+            // Adding the object to its cell registers it, with the parts posed at the
+            // constructor's scale of 1.
+            world.calc_cross_cells_static(h);
+            // The object's internal scale setter, which the scenery half runs after adding the
+            // object to its cell and before listing it as a static object. So scaled scenery is
+            // registered by its parts' setup-sized offsets (and the unscaled cylinder spheres any
+            // static is registered by), while collision with it is at its scale.
+            if let Some(o) = world.get_mut(h) {
                 o.scale = s.scale;
             }
-            world.calc_cross_cells_static(h);
             self.handles.entry(s.cell.0).or_default().push(h);
             // `static_objects[i] = obj`: the placement's own slot, so
             // that the script half of the same physics object can find its body again.
@@ -1310,7 +1314,6 @@ mod tests {
         g: &SetupGeometry,
         s: &CellStatic,
     ) -> (StaticArm, Vec<(u32, bool)>) {
-        use dereth_physics::V3;
         let pos = Position::new(s.cell, s.frame);
         let resolver = dereth_physics::cell::CellResolver::new(land);
         let mut arr = dereth_physics::cell::CellArray::new();
@@ -1323,23 +1326,25 @@ mod tests {
             StaticArm::Cylinders
         };
         if arm == StaticArm::Cylinders {
-            // Each cylinder's low point, scaled and placed, with its radius; at most ten.
+            // Each cylinder's low point, placed, with its radius, both as the setup has them;
+            // at most ten.
             let spheres: Vec<Sphere> = g
                 .cyl_spheres
                 .iter()
                 .take(10)
                 .map(|c| {
                     Sphere::new(
-                        dereth_physics::math::localtoglobal(&s.frame, c.low_pt.mul(s.scale)),
-                        c.radius * s.scale,
+                        dereth_physics::math::localtoglobal(&s.frame, c.low_pt),
+                        c.radius,
                     )
                 })
                 .collect();
             let mut interior = false;
             resolver.find_cell_list(&pos, &spheres, &mut arr, false, &mut interior);
         } else {
+            // The parts at their setup-sized offsets: a static is registered before it is scaled.
             let parts: Vec<dereth_physics::source::PhysicsPart> = (0..g.parts.len())
-                .filter_map(|i| g.placed_part(i, &pos, s.scale))
+                .filter_map(|i| g.placed_part(i, &pos, 1.0))
                 .collect();
             resolver.find_bbox_cell_list(&pos, &parts, &mut arr);
         }

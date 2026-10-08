@@ -241,9 +241,14 @@ pub const MAX_CELL_LIST_SPHERES: usize = 10;
 
 /// The spheres an object's cylinder spheres hand to the cell-list search: **all** of them up to
 /// [`MAX_CELL_LIST_SPHERES`], each centred on its low point with its radius, height discarded,
-/// scaled by the object and placed in the position's block space.
+/// placed in the position's block space.
+///
+/// They are the setup's own cylinder spheres, **unscaled**: the object's scale does not enter
+/// the cell search, though collision with the same cylinders does scale them. So a tree drawn at
+/// twice its setup's size is registered in the cells its setup-sized trunk reaches, and a trunk
+/// that reaches over a cell line only once scaled is not listed in the cell beyond it.
 #[must_use]
-pub fn cylinder_cell_spheres(geometry: &SetupGeometry, pos: &Position, scale: f32) -> Vec<Sphere> {
+pub fn cylinder_cell_spheres(geometry: &SetupGeometry, pos: &Position) -> Vec<Sphere> {
     let m = math::l2g(pos.frame.rotation);
     geometry
         .cyl_spheres
@@ -251,8 +256,8 @@ pub fn cylinder_cell_spheres(geometry: &SetupGeometry, pos: &Position, scale: f3
         .take(MAX_CELL_LIST_SPHERES)
         .map(|c| {
             Sphere::new(
-                math::localtoglobalvec(m, c.low_pt.mul(scale)).add(pos.frame.origin),
-                c.radius * scale,
+                math::localtoglobalvec(m, c.low_pt).add(pos.frame.origin),
+                c.radius,
             )
         })
         .collect()
@@ -874,24 +879,27 @@ impl<'a> CellResolver<'a> {
     /// spheres or none at all. A moving object in that last case is registered by its sorting
     /// sphere instead, which can reach a cell its parts' boxes do not, and miss one they do.
     ///
-    /// `has_physics_bsp` is the object's `HAS_PHYSICS_BSP_PS` state; `part_frames` poses the
-    /// parts as [`SetupGeometry::placed_part_posed`] does (`None` is the placement). The search
-    /// never loads a cell.
+    /// `has_physics_bsp` is the object's `HAS_PHYSICS_BSP_PS` state; `part_scale` and
+    /// `part_frames` pose the parts as [`SetupGeometry::placed_part_posed`] does (`None` is the
+    /// placement). `part_scale` is the scale the parts were posed at, which for a static being
+    /// added to its cell is 1: generated scenery takes its scale only after it has been added and
+    /// registered. The cylinder spheres take no scale at all ([`cylinder_cell_spheres`]). The
+    /// search never loads a cell.
     pub fn find_static_cell_list(
         &self,
         pos: &Position,
         geometry: &SetupGeometry,
-        (has_physics_bsp, scale, part_frames): (bool, f32, Option<&[Frame]>),
+        (has_physics_bsp, part_scale, part_frames): (bool, f32, Option<&[Frame]>),
         arr: &mut CellArray,
     ) {
         arr.do_not_load_cells = true;
         if !has_physics_bsp && !geometry.cyl_spheres.is_empty() {
-            let spheres = cylinder_cell_spheres(geometry, pos, scale);
+            let spheres = cylinder_cell_spheres(geometry, pos);
             let mut interior = false;
             self.find_cell_list(pos, &spheres, arr, false, &mut interior);
         } else {
             let parts: Vec<crate::source::PhysicsPart> = (0..geometry.parts.len())
-                .filter_map(|i| geometry.placed_part_posed(i, pos, scale, part_frames))
+                .filter_map(|i| geometry.placed_part_posed(i, pos, part_scale, part_frames))
                 .collect();
             self.find_bbox_cell_list(pos, &parts, arr);
         }
