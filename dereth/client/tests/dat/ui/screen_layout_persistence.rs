@@ -2,8 +2,9 @@
 //! preferences file and a moved panel survives save, exit and reload; the three layout paths
 //! resolve beside the preferences file; and a wire login loads the layout for the restored
 //! gameplay resolution, not the forced 800x600 one. Fixture: headless `App`s with the retail dats
-//! and a scratch preferences file; the login test drives framed messages through a socket-free
-//! server peer and types `@saveautoui` through scripted window messages. There are no skips.
+//! and a scratch preferences file in a folder of each test's own; the login test drives framed
+//! messages through a socket-free server peer and types `@saveautoui` through scripted window
+//! messages. There are no skips.
 //!
 //! # Saving and loading
 //!
@@ -57,10 +58,21 @@ const CHAT_ENTRY: ElementId = ElementId(0x1000_0016);
 
 /// Scratch preferences location: layout paths resolve beside the configured preferences
 /// file, so naming that file supplies the directory without a process working-directory fallback.
-fn prefs_file() -> PathBuf {
-    let dir = std::env::temp_dir().join("dereth-screen-layout-persistence");
+/// Each test writes and deletes layout files there while the others run, so each `test` has a
+/// folder of its own, and so does each test process.
+fn prefs_file(test: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "dereth-screen-layout-persistence-{test}-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     dir.join("UserPreferences.ini")
+}
+
+/// Removes `test`'s scratch folder and everything the applications left in it.
+fn remove_scratch(test: &str) {
+    let prefs = prefs_file(test);
+    std::fs::remove_dir_all(prefs.parent().expect("a directory")).expect("scratch cleanup");
 }
 
 /// A socket-free server peer. Messages are sent
@@ -150,7 +162,7 @@ fn frames(app: &mut App, count: u32, phase: &str) {
 
 /// A complete synthetic login identity and framed 0x0013 producer. The character-management
 /// row's scripted double click supplies the selected character; no host-state field is seeded here.
-fn login_at_saved_resolution() -> App {
+fn login_at_saved_resolution(test: &str) -> App {
     let d = client_dir();
     assert!(
         dereth_dat::testing::have_dats(),
@@ -164,7 +176,7 @@ fn login_at_saved_resolution() -> App {
         enter_world: true,
         start_char: "Kupo".to_owned(),
         dat_dir: d,
-        preferences_file: prefs_file(),
+        preferences_file: prefs_file(test),
         ..Config::default()
     };
     cfg.apply_preferences(&Preferences::parse("[Display]\r\nResolution=1024x768\r\n"));
@@ -317,7 +329,7 @@ impl Hand {
     }
 }
 
-fn app_in_gameplay(frames: u32) -> App {
+fn app_in_gameplay(frames: u32, test: &str) -> App {
     let d = client_dir();
     assert!(
         dereth_dat::testing::have_dats(),
@@ -329,7 +341,7 @@ fn app_in_gameplay(frames: u32) -> App {
         headless: true,
         sound: false,
         dat_dir: d,
-        preferences_file: prefs_file(),
+        preferences_file: prefs_file(test),
         ..Config::default()
     };
     let mut app = crate::common::sim_app::new(cfg).expect("the application comes up");
@@ -385,12 +397,18 @@ fn rects(app: &App) -> Vec<(&'static str, (i32, i32), (i32, i32))> {
 /// notification seam; the later test covers framed login and resolution ordering.
 #[test]
 fn a_moved_panel_survives_a_save_an_exit_and_a_reload_through_the_automatic_file() {
+    const TEST: &str = "moved-panel";
     // The path both halves agree on, and the only thing they share.
     let expected_path = {
-        let app = app_in_gameplay(4);
+        let app = app_in_gameplay(4, TEST);
         let shell = app.ui().expect("shell");
         let p = shell
-            .screen_layout_path(ScreenLayout::AUTO_NAME, &prefs_file(), "Kupo", "Frostfell")
+            .screen_layout_path(
+                ScreenLayout::AUTO_NAME,
+                &prefs_file(TEST),
+                "Kupo",
+                "Frostfell",
+            )
             .expect("a preferences file was configured, so there is a directory");
         drop(app);
         p
@@ -405,7 +423,7 @@ fn a_moved_panel_survives_a_save_an_exit_and_a_reload_through_the_automatic_file
     // ---- half one: move a window, save, and drop the application ---------------------------
     let moved: Vec<(&'static str, (i32, i32), (i32, i32))>;
     {
-        let mut app = app_in_gameplay(4);
+        let mut app = app_in_gameplay(4, TEST);
         // A missing file is a normal unsuccessful load, not an I/O failure. Check that the
         // pending request drains while the successful-load count remains zero before saving.
         app.note_player_description();
@@ -471,7 +489,7 @@ fn a_moved_panel_survives_a_save_an_exit_and_a_reload_through_the_automatic_file
     );
 
     // ---- half two: a brand new application loads it automatically ---------------------------
-    let mut app = app_in_gameplay(4);
+    let mut app = app_in_gameplay(4, TEST);
     let before = rects(&app);
     assert_ne!(
         before[1].1,
@@ -503,6 +521,8 @@ fn a_moved_panel_survives_a_save_an_exit_and_a_reload_through_the_automatic_file
     );
 
     std::fs::remove_file(&expected_path).expect("cleanup");
+    drop(app);
+    remove_scratch(TEST);
 }
 
 /// All three path choices resolve beside the configured preferences file, matching the
@@ -510,9 +530,10 @@ fn a_moved_panel_survives_a_save_an_exit_and_a_reload_through_the_automatic_file
 /// height/width; empty selects the default filename, and an ordinary name selects name.txt.
 #[test]
 fn the_shell_resolves_all_three_layout_paths_beside_the_preferences_file() {
-    let app = app_in_gameplay(4);
+    const TEST: &str = "three-paths";
+    let app = app_in_gameplay(4, TEST);
     let shell = app.ui().expect("shell");
-    let prefs = prefs_file();
+    let prefs = prefs_file(TEST);
     let dir = prefs.parent().expect("a directory");
 
     let p = |name: &str| {
@@ -534,6 +555,8 @@ fn the_shell_resolves_all_three_layout_paths_beside_the_preferences_file() {
         shell.screen_layout_path("#auto", std::path::Path::new(""), "Kupo", "Frostfell"),
         None
     );
+    drop(app);
+    remove_scratch(TEST);
 }
 
 /// Behaviour: ui.layout.a-saved-layout-is-reloaded-at-the-next-login
@@ -544,15 +567,15 @@ fn the_shell_resolves_all_three_layout_paths_beside_the_preferences_file() {
 /// relogin restores the saved origin.
 #[test]
 fn wire_login_automatically_loads_the_layout_for_the_restored_gameplay_resolution() {
-    std::fs::create_dir_all(prefs_file().parent().expect("scratch directory")).expect("scratch");
-    std::fs::write(&prefs_file(), "[Display]\r\nResolution=1024x768\r\n")
+    const TEST: &str = "wire-login";
+    std::fs::write(prefs_file(TEST), "[Display]\r\nResolution=1024x768\r\n")
         .expect("disposable preferences");
 
-    let expected_path = prefs_file()
+    let expected_path = prefs_file(TEST)
         .parent()
         .unwrap()
         .join("UI-Kupo-Frostfell-768-1024.txt");
-    let wrong_forced_path = prefs_file()
+    let wrong_forced_path = prefs_file(TEST)
         .parent()
         .unwrap()
         .join("UI-Kupo-Frostfell-600-800.txt");
@@ -561,7 +584,7 @@ fn wire_login_automatically_loads_the_layout_for_the_restored_gameplay_resolutio
 
     let saved_origin;
     {
-        let mut app = login_at_saved_resolution();
+        let mut app = login_at_saved_resolution(TEST);
         let chat = find(&app, dereth_ui::persist::WINDOWS[1].element);
         {
             let ui = &mut app.ui_mut().expect("shell").ui;
@@ -582,7 +605,7 @@ fn wire_login_automatically_loads_the_layout_for_the_restored_gameplay_resolutio
         app.shutdown();
     }
 
-    let mut relogged = login_at_saved_resolution();
+    let mut relogged = login_at_saved_resolution(TEST);
     assert_eq!(
         relogged.ui().expect("shell").stats.screen_layout_loads,
         1,
@@ -603,5 +626,6 @@ fn wire_login_automatically_loads_the_layout_for_the_restored_gameplay_resolutio
     relogged.shutdown();
 
     std::fs::remove_file(&expected_path).expect("layout cleanup");
-    std::fs::remove_file(&prefs_file()).expect("preferences cleanup");
+    std::fs::remove_file(prefs_file(TEST)).expect("preferences cleanup");
+    remove_scratch(TEST);
 }
