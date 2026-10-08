@@ -14,6 +14,16 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- **Horizon, a third interface** beside the modern and classic ones, chosen in the options and
+  switched live: its own art and fonts, an orbit camera that eases behind you, its own key layout,
+  a HUD you can lay out, chat tabs that pop out, and every game window and dialog.
+- A building seen from a distance no longer shows its rooms' contents through its simpler, distant
+  shell: as in retail, a building opens only through the doors and windows of the shell it draws.
+- Stairs, timbers, porch roofs and other structure that reaches out of a room are drawn from
+  outdoors again, at any distance; a room's hidden furniture is no longer drawn.
+- Furniture and scenery are solid in the same places as in retail: a few objects that reached
+  into the next cell could be bumped into from there before you reached them.
+
 ## 0.2.1 (2026-10-06)
 
 - **The web client opens on a launcher**: pick a world from the community list or add one by

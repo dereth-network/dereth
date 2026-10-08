@@ -14,6 +14,10 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- A character waiting to be deleted shows how long is left before it goes, where ACE always shows
+  one second.
+- Sharper icons in the title bar and the taskbar.
+
 ## 0.2.0 (2026-10-05)
 
 ### Added
