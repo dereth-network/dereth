@@ -342,6 +342,8 @@ pub(super) fn assemble_batches(batches: &mut [StaticBatch], placements: &[Degrad
             continue;
         }
         b.active.clear();
+        // A cell's batch keeps which bytes are which part's as the buffer is put together.
+        let mut runs: Vec<(u32, u32, u32)> = Vec::new();
         for c in &b.chunks {
             let p = if c.placement == NO_PLACEMENT {
                 None
@@ -356,6 +358,9 @@ pub(super) fn assemble_batches(batches: &mut [StaticBatch], placements: &[Degrad
                 continue;
             }
             let src = &b.vertices[c.start as usize..c.end as usize];
+            // LINT-OK: a byte offset into one cell's or block's vertex buffer. Not a float.
+            #[allow(clippy::cast_possible_truncation)]
+            let start = b.active.len() as u32;
             // A billboarding placement's vertices are baked in the part's own
             // frame, so the copy *is* the transform. Everything else was baked in world space
             // and is copied byte for byte, which is what keeps a non-billboarding batch
@@ -364,7 +369,11 @@ pub(super) fn assemble_batches(batches: &mut [StaticBatch], placements: &[Degrad
                 Some(p) if p.billboards => append_billboarded(&mut b.active, src, &p.draw_pos),
                 _ => b.active.extend_from_slice(src),
             }
+            // LINT-OK: as above.
+            #[allow(clippy::cast_possible_truncation)]
+            runs.push((c.part, start, b.active.len() as u32));
         }
+        b.part_runs = part_runs_of(runs.into_iter());
         // The reach sphere object-light minimization is handed
         // must be where the geometry is *drawn*. The bake-time sphere is the union of
         // `vertices`, and a billboarding placement's chunk is baked in the part's own frame,
@@ -443,6 +452,42 @@ pub(super) fn drawn_vertices(b: &StaticBatch) -> &[u8] {
     } else {
         &b.active
     }
+}
+
+/// How much of a cell's batch one cell's object draw submits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kept {
+    /// Every part in it: the drawn buffer as it is.
+    Whole,
+    /// None of its parts.
+    Nothing,
+    /// Some of them, gathered into the caller's buffer.
+    Some,
+}
+
+/// The runs of a cell's batch whose parts `keep` admits, in buffer order. A batch that names no
+/// parts (a landblock's) is kept whole.
+pub(super) fn kept_vertices(
+    b: &StaticBatch,
+    keep: &dyn Fn(u32) -> bool,
+    out: &mut Vec<u8>,
+) -> Kept {
+    if b.part_runs.is_empty() {
+        return Kept::Whole;
+    }
+    let kept = b.part_runs.iter().filter(|r| keep(r.part)).count();
+    if kept == b.part_runs.len() {
+        return Kept::Whole;
+    }
+    if kept == 0 {
+        return Kept::Nothing;
+    }
+    let all = drawn_vertices(b);
+    out.clear();
+    for r in b.part_runs.iter().filter(|r| keep(r.part)) {
+        out.extend_from_slice(&all[r.start as usize..r.end as usize]);
+    }
+    Kept::Some
 }
 
 /// Draw one **animated** part: bind the part's material, then
@@ -616,10 +661,34 @@ pub(super) fn submit_static_batch_with(
     detail: Option<(TextureSlot, f32)>,
     force_alpha: bool,
 ) -> Result<(), RenderError> {
+    submit_static_vertices(
+        gpu,
+        per_frame,
+        world,
+        batch,
+        drawn_vertices(batch),
+        lights,
+        detail,
+        force_alpha,
+    )
+}
+
+/// [`submit_static_batch_with`] drawing `vertices` with the batch's state: the whole drawn
+/// buffer, or the runs of the parts a cell draws this time ([`kept_vertices`]).
+#[allow(clippy::too_many_arguments)] // one parameter per input the call takes
+pub(super) fn submit_static_vertices(
+    gpu: &mut Gpu,
+    per_frame: &PerFrameConstants,
+    world: &PerDrawConstants,
+    batch: &StaticBatch,
+    vertices: &[u8],
+    lights: Option<&[D3dLight]>,
+    detail: Option<(TextureSlot, f32)>,
+    force_alpha: bool,
+) -> Result<(), RenderError> {
     if !static_subset_visible(batch) {
         return Ok(());
     }
-    let vertices = drawn_vertices(batch);
     if vertices.is_empty() {
         return Ok(());
     }

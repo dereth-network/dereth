@@ -365,11 +365,13 @@ fn real_land_bake_tags_shells_and_alpha_flush_excludes_them_without_hiding_cell_
     gpu.begin_frame().unwrap();
     scene
         .draw
-        .draw_cell_statics(
+        .draw_cell_batches(
             &mut gpu,
             &frame(),
             &scene.draw.blocks[&key].blended,
-            (0.0, 0.0),
+            (0x7f03_0100, (0.0, 0.0), true),
+            &|_| true,
+            (0x7f03_0100, 0),
             None,
         )
         .unwrap();

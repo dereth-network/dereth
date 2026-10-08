@@ -193,7 +193,7 @@ pub(crate) fn read_sort_center(store: &RetailDatStore, id: DataId) -> Vec3 {
 /// one list, and every physics tick plays the animation on its part array. A butterfly over the
 /// grass or a turning sign is drawn from its live part array, posed every frame, rather than from
 /// the static batches, which could only hold its first pose.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct EmitterPlacement {
     /// The host's authored cell. A particle emitter registers one shadow in this cell, not
     /// the ordinary host mesh's set of overlapping cells.
@@ -222,6 +222,9 @@ pub(crate) struct EmitterPlacement {
     /// Whether the bake would have drawn the placement from the objects' look (another era's
     /// files); an animated placement's parts follow the same verdict.
     pub(crate) from_look: bool,
+    /// The other cells an animated interior static is registered in, each of which draws it
+    /// with its own objects; empty for every other placement.
+    pub(crate) shadows: Vec<CellId>,
 }
 
 /// What setup creation starts on a placed static: its default script, its default animation,

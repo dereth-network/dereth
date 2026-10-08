@@ -342,25 +342,7 @@ pub fn gfxobj_physics_bsp(g: &GfxObj) -> Option<BspTree> {
 pub fn physics_geometry(d: &DecodedCell) -> EnvCellGeometry {
     let cs = &d.structure;
     let block = d.id.0 & 0xFFFF_0000;
-    let portals = d
-        .cell
-        .portals
-        .iter()
-        .filter_map(|p| {
-            let poly = cs.polygons.get(p.polygon_id as usize)?;
-            Some(CellPortal {
-                other_cell_id: if p.other_cell_id == 0xFFFF_FFFF {
-                    0xFFFF_FFFF
-                } else {
-                    block | (p.other_cell_id & 0xFFFF)
-                },
-                portal: Polygon::new(vertices(&cs.vertex_array, poly)),
-                portal_side: (!p.flags >> 1) & 1 != 0,
-                other_portal_id: i32::from(p.other_portal_id),
-                exact_match: p.flags & 1 != 0,
-            })
-        })
-        .collect();
+    let portals = cell_portals(d);
 
     let physics_polygons: Vec<Polygon> = cs
         .physics_polygons
@@ -405,6 +387,31 @@ pub fn physics_geometry(d: &DecodedCell) -> EnvCellGeometry {
             .map(|o| (o.id, o.frame))
             .collect::<Vec<(DataId, Frame)>>(),
     }
+}
+
+/// A cell's portals in physics shape: [`physics_geometry`]'s, shared with the static
+/// cross-cell search's lighter cells.
+fn cell_portals(d: &DecodedCell) -> Vec<CellPortal> {
+    let cs = &d.structure;
+    let block = d.id.0 & 0xFFFF_0000;
+    d.cell
+        .portals
+        .iter()
+        .filter_map(|p| {
+            let poly = cs.polygons.get(p.polygon_id as usize)?;
+            Some(CellPortal {
+                other_cell_id: if p.other_cell_id == 0xFFFF_FFFF {
+                    0xFFFF_FFFF
+                } else {
+                    block | (p.other_cell_id & 0xFFFF)
+                },
+                portal: Polygon::new(vertices(&cs.vertex_array, poly)),
+                portal_side: (!p.flags >> 1) & 1 != 0,
+                other_portal_id: i32::from(p.other_portal_id),
+                exact_match: p.flags & 1 != 0,
+            })
+        })
+        .collect()
 }
 
 // -------------------------------------------------------------------------------------------
@@ -464,6 +471,214 @@ pub fn cell_statics(d: &DecodedCell) -> Vec<CellStatic> {
             scale: 1.0,
         })
         .collect()
+}
+
+/// A static placement's collision half with its parts: the setup record's, or the simple setup
+/// a `0x01……` graphics-object id is wrapped in. `None` for a record that is missing or will not
+/// decode.
+#[must_use]
+pub fn static_geometry(
+    store: &RetailDatStore,
+    id: DataId,
+    stats: &mut crate::setup::SetupPartStats,
+) -> Option<SetupGeometry> {
+    if id.0 >> 24 == 0x01 {
+        // A graphics-object id is a legal object-creation argument through simple setup
+        // construction, and 522 of the training dungeon's placements are one.
+        return crate::setup::simple_setup_geometry(store, id, stats);
+    }
+    let bytes = store.read_typed(DbType::Setup, id).ok()?;
+    let s = Setup::decode_payload_in(store.era_of(id), id, &bytes).ok()?;
+    Some(crate::setup::setup_geometry_with_parts(store, &s, stats))
+}
+
+/// The cells a static placement is registered in when it is added to its cell: its own cell
+/// first, then every cell its geometry reaches, each with whether that cell was resident.
+///
+/// This is the **static** cross-cell calculation, which is not the moving one. A static whose
+/// parts carry no physics BSP but whose setup has cylinder spheres hands those spheres to the
+/// cell-list search; **every other static**, including one with only collision spheres or none,
+/// takes the bounding-box search over its parts. (A moving object without either takes its
+/// sorting sphere instead.) The bounding-box search walks each reached interior cell's portals:
+/// a part whose sphere reaches a portal plane and whose box is not wholly on the cell's side of
+/// it carries the object into the cell beyond, and an outdoor portal adds every land cell the
+/// parts' boxes cover.
+///
+/// The cells are what both halves of the object read: collision tests it in each of them, and
+/// each of them draws its parts with its own objects. So a lamp in a room whose box reaches out
+/// through the doorway is drawn by the land cells outside as well as by the room.
+#[must_use]
+pub fn static_cross_cells(
+    land: &dyn dereth_physics::LandSource,
+    geometry: &SetupGeometry,
+    s: &CellStatic,
+) -> Vec<(CellId, bool)> {
+    use dereth_physics::cell::{CellArray, CellResolver, MAX_CELL_LIST_SPHERES};
+    use dereth_physics::V3;
+    let pos = Position::new(s.cell, s.frame);
+    let resolver = CellResolver::new(land);
+    let mut arr = CellArray::new();
+    // Adding a static to its cell sets the do-not-load-cells flag.
+    arr.do_not_load_cells = true;
+    if !geometry.caches_physics_bsp() && !geometry.cyl_spheres.is_empty() {
+        // The cylinder spheres' low points, in the placement's block space, radius unchanged.
+        let m = dereth_physics::math::l2g(s.frame.rotation);
+        let spheres: Vec<Sphere> = geometry
+            .cyl_spheres
+            .iter()
+            .take(MAX_CELL_LIST_SPHERES)
+            .map(|c| {
+                Sphere::new(
+                    dereth_physics::math::localtoglobalvec(m, c.low_pt.mul(s.scale))
+                        .add(s.frame.origin),
+                    c.radius * s.scale,
+                )
+            })
+            .collect();
+        let mut interior = false;
+        resolver.find_cell_list(&pos, &spheres, &mut arr, false, &mut interior);
+    } else {
+        let parts: Vec<dereth_physics::source::PhysicsPart> = (0..geometry.parts.len())
+            .filter_map(|i| geometry.placed_part(i, &pos, s.scale))
+            .collect();
+        resolver.find_bbox_cell_list(&pos, &parts, &mut arr);
+    }
+    arr.cells
+        .iter()
+        .map(|c| (c.cell_id, c.cell.is_some()))
+        .collect()
+}
+
+/// One resident landblock as [`static_cross_cells`] needs it while the block is being built:
+/// its own land cells, its interior cells and the interior cells each of its buildings opens
+/// onto. Nothing outside the block is resident.
+///
+/// A static is added to its cell while the block it belongs to is being initialized, and the
+/// cells it can reach are that block's: an interior cell's portals only ever lead to cells of
+/// the same block or outdoors, and the land cells an outdoor portal adds are the ones the
+/// placement's boxes cover, around the doorway it crossed.
+///
+/// The interior cells carry only what the cell search reads: the frame, the portals, the cell
+/// BSP and the stab list. Their collision meshes are left out.
+pub struct BlockCellSource<'a> {
+    block: dereth_primitives::LandblockId,
+    land: Option<Arc<dereth_physics::LandblockCollision>>,
+    table: &'a [f32; dereth_physics::globals::LAND_HEIGHT_TABLE_LEN],
+    // ORDER-OK: a lookup keyed by cell id, never iterated.
+    cells: HashMap<u32, Arc<EnvCellGeometry>>,
+    /// The interior cells behind each land cell's building, as building initialization wires
+    /// them: the land cell is the one the building's origin falls in.
+    building_cells: BTreeMap<u32, Vec<CellId>>,
+}
+
+/// The cell BSPs of environment cell structures, by `(environment, structure index)`: every
+/// cell built on one structure shares its tree.
+// ORDER-OK: a decode memo, only ever looked up.
+pub type CellBspMemo = HashMap<(DataId, u16), Option<Arc<BspTree>>>;
+
+impl std::fmt::Debug for BlockCellSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockCellSource")
+            .field("block", &self.block)
+            .field("cells", &self.cells.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> BlockCellSource<'a> {
+    /// `land` is the block's own land geometry, `None` when the block has none, which leaves its
+    /// land cells unresident. `memo` keeps the cell BSPs from one block to the next.
+    #[must_use]
+    pub fn new(
+        block: dereth_primitives::LandblockId,
+        land: Option<Arc<dereth_physics::LandblockCollision>>,
+        table: &'a [f32; dereth_physics::globals::LAND_HEIGHT_TABLE_LEN],
+        (decoded, buildings): (&[DecodedCell], &[dereth_assets::world::BuildInfo]),
+        memo: &mut CellBspMemo,
+    ) -> Self {
+        let mut building_cells: BTreeMap<u32, Vec<CellId>> = BTreeMap::new();
+        for b in buildings {
+            let mut cell = block.cell(1);
+            let mut origin = b.frame.origin;
+            if !dereth_physics::landdefs::adjust_to_outside(&mut cell, &mut origin) {
+                continue;
+            }
+            let entry = building_cells.entry(cell.0).or_default();
+            for p in &b.portals {
+                let id = CellId((u32::from(block.0) << 16) | u32::from(p.other_cell_id));
+                if !entry.contains(&id) {
+                    entry.push(id);
+                }
+            }
+        }
+        let cells = decoded
+            .iter()
+            .map(|d| {
+                let cell_bsp = memo
+                    .entry((d.cell.environment, d.cell.cell_struct))
+                    .or_insert_with(|| {
+                        (!d.structure.cell_bsp.nodes.is_empty())
+                            .then(|| Arc::new(convert_bsp(&d.structure.cell_bsp, Vec::new(), &[])))
+                    })
+                    .clone();
+                (d.id.0, Arc::new(registration_geometry(d, cell_bsp)))
+            })
+            .collect();
+        Self {
+            block,
+            land,
+            table,
+            cells,
+            building_cells,
+        }
+    }
+}
+
+/// [`physics_geometry`] reduced to what the cell search reads: the frame, the portals, the
+/// cell BSP and the stab list.
+fn registration_geometry(d: &DecodedCell, cell_bsp: Option<Arc<BspTree>>) -> EnvCellGeometry {
+    EnvCellGeometry {
+        id: d.id,
+        frame: d.cell.frame,
+        portals: cell_portals(d),
+        physics_polygons: Vec::new(),
+        physics_bsp: None,
+        cell_bsp,
+        // The cell-list search drops a cell a static's spheres reach unless it is in the
+        // static's own cell's stab list.
+        stab_list: d
+            .cell
+            .visible_cells
+            .iter()
+            .map(|&c| CellId((d.id.0 & 0xFFFF_0000) | u32::from(c)))
+            .collect(),
+        seen_outside: d.cell.flags & 1 != 0,
+        static_objects: Vec::new(),
+    }
+}
+
+impl dereth_physics::LandSource for BlockCellSource<'_> {
+    fn landblock(
+        &self,
+        id: dereth_primitives::LandblockId,
+    ) -> Option<Arc<dereth_physics::LandblockCollision>> {
+        (id == self.block).then(|| self.land.clone()).flatten()
+    }
+
+    fn height_table(&self) -> &[f32; dereth_physics::globals::LAND_HEIGHT_TABLE_LEN] {
+        self.table
+    }
+
+    fn env_cell(&self, cell: CellId) -> Option<Arc<EnvCellGeometry>> {
+        self.cells.get(&cell.0).cloned()
+    }
+
+    fn building_cells(&self, cell: CellId) -> Vec<CellId> {
+        self.building_cells
+            .get(&cell.0)
+            .cloned()
+            .unwrap_or_default()
+    }
 }
 
 /// Whether physics has been given the cell a placement names — the one predicate the client does
@@ -799,22 +1014,14 @@ impl CellStaticObjects {
         // **With the parts**, so a table's own mesh is what the body meets. The same
         // loader the object stream uses (`crate::setup`), because a chair baked into a
         // cell and a door sent by the server are the same physics object to the client.
-        let loaded = if id.0 >> 24 == 0x01 {
-            // A graphics-object id is a legal object-creation argument through simple setup
-            // construction, and 522 of the training dungeon's placements are one.
-            crate::setup::simple_setup_geometry(store, id, &mut self.part_stats).map(Arc::new)
+        let loaded = if self.mesh_collision || id.0 >> 24 == 0x01 {
+            static_geometry(store, id, &mut self.part_stats).map(Arc::new)
         } else {
             store
                 .read_typed(DbType::Setup, id)
                 .ok()
                 .and_then(|b| Setup::decode_payload_in(store.era_of(id), id, &b).ok())
-                .map(|s| {
-                    Arc::new(if self.mesh_collision {
-                        crate::setup::setup_geometry_with_parts(store, &s, &mut self.part_stats)
-                    } else {
-                        crate::setup::setup_geometry(&s)
-                    })
-                })
+                .map(|s| Arc::new(crate::setup::setup_geometry(&s)))
         };
         self.geometry.insert(id.0, loaded.clone());
         loaded
@@ -936,6 +1143,170 @@ mod tests {
         assert!(
             outside > 0,
             "no cell opens to the outdoors, so nobody could walk in"
+        );
+    }
+
+    /// The cells each of Holtburg's room statics is registered in, every cell a static's
+    /// geometry reaches, as a map from `(cell, index among the cell's statics)`.
+    fn holtburg_registrations(
+        store: &Arc<RetailDatStore>,
+        source: &dyn dereth_physics::LandSource,
+        decoded: &[DecodedCell],
+    ) -> BTreeMap<(u32, usize), Vec<(u32, bool)>> {
+        let mut stats = crate::setup::SetupPartStats::default();
+        let mut out = BTreeMap::new();
+        for d in decoded {
+            for (i, s) in cell_statics(d).iter().enumerate() {
+                let g = static_geometry(store, s.id, &mut stats).expect("every static decodes");
+                let cells = static_cross_cells(source, &g, s)
+                    .into_iter()
+                    .map(|(c, present)| (c.0, present))
+                    .collect();
+                out.insert((d.id.0, i), cells);
+            }
+        }
+        out
+    }
+
+    // Oracle: `client_cell_1.dat` and `client_portal.dat`, decoded independently by the
+    // physics land source (`DatLandSource`) over Holtburg and its eight neighbours, which is
+    // the residency a viewer in Holtburg has. The census over the whole cell dat (593,927
+    // statics) found the block's own land and cells enough for every static in it.
+    /// Behaviour: rendering.interior.a-room-static-is-registered-in-every-cell-it-reaches
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn holtburgs_room_statics_are_registered_in_the_rooms_and_land_cells_their_boxes_reach() {
+        let store = Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {} -- \
+                 set DERETH_TEST_DAT_DIR",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let region = crate::landblock::load_region(&store).expect("the region decodes");
+        let holtburg = dereth_primitives::LandblockId(0xA9B4);
+        let decoded = EnvCellLoader::new().load_block(&store, holtburg.0);
+        let lbi_id = crate::landblock::lbi_did(holtburg.0);
+        let lbi = dereth_assets::world::LandblockInfo::decode_payload(
+            lbi_id,
+            &store
+                .read_typed(DbType::Lbi, lbi_id)
+                .expect("Holtburg's info"),
+        )
+        .expect("decodes");
+
+        let resident = crate::land_source::DatLandSource::new(Arc::clone(&store), &region)
+            .expect("the retail height table");
+        for x in 0xA8..=0xAA_u16 {
+            for y in 0xB3..=0xB5_u16 {
+                resident.load_block_cells(dereth_primitives::LandblockId((x << 8) | y));
+            }
+        }
+        let table = *dereth_physics::LandSource::height_table(&resident);
+        let own = BlockCellSource::new(
+            holtburg,
+            dereth_physics::LandSource::landblock(&resident, holtburg),
+            &table,
+            (&decoded, &lbi.buildings),
+            &mut CellBspMemo::new(),
+        );
+        let world = holtburg_registrations(&store, &resident, &decoded);
+        let block = holtburg_registrations(&store, &own, &decoded);
+        assert_eq!(world.len(), 405, "Holtburg's rooms hold 405 statics");
+        assert_eq!(
+            block, world,
+            "the block's own cells register every static where the resident world does"
+        );
+
+        let elsewhere: BTreeMap<(u32, usize), Vec<u32>> = world
+            .iter()
+            .map(|(k, cells)| {
+                assert_eq!(
+                    cells[0],
+                    (k.0, true),
+                    "a static is registered in its own cell first"
+                );
+                assert!(
+                    cells.iter().all(|(_, present)| *present),
+                    "every cell a Holtburg static reaches is resident"
+                );
+                (*k, cells[1..].iter().map(|(c, _)| *c).collect())
+            })
+            .filter(|(_, v): &(_, Vec<u32>)| !v.is_empty())
+            .collect();
+        assert_eq!(
+            elsewhere.len(),
+            34,
+            "34 of them reach another cell: {elsewhere:X?}"
+        );
+        let outdoors: BTreeMap<(u32, usize), Vec<u32>> = elsewhere
+            .iter()
+            .map(|(k, v)| {
+                (
+                    *k,
+                    v.iter()
+                        .copied()
+                        .filter(|c| c & 0xFFFF < FIRST_ENV_CELL)
+                        .collect::<Vec<u32>>(),
+                )
+            })
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
+        // One building's piece in its first room reaches through the room's door into the land
+        // cell outside, and so does a small piece by another building's doorway.
+        assert_eq!(
+            outdoors,
+            BTreeMap::from([
+                ((0xA9B4_0100, 0), vec![0xA9B4_001E]),
+                ((0xA9B4_0129, 1), vec![0xA9B4_0016]),
+            ]),
+            "two of Holtburg's room statics cross an outdoor portal"
+        );
+        // A static without a physics mesh or cylinder spheres is registered by its parts'
+        // boxes, not by its sorting sphere as a moving object would be: this one's box reaches
+        // the next room and its sphere does not.
+        assert_eq!(
+            elsewhere.get(&(0xA9B4_0101, 2)),
+            Some(&vec![0xA9B4_010F]),
+            "the box-registered piece by the inner doorway"
+        );
+        let piece = cell_statics(
+            decoded
+                .iter()
+                .find(|d| d.id.0 == 0xA9B4_0101)
+                .expect("the room"),
+        )[2];
+        let g = static_geometry(
+            &store,
+            piece.id,
+            &mut crate::setup::SetupPartStats::default(),
+        )
+        .expect("decodes");
+        assert!(!g.caches_physics_bsp() && g.cyl_spheres.is_empty());
+        let mut by_sphere = dereth_physics::cell::CellArray::new();
+        let mut interior = false;
+        let sphere = Sphere::new(
+            dereth_physics::math::localtoglobal(&piece.frame, g.sorting_sphere.center),
+            g.sorting_sphere.radius,
+        );
+        dereth_physics::cell::CellResolver::new(&resident).find_cell_list(
+            &Position::new(piece.cell, piece.frame),
+            &[sphere],
+            &mut by_sphere,
+            false,
+            &mut interior,
+        );
+        assert_eq!(
+            by_sphere
+                .cells
+                .iter()
+                .map(|c| c.cell_id.0)
+                .collect::<Vec<_>>(),
+            vec![0xA9B4_0101],
+            "its sorting sphere stays in its own room"
         );
     }
 }

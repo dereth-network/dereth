@@ -424,6 +424,68 @@ impl SceneDraw {
         self.frame_object_cone.get()
     }
 
+    /// What the per-part object draw of interior cells' baked statics did on the last
+    /// [`Self::draw`]: the parts offered, the ones no view of the offering cell saw, and which
+    /// kind of cell drew the rest.
+    #[must_use]
+    pub fn drawn_cell_statics(&self) -> CellStaticDrawStats {
+        self.frame_cell_statics.get()
+    }
+
+    /// Every part run of a cell's static batches the last [`Self::draw`] submitted, in
+    /// submission order: a run submitted twice under one pass of the frame is a part drawn
+    /// twice.
+    #[must_use]
+    pub fn drawn_cell_static_runs(&self) -> Vec<CellStaticRunDraw> {
+        self.frame_cell_runs.borrow().clone()
+    }
+
+    /// Every part of every resident interior cell's baked statics: where it is registered, its
+    /// drawing sphere this frame, and which cell drew it on the last [`Self::draw`].
+    #[must_use]
+    pub fn cell_static_parts(&self) -> Vec<CellStaticPartProbe> {
+        let first = self.frame_stamp_first.get();
+        // Which other interior cells hold each part, from the cells' guest lists.
+        // ORDER-OK: a lookup by part; each list is sorted below.
+        let mut held: HashMap<(u32, u32), Vec<CellId>> = HashMap::new();
+        for other in self.blocks.values().flat_map(|b| &b.env_cells) {
+            for g in &other.objects.guests {
+                held.entry(*g).or_default().push(other.id);
+            }
+        }
+        let mut out = Vec::new();
+        for block in self.blocks.values() {
+            for cell in &block.env_cells {
+                for (k, p) in cell.objects.parts.iter().enumerate() {
+                    // LINT-OK: an index into one cell's parts. Not a float.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let k = k as u32;
+                    let mut registered: Vec<CellId> = cell
+                        .objects
+                        .outdoors
+                        .iter()
+                        .filter(|o| o.1 == k)
+                        .map(|o| CellId(o.0))
+                        .collect();
+                    registered.extend(held.get(&(cell.id.0, k)).into_iter().flatten());
+                    registered.sort_unstable();
+                    let (stamp, by, _) = p.drawn.get();
+                    out.push(CellStaticPartProbe {
+                        cell: cell.id,
+                        object: p.object,
+                        part: k,
+                        setup: p.setup,
+                        registered,
+                        sphere: Self::cell_part_sphere(cell, block.origin, p),
+                        drawn_by: (stamp != 0 && stamp.wrapping_sub(first) < 0x8000_0000)
+                            .then_some(CellId(by)),
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// Same bracket: every subset the last [`Self::draw`] put on
     /// the device, in the order it did, with the sort key and the classification that decided
     /// where it went.

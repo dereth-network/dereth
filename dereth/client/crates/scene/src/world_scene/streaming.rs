@@ -176,6 +176,8 @@ impl SceneDraw {
             identity,
             objects,
             cells: dereth_world_data::env_cells::EnvCellLoader::new(),
+            static_geometry: HashMap::new(),
+            cell_bsps: HashMap::new(),
         };
 
         // The terrain pipeline state. Row 1 of the catalogue -- an opaque textured surface --
@@ -249,6 +251,12 @@ impl SceneDraw {
             frame_static_blend: std::cell::RefCell::new(Vec::new()),
             frame_blend_order: std::cell::RefCell::new(Vec::new()),
             frame_object_cone: std::cell::Cell::new(ObjectConeStats::default()),
+            frame_stamp: std::cell::Cell::new(0),
+            frame_stamp_first: std::cell::Cell::new(0),
+            frame_turn: std::cell::Cell::new(0),
+            frame_cell_runs: std::cell::RefCell::new(Vec::new()),
+            frame_cell_statics: std::cell::Cell::new(CellStaticDrawStats::default()),
+            static_scratch: std::cell::RefCell::new(Vec::new()),
             frame_part_order: std::cell::RefCell::new(Vec::new()),
             frame_drawn_cells: std::cell::RefCell::new(None),
             frame_pick_candidates: std::cell::RefCell::new(None),

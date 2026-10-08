@@ -37,6 +37,7 @@ mod preview_level_zero;
 mod rain_extent;
 mod render_and_day_commands;
 mod render_preferences;
+mod room_statics;
 mod sky;
 mod solid_colour_textures;
 mod static_degrade_levels;

@@ -82,23 +82,24 @@ impl SceneDraw {
         let drawn_cells = self.frame_drawn_cells.borrow();
         let seen = visible_cells.or(drawn_cells.as_ref());
         let viewer_inside = ws.viewer_cell().is_some();
-        let interior_seen = |cell: Option<CellId>, handle: Option<dereth_physics::PhysHandle>| {
+        // The cells a body is registered in: a physics body's shadow set, or what an animated
+        // interior static was registered in when it was added to its cell.
+        let body_shadows = |handle: Option<dereth_physics::PhysHandle>| -> Option<Shadows<'_>> {
+            let body = handle.and_then(|h| ws.character.as_ref().and_then(|c| c.world.get(h)))?;
+            Some(Shadows::Body(&body.shadow_objects))
+        };
+        let interior_seen = |cell: Option<CellId>, shadows: Option<&Shadows<'_>>| {
             let Some(cell) = cell else { return false };
             // A doorway-spanning part can retain its outdoor origin and also be registered in
             // a reached env cell. Native cell drawing walks that env cell's shadow-part list
             // after its outdoor draw, frame-stamp increment and depth clear, so the same part
             // is eligible on both sides of the reset. Prefer the physical registration when
             // it exists; the origin-cell fallback below is only for a body without shadows.
-            if let Some(body) =
-                handle.and_then(|h| ws.character.as_ref().and_then(|c| c.world.get(h)))
-            {
-                if !body.shadow_objects.is_empty() {
-                    return body.shadow_objects.iter().any(|shadow| {
-                        shadow.cell_present
-                            && !dereth_physics::landdefs::is_outdoors(shadow.cell_id)
-                            && seen.is_some_and(|cells| cells.contains(&shadow.cell_id.0))
-                    });
-                }
+            if let Some(shadows) = shadows.filter(|s| !s.is_empty()) {
+                return shadows.resident().any(|id| {
+                    !dereth_physics::landdefs::is_outdoors(id)
+                        && seen.is_some_and(|cells| cells.contains(&id.0))
+                });
             }
             if dereth_physics::landdefs::is_outdoors(cell) {
                 return false;
@@ -107,7 +108,7 @@ impl SceneDraw {
         };
         // Whether a part is drawn by this pass, and if so with which lighting (`true` is a land
         // cell's) and by which cell's object list, which picks the cone it is tested against.
-        let wanted_light = |cell: Option<CellId>, handle: Option<dereth_physics::PhysHandle>| {
+        let wanted_light = |cell: Option<CellId>, shadows: Option<Shadows<'_>>| {
             let outdoors = cell.is_some_and(dereth_physics::landdefs::is_outdoors);
             // The converse crossing matters too. An indoor-origin door can own
             // an outdoor shadow (the villa courtyard door does): its part crosses the room's
@@ -117,17 +118,10 @@ impl SceneDraw {
             // drawing. That land cell has no portal view, so the part is coned against the
             // screen.
             let outdoor_shadow = || {
-                handle
-                    .and_then(|h| ws.character.as_ref().and_then(|c| c.world.get(h)))
-                    .and_then(|body| {
-                        body.shadow_objects
-                            .iter()
-                            .find(|shadow| {
-                                shadow.cell_present
-                                    && dereth_physics::landdefs::is_outdoors(shadow.cell_id)
-                            })
-                            .map(|shadow| shadow.cell_id)
-                    })
+                shadows.as_ref().and_then(|s| {
+                    s.resident()
+                        .find(|id| dereth_physics::landdefs::is_outdoors(*id))
+                })
             };
             match phase {
                 ObjectPhase::All => {
@@ -139,7 +133,7 @@ impl SceneDraw {
                         // its building is drawn this frame.
                         Some((true, Some(land)))
                     } else {
-                        interior_seen(cell, handle).then_some((false, cell))
+                        interior_seen(cell, shadows.as_ref()).then_some((false, cell))
                     }
                 }
                 ObjectPhase::Outdoors => {
@@ -148,10 +142,12 @@ impl SceneDraw {
                     } else if let Some(land) = outdoor_shadow() {
                         Some((true, Some(land)))
                     } else {
-                        interior_seen(cell, handle).then_some((false, cell))
+                        interior_seen(cell, shadows.as_ref()).then_some((false, cell))
                     }
                 }
-                ObjectPhase::Interior => interior_seen(cell, handle).then_some((false, cell)),
+                ObjectPhase::Interior => {
+                    interior_seen(cell, shadows.as_ref()).then_some((false, cell))
+                }
             }
         };
         // --- the server's objects -----------------------------------------------------
@@ -183,7 +179,9 @@ impl SceneDraw {
             }
             // Which of cell drawing's two object passes this object belongs to.
             let draw_cell = ws.object_draw_cell(o);
-            let Some((outdoors, list_cell)) = wanted_light(draw_cell, o.sim.physics_handle) else {
+            let Some((outdoors, list_cell)) =
+                wanted_light(draw_cell, body_shadows(o.sim.physics_handle))
+            else {
                 continue;
             };
             let d = self.object_draw(*id);
@@ -227,7 +225,14 @@ impl SceneDraw {
                 let Some(meshes) = h.meshes.as_ref() else {
                     continue;
                 };
-                let Some((outdoors, list_cell)) = wanted_light(Some(h.cell), None) else {
+                // An animated interior static is drawn by every cell it was registered in when
+                // it was added to its own.
+                let shadows = block
+                    .emitters
+                    .get(h.placement)
+                    .filter(|p| self.cfg.cell_static_shadows && !p.shadows.is_empty())
+                    .map(|p| Shadows::Static(h.cell, &p.shadows));
+                let Some((outdoors, list_cell)) = wanted_light(Some(h.cell), shadows) else {
                     continue;
                 };
                 for (i, pl) in meshes.iter().enumerate() {
@@ -274,7 +279,7 @@ impl SceneDraw {
         // way outside: the body walks out of the doorway and is stamped away.
         let body_light = wanted_light(
             ws.character.as_ref().map(|c| c.position().cell),
-            ws.character.as_ref().map(|c| c.handle),
+            body_shadows(ws.character.as_ref().map(|c| c.handle)),
         );
         let body = body_light.and_then(|(outdoors, list_cell)| {
             ws.character
@@ -428,6 +433,8 @@ impl SceneDraw {
                     source: StaticBlendSource::Block(key),
                     batch: i,
                     cypt: c.sub(ws.camera.position).mag2().sqrt(),
+                    drawn_by: None,
+                    sun: true,
                 });
             }
         }
@@ -716,12 +723,12 @@ impl SceneDraw {
                     let Some(r) = statics.get((e.mesh.0 & !STATIC_ENTRY) as usize) else {
                         continue;
                     };
-                    let (batch, origin, outdoors) = match r.source {
+                    let (batch, origin, outdoors, cell) = match r.source {
                         StaticBlendSource::Block(key) => {
                             let Some(block) = self.blocks.get(&key) else {
                                 continue;
                             };
-                            (block.blended.get(r.batch), block.origin, true)
+                            (block.blended.get(r.batch), block.origin, true, None)
                         }
                         StaticBlendSource::Cell(id) => {
                             let Some((cell, origin)) =
@@ -729,11 +736,39 @@ impl SceneDraw {
                             else {
                                 continue;
                             };
-                            (cell.statics_blended.get(r.batch), *origin, false)
+                            (
+                                cell.statics_blended.get(r.batch),
+                                *origin,
+                                r.sun,
+                                Some(*cell),
+                            )
                         }
                     };
                     let Some(batch) = batch else {
                         continue;
+                    };
+                    // A cell's batch draws only the parts the cell that queued it drew.
+                    let mut scratch = self.static_scratch.borrow_mut();
+                    let kept = match (cell, r.drawn_by) {
+                        (Some(cell), Some(by)) => kept_vertices(
+                            batch,
+                            &|k| {
+                                cell.objects
+                                    .parts
+                                    .get(k as usize)
+                                    .is_some_and(|p| p.drawn.get() == by)
+                            },
+                            &mut scratch,
+                        ),
+                        _ => Kept::Whole,
+                    };
+                    if kept == Kept::Nothing {
+                        continue;
+                    }
+                    let vertices = if kept == Kept::Some {
+                        &scratch[..]
+                    } else {
+                        drawn_vertices(batch)
                     };
                     let world = world_constants(&Frame::new(
                         Vec3::new(origin.0, origin.1, 0.0),
@@ -753,15 +788,34 @@ impl SceneDraw {
                             self.object_light_set(c, batch.sphere.1, false)
                         }
                     });
-                    submit_static_batch(
+                    submit_static_vertices(
                         gpu,
                         per_frame,
                         &world,
                         batch,
+                        vertices,
                         set.as_deref(),
                         self.current_detail(dereth_world_render::detail::DetailClass::Building),
+                        false,
                     )?;
-                    if outdoors {
+                    if let (Some(cell), Some((stamp, by, turn))) = (cell, r.drawn_by) {
+                        // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
+                        #[allow(clippy::cast_possible_truncation)]
+                        self.note_cell_runs(
+                            (cell.id.0, true, r.batch as u32),
+                            batch,
+                            &|k| {
+                                cell.objects
+                                    .parts
+                                    .get(k as usize)
+                                    .is_some_and(|p| p.drawn.get() == (stamp, by, turn))
+                            },
+                            CellRunPass::AlphaList,
+                            (stamp, by),
+                        );
+                    }
+                    drop(scratch);
+                    if cell.is_none() {
                         let mut land = self.frame_landscape_alpha.get();
                         land.blend += 1;
                         self.frame_landscape_alpha.set(land);
@@ -880,5 +934,39 @@ impl SceneDraw {
         counts_out.1 += pass.counts.material;
         trace_out.extend(pass.trace);
         Ok(())
+    }
+}
+
+/// The cells a drawn body is registered in.
+#[derive(Clone, Copy)]
+enum Shadows<'a> {
+    /// A physics body's shadow set.
+    Body(&'a [dereth_physics::obj::ShadowObj]),
+    /// An animated interior static: its own cell and the other cells it was registered in when
+    /// it was added to it, all resident.
+    Static(CellId, &'a [CellId]),
+}
+
+impl Shadows<'_> {
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Body(s) => s.is_empty(),
+            Self::Static(..) => false,
+        }
+    }
+
+    /// The resident cells.
+    fn resident(&self) -> impl Iterator<Item = CellId> + '_ {
+        let (body, placed) = match *self {
+            Self::Body(s) => (Some(s), None),
+            Self::Static(own, others) => (None, Some((own, others))),
+        };
+        body.into_iter()
+            .flat_map(|s| s.iter().filter(|s| s.cell_present).map(|s| s.cell_id))
+            .chain(
+                placed
+                    .into_iter()
+                    .flat_map(|(own, others)| std::iter::once(own).chain(others.iter().copied())),
+            )
     }
 }

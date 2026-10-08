@@ -115,6 +115,7 @@ fn check(surface: DataId, untextured: bool) {
         statics: vec![],
         statics_blended: vec![],
         degrade: vec![],
+        objects: Box::default(),
         burned_count: None,
     };
     gpu.begin_frame().unwrap();

@@ -346,6 +346,48 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.interior.a-room-static-across-an-outdoor-portal-is-drawn-from-outdoors",
+        says: "A piece of furniture in a building's room that reaches out through the room's \
+               door is also one of the land cell's objects outside: a viewer outdoors sees it \
+               drawn by that land cell when the building is drawn below full detail and none \
+               of its rooms is, while the rest of the room's furniture is not drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ROOM-STATIC-OUTDOOR-CELLS"),
+        station: "dereth-client::gpu::rendering::room_statics::a_room_piece_across_the_halls_door_is_drawn_by_the_land_cell_outside_at_any_shell_level",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.interior.a-room-static-is-drawn-by-every-room-it-reaches",
+        says: "A piece of furniture that reaches from its own room into another is drawn by \
+               either room: the cellar stairs of a Holtburg house, which reach up into the rooms \
+               above, are seen through the front door although the cellar itself is not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ROOM-STATIC-GUEST-CELLS"),
+        station: "dereth-client::gpu::rendering::room_statics::the_cellar_stairs_are_drawn_by_the_rooms_above_when_the_cellar_is_not_reached",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.interior.a-room-static-is-drawn-once-a-frame",
+        says: "Each piece of a room's furniture is drawn at most once a frame, whichever of the \
+               cells it is placed in draws it first: a Holtburg room seen through two of its \
+               building's openings draws each of its pieces once, not once per opening.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ROOM-STATIC-ONCE"),
+        station: "dereth-client::gpu::rendering::room_statics::a_room_reached_through_two_openings_submits_each_piece_once",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.interior.a-room-static-is-registered-in-every-cell-it-reaches",
+        says: "A room's furniture is placed in every cell its pieces' boxes reach through the \
+               room's doorways: of Holtburg's 405 pieces, 34 reach another cell, two of them a \
+               land cell outdoors, and a piece without a collision mesh is placed by its boxes, \
+               not by the sphere a moving object would use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ROOM-STATIC-CELLS"),
+        station: "dereth-world-data::lib::env_cells::tests::holtburgs_room_statics_are_registered_in_the_rooms_and_land_cells_their_boxes_reach",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.interior.a-shells-openings-follow-its-detail-level",
         says: "A building's doors and windows are read from each level of detail its shell is \
                drawn at, and only the full-detail shell of every Holtburg building has any: the \
@@ -385,6 +427,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-P170D-INTERIOR"),
         station: "dereth-client::gpu::rendering::interior_cell_views::a_cell_reached_through_a_doorway_has_a_view_smaller_than_the_screen",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.interior.room-statics-no-view-of-their-room-sees-are-not-drawn",
+        says: "The furniture of a room seen through a doorway is drawn piece by piece, and a \
+               piece no view of the room sees is left out: from 33 m outside a Holtburg house's \
+               front door some of the front room's pieces are not drawn, and the frame is the \
+               same pixel for pixel as with every piece drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-ROOM-STATIC-VIEWCONE"),
+        station: "dereth-client::gpu::rendering::room_statics::pieces_of_a_reached_room_that_none_of_its_views_sees_are_left_out_and_no_pixel_changes",
         tier: Tier::Gpu,
     },
     behaviour! {

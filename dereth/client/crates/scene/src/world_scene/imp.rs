@@ -556,6 +556,8 @@ struct EnvCellDraw {
     /// This cell's degrading static placements. Per cell rather than per block,
     /// because the batches are.
     degrade: Vec<DegradePlacement>,
+    /// The parts of those statics one by one, and the other cells each is registered in.
+    objects: Box<CellObjects>,
     /// The mesh's burned-static-lights marker: `None` until
     /// the static-light burn has written the static light into the
     /// meshes' vertex colours, then the static-light count it was burned at -- the cache key
@@ -563,6 +565,154 @@ struct EnvCellDraw {
     /// "already current"), so a pool that swaps one light for another at the same count does
     /// not re-burn, exactly as retail does not.
     burned_count: Option<usize>,
+}
+
+/// A cell's baked statics as cell drawing offers them: part by part.
+///
+/// The client keeps an object's parts, not its triangles, in every cell the object is
+/// registered in. Each cell's object draw tests every part it holds against that cell's view
+/// polygons with the part's drawing sphere and draws the ones that pass, each once a frame
+/// whichever cell draws it first. A static is registered in its own cell and in every cell its
+/// geometry reaches: a neighbouring room through an inner doorway, or the land cells outside
+/// through an outdoor one. So a part can be drawn by a cell other than its own, including by a
+/// land cell from outdoors whatever the building's shell is drawing, and a part of a reached
+/// cell can be left out because no view of that cell's sees it.
+///
+/// The batches stay merged by surface; [`StaticBatch::part_runs`] says which bytes are which
+/// part's, so a frame that leaves a part out draws the rest of the batch without it.
+#[derive(Debug, Default)]
+struct CellObjects {
+    /// Every baked part of the cell's statics, in bake order; [`PartRun::part`] indexes it.
+    parts: Vec<CellStaticPart>,
+    /// The parts of **other** cells' statics registered in this cell, as `(owning cell id,
+    /// part index there)`.
+    guests: Vec<(u32, u32)>,
+    /// This cell's parts registered in land cells, as `(land cell id, part index)`.
+    outdoors: Vec<(u32, u32)>,
+}
+
+/// One part of a baked cell static, as the per-object test and the once-a-frame rule need it.
+#[derive(Debug)]
+struct CellStaticPart {
+    /// The static's index among the cell's statics, in the dat's order.
+    object: u32,
+    /// The static's setup (or graphics-object) id.
+    setup: DataId,
+    /// The degrade placement among the cell's [`EnvCellDraw::degrade`] whose level is the
+    /// part's, or `None` for a part with no degrade record (always level 0).
+    placement: Option<u32>,
+    /// The part's block-local frame as baked: its draw position unless it billboards.
+    frame: Frame,
+    /// The object scale the cone test scales the sphere by, the largest axis of the part's
+    /// graphics-object scale.
+    scale: f32,
+    /// Each level's drawing sphere, part-local; one entry for a part with no record. `None` is a
+    /// level that draws nothing; a mesh without a sphere has [`NO_DRAWING_SPHERE`]. Shared by
+    /// every part of the same graphics object.
+    spheres: LevelSpheres,
+    /// `(frame stamp, cell id, turn)` of the last draw: which frame drew the part, which cell's
+    /// object draw did, and which of that draw's turns took it ([`SceneDraw::frame_turn`]).
+    /// A part is drawn once a frame, by the one turn that took it; the stamp moves on between
+    /// an indoor frame's outdoor pass and its interior one, so the second may draw it again.
+    drawn: std::cell::Cell<(u32, u32, u32)>,
+}
+
+/// Which bytes of a [`StaticBatch`]'s drawn buffer belong to which part of its cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PartRun {
+    /// The index in the owning cell's [`CellObjects::parts`].
+    part: u32,
+    start: u32,
+    end: u32,
+}
+
+/// [`LevelChunk::part`] for geometry no cell part owns: a landblock's batches.
+const NO_PART: u32 = u32::MAX;
+
+/// Each level's drawing sphere of a graphics object; see [`CellStaticPart::spheres`].
+type LevelSpheres = Arc<[Option<(Vec3, f32)>]>;
+
+/// The sphere of a cell part's mesh that has no drawing sphere: big enough that no view
+/// rejects it, so the part is drawn as it was before the test, the way the object draw lets
+/// such a part through.
+const NO_DRAWING_SPHERE: (Vec3, f32) = (Vec3::new(0.0, 0.0, 0.0), f32::MAX);
+
+/// One part of a resident interior cell's baked statics, as the last draw left it. See
+/// [`WorldScene::cell_static_parts`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellStaticPartProbe {
+    /// The cell the static was placed in.
+    pub cell: CellId,
+    /// The static's index among the cell's statics.
+    pub object: u32,
+    /// The part's index among the cell's baked parts.
+    pub part: u32,
+    /// The static's setup (or graphics-object) id.
+    pub setup: DataId,
+    /// The other cells the static is registered in, interior and land.
+    pub registered: Vec<CellId>,
+    /// The part's drawing sphere at its level this frame, in the renderer's space, or `None`
+    /// for a level that draws nothing.
+    pub sphere: Option<(Vec3, f32)>,
+    /// The cell whose object draw drew the part on the last draw, or `None` if no cell did.
+    pub drawn_by: Option<CellId>,
+}
+
+/// What the per-part cell-object draw did on one frame. See [`WorldScene::drawn_cell_statics`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CellStaticDrawStats {
+    /// Parts offered to a cell's object draw that had not been drawn yet this frame.
+    pub offered: u32,
+    /// Of those, the ones every view of the offering cell rejected.
+    pub outside: u32,
+    /// The ones left out for it: `outside` with [`SceneConfig::object_viewcone`] on, 0 off.
+    pub culled: u32,
+    /// Parts drawn by their own cell.
+    pub drawn_home: u32,
+    /// Parts drawn by another interior cell they are registered in.
+    pub drawn_guest: u32,
+    /// Parts drawn by a land cell they are registered in.
+    pub drawn_outdoors: u32,
+    /// Batches submitted whole, with every one of their parts drawn by the submitting cell.
+    pub batches_whole: u32,
+    /// Batches submitted with some of their parts left out.
+    pub batches_filtered: u32,
+    /// Turns given to a building's room already reached through another of its openings this
+    /// frame: each such turn offers again only what the earlier turns left out.
+    pub cells_reached_again: u32,
+}
+
+/// Which submission of a cell's static batch a [`CellStaticRunDraw`] was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CellRunPass {
+    /// Drawn where the cell's object draw reached it.
+    Direct,
+    /// The "Multiple Pass Alpha" second draw of a clip-mapped batch.
+    MultiPass,
+    /// Queued on the alpha list and drawn when it was flushed.
+    AlphaList,
+}
+
+/// One part's run of a cell's static batch as the last draw submitted it. A run is one
+/// part's bytes in one batch; a part with several surfaces has a run in each of its batches.
+/// See [`WorldScene::drawn_cell_static_runs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CellStaticRunDraw {
+    /// Which of the frame's passes submitted it: 0 for the first, 1 for an indoor frame's
+    /// interior pass after its outdoor one.
+    pub pass_of_frame: u32,
+    /// The cell whose static the part is.
+    pub cell: CellId,
+    /// Whether the batch is in the cell's blended list rather than its opaque one.
+    pub blended_list: bool,
+    /// The batch's index in that list.
+    pub batch: u32,
+    /// The part's index among the cell's baked parts.
+    pub part: u32,
+    /// Which submission of the batch it was.
+    pub pass: CellRunPass,
+    /// The cell whose object draw drew it.
+    pub by: CellId,
 }
 
 /// One light-object entry in a resident interior cell's light list -- what
@@ -790,6 +940,10 @@ struct StaticBatch {
     /// Whether this batch was drawn from another era's look, whose surface cache holds its
     /// picture's link ([`LandContext::objects`]); the world's cache holds it otherwise.
     from_look: bool,
+    /// Which bytes of the drawn buffer ([`drawn_vertices`]) are which part of the owning
+    /// cell's statics, in buffer order. Empty for a landblock's batches, whose objects are
+    /// drawn whole.
+    part_runs: Vec<PartRun>,
 }
 
 /// One run of vertices in a [`StaticBatch`], and the degrade level it belongs to.
@@ -803,6 +957,8 @@ struct LevelChunk {
     level: u32,
     start: u32,
     end: u32,
+    /// The cell part the run belongs to, or [`NO_PART`].
+    part: u32,
 }
 
 /// [`LevelChunk::placement`] for geometry that never degrades.
@@ -1035,6 +1191,25 @@ pub struct SceneDraw {
     frame_blend_order: std::cell::RefCell<Vec<(AlphaDraw, f32)>>,
     /// What the per-object frustum test did on the last [`WorldScene::draw`].
     frame_object_cone: std::cell::Cell<ObjectConeStats>,
+    /// The device's frame stamp as cell drawing reads it: a part of a cell static drawn with
+    /// this stamp is not drawn again until it moves on, which it does at the start of each
+    /// frame and between an indoor frame's outdoor pass and its interior one. See
+    /// [`CellStaticPart::drawn`].
+    frame_stamp: std::cell::Cell<u32>,
+    /// [`Self::frame_stamp`] as the last draw began, so a probe can tell the parts that draw drew.
+    frame_stamp_first: std::cell::Cell<u32>,
+    /// The number of the last turn a cell's object draw began: one per offer of a cell's parts,
+    /// so a cell given two turns in one frame (a room reached through two of a building's
+    /// openings) draws at each only the parts that turn took. It only counts up.
+    frame_turn: std::cell::Cell<u32>,
+    /// Same bracket: every part run of a cell's static batches the last [`Self::draw`]
+    /// submitted, in submission order. See [`CellStaticRunDraw`].
+    frame_cell_runs: std::cell::RefCell<Vec<CellStaticRunDraw>>,
+    /// What the per-part cell-object draw did on the last [`WorldScene::draw`].
+    frame_cell_statics: std::cell::Cell<CellStaticDrawStats>,
+    /// The bytes of a cell batch whose parts a cell's object draw draws only some of,
+    /// gathered for the one submission. Reused from draw to draw.
+    static_scratch: std::cell::RefCell<Vec<u8>>,
     /// Same bracket: one entry per subset of every part the last
     /// [`Self::draw`] submitted, in submission order. See [`PartSubsetDraw`].
     ///
@@ -2288,6 +2463,13 @@ struct LandContext {
     /// reachable from a `LandSource` behind an `Arc` and this one has to be reachable from the
     /// scene; they read the same records and share nothing else.
     cells: dereth_world_data::env_cells::EnvCellLoader,
+    /// The interior statics' collision halves, by setup id, memoised for the session: the
+    /// geometry that decides which cells each static is registered in, and so which cells draw
+    /// it. `None` is cached too.
+    // ORDER-OK: a decode memo, only ever looked up.
+    static_geometry: HashMap<DataId, Option<Arc<dereth_physics::SetupGeometry>>>,
+    /// The cell BSPs that search reads, by cell structure, memoised for the session.
+    cell_bsps: dereth_world_data::env_cells::CellBspMemo,
 }
 
 /// The world's objects drawn with another era's look (`[Render] Objects`).
@@ -2442,6 +2624,10 @@ pub(crate) struct BakeCache {
     /// The drawing sphere per mesh id, the cone's half of the same lookup; see
     /// [`Self::drawing_sphere`].
     drawing_spheres: HashMap<DataId, Option<(Vec3, f32)>>,
+    /// Every level's drawing sphere of a part's graphics object, with its degrade record or
+    /// without one; see [`CellStaticPart::spheres`].
+    // ORDER-OK: a decode memo, only ever looked up.
+    level_spheres: HashMap<(DataId, bool), LevelSpheres>,
     /// Parts refused by that guard, summed over every bake this cache served.
     /// **Asserted on** rather than merely printed: an object silently swapped for nothing
     /// looks exactly like an object that was never there.
@@ -2820,6 +3006,11 @@ struct ObjectBaker<'a> {
     /// How many objects this bake has placed; the current one's index is
     /// [`BatchKey::instance`] for its blending surfaces.
     instances: u32,
+    /// A cell's bake keeps its parts one by one ([`CellObjects::parts`]); `None` for a
+    /// landblock's, whose objects are drawn whole.
+    parts: Option<Vec<CellStaticPart>>,
+    /// The index among the cell's statics of the object being placed.
+    object: u32,
 }
 
 /// One entry of the decoded-surface memo: the surface record, the two polygon flags it
@@ -2866,7 +3057,17 @@ impl<'a> ObjectBaker<'a> {
             defer: None,
             from_look: false,
             instances: 0,
+            parts: None,
+            object: 0,
         }
+    }
+
+    /// Place one of a cell's statics, keeping its parts one by one. `object` is its index
+    /// among the cell's statics.
+    fn add_cell_static(&mut self, obj_id: DataId, frame: &Frame, object: u32) {
+        self.parts.get_or_insert_with(Vec::new);
+        self.object = object;
+        self.add_object_kind(obj_id, frame, 1.0, false);
     }
 
     /// One physics body at a world frame: compose each part's frame, scale its mesh, and append
@@ -2875,13 +3076,14 @@ impl<'a> ObjectBaker<'a> {
     /// Scaled frame composition places a part
     /// ([`dereth_world_render::objects::parts::combine_scaled`]); the mesh itself is scaled
     /// separately through `gfxobj_scale`, and conflating the two makes parts drift apart.
+    #[cfg(test)]
     fn add_object(&mut self, obj_id: DataId, frame: &Frame, scale: f32) {
         self.add_object_kind(obj_id, frame, scale, false);
     }
 
-    /// [`Self::add_object`] with the building-part flag, returning the degrade placement of
-    /// the object's **first** part when that part has one: a building's shell, whose level
-    /// the building's openings follow. The index is this baker's own, before
+    /// Place one object at a world frame with the building-part flag, returning the degrade
+    /// placement of the object's **first** part when that part has one: a building's shell,
+    /// whose level the building's openings follow. The index is this baker's own, before
     /// [`Self::finish`].
     fn add_object_kind(
         &mut self,
@@ -2927,13 +3129,61 @@ impl<'a> ObjectBaker<'a> {
             } else {
                 None
             };
+            // A cell's part, kept for the per-object test: each level's drawing sphere, which
+            // is what the cone test reads at the level the part draws.
+            let cell_part = if self.parts.is_some() {
+                let key = (part.gfxobj, record.is_some());
+                let spheres = if let Some(s) = self.cache.level_spheres.get(&key) {
+                    Arc::clone(s)
+                } else {
+                    let s: LevelSpheres = match &record {
+                        Some(info) => info
+                            .degrades
+                            .iter()
+                            .map(|e| {
+                                if e.gfxobj_id.0 == 0 {
+                                    None
+                                } else {
+                                    Some(
+                                        self.cache
+                                            .drawing_sphere(store, e.gfxobj_id)
+                                            .unwrap_or(NO_DRAWING_SPHERE),
+                                    )
+                                }
+                            })
+                            .collect(),
+                        None => Arc::new([Some(
+                            self.cache
+                                .drawing_sphere(store, part.gfxobj)
+                                .unwrap_or(NO_DRAWING_SPHERE),
+                        )]),
+                    };
+                    self.cache.level_spheres.insert(key, Arc::clone(&s));
+                    s
+                };
+                let parts = self.parts.get_or_insert_with(Vec::new);
+                // LINT-OK: a part index bounded by the cell's part count. Not a float.
+                #[allow(clippy::cast_possible_truncation)]
+                let index = parts.len() as u32;
+                parts.push(CellStaticPart {
+                    object: self.object,
+                    setup: obj_id,
+                    placement: None,
+                    frame: world,
+                    scale: dereth_world_render::cells::cull::object_scale(mesh_scale),
+                    spheres,
+                    drawn: std::cell::Cell::new((0, 0, 0)),
+                });
+                index
+            } else {
+                NO_PART
+            };
             let Some(info) = record else {
                 self.append_mesh(
                     part.gfxobj,
                     &world,
                     mesh_scale,
-                    NO_PLACEMENT,
-                    0,
+                    (NO_PLACEMENT, 0, cell_part),
                     false,
                     building_pass,
                 );
@@ -2959,6 +3209,13 @@ impl<'a> ObjectBaker<'a> {
             let placement = self.placements.len() as u32;
             if index == 0 {
                 first_placement = Some(placement);
+            }
+            if let Some(p) = self
+                .parts
+                .as_mut()
+                .and_then(|p| p.get_mut(cell_part as usize))
+            {
+                p.placement = Some(placement);
             }
             // `get_degrade` returns a `degrade_mode` beside the level, and
             // draw-frame calculation turns `draw_pos.frame` toward the
@@ -3001,8 +3258,7 @@ impl<'a> ObjectBaker<'a> {
                     e.gfxobj_id,
                     &world,
                     mesh_scale,
-                    placement,
-                    level,
+                    (placement, level, cell_part),
                     billboards,
                     building_pass,
                 );
@@ -3011,20 +3267,19 @@ impl<'a> ObjectBaker<'a> {
         first_placement
     }
 
-    /// One graphics object's triangles into the group buffers, tagged with the placement and
-    /// level they belong to. Split out of [`Self::add_object`].
+    /// One graphics object's triangles into the group buffers, tagged with the placement,
+    /// level and cell part they belong to (`owner`). Split out of [`Self::add_object_kind`].
     // The final flag carries building drawing's owner through the existing per-level bake.
-    #[allow(clippy::too_many_arguments)]
     fn append_mesh(
         &mut self,
         gfxobj: DataId,
         world: &Frame,
         scale: Vec3,
-        placement: u32,
-        level: u32,
+        owner: (u32, u32, u32),
         local: bool,
         building_pass: bool,
     ) {
+        let (placement, level, part) = owner;
         let store = self.store;
         let groups = self
             .cache
@@ -3113,6 +3368,7 @@ impl<'a> ObjectBaker<'a> {
                     level,
                     start,
                     end,
+                    part,
                 });
             }
         }
@@ -3136,11 +3392,16 @@ impl<'a> ObjectBaker<'a> {
             }
             // A batch no degrade record governs keeps its chunk list empty and is
             // drawn whole, which is what makes the `degrade_levels` control byte-exact.
-            let chunks = if chunks.iter().any(|c| c.placement != NO_PLACEMENT) {
-                chunks
-            } else {
+            let degrades = chunks.iter().any(|c| c.placement != NO_PLACEMENT);
+            // A cell's batch says which of its bytes are which part's. A degrading batch's
+            // drawn buffer is assembled, and so are its runs ([`assemble_batches`]); the rest
+            // are drawn as baked, and the runs are the chunks'.
+            let part_runs = if degrades {
                 Vec::new()
+            } else {
+                part_runs_of(chunks.iter().map(|c| (c.part, c.start, c.end)))
             };
+            let chunks = if degrades { chunks } else { Vec::new() };
             let honour = self.cache.surface_translucency;
             let resolved = match self.defer.as_deref_mut() {
                 Some(w) => match self.cache.resolve_with(
@@ -3189,6 +3450,7 @@ impl<'a> ObjectBaker<'a> {
                 // Filled by the first `assemble_batches`; a batch with no chunks never uses it.
                 active: Vec::new(),
                 from_look: self.from_look,
+                part_runs,
             };
             if batch.key.alpha_blend {
                 blended.push(batch);
@@ -3198,6 +3460,31 @@ impl<'a> ObjectBaker<'a> {
         }
         Ok((opaque, blended, self.placements))
     }
+
+    /// [`Self::finish`], and the cell parts the bake kept.
+    fn finish_cell(
+        mut self,
+        gpu: &mut Gpu,
+    ) -> Result<(BakedGroups, Vec<CellStaticPart>), RenderError> {
+        let parts = self.parts.take().unwrap_or_default();
+        Ok((self.finish(gpu)?, parts))
+    }
+}
+
+/// The runs of a buffer whose bytes belong to cell parts, from `(part, start, end)` in buffer
+/// order, adjacent runs of one part merged. Empty when no run belongs to a cell part.
+fn part_runs_of(runs: impl Iterator<Item = (u32, u32, u32)>) -> Vec<PartRun> {
+    let mut out: Vec<PartRun> = Vec::new();
+    for (part, start, end) in runs {
+        if part == NO_PART {
+            continue;
+        }
+        match out.last_mut() {
+            Some(last) if last.part == part && last.end == start => last.end = end,
+            _ => out.push(PartRun { part, start, end }),
+        }
+    }
+    out
 }
 
 /// What one [`ObjectBaker`] produced: the opaque batches, the blending ones, and the
@@ -3312,6 +3599,12 @@ struct StaticBlendRef {
     batch: usize,
     /// The distance from the viewer to the batch's sphere centre.
     cypt: f32,
+    /// For a cell's batch, `(frame stamp, cell id, turn)`: only the parts that turn of that
+    /// cell's object draw took on that stamp are drawn ([`CellStaticPart::drawn`]).
+    drawn_by: Option<(u32, u32, u32)>,
+    /// Whether the batch was queued by a land cell's object draw, under the sun's light set,
+    /// rather than an interior cell's.
+    sun: bool,
 }
 
 /// One deferred subset, as [`PartPass::queued`] holds it.
@@ -3907,6 +4200,24 @@ pub trait SceneReads: sealed::SceneHalves {
     fn drawn_object_cone(&self) -> ObjectConeStats {
         let (_, draw) = self.halves();
         draw.drawn_object_cone()
+    }
+
+    /// [`SceneDraw::drawn_cell_statics`] on the scene.
+    fn drawn_cell_statics(&self) -> CellStaticDrawStats {
+        let (_, draw) = self.halves();
+        draw.drawn_cell_statics()
+    }
+
+    /// [`SceneDraw::cell_static_parts`] on the scene.
+    fn cell_static_parts(&self) -> Vec<CellStaticPartProbe> {
+        let (_, draw) = self.halves();
+        draw.cell_static_parts()
+    }
+
+    /// [`SceneDraw::drawn_cell_static_runs`] on the scene.
+    fn drawn_cell_static_runs(&self) -> Vec<CellStaticRunDraw> {
+        let (_, draw) = self.halves();
+        draw.drawn_cell_static_runs()
     }
 
     /// [`SceneDraw::drawn_part_order`] on the scene.

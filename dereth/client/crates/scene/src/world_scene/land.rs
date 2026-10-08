@@ -427,7 +427,7 @@ impl LandContext {
         let (env_cells, cell_statics, cell_lights) = self.bake_env_cells(
             store,
             gpu,
-            block,
+            (block, lb),
             (shell_list, &shells),
             cell_statics,
             part_degrades,
@@ -512,7 +512,7 @@ impl LandContext {
         &mut self,
         store: &RetailDatStore,
         gpu: &mut Gpu,
-        block: u16,
+        (block, lb): (u16, &CellLandblock),
         shells: (&[dereth_assets::world::BuildInfo], &[bool]),
         want_statics: bool,
         part_degrades: bool,
@@ -558,7 +558,28 @@ impl LandContext {
         } else {
             HashSet::new()
         };
+        // The cells each static is registered in, which are the cells that draw it: the
+        // static cross-cell search, over this block's own land and interior cells.
+        let land = dereth_physics::LandblockCollision::build(
+            dereth_primitives::LandblockId(block),
+            Box::new(lb.height),
+            Box::new(lb.terrain),
+            lb.lbi_exists != 0,
+            8,
+            &self.table,
+        )
+        .ok()
+        .map(Arc::new);
+        let source = dereth_world_data::env_cells::BlockCellSource::new(
+            dereth_primitives::LandblockId(block),
+            land,
+            &self.table,
+            (&decoded, shells.0),
+            &mut self.cell_bsps,
+        );
         let mut out = Vec::with_capacity(decoded.len());
+        // Per cell, per static, the other cells the static is registered in.
+        let mut registered: Vec<Vec<Vec<CellId>>> = Vec::with_capacity(decoded.len());
         let mut all_statics: Vec<dereth_world_data::env_cells::CellStatic> = Vec::new();
         let mut all_lights: Vec<CellLightObj> = Vec::new();
         // Per static id, decoded once per block -- a dungeon
@@ -679,6 +700,31 @@ impl LandContext {
             let mut statics_opaque = Vec::new();
             let mut statics_blended = Vec::new();
             let mut cell_degrade = Vec::new();
+            let mut cell_parts: Vec<CellStaticPart> = Vec::new();
+            // Static-object initialization adds each static to its cell, which registers it in
+            // every cell its geometry reaches. The cell itself comes first and is left out.
+            let elsewhere: Vec<Vec<CellId>> = statics
+                .iter()
+                .map(|s| {
+                    let mut stats = dereth_world_data::setup::SetupPartStats::default();
+                    let geometry = self
+                        .static_geometry
+                        .entry(s.id)
+                        .or_insert_with(|| {
+                            dereth_world_data::env_cells::static_geometry(store, s.id, &mut stats)
+                                .map(Arc::new)
+                        })
+                        .clone();
+                    geometry.map_or_else(Vec::new, |g| {
+                        dereth_world_data::env_cells::static_cross_cells(&source, &g, s)
+                            .into_iter()
+                            // A cell that was not resident gets no part to draw.
+                            .filter(|(c, present)| *present && *c != s.cell)
+                            .map(|(c, _)| c)
+                            .collect()
+                    })
+                })
+                .collect();
             // What setup creation starts on each piece: a piece whose setup names a default
             // animation is a live object drawn posed every frame, so it is not baked.
             let defaults: Vec<crate::particles::StaticDefaults> = statics
@@ -694,8 +740,9 @@ impl LandContext {
             };
             let looks: Vec<bool> = statics.iter().map(piece_from_look).collect();
             for side_look in [false, true] {
-                let mine: Vec<&dereth_world_data::env_cells::CellStatic> = statics
+                let mine: Vec<(usize, &dereth_world_data::env_cells::CellStatic)> = statics
                     .iter()
+                    .enumerate()
                     .zip(&defaults)
                     .zip(&looks)
                     .filter(|((_, d), takes)| !d.animation && **takes == side_look)
@@ -722,25 +769,42 @@ impl LandContext {
                 } else {
                     None
                 };
-                for s in mine {
-                    baker.add_object(s.id, &s.frame, 1.0);
+                for (i, s) in mine {
+                    // LINT-OK: an index into one cell's statics. Not a float.
+                    #[allow(clippy::cast_possible_truncation)]
+                    baker.add_cell_static(s.id, &s.frame, i as u32);
                 }
-                let (mut opaque, mut blended, degrade) = baker
-                    .finish(gpu)
+                let ((mut opaque, mut blended, degrade), mut parts) = baker
+                    .finish_cell(gpu)
                     .map_err(|e| WorldError::Render(e.to_string()))?;
                 // LINT-OK: a placement count bounded by the cell's part count. Not a float.
                 #[allow(clippy::cast_possible_truncation)]
                 let offset = cell_degrade.len() as u32;
+                // LINT-OK: as above.
+                #[allow(clippy::cast_possible_truncation)]
+                let part_offset = cell_parts.len() as u32;
                 for b in opaque.iter_mut().chain(blended.iter_mut()) {
                     for c in &mut b.chunks {
                         if c.placement != NO_PLACEMENT {
                             c.placement += offset;
                         }
+                        if c.part != NO_PART {
+                            c.part += part_offset;
+                        }
+                    }
+                    for r in &mut b.part_runs {
+                        r.part += part_offset;
+                    }
+                }
+                for p in &mut parts {
+                    if let Some(i) = p.placement.as_mut() {
+                        *i += offset;
                     }
                 }
                 statics_opaque.append(&mut opaque);
                 statics_blended.append(&mut blended);
                 cell_degrade.extend(degrade);
+                cell_parts.append(&mut parts);
             }
             for (i, s) in statics.iter().enumerate() {
                 if defaults[i].hosted() {
@@ -754,6 +818,13 @@ impl LandContext {
                         scale: 1.0,
                         animated: defaults[i].animation,
                         from_look: looks[i],
+                        // An animated static is drawn from the host, by every cell it is
+                        // registered in.
+                        shadows: if defaults[i].animation {
+                            elsewhere[i].clone()
+                        } else {
+                            Vec::new()
+                        },
                     });
                 }
                 // Light initialization for the static:
@@ -782,8 +853,39 @@ impl LandContext {
                 statics: statics_opaque,
                 statics_blended,
                 degrade: cell_degrade,
+                objects: Box::new(CellObjects {
+                    parts: cell_parts,
+                    ..CellObjects::default()
+                }),
                 burned_count: None,
             });
+            registered.push(elsewhere);
+        }
+        // Every part of a static is held by each cell the static is registered in: another
+        // interior cell takes it as a guest, and a land cell outside through the cell's
+        // own list of what it has outdoors.
+        // ORDER-OK: a lookup by cell id.
+        let index: HashMap<u32, usize> = out.iter().enumerate().map(|(i, c)| (c.id.0, i)).collect();
+        for (home, elsewhere) in registered.iter().enumerate() {
+            let home_id = out[home].id.0;
+            // LINT-OK: an index into one cell's parts. Not a float.
+            #[allow(clippy::cast_possible_truncation)]
+            let parts: Vec<(u32, usize)> = out[home]
+                .objects
+                .parts
+                .iter()
+                .enumerate()
+                .map(|(k, p)| (k as u32, p.object as usize))
+                .collect();
+            for (k, object) in parts {
+                for cell in elsewhere.get(object).into_iter().flatten() {
+                    if dereth_physics::landdefs::is_outdoors(*cell) {
+                        out[home].objects.outdoors.push((cell.0, k));
+                    } else if let Some(&i) = index.get(&cell.0) {
+                        out[i].objects.guests.push((home_id, k));
+                    }
+                }
+            }
         }
         Ok((out, all_statics, all_lights))
     }
@@ -831,6 +933,7 @@ pub(super) fn land_placements(
                 scale: p.scale,
                 animated: defaults.animation,
                 from_look,
+                shadows: Vec::new(),
             });
         }
     }
@@ -860,6 +963,7 @@ pub(super) fn land_placements(
                     scale: 1.0,
                     animated: defaults.animation,
                     from_look,
+                    shadows: Vec::new(),
                 });
             }
         }
@@ -1092,6 +1196,34 @@ impl SceneDraw {
             && self.blocks.values().any(|b| !b.building_views.is_empty())
             && self.blocks.values().any(|b| !b.env_cells.is_empty());
         let interiors = building_pass.then(|| self.traversal_cells(ws));
+        // The parts of interior cells' statics registered in land cells, by land cell: each
+        // land cell's object draw draws its share. Their cells are looked up through the same
+        // placement map building drawing uses.
+        let mut land_statics: BTreeMap<u32, Vec<(u32, u32)>> = BTreeMap::new();
+        for b in self
+            .blocks
+            .values()
+            .filter(|_| self.cfg.cell_static_shadows)
+        {
+            for c in &b.env_cells {
+                for &(land, k) in &c.objects.outdoors {
+                    land_statics.entry(land).or_default().push((c.id.0, k));
+                }
+            }
+        }
+        let crossing =
+            (!land_statics.is_empty() && interiors.is_none()).then(|| self.traversal_cells(ws));
+        let land_placed = interiors
+            .as_ref()
+            .or(crossing.as_ref())
+            .filter(|_| !land_statics.is_empty())
+            .map(|(_, placed)| placed);
+        // A land cell's object draw under an outdoor viewer has no portal list: the screen.
+        let full_view = land_placed.map(|_| {
+            let (vw, vh) = gpu.size();
+            let eye = self.eye_transform(ws, &self.view_params(ws, vw, vh));
+            dereth_world_render::cells::clip::ViewPoly::full_screen(eye.width, eye.height, &eye)
+        });
         // Cell rendering opens by clearing its drawn-cell set, so a cell reached through two
         // buildings' openings is drawn once.
         let mut drawn_cells: std::collections::HashSet<u32> = std::collections::HashSet::new();
@@ -1259,6 +1391,18 @@ impl SceneDraw {
                         placed,
                         &mut drawn_cells,
                     )?;
+                }
+                // Then the land cell's objects: here, the interior statics that reach out into
+                // it. Statics are baked only at full detail, where a draw cell is a land cell.
+                if let (Some(placed), Some(full), 8) = (land_placed, full_view.as_ref(), n) {
+                    #[allow(clippy::cast_sign_loss)]
+                    // LINT-OK: block coordinates are 0..=0xFE. Not a float conversion.
+                    let land = ((slot.block_x as u32) << 24)
+                        | ((slot.block_y as u32) << 16)
+                        | (u32::from(cell) + 1);
+                    if let Some(parts) = land_statics.get(&land) {
+                        self.draw_land_cell_statics(ws, gpu, per_frame, placed, land, parts, full)?;
+                    }
                 }
             }
 

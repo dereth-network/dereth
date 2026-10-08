@@ -164,6 +164,8 @@ impl SceneDraw {
         if let Some(seen) = self.frame_drawn_cells.borrow_mut().as_mut() {
             seen.extend(view.cell_draw_list.iter().map(|c| c.0));
         }
+        // The turn each cell's object loop took, for the blended loop that follows it.
+        let mut turns: Vec<u32> = Vec::new();
         for step in indoor_steps(&view) {
             // Cell drawing runs **two** loops over `cell_draw_list`, each backwards and so each
             // far to near: the first draws every cell's mesh, the second calls
@@ -214,6 +216,9 @@ impl SceneDraw {
                 // it is named rather than skipped silently.
                 IndoorStep::FlushBeforeClear => {
                     self.flush_pending_alpha_list(gpu, per_frame)?;
+                    // The frame stamp moves on here, so a part the outdoor pass drew is drawn
+                    // again by the interior cell that holds it.
+                    self.frame_stamp.set(self.frame_stamp.get().wrapping_add(1));
                 }
                 // The device clear, which affects
                 // the **depth buffer only**. The
@@ -344,12 +349,21 @@ impl SceneDraw {
                         )?;
                     }
                 }
+                // Each cell's object draw runs under the cell's own views: its parts, and the
+                // parts of other cells' statics registered in it, coned against them.
                 IndoorStep::Objects => {
+                    turns.clear();
                     for id in view.draw_order() {
-                        let Some((cell, origin)) = placed.get(&id.0) else {
-                            continue;
-                        };
-                        self.draw_cell_statics(gpu, per_frame, &cell.statics, *origin, None)?;
+                        let views = view.cell_views.get(&id.0).map_or(&[][..], Vec::as_slice);
+                        turns.push(self.draw_cell_turn(
+                            ws,
+                            gpu,
+                            per_frame,
+                            &placed,
+                            id.0,
+                            (views, &full),
+                            None,
+                        )?);
                     }
                 }
                 // Flush the alpha list at depth 0.0: the queue everything that blends was
@@ -357,16 +371,18 @@ impl SceneDraw {
                 // pass's alpha list, which flushes them among the creatures' and particles'
                 // by distance; their alpha-tested ones are drawn here.
                 IndoorStep::FlushAlphaList => {
-                    for id in view.draw_order() {
-                        let Some((cell, origin)) = placed.get(&id.0) else {
-                            continue;
-                        };
-                        self.draw_cell_statics(
+                    // Each cell's blended draw keeps to the turn its object loop took; a cell
+                    // with no turn draws nothing.
+                    for (k, id) in view.draw_order().into_iter().enumerate() {
+                        let views = view.cell_views.get(&id.0).map_or(&[][..], Vec::as_slice);
+                        self.draw_cell_turn(
+                            ws,
                             gpu,
                             per_frame,
-                            &cell.statics_blended,
-                            *origin,
-                            Some((id.0, ws.camera.position)),
+                            &placed,
+                            id.0,
+                            (views, &full),
+                            Some(turns.get(k).copied().unwrap_or(0)),
                         )?;
                     }
                 }
@@ -376,13 +392,17 @@ impl SceneDraw {
         Ok(())
     }
 
-    /// One interior cell's baked objects,
-    /// reduced to what this build has.
+    /// One interior cell's baked objects, as one turn of a cell's object draw draws them: the
+    /// parts of them that turn `(by, turn)` took ([`Self::offer_cell_parts`]), and no others.
+    /// A cell given two turns in one frame draws at each only what that turn took, so no part
+    /// is submitted twice.
     ///
     /// The client draws a cell's objects as shadow parts, sorted by viewer distance and
     /// re-selected for LOD every frame during cell updating. This
-    /// build bakes them into per-surface batches exactly as it does outdoors, so what is
-    /// left here is the block push and the draw.
+    /// build bakes them into per-surface batches exactly as it does outdoors, and a batch
+    /// says which of its bytes are which part's ([`StaticBatch::part_runs`]): a batch every part
+    /// of which `by` took is drawn as baked, one with only some of them is drawn without the
+    /// rest, and one with none is not drawn.
     ///
     /// * **Level selection.** An interior cell has the same multi-level batch a block
     ///   gets — every level of every placement in one vertex pool, a `Vec<LevelChunk>` of
@@ -399,29 +419,95 @@ impl SceneDraw {
     /// depth sort**, which is visible only where two *translucent* objects overlap in one
     /// cell. The parts of everything that *moves* get a viewer-distance sort;
     /// a baked batch has no part to sort.
+    #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
     pub(super) fn draw_cell_statics(
         &self,
         gpu: &mut Gpu,
         per_frame: &PerFrameConstants,
+        (cell, origin): (&EnvCellDraw, (f32, f32)),
+        blended: bool,
+        // The turn of the object draw this is, `(cell, turn)`: the cell is the static's own,
+        // another interior cell its statics are registered in, or a land cell outside.
+        (by, turn): (u32, u32),
+        // `Some(viewer)` queues the batches that belong on the alpha list for the object pass,
+        // at their distance from `viewer`, instead of drawing them here.
+        defer: Option<Vec3>,
+    ) -> Result<(), RenderError> {
+        let batches = if blended {
+            &cell.statics_blended
+        } else {
+            &cell.statics
+        };
+        let stamp = self.frame_stamp.get();
+        let keep = |k: u32| {
+            cell.objects
+                .parts
+                .get(k as usize)
+                .is_some_and(|p| p.drawn.get() == (stamp, by, turn))
+        };
+        self.draw_cell_batches(
+            gpu,
+            per_frame,
+            batches,
+            (cell.id.0, origin, blended),
+            &keep,
+            (by, turn),
+            defer,
+        )
+    }
+
+    /// [`Self::draw_cell_statics`] over a batch list: the batches of cell `cell` (its blended
+    /// list or not), drawn by turn `turn` of the cell `by`'s object draw, keeping the runs of
+    /// the parts `keep` admits.
+    #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
+    pub(super) fn draw_cell_batches(
+        &self,
+        gpu: &mut Gpu,
+        per_frame: &PerFrameConstants,
         batches: &[StaticBatch],
-        origin: (f32, f32),
-        // `Some((cell, viewer))` queues the batches that belong on the alpha list for the
-        // object pass, at their distance from `viewer`, instead of drawing them here.
-        defer: Option<(u32, Vec3)>,
+        (cell, origin, blended_list): (u32, (f32, f32), bool),
+        keep: &dyn Fn(u32) -> bool,
+        (by, turn): (u32, u32),
+        defer: Option<Vec3>,
     ) -> Result<(), RenderError> {
         if batches.is_empty() || !self.cfg.cell_statics {
             return Ok(());
         }
+        let stamp = self.frame_stamp.get();
+        // A land cell draws under the sun's light set, as the rest of the landscape does; an
+        // interior cell's object draw picks each part's own lights.
+        let sun = dereth_physics::landdefs::is_outdoors(CellId(by));
         let world = world_constants(&Frame::new(
             Vec3::new(origin.0, origin.1, 0.0),
             Quat::IDENTITY,
         ));
-        let detail_on = self
-            .current_detail(dereth_world_render::detail::DetailClass::Building)
-            .is_some();
+        let detail = self.current_detail(dereth_world_render::detail::DetailClass::Building);
+        let lights = |b: &StaticBatch| {
+            self.cfg.object_lighting.then(|| {
+                if sun {
+                    self.object_light_set(Vec3::ZERO, 0.0, true)
+                } else {
+                    // The per-cell object draw draws these as parts, each through the inner
+                    // mesh draw's `minimize_object_lighting` with its own drawing sphere; a
+                    // baked batch offers the union sphere of the statics it merged.
+                    let c = Vec3::new(
+                        b.sphere.0.x + origin.0,
+                        b.sphere.0.y + origin.1,
+                        b.sphere.0.z,
+                    );
+                    self.object_light_set(c, b.sphere.1, false)
+                }
+            })
+        };
+        let mut stats = self.frame_cell_statics.get();
+        let mut scratch = self.static_scratch.borrow_mut();
         for (i, b) in batches.iter().enumerate() {
-            if let Some((cell, viewer)) = defer {
-                if static_alpha_entry(b, self.cfg.render.multi_pass_alpha, detail_on) {
+            let kept = kept_vertices(b, keep, &mut scratch);
+            if kept == Kept::Nothing {
+                continue;
+            }
+            if let Some(viewer) = defer {
+                if static_alpha_entry(b, self.cfg.render.multi_pass_alpha, detail.is_some()) {
                     if drawn_vertices(b).is_empty() {
                         continue;
                     }
@@ -434,49 +520,308 @@ impl SceneDraw {
                         source: StaticBlendSource::Cell(cell),
                         batch: i,
                         cypt: c.sub(viewer).mag2().sqrt(),
+                        drawn_by: Some((stamp, by, turn)),
+                        sun,
                     });
                     continue;
                 }
             }
-            // The per-cell object draw draws these as parts, each through
-            // the inner mesh draw's `minimize_object_lighting` with its own drawing
-            // sphere; a baked batch offers the union sphere of the statics it merged.
-            let set = self.cfg.object_lighting.then(|| {
-                let c = Vec3::new(
-                    b.sphere.0.x + origin.0,
-                    b.sphere.0.y + origin.1,
-                    b.sphere.0.z,
-                );
-                self.object_light_set(c, b.sphere.1, false)
-            });
-            submit_static_batch(
+            let set = lights(b);
+            let vertices = match kept {
+                Kept::Some => {
+                    stats.batches_filtered += 1;
+                    &scratch[..]
+                }
+                _ => {
+                    stats.batches_whole += 1;
+                    drawn_vertices(b)
+                }
+            };
+            submit_static_vertices(
                 gpu,
                 per_frame,
                 &world,
                 b,
+                vertices,
                 set.as_deref(),
-                self.current_detail(dereth_world_render::detail::DetailClass::Building),
+                detail,
+                false,
             )?;
+            // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
+            #[allow(clippy::cast_possible_truncation)]
+            self.note_cell_runs(
+                (cell, blended_list, i as u32),
+                b,
+                keep,
+                CellRunPass::Direct,
+                (stamp, by),
+            );
         }
         // "Multiple Pass Alpha": the cell's clip-mapped batches again, blended, with surface
         // setup's force-alpha argument. This path draws every batch in place rather than
         // queueing any, so the second pass follows the cell's own statics directly instead of
         // waiting for a flush.
         if self.cfg.render.multi_pass_alpha {
-            let detail = self.current_detail(dereth_world_render::detail::DetailClass::Building);
-            for b in batches
+            for (i, b) in batches
                 .iter()
-                .filter(|b| static_multipass_member(b, detail.is_some()))
+                .enumerate()
+                .filter(|(_, b)| static_multipass_member(b, detail.is_some()))
             {
-                let set = self.cfg.object_lighting.then(|| {
-                    let c = Vec3::new(
-                        b.sphere.0.x + origin.0,
-                        b.sphere.0.y + origin.1,
-                        b.sphere.0.z,
-                    );
-                    self.object_light_set(c, b.sphere.1, false)
-                });
-                submit_static_batch_with(gpu, per_frame, &world, b, set.as_deref(), detail, true)?;
+                let kept = kept_vertices(b, keep, &mut scratch);
+                if kept == Kept::Nothing {
+                    continue;
+                }
+                let vertices = if kept == Kept::Some {
+                    &scratch[..]
+                } else {
+                    drawn_vertices(b)
+                };
+                let set = lights(b);
+                submit_static_vertices(
+                    gpu,
+                    per_frame,
+                    &world,
+                    b,
+                    vertices,
+                    set.as_deref(),
+                    detail,
+                    true,
+                )?;
+                // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
+                #[allow(clippy::cast_possible_truncation)]
+                self.note_cell_runs(
+                    (cell, blended_list, i as u32),
+                    b,
+                    keep,
+                    CellRunPass::MultiPass,
+                    (stamp, by),
+                );
+            }
+        }
+        self.frame_cell_statics.set(stats);
+        Ok(())
+    }
+
+    /// Records the part runs of one submission of a cell's batch `(cell, blended list, index)`
+    /// for [`Self::drawn_cell_static_runs`]: the runs `keep` admits; a batch that names no
+    /// parts records nothing.
+    pub(super) fn note_cell_runs(
+        &self,
+        (cell, blended_list, batch): (u32, bool, u32),
+        b: &StaticBatch,
+        keep: &dyn Fn(u32) -> bool,
+        pass: CellRunPass,
+        // The frame stamp the part was taken under, and the cell that took it.
+        (stamp, by): (u32, u32),
+    ) {
+        let pass_of_frame = stamp.wrapping_sub(self.frame_stamp_first.get());
+        let mut runs = self.frame_cell_runs.borrow_mut();
+        for r in b.part_runs.iter().filter(|r| keep(r.part)) {
+            runs.push(CellStaticRunDraw {
+                pass_of_frame,
+                cell: CellId(cell),
+                blended_list,
+                batch,
+                part: r.part,
+                pass,
+                by: CellId(by),
+            });
+        }
+    }
+
+    /// A part's drawing sphere where it is drawn this frame, in the renderer's space: the
+    /// sphere of the level it draws, scaled by its object scale and placed at its draw
+    /// position. `None` for a level that draws nothing.
+    pub(super) fn cell_part_sphere(
+        cell: &EnvCellDraw,
+        origin: (f32, f32),
+        p: &CellStaticPart,
+    ) -> Option<(Vec3, f32)> {
+        let (level, frame) = match p.placement.and_then(|i| cell.degrade.get(i as usize)) {
+            Some(d) => (
+                d.level as usize,
+                if d.billboards { d.draw_pos } else { p.frame },
+            ),
+            None => (0, p.frame),
+        };
+        let (centre, radius) = p.spheres.get(level).copied().flatten()?;
+        let at = dereth_physics::math::localtoglobal(
+            &frame,
+            Vec3::new(centre.x * p.scale, centre.y * p.scale, centre.z * p.scale),
+        );
+        Some((
+            Vec3::new(at.x + origin.0, at.y + origin.1, at.z),
+            if radius >= f32::MAX {
+                radius
+            } else {
+                radius * p.scale
+            },
+        ))
+    }
+
+    /// One turn of a cell's object draw: offers it the parts it holds, `(owning cell, part)`,
+    /// and takes the ones it draws: each part not yet drawn this frame whose drawing sphere
+    /// some view of the cell's sees. `views` is the cell's view polygons; none is the whole
+    /// screen, `full` (the unclipped traversal, and a land cell under an outdoor viewer).
+    /// Returns the turn's number, which the draws that follow keep to.
+    ///
+    /// This is the object draw's mesh test: once per view, the part's drawing sphere against
+    /// the view's planes, and a part every view rejects is not drawn
+    /// ([`dereth_world_render::objects::draw::draw_mesh_view_list`]). The frame stamp then keeps
+    /// a part registered in several cells, or offered at two turns of one cell, from being
+    /// drawn twice: the first turn that draws it takes it, and a turn that rejects it leaves it
+    /// for the next.
+    pub(super) fn offer_cell_parts(
+        &self,
+        ws: &WorldState,
+        placed: &PlacedCells<'_>,
+        by: u32,
+        parts: &mut dyn Iterator<Item = (u32, u32)>,
+        views: &[dereth_world_render::cells::clip::ViewPoly],
+        full: &dereth_world_render::cells::clip::ViewPoly,
+    ) -> u32 {
+        use dereth_world_render::cells::cull::viewcone_check;
+        use dereth_world_render::cells::cull::Bounding;
+        let stamp = self.frame_stamp.get();
+        let turn = self.frame_turn.get().wrapping_add(1);
+        self.frame_turn.set(turn);
+        let near = self.viewer_near_plane(ws);
+        let views = if views.is_empty() {
+            std::slice::from_ref(full)
+        } else {
+            views
+        };
+        let mut stats = self.frame_cell_statics.get();
+        for (owner, k) in parts {
+            let Some((cell, origin)) = placed.get(&owner) else {
+                continue;
+            };
+            let Some(p) = cell.objects.parts.get(k as usize) else {
+                continue;
+            };
+            if p.drawn.get().0 == stamp {
+                continue;
+            }
+            // A level that draws nothing has no mesh to offer.
+            let Some((centre, radius)) = Self::cell_part_sphere(cell, *origin, p) else {
+                continue;
+            };
+            stats.offered += 1;
+            // The view-list rule without portals-only: outside when every view rejects it
+            // ([`dereth_world_render::objects::draw::draw_mesh_view_list`]).
+            if views
+                .iter()
+                .all(|v| viewcone_check(centre, radius, &near, &v.planes) == Bounding::Outside)
+            {
+                stats.outside += 1;
+                if self.cfg.object_viewcone {
+                    stats.culled += 1;
+                    continue;
+                }
+            }
+            p.drawn.set((stamp, by, turn));
+            if dereth_physics::landdefs::is_outdoors(CellId(by)) {
+                stats.drawn_outdoors += 1;
+            } else if owner == by {
+                stats.drawn_home += 1;
+            } else {
+                stats.drawn_guest += 1;
+            }
+        }
+        self.frame_cell_statics.set(stats);
+        turn
+    }
+
+    /// One interior cell's turn in an object draw: offer it its own statics' parts and the
+    /// guests registered in it, against its views, then draw what it took — its own batches,
+    /// then each guest's owning cell's batches with only the parts this cell took.
+    ///
+    /// `taken` is `None` for the first of cell drawing's two object loops, which offers and
+    /// returns the turn's number, and that number for the second, the blended loop, which draws
+    /// what the first loop's turn took and offers nothing.
+    #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
+    pub(super) fn draw_cell_turn(
+        &self,
+        ws: &WorldState,
+        gpu: &mut Gpu,
+        per_frame: &PerFrameConstants,
+        placed: &PlacedCells<'_>,
+        id: u32,
+        (views, full): (
+            &[dereth_world_render::cells::clip::ViewPoly],
+            &dereth_world_render::cells::clip::ViewPoly,
+        ),
+        taken: Option<u32>,
+    ) -> Result<u32, RenderError> {
+        let Some(&(cell, origin)) = placed.get(&id) else {
+            return Ok(0);
+        };
+        let blended = taken.is_some();
+        let turn = if let Some(turn) = taken {
+            turn
+        } else {
+            // LINT-OK: a part index bounded by the cell's part count. Not a float.
+            #[allow(clippy::cast_possible_truncation)]
+            let own = (0..cell.objects.parts.len() as u32).map(|k| (id, k));
+            let guests = if self.cfg.cell_static_shadows {
+                &cell.objects.guests[..]
+            } else {
+                &[]
+            };
+            let mut offered = own.chain(guests.iter().copied());
+            self.offer_cell_parts(ws, placed, id, &mut offered, views, full)
+        };
+        let defer = blended.then_some(ws.camera.position);
+        self.draw_cell_statics(gpu, per_frame, (cell, origin), blended, (id, turn), defer)?;
+        let mut owners: Vec<u32> = cell.objects.guests.iter().map(|g| g.0).collect();
+        owners.sort_unstable();
+        owners.dedup();
+        for owner in owners {
+            if let Some(&(other, at)) = placed.get(&owner) {
+                self.draw_cell_statics(gpu, per_frame, (other, at), blended, (id, turn), defer)?;
+            }
+        }
+        Ok(turn)
+    }
+
+    /// The baked statics of interior cells that one **land** cell draws: the parts registered
+    /// in it because their statics cross an outdoor portal of their own room. A land cell's
+    /// object draw comes after its terrain and its building, under the portal list the
+    /// landscape is drawn with — none for an outdoor viewer, the outside view for an indoor
+    /// one — and it draws such a part whatever the building's shell is drawing, so a lamp
+    /// standing across a doorway is drawn from outdoors even when the shell opens nothing.
+    #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
+    pub(super) fn draw_land_cell_statics(
+        &self,
+        ws: &WorldState,
+        gpu: &mut Gpu,
+        per_frame: &PerFrameConstants,
+        placed: &PlacedCells<'_>,
+        land: u32,
+        parts: &[(u32, u32)],
+        full: &dereth_world_render::cells::clip::ViewPoly,
+    ) -> Result<(), RenderError> {
+        let views = if ws.viewer_cell().is_none() {
+            Vec::new()
+        } else {
+            self.frame_outside_views.borrow().clone()
+        };
+        let turn =
+            self.offer_cell_parts(ws, placed, land, &mut parts.iter().copied(), &views, full);
+        let mut owners: Vec<u32> = parts.iter().map(|g| g.0).collect();
+        owners.sort_unstable();
+        owners.dedup();
+        for owner in owners {
+            if let Some(&(cell, origin)) = placed.get(&owner) {
+                self.draw_cell_statics(gpu, per_frame, (cell, origin), false, (land, turn), None)?;
+                self.draw_cell_statics(
+                    gpu,
+                    per_frame,
+                    (cell, origin),
+                    true,
+                    (land, turn),
+                    Some(ws.camera.position),
+                )?;
             }
         }
         Ok(())
@@ -801,15 +1146,16 @@ impl SceneDraw {
     /// no portal node opens nothing: the building gets no stamp, no cell views and no cells,
     /// so neither its rooms, their statics nor the objects standing in them are drawn from
     /// outdoors. Most shells' degraded levels are like that, so a building seen from far
-    /// enough away to degrade shows no interior.
+    /// enough away to degrade shows no interior. A static whose geometry crosses one of its
+    /// room's outdoor portals is registered in the land cells outside as well, and those draw
+    /// it whatever the shell is drawing ([`Self::draw_land_cell_statics`]).
+    ///
+    /// **Each reached cell's objects are tested against that cell's views**, part by part
+    /// ([`Self::draw_cell_turn`]): a part no view of the cell's sees is left out, and is
+    /// offered again by any other cell it is registered in.
     ///
     /// **What is still not performed, named rather than skipped silently.**
     ///
-    /// * The per-object test against the view polygons. The traversal is
-    ///   clipped at **cell** granularity here; the client also culls each object in a cell
-    ///   against every one of that cell's view polygons. A cell that survives the clip
-    ///   therefore draws all of its objects, where the client would drop the ones outside the
-    ///   opening.
     /// * The other-portal clip, the second clip a portal whose two sides do not coincide
     ///   (`exact_match == 0`) gets against the far cell's own polygon.
     #[allow(clippy::too_many_arguments)] // one parameter per input the call takes
@@ -1008,14 +1354,18 @@ impl SceneDraw {
                 // Cell drawing walks the cell draw list backwards: far to near.
                 let mut order: Vec<u32> = Vec::new();
                 for id in view.draw_order() {
-                    // Drawn once: a cell visible through two of a
-                    // building's openings is drawn once, not twice.
-                    if !drawn.insert(id.0) {
-                        continue;
-                    }
                     let Some((cell, origin)) = placed.get(&id.0) else {
                         continue;
                     };
+                    order.push(id.0);
+                    // Drawn once: a cell visible through two of a
+                    // building's openings is drawn once, not twice.
+                    if !drawn.insert(id.0) {
+                        let mut stats = self.frame_cell_statics.get();
+                        stats.cells_reached_again += 1;
+                        self.frame_cell_statics.set(stats);
+                        continue;
+                    }
                     Self::draw_env_cell(
                         gpu,
                         per_frame,
@@ -1024,26 +1374,35 @@ impl SceneDraw {
                         cell_set.as_deref(),
                         env_detail,
                     )?;
-                    order.push(id.0);
                 }
                 // Cell drawing's second loop — the cells' objects, after all their meshes.
-                // This is what puts a table in the room you see through a window.
+                // This is what puts a table in the room you see through a window. Each cell
+                // offers its objects under the views this opening gave it, so a cell already
+                // drawn through another opening offers again what that opening's views left
+                // out. Each turn draws only what it took, so a part is drawn once.
+                let mut turns = Vec::with_capacity(order.len());
                 for id in &order {
-                    let Some((cell, origin)) = placed.get(id) else {
-                        continue;
-                    };
-                    self.draw_cell_statics(gpu, per_frame, &cell.statics, *origin, None)?;
-                }
-                for id in &order {
-                    let Some((cell, origin)) = placed.get(id) else {
-                        continue;
-                    };
-                    self.draw_cell_statics(
+                    let views = view.cell_views.get(id).map_or(&[][..], Vec::as_slice);
+                    turns.push(self.draw_cell_turn(
+                        ws,
                         gpu,
                         per_frame,
-                        &cell.statics_blended,
-                        *origin,
-                        Some((*id, ws.camera.position)),
+                        placed,
+                        *id,
+                        (views, &full),
+                        None,
+                    )?);
+                }
+                for (id, turn) in order.iter().zip(turns) {
+                    let views = view.cell_views.get(id).map_or(&[][..], Vec::as_slice);
+                    self.draw_cell_turn(
+                        ws,
+                        gpu,
+                        per_frame,
+                        placed,
+                        *id,
+                        (views, &full),
+                        Some(turn),
                     )?;
                 }
             }

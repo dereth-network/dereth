@@ -194,6 +194,7 @@ impl Default for BakeCache {
             degrades: HashMap::new(),
             sort_centers: HashMap::new(),
             drawing_spheres: HashMap::new(),
+            level_spheres: HashMap::new(),
             parts_not_drawn: 0,
             palette_range_failures: 0,
             palette_missing: 0,

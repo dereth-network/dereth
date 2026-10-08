@@ -25,6 +25,13 @@ pub struct SceneConfig {
     /// that the furniture is on screen and in the way is a differential against the same
     /// frame and the same walk without it.
     pub cell_statics: bool,
+    /// Draw each of those objects from every cell it is registered in: the neighbouring room
+    /// its geometry reaches through an inner doorway, and the land cells outside when it
+    /// reaches through an outdoor one, whatever the building's shell is drawing. Always on in
+    /// the client; the switch exists for the reason [`Self::building_portals`]' does, because
+    /// the only honest evidence of what those draws add to a frame is a differential against
+    /// the same frame with each object drawn by its own cell alone.
+    pub cell_static_shadows: bool,
     /// Load each setup's **parts** and their graphics-object physics BSPs, so that
     /// object collision tests can traverse every part's own tree. Always on in the
     /// client: the presence of a physics BSP in the parts selects that collision branch.
@@ -317,6 +324,9 @@ pub struct SceneConfig {
     /// submission to measure their sort key, and because `ObjectConeStats::outside` versus
     /// `ObjectConeStats::culled` is still the pair that tells *"the cull did not run"* from
     /// *"the cull rejected nothing"*.
+    ///
+    /// The interior cells' baked objects are tested the same way, part by part against the
+    /// views of the cell drawing them, and this flag gates that skip too.
     pub object_viewcone: bool,
 
     /// Run the outdoor pass for an **indoor** viewer only when portal traversal
@@ -420,6 +430,7 @@ impl Default for SceneConfig {
             landblock: DEFAULT_LANDBLOCK,
             start_cell: None,
             cell_statics: true,
+            cell_static_shadows: true,
             mesh_collision: true,
             part_degrades: true,
             // Quality preset 1 (the presets select radii 3, 5, 8, 11,

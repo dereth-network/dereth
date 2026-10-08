@@ -347,6 +347,11 @@ impl SceneDraw {
         self.frame_outside_view_count.set(None);
         self.frame_cell_views.borrow_mut().clear();
         self.frame_portal_stamps.set((0, 0));
+        // A new frame stamp, so every cell static's part may be drawn again.
+        self.frame_stamp.set(self.frame_stamp.get().wrapping_add(1));
+        self.frame_stamp_first.set(self.frame_stamp.get());
+        self.frame_cell_statics.set(CellStaticDrawStats::default());
+        self.frame_cell_runs.borrow_mut().clear();
         // Same bracket: the landscape's alpha queue and its census.
         // The queue is cleared as well as the census, so a frame that failed part way through
         // cannot leak its unflushed blocks into the next one's flush.
@@ -778,8 +783,9 @@ impl SceneDraw {
         out
     }
 
-    /// The screen-space bounding box of every triangle [`Self::draw_cell_statics`] will issue
-    /// this frame, for the cells the viewer's own portal traversal reaches.
+    /// The screen-space bounding box of every triangle [`Self::draw_cell_statics`] can issue
+    /// this frame, for the cells the viewer's own portal traversal reaches: a superset, because
+    /// the per-part view test can leave some of a cell's pieces out.
     ///
     /// This is the interior sibling of [`Self::building_portal_screen_polygons`] and exists for
     /// the same reason: a differential that says "some pixels changed" proves nothing, and the
