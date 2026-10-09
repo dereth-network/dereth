@@ -1,5 +1,5 @@
 //! The release versions: Empyrean's, the one `version` every `empyrean-*` crate carries, and
-//! Dereth's, the one the client, the launcher and the web client share; the release tags that name them, and the
+//! Dereth's, the one the client, the launcher, the web client and the headless client share; the release tags that name them, and the
 //! edit that moves them.
 
 use std::path::{Path, PathBuf};
@@ -100,12 +100,14 @@ fn manifests_version(ws: &Path, manifests: &[PathBuf], what: &str) -> Result<Str
 /// The prefix of a Dereth release tag: `dereth-v<version>`.
 pub const DERETH_TAG_PREFIX: &str = "dereth-v";
 
-/// The crates that carry Dereth's version: the client and the launcher, released together, and the
-/// web client, the same client in a browser, released under its own tag from the same version.
+/// The crates that carry Dereth's version: the client and the launcher, released together, the
+/// web client, the same client in a browser, released under its own tag from the same version, and
+/// the headless client, which names itself by it.
 pub const DERETH_MANIFESTS: &[&str] = &[
     "dereth/client/Cargo.toml",
     "dereth/launcher/Cargo.toml",
     "dereth/web/Cargo.toml",
+    "dereth/headless/Cargo.toml",
 ];
 
 /// The lock files a Dereth version change touches: the workspace's and the launcher app's own,
@@ -125,7 +127,7 @@ pub fn dereth_version(ws: &Path) -> Result<String, String> {
     manifests_version(
         ws,
         &dereth_manifests(ws),
-        "Dereth crate (the client, the launcher and the web client)",
+        "Dereth crate (the client, the launcher, the web client and the headless client)",
     )
 }
 
@@ -235,7 +237,9 @@ impl Product {
     fn carriers(self) -> &'static str {
         match self {
             Self::Empyrean => "the empyrean-* crates carry",
-            Self::Dereth => "the client, the launcher and the web client carry",
+            Self::Dereth => {
+                "the client, the launcher, the web client and the headless client carry"
+            }
         }
     }
 

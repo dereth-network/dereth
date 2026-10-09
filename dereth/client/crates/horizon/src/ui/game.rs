@@ -314,6 +314,9 @@ pub struct Spell {
 #[derive(Debug, Clone, Default)]
 pub struct GameState {
     // ---- the connection ----
+    /// The running client's version, as its host names it (`0.3.0`): what the pre-game screens
+    /// show.
+    pub client_version: String,
     /// A server link exists.
     pub connected: bool,
     /// Where getting into the world stands before character select can be used: still

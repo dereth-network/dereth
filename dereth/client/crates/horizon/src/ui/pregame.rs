@@ -67,6 +67,16 @@ struct AutoLogin {
 /// The client's name, as character select and its footer show it.
 const PRODUCT_NAME: &str = "Dereth";
 
+/// The version at the foot of the pre-game screens: the running client's, as its host names it.
+/// With the own art the version alone (the mark names the client), else the name and the version.
+fn version_line(own_art: bool, state: &GameState) -> String {
+    if own_art {
+        state.client_version.clone()
+    } else {
+        format!("{PRODUCT_NAME} {}", state.client_version)
+    }
+}
+
 /// A layout's anchor: `(x, y)` in thousandths of the screen, with the widget's `alignment` point
 /// (0-8, top-left to bottom-right) placed there. Returns the widget's top-left.
 #[must_use]
@@ -796,13 +806,7 @@ impl Pregame {
         let small = TextStyle::new(Family::Body, 12.0, 0xFFE0_E0E0)
             .edge(ctx.colours.ui(colours::row::MENU_GLOW));
         let own = p.art.has_piece("window.tl");
-        // With the own art the version alone (the mark names the client), and no connection
-        // line (the world's lamp says it).
-        let version = if own {
-            env!("CARGO_PKG_VERSION").to_owned()
-        } else {
-            format!("{} {}", PRODUCT_NAME, env!("CARGO_PKG_VERSION"))
-        };
+        let version = version_line(own, state);
         if own {
             // Small and plain at the very foot, under the buttons.
             let plain = TextStyle::new(Family::Body, 11.0, 0xFFB8_B4AA);
@@ -1033,4 +1037,22 @@ pub fn dialog_box(
         ctx.hot = true;
     }
     clicked
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental Horizon interface)
+    use super::*;
+
+    /// The version the pre-game screens show is the running client's, as its host names it, and
+    /// not the version of the interface's own library.
+    #[test]
+    fn the_pre_game_version_line_shows_the_running_client_s_version() {
+        let state = GameState {
+            client_version: "9.8.7".into(),
+            ..GameState::default()
+        };
+        assert_eq!(version_line(true, &state), "9.8.7");
+        assert_eq!(version_line(false, &state), "Dereth 9.8.7");
+    }
 }

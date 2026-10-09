@@ -1,13 +1,16 @@
 //! The Horizon interface as the third interface: chosen live in the world, switched to and from the
 //! modern and the classic interface in any order, and refused, with the interface shown staying,
-//! when its art overlay has not been built.
+//! while the host has not got its art.
 //!
 //! Behaviour: none (experimental Horizon interface)
 
 use super::*;
 use crate::{
     app::CoreApp,
-    platform::{host::NullHost, window::HostEvent},
+    platform::{
+        host::{Host, NullHost},
+        window::HostEvent,
+    },
 };
 use dereth_client_contract::options::{
     interface::{Interface, INTERFACE},
@@ -20,72 +23,61 @@ struct Client {
     shell: ClientShell<NullHost>,
 }
 
+/// The client on host `H` at the character list in the modern interface, its settings kept in
+/// `state`.
+fn at_the_character_list<H: Host>(state: &std::path::Path) -> (CoreApp<H>, ClientShell<H>) {
+    let cfg = dereth_client_runtime::config::Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        world: false,
+        width: 800,
+        height: 600,
+        dat_dir: dereth_dat::testing::dat_dir(),
+        preferences_file: state.join("prefs.ini"),
+        ..Default::default()
+    };
+    let mut app = CoreApp::<H>::bring_up_with_store(
+        cfg,
+        None,
+        |_| Ok(dereth_client_runtime::app::Platform::headless(800, 600)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(800, 600))),
+    )
+    .expect("real tables and a device-free presentation");
+    let mut shell = ClientShell::with_window_events(app.window.raw_handle(), Default::default());
+    app.start_shell(&mut shell).expect("real input and UI");
+    for _ in 0..2 {
+        assert!(app.frame(&mut shell));
+    }
+    (app, shell)
+}
+
+/// The client on host `H` at the gameplay screen in the modern interface.
+fn at_the_gameplay_screen<H: Host>(state: &std::path::Path) -> (CoreApp<H>, ClientShell<H>) {
+    let (mut app, mut shell) = at_the_character_list::<H>(state);
+    shell
+        .modern
+        .ui
+        .as_mut()
+        .expect("UI")
+        .queue(dereth_ui::framework::mode::GAME_PLAY);
+    for _ in 0..6 {
+        assert!(app.frame(&mut shell));
+    }
+    (app, shell)
+}
+
 impl Client {
     /// The client at the gameplay screen in the modern interface.
     fn new(state: &std::path::Path) -> Self {
-        let cfg = dereth_client_runtime::config::Config {
-            headless: true,
-            connect: false,
-            sound: false,
-            world: false,
-            width: 800,
-            height: 600,
-            dat_dir: dereth_dat::testing::dat_dir(),
-            preferences_file: state.join("prefs.ini"),
-            ..Default::default()
-        };
-        let mut app = CoreApp::<NullHost>::bring_up_with_store(
-            cfg,
-            None,
-            |_| Ok(dereth_client_runtime::app::Platform::headless(800, 600)),
-            |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(800, 600))),
-        )
-        .expect("real tables and a device-free presentation");
-        let mut shell =
-            ClientShell::with_window_events(app.window.raw_handle(), Default::default());
-        app.start_shell(&mut shell).expect("real input and UI");
-        for _ in 0..2 {
-            assert!(app.frame(&mut shell));
-        }
-        shell
-            .modern
-            .ui
-            .as_mut()
-            .expect("UI")
-            .queue(dereth_ui::framework::mode::GAME_PLAY);
-        for _ in 0..6 {
-            assert!(app.frame(&mut shell));
-        }
+        let (app, shell) = at_the_gameplay_screen::<NullHost>(state);
         Self { app, shell }
     }
 
     /// The client at the character list in the modern interface: no interface has reached the
     /// world, so none has registered the character session's input maps.
     fn before_the_world(state: &std::path::Path) -> Self {
-        let cfg = dereth_client_runtime::config::Config {
-            headless: true,
-            connect: false,
-            sound: false,
-            world: false,
-            width: 800,
-            height: 600,
-            dat_dir: dereth_dat::testing::dat_dir(),
-            preferences_file: state.join("prefs.ini"),
-            ..Default::default()
-        };
-        let mut app = CoreApp::<NullHost>::bring_up_with_store(
-            cfg,
-            None,
-            |_| Ok(dereth_client_runtime::app::Platform::headless(800, 600)),
-            |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(800, 600))),
-        )
-        .expect("real tables and a device-free presentation");
-        let mut shell =
-            ClientShell::with_window_events(app.window.raw_handle(), Default::default());
-        app.start_shell(&mut shell).expect("real input and UI");
-        for _ in 0..2 {
-            assert!(app.frame(&mut shell));
-        }
+        let (app, shell) = at_the_character_list::<NullHost>(state);
         Self { app, shell }
     }
 
@@ -270,6 +262,153 @@ fn the_horizon_choice_comes_up_on_its_own_art_with_nothing_to_build_first() {
         c.frame();
     }
     assert_eq!(c.shown(), Interface::Horizon);
+    c.finish();
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+thread_local! {
+    /// What [`ArtLater`] has of the Horizon art, on this test's thread: nothing yet (loading), the
+    /// art, or why it cannot have it.
+    static HANDED_ART: std::cell::RefCell<
+        Option<Result<std::sync::Arc<dereth_horizon::pieces::Pieces>, String>>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+/// The host with nothing under it, whose Horizon art is loading until the test hands it over, as
+/// a page's is until it has fetched it.
+struct ArtLater;
+
+impl Host for ArtLater {
+    const BUILD_ID: &'static str = NullHost::BUILD_ID;
+    type Clipboard = <NullHost as Host>::Clipboard;
+    fn open_platform(
+        cfg: &dereth_client_runtime::config::Config,
+        events: crate::platform::window::WindowEvents,
+    ) -> Result<dereth_client_runtime::app::Platform, dereth_client_runtime::app::StartupError>
+    {
+        NullHost::open_platform(cfg, events)
+    }
+    fn local_utc_offset_secs(unix_secs: i64) -> i32 {
+        NullHost::local_utc_offset_secs(unix_secs)
+    }
+    fn launch_uri(url: &str) -> i32 {
+        NullHost::launch_uri(url)
+    }
+    fn install_default_output() {}
+    fn clipboard() -> Self::Clipboard {
+        NullHost::clipboard()
+    }
+    fn cursor_images(window: Option<isize>) -> Box<dyn crate::cursor::CursorImages> {
+        NullHost::cursor_images(window)
+    }
+    fn horizon_art() -> crate::platform::host::HorizonArt {
+        use crate::platform::host::HorizonArt;
+        HANDED_ART.with(|art| match art.borrow().clone() {
+            None => HorizonArt::Loading,
+            Some(Ok(pieces)) => HorizonArt::Ready(pieces),
+            Some(Err(why)) => HorizonArt::Unavailable(why),
+        })
+    }
+}
+
+/// How many of the chat lines the interfaces were handed say `text`.
+fn lines_saying(shell: &ClientShell<ArtLater>, text: &str) -> usize {
+    shell
+        .classic
+        .history()
+        .filter(|l| l.body.contains(text))
+        .count()
+}
+
+/// A saved choice of Horizon while its art is loading starts in the modern interface, keeps the
+/// choice and says once that the art is loading; the frame after the art is in, Horizon is shown
+/// with nothing chosen again.
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn a_saved_horizon_choice_waits_in_the_modern_interface_until_its_art_is_in() {
+    use dereth_client_contract::options::interface::HORIZON_ART_LOADING;
+    let state = std::env::temp_dir().join(format!(
+        "dereth-switch-horizon-art-later-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("prefs.ini"), "[UI]\nInterface=Horizon\n").unwrap();
+    let (mut app, mut shell) = at_the_gameplay_screen::<ArtLater>(&state);
+    for _ in 0..5 {
+        assert!(app.frame(&mut shell));
+    }
+    assert_eq!(shell.shown_interface(), Interface::Modern, "it waits");
+    assert_eq!(Interface::chosen(), Interface::Horizon, "the choice stays");
+    assert!(shell.horizon.ui.is_none(), "nothing was brought up");
+    assert_eq!(lines_saying(&shell, HORIZON_ART_LOADING), 1, "said once");
+    // The page has fetched the art.
+    HANDED_ART.with(|art| {
+        *art.borrow_mut() = Some(Ok(std::sync::Arc::new(
+            dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in"),
+        )));
+    });
+    for _ in 0..3 {
+        assert!(app.frame(&mut shell));
+    }
+    assert_eq!(shell.shown_interface(), Interface::Horizon);
+    assert_eq!(Interface::chosen(), Interface::Horizon);
+    assert!(
+        shell
+            .horizon
+            .ui
+            .as_ref()
+            .expect("brought up")
+            .ui
+            .art
+            .has_piece("window.tl"),
+        "on the art the host handed over"
+    );
+    assert_eq!(lines_saying(&shell, HORIZON_ART_LOADING), 1);
+    app.shutdown(&mut shell);
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+/// A choice of Horizon on a host that cannot get its art goes back to the interface shown, and
+/// the chat gives the host's reason.
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn a_horizon_choice_is_refused_with_the_host_s_reason_when_its_art_cannot_be_had() {
+    let why = "The Horizon interface's art did not load: pkg/horizon/fonts.json: HTTP 404";
+    let state = std::env::temp_dir().join(format!(
+        "dereth-switch-horizon-art-failed-{}",
+        std::process::id()
+    ));
+    HANDED_ART.with(|art| *art.borrow_mut() = Some(Err(why.to_owned())));
+    let (mut app, mut shell) = at_the_gameplay_screen::<ArtLater>(&state);
+    store::set_value(INTERFACE, PrefValue::Int(Interface::Horizon.value()));
+    for _ in 0..3 {
+        assert!(app.frame(&mut shell));
+    }
+    assert_eq!(shell.shown_interface(), Interface::Modern, "refused");
+    assert_eq!(
+        Interface::chosen(),
+        Interface::Modern,
+        "the choice goes back"
+    );
+    assert!(shell.horizon.ui.is_none());
+    assert_eq!(lines_saying(&shell, why), 1, "the chat says why");
+    app.shutdown(&mut shell);
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+/// The version the Horizon interface's pre-game screens show is the one the host names the
+/// client by, as `@version` prints it.
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn the_horizon_interface_reads_the_client_s_version_the_host_names() {
+    let state = std::env::temp_dir().join(format!(
+        "dereth-switch-horizon-version-{}",
+        std::process::id()
+    ));
+    let mut c = Client::before_the_world(&state);
+    c.app.interaction.client_build_id = "dereth-client 9.8.7";
+    let read = dereth_horizon::state::snapshot(&c.app.ui_context(), Vec::new());
+    assert_eq!(read.client_version, "9.8.7");
     c.finish();
     let _ = std::fs::remove_dir_all(&state);
 }

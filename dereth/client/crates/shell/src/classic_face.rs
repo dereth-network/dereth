@@ -5,7 +5,7 @@
 //! the frame after the choice changes, in the world or out of it. The classic interface draws from
 //! the early-2005 portal (the world's own on a world of that era, else the older portal attached
 //! beside a later world) and the host's system fonts; the Horizon interface draws from its own art,
-//! which the client carries. An interface that cannot be shown is refused, the one shown stays,
+//! which the host hands over. An interface that cannot be shown is refused, the one shown stays,
 //! and the chat says why.
 //!
 //! A switch keeps the game: the character, the selection, the world and everything the server has
@@ -33,13 +33,17 @@ pub(crate) struct ClassicFace {
     missed: Vec<dereth_client_contract::chat::interface::ChatMessage>,
 }
 
-/// Why the classic interface could not be shown.
+/// Why an interface could not be shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Refusal {
     /// The early-2005 portal is not beside the game's files.
     Files,
     /// The host has no system fonts to draw its text.
     Fonts,
+    /// The host cannot get the Horizon interface's art: why.
+    HorizonArt(String),
+    /// The Horizon interface's art is still loading: the choice waits for it.
+    HorizonArtLoading,
     /// It came up and failed.
     Failed(String),
 }
@@ -51,6 +55,8 @@ impl Refusal {
         match self {
             Self::Files => interface::REQUIRES_CLASSIC_FILES.into(),
             Self::Fonts => interface::REQUIRES_FONTS.into(),
+            Self::HorizonArt(why) => why.clone(),
+            Self::HorizonArtLoading => interface::HORIZON_ART_LOADING.into(),
             Self::Failed(why) => format!("The interface could not start: {why}"),
         }
     }
@@ -121,6 +127,12 @@ impl ClassicFace {
         }
         self.seen = Some(want);
         Some(want)
+    }
+
+    /// The choice is left as it is and followed again on the next frame: a choice waiting for
+    /// what its interface needs.
+    pub fn wait(&mut self) {
+        self.seen = None;
     }
 
     /// The choice is put back to `shown`, the interface still shown, as a refused choice is.

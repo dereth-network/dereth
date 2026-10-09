@@ -1571,7 +1571,8 @@ impl<H: Host> ClientShell<H> {
 
     /// Follow the interface choice: bring the chosen interface up if it is not up yet, put the
     /// one shown away and show the chosen one; a choice that cannot be shown goes back to the one
-    /// shown, and the chat says why.
+    /// shown, and the chat says why. A choice of Horizon while its art is still loading waits:
+    /// the one shown stays, the chat says so once, and the choice is followed once the art is in.
     fn follow_interface(&mut self, cx: &mut Cx<'_, H>) {
         use dereth_client_contract::options::interface::Interface;
         let shown = self.shown_interface();
@@ -1584,9 +1585,23 @@ impl<H: Host> ClientShell<H> {
             return;
         };
         if want == shown {
+            self.horizon.told_loading = false;
             return;
         }
         if let Err(refusal) = self.bring_up(cx, want) {
+            if refusal == crate::classic_face::Refusal::HorizonArtLoading {
+                if !self.horizon.told_loading {
+                    tracing::info!("{}", refusal.notice());
+                    cx.add_scroll_line(
+                        &refusal.notice(),
+                        dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                    );
+                    self.horizon.told_loading = true;
+                }
+                self.classic.wait();
+                return;
+            }
+            self.horizon.told_loading = false;
             tracing::warn!("{}", refusal.notice());
             cx.add_scroll_line(
                 &refusal.notice(),
@@ -1595,6 +1610,7 @@ impl<H: Host> ClientShell<H> {
             self.classic.refused(shown);
             return;
         }
+        self.horizon.told_loading = false;
         match shown {
             Interface::Modern => self.leave_modern(cx),
             Interface::Classic => self.leave_classic(cx),

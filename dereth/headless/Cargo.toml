@@ -1,7 +1,9 @@
 [package]
 name = "dereth-headless"
 description = "The Dereth client with no window, no device and no UI, driven by a text script of actions."
-version.workspace = true
+# Dereth's version: the client's and the launcher's, which `cargo xtask release dereth` moves. The
+# client names itself by it when the game asks.
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

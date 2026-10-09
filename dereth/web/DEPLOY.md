@@ -1,8 +1,9 @@
 # Deploying the web client
 
-The web client is static files: the pages and scripts in `www/`, and the WebAssembly module and its
-bindings in `www/pkg/`. Any static host serves it (Cloudflare Pages, GitHub Pages, nginx, an object
-store). It has no server side of its own, and it never hosts a player's data files.
+The web client is static files: the pages and scripts in `www/`, the WebAssembly module and its
+bindings in `www/pkg/`, and the Horizon interface's art beside the module in `www/pkg/horizon/`.
+Any static host serves it (Cloudflare Pages, GitHub Pages, nginx, an object store). It has no
+server side of its own, and it never hosts a player's data files.
 
 ## Build
 
@@ -10,15 +11,22 @@ store). It has no server side of its own, and it never hosts a player's data fil
 cargo xtask web --build-only
 ```
 
-This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile and writes
-the bindings into `www/pkg/`. It needs the target installed once
-(`rustup target add wasm32-unknown-unknown`). Publish the whole `www/` folder, `pkg/` included:
+This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile, writes
+the bindings into `www/pkg/`, and copies the Horizon interface's art into `www/pkg/horizon/`. It
+needs the target installed once (`rustup target add wasm32-unknown-unknown`). Publish the whole
+`www/` folder, `pkg/` included:
 
 | File | Bytes | Gzipped |
 |---|---:|---:|
-| `pkg/dereth_web_bg.wasm` | about 12.6 MB | about 4.4 MB |
-| `pkg/dereth_web.js` | about 135 kB | about 22 kB |
-| `index.html`, `play.js`, `front.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 76 kB | about 22 kB |
+| `pkg/dereth_web_bg.wasm` | about 16.8 MB | about 6.2 MB |
+| `pkg/dereth_web.js` | about 150 kB | about 25 kB |
+| `pkg/horizon/atlas-1-0.png`, `atlas-2-0.png`, `atlas-3-0.png` | 1.2, 4.4 and 9.0 MB | the same (PNG is compressed) |
+| `pkg/horizon/font-0.png` to `font-5.png` | about 3.4 MB in all | the same |
+| `pkg/horizon/fonts.json`, `pkg/horizon/manifest.json` | about 2.4 MB and 39 kB | about 0.35 MB |
+| `index.html`, `play.js`, `front.js`, `play-worker.js`, `datfiles.js`, `audio-worklet.js` | about 77 kB | about 23 kB |
+
+No file is larger than 25 MiB, the most Cloudflare Pages serves as one file; the packaging refuses
+a bundle with a larger one.
 
 The build names the standard library's and the registry's sources `/rustc` and `/cargo` in the
 module, so it carries no path from the building machine.
@@ -104,8 +112,9 @@ curl -s "https://api.github.com/repos/dereth-network/dereth/releases?per_page=10
 
 A release never carries game data: the bundle is built from an allowlist, and the packaging
 refuses any file named like or holding the game's data files, a database or a world, any file
-outside the list, any oversized file, and a module or script that names the building machine's
-folders. Players' data files stay in their own browsers.
+outside the list, any file over 25 MiB, and a module or script that names the building machine's
+folders. The Horizon interface's art in `pkg/horizon/` is the client's own, not the game's.
+Players' data files stay in their own browsers.
 
 ### Making a release
 
@@ -135,8 +144,12 @@ broken web build is seen before a release.
 - **Compression.** Serve `.wasm` compressed (gzip or Brotli); it shrinks to about a third.
 - **No cross-origin isolation.** The client uses no `SharedArrayBuffer`, so it needs no
   `Cross-Origin-Opener-Policy` or `Cross-Origin-Embedder-Policy`.
-- **Caching.** The files in `pkg/` keep their names from build to build, so give them a short cache
-  (`Cache-Control: no-cache` revalidates each load), or a new deploy may meet an old module.
+- **Caching.** The files in `pkg/` (`pkg/horizon/` among them) keep their names from build to
+  build, so give them a short cache (`Cache-Control: no-cache` revalidates each load), or a new
+  deploy may meet an old module or old art.
+- **Missing files.** A host that answers a missing file with a page of its own (a single-page
+  application's fallback) is fine: the worker checks each of the Horizon interface's files is what
+  its name says before it takes it.
 - **HTTPS.** Serve the page over `https://`. Browsers give WebGPU, the origin-private file system
   and the clipboard only to a secure page (`https://`, or `http://` on `127.0.0.1`/`localhost`).
 - **Content Security Policy,** if you set one, must allow:
@@ -237,6 +250,17 @@ files:
 
 The client tells the server it keeps an overlay only when it does, so a server that patches its
 own way patches a page that keeps none as it would a retail client.
+
+## The Horizon interface
+
+The player chooses it as on the desktop (the Interface option, or `[UI] Interface=Horizon`). The
+module does not carry its art: the worker fetches the files in `pkg/horizon/` from beside the
+module (same origin, so the policy's `connect-src 'self'` covers it) from when the page opens, and
+the client does not wait for them. Until they are in, a choice of Horizon waits and the chat says
+the art is loading; a player whose saved interface is Horizon starts in the modern one and is
+switched to Horizon once the art is in. If the files could not be fetched, the page's log says
+what failed and choosing Horizon is refused with the chat saying why. The modern and classic
+interfaces work as ever throughout.
 
 ## The classic interface
 

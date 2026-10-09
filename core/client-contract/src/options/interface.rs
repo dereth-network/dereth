@@ -8,7 +8,10 @@
 //! [`crate::view::UiRequest::SetPreference`], as it does a retail option. The client switches live.
 //! The classic interface draws from the early-2005 portal: without those files it is refused, the
 //! current interface stays, and the client says why ([`REQUIRES_CLASSIC_FILES`]). Horizon draws
-//! from its own art, which the client carries, and is always there to show.
+//! from its own art, which the host hands the client: while the art is still loading the choice
+//! waits, the current interface stays and the client says so ([`HORIZON_ART_LOADING`]), and the
+//! choice is followed once the art is in; on a host that cannot get it, Horizon is refused as the
+//! classic interface is ([`REQUIRES_HORIZON_ART`]).
 
 use crate::view::PrefValue;
 
@@ -23,6 +26,13 @@ pub const REQUIRES_CLASSIC_FILES: &str = "The classic interface requires classic
 
 /// What it says when the host cannot draw the classic interface's text.
 pub const REQUIRES_FONTS: &str = "The classic interface needs the system's fonts";
+
+/// What it says when the host cannot get the Horizon interface's art.
+pub const REQUIRES_HORIZON_ART: &str = "The Horizon interface's art is not available";
+
+/// What it says when Horizon is chosen while its art is still loading.
+pub const HORIZON_ART_LOADING: &str =
+    "The Horizon interface's art is still loading: it is shown once it has loaded";
 
 /// The interfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

@@ -24,6 +24,10 @@ use dereth_client_sdk::runtime::present::{NullPresentation, Presentation};
 use dereth_client_sdk::runtime::scene::SceneConfig;
 use dereth_client_sdk::runtime::sim_present::SimPresentation;
 
+/// What the client names itself when the game asks (`@version`): this program and Dereth's
+/// version, which it carries.
+pub const BUILD_ID: &str = concat!("dereth-headless ", env!("CARGO_PKG_VERSION"));
+
 // `peer(pair)` is the address scheme every capture-replaying harness uses; it lives with the reader.
 use crate::capture::{self, peer, CaptureError, Datagram};
 use crate::script::{action_name, Command, Direction, Dump};
@@ -191,6 +195,7 @@ impl<'a> Run<'a> {
             },
         )
         .map_err(|e| RunError::Startup(e.to_string()))?;
+        app.interaction.client_build_id = BUILD_ID;
         let mut shell = NullShell;
         // Initialization step 10 is `App::bring_up`; starting input and the sound manager is
         // `App::start_shell`. `NullShell` has no device input to start (this client acts by
@@ -491,13 +496,28 @@ impl<'a> Run<'a> {
         self.line(format!("use 0x{:08X}", id.0))
     }
 
+    /// `say <text>`: the line, then each line the chat took in that frame (the client's own
+    /// answers among them), as `chat <line>`.
     fn say(&mut self, text: &str) -> Result<(), RunError> {
         self.app.submit_requests(vec![UiRequest::ChatLine {
             text: text.to_owned(),
             window: 0,
         }]);
         self.frame()?;
-        self.line(format!("say {text}"))
+        self.line(format!("say {text}"))?;
+        let answers: Vec<String> = self
+            .app
+            .objects()
+            .world
+            .scroll
+            .pending()
+            .iter()
+            .flat_map(|l| l.body.lines().map(str::to_owned).collect::<Vec<_>>())
+            .collect();
+        for answer in answers {
+            self.line(format!("chat {answer}"))?;
+        }
+        Ok(())
     }
 
     fn dump(&mut self, what: Dump) -> Result<(), RunError> {

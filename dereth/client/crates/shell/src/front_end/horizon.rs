@@ -1,11 +1,12 @@
 //! The Horizon interface in the modern interface's place, when the player chooses it: brought up on
-//! its own art, and driven at each step of the frame as the classic interface is.
+//! its own art, which the host hands over, and driven at each step of the frame as the classic
+//! interface is.
 
 use dereth_horizon::runtime::HorizonFrontEnd;
 
 use super::{Cx, FrontEnd, FrontEndServices};
 use crate::classic_face::Refusal;
-use crate::platform::host::Host;
+use crate::platform::host::{HorizonArt, Host};
 use crate::present::ClientPresentation;
 
 /// The Horizon interface, when it has been brought up, and whether it is the one shown.
@@ -15,6 +16,8 @@ pub(crate) struct HorizonFace {
     pub active: bool,
     /// Its key bindings page, carried out on the input manager.
     pub keys: super::horizon_keys::HorizonKeys,
+    /// The player has been told the choice of it waits for its art, which is still loading.
+    pub told_loading: bool,
 }
 
 impl HorizonFace {
@@ -37,8 +40,15 @@ impl HorizonFace {
     }
 }
 
-/// Bring the Horizon interface up: its own art, and its settings from its settings file.
+/// Bring the Horizon interface up: its own art, as the host hands it over, and its settings from
+/// its settings file. Not yet while the art is loading, and refused, with the host's reason, when
+/// the host cannot get it.
 pub(super) fn build_horizon<H: Host>(cx: &mut Cx<'_, H>) -> Result<HorizonFrontEnd, Refusal> {
+    let pieces = match H::horizon_art() {
+        HorizonArt::Ready(pieces) => pieces,
+        HorizonArt::Loading => return Err(Refusal::HorizonArtLoading),
+        HorizonArt::Unavailable(why) => return Err(Refusal::HorizonArt(why)),
+    };
     let preferences = cx.config().preferences_file.clone();
     let settings = preferences
         .parent()
@@ -48,7 +58,7 @@ pub(super) fn build_horizon<H: Host>(cx: &mut Cx<'_, H>) -> Result<HorizonFrontE
         .as_deref()
         .map(dereth_horizon::options::HorizonOptions::load)
         .unwrap_or_default();
-    let art = std::sync::Arc::new(dereth_horizon::art::Art::new());
+    let art = std::sync::Arc::new(dereth_horizon::art::Art::new(pieces));
     let mut ui = HorizonFrontEnd::new(art, options, settings);
     ui.start(cx);
     Ok(ui)

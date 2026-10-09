@@ -72,6 +72,9 @@ impl Drop for ConsoleLine {
 thread_local! {
     static STORE: RefCell<Option<Arc<RetailDatStore>>> = const { RefCell::new(None) };
     static FRONT: RefCell<Front> = RefCell::new(Front::default());
+    /// The Horizon interface's files the worker has handed over so far.
+    static HORIZON_FILES: RefCell<dereth_horizon::pieces::Pieces> =
+        RefCell::new(dereth_horizon::pieces::Pieces::new());
 }
 
 /// A file of a data set the worker is reading, by its place in the worker's list.
@@ -126,6 +129,45 @@ pub fn start(filter: &str) {
         .without_time()
         .with_writer(ConsoleLine::default)
         .try_init();
+}
+
+/// The names of the Horizon interface's files, which the module does not carry: the worker
+/// fetches each from beside the module (`pkg/horizon/<name>`) and hands it over with
+/// [`horizon_file`], then calls [`horizon_loaded`].
+#[wasm_bindgen(js_name = horizonFiles)]
+#[must_use]
+pub fn horizon_files() -> Vec<String> {
+    dereth_horizon::pieces::FILES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
+/// One of the Horizon interface's files, `name`, as the worker fetched it.
+#[wasm_bindgen(js_name = horizonFile)]
+#[allow(clippy::needless_pass_by_value)]
+pub fn horizon_file(name: &str, bytes: Vec<u8>) {
+    HORIZON_FILES.with(|files| files.borrow_mut().insert(name, bytes));
+}
+
+/// The worker has handed over every one of the Horizon interface's files: the client offers the
+/// interface from now on.
+///
+/// # Errors
+/// What is wrong with the files (one missing, or a page sent in a file's place); the interface is
+/// then refused, with that reason.
+#[wasm_bindgen(js_name = horizonLoaded)]
+pub fn horizon_loaded() -> Result<(), JsError> {
+    let files = HORIZON_FILES.with(|files| std::mem::take(&mut *files.borrow_mut()));
+    crate::host::hand_over_horizon_art(Ok(files)).map_err(|why| JsError::new(&why))
+}
+
+/// The worker could not fetch the Horizon interface's files, for `why`: the client refuses the
+/// interface, and says why when it is chosen.
+#[wasm_bindgen(js_name = horizonFailed)]
+pub fn horizon_failed(why: &str) {
+    HORIZON_FILES.with(|files| *files.borrow_mut() = dereth_horizon::pieces::Pieces::new());
+    let _ = crate::host::hand_over_horizon_art(Err(why.to_owned()));
 }
 
 /// Keep the client's own files (preferences, keymaps, the overlay blocklist) in the page's

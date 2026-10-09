@@ -51,6 +51,19 @@ pub trait Host: 'static {
         None
     }
 
+    /// The Horizon interface's own art (its pieces and fonts) as the host has it now. By default
+    /// the art the client carries built in, which every build but the browser's module does.
+    fn horizon_art() -> HorizonArt {
+        dereth_horizon::pieces::Pieces::built_in().map_or_else(
+            || {
+                HorizonArt::Unavailable(
+                    dereth_client_contract::options::interface::REQUIRES_HORIZON_ART.to_owned(),
+                )
+            },
+            |pieces| HorizonArt::Ready(std::sync::Arc::new(pieces)),
+        )
+    }
+
     /// The host's current text caret blink interval, in seconds.
     fn caret_blink_secs() -> f64 {
         dereth_client_contract::window_proc::caret_blink_time_seconds_from_millis(530)
@@ -73,6 +86,17 @@ pub trait Host: 'static {
     fn movie_bytes(_path: &std::path::Path) -> Option<Vec<u8>> {
         None
     }
+}
+
+/// The Horizon interface's art as a host has it.
+#[derive(Debug, Clone)]
+pub enum HorizonArt {
+    /// The art: the interface can be shown.
+    Ready(std::sync::Arc<dereth_horizon::pieces::Pieces>),
+    /// On its way: a choice of the interface waits, and is followed once the art is in.
+    Loading,
+    /// Not to be had, and why: a choice of the interface is refused with that reason.
+    Unavailable(String),
 }
 
 /// The host with nothing under it: no window, UTC, nothing launched, no sound, an empty

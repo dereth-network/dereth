@@ -14,6 +14,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- The browser client loads Horizon's art beside the module, so it fits Cloudflare Pages again.
+- Horizon shows the client's real version.
+
 ## 0.3.0 (2026-10-09)
 
 - **Horizon, a third interface** beside the modern and classic ones, chosen in the options and

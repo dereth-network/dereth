@@ -37,6 +37,8 @@ dereth-input.workspace = true
 # The classic interface's text: its font atlas, drawn from the fonts the client carries.
 dereth-classic-dat.workspace = true
 dereth-classic-fonts.workspace = true
+# The Horizon interface's art, which the page fetches from beside the module and hands over.
+dereth-horizon.workspace = true
 # The front page's launcher: the desktop launcher's own logic (the world list, the table of worlds
 # that run a client of their own, a world's data sets by iterations, what the client is told
 # about the world), so the two launchers show and start a world alike.

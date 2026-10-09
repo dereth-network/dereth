@@ -45,7 +45,7 @@ Script: one command per line, `#` starts a comment.
   begin <action> | end <action>   one edge of an action
   walk <direction> <secs>         hold forward/back/left/right/strafe-left/strafe-right
   use <object-id>                 the Use request for an object
-  say <text>                      a chat line
+  say <text>                      a chat line, and the lines the chat took
   dump events | dump steps        the last frame's event log, or only its steps
   snapshot                        a summary of the game view
   world <landblock>               load a world offline with a body (needs --world)

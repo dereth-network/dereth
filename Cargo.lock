@@ -1127,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-headless"
-version = "0.0.0"
+version = "0.3.0"
 dependencies = [
  "dereth-client-sdk",
  "thiserror 2.0.20",
@@ -1419,6 +1419,7 @@ dependencies = [
  "dereth-client-sdk",
  "dereth-client-shell",
  "dereth-dat",
+ "dereth-horizon",
  "dereth-input",
  "dereth-launch",
  "dereth-primitives",

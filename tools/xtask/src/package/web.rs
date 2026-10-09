@@ -10,7 +10,8 @@
 //! and writes three release files into `<target dir>/package/dereth-web-<version>/` (or `--out`):
 //!
 //! - `dereth-web-<version>.zip`: the files under one folder, `dereth-web-<version>/`, ready to be
-//!   served as they are ([`FILES`]), with the notices the module needs beside them ([`NOTICES`]:
+//!   served as they are ([`FILES`]: the page, the module, and the Horizon interface's art beside
+//!   the module, which the module does not carry), with the notices the module needs beside them ([`NOTICES`]:
 //!   the licence, what the module is built from and the typefaces it carries, and every
 //!   third-party crate's licence text);
 //! - `web.json`: the release's manifest, which a host or the launcher reads to find out what the
@@ -28,6 +29,10 @@
 //! game data file, anything named like one, a database, a world pack or an oversized file fails it
 //! whatever its name. The module and scripts are also refused when they carry this machine's
 //! folders ([`guard::local_paths_in`]).
+//!
+//! **One file a host can serve.** No file of the bundle is larger than [`FILE_CAP`], 25 MiB, the
+//! most Cloudflare Pages serves as one file: a bundle a static host cannot take is refused here,
+//! not at the deploy.
 
 use std::path::{Path, PathBuf};
 
@@ -58,6 +63,17 @@ pub const FILES: &[&str] = &[
     "index.html",
     "pkg/dereth_web.js",
     "pkg/dereth_web_bg.wasm",
+    "pkg/horizon/atlas-1-0.png",
+    "pkg/horizon/atlas-2-0.png",
+    "pkg/horizon/atlas-3-0.png",
+    "pkg/horizon/font-0.png",
+    "pkg/horizon/font-1.png",
+    "pkg/horizon/font-2.png",
+    "pkg/horizon/font-3.png",
+    "pkg/horizon/font-4.png",
+    "pkg/horizon/font-5.png",
+    "pkg/horizon/fonts.json",
+    "pkg/horizon/manifest.json",
     "play-worker.js",
     "play.js",
 ];
@@ -75,8 +91,9 @@ const WASM: super::targets::Target = super::targets::Target {
 /// Files under `www/` that are never released: the folder's own ignore file.
 const NOT_RELEASED: &[&str] = &[".gitignore"];
 
-/// No file is larger than this: the module is about 13 MB.
-const FILE_CAP: u64 = 48 << 20;
+/// No file is larger than this: 25 MiB, the most Cloudflare Pages serves as one file. The module
+/// is about 16 MB, the largest of the Horizon interface's atlases about 9 MB.
+const FILE_CAP: u64 = 25 << 20;
 
 /// No bundle is larger than this in all.
 const TOTAL_CAP: u64 = 64 << 20;
@@ -138,7 +155,8 @@ pub fn stage(listing: &[(String, Vec<u8>)]) -> Result<Vec<Member>, Vec<String>> 
                 executable: false,
             }),
             None => findings.push(format!(
-                "{WWW}/{name}: missing (`cargo xtask web --build-only` writes pkg/)"
+                "{WWW}/{name}: missing (`cargo xtask web --build-only` writes pkg/ and \
+                 pkg/horizon/)"
             )),
         }
     }
@@ -607,6 +625,50 @@ mod tests {
             liberation, 1,
             "the module carries the classic interface's typeface"
         );
+    }
+
+    /// A file larger than a static host serves as one file (Cloudflare Pages' 25 MiB) refuses
+    /// the bundle; one of exactly that size does not.
+    #[test]
+    fn a_file_over_the_25_mib_a_static_host_serves_refuses_the_bundle() {
+        let module = |size: usize| {
+            let mut members = bundle(&www());
+            let wasm = members
+                .iter_mut()
+                .find(|m| m.name == "pkg/dereth_web_bg.wasm")
+                .expect("the module");
+            wasm.bytes = b"\0asm".to_vec();
+            wasm.bytes.resize(size, 0);
+            scan(&entries(&members))
+        };
+        assert_eq!(FILE_CAP, 25 * 1024 * 1024);
+        assert!(module(25 << 20).is_empty(), "{:?}", module(25 << 20));
+        let refused = module(26 << 20);
+        assert!(
+            refused.iter().any(
+                |f| f.starts_with("pkg/dereth_web_bg.wasm: ") && f.contains("cap for one file")
+            ),
+            "{refused:?}"
+        );
+    }
+
+    /// The bundle's Horizon art is exactly the interface's art folder: a file added to the art or
+    /// taken from it changes the list, or the package refuses the stray or missing file.
+    #[test]
+    fn the_bundle_s_horizon_art_is_the_interface_s_art_folder() {
+        // What `cargo xtask web --build-only` copies into `pkg/horizon/`.
+        let folder = workspace_root().join("dereth/client/crates/horizon/pieces");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&folder)
+            .unwrap_or_else(|e| panic!("{}: {e}", folder.display()))
+            .map(|e| format!("pkg/horizon/{}", e.unwrap().file_name().to_string_lossy()))
+            .collect();
+        on_disk.sort();
+        let listed: Vec<&str> = FILES
+            .iter()
+            .copied()
+            .filter(|f| f.starts_with("pkg/horizon/"))
+            .collect();
+        assert_eq!(listed, on_disk);
     }
 
     #[test]

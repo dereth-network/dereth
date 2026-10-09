@@ -458,7 +458,9 @@ mod tests {
     /// middle of the capitals and the middle of the small letters.
     #[test]
     fn text_in_a_box_centres_its_letters() {
-        let art = Art::new();
+        let art = Art::new(std::sync::Arc::new(
+            crate::pieces::Pieces::built_in().expect("the pieces built in"),
+        ));
         let mut list = DrawList::default();
         let mut p = Painter {
             list: &mut list,

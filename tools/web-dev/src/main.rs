@@ -16,8 +16,9 @@
 //!
 //! - It builds `dereth-web` for `wasm32-unknown-unknown` (the `web-release` profile, or `release`
 //!   with `--dev`, which keeps function names for stack traces), runs the bindgen step into `www/pkg/`,
-//!   and serves `www/` at `http://127.0.0.1:<port>/`. `--build-only` stops after the build, for a
-//!   deployment.
+//!   copies the Horizon interface's art beside the module into `www/pkg/horizon/` (the module does
+//!   not carry it; the page fetches it), and serves `www/` at `http://127.0.0.1:<port>/`.
+//!   `--build-only` stops after the build, for a deployment.
 //! - With `--dat-dir`, it also serves the retail data files from that folder at `/dats/<name>`,
 //!   with byte ranges, for the worker's development reader: the four of the later set, and
 //!   `portal.dat` and `cell.dat` from before Throne of Destiny when the folder holds them.
@@ -52,6 +53,10 @@ fn is_classic_dat_name(name: &str) -> bool {
 
 /// Where `dereth-web-relay` listens when the runner starts it.
 const RELAY_LISTEN: &str = "127.0.0.1:9180";
+
+/// The Horizon interface's art, relative to the workspace: the files the module does not carry,
+/// served beside it.
+const HORIZON_ART: &str = "dereth/client/crates/horizon/pieces";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Server {
@@ -182,7 +187,8 @@ fn target_rustflags(flags: &[String]) -> String {
     )
 }
 
-/// Builds the module and runs the bindgen step into `www/pkg/`.
+/// Builds the module, runs the bindgen step into `www/pkg/`, and puts the Horizon interface's art
+/// beside it.
 fn build(ws: &Path, dev: bool) -> Result<(), String> {
     let profile = if dev { "release" } else { "web-release" };
     run(Command::new(env!("CARGO")).current_dir(ws).args([
@@ -213,7 +219,28 @@ fn build(ws: &Path, dev: bool) -> Result<(), String> {
         .remove_name_section(!dev);
     bindgen
         .generate(&out)
-        .map_err(|e| format!("bindgen {}: {e}", wasm.display()))
+        .map_err(|e| format!("bindgen {}: {e}", wasm.display()))?;
+    copy_horizon_art(&ws.join(HORIZON_ART), &out.join("horizon"))
+}
+
+/// Copies every file of the Horizon interface's art in `from` into `to`, in place of what `to`
+/// held, so a file the art no longer has is not served.
+fn copy_horizon_art(from: &Path, to: &Path) -> Result<(), String> {
+    fn at(p: &Path) -> impl Fn(std::io::Error) -> String + '_ {
+        move |e| format!("{}: {e}", p.display())
+    }
+    if to.exists() {
+        std::fs::remove_dir_all(to).map_err(at(to))?;
+    }
+    std::fs::create_dir_all(to).map_err(at(to))?;
+    for entry in std::fs::read_dir(from).map_err(at(from))? {
+        let entry = entry.map_err(at(from))?;
+        if entry.file_type().map_err(at(from))?.is_file() {
+            let target = to.join(entry.file_name());
+            std::fs::copy(entry.path(), &target).map_err(at(&target))?;
+        }
+    }
+    Ok(())
 }
 
 /// Builds and starts the relay for `server`, for a page served from this machine.
@@ -269,6 +296,7 @@ fn content_type(path: &Path) -> &'static str {
         Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("wasm") => "application/wasm",
         Some("json") => "application/json",
+        Some("png") => "image/png",
         Some("css") => "text/css; charset=utf-8",
         _ => "application/octet-stream",
     }
@@ -627,6 +655,34 @@ mod tests {
             target_rustflags(&[]),
             "target.wasm32-unknown-unknown.rustflags=[]"
         );
+    }
+
+    #[test]
+    fn the_horizon_art_is_copied_beside_the_module_in_place_of_what_was_there() {
+        let root = std::env::temp_dir().join(format!("web-dev-horizon-{}", std::process::id()));
+        let (from, to) = (root.join("pieces"), root.join("pkg").join("horizon"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        std::fs::write(from.join("manifest.json"), "{}").unwrap();
+        std::fs::write(from.join("atlas-1-0.png"), "png").unwrap();
+        std::fs::write(to.join("atlas-9-0.png"), "gone").unwrap();
+        copy_horizon_art(&from, &to).unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(&to)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["atlas-1-0.png", "manifest.json"]);
+        assert_eq!(std::fs::read(to.join("manifest.json")).unwrap(), b"{}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_art_the_runner_copies_is_the_horizon_interface_s() {
+        assert!(workspace()
+            .join(HORIZON_ART)
+            .join("manifest.json")
+            .is_file());
     }
 
     #[test]

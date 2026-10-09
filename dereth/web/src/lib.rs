@@ -12,8 +12,9 @@
 //! `dereth-client-runtime`, `dereth-client-contract`, `dereth-client-net`, `dereth-client-sdk`
 //! (the data store), `dereth-dat`, `dereth-primitives`, `dereth-ui-screens` and `dereth-input`;
 //! `dereth-transport` for the WebSocket frame; `dereth-launch` (with `serde_json`) for the front
-//! page's launcher; and `dereth-classic-dat` and `dereth-classic-fonts`
-//! for the classic interface's text, drawn from the fonts the client carries. The WebAssembly build adds `wasm-bindgen`,
+//! page's launcher; `dereth-classic-dat` and `dereth-classic-fonts`
+//! for the classic interface's text, drawn from the fonts the client carries; and `dereth-horizon`
+//! for the Horizon interface's art, which the page fetches from beside the module. The WebAssembly build adds `wasm-bindgen`,
 //! `js-sys`, `web-sys` and a `tracing-subscriber` that writes to the browser console. **Used by**
 //! the page and worker under `www/`, which load it as a WebAssembly module.
 //!

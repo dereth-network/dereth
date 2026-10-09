@@ -1,9 +1,9 @@
 // The playable client's worker. It answers the front page's launcher (the module's, over the
-// player's files kept in this browser), opens the player's data files and the world's overlay,
-// brings the client up drawing into the canvas the page handed it, carries datagrams between the
-// client and the server's WebSocket (a server's own endpoint, or dereth-web-relay on this
-// machine), runs one client frame per animation frame, and hands the client the page's input
-// events.
+// player's files kept in this browser), fetches the Horizon interface's art from beside the
+// module, opens the player's data files and the world's overlay, brings the client up drawing into
+// the canvas the page handed it, carries datagrams between the client and the server's WebSocket
+// (a server's own endpoint, or dereth-web-relay on this machine), runs one client frame per
+// animation frame, and hands the client the page's input events.
 
 import init, * as dereth from './pkg/dereth_web.js';
 import {
@@ -22,6 +22,27 @@ const ready = init().then(async (exports) => {
   // The client's own files first: the overlay blocklist the front page shows is one of them.
   await openSettings();
   dereth.installSettings();
+});
+
+// The Horizon interface's art, which the module does not carry: its files are served beside the
+// module, in pkg/horizon/, and fetched from when the page opens. Nothing waits for them: the
+// client offers the Horizon interface once they are in (a choice of it before then waits, and a
+// saved one starts in the modern interface), and a failure leaves the other interfaces as they
+// are and says so.
+ready.then(async () => {
+  try {
+    await Promise.all(dereth.horizonFiles().map(async (name) => {
+      const res = await fetch(new URL(`./pkg/horizon/${name}`, import.meta.url));
+      if (!res.ok) throw new Error(`pkg/horizon/${name}: HTTP ${res.status}`);
+      dereth.horizonFile(name, new Uint8Array(await res.arrayBuffer()));
+    }));
+    dereth.horizonLoaded();
+    log("the Horizon interface's art is in");
+  } catch (e) {
+    const why = String(e?.message ?? e);
+    dereth.horizonFailed(why);
+    log(`the Horizon interface's art did not load (${why}): the Horizon interface is not offered`);
+  }
 });
 
 let canvas = null;

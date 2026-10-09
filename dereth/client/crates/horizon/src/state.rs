@@ -149,6 +149,7 @@ pub fn snapshot<S: Shell>(
 ) -> GameState {
     let pregame = cx.pregame();
     let mut g = GameState {
+        client_version: cx.client_version().to_owned(),
         host: cx.config().host.clone(),
         account: cx.config().account.clone(),
         world: pregame.world_name.clone(),

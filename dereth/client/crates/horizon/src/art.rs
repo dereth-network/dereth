@@ -1,4 +1,4 @@
-//! The interface art: its own pieces and fonts, which the client carries ([`crate::pieces`]),
+//! The interface art: its own pieces and fonts, as the host hands them over ([`crate::pieces`]),
 //! and the game's own icons, read from the game's data.
 //!
 //! Every picture the interface draws has a [`TexId`] handed out here, and the drawing asks for
@@ -156,8 +156,8 @@ struct Inner {
 
 /// The interface art.
 pub struct Art {
-    /// Whether the interface's own pieces are behind the art.
-    own: bool,
+    /// The interface's own pieces, when there are any behind the art.
+    own: Option<Arc<crate::pieces::Pieces>>,
     /// The Asheron's Call data, for the game's own icons (spells, items, effects).
     ac: Mutex<Option<Arc<dereth_dat::RetailDatStore>>>,
     inner: Mutex<Inner>,
@@ -170,23 +170,17 @@ pub struct Art {
 impl std::fmt::Debug for Art {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Art")
-            .field("own", &self.own)
+            .field("own", &self.own.is_some())
             .finish_non_exhaustive()
     }
 }
 
-impl Default for Art {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Art {
-    /// The art of the interface's own pieces, which the client carries.
+    /// The art of the interface's own pieces, as the host handed them over.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(pieces: Arc<crate::pieces::Pieces>) -> Self {
         Self {
-            own: true,
+            own: Some(pieces),
             ac: Mutex::new(None),
             inner: Mutex::new(Inner::default()),
             pieces: std::sync::OnceLock::new(),
@@ -198,7 +192,7 @@ impl Art {
     #[must_use]
     pub fn reopened(&self) -> Self {
         let art = Self {
-            own: self.own,
+            own: self.own.clone(),
             ac: Mutex::new(None),
             inner: Mutex::new(Inner::default()),
             pieces: std::sync::OnceLock::new(),
@@ -214,7 +208,7 @@ impl Art {
     #[must_use]
     pub fn empty() -> Self {
         Self {
-            own: false,
+            own: None,
             ac: Mutex::new(None),
             inner: Mutex::new(Inner::default()),
             pieces: std::sync::OnceLock::new(),
@@ -222,8 +216,8 @@ impl Art {
         }
     }
 
-    fn read(&self, path: &str) -> Option<&'static [u8]> {
-        self.own.then(|| crate::pieces::builtin(path)).flatten()
+    fn read(&self, name: &str) -> Option<&[u8]> {
+        self.own.as_deref()?.get(name)
     }
 
     /// Hand out an id for a picture made here rather than read (a font plane, a generated mask).

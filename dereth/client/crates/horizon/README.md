@@ -10,10 +10,16 @@ world renderer and key maps. Only the interface differs.
 
 ## Its art
 
-The interface draws its own art, which the client carries: pieces packed into atlases at several
-scales with a manifest that names them (`pieces/`), and its fonts as glyph pages with their table.
-Where a piece is missing it draws plainly in its place. The game's own icons (items, spells,
-effects) are read from the game's data.
+The interface draws its own art: pieces packed into atlases at several scales with a manifest that
+names them (`pieces/`), and its fonts as glyph pages with their table. The desktop client carries
+these files built in. The browser client's module does not: they are served beside it
+(`pkg/horizon/`), and the page fetches them from when it opens, without the client waiting for
+them. Until they are in, a choice of Horizon waits (a saved one starts in the modern interface)
+and the chat says the art is loading; the frame they are in, Horizon is shown. When they could not
+be fetched, choosing Horizon is refused and the chat says why. The modern and classic interfaces
+are not affected either way. Where a piece is missing it
+draws plainly in its place. The game's own icons (items, spells, effects) are read from the game's
+data.
 
 ## Its settings
 
@@ -83,6 +89,7 @@ camera's settings (its Controls page) are kept in `horizon.txt` beside the prefe
 - `src/dialogs.rs`: the game's questions, shown in the interface's boxes; the shared dialog
   service decides what each answer does.
 - `src/art.rs`: the art: the own pieces, the game's icons and the fonts.
-- `src/pieces.rs` and `pieces/`: the interface's own pieces and fonts, built in.
+- `src/pieces.rs` and `pieces/`: the interface's own pieces and fonts, as the files a host hands
+  over.
 - `src/font.rs`: the font tables the text is drawn from.
 - `src/draw.rs`: the quads, turned into the shared overlay's batches.

@@ -530,7 +530,8 @@ fn dereth_builds_natively_and_names_what_is_missing() {
 
 // ---------------------------------------------------------------- version and tag
 
-/// The client, the launcher and the web client carry one version, which the tag must name exactly.
+/// The client, the launcher, the web client and the headless client carry one version, which the
+/// tag must name exactly.
 #[test]
 fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
     let ws = workspace_root();
@@ -544,7 +545,7 @@ fn the_client_and_the_launcher_carry_one_version_which_the_tag_names() {
         .expect_err("another product's tag");
     assert!(e.contains("Dereth"), "{e}");
     assert!(version::check_product_tag(Product::Dereth, "dereth-v9.9.9", &v).is_err());
-    assert_eq!(version::dereth_manifests(&ws).len(), 3);
+    assert_eq!(version::dereth_manifests(&ws).len(), 4);
 }
 
 /// Every file the Dereth package reads from the tree is there.
