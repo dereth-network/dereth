@@ -175,6 +175,10 @@ pub struct OrbitCamera {
     /// The player turned it by turning themselves, and it goes on round until it is directly
     /// behind them, after the turning stops too, unless it is turned by hand meanwhile.
     pub settling_behind: bool,
+    /// The player's own turn carries it round with them: while they turn, and once they stop,
+    /// until the body is drawn facing the way they stopped, unless it is turned by hand or held
+    /// meanwhile.
+    pub carried: bool,
     /// A zoom held: `1` closer, `-1` further, `0` none; and for how long.
     zoom_hold: f32,
     zoom_held_for: f32,
@@ -204,6 +208,7 @@ impl Default for OrbitCamera {
             stick: (0.0, 0.0),
             follow_behind: false,
             settling_behind: false,
+            carried: false,
             zoom_hold: 0.0,
             zoom_held_for: 0.0,
             shown: None,
@@ -232,6 +237,10 @@ pub const BEHIND_EASE: f32 = 2.5;
 
 /// How close to directly behind, in radians, a camera settling after a turn counts as there.
 const SETTLED: f32 = 0.002;
+
+/// How near, in degrees, the body is drawn to the way the player's turn left it facing when the
+/// camera that turn carried stops with it.
+pub const CARRIED_UNTIL: f32 = 0.001;
 
 /// Whether the orbit camera comes round behind the player: while the game turns them itself
 /// (`moved_by_game`, a move or turn toward something used, cast at or fought), unless the player
@@ -280,14 +289,14 @@ impl OrbitCamera {
         self.yaw = wrap(self.yaw - dx * s.mouse_turn * x);
         self.pitch = (self.pitch - dy * s.mouse_turn * y).clamp(s.pitch_min, s.pitch_max);
         if dx != 0.0 {
-            self.settling_behind = false;
+            self.let_go_of_player();
         }
     }
 
     /// Turn it for `dt` seconds of the look keys held: left, right, up, down.
     pub fn turn_held(&mut self, left: bool, right: bool, up: bool, down: bool, dt: f32) {
         if left || right {
-            self.settling_behind = false;
+            self.let_go_of_player();
         }
         let axis = |neg: bool, pos: bool| f32::from(u8::from(pos)) - f32::from(u8::from(neg));
         let s = self.settings;
@@ -306,7 +315,7 @@ impl OrbitCamera {
         }
         // A turn of the stick is the player's own, and stops the camera settling behind.
         if x != 0.0 {
-            self.settling_behind = false;
+            self.let_go_of_player();
         }
         let rx = if self.settings.reverse_x { -1.0 } else { 1.0 };
         let ry = if self.settings.reverse_y { -1.0 } else { 1.0 };
@@ -363,6 +372,22 @@ impl OrbitCamera {
             self.yaw = yaw_of_heading(heading);
             self.settling_behind = false;
         }
+    }
+
+    /// Set it behind the player afresh on the next frame, and show it there at once rather than
+    /// turning it across from where it was: the player has been put down somewhere new. Its tilt
+    /// and distance are kept.
+    pub fn place_anew(&mut self) {
+        self.placed = false;
+        self.shown = None;
+        self.let_go_of_player();
+    }
+
+    /// Turned by hand, or held by a mouse button: it no longer goes on round with the player's turn
+    /// or settles behind them.
+    pub fn let_go_of_player(&mut self) {
+        self.carried = false;
+        self.settling_behind = false;
     }
 
     /// Turn it with the player, who turned by `degrees` clockwise: it keeps its place behind them
@@ -1607,6 +1632,415 @@ mod tests {
             frame(&mut c);
         }
         (0..frames).map(|_| frame(&mut c)).collect()
+    }
+
+    /// One frame of the player's own turns under character-based movement: which turn it is in,
+    /// seconds since that turn's key was let go (negative while it is held), the way the camera
+    /// as shown looks, and how far, in degrees clockwise, the body is drawn facing from that way.
+    #[derive(Debug, Clone, Copy)]
+    struct KeyTurnFrame {
+        turn: usize,
+        since_let_go: f64,
+        facing: f32,
+        off: f32,
+    }
+
+    /// A body standing (or running, `running`) at `fps` under character-based movement, turned by
+    /// each of `turns` in order (the left or the right turning key, held so many seconds, then a
+    /// second with neither held), the keys read as the runtime reads them each frame before the
+    /// body and then the camera are stepped.
+    fn turned_by_the_keys(
+        fps: f64,
+        running: bool,
+        turns: &[(dereth_client_contract::actions::ActionId, f64)],
+    ) -> Vec<KeyTurnFrame> {
+        use dereth_client_contract::actions::{Action, ActionId};
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        c.camera.orbit_active = true;
+        c.camera.orbit.apply_settings(s);
+        c.drawn_between_ticks = true;
+        let block = c.position().cell.landblock();
+        let block = (i32::from(block.x()), i32::from(block.y()));
+        let mut keys = MovementKeys::default();
+        let mut t = 10.0;
+        let mut frame = |c: &mut crate::character::Character, keys: &MovementKeys| {
+            t += 1.0 / fps;
+            if c.camera.orbit.placed {
+                c.camera.orbit_turns_with_player = keys.camera_turns_with_player(s);
+                let face = keys.facing(s, c.camera.orbit.movement_heading(false));
+                c.camera.orbit.follow_behind =
+                    keys.camera_follows_game_turn(face, c.is_moving_to());
+            }
+            c.update(dereth_primitives::LocalTime(t));
+            c.update_camera(
+                crate::camera::CameraInput::default(),
+                dereth_primitives::LocalTime(t),
+                1.0 / fps,
+            );
+            let space = c.set_viewer_block(block);
+            c.place_parts(space);
+            let drawn = dereth_animation::frame::get_heading(&c.position().frame) + c.drawn_turn();
+            let facing = c.camera.orbit.facing_degrees();
+            (facing, (drawn - facing + 540.0).rem_euclid(360.0) - 180.0)
+        };
+        let press = |c: &mut crate::character::Character,
+                     keys: &mut MovementKeys,
+                     key: ActionId,
+                     on: bool| {
+            let e = if on {
+                Action::begin(key)
+            } else {
+                Action::end(key)
+            };
+            for e in keys.convert(e, s) {
+                match e.id {
+                    a::TURN_LEFT => c.input.turn_left = e.is_start(),
+                    a::TURN_RIGHT => c.input.turn_right = e.is_start(),
+                    _ => {}
+                }
+            }
+        };
+        for _ in 0..60 {
+            frame(&mut c, &keys);
+        }
+        if running {
+            c.input.forward = true;
+            c.input.run = true;
+            for _ in 0..200 {
+                frame(&mut c, &keys);
+            }
+        }
+        let mut out = Vec::new();
+        for (turn, &(key, held)) in turns.iter().enumerate() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let (holding, after) = ((held * fps).round() as usize, fps.round() as usize);
+            press(&mut c, &mut keys, key, true);
+            #[allow(clippy::cast_precision_loss)]
+            for n in 0..holding {
+                let (facing, off) = frame(&mut c, &keys);
+                out.push(KeyTurnFrame {
+                    turn,
+                    since_let_go: (n as f64 - holding as f64) / fps,
+                    facing,
+                    off,
+                });
+            }
+            press(&mut c, &mut keys, key, false);
+            #[allow(clippy::cast_precision_loss)]
+            for n in 0..after {
+                let (facing, off) = frame(&mut c, &keys);
+                out.push(KeyTurnFrame {
+                    turn,
+                    since_let_go: n as f64 / fps,
+                    facing,
+                    off,
+                });
+            }
+        }
+        out
+    }
+
+    /// What the camera kept and how it stood when the player was put down somewhere new.
+    #[derive(Debug)]
+    struct PutDown {
+        /// The way the body was put facing, in degrees clockwise from north.
+        heading: f32,
+        /// Its tilt and distance before and after.
+        kept: [(f32, f32); 2],
+        /// For each frame after: the way the camera is shown looking, and the way the body is
+        /// drawn facing, in degrees clockwise from north.
+        frames: Vec<(f32, f32)>,
+    }
+
+    /// A body standing at 240 frames a second under `movement`, its camera turned off to one side,
+    /// tilted and drawn back, put down 30 metres off facing `turn` degrees clockwise from the way
+    /// it faced; under character-based movement the right turning key is held throughout, so the
+    /// body is turning as it goes and as it arrives.
+    fn put_down_somewhere_new(movement: MovementMode, turn: f32) -> PutDown {
+        use dereth_client_contract::actions::Action;
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        let s = OrbitSettings {
+            movement,
+            ..OrbitSettings::default()
+        };
+        c.camera.orbit_active = true;
+        c.camera.orbit.apply_settings(s);
+        c.drawn_between_ticks = true;
+        let mut keys = MovementKeys::default();
+        let fps = 240.0;
+        let mut t = 10.0;
+        let mut frame = |c: &mut crate::character::Character, keys: &MovementKeys| {
+            t += 1.0 / fps;
+            if c.camera.orbit.placed {
+                c.camera.orbit_turns_with_player = keys.camera_turns_with_player(s);
+                if let Some(face) = keys.facing(s, c.camera.orbit.movement_heading(false)) {
+                    c.face_heading(face);
+                }
+            }
+            c.update(dereth_primitives::LocalTime(t));
+            c.update_camera(
+                crate::camera::CameraInput::default(),
+                dereth_primitives::LocalTime(t),
+                1.0 / fps,
+            );
+            let drawn = dereth_animation::frame::get_heading(&c.position().frame) + c.drawn_turn();
+            (c.camera.orbit.facing_degrees(), drawn.rem_euclid(360.0))
+        };
+        for _ in 0..60 {
+            frame(&mut c, &keys);
+        }
+        c.camera.orbit.rotate(80.0, 40.0);
+        c.camera.orbit.zoom(-3.0);
+        if movement == MovementMode::Character {
+            for e in keys.convert(Action::begin(a::TURN_RIGHT), s) {
+                c.input.turn_right = e.is_start();
+            }
+        }
+        for _ in 0..120 {
+            frame(&mut c, &keys);
+        }
+        let before = (c.camera.orbit.pitch, c.camera.orbit.distance);
+        let mut there = c.position();
+        let heading = dereth_animation::frame::get_heading(&there.frame) + turn;
+        there.frame.origin.x += 24.0;
+        there.frame.origin.y += 18.0;
+        dereth_primitives::frame::set_heading(&mut there.frame, heading);
+        c.teleport(there);
+        let frames = (0..60).map(|_| frame(&mut c, &keys)).collect();
+        PutDown {
+            heading: heading.rem_euclid(360.0),
+            kept: [before, (c.camera.orbit.pitch, c.camera.orbit.distance)],
+            frames,
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn put_down_somewhere_new_it_stands_directly_behind_the_new_facing_at_once_in_either_movement()
+    {
+        let off = |a: f32, b: f32| ((a - b + 540.0).rem_euclid(360.0) - 180.0).abs();
+        for movement in [MovementMode::Camera, MovementMode::Character] {
+            for turn in [30.0, 135.0, -100.0] {
+                let p = put_down_somewhere_new(movement, turn);
+                // On the first frame the body is drawn facing the way it was put (turned a tick on
+                // at most, the turning key held), and the camera stands directly behind it.
+                let (facing, drawn) = p.frames[0];
+                assert!(
+                    off(facing, drawn) < 0.01 && off(drawn, p.heading) < 3.5,
+                    "{movement:?}, turned {turn}: directly behind the new facing on the first \
+                     frame: put facing {}, the camera looks {facing}, the body is drawn facing \
+                     {drawn}",
+                    p.heading
+                );
+                // From there it rides with the body (character-based, the key still held) or
+                // stays put (camera-based): never brought across from the old facing.
+                let worst = p
+                    .frames
+                    .iter()
+                    .map(|(f, d)| off(*f, *d))
+                    .fold(0.0, f32::max);
+                assert!(
+                    worst < 0.05,
+                    "{movement:?}, turned {turn}: behind the body as it is drawn after: {worst}"
+                );
+                let steps = p
+                    .frames
+                    .windows(2)
+                    .map(|w| off(w[1].1, w[0].1))
+                    .fold(0.0, f32::max);
+                assert!(
+                    steps < 4.0,
+                    "{movement:?}, turned {turn}: the body is drawn facing the way it was put, \
+                     not turning across from the way it faced: {steps} degrees in a frame"
+                );
+                let [(pitch0, distance0), (pitch1, distance1)] = p.kept;
+                assert!(
+                    (pitch0 - pitch1).abs() < 1e-6 && (distance0 - distance1).abs() < 1e-6,
+                    "{movement:?}: its tilt and distance kept: {:?}",
+                    p.kept
+                );
+                assert!(
+                    (pitch0 - DEFAULT_PITCH).abs() > 0.1
+                        && (distance0 - DEFAULT_DISTANCE).abs() > 1.0,
+                    "the tilt and distance were the player's own: {:?}",
+                    p.kept
+                );
+            }
+        }
+    }
+
+    /// One frame after the movement keys are let go: how far ahead of where physics has the body
+    /// it is drawn, along the way physics has it facing, in metres; how far round past the way
+    /// physics has it facing it is drawn, in the way it was turning, in degrees; and how far
+    /// physics has carried it since the keys were let go, in metres.
+    #[derive(Debug, Clone, Copy)]
+    struct LetGoFrame {
+        ahead: f32,
+        turned_past: f32,
+        carried: f32,
+    }
+
+    /// A body run forward at `fps` under the orbit camera (turning left as it goes, `turning`),
+    /// drawn between ticks, until it is up to speed, then the keys let go and a second run on.
+    fn let_go_of_the_run(fps: f64, turning: bool) -> Vec<LetGoFrame> {
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        c.camera.orbit_active = true;
+        c.drawn_between_ticks = true;
+        let mut t = 10.0;
+        let mut frame = |c: &mut crate::character::Character| {
+            t += 1.0 / fps;
+            c.update(dereth_primitives::LocalTime(t));
+            c.update_camera(
+                crate::camera::CameraInput::default(),
+                dereth_primitives::LocalTime(t),
+                1.0 / fps,
+            );
+        };
+        for _ in 0..60 {
+            frame(&mut c);
+        }
+        c.input.forward = true;
+        c.input.run = true;
+        c.input.turn_left = turning;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let second = fps.round() as usize;
+        for _ in 0..second {
+            frame(&mut c);
+        }
+        c.input.forward = false;
+        c.input.turn_left = false;
+        let start = c.position().frame.origin;
+        (0..second)
+            .map(|_| {
+                frame(&mut c);
+                let at = c.position().frame;
+                let h = dereth_animation::frame::get_heading(&at).to_radians();
+                let facing = Vec3::new(
+                    dereth_primitives::num::math::sinf(h),
+                    dereth_primitives::num::math::cosf(h),
+                    0.0,
+                );
+                let off = c.drawn_offset();
+                // Turning left, the drawn body is round past physics when it is turned further
+                // left (anticlockwise) than physics has it.
+                LetGoFrame {
+                    ahead: off.x * facing.x + off.y * facing.y,
+                    turned_past: if turning { -c.drawn_turn() } else { 0.0 },
+                    carried: sub(at.origin, start).magnitude(),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn let_go_of_a_run_the_body_is_never_drawn_further_on_than_physics_has_it() {
+        for fps in [240.0, 60.0] {
+            for turning in [false, true] {
+                let f = let_go_of_the_run(fps, turning);
+                let carried = f.last().expect("frames").carried;
+                assert!(
+                    carried > 0.3,
+                    "{fps} fps: the body went on a little: {carried} m"
+                );
+                let ahead = f.iter().map(|r| r.ahead).fold(f32::MIN, f32::max);
+                assert!(
+                    ahead <= 1e-4,
+                    "{fps} fps, turning {turning}: never drawn ahead of physics: {ahead} m"
+                );
+                let past = f.iter().map(|r| r.turned_past).fold(f32::MIN, f32::max);
+                assert!(
+                    past <= 1e-3,
+                    "{fps} fps, turning {turning}: never drawn turned past physics: {past} degrees"
+                );
+                // Within half a second of physics stopping it, the body is drawn where it stopped.
+                let last = f.last().expect("frames");
+                assert!(
+                    last.ahead.abs() < 1e-3 && last.turned_past.abs() < 1e-2,
+                    "{fps} fps, turning {turning}: at rest where physics stopped it: {last:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn turned_by_the_turning_keys_it_rides_behind_the_body_and_stops_directly_behind_it() {
+        for (fps, running) in [(240.0, false), (240.0, true), (60.0, false), (60.0, true)] {
+            // A turn left, one back right, and another right, each from where the last left it.
+            let f = turned_by_the_keys(
+                fps,
+                running,
+                &[
+                    (a::TURN_LEFT, 0.75),
+                    (a::TURN_RIGHT, 0.75),
+                    (a::TURN_RIGHT, 0.5),
+                ],
+            );
+            let first = f.first().expect("frames").facing;
+            let let_go = f
+                .iter()
+                .find(|r| r.since_let_go >= 0.0)
+                .expect("the key let go")
+                .facing;
+            let turned = ((first - let_go + 540.0).rem_euclid(360.0) - 180.0).abs();
+            assert!(
+                turned > 30.0,
+                "{fps} fps: the body turned: {turned} degrees"
+            );
+            for turn in 0..3 {
+                let worst = |held: bool| {
+                    f.iter()
+                        .filter(|r| r.turn == turn && (r.since_let_go < 0.0) == held)
+                        .map(|r| r.off.abs())
+                        .fold(0.0, f32::max)
+                };
+                let (held, after) = (worst(true), worst(false));
+                assert!(
+                    held < 0.05,
+                    "{fps} fps, running {running}, turn {turn}: it rides behind the body as it \
+                     turns rather than swinging round to catch it up: {held} degrees off"
+                );
+                assert!(
+                    after < 0.05,
+                    "{fps} fps, running {running}, turn {turn}: it stops as the body stops, \
+                     neither short of it nor swinging past: {after} degrees off"
+                );
+                let last = f.iter().rfind(|r| r.turn == turn).expect("frames").off;
+                assert!(
+                    last.abs() < 0.01,
+                    "{fps} fps, running {running}, turn {turn}: directly behind: {last} degrees"
+                );
+            }
+        }
     }
 
     #[test]

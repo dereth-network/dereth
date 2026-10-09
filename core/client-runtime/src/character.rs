@@ -1863,6 +1863,13 @@ impl Character {
         if let Some(p) = crate::camera::pivot_state(&self.world, self.handle) {
             self.camera.attach(&p);
         }
+        // The body is drawn where it was put, facing the way it was put, its way between ticks
+        // begun again from there: drawn on from the ticks before, it would be shown turning
+        // across from the way it faced where it was. The orbit camera is set behind it afresh.
+        self.ticks = [None, None];
+        self.drawn = None;
+        self.turning = None;
+        self.camera.place_orbit_anew();
     }
 
     /// Run the cleanup reached by accepted player teleport completion,

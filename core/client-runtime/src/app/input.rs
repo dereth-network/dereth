@@ -560,9 +560,10 @@ impl<S: Shell> App<S> {
         let camera = c.camera.orbit.movement_heading(false);
         let face = keys.facing(settings, camera);
         c.camera.orbit_turns_with_player = keys.camera_turns_with_player(settings);
-        // A mouse button held keeps the camera where it is: it no longer settles behind.
+        // A mouse button held keeps the camera where it is: it no longer goes on round with the
+        // player's turn or settles behind.
         if keys.buttons.0 || keys.buttons.1 {
-            c.camera.orbit.settling_behind = false;
+            c.camera.orbit.let_go_of_player();
         }
         // Turned by the game itself (a move or turn toward something used, cast at or fought)
         // while the player neither steers nor holds a mouse button: the camera comes behind.

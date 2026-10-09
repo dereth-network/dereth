@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Horizon's camera stops directly behind you after a turn
+
 ## 0.4.0 (2026-10-09)
 
 - Horizon gamepad mode (experimental): the whole game played with a controller.

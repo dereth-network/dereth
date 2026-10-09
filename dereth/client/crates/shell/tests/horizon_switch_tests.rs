@@ -842,7 +842,24 @@ fn under_camera_based_movement_back_runs_forward_and_under_character_based_it_ba
     let mut c = Client::new(&state);
     c.install_horizon(dereth_horizon::options::StartScreen::Game);
     c.choose(Interface::Horizon);
+    // Camera-based: chosen, the keyboard's own default being character-based.
+    let movement = |c: &mut Client, m| {
+        c.shell
+            .horizon
+            .ui
+            .as_mut()
+            .unwrap()
+            .ui
+            .options
+            .orbit
+            .movement = m;
+    };
+    movement(&mut c, dereth_client_runtime::orbit::MovementMode::Camera);
     c.frame();
+    assert_eq!(
+        c.app.orbit.map(|o| o.movement),
+        Some(dereth_client_runtime::orbit::MovementMode::Camera)
+    );
     c.app.inject_action(Action::begin(a::MOVE_BACKWARD));
     c.frame();
     assert!(c.app.char_input.forward && !c.app.char_input.back);
@@ -851,15 +868,10 @@ fn under_camera_based_movement_back_runs_forward_and_under_character_based_it_ba
     c.frame();
     assert!(!c.app.char_input.forward);
     // Character-based: the game's own.
-    c.shell
-        .horizon
-        .ui
-        .as_mut()
-        .unwrap()
-        .ui
-        .options
-        .orbit
-        .movement = dereth_client_runtime::orbit::MovementMode::Character;
+    movement(
+        &mut c,
+        dereth_client_runtime::orbit::MovementMode::Character,
+    );
     c.frame();
     c.app.inject_action(Action::begin(a::MOVE_BACKWARD));
     c.frame();

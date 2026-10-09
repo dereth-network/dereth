@@ -1830,8 +1830,9 @@ pub struct CameraControl {
     /// While the mouse turns the player rather than the camera (a spell being cast with the right
     /// button held): how far it has moved across since last taken.
     pub orbit_mouse_turn: Option<f32>,
-    /// The way the body was drawn facing last frame, while the orbit camera is in use.
-    orbit_last_heading: Option<f32>,
+    /// The way the body was drawn facing last frame, and the way physics had it facing, while
+    /// the orbit camera is in use.
+    orbit_last_heading: Option<(f32, f32)>,
 }
 
 /// Counters for the log line and for the tests. Rebuild-only.
@@ -1980,6 +1981,15 @@ impl CameraControl {
         let p = self.manager.query_pivot_position(pivot);
         self.set_viewer(p, true);
         self.attached = true;
+    }
+
+    /// The player was put down somewhere new (a portal, a teleport, the world entered): the orbit
+    /// camera is set behind them afresh on the next frame, facing the way they now face, and shown
+    /// there at once with its tilt and distance kept, rather than coming round from where it was.
+    pub fn place_orbit_anew(&mut self) {
+        self.orbit.place_anew();
+        self.orbit_last_heading = None;
+        self.orbit_shortfall = 0.0;
     }
 
     /// Whether [`Self::attach`] has ever run.
@@ -2247,21 +2257,31 @@ impl CameraControl {
         let Some(pivot) = pivot_state(world, player_handle) else {
             return;
         };
-        let heading = pmath::get_heading(&pivot.position.frame);
-        self.player_heading = Some(heading);
+        let physics = pmath::get_heading(&pivot.position.frame);
+        self.player_heading = Some(physics);
         // The way the body is drawn facing, which between ticks is not quite the way physics has
         // it: followed rather than the ticks' own, the camera turns with it every frame.
-        let heading = (heading + self.drawn_turn).rem_euclid(360.0);
+        let heading = (physics + self.drawn_turn).rem_euclid(360.0);
         if !self.orbit.placed {
             self.orbit.place_behind(heading);
         }
-        if self.orbit_turns_with_player {
-            if let Some(last) = self.orbit_last_heading {
+        // The player's own turn carries the camera round with them. When they stop, the body is
+        // still drawn coming round to the way they stopped (it is drawn a tick behind, on its
+        // spring), and the camera goes on with it until it is there, so that the two stop
+        // together, the camera directly behind; let go of at once, it would be left short and
+        // the body would turn on past it. Anything else turning the body ends that.
+        let last = self.orbit_last_heading;
+        let finishing = self.orbit.carried
+            && last.is_some_and(|(_, was)| was == physics)
+            && self.drawn_turn.abs() > crate::orbit::CARRIED_UNTIL;
+        self.orbit.carried = self.orbit_turns_with_player || finishing;
+        if self.orbit.carried {
+            if let Some((drawn, _)) = last {
                 self.orbit
-                    .turn_with_player((heading - last + 540.0).rem_euclid(360.0) - 180.0);
+                    .turn_with_player((heading - drawn + 540.0).rem_euclid(360.0) - 180.0);
             }
         }
-        self.orbit_last_heading = Some(heading);
+        self.orbit_last_heading = Some((heading, physics));
         #[allow(clippy::cast_possible_truncation)]
         let dt = dt as f32;
         self.orbit.turn_held(
