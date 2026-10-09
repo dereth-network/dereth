@@ -17,8 +17,9 @@ retail-dats = []
 # require their backend; selecting mock does not turn a hardware test into a recording test.
 default = ["mock", "vulkan", "wgpu"]
 # Test builds only (enabled in `[dev-dependencies]`): a device made without a named backend comes
-# up on the one the test-only `DERETH_TEST_RENDERER` names, so a GPU tier can run on D3D12.
-test-support = []
+# up on the one the test-only `DERETH_TEST_RENDERER` names, so a GPU tier can run on D3D12; and the
+# `wgpu` device counts the objects it holds, so a test can see that none is left behind.
+test-support = ["wgpu?/counters"]
 mock = ["dereth-render-cpu/mock"]
 # The real Vulkan device (`src/vulkan.rs`). Portable: the same code runs on Windows, Linux and
 # macOS (through MoltenVK). Without it the pure-logic modules still build and test.
@@ -26,6 +27,10 @@ vulkan = ["dep:ash", "dep:ash-window", "dep:gpu-allocator", "dep:naga"]
 # The `wgpu` device (`src/wgpu.rs`): WebGPU or WebGL 2 in a browser, and Metal, Vulkan or
 # Direct3D 12 natively through `wgpu`. A third backend beside the other two, chosen the same way.
 wgpu = ["dep:wgpu", "dep:pollster", "dep:web-sys"]
+# The high-fidelity seam of the `wgpu` device (`src/wgpu/sidecar.rs`, `src/hifi_mark.rs`): an
+# optional second presentation of the world drawn from the frame's recording. Off unless a build
+# asks for it; without it the device builds no seam and behaves exactly as before.
+hifi = ["wgpu"]
 # The Direct3D 12 device (`src/d3d12.rs`).
 # Windows only: the module itself is `cfg(all(windows, feature = "d3d12"))`, and the feature only
 # turns on more of the `windows` crate, which is already a Windows-only dependency of this crate.

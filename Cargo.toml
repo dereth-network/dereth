@@ -31,6 +31,9 @@ members = [
     "dereth/desktop",
     "dereth/client/crates/render",
     "dereth/client/crates/render-cpu",
+    # The optional high-fidelity presentation, which draws the world a second time from the
+    # frame the renderer recorded. Only `dereth-scene` depends on it, behind its `hifi` feature.
+    "dereth/client/crates/render-hifi",
     "dereth/client/crates/world-render",
     "dereth/client/crates/scene",
     "dereth/client/crates/shell",
@@ -122,6 +125,7 @@ dereth-primitives = { path = "core/primitives" }
 dereth-protocol = { path = "core/protocol" }
 dereth-render = { path = "dereth/client/crates/render", default-features = false }
 dereth-render-cpu = { path = "dereth/client/crates/render-cpu", default-features = false }
+dereth-render-hifi = { path = "dereth/client/crates/render-hifi" }
 dereth-rules = { path = "core/rules", default-features = false }
 dereth-scene = { path = "dereth/client/crates/scene", default-features = false }
 dereth-terrain = { path = "core/terrain" }

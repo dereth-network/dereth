@@ -300,11 +300,20 @@ fn tier0(profile: Profile) -> i32 {
     build.extend_from_slice(profile.cargo_args());
     let mut test = vec!["test", "--workspace", "--exclude", "empyrean-*"];
     test.extend_from_slice(profile.cargo_args());
+    // A workspace build turns the device's high-fidelity seam on, because the presentation that
+    // asks for it is a member; the client is shipped without it. So the device is also built and
+    // tested on its own, as the shipped client has it.
+    let mut device_alone = vec!["test", "-p", "dereth-render"];
+    device_alone.extend_from_slice(profile.cargo_args());
     let mut reports = vec![
         step("cargo build --workspace", run(&ws, "cargo", &build)),
         step(
             "cargo test (client and shared crates)",
             run(&ws, "cargo", &test),
+        ),
+        step(
+            "cargo test -p dereth-render (the device as shipped)",
+            run(&ws, "cargo", &device_alone),
         ),
     ];
     reports.extend(server::unit_tier(profile));

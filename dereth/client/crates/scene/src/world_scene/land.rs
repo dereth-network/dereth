@@ -346,6 +346,24 @@ impl LandContext {
             &object_slots,
             &takes,
         );
+        // Where the outdoor placements' lamps may be, for the high-fidelity presentation alone:
+        // the baked placements and the animated ones drawn as live objects. Nothing is read for
+        // them here; the lamps are looked for only while the presentation draws them. Only a
+        // device that can draw the lamps keeps the list: one made without the presentation's
+        // request, as every classic or modern start-up's is, keeps nothing.
+        #[cfg(feature = "hifi")]
+        let hifi_lamps = if super::hifi_bridge::lamps_possible(gpu) {
+            super::hifi_lamps::BlockLamps::at(
+                items.iter().map(|it| (it.0, &it.1, it.2)).chain(
+                    emitters
+                        .iter()
+                        .filter(|e| e.animated)
+                        .map(|e| (e.setup, &e.frame, e.scale)),
+                ),
+            )
+        } else {
+            super::hifi_lamps::BlockLamps::default()
+        };
         let (buildings, statics) = lbi
             .as_ref()
             .filter(|_| full_detail)
@@ -483,6 +501,8 @@ impl LandContext {
             emitters,
             hosts: Vec::new(),
             hosts_spawned: false,
+            #[cfg(feature = "hifi")]
+            hifi_lamps,
         })
     }
 
@@ -1174,6 +1194,8 @@ impl SceneDraw {
         // --- the sky, pass 0 -----------------------------------------------------------
         // opens with sky pass 0, before any block.
         if let Some(sky) = &self.sky {
+            #[cfg(feature = "hifi")]
+            gpu.hifi_mark(Mark::SkyBegin(0));
             sky.draw(
                 gpu,
                 dereth_world_render::sky::SkyPass::Before,
@@ -1182,6 +1204,8 @@ impl SceneDraw {
                 outside,
                 sky_lights,
             )?;
+            #[cfg(feature = "hifi")]
+            gpu.hifi_mark(Mark::SkyEnd(0));
         }
 
         // --- the outdoor portal machinery's per-frame input ----------------------------
@@ -1290,6 +1314,14 @@ impl SceneDraw {
                             vertices.extend_from_slice(&v.to_bytes());
                         }
                     }
+                    #[cfg(feature = "hifi")]
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    // LINT-OK: block indices are 0..=0xFE and a cell is 0..64. Not a float
+                    // conversion.
+                    gpu.hifi_mark(Mark::TerrainCell {
+                        block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
+                        cell: cell as u8,
+                    });
                     // The current mode's representation, or the other one while a switch is
                     // still converting this block.
                     let has_composites = !block.cell_keys.is_empty();
@@ -1380,6 +1412,8 @@ impl SceneDraw {
                         )?;
                         alpha_pending.clear();
                     }
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::Interiors);
                     self.draw_building_interiors(
                         ws,
                         gpu,
@@ -1391,6 +1425,8 @@ impl SceneDraw {
                         placed,
                         &mut drawn_cells,
                     )?;
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::InteriorsEnd);
                 }
                 // Then the land cell's objects: here, the interior statics that reach out into
                 // it. Statics are baked only at full detail, where a draw cell is a land cell.
@@ -1405,6 +1441,8 @@ impl SceneDraw {
                     }
                 }
             }
+            #[cfg(feature = "hifi")]
+            gpu.hifi_mark(Mark::TerrainEnd);
 
             // --- this block's scenery, buildings and static objects ---------------------
             // Block drawing draws each land cell's terrain and then
@@ -1547,6 +1585,8 @@ impl SceneDraw {
         // and before `WorldObjects` draws the objects — which is why a nearby NPC still covers the
         // weather layer even though the layer was painted with `DEPTHTEST_ALWAYS`.
         if let Some(sky) = &self.sky {
+            #[cfg(feature = "hifi")]
+            gpu.hifi_mark(Mark::SkyBegin(1));
             sky.draw(
                 gpu,
                 dereth_world_render::sky::SkyPass::After,
@@ -1555,6 +1595,8 @@ impl SceneDraw {
                 outside,
                 sky_lights,
             )?;
+            #[cfg(feature = "hifi")]
+            gpu.hifi_mark(Mark::SkyEnd(1));
         }
 
         // Building drawing's own cell walk — the interiors an outdoor viewer

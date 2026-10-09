@@ -468,7 +468,14 @@ mod imp {
                 // Otherwise retail draws the after-sky cell's objects.
                 return Ok(());
             }
+            #[cfg(feature = "hifi")]
+            let mut index = 0u32;
             for o in &self.objects {
+                #[cfg(feature = "hifi")]
+                let this = {
+                    index += 1;
+                    index - 1
+                };
                 let wanted = match pass {
                     SkyPass::Before => sky::draws_in_pass_0(
                         o.properties,
@@ -483,6 +490,11 @@ mod imp {
                 if !wanted || o.no_draw {
                     continue;
                 }
+                #[cfg(feature = "hifi")]
+                gpu.hifi_mark(dereth_render::hifi_mark::Mark::SkyObject {
+                    index: this,
+                    properties: o.properties,
+                });
                 let origin = if o.properties & 4 == 0 {
                     o.frame.origin
                 } else if o.properties & 8 == 0 {

@@ -54,6 +54,22 @@
 //!    the directory with `dereth_dat::locate_modern_dats` (the tests through `dereth_dat::testing`)
 //!    and name a file in it with `dereth_dat::ModernDat`. And no tracked file of the workspace
 //!    names a retired environment variable ([`env_name_violations`]).
+//! 11. **The optional high-fidelity presentation changes only pixels.** `dereth-render-hifi`'s
+//!     tree, with every feature and for every target, holds no workspace crate but
+//!     [`HIFI_TREE_DERE`] and none of [`HIFI_TREE_FORBIDDEN`], and its manifest declares nothing
+//!     but those and [`HIFI_DIRECT_EXTERNAL`] ([`HIFI_DEV_EXTRA`] for its tests); its code and
+//!     build script name none of [`HIFI_NAMES_NOT`] and no client-past-the-device or server
+//!     crate, and its production code not the landscape crate; `dereth-scene` is its only
+//!     dependent; only the scene's bridge ([`HIFI_BRIDGE`]) names it, and the bridge names
+//!     nothing that writes the scene or the simulation ([`BRIDGE_NAMES_NOT`],
+//!     [`BRIDGE_PREFIXES_NOT`]), makes no write through a shared reference
+//!     ([`BRIDGE_CALLS_NOT`]) and calls only reviewed reads on the scene and the world
+//!     ([`BRIDGE_READS`]); the device's seam to it ([`HIFI_SEAM`]) writes the device's own state
+//!     ([`SEAM_FIELDS_NOT_WRITTEN`]) directly only on the lines of [`SEAM_WRITES_ALLOWED`]; and
+//!     the browser and headless clients, each package built on its own for every target
+//!     ([`SHIPPED_CLIENTS`]), hold none of the presentation (the desktop client carries it, drawn
+//!     only under its Horizon interface). The scans are textual: a write made inside a method the
+//!     seam calls, or through a name the bridge gave a value of its own, is outside what they see.
 //!
 //! The dependency half reads `cargo tree`, so a rule broken two crates down is still caught. The
 //! code half is a text scan with comments stripped: the crates' docs are allowed to talk about the
@@ -780,6 +796,735 @@ fn tracked_texts(repo: &Path, dirs: &[&Path]) -> Result<Vec<(PathBuf, String)>, 
     Ok(listed_texts(repo, &git_ls_files(repo, dirs)?))
 }
 
+/// Rule 11: the optional high-fidelity presentation.
+pub const HIFI: &str = "dereth-render-hifi";
+
+/// The workspace crates the presentation's tree may hold, at any depth, with every feature on.
+pub const HIFI_TREE_DERE: &[&str] = &[
+    "dereth-render-hifi",
+    "dereth-render",
+    "dereth-render-cpu",
+    "dereth-primitives",
+    "dereth-client-contract",
+];
+
+/// The crates from outside the workspace its manifest may name as a dependency of its own.
+pub const HIFI_DIRECT_EXTERNAL: &[&str] = &["wgpu", "glam", "bytemuck", "naga", "sha2"];
+
+/// What its manifest may name for its tests alone, besides: the landscape crate, to check a hash
+/// against the landscape's own.
+pub const HIFI_DEV_EXTRA: &[&str] = &["dereth-terrain"];
+
+/// Platform crates the presentation's tree never holds.
+pub const HIFI_TREE_FORBIDDEN: &[&str] = &["winit", "cpal"];
+
+/// What the presentation's code (comments stripped, its tests and build script included) never
+/// names: the simulation, the world, the network, the scene and the game types a picture has no
+/// business with.
+pub const HIFI_NAMES_NOT: &[&str] = &[
+    "dereth_physics",
+    "dereth_animation",
+    "dereth_world_data",
+    "dereth_protocol",
+    "dereth_transport",
+    "dereth_rules",
+    "dereth_scene",
+    "WorldState",
+    "PhysicsWorld",
+    "MotionDriver",
+    "PickScene",
+    "UiRequest",
+];
+
+/// Prefixes the presentation's code never names an identifier with: every client crate past the
+/// device (`dereth_client_runtime`, `dereth_client_model`, `dereth_client_net`, ...) and every
+/// server crate.
+pub const HIFI_PREFIXES_NOT: &[&str] = &["dereth_client_", "empyrean_"];
+
+/// What the presentation's production code (`src/`) never names; its tests may, to check a hash
+/// against the landscape's own.
+pub const HIFI_SRC_NAMES_NOT: &[&str] = &["dereth_terrain"];
+
+/// The presentation's only dependent.
+pub const HIFI_DEPENDENTS: &[&str] = &["dereth-scene"];
+
+/// The one file that names the presentation's crate: the scene's bridge to it.
+pub const HIFI_BRIDGE: &str = "dereth/client/crates/scene/src/world_scene/hifi_bridge.rs";
+
+/// What the bridge never names: anything that writes the scene or the simulation or advances
+/// their state, and every way of writing through a shared reference.
+pub const BRIDGE_NAMES_NOT: &[&str] = &[
+    "borrow_mut",
+    "get_mut",
+    "iter_mut",
+    "values_mut",
+    "driver_mut",
+    "terrain_height_at",
+    "sweep_sphere",
+    "generate_scenery",
+    "apply_lighting",
+    "apply_fog",
+    "relight_blocks",
+    "tick_schedule",
+    "calc_water_depth",
+    "ran2",
+    "Cell",
+    "RefCell",
+    "UnsafeCell",
+    "OnceCell",
+    "Mutex",
+    "RwLock",
+    "as_ptr",
+    "replace_with",
+    "unsafe",
+    "transmute",
+];
+
+/// Prefixes the bridge never names an identifier with.
+pub const BRIDGE_PREFIXES_NOT: &[&str] = &["take_", "set_", "Atomic"];
+
+/// Calls the bridge never makes (matched with the whitespace taken out): the standard library's
+/// writes through a shared reference, and its swaps and takes. The bridge's own memory is handed
+/// to it as `&mut`, so it needs none of them.
+pub const BRIDGE_CALLS_NOT: &[&str] = &[
+    ".take(",
+    ".replace(",
+    ".swap(",
+    ".set(",
+    ".update(",
+    ".lock(",
+    ".write(",
+    ".store(",
+    ".fetch_",
+    ".compare_exchange",
+    "mem::take(",
+    "mem::replace(",
+    "mem::swap(",
+    "ptr::",
+];
+
+/// The receivers the bridge reads the frame from: the scene's drawing half and the world.
+pub const BRIDGE_RECEIVERS: &[&str] = &["draw", "ws"];
+
+/// The methods the bridge may call on [`BRIDGE_RECEIVERS`] directly, each reviewed to read only.
+/// A call to any other is a violation until it is reviewed and listed.
+pub const BRIDGE_READS: &[&str] = &[
+    "view_params",
+    "block_shift",
+    "world_fog_state",
+    "sky_region",
+    "weather_enabled",
+    "light_pools",
+    "viewer_cell",
+];
+
+/// This checker's own source.
+const SEAMS_SELF: &str = "tools/xtask/src/seams.rs";
+
+/// The device's seam to the presentation.
+pub const HIFI_SEAM: &str = "dereth/client/crates/render/src/wgpu/sidecar.rs";
+
+/// The device's own state the seam writes only on the lines of [`SEAM_WRITES_ALLOWED`].
+pub const SEAM_FIELDS_NOT_WRITTEN: &[&str] = &[
+    "commands",
+    "pipelines",
+    "pipeline_index",
+    "textures",
+    "texture_book",
+    "depth",
+    "draw_calls",
+    "frame_stamp",
+    "uniform_arena",
+    "vertex_arena",
+];
+
+/// The methods the seam may call on one of [`SEAM_FIELDS_NOT_WRITTEN`]: each only reads. Any
+/// other method called on one of them counts as a write.
+pub const SEAM_FIELD_READS: &[&str] = &[
+    "borrow",
+    "len",
+    "is_empty",
+    "iter",
+    "get",
+    "as_ref",
+    "as_slice",
+    "contains",
+    "contains_key",
+    "keys",
+    "values",
+    "first",
+    "last",
+    "clone",
+    "to_vec",
+    "chunks",
+    "windows",
+];
+
+/// The seam's writes to the device's state, each the exact line and how many times it may stand:
+/// a presented frame is counted, as the ordinary end of a frame counts it; the constant arena is
+/// lent to the presentation's context, which appends blocks after the recorded ones and nothing
+/// else, and is cut back to the recorded length once the frame is submitted.
+///
+/// Not covered: a write made inside one of the device's own methods the seam calls (the depth
+/// target and sampler caches it fills on first use, the arena uploads). Those are the plain
+/// frame's own calls, made the same way; this rule sees the seam's text only.
+pub const SEAM_WRITES_ALLOWED: &[(&str, usize)] = &[
+    ("self.frame_stamp += 1;", 1),
+    ("uniform_arena: &mut self.uniform_arena,", 2),
+    ("self.uniform_arena.resize(end, 0);", 1),
+    (
+        "self.uniform_arena[start..start + bytes.len()].copy_from_slice(bytes);",
+        1,
+    ),
+    ("self.uniform_arena.truncate(recorded_uniform_len);", 1),
+];
+
+/// The clients that never carry the presentation, each package built on its own, as a release
+/// builds it: the browser client and the headless one. The desktop client carries it by design.
+pub const SHIPPED_CLIENTS: &[&str] = &["dereth-web", "dereth-headless"];
+
+/// What a shipped client's feature tree never holds: the presentation, or any crate's `hifi`
+/// feature.
+pub const SHIPPED_NOT: &[&str] = &[
+    "dereth-render-hifi",
+    "dereth-render feature \"hifi\"",
+    "dereth-scene feature \"hifi\"",
+    "dereth-client-shell feature \"hifi\"",
+    "dereth-client feature \"hifi\"",
+    "dereth-horizon feature \"hifi\"",
+    "dereth-client-runtime feature \"hifi\"",
+    "dereth-client-contract feature \"hifi\"",
+];
+
+/// `text` with every comment (line, block and doc) blanked out and every newline kept, so line
+/// numbers still match. String and character literals are kept whole, so a `//` inside a string
+/// does not hide the code after it.
+pub fn blank_comments(text: &str) -> String {
+    let b: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        let next = b.get(i + 1).copied();
+        if c == '/' && next == Some('/') {
+            while i < b.len() && b[i] != '\n' {
+                out.push(' ');
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && next == Some('*') {
+            let mut depth = 0usize;
+            while i < b.len() {
+                if b[i] == '/' && b.get(i + 1) == Some(&'*') {
+                    depth += 1;
+                    out.push_str("  ");
+                    i += 2;
+                } else if b[i] == '*' && b.get(i + 1) == Some(&'/') {
+                    depth -= 1;
+                    out.push_str("  ");
+                    i += 2;
+                    if depth == 0 {
+                        break;
+                    }
+                } else {
+                    out.push(blank(b[i]));
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        let ident_before = i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == '_');
+        // A raw string: `r"..."`, `r#"..."#`, `br"..."`.
+        if c == 'r' && !ident_before || (c == 'b' && next == Some('r') && !ident_before) {
+            let start = i;
+            let mut j = i + if c == 'b' { 2 } else { 1 };
+            let mut hashes = 0;
+            while b.get(j) == Some(&'#') {
+                hashes += 1;
+                j += 1;
+            }
+            if b.get(j) == Some(&'"') {
+                j += 1;
+                loop {
+                    match b.get(j) {
+                        None => break,
+                        Some('"') if (1..=hashes).all(|h| b.get(j + h) == Some(&'#')) => {
+                            j += 1 + hashes;
+                            break;
+                        }
+                        Some(_) => j += 1,
+                    }
+                }
+                out.extend(&b[start..j.min(b.len())]);
+                i = j;
+                continue;
+            }
+        }
+        if c == '"' {
+            out.push(c);
+            i += 1;
+            while i < b.len() {
+                out.push(b[i]);
+                if b[i] == '\\' {
+                    if let Some(&e) = b.get(i + 1) {
+                        out.push(e);
+                    }
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+                if b[i - 1] == '"' {
+                    break;
+                }
+            }
+            continue;
+        }
+        // A character literal (`'"'`, `'\''`); a lifetime is left alone.
+        if c == '\'' {
+            let len = match (next, b.get(i + 2)) {
+                (Some('\\'), _) => b[i + 2..].iter().position(|&x| x == '\'').map(|p| p + 3),
+                (Some(_), Some('\'')) => Some(3),
+                _ => None,
+            };
+            if let Some(len) = len {
+                let end = (i + len).min(b.len());
+                out.extend(&b[i..end]);
+                i = end;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// Whether `code` names an identifier starting with `prefix`.
+fn names_prefix(code: &str, prefix: &str) -> bool {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let mut from = 0;
+    while let Some(at) = code[from..].find(prefix) {
+        let start = from + at;
+        let before = code[..start].chars().next_back();
+        if !before.is_some_and(is_ident) {
+            return true;
+        }
+        from = start + prefix.len();
+    }
+    false
+}
+
+/// The identifier at the start of `s`.
+fn leading_ident(s: &str) -> &str {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
+/// Whether a workspace crate's name is one of `members`, or looks like a workspace crate's, so a
+/// listing that failed to name one still cannot let it through.
+fn is_workspace_crate(name: &str, members: &[String]) -> bool {
+    members.iter().any(|m| m == name)
+        || name.starts_with("dereth-")
+        || name.starts_with("empyrean-")
+}
+
+/// Rule 11 over the presentation's tree (every feature, every target, normal and build edges):
+/// no workspace crate outside [`HIFI_TREE_DERE`] (`members` names the workspace's crates), and
+/// none of [`HIFI_TREE_FORBIDDEN`].
+pub fn hifi_tree_violations(tree: &[TreeEntry], members: &[String]) -> Vec<String> {
+    let mut out = tree_violations(HIFI, tree, HIFI_TREE_FORBIDDEN);
+    for e in tree {
+        if is_workspace_crate(&e.name, members) && !HIFI_TREE_DERE.contains(&e.name.as_str()) {
+            out.push(format!(
+                "{HIFI}'s tree contains `{}` (depth {}); allowed: {}",
+                e.name,
+                e.depth,
+                HIFI_TREE_DERE.join(", ")
+            ));
+        }
+    }
+    dedup(out)
+}
+
+/// One dependency a manifest declares: its package name, and whether it is for tests alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestDep {
+    pub name: String,
+    pub dev: bool,
+}
+
+/// Rule 11 over what the presentation's manifest declares, whatever the features: only
+/// [`HIFI_TREE_DERE`] and [`HIFI_DIRECT_EXTERNAL`], and for its tests [`HIFI_DEV_EXTRA`] too.
+pub fn hifi_manifest_violations(deps: &[ManifestDep]) -> Vec<String> {
+    let out = deps
+        .iter()
+        .filter(|d| {
+            let n = d.name.as_str();
+            !(HIFI_TREE_DERE.contains(&n)
+                || HIFI_DIRECT_EXTERNAL.contains(&n)
+                || (d.dev && HIFI_DEV_EXTRA.contains(&n)))
+        })
+        .map(|d| {
+            format!(
+                "{HIFI} declares a{} dependency on `{}`; allowed: {}, {}{}",
+                if d.dev { " test" } else { "" },
+                d.name,
+                HIFI_TREE_DERE.join(", "),
+                HIFI_DIRECT_EXTERNAL.join(", "),
+                if d.dev {
+                    format!(", {}", HIFI_DEV_EXTRA.join(", "))
+                } else {
+                    String::new()
+                }
+            )
+        })
+        .collect();
+    dedup(out)
+}
+
+/// Rule 11 over the presentation's code (`files` relative to the workspace): none of
+/// [`HIFI_NAMES_NOT`] or [`HIFI_PREFIXES_NOT`] anywhere, and none of [`HIFI_SRC_NAMES_NOT`] in
+/// `src/` or the build script. Comments are blanked first and strings kept, so neither hides a
+/// name.
+pub fn hifi_code_violations(files: &[(PathBuf, String)]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (file, text) in files {
+        let in_src = file.components().any(|c| c.as_os_str() == "src")
+            || file.file_name().is_some_and(|n| n == "build.rs");
+        let code_text = blank_comments(text);
+        for (i, (code, line)) in code_text.lines().zip(text.lines()).enumerate() {
+            let names = HIFI_NAMES_NOT
+                .iter()
+                .chain(HIFI_SRC_NAMES_NOT.iter().filter(|_| in_src));
+            for n in names {
+                if names_ident(code, n) {
+                    out.push(format!(
+                        "{}:{}: names `{n}`: {}",
+                        file.display(),
+                        i + 1,
+                        line.trim()
+                    ));
+                }
+            }
+            for p in HIFI_PREFIXES_NOT {
+                if names_prefix(code, p) {
+                    out.push(format!(
+                        "{}:{}: names `{p}...`: {}",
+                        file.display(),
+                        i + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Rule 11 over the presentation's direct dependents: exactly [`HIFI_DEPENDENTS`].
+pub fn hifi_dependent_violations(dependents: &[TreeEntry]) -> Vec<String> {
+    let out = dependents
+        .iter()
+        .filter(|e| e.depth == 1 && !HIFI_DEPENDENTS.contains(&e.name.as_str()))
+        .map(|e| {
+            format!(
+                "`{}` depends on {HIFI}; only {} may",
+                e.name,
+                HIFI_DEPENDENTS.join(", ")
+            )
+        })
+        .collect();
+    dedup(out)
+}
+
+/// The methods called directly on `receiver` in `squeezed` (code with the whitespace taken out):
+/// each `receiver.name(` where `receiver` is a whole identifier.
+fn direct_calls<'a>(squeezed: &'a str, receiver: &str) -> Vec<&'a str> {
+    let is_ident = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let needle = format!("{receiver}.");
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = squeezed[from..].find(&needle) {
+        let start = from + at;
+        let after = start + needle.len();
+        from = after;
+        if squeezed[..start].chars().next_back().is_some_and(is_ident) {
+            continue;
+        }
+        let name = leading_ident(&squeezed[after..]);
+        if !name.is_empty() && squeezed[after + name.len()..].starts_with('(') {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// Rule 11 over the workspace's Rust files (`files` relative to the workspace, the presentation's
+/// own excluded): only [`HIFI_BRIDGE`] names the presentation's crate; the bridge names none of
+/// [`BRIDGE_NAMES_NOT`] or [`BRIDGE_PREFIXES_NOT`], makes none of [`BRIDGE_CALLS_NOT`], and calls
+/// nothing on the scene or the world but [`BRIDGE_READS`].
+pub fn hifi_bridge_violations(files: &[(PathBuf, String)]) -> Vec<String> {
+    let unix = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    let mut out = Vec::new();
+    for (file, text) in files {
+        let name = unix(file);
+        // The presentation itself, and this checker, whose calibration plants every violation.
+        if name.starts_with("dereth/client/crates/render-hifi/") || name == SEAMS_SELF {
+            continue;
+        }
+        let bridge = name == HIFI_BRIDGE;
+        let code_text = blank_comments(text);
+        for (i, (code, line)) in code_text.lines().zip(text.lines()).enumerate() {
+            let mut flag = |what: String| {
+                out.push(format!(
+                    "{}:{}: {what}: {}",
+                    file.display(),
+                    i + 1,
+                    line.trim()
+                ));
+            };
+            if !bridge {
+                if names_ident(code, "dereth_render_hifi") {
+                    flag(format!("names `dereth_render_hifi` outside {HIFI_BRIDGE}"));
+                }
+                continue;
+            }
+            for n in BRIDGE_NAMES_NOT {
+                if names_ident(code, n) {
+                    flag(format!("the bridge names `{n}`"));
+                }
+            }
+            for p in BRIDGE_PREFIXES_NOT {
+                if names_prefix(code, p) {
+                    flag(format!("the bridge names `{p}...`"));
+                }
+            }
+            let squeezed: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+            for c in BRIDGE_CALLS_NOT {
+                if squeezed.contains(c) {
+                    flag(format!("the bridge calls `{c}`"));
+                }
+            }
+            for receiver in BRIDGE_RECEIVERS {
+                for m in direct_calls(&squeezed, receiver) {
+                    if !BRIDGE_READS.contains(&m) {
+                        flag(format!(
+                            "the bridge calls `{receiver}.{m}`, which is not one of the reviewed \
+                             reads"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether the code after a protected field (`rest`, whitespace taken out) writes it: an
+/// assignment, a compound assignment, a method not in [`SEAM_FIELD_READS`], or either after an
+/// index.
+fn writes_after_field(rest: &str) -> bool {
+    let rest = if rest.starts_with('[') {
+        let mut depth = 0usize;
+        let mut end = rest.len();
+        for (k, c) in rest.char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = k + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        &rest[end..]
+    } else {
+        rest
+    };
+    if rest.starts_with('=') && !rest.starts_with("==") {
+        return true;
+    }
+    if ["+=", "-=", "*=", "/=", "|=", "&=", "^=", "<<=", ">>="]
+        .iter()
+        .any(|op| rest.starts_with(op))
+    {
+        return true;
+    }
+    if let Some(after_dot) = rest.strip_prefix('.') {
+        let m = leading_ident(after_dot);
+        if !m.is_empty() && after_dot[m.len()..].starts_with('(') {
+            return !SEAM_FIELD_READS.contains(&m);
+        }
+    }
+    false
+}
+
+/// Rule 11 over the device's seam (`text`, [`HIFI_SEAM`]'s contents): no write to any of
+/// [`SEAM_FIELDS_NOT_WRITTEN`] (an assignment, a method that is not a read, or `&mut` on one),
+/// but on the lines of [`SEAM_WRITES_ALLOWED`], each at most as often as it is allowed.
+pub fn hifi_seam_violations(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut used = vec![0usize; SEAM_WRITES_ALLOWED.len()];
+    let code_text = blank_comments(text);
+    for (i, (code, line)) in code_text.lines().zip(text.lines()).enumerate() {
+        if let Some(k) = SEAM_WRITES_ALLOWED
+            .iter()
+            .position(|(allowed, _)| code.trim() == *allowed)
+        {
+            used[k] += 1;
+            if used[k] <= SEAM_WRITES_ALLOWED[k].1 {
+                continue;
+            }
+        }
+        let squeezed: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+        for f in SEAM_FIELDS_NOT_WRITTEN {
+            let field = format!("self.{f}");
+            let mut from = 0;
+            while let Some(at) = squeezed[from..].find(&field) {
+                let start = from + at;
+                let end = start + field.len();
+                from = end;
+                let rest = &squeezed[end..];
+                let next_ident = rest
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                if next_ident {
+                    continue;
+                }
+                if writes_after_field(rest) || squeezed[..start].ends_with("&mut") {
+                    out.push(format!(
+                        "{HIFI_SEAM}:{}: writes the device's `{f}`: {}",
+                        i + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Rule 11 over one shipped client's feature tree (`lines`, `cargo tree -e features` for
+/// `package` alone with no prefix): none of [`SHIPPED_NOT`].
+pub fn shipped_client_violations(package: &str, lines: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in lines.lines() {
+        let line = line.trim();
+        for n in SHIPPED_NOT {
+            let hit = if n.contains(' ') {
+                line.starts_with(n)
+            } else {
+                line.split_whitespace().next() == Some(n)
+            };
+            if hit {
+                out.push(format!(
+                    "`{package}`, built on its own, holds the high-fidelity presentation: {line}"
+                ));
+            }
+        }
+    }
+    dedup(out)
+}
+
+/// The workspace's crate names, and the dependencies `krate`'s manifest declares, from
+/// `cargo metadata` (no resolution, so every optional dependency and every target is listed).
+fn workspace_manifest(ws: &Path, krate: &str) -> Result<(Vec<String>, Vec<ManifestDep>), String> {
+    let out = Command::new("cargo")
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--offline",
+        ])
+        .current_dir(ws)
+        .output()
+        .map_err(|e| format!("failed to launch cargo metadata: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let meta: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
+    let packages = meta["packages"]
+        .as_array()
+        .ok_or("cargo metadata: no packages")?;
+    let members: Vec<String> = packages
+        .iter()
+        .filter_map(|p| p["name"].as_str().map(str::to_owned))
+        .collect();
+    let deps = packages
+        .iter()
+        .find(|p| p["name"].as_str() == Some(krate))
+        .ok_or_else(|| format!("cargo metadata: no package {krate}"))?["dependencies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| {
+            Some(ManifestDep {
+                name: d["name"].as_str()?.to_owned(),
+                dev: d["kind"].as_str() == Some("dev"),
+            })
+        })
+        .collect();
+    Ok((members, deps))
+}
+
+/// `cargo tree -e features` for `package` alone, as a release builds it (its normal and build
+/// dependencies, not its tests'), as lines with no prefix.
+fn feature_tree(ws: &Path, package: &str) -> Result<String, String> {
+    let out = Command::new("cargo")
+        .args(["tree", "-e", "features,normal,build", "-p", package])
+        .args([
+            "--target",
+            "all",
+            "--prefix",
+            "none",
+            "-f",
+            "{p}",
+            "--offline",
+        ])
+        .current_dir(ws)
+        .output()
+        .map_err(|e| format!("failed to launch cargo tree: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "cargo tree -e features -p {package} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// `cargo tree` with `args` before the output format.
+fn cargo_tree_args(ws: &Path, args: &[&str]) -> Result<Vec<TreeEntry>, String> {
+    let out = Command::new("cargo")
+        .arg("tree")
+        .args(args)
+        .args(["--prefix", "depth", "-f", "{p}", "--offline"])
+        .current_dir(ws)
+        .output()
+        .map_err(|e| format!("failed to launch cargo tree: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "cargo tree {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(parse_tree(&String::from_utf8_lossy(&out.stdout)))
+}
+
 /// Every seam check, as rows for a table.
 pub fn reports() -> Vec<Report> {
     let ws = workspace_root();
@@ -941,6 +1686,76 @@ pub fn reports() -> Vec<Report> {
     // Tracked files only: what the tree says, not what a working copy happens to hold (a local,
     // untracked configuration file may name anything).
     let env_names = tracked_texts(&ws, &[Path::new(".")]).map(|t| env_name_violations(&t));
+    // Rule 11: the high-fidelity presentation changes only pixels.
+    let hifi_manifest = workspace_manifest(&ws, HIFI);
+    let members = hifi_manifest
+        .as_ref()
+        .map(|(m, _)| m.clone())
+        .unwrap_or_default();
+    let hifi_tree = cargo_tree_args(
+        &ws,
+        &[
+            "-e",
+            "normal,build",
+            "--all-features",
+            "--target",
+            "all",
+            "-p",
+            HIFI,
+        ],
+    )
+    .and_then(|t| {
+        let (_, deps) = hifi_manifest.as_ref().map_err(Clone::clone)?;
+        let mut v = hifi_tree_violations(&t, &members);
+        v.extend(hifi_manifest_violations(deps));
+        Ok(v)
+    });
+    let mut hifi_files = crate_sources(&ws, HIFI);
+    let build_script = crate::util::crate_dir(&ws, HIFI).join("build.rs");
+    if let Ok(text) = std::fs::read_to_string(&build_script) {
+        let rel = build_script
+            .strip_prefix(&ws)
+            .map(Path::to_path_buf)
+            .unwrap_or(build_script);
+        hifi_files.push((rel, text));
+    }
+    let hifi_code = if hifi_files.is_empty() {
+        Err(format!("no sources found for {HIFI}"))
+    } else {
+        Ok(hifi_code_violations(&hifi_files))
+    };
+    let hifi_dependents = cargo_tree_args(
+        &ws,
+        &[
+            "--workspace",
+            "--all-features",
+            "-e",
+            "normal,build,dev",
+            "-i",
+            HIFI,
+            "--depth",
+            "1",
+        ],
+    )
+    .map(|t| hifi_dependent_violations(&t));
+    let hifi_bridge = if workspace_rs
+        .iter()
+        .any(|(p, _)| p.to_string_lossy().replace('\\', "/") == HIFI_BRIDGE)
+    {
+        Ok(hifi_bridge_violations(&workspace_rs))
+    } else {
+        Err(format!("{HIFI_BRIDGE} is missing"))
+    };
+    let hifi_seam = std::fs::read_to_string(ws.join(HIFI_SEAM))
+        .map(|t| hifi_seam_violations(&t))
+        .map_err(|e| format!("{HIFI_SEAM}: {e}"));
+    let shipped = SHIPPED_CLIENTS
+        .iter()
+        .map(|p| feature_tree(&ws, p).map(|t| shipped_client_violations(p, &t)))
+        .try_fold(Vec::new(), |mut all, v| {
+            all.extend(v?);
+            Ok::<_, String>(all)
+        });
 
     vec![
         row(
@@ -1069,6 +1884,49 @@ pub fn reports() -> Vec<Report> {
             "seam: retired variables",
             env_names,
             "the workspace names no retired environment variable".to_owned(),
+        ),
+        row(
+            "seam: high-fidelity deps",
+            hifi_tree,
+            format!(
+                "{HIFI} reaches no workspace crate but {}, none of {}, and declares only those \
+                 and {}",
+                HIFI_TREE_DERE.join(", "),
+                HIFI_TREE_FORBIDDEN.join(", "),
+                HIFI_DIRECT_EXTERNAL.join(", ")
+            ),
+        ),
+        row(
+            "seam: high-fidelity code",
+            hifi_code,
+            "names no simulation, world, network, server or scene crate or type".to_owned(),
+        ),
+        row(
+            "seam: high-fidelity dependents",
+            hifi_dependents,
+            format!("only {} depends on {HIFI}", HIFI_DEPENDENTS.join(", ")),
+        ),
+        row(
+            "seam: high-fidelity bridge",
+            hifi_bridge,
+            format!(
+                "only {HIFI_BRIDGE} names it; it writes nothing through a shared reference and \
+                 calls only reviewed reads on the scene and the world"
+            ),
+        ),
+        row(
+            "seam: high-fidelity seam writes",
+            hifi_seam,
+            "the device's seam writes the device's state directly only on its allowed lines"
+                .to_owned(),
+        ),
+        row(
+            "seam: browser and headless clients without high fidelity",
+            shipped,
+            format!(
+                "{}, each built on its own for every target, hold no high-fidelity presentation",
+                SHIPPED_CLIENTS.join(", ")
+            ),
         ),
     ]
 }
@@ -1567,5 +2425,205 @@ mod tests {
                 .to_owned(),
         )];
         assert!(env_name_violations(&clean).is_empty());
+    }
+
+    #[test]
+    fn the_high_fidelity_presentation_reaches_only_the_device_and_is_reached_only_by_the_scene() {
+        let members: Vec<String> = ["dereth-render", "empyrean-world", "xtask"]
+            .iter()
+            .map(|m| (*m).to_owned())
+            .collect();
+        let clean = tree(&[
+            (0, "dereth-render-hifi"),
+            (1, "dereth-render"),
+            (2, "dereth-render-cpu"),
+            (2, "dereth-client-contract"),
+            (3, "dereth-primitives"),
+            (1, "wgpu"),
+        ]);
+        assert!(hifi_tree_violations(&clean, &members).is_empty());
+        let reaching = tree(&[
+            (0, "dereth-render-hifi"),
+            (1, "dereth-render"),
+            (2, "dereth-physics"),
+            (1, "winit"),
+            (1, "empyrean-world"),
+            (2, "xtask"),
+        ]);
+        assert_eq!(hifi_tree_violations(&reaching, &members).len(), 4);
+        // A server crate is refused even when the workspace listing could not be read.
+        assert_eq!(hifi_tree_violations(&reaching, &[]).len(), 3);
+
+        let only_scene = tree(&[(0, "dereth-render-hifi"), (1, "dereth-scene")]);
+        assert!(hifi_dependent_violations(&only_scene).is_empty());
+        let another = tree(&[
+            (0, "dereth-render-hifi"),
+            (1, "dereth-scene"),
+            (1, "dereth-client"),
+            (2, "dereth-x"),
+        ]);
+        assert_eq!(hifi_dependent_violations(&another).len(), 1);
+    }
+
+    #[test]
+    fn the_high_fidelity_manifest_declares_only_the_device_and_its_listed_crates() {
+        let dep = |name: &str, dev: bool| ManifestDep {
+            name: name.to_owned(),
+            dev,
+        };
+        let clean = vec![
+            dep("dereth-render", false),
+            dep("dereth-render-cpu", false),
+            dep("dereth-primitives", false),
+            dep("wgpu", false),
+            dep("glam", false),
+            dep("naga", true),
+            dep("dereth-terrain", true),
+        ];
+        assert!(hifi_manifest_violations(&clean).is_empty());
+        let declaring = vec![
+            dep("empyrean-world", false),
+            dep("serde", false),
+            dep("dereth-terrain", false),
+            dep("dereth-physics", true),
+        ];
+        assert_eq!(
+            hifi_manifest_violations(&declaring).len(),
+            4,
+            "{:#?}",
+            hifi_manifest_violations(&declaring)
+        );
+    }
+
+    #[test]
+    fn the_high_fidelity_code_names_no_simulation_and_its_tests_alone_the_landscape() {
+        let files = vec![
+            (
+                PathBuf::from("dereth/client/crates/render-hifi/src/a.rs"),
+                "use dereth_render::wgpu::sidecar::Mark;\n\
+                 // the scene's WorldState is not named here\n\
+                 fn f(w: &WorldState) {}\n\
+                 let r = dereth_client_runtime::x();\n\
+                 let h = dereth_terrain::hash(1);\n\
+                 let s = my_dereth_scene_name;\n\
+                 let u = \"a//b\"; dereth_physics::x();\n\
+                 /* dereth_physics, in a block comment */\n\
+                 let w = empyrean_world::Map::new();\n"
+                    .to_owned(),
+            ),
+            (
+                PathBuf::from("dereth/client/crates/render-hifi/tests/cpu/b.rs"),
+                "let h = dereth_terrain::hash(1);\nuse dereth_physics::x;\n".to_owned(),
+            ),
+            (
+                PathBuf::from("dereth/client/crates/render-hifi/build.rs"),
+                "fn main() { let _ = dereth_terrain::x; dereth_protocol::y(); }\n".to_owned(),
+            ),
+        ];
+        let found = hifi_code_violations(&files);
+        assert_eq!(found.len(), 8, "{found:#?}");
+    }
+
+    #[test]
+    fn comments_are_blanked_and_strings_kept_line_for_line() {
+        let text = "a // b\n\"x//y\" c\n/* d\ne */ f\nlet q = '\"'; g // h\n\
+                    let r = r#\"s//\"#; i\nlet z = '\\''; j // k\nfn l<'a>() {} // m\n";
+        let blanked = blank_comments(text);
+        assert_eq!(blanked.lines().count(), text.lines().count());
+        let words: Vec<&str> = blanked.split_whitespace().collect();
+        for kept in ["a", "\"x//y\"", "c", "f", "g", "i", "j", "l<'a>()"] {
+            assert!(words.contains(&kept), "{kept} lost from {blanked:?}");
+        }
+        for gone in ["b", "d", "e", "h", "k", "m"] {
+            assert!(!words.contains(&gone), "{gone} kept in {blanked:?}");
+        }
+    }
+
+    #[test]
+    fn only_the_bridge_names_the_presentation_and_the_bridge_only_reads() {
+        let files = vec![
+            (
+                PathBuf::from(HIFI_BRIDGE),
+                "use dereth_render_hifi::HifiRenderer;\n\
+                 let s = settings(&prefs);\n\
+                 let mut sh = shadow.take();\n\
+                 let w = world.borrow_mut();\n\
+                 draw.set_weather_enabled(true);\n\
+                 let p = physics.terrain_height_at(x);\n\
+                 // never borrow_mut here\n\
+                 draw.frame_pick_candidates.take();\n\
+                 draw.selected_part_drawn.set(true);\n\
+                 let c = std::mem::take(&mut x);\n\
+                 draw.viewcone_check_object_id.replace(0);\n\
+                 let v = draw.view_params(ws, 1, 1);\n\
+                 draw.rebuild();\n\
+                 static N: AtomicU32 = AtomicU32::new(0);\n\
+                 let s = \"//\"; draw.selected_part_drawn.set(true);\n\
+                 /* draw.rebuild(); */\n"
+                    .to_owned(),
+            ),
+            (
+                PathBuf::from("dereth/client/crates/scene/src/world_scene/views.rs"),
+                "hifi_bridge::publish(self, &mut self.hifi.borrow_mut(), ws, gpu);\n\
+                 let r = dereth_render_hifi::HifiRenderer::new(s);\n"
+                    .to_owned(),
+            ),
+            (
+                PathBuf::from("dereth/client/crates/render-hifi/src/lib.rs"),
+                "pub use dereth_render_hifi as me;\n".to_owned(),
+            ),
+        ];
+        let found = hifi_bridge_violations(&files);
+        assert_eq!(found.len(), 13, "{found:#?}");
+    }
+
+    #[test]
+    fn the_device_seam_writes_the_device_state_only_on_its_allowed_lines() {
+        let clean = "let n = self.commands.borrow().len();\n\
+                     if self.frame_stamp == 3 {}\n\
+                     self.frame_stamp += 1;\n\
+                     let v = self.depth_view();\n\
+                     self.sidecar = Some(i);\n\
+                     let r = self.commands[0..1].iter();\n\
+                     let n = self.uniform_arena.len();\n\
+                     uniform_arena: &mut self.uniform_arena,\n\
+                     uniform_arena: &mut self.uniform_arena,\n\
+                     self.uniform_arena.truncate(recorded_uniform_len);\n";
+        assert!(
+            hifi_seam_violations(clean).is_empty(),
+            "{:#?}",
+            hifi_seam_violations(clean)
+        );
+        let writes = "self.commands.borrow_mut().push(c);\n\
+                      self.draw_calls += 1;\n\
+                      self.textures.insert(1, t);\n\
+                      let p = &mut self.pipelines;\n\
+                      self.depth = None;\n\
+                      self.frame_stamp += 1;\n\
+                      self.frame_stamp += 1;\n\
+                      self.uniform_arena.truncate(0);\n\
+                      self.uniform_arena.truncate(recorded_uniform_len);\n\
+                      self.uniform_arena.truncate(recorded_uniform_len);\n\
+                      self.vertex_arena.clear();\n\
+                      self.pipelines[0] = p;\n\
+                      self.textures.retain(|_| true);\n\
+                      uniform_arena: &mut self.uniform_arena,\n\
+                      uniform_arena: &mut self.uniform_arena,\n\
+                      uniform_arena: &mut self.uniform_arena,\n";
+        let found = hifi_seam_violations(writes);
+        assert_eq!(found.len(), 12, "{found:#?}");
+    }
+
+    #[test]
+    fn a_shipped_client_holding_the_presentation_is_refused() {
+        let clean = "dereth-render v0.0.0 (here)\n\
+                     dereth-render feature \"mock\"\n\
+                     dereth-scene feature \"wgpu\"\n";
+        assert!(shipped_client_violations("dereth-client", clean).is_empty());
+        let holding = "dereth-render v0.0.0 (here)\n\
+                       dereth-render feature \"hifi\"\n\
+                       dereth-render-hifi v0.0.0 (there)\n\
+                       dereth-scene feature \"hifi\"\n";
+        assert_eq!(shipped_client_violations("dereth-client", holding).len(), 3);
     }
 }

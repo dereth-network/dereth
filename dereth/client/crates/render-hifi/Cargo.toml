@@ -1,0 +1,38 @@
+[package]
+name = "dereth-render-hifi"
+description = "The optional high-fidelity presentation: draws the world a second time, from the frame the renderer recorded, with modern lighting, sun shadows, bounced light, occlusion, lamps and a physical sky, changing pixels only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
+autotests = false
+
+[dependencies]
+# The frame's recording and the seam it is read through, on the `wgpu` device.
+dereth-render = { workspace = true, features = ["hifi"] }
+# The shared shader source the derived pipelines start from, and the CPU-side pipeline keys.
+dereth-render-cpu.workspace = true
+dereth-primitives.workspace = true
+wgpu = "30"
+glam.workspace = true
+
+[dev-dependencies]
+# Validates every shader this crate carries, without a device.
+naga = { version = "30", features = ["wgsl-in"] }
+# Pins the ordinary shader text the derived shaders start from.
+sha2.workspace = true
+# The landscape's own diagonal and drawn planes, which the landscape field is checked against.
+dereth-terrain = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"

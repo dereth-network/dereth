@@ -715,6 +715,11 @@ impl HorizonFrontEnd {
         let in_game = self.in_gameplay();
         let chat = hold_early_chat(&mut self.early_chat, in_game, entering, chat);
         let mut state = crate::state::snapshot(cx, chat);
+        state.renderers = cx.renderer_status();
+        #[cfg(feature = "hifi")]
+        {
+            state.hifi = cx.hifi_availability();
+        }
         state.camera_heading = cx.camera_heading().unwrap_or(state.heading);
         self.patch.follow(&cx.pregame().ddd);
         state.patch_progress = self

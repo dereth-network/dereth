@@ -467,6 +467,11 @@ Renderer=d3d12
     let argv = vec!["--renderer".to_string(), "vulkan".to_string()];
     let c = Config::from_args_and_prefs_with(&argv, &p).unwrap();
     assert_eq!(c.renderer, Some(Backend::Vulkan));
+    // Each source is kept apart too, for the options page's renderer choice.
+    assert_eq!(c.renderer_preference, Some(Backend::D3d12));
+    assert_eq!(c.renderer_argument, Some(Backend::Vulkan));
+    let c = Config::from_args_and_prefs_with(&[], &p).unwrap();
+    assert_eq!(c.renderer_argument, None);
 
     // A preference naming nothing this client knows leaves the choice open rather than
     // failing the start-up, as an unparsable numeric preference leaves its default standing.

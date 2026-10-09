@@ -193,12 +193,13 @@ impl<S: Shell> App<S> {
         // Apply a display request at that same boundary; the event-loop poll remains for
         // Alt+Enter, startup and live window events that do not originate in this drain.
         self.apply_changed_display_presentation(shell);
-        // The landscape options are also the next world's: a choice made before the world is
-        // drawn (at character select) or kept for the next login is recorded in the scene that
-        // will be loaded. A drawn world takes the change live, below.
+        // The landscape options, and the high-fidelity presentation's, are also the next
+        // world's: a choice made before the world is drawn (at character select) or kept for the
+        // next login is recorded in the scene that will be loaded. A drawn world takes the change
+        // live, below.
         for r in &unowned {
             if let dereth_client_contract::UiRequest::SetPreference(name, value) = r {
-                if dereth_client_contract::options::landscape::Landscape::of(name).is_some() {
+                if super::kept_for_the_next_world(name) {
                     for scene in [self.pending_scene.as_mut(), self.scene_config.as_mut()]
                         .into_iter()
                         .flatten()
@@ -208,6 +209,15 @@ impl<S: Shell> App<S> {
                 }
             }
         }
+        // `Render.Renderer` applies at the next start: the store holds the choice and the save at
+        // exit writes it, so nothing here takes it.
+        let unowned: Vec<dereth_client_contract::UiRequest> = unowned
+            .into_iter()
+            .filter(|r| {
+                !matches!(r, dereth_client_contract::UiRequest::SetPreference(name, _)
+                    if name.eq_ignore_ascii_case(dereth_client_contract::options::renderer::RENDERER))
+            })
+            .collect();
         let unowned = self.present.apply_render_preference_requests(unowned);
         let unowned: Vec<dereth_client_contract::UiRequest> = unowned
             .into_iter()

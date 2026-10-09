@@ -31,6 +31,12 @@ mod views;
 pub use views::*;
 #[path = "cells.rs"]
 mod cells;
+#[cfg(feature = "hifi")]
+#[path = "hifi_bridge.rs"]
+mod hifi_bridge;
+#[cfg(feature = "hifi")]
+#[path = "hifi_lamps.rs"]
+pub(crate) mod hifi_lamps;
 #[path = "marker.rs"]
 mod marker;
 #[path = "objects.rs"]
@@ -50,6 +56,8 @@ use dereth_render::device::{
     Gpu, MergeSource, PerDrawConstants, PerFrameConstants, TerrainMergeJob, TerrainMergeOverlay,
     TerrainSplat, TerrainSplatOverlay, TextureSlot,
 };
+#[cfg(feature = "hifi")]
+use dereth_render::hifi_mark::Mark;
 use dereth_render::palette::ExpandedPalette;
 use dereth_render::pso::{PipelineKey, SurfaceContext};
 use dereth_render::surface::{Surface as RenderState, SurfaceHandler};
@@ -465,6 +473,21 @@ struct BlockDraw {
     hosts_spawned: bool,
     /// [`BakedObjects::objects_visual`], kept for the release.
     objects_visual: bool,
+    /// Which build of the block this is, for the high-fidelity presentation's retained copy.
+    #[cfg(feature = "hifi")]
+    hifi_generation: u32,
+    /// The lamps of the block's outdoor placements, block-local, for the high-fidelity
+    /// presentation alone: looked for only while it draws them.
+    #[cfg(feature = "hifi")]
+    hifi_lamps: hifi_lamps::BlockLamps,
+}
+
+/// The number the next block build takes, so the high-fidelity presentation tells a block whose
+/// contents were rebuilt apart from the one it replaced.
+#[cfg(feature = "hifi")]
+fn next_hifi_generation() -> u32 {
+    static GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Which block a window slot holds and how `generate` must build it: the landblock's
@@ -506,6 +529,9 @@ struct BakedObjects {
     /// Whether another era's look was set when the block was baked ([`LandContext::objects`]);
     /// each batch and interior cell says whether its own links are that look's.
     objects_visual: bool,
+    /// Where the lamps of the outdoor placements may be, for the high-fidelity presentation.
+    #[cfg(feature = "hifi")]
+    hifi_lamps: hifi_lamps::BlockLamps,
 }
 
 /// One resident block's bake as [`WorldScene::block_bake`] reports it.
@@ -1063,6 +1089,9 @@ pub struct SceneDraw {
     /// that differs does any work. [`SceneConfig::render`] holds the current values and this is the
     /// shadow bank, so [`WorldScene::update_from_preferences`] is the same poll.
     render_shadow: dereth_client_runtime::render_prefs::RenderPreferences,
+    /// What the high-fidelity bridge remembers between frames.
+    #[cfg(feature = "hifi")]
+    hifi: RefCell<hifi_bridge::Shadow>,
     /// The four generated detail surfaces and their tiling values.
     detail: dereth_world_render::detail::DetailTexturing,
     /// The device texture each generated detail surface wraps, loaded from database type
@@ -1115,6 +1144,9 @@ pub struct SceneDraw {
     /// Two light pools: the static pool is cleared and rebuilt from every
     /// visible cell; the dynamic pool is rebuilt whenever the viewer is set.
     light_pools: LightPools,
+    /// Whether the light that follows the player joins the dynamic pool each frame: always in
+    /// the client. See [`Self::set_viewer_light`].
+    viewer_light: bool,
     /// What the static pool was last built for: the player's cell id and the resident block
     /// set. Retail rebuilds on the cell change alone; this build's blocks can arrive after
     /// the cell did, so a new resident block is a rebuild too (a superset of retail's

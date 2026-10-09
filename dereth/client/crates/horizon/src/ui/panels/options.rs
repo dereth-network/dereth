@@ -7,7 +7,11 @@
 //!   the main tab, its opacity popped out, kept with this interface's settings, and its chat
 //!   window's message filter, which the server keeps: the same filter the tab's own menu sets.
 //! * **Client**: the profile's settings: display, graphics, sound, camera and the interface choice,
-//!   with this interface's scale beside the interface choice.
+//!   with this interface's scale beside the interface choice; in a build with the experimental
+//!   rendering effects, their boxes last, under a heading of their own with a warning, the
+//!   status of the device they draw on, and a greyed box with its reason where what it needs is
+//!   off. Before them, wherever there are renderers to choose from (not in the browser), the
+//!   renderer the next start comes up on, with the one in use now under it.
 //! * **Controls**: how the movement keys move the character and which way the pointer turns the
 //!   camera.
 //! * **Key Bindings**: every bindable action, rebound by pressing the new key.
@@ -16,7 +20,10 @@
 //! the shared store's or the game's, so a change made in another interface shows here. A choice of
 //! several is a dropdown box whose list opens over the window.
 
+#[cfg(feature = "hifi")]
+use dereth_client_contract::options::fidelity;
 use dereth_client_contract::options::interface::Interface;
+use dereth_client_contract::options::renderer;
 use dereth_client_contract::options::sheet::{self, PageId, Row, Value};
 use dereth_client_contract::options::store;
 use dereth_client_contract::view::PrefValue;
@@ -357,7 +364,9 @@ Press Escape to leave it as it is.",
                             ));
                         }
                     }
-                    Line::Scale => {}
+                    Line::Scale | Line::Renderer | Line::RendererNotice => {}
+                    #[cfg(feature = "hifi")]
+                    Line::Notice(_) | Line::EffectsStatus => {}
                     Line::Row(row) => match row.value {
                         Value::Opacity(property) => {
                             p.text_in(
@@ -485,9 +494,65 @@ Press Escape to leave it as it is.",
                         let control =
                             Rect::new(list.x + list.w * 0.55, y + 3.0 * k, list.w * 0.42, 28.0 * k);
                         self.mark(caption, control);
+                        #[cfg(feature = "hifi")]
+                        {
+                            self.client_row(p, ctx, row, control, state, out);
+                            // The effect's note, over its caption where the list shows it, is the
+                            // windows' tooltip: drawn after them all, over every row of the page.
+                            let at = Rect::new(list.x + 16.0 * k, y, list.w * 0.5, row_h)
+                                .intersect(&list);
+                            if let Some(note) = row.note.filter(|_| effect_box(row).is_some()) {
+                                if at.is_some_and(|at| ctx.over(&at)) {
+                                    self.tip = Some((caption.to_owned(), vec![note.to_owned()]));
+                                }
+                            }
+                        }
+                        #[cfg(not(feature = "hifi"))]
                         self.client_row(p, ctx, row, control, out);
                     }
+                    #[cfg(feature = "hifi")]
+                    Line::Notice(text) => {
+                        let dim = TextStyle::new(Family::Body, 13.0, ctx.colours.dim())
+                            .edge(ctx.colours.edge());
+                        p.text_in(
+                            &dim,
+                            Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h),
+                            Align::Left,
+                            text,
+                        );
+                    }
+                    #[cfg(feature = "hifi")]
+                    Line::EffectsStatus => {
+                        if let Some(status) = effects_status(state) {
+                            let shown = format!("Status: {status}");
+                            let at = Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h);
+                            p.text_in(&label, at, Align::Left, &shown);
+                            self.mark(&shown, at);
+                        }
+                    }
                     Line::TabHeading(_) | Line::TabName(_) | Line::Opacity(..) => {}
+                    Line::Renderer => {
+                        p.text_in(
+                            &label,
+                            Rect::new(list.x + 16.0 * k, y, list.w * 0.5, row_h),
+                            Align::Left,
+                            renderer::CAPTION,
+                        );
+                        let control =
+                            Rect::new(list.x + list.w * 0.55, y + 3.0 * k, list.w * 0.42, 28.0 * k);
+                        self.mark(renderer::CAPTION, control);
+                        self.renderer_row(p, ctx, state, control, out);
+                    }
+                    Line::RendererNotice => {
+                        if let Some(text) = state.renderers.notice(renderer::stored()) {
+                            let dim = TextStyle::new(Family::Body, 13.0, ctx.colours.dim())
+                                .edge(ctx.colours.edge());
+                            let at = Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h);
+                            p.text_in(&dim, at, Align::Left, &text);
+                            // Marked by its words, so a run can read what the page says.
+                            self.mark(&text, at);
+                        }
+                    }
                     Line::Scale => {
                         p.text_in(
                             &label,
@@ -531,12 +596,20 @@ Press Escape to leave it as it is.",
         ctx: &mut Ctx<'_>,
         row: &Row,
         control: Rect,
+        #[cfg(feature = "hifi")] state: &GameState,
         out: &mut Outcome,
     ) {
         let k = p.scale;
         match row.value {
             Value::Check(name) => {
                 if let Some(PrefValue::Bool(on)) = store::inq_value(name) {
+                    // An effect whose prerequisite is off keeps its tick, greyed, and cannot be
+                    // changed until it can draw.
+                    #[cfg(feature = "hifi")]
+                    if effect_box(row).is_some() && effect_greyed(name, state) {
+                        kit::checkbox_greyed(p, control, on);
+                        return;
+                    }
                     if let Some(on) = kit::checkbox(p, ctx, control, on) {
                         set_preference(name, PrefValue::Bool(on), out);
                     }
@@ -615,6 +688,30 @@ Press Escape to leave it as it is.",
                 }
             }
             _ => {}
+        }
+    }
+
+    /// The Renderer row: the renderers this build can create, showing the one the next start
+    /// comes up on. A choice is the `Renderer=` preference, kept by the save at exit and read at
+    /// the next start; the device is not remade.
+    fn renderer_row(
+        &mut self,
+        p: &mut Painter<'_>,
+        ctx: &mut Ctx<'_>,
+        state: &GameState,
+        control: Rect,
+        out: &mut Outcome,
+    ) {
+        let offered = &state.renderers.offered;
+        let names: Vec<&str> = offered.iter().map(|c| c.label()).collect();
+        let next = state.renderers.next(renderer::stored());
+        let at = offered.iter().position(|c| Some(*c) == next).unwrap_or(0);
+        if let Some(i) = self.dropdown(p, ctx, renderer::RENDERER, control, &names, at) {
+            set_preference(
+                renderer::RENDERER,
+                PrefValue::Int(renderer::value(offered[i])),
+                out,
+            );
         }
     }
 
@@ -960,8 +1057,19 @@ type CameraSlider = (
 enum Line {
     Heading(&'static str),
     Row(&'static Row),
+    /// A line of plain words under a heading or a row: the experimental effects' warning, or why
+    /// an effect's box is greyed.
+    #[cfg(feature = "hifi")]
+    Notice(&'static str),
+    /// Where the experimental effects stand on the device, when there is something to say.
+    #[cfg(feature = "hifi")]
+    EffectsStatus,
     /// This interface's scale, under the interface choice.
     Scale,
+    /// The renderer the next start comes up on.
+    Renderer,
+    /// The renderer in use now, and the one the next start takes when that is another.
+    RendererNotice,
     /// The heading over a log window tab's name and its chat window's filter, by tab.
     TabHeading(usize),
     /// A log window tab's name, in a text box.
@@ -1055,6 +1163,13 @@ pub(crate) fn hidden_row(row: &Row) -> bool {
 /// not have and what this interface does its own way.
 fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
     let mut out = Vec::new();
+    // The renderer choice comes last on the Client page, before the experimental effects.
+    #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
+    let mut renderer_lines = (page == PageId::Client && state.renderers.shown()).then_some([
+        Line::Heading(renderer::HEADING),
+        Line::Renderer,
+        Line::RendererNotice,
+    ]);
     for (heading, rows) in sheet::headings_for(page, Interface::Horizon) {
         if HIDDEN_HEADINGS.contains(&heading.title) {
             continue;
@@ -1066,16 +1181,76 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
         if rows.is_empty() {
             continue;
         }
+        #[cfg(feature = "hifi")]
+        if heading.title == fidelity::HEADING {
+            out.extend(renderer_lines.take().into_iter().flatten());
+        }
         out.push(Line::Heading(heading.title));
+        #[cfg(feature = "hifi")]
+        if heading.title == fidelity::HEADING {
+            out.push(Line::Notice(fidelity::WARNING));
+            if effects_status(state).is_some() {
+                out.push(Line::EffectsStatus);
+            }
+        }
         for row in rows {
             out.push(Line::Row(row));
             if matches!(row.value, Value::Menu(n) if n == dereth_client_contract::options::interface::INTERFACE)
             {
                 out.push(Line::Scale);
             }
+            #[cfg(feature = "hifi")]
+            if let Some(why) = effect_box(row)
+                .filter(|_| state.hifi.offered())
+                .and_then(|name| effect_blocked(name, state))
+            {
+                out.push(Line::Notice(why.reason()));
+            }
         }
     }
+    out.extend(renderer_lines.into_iter().flatten());
     out
+}
+
+/// The preference of `row` when it is one of the experimental effects' boxes.
+#[cfg(feature = "hifi")]
+fn effect_box(row: &Row) -> Option<&'static str> {
+    match row.value {
+        Value::Check(name) if fidelity::find(name).is_some() => Some(name),
+        _ => None,
+    }
+}
+
+/// Whether the box `name` is ticked.
+#[cfg(feature = "hifi")]
+fn ticked(name: &str) -> bool {
+    matches!(store::inq_value(name), Some(PrefValue::Bool(true)))
+}
+
+/// Why the effect `name` draws nothing however it is ticked: what it needs is off, or the
+/// device does not trace rays.
+#[cfg(feature = "hifi")]
+fn effect_blocked(name: &str, state: &GameState) -> Option<fidelity::Blocked> {
+    fidelity::blocked(name, ticked, state.hifi.rays)
+}
+
+/// Whether the effect's box `name` is shown greyed, its tick kept but not changeable: the client
+/// draws with a renderer the effects are not offered on (the status line says how to get them),
+/// or what the effect needs is off.
+#[cfg(feature = "hifi")]
+fn effect_greyed(name: &str, state: &GameState) -> bool {
+    !state.hifi.offered() || effect_blocked(name, state).is_some()
+}
+
+/// The experimental effects' status line, when there is something to say.
+#[cfg(feature = "hifi")]
+fn effects_status(state: &GameState) -> Option<String> {
+    // Where the renderer choice above leaves wgpu, the renderer the effects draw on.
+    fidelity::Availability {
+        wgpu_next: fidelity::wgpu_next(&state.renderers, renderer::stored()),
+        ..state.hifi.clone()
+    }
+    .status(fidelity::OPTIONS.iter().any(|o| ticked(o.name)))
 }
 
 /// Set a profile preference: shown at once, applied and kept by the game's own preference chain.

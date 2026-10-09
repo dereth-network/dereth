@@ -197,6 +197,11 @@ pub struct Config {
     /// choice to the default (Vulkan). A rebuild-only
     /// selector: retail had one renderer and no such switch.
     pub renderer: Option<dereth_client_contract::RendererChoice>,
+    /// The backend the `Renderer=` preference named, before the command line; what an options
+    /// page's renderer choice shows as the one the preferences file holds.
+    pub renderer_preference: Option<dereth_client_contract::RendererChoice>,
+    /// The backend `--renderer` named, which wins over the preference for this run.
+    pub renderer_argument: Option<dereth_client_contract::RendererChoice>,
     /// `-u` / `-user`. Stored and never read; vestigial in this build.
     pub start_char: String,
     /// `-r` / `-create`. As `start_char`.
@@ -479,6 +484,8 @@ impl Default for Config {
             preferences_file: PathBuf::new(),
             preferences_named: false,
             renderer: None,
+            renderer_preference: None,
+            renderer_argument: None,
             start_char: String::new(),
             create_char: String::new(),
             gls_ticket: String::new(),
@@ -1193,6 +1200,7 @@ impl Config {
             .and_then(dereth_client_contract::RendererChoice::parse)
         {
             self.renderer = Some(b);
+            self.renderer_preference = Some(b);
         }
         // `[Log] Level=` and `[Log] File=`, rebuild-only like `Renderer=`: the log's level and
         // whether it is also written to a file. The command line overrides both.
@@ -1441,13 +1449,11 @@ impl Config {
             // the named backend is in this build is decided at device creation, which logs a line
             // and falls back rather than failing (`App::device_presentation`).
             "renderer" => {
-                self.renderer = Some(dereth_client_contract::RendererChoice::parse(v).ok_or_else(
-                    || {
-                        ConfigError::new(format!(
-                            "--renderer wants vulkan, d3d12 or wgpu, not {v:?}"
-                        ))
-                    },
-                )?);
+                let b = dereth_client_contract::RendererChoice::parse(v).ok_or_else(|| {
+                    ConfigError::new(format!("--renderer wants vulkan, d3d12 or wgpu, not {v:?}"))
+                })?;
+                self.renderer = Some(b);
+                self.renderer_argument = Some(b);
             }
             "frames" => {
                 self.frames = Some(

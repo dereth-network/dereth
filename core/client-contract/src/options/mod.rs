@@ -6,11 +6,13 @@
 
 pub mod classic;
 pub mod config;
+pub mod fidelity;
 pub mod interface;
 pub mod landscape;
 pub mod names;
 pub mod performance;
 pub mod preferences;
+pub mod renderer;
 pub mod sheet;
 pub mod store;
 

@@ -308,6 +308,26 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A character on such a world carries, moves and reads what that world's server \
               expects.",
     },
+    Divergence {
+        id: "CD-037",
+        title: "Opt-in experimental rendering effects under Horizon",
+        change: "Under the Horizon interface, six boxes on its options page (better lighting, \
+                 real-time sun shadows, bounced light, ambient occlusion, lamps and torches, sky \
+                 and atmosphere) draw the world a second time with modern light, on the desktop \
+                 wgpu renderer. Everything the game reads still comes from the ordinary frame, \
+                 which is recorded in full either way. Every box is off by default; the classic \
+                 and modern interfaces never draw the effects, and the browser client does not \
+                 contain them. They draw only on the wgpu renderer, chosen by the player; the \
+                 client never picks it for them. Heavier frames lower the frame rate, and three \
+                 things follow the frame time as they do on a slower machine: the automatic \
+                 degrade, so detail \
+                 levels and which far objects are drawn can shift; through the degrade, which \
+                 objects at the edge of the drawing distance can be picked and selected; and the \
+                 client's physics, which steps by the time a frame took, so the predicted \
+                 positions the client reports are integrated in other steps.",
+        why: "The 1999 art drawn with today's graphics, for a player who asks for it, without \
+              changing how the game plays.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

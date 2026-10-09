@@ -750,12 +750,14 @@ impl SceneDraw {
         }
         self.light_pools.clear_dynamics();
         let has_player = ws.character.is_some();
-        self.light_pools.add_dynamic_from(
-            &viewer_light(has_player),
-            CellId(cell),
-            &player,
-            player.origin,
-        );
+        if self.viewer_light {
+            self.light_pools.add_dynamic_from(
+                &viewer_light(has_player),
+                CellId(cell),
+                &player,
+                player.origin,
+            );
+        }
         for o in ws.objects.values() {
             if !o.drawn {
                 continue;

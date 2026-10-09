@@ -8,8 +8,8 @@ use dereth_client::app::App;
 mod shared;
 
 pub use shared::{
-    body, frames, gameplay, key, movement_key, player_description, position, unhide_player,
-    unhide_recorded_player,
+    app_with_recorded_body_with, body, frames, gameplay, key, movement_key, player_description,
+    position, unhide_player, unhide_recorded_player,
 };
 
 /// Start the UI and configured static scene, then advance into gameplay.

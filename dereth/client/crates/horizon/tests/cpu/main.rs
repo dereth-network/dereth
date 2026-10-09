@@ -11,7 +11,7 @@ mod windows;
 use std::sync::Arc;
 
 use dereth_horizon::art::Art;
-use dereth_horizon::draw::DrawList;
+use dereth_horizon::draw::{DrawList, Rect};
 use dereth_horizon::options::HorizonOptions;
 use dereth_horizon::ui::game::GameState;
 use dereth_horizon::ui::input::InputFrame;
@@ -59,5 +59,17 @@ impl Harness {
     pub fn release(&mut self) {
         self.input.down[0] = false;
         self.input.released[0] = true;
+    }
+
+    /// That the quad `at` of this frame, the ground of `what`, is drawn over every row of a page
+    /// whose rows are cut to `rows`: it is not cut to them, and none of them is drawn after it.
+    pub fn assert_over_rows(&self, at: usize, rows: Rect, what: &str) {
+        let quads = &self.list.quads;
+        assert_eq!(quads[at].clip, None, "{what} is cut to the page's rows");
+        let after = quads[at..].iter().filter(|q| q.clip == Some(rows)).count();
+        assert_eq!(
+            after, 0,
+            "{after} quads of the page's rows drawn after {what}"
+        );
     }
 }

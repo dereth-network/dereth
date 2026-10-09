@@ -176,6 +176,15 @@ impl SceneDraw {
         self.force_level = level;
     }
 
+    /// Leave the light that follows the player out of the dynamic pool, or put it back.
+    ///
+    /// The client always adds it. Without it a frame shows what that light alone adds, which is
+    /// the control a test compares with. **It is not a producer** and no production code calls
+    /// it.
+    pub fn set_viewer_light(&mut self, on: bool) {
+        self.viewer_light = on;
+    }
+
     /// The current, -1 when nothing is pinned. See
     /// [`Self::set_force_level`].
     #[must_use]

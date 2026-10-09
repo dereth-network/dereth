@@ -53,10 +53,15 @@ impl<S: Shell> App<S> {
         let landblock = (u16::from(block.x()) << 8) | u16::from(block.y());
         // The world and the body are built with the options as they are now, not as they were
         // at start-up: a second login keeps what the player changed on either interface's page.
-        let cfg = crate::scene::SceneConfig {
+        #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
+        let mut cfg = crate::scene::SceneConfig {
             landblock,
             ..with_stored_options(cfg)
         };
+        #[cfg(feature = "hifi")]
+        {
+            cfg.render.fidelity.interface = self.hifi_interface;
+        }
         tracing::info!(
             "entering the world at landblock 0x{landblock:04X}, cell {:#010X}",
             pos.cell.0
@@ -348,12 +353,17 @@ impl<S: Shell> App<S> {
             if self.world.is_some() {
                 return false;
             }
-            let cfg = crate::scene::SceneConfig {
+            #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
+            let mut cfg = crate::scene::SceneConfig {
                 landblock,
                 start_cell: None,
                 character: false,
                 ..with_stored_options(armed)
             };
+            #[cfg(feature = "hifi")]
+            {
+                cfg.render.fidelity.interface = self.hifi_interface;
+            }
             if let Err(e) = self.present.load_world(&self.store, cfg, &mut self.world) {
                 tracing::warn!("the backdrop at landblock 0x{landblock:04X} would not load: {e}");
                 return false;

@@ -5,5 +5,6 @@ mod books;
 mod examine;
 mod info;
 mod notebook;
+mod settings;
 mod spellbook;
 mod world;

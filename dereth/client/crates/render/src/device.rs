@@ -104,6 +104,13 @@ pub struct DeviceConfig {
     /// be compared. Only the Vulkan device reads it: the D3D12 device's samplers always carry the
     /// bias and the `wgpu` device's never do.
     pub force_shader_lod_bias: bool,
+    /// Ask the device for what the optional high-fidelity presentation can use: the adapter's
+    /// float-filtering, timestamp, depth-clip and ray-query features where it has them, and its
+    /// own limits for storage textures, colour targets, constant and storage bindings and
+    /// samplers. Only the `wgpu` device reads it; with it off the request is exactly the ordinary
+    /// one.
+    #[cfg(feature = "hifi")]
+    pub hifi: bool,
 }
 
 impl Default for DeviceConfig {
@@ -118,6 +125,8 @@ impl Default for DeviceConfig {
             debug: false,
             srv_descriptors: None,
             force_shader_lod_bias: false,
+            #[cfg(feature = "hifi")]
+            hifi: false,
         }
     }
 }
@@ -1008,6 +1017,188 @@ impl Gpu {
         }
         result
     }
+}
+
+/// The optional high-fidelity presentation's seam, on the device that has it: the `wgpu` one.
+/// On the other devices a mark is ignored and a sidecar is refused.
+#[cfg(all(gpu, feature = "hifi"))]
+impl Gpu {
+    /// Note that the recording has reached `mark`. Nothing is kept when no sidecar is installed.
+    pub fn hifi_mark(&self, mark: crate::hifi_mark::Mark) {
+        #[allow(irrefutable_let_patterns)]
+        if let Gpu::Wgpu(g) = self {
+            g.hifi_mark(mark);
+        }
+    }
+
+    /// Install `sidecar`, which draws the world from now on.
+    ///
+    /// # Errors
+    /// [`HifiRefused`](crate::wgpu::sidecar::HifiRefused) on a device other than `wgpu`, on a
+    /// `wgpu` device made without the high-fidelity request, or when one is installed already.
+    pub fn hifi_install(
+        &mut self,
+        sidecar: Box<dyn crate::wgpu::sidecar::FrameSidecar>,
+    ) -> Result<(), crate::wgpu::sidecar::HifiRefused> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_install(sidecar),
+            _ => Err(crate::wgpu::sidecar::HifiRefused::NotWgpu),
+        }
+    }
+
+    /// Uninstall the sidecar and hand it back; the device draws its ordinary frame again.
+    pub fn hifi_take(&mut self) -> Option<Box<dyn crate::wgpu::sidecar::FrameSidecar>> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_take(),
+            _ => None,
+        }
+    }
+
+    /// The installed sidecar.
+    pub fn hifi_sidecar_mut(&mut self) -> Option<&mut dyn crate::wgpu::sidecar::FrameSidecar> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_sidecar_mut(),
+            _ => None,
+        }
+    }
+
+    /// Why the last sidecar was uninstalled, if one failed.
+    #[must_use]
+    pub fn hifi_failed(&self) -> Option<String> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_failed(),
+            _ => None,
+        }
+    }
+
+    /// What the installed sidecar did with the last frame.
+    #[must_use]
+    pub fn hifi_report(&self) -> Option<crate::wgpu::sidecar::SidecarReport> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_report(),
+            _ => None,
+        }
+    }
+
+    /// Wait up to `timeout` for the installed sidecar's background work, and whether none is
+    /// left; true where there is no sidecar.
+    pub fn hifi_settle(&mut self, timeout: std::time::Duration) -> bool {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_settle(timeout),
+            _ => true,
+        }
+    }
+
+    /// Whether the device was asked for what the high-fidelity presentation draws with: only a
+    /// `wgpu` device made so takes a sidecar.
+    #[must_use]
+    pub fn hifi_requested(&self) -> bool {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_requested(),
+            _ => false,
+        }
+    }
+
+    /// Whether the device has what the high-fidelity presentation draws with: a `wgpu` device
+    /// with compute shaders, storage buffers and four colour targets.
+    #[must_use]
+    pub fn hifi_supported(&self) -> bool {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_supported(),
+            _ => false,
+        }
+    }
+
+    /// The device's features, on the `wgpu` device.
+    #[must_use]
+    pub fn hifi_device_features(&self) -> Option<(::wgpu::Features, ::wgpu::Limits)> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => Some(g.device_features()),
+            _ => None,
+        }
+    }
+}
+
+/// Test builds: what a recorded frame was, as one number, so two builds or two settings can be
+/// shown to have recorded the same frame.
+#[cfg(all(gpu, feature = "test-support"))]
+impl Gpu {
+    /// Start or stop digesting each recorded frame. Only the `wgpu` device records frames, so
+    /// only it digests them.
+    pub fn set_frame_digest(&mut self, on: bool) {
+        #[cfg(feature = "wgpu")]
+        #[allow(irrefutable_let_patterns)]
+        if let Gpu::Wgpu(g) = self {
+            g.set_frame_digest(on);
+        }
+        #[cfg(not(feature = "wgpu"))]
+        let _ = on;
+    }
+
+    /// The digest of the last ended frame's recording, while digesting is on.
+    #[must_use]
+    pub fn last_frame_digest(&self) -> Option<u64> {
+        #[allow(unreachable_patterns)]
+        match self {
+            #[cfg(feature = "wgpu")]
+            Gpu::Wgpu(g) => g.last_frame_digest(),
+            _ => None,
+        }
+    }
+
+    /// How many render passes the device has encoded, on the `wgpu` device.
+    #[must_use]
+    pub fn passes_encoded(&self) -> Option<u64> {
+        #[allow(unreachable_patterns)]
+        match self {
+            #[cfg(feature = "wgpu")]
+            Gpu::Wgpu(g) => Some(g.passes_encoded()),
+            _ => None,
+        }
+    }
+
+    /// The objects the device holds by its own count, once it has finished its work and let go of
+    /// what was dropped: on the `wgpu` device.
+    pub fn device_objects(&mut self) -> Option<DeviceObjects> {
+        #[allow(unreachable_patterns)]
+        match self {
+            #[cfg(feature = "wgpu")]
+            Gpu::Wgpu(g) => Some(g.device_objects()),
+            _ => None,
+        }
+    }
+}
+
+/// Test builds: the objects a device holds, by its own count. Every object anything made on the
+/// device is counted, whoever made it, so a test sees what the renderer's own tables do not.
+/// Textures are counted by the memory they hold (the `wgpu` device's own count of textures leaves
+/// out the ones it allocates itself), and buffers by number and memory both.
+#[cfg(all(gpu, feature = "test-support"))]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeviceObjects {
+    pub buffers: isize,
+    pub buffer_memory: isize,
+    pub texture_memory: isize,
+    pub memory_allocations: isize,
+    pub texture_views: isize,
+    pub bind_groups: isize,
+    pub bind_group_layouts: isize,
+    pub render_pipelines: isize,
+    pub compute_pipelines: isize,
+    pub pipeline_layouts: isize,
+    pub samplers: isize,
+    pub shader_modules: isize,
+    pub query_sets: isize,
+    pub acceleration_structure_memory: isize,
 }
 
 #[cfg(test)]

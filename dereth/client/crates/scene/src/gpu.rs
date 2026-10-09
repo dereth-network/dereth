@@ -146,6 +146,49 @@ mod imp {
             )?)
         }
 
+        /// [`Self::new_on`], with the device asked for what the optional high-fidelity
+        /// presentation can use when `hifi` says so.
+        ///
+        /// # Errors
+        /// As [`Self::new_on`].
+        #[cfg(feature = "hifi")]
+        pub fn new_on_for_hifi(
+            backend: dereth_render::device::Backend,
+            window: Option<WindowHandles>,
+            width: u32,
+            height: u32,
+            hifi: bool,
+        ) -> Result<Self, RenderError> {
+            Self::from_device(Gpu::new_on(
+                backend,
+                window,
+                &DeviceConfig {
+                    hifi,
+                    ..Self::device_config(window, width, height)
+                },
+            )?)
+        }
+
+        /// Where the optional high-fidelity presentation stands on this device, for the options
+        /// page.
+        #[cfg(feature = "hifi")]
+        #[must_use]
+        pub fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
+            let gpu = &self.gpu;
+            dereth_client_contract::options::fidelity::Availability {
+                built: true,
+                wgpu: gpu.backend() == dereth_render::device::Backend::Wgpu,
+                widened: gpu.hifi_requested(),
+                supported: gpu.hifi_supported(),
+                rays: gpu.hifi_device_features().map(|(f, _)| {
+                    f.contains(dereth_render::wgpu::sidecar::wgpu::Features::EXPERIMENTAL_RAY_QUERY)
+                }),
+                active: gpu.hifi_report().is_some_and(|r| r.composited),
+                failed: gpu.hifi_failed(),
+                wgpu_next: None,
+            }
+        }
+
         /// The render device configuration as this client fills it. The same for either backend.
         fn device_config(window: Option<WindowHandles>, width: u32, height: u32) -> DeviceConfig {
             DeviceConfig {

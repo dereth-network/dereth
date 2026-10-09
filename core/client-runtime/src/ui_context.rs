@@ -693,6 +693,48 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.orbit = settings;
     }
 
+    /// The renderers this build can create, the one drawing, and the ones the preferences file
+    /// and the command line named at start-up, for the options page's renderer choice.
+    #[must_use]
+    pub fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
+        dereth_client_contract::options::renderer::RendererStatus {
+            preference: self.app.cfg.renderer_preference,
+            command_line: self.app.cfg.renderer_argument,
+            ..self.app.present.renderer_status()
+        }
+    }
+
+    /// Where the experimental rendering effects stand on the device the client draws with, for
+    /// the options page.
+    #[cfg(feature = "hifi")]
+    #[must_use]
+    pub fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
+        self.app.present.hifi_availability()
+    }
+
+    /// Note whether the interface shown is Horizon, the only one the optional high-fidelity
+    /// presentation draws under. The drawn world takes it at once (its next preference poll
+    /// installs or removes the presentation), and every world built after it starts with it.
+    /// A build without the presentation does nothing here.
+    #[cfg_attr(not(feature = "hifi"), allow(clippy::unused_self))]
+    pub fn set_hifi_interface(&mut self, horizon: bool) {
+        #[cfg(feature = "hifi")]
+        {
+            if self.app.hifi_interface == horizon {
+                return;
+            }
+            self.app.hifi_interface = horizon;
+            let _ = self.app.present.apply_render_preference_requests(vec![
+                dereth_client_contract::UiRequest::SetPreference(
+                    dereth_client_contract::options::names::fidelity::INTERFACE,
+                    dereth_client_contract::PrefValue::Bool(horizon),
+                ),
+            ]);
+        }
+        #[cfg(not(feature = "hifi"))]
+        let _ = horizon;
+    }
+
     /// One of the orbit camera's mouse buttons, the right one for `right`, going down or up over
     /// the world. Either held turns the camera with the pointer; both together run the player
     /// forward where it looks. Under character-based movement the right one steers the player,

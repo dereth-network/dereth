@@ -55,13 +55,13 @@ pub(super) struct TerrainMerge {
 /// The splat's pipelines and its binding cache.
 pub(super) struct TerrainSplatState {
     module_by_format: HashMap<VertexFormat, wgpu::ShaderModule>,
-    group_layout: wgpu::BindGroupLayout,
-    layout: wgpu::PipelineLayout,
+    pub(super) group_layout: wgpu::BindGroupLayout,
+    pub(super) layout: wgpu::PipelineLayout,
     /// One pipeline per terrain pipeline key, as an index into the device's pipelines.
-    pipelines: HashMap<PipelineKey, usize>,
+    pub(super) pipelines: HashMap<PipelineKey, usize>,
     /// One binding per distinct combination of bound textures (by slot, `u32::MAX` for the
     /// stand-in), of the two samplers, and of the layer constants.
-    groups: HashMap<([u32; IMAGES], u32, u32, [u32; SPLAT_WORDS]), wgpu::BindGroup>,
+    pub(super) groups: HashMap<([u32; IMAGES], u32, u32, [u32; SPLAT_WORDS]), wgpu::BindGroup>,
     /// A 1 x 1 texture bound wherever a draw has nothing to bind.
     stand_in: TextureSlot,
 }
@@ -643,7 +643,7 @@ impl Gpu {
 
 /// The splat shader for `format`: this device's legacy source and the shared splat tail, its
 /// constants read from the layers' binding and its samples biased as the legacy ones are.
-fn splat_source(format: VertexFormat) -> String {
+pub(super) fn splat_source(format: VertexFormat) -> String {
     let tail = bias_splat_samples(TERRAIN_SPLAT_TAIL).replace(
         "var<immediate> g_splat: Splat;",
         &format!("@group(4) @binding({CONSTANTS_BINDING}) var<uniform> g_splat: Splat;"),

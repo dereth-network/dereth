@@ -1021,3 +1021,172 @@ fn hud_layout_moves_the_log_window_alone_and_each_popped_out_tab_on_its_own() {
         .settings
         .contains(&("chat-tab-2-size".to_owned(), format!("{w2},{h2}"))));
 }
+
+/// A desktop build that can create `offered`, drawing with `running`.
+fn renderers(
+    offered: &[dereth_client_contract::RendererChoice],
+    running: dereth_client_contract::RendererChoice,
+) -> dereth_client_contract::options::renderer::RendererStatus {
+    dereth_client_contract::options::renderer::RendererStatus {
+        offered: offered.to_vec(),
+        running: Some(running),
+        ..Default::default()
+    }
+}
+
+/// The Client page scrolled to the end, where the renderer choice is.
+fn client_page_end(state: &GameState) -> Harness {
+    let mut h = options_on("Client", state);
+    h.ui.windows.options_page.scroll[2] = 1.0e6;
+    h.frame(state);
+    h.frame(state);
+    h
+}
+
+#[test]
+fn the_renderer_choice_lists_only_the_renderers_this_build_can_create() {
+    use dereth_client_contract::RendererChoice::{D3d12, Vulkan, Wgpu};
+    for (offered, names) in [
+        (&[Vulkan, Wgpu][..], &["Vulkan", "wgpu"][..]),
+        (&[Vulkan, D3d12, Wgpu][..], &["Vulkan", "D3D12", "wgpu"][..]),
+    ] {
+        store::init();
+        let state = GameState {
+            renderers: renderers(offered, Vulkan),
+            ..in_world()
+        };
+        let mut h = client_page_end(&state);
+        click(&mut h, &state, "Renderer");
+        let menu =
+            h.ui.windows
+                .options_page
+                .menu
+                .as_ref()
+                .expect("the list opened");
+        assert_eq!(menu.names, names);
+        assert_eq!(menu.at, 0, "the default, with nothing chosen");
+    }
+}
+
+#[test]
+fn choosing_a_renderer_keeps_it_as_the_renderer_preference_for_the_next_start() {
+    use dereth_client_contract::options::renderer::{self, RENDERER};
+    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
+    store::init();
+    let state = GameState {
+        renderers: renderers(&[Vulkan, Wgpu], Vulkan),
+        ..in_world()
+    };
+    let mut h = client_page_end(&state);
+    assert!(
+        h.ui.windows
+            .options_page
+            .control("In use now: Vulkan")
+            .is_some(),
+        "the renderer in use is said"
+    );
+    let out = choose(&mut h, &state, "Renderer", 1);
+    assert!(
+        out.requests
+            .contains(&UiRequest::SetPreference(RENDERER, PrefValue::Int(3))),
+        "{:?}",
+        out.requests
+    );
+    assert_eq!(renderer::stored(), Some(Wgpu));
+    h.frame(&state);
+    assert!(
+        h.ui.windows
+            .options_page
+            .control("Renderer: wgpu at the next restart (now Vulkan)")
+            .is_some(),
+        "the page says the choice waits for the restart: {:?}",
+        h.ui.windows.options_page.controls
+    );
+    // The save at exit writes it where the next start reads `Renderer=`.
+    let saved = store::save().to_text();
+    assert!(
+        saved.contains("[Render]") && saved.contains("Renderer=wgpu"),
+        "{saved}"
+    );
+    // Choosing the one in use again leaves nothing waiting.
+    choose(&mut h, &state, "Renderer", 0);
+    h.frame(&state);
+    assert!(h
+        .ui
+        .windows
+        .options_page
+        .control("In use now: Vulkan")
+        .is_some());
+}
+
+#[test]
+fn a_renderer_named_on_the_command_line_is_said_to_win_over_the_choice() {
+    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
+    store::init();
+    let state = GameState {
+        renderers: dereth_client_contract::options::renderer::RendererStatus {
+            command_line: Some(Vulkan),
+            preference: Some(Wgpu),
+            ..renderers(&[Vulkan, Wgpu], Vulkan)
+        },
+        ..in_world()
+    };
+    let h = client_page_end(&state);
+    assert!(
+        h.ui.windows
+            .options_page
+            .control(
+                "Renderer: wgpu at a restart without --renderer (now Vulkan, from the command line)"
+            )
+            .is_some(),
+        "{:?}",
+        h.ui.windows.options_page.controls
+    );
+}
+
+#[test]
+fn with_no_renderer_to_choose_as_in_the_browser_the_page_has_no_renderer_choice() {
+    store::init();
+    let state = in_world();
+    assert!(!state.renderers.shown());
+    let h = client_page_end(&state);
+    assert!(h.ui.windows.options_page.control("Renderer").is_none());
+    assert!(!h
+        .ui
+        .windows
+        .options_page
+        .controls
+        .iter()
+        .any(|(l, _)| l.starts_with("In use now") || l.starts_with("Renderer:")));
+}
+
+/// The renderer choice's open list is drawn over every row of the page: after them all, and not
+/// cut to the page's list.
+#[test]
+fn the_renderer_choice_s_open_list_is_drawn_over_every_row_of_the_page() {
+    use dereth_client_contract::RendererChoice::{D3d12, Vulkan, Wgpu};
+    store::init();
+    let state = GameState {
+        renderers: renderers(&[Vulkan, D3d12, Wgpu], Vulkan),
+        ..in_world()
+    };
+    let mut h = client_page_end(&state);
+    let list = control(&h, "list");
+    let anchor = control(&h, "Renderer");
+    click(&mut h, &state, "Renderer");
+    assert!(h.ui.windows.options_page.menu.is_some(), "the list opened");
+    // Its ground, as wide as the box, just under it (or just over it).
+    let at = h
+        .list
+        .quads
+        .iter()
+        .position(|q| {
+            q.tex.is_none()
+                && (q.dst.x - anchor.x).abs() < 0.5
+                && (q.dst.w - anchor.w).abs() < 0.5
+                && ((q.dst.y - (anchor.bottom() + 2.0)).abs() < 0.5
+                    || (q.dst.bottom() - (anchor.y - 2.0)).abs() < 0.5)
+        })
+        .expect("the list's ground");
+    h.assert_over_rows(at, list, "the open list");
+}

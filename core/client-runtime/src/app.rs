@@ -143,6 +143,16 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
     };
     let (key, value) = setting.split_once('=')?;
     let key = key.trim();
+    // The optional high-fidelity presentation's options take a number, which may ask an effect
+    // for a quality level past the boxes' on.
+    #[cfg(feature = "hifi")]
+    if let Some(name) = dereth_client_contract::options::names::fidelity::NAMES
+        .iter()
+        .find(|n| n.eq_ignore_ascii_case(key))
+    {
+        let v = value.trim().parse::<i32>().ok()?;
+        return Some((name, dereth_client_contract::PrefValue::Int(v)));
+    }
     let name: &'static str = preferences::UI_PREFERENCES
         .iter()
         .map(|p| p.name)
@@ -205,6 +215,30 @@ pub fn with_stored_options(mut cfg: crate::scene::SceneConfig) -> crate::scene::
     }
     cfg
 }
+
+/// Whether a preference set while playing is also the next world's, recorded in the scene that
+/// will be loaded: the landscape options, and the optional high-fidelity presentation's, which the
+/// option store does not hold and [`with_stored_options`] therefore cannot read back.
+#[cfg(feature = "hifi")]
+pub(crate) fn kept_for_the_next_world(name: &str) -> bool {
+    dereth_client_contract::options::landscape::Landscape::of(name).is_some()
+        || dereth_client_contract::options::names::fidelity::NAMES.contains(&name)
+}
+
+/// Whether a preference set while playing is also the next world's, recorded in the scene that
+/// will be loaded: the landscape options, which the option store does not hold and
+/// [`with_stored_options`] therefore cannot read back.
+#[cfg(not(feature = "hifi"))]
+#[inline]
+pub(crate) fn kept_for_the_next_world(name: &str) -> bool {
+    dereth_client_contract::options::landscape::Landscape::of(name).is_some()
+}
+
+/// What the player is told when a box of the optional high-fidelity presentation is ticked and
+/// the device the client is drawing with cannot draw it: it draws only on the `wgpu` renderer,
+/// and only on a device asked for it at start-up, when the client starts in the Horizon
+/// interface with a box ticked.
+pub const FIDELITY_REFUSED: &str = "The experimental rendering effects are off on this renderer: they draw only on the wgpu renderer (the Renderer choice on Horizon's Client page, or Renderer=wgpu), and a box first ticked takes effect at the next start.";
 
 /// Consume `UiRequest::OpenUrl` requests from the two support-ticket buttons.
 ///
@@ -664,6 +698,11 @@ pub struct App<S: Shell> {
     pub orbit_keys: crate::orbit::MovementKeys,
     /// What the orbit camera's mouse buttons asked of the game since the last dispatch.
     pub orbit_pending: Vec<dereth_client_contract::actions::Action>,
+    /// Whether the interface shown is Horizon, the only one the optional high-fidelity
+    /// presentation draws under: every world this client builds takes it, and the drawn one
+    /// follows it as it changes ([`crate::ui_context::UiContext::set_hifi_interface`]).
+    #[cfg(feature = "hifi")]
+    pub hifi_interface: bool,
     /// When the cursor last moved under mouse look, for the input poll's 0.2 s idle tick.
     last_mouse_move: f64,
     pub last_cursor: Option<(f64, f64)>,

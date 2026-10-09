@@ -680,6 +680,8 @@ impl SceneDraw {
                 hosts_spawned: b.hosts_spawned,
                 textures_pending: false,
                 objects_visual: b.objects_visual,
+                #[cfg(feature = "hifi")]
+                hifi_lamps: b.hifi_lamps,
             },
             _ if wants_objects => self.land.bake(
                 store,
@@ -748,6 +750,10 @@ impl SceneDraw {
                 hosts: built.hosts,
                 hosts_spawned: built.hosts_spawned,
                 objects_visual: built.objects_visual,
+                #[cfg(feature = "hifi")]
+                hifi_generation: next_hifi_generation(),
+                #[cfg(feature = "hifi")]
+                hifi_lamps: built.hifi_lamps,
             },
         );
         Ok(())

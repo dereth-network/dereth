@@ -102,3 +102,44 @@ pub const CLASSIC_SHOW_TRADE_TAB: &str = "UI.Classic.ShowTradeTab";
 pub const CLASSIC_STRETCH_UI: &str = "UI.Classic.StretchUI";
 /// `UI.Interface`.
 pub const INTERFACE: &str = "UI.Interface";
+/// `Render.Renderer`: the graphics backend the client starts on, `vulkan`, `d3d12` or `wgpu`.
+/// Read once, at start-up; `--renderer` on the command line wins over it.
+pub const RENDERER: &str = "Render.Renderer";
+
+/// The `[Fidelity]` section: the optional high-fidelity presentation of the world, drawn only
+/// while the Horizon interface is shown. None of these is a retail preference. Each box is a
+/// switch the profile keeps as `True` or `False`; a number above 1 (from `--set-at`) asks its
+/// effect for that quality level, 0 Off, 1 Low, 2 Medium, 3 High, 4 Ultra.
+pub mod fidelity {
+    /// `Fidelity.Lighting`: per-pixel sun and sky light in high dynamic range.
+    pub const LIGHTING: &str = "Fidelity.Lighting";
+    /// `Fidelity.Shadows`: the sun's shadows, drawn inside the lighting.
+    pub const SHADOWS: &str = "Fidelity.Shadows";
+    /// `Fidelity.GlobalIllumination`: bounced light, drawn inside the lighting.
+    pub const GLOBAL_ILLUMINATION: &str = "Fidelity.GlobalIllumination";
+    /// `Fidelity.AmbientOcclusion`: ambient and contact occlusion.
+    pub const AMBIENT_OCCLUSION: &str = "Fidelity.AmbientOcclusion";
+    /// `Fidelity.Lamps`: outdoor lamps, lanterns, torches and braziers give light at night,
+    /// drawn inside the lighting on a device that traces rays.
+    pub const LAMPS: &str = "Fidelity.Lamps";
+    /// `Fidelity.Sky`: a physical sky and aerial perspective.
+    pub const SKY: &str = "Fidelity.Sky";
+    /// `Fidelity.Debug`: a diagnostic view, set only by `--set-at`: 0 Off, 1 Passthrough,
+    /// 2 Depth, 3 Normals, 4 AO, 5 Shadows, 6 Census, 7 Parity (re-shaded with no pass).
+    pub const DEBUG: &str = "Fidelity.Debug";
+    /// `Fidelity.Interface`: whether the interface shown is Horizon, the only one the
+    /// presentation draws under. The client sets it as the interface changes; it is never kept
+    /// in the profile.
+    pub const INTERFACE: &str = "Fidelity.Interface";
+
+    /// Every name the profile and `--set-at` may set, the six boxes first.
+    pub const NAMES: &[&str] = &[
+        LIGHTING,
+        SHADOWS,
+        GLOBAL_ILLUMINATION,
+        AMBIENT_OCCLUSION,
+        LAMPS,
+        SKY,
+        DEBUG,
+    ];
+}

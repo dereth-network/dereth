@@ -12,6 +12,9 @@ autotests = false
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
 # under $DERETH_TEST_DAT_DIR.
 retail-dats = []
+# The optional high-fidelity presentation's boxes on the Client page, with the status of the device
+# they draw on. Off, the page and the interface are exactly as without them.
+hifi = ["dereth-client-runtime/hifi", "dereth-client-contract/hifi"]
 
 [dependencies]
 dereth-primitives.workspace = true

@@ -1814,6 +1814,7 @@ impl<H: Host> ClientShell<H> {
         }
         // The game's camera again, where it was left.
         cx.set_orbit_camera(None);
+        cx.set_hifi_interface(false);
         self.horizon.active = false;
         cx.hud_mut().horizon_active = false;
         flush_panel_sessions(cx);
@@ -1830,6 +1831,7 @@ impl<H: Host> ClientShell<H> {
             cx.set_orbit_camera(Some(ui.ui.options.orbit));
         }
         self.horizon.active = true;
+        cx.set_hifi_interface(true);
         // Another interface may have rebound keys while this one was put away.
         self.horizon.keys.invalidate();
         cx.hud_mut().horizon_active = true;

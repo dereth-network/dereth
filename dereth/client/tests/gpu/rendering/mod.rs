@@ -13,6 +13,13 @@ mod detail_textures;
 pub(crate) mod dungeon_webs;
 mod foliage_occlusion;
 mod game_viewport;
+#[cfg(feature = "hifi")]
+mod hifi_atmosphere;
+#[cfg(feature = "hifi")]
+mod hifi_lighting;
+mod hifi_off;
+mod hifi_reshade;
+mod hifi_visual_only;
 mod highres_texture_policy;
 mod hud_raster;
 mod indoor_depth_clear;

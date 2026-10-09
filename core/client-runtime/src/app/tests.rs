@@ -331,3 +331,35 @@ fn a_windowed_app_takes_one_relay_endpoint() {
         "one link at a time"
     );
 }
+
+/// A landscape or high-fidelity option set while playing is recorded in the next world's scene;
+/// an option the store holds is read back from it instead, and is not. The interface flag is
+/// not a preference: the next world takes it from the interface shown.
+///
+/// Behaviour: hifi.options.a-live-fidelity-change-is-kept-for-the-next-world
+#[test]
+#[cfg(feature = "hifi")]
+fn a_live_fidelity_or_landscape_change_is_kept_for_the_next_world() {
+    use dereth_client_contract::options::{landscape, names::fidelity};
+    for name in fidelity::NAMES {
+        assert!(kept_for_the_next_world(name), "{name}");
+    }
+    assert!(!kept_for_the_next_world(fidelity::INTERFACE));
+    assert!(kept_for_the_next_world(landscape::GROUND));
+    assert!(!kept_for_the_next_world("Render.ScreenBrightness"));
+    let mut next = crate::scene::SceneConfig::default();
+    for (name, value) in [
+        (
+            fidelity::INTERFACE,
+            dereth_client_contract::PrefValue::Bool(true),
+        ),
+        (fidelity::SKY, dereth_client_contract::PrefValue::Bool(true)),
+    ] {
+        assert!(next.render.set_named(name, &value), "{name}");
+    }
+    assert!(next.render.fidelity.any_effective());
+    assert!(!with_stored_options(next)
+        .render
+        .fidelity
+        .eq(&Default::default()));
+}

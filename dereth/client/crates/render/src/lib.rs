@@ -35,6 +35,9 @@ pub mod vulkan;
 #[cfg(feature = "wgpu")]
 pub mod wgpu;
 
+#[cfg(feature = "hifi")]
+pub mod hifi_mark;
+
 /// The WGSL the Vulkan and `wgpu` backends share: the landscape composite and splat.
 #[cfg(any(feature = "vulkan", feature = "wgpu"))]
 mod wgsl;

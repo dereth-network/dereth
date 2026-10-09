@@ -287,6 +287,11 @@ pub fn init() -> usize {
     super::interface::register();
     super::performance::register();
     super::classic::register();
+    // The renderer the next start comes up on, which only the Horizon interface's page chooses.
+    super::renderer::register();
+    // The optional high-fidelity presentation's options, in a build that has it.
+    #[cfg(feature = "hifi")]
+    super::fidelity::register();
     // The landscape's detail texture: registered by retail's renderer with no options row, and
     // given one by both interfaces' pages here.
     register_preference(
@@ -384,6 +389,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         format: super::interface::convert_to_string,
         choices: super::interface::choice_rows,
     },
+    CustomEnum {
+        recognizes: |name| name.eq_ignore_ascii_case(super::renderer::RENDERER),
+        parse: super::renderer::parse_value,
+        format: super::renderer::convert_to_string,
+        choices: super::renderer::choice_rows,
+    },
 ];
 
 fn custom_enum(name: &str) -> Option<&'static CustomEnum> {
@@ -477,9 +488,17 @@ pub fn save_into(ini: &mut UserPreferences) -> usize {
     // which groups a category's keys together and is therefore the *kinder* order for a file that
     // does not have that section yet.
     let rows: Vec<(String, String)> = REGISTRY.with(|r| {
-        r.borrow()
+        let all = r.borrow();
+        // The renderer option is left out while it holds no choice.
+        let chosen = all
             .iter()
-            .map(|(name, var)| (name.clone(), convert_to_string(name, &var.value)))
+            .filter(|(name, var)| !super::renderer::left_out_of_save(name, &var.value));
+        #[cfg(feature = "hifi")]
+        let kept =
+            chosen.filter(|(name, var)| !super::fidelity::left_out_of_save(name, &var.value, ini));
+        #[cfg(not(feature = "hifi"))]
+        let kept = chosen;
+        kept.map(|(name, var)| (name.clone(), convert_to_string(name, &var.value)))
             .collect()
     });
     for (name, value) in &rows {
@@ -1171,8 +1190,12 @@ mod tests {
     fn loading_a_preferences_file_overwrites_only_the_registered_names() {
         assert_eq!(init(), 34, "the 34 attached preferences all register");
         // ...beside this client's three presentation options from another era, its interface, its
-        // performance panel, the classic interface's six and the landscape detail texture.
-        assert_eq!(len(), 46);
+        // performance panel, the classic interface's six, the renderer and the landscape detail
+        // texture, and in a build with the high-fidelity presentation its options too.
+        #[cfg(not(feature = "hifi"))]
+        assert_eq!(len(), 47);
+        #[cfg(feature = "hifi")]
+        assert_eq!(len(), 47 + super::super::fidelity::OPTIONS.len());
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),

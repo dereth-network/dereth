@@ -215,6 +215,8 @@ impl SceneDraw {
                 // the cell's drawn-this-frame counter, which `draw_inside` does not keep;
                 // it is named rather than skipped silently.
                 IndoorStep::FlushBeforeClear => {
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::IndoorFlush);
                     self.flush_pending_alpha_list(gpu, per_frame)?;
                     // The frame stamp moves on here, so a part the outdoor pass drew is drawn
                     // again by the interior cell that holds it.
@@ -884,6 +886,8 @@ impl SceneDraw {
         // `None` is the null-surface case.
         detail: Option<(TextureSlot, f32)>,
     ) -> Result<(), RenderError> {
+        #[cfg(feature = "hifi")]
+        gpu.hifi_mark(Mark::EnvCell { cell: cell.id.0 });
         let mut world = world_constants(&Frame::new(
             Vec3::new(origin.0, origin.1, 0.0),
             Quat::IDENTITY,

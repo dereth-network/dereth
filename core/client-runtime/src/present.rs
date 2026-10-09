@@ -217,6 +217,18 @@ pub trait Presentation: std::fmt::Debug {
     // ---------------------------------------------------------------------------------------
 
     fn texture_filtering(&self) -> u32;
+    /// The renderers this build can create and the one drawing, for an options page's renderer
+    /// choice; a presentation without a graphics device, or one with nothing to choose, offers
+    /// none.
+    fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
+        dereth_client_contract::options::renderer::RendererStatus::default()
+    }
+    /// Where the experimental rendering effects stand on this device, for the options page; a
+    /// presentation without them says they are not built.
+    #[cfg(feature = "hifi")]
+    fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
+        dereth_client_contract::options::fidelity::Availability::default()
+    }
     /// The device-owned `Render.*` names alone.
     fn apply_device_preference_requests(
         &mut self,

@@ -234,6 +234,8 @@ impl<S: Shell> App<S> {
         let object_identity = scene_cfg.object_identity_budget.and_then(|budget| {
             ObjectIdentityPrep::start(&store, budget, scene_cfg.object_identity_cache)
         });
+        #[cfg(feature = "hifi")]
+        let hifi_interface = cfg.render.fidelity.interface;
         Ok(Self {
             cfg,
             state: AppState::Startup,
@@ -254,6 +256,8 @@ impl<S: Shell> App<S> {
             orbit: None,
             orbit_keys: crate::orbit::MovementKeys::default(),
             orbit_pending: Vec::new(),
+            #[cfg(feature = "hifi")]
+            hifi_interface,
             last_mouse_move: 0.0,
             last_cursor: None,
             last_time: 0.0,

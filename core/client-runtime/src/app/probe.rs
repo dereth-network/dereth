@@ -292,6 +292,10 @@ impl<'a, S: Shell> AppProbe<'a, S> {
                 objects_changed: false,
                 objects_refused: None,
                 objects_waiting: false,
+                #[cfg(feature = "hifi")]
+                fidelity_changed: false,
+                #[cfg(feature = "hifi")]
+                fidelity_refused: false,
             },
         }
     }

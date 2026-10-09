@@ -214,6 +214,8 @@ impl SceneDraw {
             // the first preference-update poll installs, so the frame after a load does
             // no work: seeded from the profile that was just applied, not from the defaults.
             render_shadow: cfg.render,
+            #[cfg(feature = "hifi")]
+            hifi: RefCell::new(hifi_bridge::Shadow::default()),
             // Region installation applies the detail-texturing preference to
             // both enabled detail classes; this scene's equivalent is the
             // `apply_detail_texturing` below, once `gpu` is reachable.
@@ -227,6 +229,7 @@ impl SceneDraw {
             terrain_key,
             terrain_detail_key,
             light_pools: LightPools::new(0.0),
+            viewer_light: true,
             static_pool_key: None,
             character_parts: Vec::new(),
             character_part_levels: Vec::new(),
@@ -826,6 +829,25 @@ impl SceneDraw {
             // This arm is what makes the preference more than a counter.
             self.apply_detail_texturing(store, gpu);
             work.detail_surfaces = self.detail.generated();
+        }
+        #[cfg(feature = "hifi")]
+        {
+            let applied = hifi_bridge::apply_preferences(self.hifi.get_mut(), &live.fidelity, gpu);
+            work.fidelity_changed = applied.changed;
+            work.fidelity_refused = applied.refused;
+            // The lamps are looked for while the presentation draws them: turning them on finds
+            // the resident blocks' lamps with no reload, and a block streamed in later has its
+            // own looked for at the next poll.
+            // Once they are not drawn, the lamps found are let go of.
+            if hifi_bridge::lamps_drawn(gpu) {
+                for block in self.blocks.values_mut() {
+                    block.hifi_lamps.place(store);
+                }
+            } else if applied.changed {
+                for block in self.blocks.values_mut() {
+                    block.hifi_lamps.forget();
+                }
+            }
         }
         if !(work.flushed || work.mid_radius_changed) {
             return Ok(work);

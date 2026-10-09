@@ -61,6 +61,8 @@ impl SceneDraw {
         particles: &[crate::particles::ParticlePart],
         particle_stats: &mut crate::particles::ParticleStats,
     ) -> Result<(), RenderError> {
+        #[cfg(feature = "hifi")]
+        gpu.hifi_mark(Mark::Objects);
         // The landscape half takes the objects in each outdoor landcell and in the building
         // env cells that building drawing reached. The per-cell object draw's later half takes the
         // objects registered in the main interior cells the portal traversal actually reached.
@@ -543,6 +545,8 @@ impl SceneDraw {
                             }
                         }
                         if passes.immediate {
+                            #[cfg(feature = "hifi")]
+                            gpu.hifi_mark(Mark::Particles);
                             crate::particles::draw_one(
                                 gpu,
                                 per_frame,
@@ -552,6 +556,8 @@ impl SceneDraw {
                                 false,
                                 particle_stats,
                             )?;
+                            #[cfg(feature = "hifi")]
+                            gpu.hifi_mark(Mark::ParticlesEnd);
                         }
                     }
                     continue;
@@ -857,6 +863,8 @@ impl SceneDraw {
                     let Some(m) = self.particle_gfx.get(r.gfx).and_then(|g| g.meshes.get(j)) else {
                         continue;
                     };
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::Particles);
                     crate::particles::draw_one(
                         gpu,
                         per_frame,
@@ -866,6 +874,8 @@ impl SceneDraw {
                         e.multipass,
                         particle_stats,
                     )?;
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::ParticlesEnd);
                     let kind = if k >= clip_entries {
                         AlphaDraw::ParticleBlend
                     } else if e.multipass {

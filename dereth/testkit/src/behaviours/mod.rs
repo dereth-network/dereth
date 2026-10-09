@@ -244,6 +244,7 @@ pub mod camera;
 pub mod chat;
 pub mod combat;
 pub mod frame;
+pub mod hifi;
 pub mod inventory;
 pub mod login;
 pub mod magic;
@@ -284,6 +285,10 @@ pub static SUBJECTS: &[Subject] = &[
     Subject {
         name: "frame",
         rows: frame::ROWS,
+    },
+    Subject {
+        name: "hifi",
+        rows: hifi::ROWS,
     },
     Subject {
         name: "inventory",

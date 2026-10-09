@@ -102,6 +102,17 @@ impl<S: Shell> App<S> {
     /// window, on the channel the client's own refusals use.
     pub(super) fn report_landscape_refusals(&mut self, w: &crate::frame_events::RenderPrefWork) {
         use dereth_client_contract::options::landscape::{Landscape, RegionStyle, WORLD_DEFAULT};
+        #[cfg(feature = "hifi")]
+        if w.fidelity_refused {
+            tracing::warn!("{FIDELITY_REFUSED}");
+            self.objects.world.scroll.add_feedback_to_scroll(
+                FIDELITY_REFUSED,
+                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                true,
+                0,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
+        }
         for (which, refused) in [
             (Landscape::Ground, w.ground_refused),
             (Landscape::Sky, w.sky_refused),

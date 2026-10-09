@@ -7,6 +7,12 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# The optional high-fidelity presentation's options: registered with the value store and shown
+# under their own heading on the Client Options page. Off, the store and the pages are exactly as
+# without the presentation.
+hifi = []
+
 [dependencies]
 # The only production dependency. `DataId`/`ObjectId` are the two identifier types the whole
 # contract is expressed in. The rule is that this crate names no presentation and no platform

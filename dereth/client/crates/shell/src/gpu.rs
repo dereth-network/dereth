@@ -147,6 +147,24 @@ mod imp {
             )?))
         }
 
+        /// [`Self::new_on`], asking the device for the optional high-fidelity presentation when
+        /// `hifi` says so: [`SceneRenderer::new_on_for_hifi`].
+        ///
+        /// # Errors
+        /// As [`Self::new_on`].
+        #[cfg(feature = "hifi")]
+        pub fn new_on_for_hifi(
+            backend: dereth_render::device::Backend,
+            window: Option<WindowHandles>,
+            width: u32,
+            height: u32,
+            hifi: bool,
+        ) -> Result<Self, RenderError> {
+            Ok(Self::around(SceneRenderer::new_on_for_hifi(
+                backend, window, width, height, hifi,
+            )?))
+        }
+
         /// The renderer over `device`, with no UI uploaded yet.
         #[must_use]
         pub fn around(device: SceneRenderer) -> Self {
@@ -921,6 +939,19 @@ mod imp {
             SceneRenderer::texture_filtering(self)
         }
 
+        fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
+            renderer_status(
+                SceneRenderer::backend(self),
+                &dereth_render::device::Backend::compiled(),
+                cfg!(target_arch = "wasm32"),
+            )
+        }
+
+        #[cfg(feature = "hifi")]
+        fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
+            SceneRenderer::hifi_availability(self)
+        }
+
         fn apply_device_preference_requests(
             &mut self,
             requests: Vec<dereth_ui_screens::UiRequest>,
@@ -1289,6 +1320,61 @@ mod imp {
             rect: dereth_render::camera::Viewport,
         ) {
             Renderer::queue_preview_under_text(self, id, subtree, rect);
+        }
+    }
+
+    /// The renderer choice's status for a device on `running`, in a build that compiled `compiled`:
+    /// every one of them is offered, but in the browser (`browser`), which has one renderer and
+    /// so nothing to choose.
+    fn renderer_status(
+        running: dereth_render::device::Backend,
+        compiled: &[dereth_render::device::Backend],
+        browser: bool,
+    ) -> dereth_client_contract::options::renderer::RendererStatus {
+        use dereth_client_contract::RendererChoice;
+        use dereth_render::device::Backend;
+        let choice = |b: Backend| match b {
+            Backend::Vulkan => RendererChoice::Vulkan,
+            Backend::D3d12 => RendererChoice::D3d12,
+            Backend::Wgpu => RendererChoice::Wgpu,
+        };
+        dereth_client_contract::options::renderer::RendererStatus {
+            offered: if browser {
+                Vec::new()
+            } else {
+                compiled.iter().copied().map(choice).collect()
+            },
+            running: Some(choice(running)),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(test)]
+    mod renderer_status_tests {
+        //! Behaviour: none (this client's own renderer choice; retail had one renderer).
+        use super::renderer_status;
+        use dereth_client_contract::RendererChoice;
+        use dereth_render::device::Backend;
+
+        #[test]
+        fn the_renderer_choice_offers_what_the_build_compiled_and_nothing_in_the_browser() {
+            let desktop =
+                renderer_status(Backend::Vulkan, &[Backend::Vulkan, Backend::Wgpu], false);
+            assert_eq!(
+                desktop.offered,
+                [RendererChoice::Vulkan, RendererChoice::Wgpu]
+            );
+            assert_eq!(desktop.running, Some(RendererChoice::Vulkan));
+            assert!(desktop.shown());
+            let browser = renderer_status(Backend::Wgpu, &[Backend::Wgpu], true);
+            assert!(browser.offered.is_empty());
+            assert!(!browser.shown());
+            // This build's own list: each is one it can create, and the default comes first.
+            let built = Backend::compiled();
+            assert!(built.iter().all(|b| b.compiled_in()));
+            let here = renderer_status(built[0], &built, false);
+            assert_eq!(here.offered.len(), built.len());
+            assert_eq!(here.offered.first().copied(), here.running);
         }
     }
 

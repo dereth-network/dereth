@@ -20,6 +20,9 @@ test-support = ["dereth-client-model/test-support", "dereth-client-net/test-supp
 # Tier switch only: no code is gated on it. The lib tests that read the retail dats under
 # $DERETH_TEST_DAT_DIR are ignored without it, so a checkout with no dats tests green.
 retail-dats = []
+# The optional high-fidelity presentation's options on the Horizon interface's options page. Off,
+# the client is exactly as without them.
+hifi = ["dereth-client-contract/hifi"]
 
 [dependencies]
 dereth-presentation.workspace = true

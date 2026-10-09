@@ -323,7 +323,16 @@ impl SceneDraw {
         // clip the UI of every frame after the first failure.
         let (w, h) = gpu.size();
         gpu.set_viewport(self.effective_viewport(ws, w, h));
+        #[cfg(feature = "hifi")]
+        gpu.hifi_mark(Mark::WorldBegin);
         let r = self.draw_in_viewport(ws, gpu);
+        // The world is down: what follows is the interface. The snapshot is taken now, after
+        // the frame's walk has finished, from shared reads only.
+        #[cfg(feature = "hifi")]
+        if r.is_ok() {
+            gpu.hifi_mark(Mark::WorldEnd);
+            hifi_bridge::publish(self, &mut self.hifi.borrow_mut(), ws, gpu);
+        }
         gpu.reset_viewport();
         r
     }
@@ -521,6 +530,8 @@ impl SceneDraw {
         // translucency is the **last** world geometry on the screen, drawn over every opaque
         // object the walk put there. A split indoor frame has already drained the queue at
         // [`IndoorStep::FlushBeforeClear`], and this call finds it empty.
+        #[cfg(feature = "hifi")]
+        gpu.hifi_mark(Mark::AlphaFlush);
         self.flush_pending_alpha_list(gpu, &per_frame)?;
 
         self.frame_particles.set(particle_stats);

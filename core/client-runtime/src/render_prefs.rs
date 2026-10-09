@@ -170,6 +170,12 @@ pub struct RenderPreferences {
     /// objects draw with (`Some(LegacyHardware)` the older files, `Some(Late)` the later ones);
     /// `None` is the world's own. Not a retail preference. The scene applies a change live.
     pub objects: Option<RegionStyle>,
+    /// `[Fidelity]`: the optional high-fidelity presentation, all off by default and in effect
+    /// only under the Horizon interface. Not a retail preference; Horizon's options page, the
+    /// file and `--set-at` set it. The scene applies a change live. Only in a build with the
+    /// presentation.
+    #[cfg(feature = "hifi")]
+    pub fidelity: FidelityPreferences,
 }
 
 impl Default for RenderPreferences {
@@ -192,6 +198,8 @@ impl Default for RenderPreferences {
             ground: None,
             sky: None,
             objects: None,
+            #[cfg(feature = "hifi")]
+            fidelity: FidelityPreferences::default(),
         }
     }
 }
@@ -306,6 +314,11 @@ impl RenderPreferences {
         }
         if let Some(v) = prefs.f32(DEGRADE_DISTANCE) {
             r.degrade_distance = v;
+        }
+        // The optional high-fidelity presentation's section, in a build that has it.
+        #[cfg(feature = "hifi")]
+        {
+            r.fidelity = FidelityPreferences::from_preferences(prefs);
         }
         r
     }
@@ -433,7 +446,16 @@ impl RenderPreferences {
             }
             return true;
         }
-        false
+        // The optional high-fidelity presentation, which the scene's poll applies live, in a
+        // build that has it.
+        #[cfg(feature = "hifi")]
+        {
+            self.fidelity.set_named(name, value)
+        }
+        #[cfg(not(feature = "hifi"))]
+        {
+            false
+        }
     }
 }
 
@@ -498,9 +520,369 @@ pub fn seed_ui_registry(preference: u32) {
         dereth_client_contract::PrefValue::Int(i32::from_ne_bytes(preference.to_ne_bytes())),
     );
 }
+
+/// The `[Fidelity]` names: the optional high-fidelity presentation. See
+/// [`dereth_client_contract::options::names::fidelity`].
+pub use dereth_client_contract::options::names::fidelity;
+
+/// One option of the high-fidelity presentation.
+#[cfg(feature = "hifi")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FidelityFeature {
+    /// `Fidelity.Lighting`.
+    Lighting,
+    /// `Fidelity.Shadows`.
+    Shadows,
+    /// `Fidelity.GlobalIllumination`.
+    GlobalIllumination,
+    /// `Fidelity.AmbientOcclusion`.
+    AmbientOcclusion,
+    /// `Fidelity.Lamps`.
+    Lamps,
+    /// `Fidelity.Sky`.
+    Sky,
+    /// `Fidelity.Debug`.
+    Debug,
+}
+
+#[cfg(feature = "hifi")]
+impl FidelityFeature {
+    /// Every option, in the order the names list them.
+    pub const ALL: [Self; 7] = [
+        Self::Lighting,
+        Self::Shadows,
+        Self::GlobalIllumination,
+        Self::AmbientOcclusion,
+        Self::Lamps,
+        Self::Sky,
+        Self::Debug,
+    ];
+
+    /// The option's preference name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Lighting => fidelity::LIGHTING,
+            Self::Shadows => fidelity::SHADOWS,
+            Self::GlobalIllumination => fidelity::GLOBAL_ILLUMINATION,
+            Self::AmbientOcclusion => fidelity::AMBIENT_OCCLUSION,
+            Self::Lamps => fidelity::LAMPS,
+            Self::Sky => fidelity::SKY,
+            Self::Debug => fidelity::DEBUG,
+        }
+    }
+
+    /// The highest value the option takes: 4 for an effect (Ultra), the last view for the
+    /// diagnostic views.
+    #[must_use]
+    pub const fn max(self) -> u32 {
+        match self {
+            Self::Debug => 7,
+            _ => 4,
+        }
+    }
+
+    /// `raw` as this option stores it: an effect past Ultra is Ultra; a diagnostic view past the
+    /// last is off.
+    #[must_use]
+    pub const fn clamp(self, raw: u32) -> u32 {
+        if raw <= self.max() {
+            raw
+        } else if matches!(self, Self::Debug) {
+            0
+        } else {
+            self.max()
+        }
+    }
+}
+
+/// The `[Fidelity]` section: what the player asked of the optional high-fidelity presentation,
+/// and whether the Horizon interface is shown, the only one it draws under. Plain data, all off
+/// by default; the scene maps it onto the presentation's own settings.
+#[cfg(feature = "hifi")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct FidelityPreferences {
+    /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
+    /// ticked box is 1.
+    pub values: [u32; 7],
+    /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
+    /// interface choice at start-up and follows the interface shown after that. Off, every option
+    /// is off in effect, whatever it stores.
+    pub interface: bool,
+}
+
+#[cfg(feature = "hifi")]
+impl FidelityPreferences {
+    /// The section from the profile: a box the file does not tick is off, and the interface
+    /// flag is the interface the profile starts in.
+    #[must_use]
+    pub fn from_preferences(prefs: &Preferences) -> Self {
+        let mut f = Self::default();
+        for (i, feature) in FidelityFeature::ALL.into_iter().enumerate() {
+            let raw = match feature {
+                // The view a diagnostic run asks for, by number.
+                FidelityFeature::Debug => prefs.u32(feature.name()),
+                // A box the page ticked; a number the file holds otherwise (from an older
+                // build) is not read, as the page does not read it.
+                _ => prefs.bool(feature.name()).map(u32::from),
+            };
+            if let Some(raw) = raw {
+                f.values[i] = feature.clamp(raw);
+            }
+        }
+        f.interface = prefs
+            .get(dereth_client_contract::options::names::INTERFACE)
+            .and_then(|v| {
+                dereth_client_contract::options::interface::parse_value(
+                    dereth_client_contract::options::names::INTERFACE,
+                    v,
+                )
+            })
+            .is_some_and(|v| {
+                v == dereth_client_contract::options::interface::Interface::Horizon.value()
+            });
+        f
+    }
+
+    /// The stored value of `feature`, whatever the interface.
+    #[must_use]
+    pub fn value(&self, feature: FidelityFeature) -> u32 {
+        FidelityFeature::ALL
+            .iter()
+            .position(|f| *f == feature)
+            .map_or(0, |i| self.values[i])
+    }
+
+    /// The value `feature` takes in effect: its stored value while the Horizon interface is
+    /// shown, 0 otherwise.
+    #[must_use]
+    pub fn effective(&self, feature: FidelityFeature) -> u32 {
+        if self.interface {
+            self.value(feature)
+        } else {
+            0
+        }
+    }
+
+    /// Whether any option is on in effect. Without one the presentation is not installed.
+    #[must_use]
+    pub fn any_effective(&self) -> bool {
+        FidelityFeature::ALL
+            .into_iter()
+            .any(|f| self.effective(f) != 0)
+    }
+
+    /// Whether any option is stored on, whatever the interface.
+    #[must_use]
+    pub fn any_stored(&self) -> bool {
+        self.values.iter().any(|v| *v != 0)
+    }
+
+    /// The settings a capture or a test names, as the Horizon interface draws them: a comma list
+    /// of `Name=value` (`+` also separates), each name with or without its `Fidelity.` prefix and
+    /// each value a number or `off`, `on`, `low`, `medium`, `high` or `ultra`. `off` alone is
+    /// every option off. `Interface=0` names a run under another interface.
+    ///
+    /// # Errors
+    /// A name no option has, or a value that is not one of those, as a sentence.
+    pub fn parse_switch(raw: &str) -> Result<Self, String> {
+        let raw = raw.trim();
+        let mut f = Self {
+            interface: true,
+            ..Self::default()
+        };
+        if raw.eq_ignore_ascii_case("off") {
+            return Ok(f);
+        }
+        for item in raw
+            .split([',', '+'])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let (name, value) = item
+                .split_once('=')
+                .ok_or_else(|| format!("a fidelity setting is Name=value, not {item:?}"))?;
+            let value = match value.trim().to_ascii_lowercase().as_str() {
+                "off" => 0,
+                "on" | "low" => 1,
+                "medium" => 2,
+                "high" => 3,
+                "ultra" => 4,
+                v => v
+                    .parse::<u32>()
+                    .map_err(|_| format!("{value:?} is not a value for {name}"))?,
+            };
+            let full = if name.trim().to_ascii_lowercase().starts_with("fidelity.") {
+                name.trim().to_owned()
+            } else {
+                format!("Fidelity.{}", name.trim())
+            };
+            if !f.set_named(
+                &full,
+                &dereth_client_contract::PrefValue::Int(i32::try_from(value).unwrap_or(i32::MAX)),
+            ) {
+                return Err(format!("there is no fidelity option {name:?}"));
+            }
+        }
+        Ok(f)
+    }
+
+    /// Apply one `[Fidelity]` preference, or the interface flag. Returns whether `name` is one
+    /// of them and `value` landed: an integer or a boolean for every one.
+    pub fn set_named(&mut self, name: &str, value: &dereth_client_contract::PrefValue) -> bool {
+        use dereth_client_contract::PrefValue;
+        let raw = match value {
+            PrefValue::Bool(b) => u32::from(*b),
+            PrefValue::Int(i) => u32::try_from(*i).unwrap_or(0),
+            _ => return false,
+        };
+        if name.eq_ignore_ascii_case(fidelity::INTERFACE) {
+            self.interface = raw != 0;
+            return true;
+        }
+        for (i, feature) in FidelityFeature::ALL.into_iter().enumerate() {
+            if name.eq_ignore_ascii_case(feature.name()) {
+                self.values[i] = feature.clamp(raw);
+                return true;
+            }
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: hifi.options.every-fidelity-option-is-off-by-default
+    #[test]
+    #[cfg(feature = "hifi")]
+    fn every_fidelity_option_is_off_by_default_and_none_is_in_effect_outside_horizon() {
+        let d = FidelityPreferences::default();
+        assert!(!d.interface);
+        assert!(FidelityFeature::ALL.into_iter().all(|f| d.value(f) == 0));
+        assert!(!d.any_effective());
+        assert_eq!(
+            FidelityPreferences::from_preferences(&Preferences::parse("")),
+            d
+        );
+        // Every box ticked, under the classic or the modern interface: nothing in effect.
+        for interface in [
+            "",
+            "Interface=Modern\n",
+            "Interface=Classic\n",
+            "Interface=0\n",
+        ] {
+            let ticked = FidelityPreferences::from_preferences(&Preferences::parse(&format!(
+                "[UI]\n{interface}[Fidelity]\nLighting=True\nShadows=True\n\
+                 GlobalIllumination=True\nAmbientOcclusion=True\nLamps=True\nSky=True\n"
+            )));
+            assert!(!ticked.interface, "{interface:?}");
+            assert_eq!(ticked.value(FidelityFeature::Lighting), 1);
+            assert!(ticked.any_stored());
+            assert!(
+                FidelityFeature::ALL
+                    .into_iter()
+                    .all(|f| ticked.effective(f) == 0),
+                "{interface:?}"
+            );
+            assert!(!ticked.any_effective(), "{interface:?}");
+        }
+        // Under Horizon the ticked boxes are in effect.
+        let horizon = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nAmbientOcclusion=True\n",
+        ));
+        assert!(horizon.interface);
+        assert_eq!(horizon.effective(FidelityFeature::AmbientOcclusion), 1);
+        assert_eq!(horizon.effective(FidelityFeature::Lighting), 0);
+        // An older build's levels, and the names of options this build does not have, are not
+        // read; neither is an error.
+        let old = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=2\n[Fidelity]\nEnabled=1\nPreset=2\nWater=3\nLighting=3\n",
+        ));
+        assert!(old.interface);
+        assert!(!old.any_effective());
+        // Every option has its name, and every name its option.
+        assert_eq!(fidelity::NAMES.len(), FidelityFeature::ALL.len());
+        for f in FidelityFeature::ALL {
+            assert!(fidelity::NAMES.contains(&f.name()), "{f:?}");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "hifi")]
+    fn fidelity_values_read_and_set_by_name_and_out_of_range_values_clamp() {
+        use dereth_client_contract::PrefValue;
+        let p = FidelityPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nDebug=9\nSky=1\n",
+        ));
+        assert_eq!(
+            p.effective(FidelityFeature::Debug),
+            0,
+            "an unknown view is off"
+        );
+        assert_eq!(p.effective(FidelityFeature::Sky), 1);
+        let mut q = FidelityPreferences::default();
+        assert!(q.set_named("fidelity.interface", &PrefValue::Bool(true)));
+        assert!(q.set_named(fidelity::SHADOWS, &PrefValue::Int(7)));
+        assert!(!q.set_named(fidelity::SHADOWS, &PrefValue::Float(2.0)));
+        assert!(!q.set_named("Render.FieldOfView", &PrefValue::Int(2)));
+        assert!(!q.set_named("Fidelity.Water", &PrefValue::Int(2)));
+        assert_eq!(
+            q.effective(FidelityFeature::Shadows),
+            4,
+            "a level saturates at Ultra"
+        );
+        assert!(q.set_named(fidelity::INTERFACE, &PrefValue::Bool(false)));
+        assert_eq!(q.effective(FidelityFeature::Shadows), 0);
+        assert_eq!(
+            q.value(FidelityFeature::Shadows),
+            4,
+            "the stored value is kept"
+        );
+    }
+
+    /// Behaviour: hifi.options.the-fidelity-section-reaches-the-render-preferences
+    #[test]
+    #[cfg(feature = "hifi")]
+    fn the_render_preferences_carry_the_fidelity_section_from_the_file_and_by_name() {
+        use dereth_client_contract::PrefValue;
+        assert_eq!(
+            RenderPreferences::default().fidelity,
+            FidelityPreferences::default()
+        );
+        let r = RenderPreferences::from_preferences(&Preferences::parse(
+            "[UI]\nInterface=Horizon\n[Fidelity]\nDebug=1\n",
+        ));
+        assert!(r.fidelity.any_effective());
+        assert_eq!(r.fidelity.effective(FidelityFeature::Debug), 1);
+        // The live path: a name the render preferences do not own themselves lands in the
+        // section, the interface flag with them.
+        let mut live = RenderPreferences::default();
+        assert!(live.set_named(fidelity::AMBIENT_OCCLUSION, &PrefValue::Bool(true)));
+        assert!(!live.fidelity.any_effective());
+        assert!(live.set_named(fidelity::INTERFACE, &PrefValue::Bool(true)));
+        assert_eq!(
+            live.fidelity.effective(FidelityFeature::AmbientOcclusion),
+            1
+        );
+        assert!(!live.set_named("Fidelity.NoSuchOption", &PrefValue::Int(1)));
+        // A capture's settings, as Horizon draws them.
+        let off = FidelityPreferences::parse_switch("off").expect("off");
+        assert!(off.interface && !off.any_effective());
+        let list = FidelityPreferences::parse_switch("Debug=1, Fidelity.Lighting=high+Sky=on")
+            .expect("list");
+        assert!(list.interface);
+        assert_eq!(list.effective(FidelityFeature::Debug), 1);
+        assert_eq!(list.effective(FidelityFeature::Lighting), 3);
+        assert_eq!(list.effective(FidelityFeature::Sky), 1);
+        let classic = FidelityPreferences::parse_switch("Lighting=1,Interface=0").expect("classic");
+        assert!(!classic.any_effective() && classic.any_stored());
+        assert!(FidelityPreferences::parse_switch("Lighting").is_err());
+        assert!(FidelityPreferences::parse_switch("Water=1").is_err());
+        assert!(FidelityPreferences::parse_switch("Sky=lots").is_err());
+    }
+
     #[test]
     fn source_profile_section_choice_names_and_numeric_fallbacks() {
         for (raw, expected) in [

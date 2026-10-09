@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Horizon's options choose the renderer for the next start.
+- Horizon has highly experimental rendering effects, off by default and only on the wgpu renderer: better lighting, sun shadows, global illumination, ambient occlusion, lamps and torches, and sky.
 - The browser client loads Horizon's art beside the module, so it fits Cloudflare Pages again.
 - Horizon shows the client's real version.
 

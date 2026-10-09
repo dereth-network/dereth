@@ -19,6 +19,10 @@ default = ["wgpu"]
 vulkan = ["dereth-render/vulkan"]
 wgpu = ["dereth-render/wgpu"]
 d3d12 = ["dereth-render/d3d12"]
+# The optional high-fidelity presentation (`dereth-render-hifi`) and the bridge that hands it the
+# frame. Off unless a build asks for it; without it the scene builds no bridge and behaves exactly
+# as before.
+hifi = ["dep:dereth-render-hifi", "dereth-render/hifi", "dereth-client-runtime/hifi", "wgpu"]
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
 # under $DERETH_TEST_DAT_DIR.
 retail-dats = []
@@ -31,6 +35,7 @@ dereth-primitives.workspace = true
 # the landblock window's residency, and the presentation seam the scene implements.
 dereth-client-runtime.workspace = true
 dereth-render = { workspace = true, features = ["mock"] }
+dereth-render-hifi = { workspace = true, optional = true }
 dereth-world-render.workspace = true
 dereth-dat.workspace = true
 dereth-assets.workspace = true

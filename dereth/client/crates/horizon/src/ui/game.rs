@@ -313,6 +313,13 @@ pub struct Spell {
 /// Everything the interface reads of the game this frame.
 #[derive(Debug, Clone, Default)]
 pub struct GameState {
+    /// The renderers this build can create and the one drawing, for the options page's renderer
+    /// choice; none offered where there is nothing to choose.
+    pub renderers: dereth_client_contract::options::renderer::RendererStatus,
+    /// Where the experimental rendering effects stand on the device the client draws with, for
+    /// the options page.
+    #[cfg(feature = "hifi")]
+    pub hifi: dereth_client_contract::options::fidelity::Availability,
     // ---- the connection ----
     /// The running client's version, as its host names it (`0.3.0`): what the pre-game screens
     /// show.

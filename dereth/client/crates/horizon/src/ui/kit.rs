@@ -848,6 +848,30 @@ pub fn checkbox(p: &mut Painter<'_>, ctx: &mut Ctx<'_>, r: Rect, on: bool) -> Op
     (over && ctx.input.clicked(&b)).then_some(!on)
 }
 
+/// A check box that cannot be changed now, greyed: its box dim, and its tick, where it is
+/// ticked, faint, since what it ticks is not drawn.
+#[cfg(feature = "hifi")]
+pub fn checkbox_greyed(p: &mut Painter<'_>, r: Rect, on: bool) {
+    let k = p.scale;
+    let side = (20.0 * k).round();
+    let b = Rect::new(r.x.round(), (r.y + (r.h - side) / 2.0).round(), side, side);
+    if let Some(frame) = p.piece("control.box").or_else(|| p.piece("slot.empty")) {
+        p.fill(b.inset(2.0 * k), 0x9608_0A0C);
+        p.sprite(&frame, b, 0x80FF_FFFF);
+        if on {
+            if let Some(mark) = p.piece("control.check") {
+                p.sprite(&mark, b.inset(2.0 * k), 0x50FF_FFFF);
+            }
+        }
+        return;
+    }
+    p.fill(b, 0xFF18_1612);
+    p.fill(Rect::new(b.x, b.y, b.w, 1.0), 0xFF64_5A40);
+    if on {
+        p.fill(b.inset(5.0 * k), 0xFF5A_554C);
+    }
+}
+
 /// A slider: a thin track, its fill, the knob and the value. The new value while it is dragged.
 pub fn slider(
     p: &mut Painter<'_>,

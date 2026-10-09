@@ -30,6 +30,19 @@ pub enum RendererChoice {
 }
 
 impl RendererChoice {
+    /// Every backend, the default first: the order a renderer choice lists them in.
+    pub const ALL: [Self; 3] = [Self::Vulkan, Self::D3d12, Self::Wgpu];
+
+    /// Its name as a renderer choice shows it to the player.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Vulkan => "Vulkan",
+            Self::D3d12 => "D3D12",
+            Self::Wgpu => "wgpu",
+        }
+    }
+
     /// The name the command line and the preferences file both spell.
     #[must_use]
     pub const fn name(self) -> &'static str {

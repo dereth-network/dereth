@@ -1288,6 +1288,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-render-hifi"
+version = "0.0.0"
+dependencies = [
+ "dereth-primitives",
+ "dereth-render",
+ "dereth-render-cpu",
+ "dereth-terrain",
+ "glam",
+ "naga",
+ "sha2",
+ "wgpu",
+]
+
+[[package]]
 name = "dereth-rules"
 version = "0.0.0"
 dependencies = [
@@ -1311,6 +1325,7 @@ dependencies = [
  "dereth-primitives",
  "dereth-protocol",
  "dereth-render",
+ "dereth-render-hifi",
  "dereth-terrain",
  "dereth-ui-screens",
  "dereth-world-data",
