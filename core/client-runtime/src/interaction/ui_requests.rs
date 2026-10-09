@@ -1075,6 +1075,7 @@ feedback,channel: 0x1A, text},
                 }
                 UiRequest::CastSpell { spell_id } => {
                     let sent = req.0.len();
+                    let already_casting = game.magic.casting;
                     match game.cast_spell(&mut req, &mut out, spell_id) {
                         Ok(()) => {
                             // A spell the spell table does not know returns `Ok` and sends
@@ -1102,7 +1103,13 @@ feedback,channel: 0x1A, text},
                                 // the flag is not read until the frame's drain, which is after
                                 // both, so no observer can tell. `req` is the outbound queue and
                                 // is not flushed inside this arm either.
-                                if !self.controlled_by_server {
+                                //
+                                // Under the Horizon camera a cast asked for while a spell is still
+                                // being cast, which the game refuses as too busy, leaves the
+                                // player moving: the keys held through a cast go on backing up
+                                // and stepping however often the cast key is pressed.
+                                let keep_moving = self.casts_keep_moving && already_casting;
+                                if !self.controlled_by_server && !keep_moving {
                                     self.stop_completely_requested = true;
                                 }
                             }

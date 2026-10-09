@@ -1206,6 +1206,53 @@ fn a_server_controlled_body_is_not_stopped_by_a_cast() {
     );
 }
 
+/// Behaviour: none (the Horizon interface's own key handling, not the retail client's)
+/// Under the Horizon camera a cast asked for while a spell is still being cast, which the game
+/// refuses as too busy, does not stop the player; the first cast does, and outside the Horizon
+/// camera every one does.
+#[test]
+fn under_the_horizon_camera_the_cast_key_pressed_again_through_a_cast_does_not_stop_the_body() {
+    for horizon in [true, false] {
+        let mut w = cast_world(&FULL);
+        require_components(&mut w, true);
+        w.set_selected_object(Some(TARGET), false, &mut RecordingSink::default());
+        let mut inter = Interaction::default();
+        inter.note_casts_keep_moving(horizon);
+        let cast = |w: &mut World, inter: &mut Interaction| {
+            inter.queue(
+                Vec::new(),
+                vec![UiRequest::CastSpell {
+                    spell_id: FLAME_BOLT,
+                }],
+            );
+            assert!(inter.run_ui_requests(w, false, ServerTime(0.0)).is_empty());
+            inter.take_stop_completely()
+        };
+        assert!(
+            cast(&mut w, &mut inter),
+            "horizon {horizon}: the first cast stops"
+        );
+        assert_eq!(
+            cast(&mut w, &mut inter),
+            !horizon,
+            "horizon {horizon}: the cast key pressed again while it is cast"
+        );
+        w.use_done(0x1d);
+        assert_eq!(
+            cast(&mut w, &mut inter),
+            !horizon,
+            "horizon {horizon}: and again"
+        );
+        w.use_done(0x1d);
+        w.use_done(0);
+        assert!(
+            cast(&mut w, &mut inter),
+            "horizon {horizon}: the next cast, the last answered"
+        );
+        assert_eq!(inter.stats.spells_cast, 4);
+    }
+}
+
 // ------------------------------------------------------------------------------------------
 // 9. The spell research test.
 // ------------------------------------------------------------------------------------------

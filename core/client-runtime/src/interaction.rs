@@ -369,6 +369,9 @@ pub struct Interaction {
     /// The original startup value is also false. A client that never loses control
     /// therefore stops on every cast, the common case.
     controlled_by_server: bool,
+    /// Whether a cast asked for while a spell is still being cast leaves the player moving, as
+    /// it does under the Horizon camera. Pushed in by `App::interaction_use_time`.
+    casts_keep_moving: bool,
     /// Set by `EscapeKey`'s "nothing is selected" leg to the visibility-toggle action;
     /// drained by `App`, which owns the UI tree.
     visibility_toggle_requested: Option<u32>,
@@ -980,6 +983,12 @@ impl Interaction {
     /// check's only test.
     pub fn note_controlled_by_server(&mut self, on: bool) {
         self.controlled_by_server = on;
+    }
+
+    /// Whether a cast asked for while a spell is still being cast leaves the player moving
+    /// rather than stopping them (`on` under the Horizon camera).
+    pub fn note_casts_keep_moving(&mut self, on: bool) {
+        self.casts_keep_moving = on;
     }
 
     /// A panel visibility toggle was asked for by the `EscapeKey`

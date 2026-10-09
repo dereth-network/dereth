@@ -45,6 +45,10 @@ impl<S: Shell> App<S> {
         // `lose_control_to_server` sets it and the per-frame step clears it again.
         self.interaction
             .note_controlled_by_server(self.movement.lists.controlled_by_server);
+        // Under the Horizon camera the cast key pressed again through a cast leaves the keys
+        // held through it moving the player.
+        self.interaction
+            .note_casts_keep_moving(self.orbit.is_some());
         let (mut unowned, left) = crate::interaction::draw_use_time_with_chat_focus(
             &mut self.interaction,
             &self.store,

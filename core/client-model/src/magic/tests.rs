@@ -150,6 +150,62 @@ fn a_spell_cast_is_being_cast_until_the_action_is_acknowledged() {
 
 /// Behaviour: none (what an interface reads to know a spell is being cast).
 #[test]
+fn a_spell_is_cast_until_its_own_answer_however_often_the_cast_is_asked_for_again_meanwhile() {
+    // A player pressing the cast key over and over through a cast, in the order the casts and
+    // their answers came in a recorded session: each cast asked for while one is being cast is
+    // refused at once as too busy (0x1D), one cast is refused for want of mana (0x401) while the
+    // next is cast, and the spell is cast until the last cast's own answer (0).
+    enum Step {
+        Cast,
+        Done(u32),
+    }
+    use Step::{Cast, Done};
+    let steps = [
+        Cast,
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x401),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+        Cast,
+        Done(0x1d),
+    ];
+    let mut world = World::new();
+    let mut requests = crate::RecordingRequests::default();
+    for (i, step) in steps.iter().enumerate() {
+        match step {
+            Cast => world.free_hands_and_cast(&mut requests, 1, None),
+            Done(error) => {
+                world.use_done(*error);
+            }
+        }
+        assert!(world.magic.casting, "still being cast after step {i}");
+    }
+    world.use_done(0);
+    assert!(!world.magic.casting, "the cast in progress answered");
+    world.free_hands_and_cast(&mut requests, 1, None);
+    assert!(world.magic.casting, "the next cast");
+    world.use_done(0);
+    assert!(!world.magic.casting);
+}
+
+/// Behaviour: none (what an interface reads to know a spell is being cast).
+#[test]
 fn a_cast_never_acknowledged_is_over_a_little_after_the_longest_cast() {
     use dereth_primitives::LocalTime;
     let mut world = World::new();
@@ -174,6 +230,10 @@ fn a_cast_never_acknowledged_is_over_a_little_after_the_longest_cast() {
         "over just after it"
     );
     assert!(!world.magic.casting);
+    // Given up on, its answer is not waited for: the next cast is over at its own answer.
+    world.free_hands_and_cast(&mut requests, 1, None);
+    world.use_done(0);
+    assert!(!world.magic.casting, "over at the next cast's answer");
     // A cast asked for while the last is still unanswered is timed from when it is first seen.
     world.free_hands_and_cast(&mut requests, 1, None);
     assert!(world.magic.still_casting(LocalTime(start + 50.0)));

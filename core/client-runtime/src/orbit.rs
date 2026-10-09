@@ -652,17 +652,17 @@ impl MovementKeys {
     }
 
     /// Whether the camera comes round behind a player the game turns itself (`moved_by_game`),
-    /// the player being faced `face` this frame ([`Self::facing`]): as [`follows_behind`] has it,
-    /// and never while the facing is held, so the camera stays put as the game turns the player
-    /// to a spell's target.
+    /// the player being faced `face` this frame ([`Self::facing`]): as [`follows_behind`] has it.
+    /// While the facing is held that includes the game turning the player to a spell's target, so
+    /// the camera is behind them as they back up and step away from it, and they face on the
+    /// camera's way when the keys are let go.
     #[must_use]
     pub fn camera_follows_game_turn(&self, face: Option<f32>, moved_by_game: bool) -> bool {
-        !self.locked
-            && follows_behind(
-                face.is_some(),
-                self.buttons.0 || self.buttons.1,
-                moved_by_game,
-            )
+        follows_behind(
+            face.is_some(),
+            self.buttons.0 || self.buttons.1,
+            moved_by_game,
+        )
     }
 
     /// Whether any movement key is held.
@@ -1812,8 +1812,8 @@ mod tests {
             assert_eq!(k.facing(s, 90.0), None, "{s:?}: the facing is held");
             assert!(!k.camera_turns_with_player(s), "{s:?}");
             assert!(
-                !k.camera_follows_game_turn(None, true),
-                "{s:?}: the camera stays as the game turns the player to the target"
+                k.camera_follows_game_turn(k.facing(s, 90.0), true),
+                "{s:?}: the camera comes behind as the game turns the player to the target"
             );
             // The cast ends with the keys still held: they go on as they were.
             assert!(k.set_casting(false, s).is_empty(), "{s:?}");

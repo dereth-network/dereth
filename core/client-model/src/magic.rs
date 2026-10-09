@@ -1259,6 +1259,7 @@ impl World {
             })),
         }
         self.magic.busy_count += 1;
+        self.magic.casts_unanswered += 1;
         self.magic.casting = true;
         self.magic.cast_seen = None;
     }
@@ -1285,7 +1286,11 @@ impl World {
         // A matching shop refresh can precede its independently ordered inventory delivery.
         self.vendor_use_done(error);
         self.magic.busy_count = self.magic.busy_count.saturating_sub(1);
-        self.magic.casting = false;
+        // Every cast asked for is answered once, and a cast asked for while another is still
+        // being cast is refused at once as too busy: the spell is cast until the last of them is
+        // answered, not the first.
+        self.magic.casts_unanswered = self.magic.casts_unanswered.saturating_sub(1);
+        self.magic.casting = self.magic.casts_unanswered > 0;
         error
     }
 }
@@ -1576,9 +1581,12 @@ pub struct MagicState {
     /// The busy count: how many actions the player asked for are still waiting on their answer.
     /// While it is not zero the pointer is the hourglass.
     pub busy_count: u32,
-    /// A spell the player cast is still being cast: asked for, and not yet answered by the
-    /// acknowledgement that ends an action, nor given up on ([`MagicState::still_casting`]).
+    /// A spell the player cast is still being cast: asked for, and neither it nor any cast asked
+    /// for after it yet answered by the acknowledgement that ends an action, nor given up on
+    /// ([`MagicState::still_casting`]).
     pub casting: bool,
+    /// How many of the casts asked for are still waiting on their answer.
+    pub casts_unanswered: u32,
     /// When the cast in progress was first seen being cast.
     pub cast_seen: Option<LocalTime>,
     /// The spell table the client lazily loads as `(6, 2, 0x10000005)` on the **first** cast or
@@ -1618,6 +1626,7 @@ impl MagicState {
         let seen = *self.cast_seen.get_or_insert(now);
         if now.0 - seen.0 > CAST_TIMEOUT {
             self.casting = false;
+            self.casts_unanswered = 0;
             self.cast_seen = None;
         }
         self.casting

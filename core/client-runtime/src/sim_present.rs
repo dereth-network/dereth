@@ -829,6 +829,217 @@ mod tests {
         );
     }
 
+    /// What a body did through a cast under the Horizon camera (`movement`), with the cast key,
+    /// S and A pressed and the cast's answers and motions arriving on the frames they did in a
+    /// recorded session at 240 frames a second: the player casts, presses the cast key again
+    /// every fifth of a second or so (each refused at once as too busy), presses S and A a
+    /// little under a second in, goes on pressing the cast key with them held, and lets them go
+    /// half a second later, the spell's windup still playing.
+    struct SpammedCast {
+        /// The heading when S and A were pressed and when they were let go.
+        heading: (f32, f32),
+        /// How far the body went back and left of the way it faced while they were held.
+        back: f32,
+        left: f32,
+        /// Whether the facing was held on every frame they were.
+        locked_throughout: bool,
+    }
+
+    fn spammed_cast(movement: crate::orbit::MovementMode) -> SpammedCast {
+        let store = Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let mut hud = crate::hud::Hud::new();
+        hud.load_tables(&store, &dereth_client_model::World::new());
+        let table = hud.spell_table.expect("the spell table");
+        let spell = *table
+            .spells
+            .iter()
+            .find(|(_, b)| b.bitfield & dereth_client_model::magic::spell_index::SELF_TARGETED != 0)
+            .expect("a spell cast on oneself")
+            .0;
+        let mut app = App::<NullShell>::bring_up_with_store(
+            Config {
+                headless: true,
+                frames: None,
+                connect: false,
+                sound: false,
+                dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+                ..Config::default()
+            },
+            Some(store),
+            |_| {
+                let mut p = Platform::headless(64, 64);
+                p.clock = Box::new(crate::platform::clock::FixedStepClock::new(1.0 / 240.0));
+                Ok(p)
+            },
+            |_, _, _, _| Ok(Box::new(SimPresentation::new(64, 64))),
+        )
+        .expect("bring-up");
+        let mut shell = NullShell;
+        app.start_shell(&mut shell).expect("the shell starts");
+        app.load_static_scene(SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        })
+        .expect("the world loads");
+        app.orbit = Some(crate::orbit::OrbitSettings {
+            movement,
+            ..crate::orbit::OrbitSettings::default()
+        });
+        app.objects.world.magic.spell_table = Some(Arc::new(table));
+        let server_motion = |app: &mut App<NullShell>, stamp: u16, forward: u16| {
+            let buf = dereth_protocol::movement::MovementBuffer {
+                movement_timestamp: stamp,
+                server_control_timestamp: stamp,
+                autonomous: false,
+                body: dereth_protocol::movement::MovementBody {
+                    movement_type: 0,
+                    motion_flags: 0,
+                    current_style: 73,
+                    interpreted: Some(dereth_protocol::movement::InterpretedMotionState {
+                        current_style: Some(73),
+                        forward_command: Some(forward),
+                        forward_speed: Some(2.0),
+                        sidestep_command: None,
+                        sidestep_speed: None,
+                        turn_command: None,
+                        turn_speed: None,
+                        actions: Vec::new(),
+                    }),
+                    sticky_object: None,
+                    unhandled: Vec::new(),
+                },
+            };
+            let objects = &app.objects;
+            app.world
+                .as_mut()
+                .expect("a world")
+                .dispatch_player_movement(&buf, objects);
+        };
+        let body = |app: &App<NullShell>| {
+            app.world
+                .as_ref()
+                .and_then(|w| w.character.as_ref())
+                .map(crate::character::Character::position)
+                .expect("a body")
+                .frame
+        };
+        for _ in 0..10 {
+            assert!(app.frame(&mut shell));
+        }
+        server_motion(&mut app, 2, 3);
+        for _ in 0..60 {
+            assert!(app.frame(&mut shell));
+        }
+        let back = names::action_for_enum_name("MovementBackup").expect("a shipped name");
+        let left = names::action_for_enum_name("MovementTurnLeft").expect("a shipped name");
+        // The frames, from the first cast, on which each thing happened.
+        enum Event {
+            Cast,
+            TooBusy,
+            Keys(bool),
+            Windup,
+        }
+        use Event::{Cast, Keys, TooBusy, Windup};
+        let events = [
+            (0, Cast),
+            (52, Cast),
+            (57, TooBusy),
+            (100, Cast),
+            (102, TooBusy),
+            (148, Cast),
+            (150, TooBusy),
+            (195, Cast),
+            (199, TooBusy),
+            (205, Keys(true)),
+            (232, Windup),
+            (249, Cast),
+            (253, TooBusy),
+            (299, Cast),
+            (301, TooBusy),
+            (328, Keys(false)),
+        ];
+        let mut start = None;
+        let mut end = None;
+        let mut locked_throughout = true;
+        for f in 0..=328 {
+            for (_, e) in events.iter().filter(|(at, _)| *at == f) {
+                match e {
+                    Cast => app.interaction.queue(
+                        Vec::new(),
+                        vec![dereth_client_contract::view::UiRequest::CastSpell {
+                            spell_id: spell,
+                        }],
+                    ),
+                    TooBusy => {
+                        app.objects.world.use_done(0x1d);
+                    }
+                    Keys(down) => {
+                        let make = if *down { Action::begin } else { Action::end };
+                        app.inject_action(make(back));
+                        app.inject_action(make(left));
+                    }
+                    Windup => server_motion(&mut app, 3, 120),
+                }
+            }
+            if f == 328 {
+                end = Some(body(&app));
+            }
+            assert!(app.frame(&mut shell));
+            if f == 205 {
+                start = Some(body(&app));
+            }
+            if (205..328).contains(&f) {
+                locked_throughout &= app.orbit_keys.locked();
+            }
+        }
+        let (start, end) = (start.expect("pressed"), end.expect("let go"));
+        let h0 = dereth_animation::frame::get_heading(&start);
+        let h = h0.to_radians();
+        let (sin, cos) = (
+            dereth_primitives::num::math::sinf(h),
+            dereth_primitives::num::math::cosf(h),
+        );
+        let (dx, dy) = (end.origin.x - start.origin.x, end.origin.y - start.origin.y);
+        SpammedCast {
+            heading: (h0, dereth_animation::frame::get_heading(&end)),
+            back: -(dx * sin + dy * cos),
+            left: -(dx * cos - dy * sin),
+            locked_throughout,
+        }
+    }
+
+    /// Behaviour: none (the Horizon interface's own key handling, not the retail client's)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn s_and_a_back_up_and_step_left_through_a_cast_however_often_the_cast_key_is_pressed_again() {
+        for movement in [
+            crate::orbit::MovementMode::Character,
+            crate::orbit::MovementMode::Camera,
+        ] {
+            let r = spammed_cast(movement);
+            assert!(
+                r.locked_throughout,
+                "{movement:?}: the facing is held while the spell is cast"
+            );
+            assert!(
+                ((r.heading.1 - r.heading.0 + 540.0).rem_euclid(360.0) - 180.0).abs() < 0.5,
+                "{movement:?}: A steps rather than turning: {:?}",
+                r.heading
+            );
+            assert!(
+                r.back > 0.3 && r.left > 0.3,
+                "{movement:?}: it backed up and stepped left, the cast key pressed again on the \
+                 way: {} back, {} left",
+                r.back,
+                r.left
+            );
+        }
+    }
+
     /// The whole application with no device: a headless `App` over a `SimPresentation` loads a
     /// world with a body, and a `MovementForward` injected into its action queue (as a script or
     /// a key would) walks the body forward.
