@@ -67,6 +67,83 @@ pub struct InputFrame {
     pub paste: Option<String>,
     /// Text copied, waiting for the host to put it on the clipboard.
     pub copied: Option<String>,
+    /// The pad's share of the frame.
+    pub pad: PadFrame,
+    /// What answers the pointer this frame, for the pad's focus to move over.
+    pub nav: crate::ui::nav::NavFrame,
+}
+
+/// What the pad asks of the interface this frame.
+#[derive(Debug, Clone, Default)]
+pub struct PadFrame {
+    /// The cross hotbar set a trigger holds up.
+    pub set: Option<crate::pad::CrossSet>,
+    /// The cross hotbar's places pressed this frame.
+    pub fired: Vec<usize>,
+    /// A pressed with a question on screen: yes to it.
+    pub confirm: bool,
+    /// Gamepad mode is on: the interface shows what the pad's buttons do.
+    pub mode: Option<PadHints>,
+    /// The target the pad's focus rests on, marked by the pointer.
+    pub focus: Option<crate::draw::Rect>,
+    /// The window the pad's focus is in, which is brought to the top.
+    pub raise: Option<crate::draw::Rect>,
+    /// B put down an item's use waiting for what it goes on.
+    pub cancel_targeting: bool,
+    /// How much the d-pad's left and right (one) and the shoulders (ten) move an amount being
+    /// chosen (the split box's) this frame.
+    pub nudge: i32,
+    /// A list to scroll this frame, by its area, and by how many pixels (down positive): the
+    /// list moves with the pad's focus.
+    pub scroll_list: Option<(crate::draw::Rect, f32)>,
+    /// The on-screen keyboard, while it is up.
+    pub osk: Option<crate::pad::Osk>,
+    /// The tabs a shoulder button steps through this frame, and which way.
+    pub tab_step: Option<(crate::draw::Rect, i32)>,
+    /// The pad's menu is open.
+    pub menu: bool,
+    /// The window the pad's cancel closes this frame, where it was drawn.
+    pub close: Option<crate::draw::Rect>,
+    /// The cross hotbar set RB with a button picked this frame.
+    pub pick: Option<usize>,
+    /// The pad carries what it picked up, until A puts it down.
+    pub carrying: bool,
+    /// What the pad asked of the world this frame.
+    pub world: Vec<PadWorld>,
+    /// The map's cursor, which the right stick moves while the map has the focus.
+    pub map_cursor: Option<(f32, f32)>,
+}
+
+/// What the pad asks of the world, with no panel holding the focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PadWorld {
+    /// Use the selection; with none, select the nearest thing to use in front of the camera.
+    Use,
+    /// The next (`1`) or previous (`-1`) member of the fellowship, or the player with none.
+    Fellow(i32),
+    /// Move the alternate selection to the next (`1`) or previous (`-1`) candidate, starting it.
+    Alternate(i32),
+    /// Make the alternate selection the selection.
+    TakeAlternate,
+    /// Let the alternate selection go, the selection as it was.
+    DropAlternate,
+    /// Let go of the selection, if there is one; nothing otherwise.
+    Deselect,
+    /// The selection's options: use it, pick it up, examine it.
+    Options,
+}
+
+/// Which set of the pad's buttons the interface shows, for what the pad is doing now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PadHints {
+    /// Moving about the world.
+    World,
+    /// Moving the focus over the interface.
+    Cursor,
+    /// Typing on the on-screen keyboard.
+    Keyboard,
+    /// Cycling the alternate selection.
+    Alternate,
 }
 
 impl InputFrame {
@@ -88,6 +165,13 @@ impl InputFrame {
         self.actions.clear();
         self.magic.clear();
         self.double = false;
+        self.pad.fired.clear();
+        self.pad.confirm = false;
+        self.pad.tab_step = None;
+        self.pad.world.clear();
+        self.pad.pick = None;
+        self.pad.close = None;
+        self.nav.finish();
     }
 
     /// Note a left press at `time_ms`: the second within half a second and a few pixels of the

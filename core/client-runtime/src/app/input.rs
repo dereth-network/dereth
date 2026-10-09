@@ -540,6 +540,20 @@ impl<S: Shell> App<S> {
             return;
         };
         c.camera.orbit.apply_settings(settings);
+        c.camera.orbit.stick = self.orbit_look;
+        // While a spell is cast with the right button held, the mouse moved across turns the
+        // player by the game's own turning keys, the camera following.
+        let across = if keys.mouse_turns_player() {
+            c.camera.orbit_mouse_turn.replace(0.0).unwrap_or(0.0)
+        } else {
+            c.camera.orbit_mouse_turn = None;
+            0.0
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = (self.timer.cur_time - self.last_time).clamp(0.0, 0.25) as f32;
+        let turns = self.orbit_keys.cast_mouse(across, dt);
+        self.orbit_pending.extend(turns);
+        let keys = self.orbit_keys;
         if !c.camera.orbit.placed {
             return;
         }

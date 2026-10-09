@@ -624,6 +624,13 @@ impl ChatLog {
         let least = Self::smallest(0, k);
         let (w, h) = (w.min(sw - x).max(least.0), h.min(sh - y).max(least.1));
         let r = Rect::new(x, y + 24.0 * k, w, h - 24.0 * k);
+        // The docked log is a panel of its own for the pad's focus, which the Back button
+        // brings to it.
+        ctx.input.nav.layer(
+            Rect::new(x, y, w, h),
+            "Chat",
+            crate::ui::nav::PanelKind::Chat,
+        );
         // The strip the input line sits in shows only while the line is open.
         let strip = if self.typing.is_some() { 0.0 } else { 26.0 * k };
         let shown = Rect::new(x, y, w, h - strip);
@@ -686,12 +693,22 @@ impl ChatLog {
             self.draw_lines(p, ctx, &windows[tab], tab, text_area, &body, out);
         }
         self.input_line(p, ctx, state, r, &body, out);
-        if ctx.over(&Rect::new(x, y, w, h - strip))
+        // The pad's focus rests on the input line, where CONFIRM opens it.
+        {
+            let line = Rect::new(x, y + h - 26.0 * k, w, 26.0 * k);
+            let input = &mut *ctx.input;
+            input
+                .nav
+                .note(line, crate::ui::nav::Kind::Text, &input.occluders);
+            input.nav.home(line);
+        }
+        if ctx.over_quiet(&Rect::new(x, y, w, h - strip))
             && (ctx.input.pressed[0] || ctx.input.pressed[1])
         {
             ctx.input.captured = true;
         }
         self.grip_mark(p, ctx, 0, grip);
+        ctx.input.nav.end_layer();
         self.dock = r;
         self.dock_drawn = r;
     }
@@ -925,7 +942,7 @@ impl ChatLog {
         if let Some(grip) = grip {
             self.grip_mark(p, ctx, slot, grip);
         }
-        if ctx.over(&whole) && (ctx.input.pressed[0] || ctx.input.pressed[1]) {
+        if ctx.over_quiet(&whole) && (ctx.input.pressed[0] || ctx.input.pressed[1]) {
             ctx.input.captured = true;
         }
     }
@@ -1001,7 +1018,7 @@ impl ChatLog {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let visible = (area.h / lh).floor().max(1.0) as usize;
         let scroll = &mut self.scroll[slot];
-        if ctx.over(&area) && ctx.input.wheel != 0.0 {
+        if ctx.over_quiet(&area) && ctx.input.wheel != 0.0 {
             let max = lines.len().saturating_sub(visible);
             if ctx.input.wheel > 0.0 {
                 *scroll = (*scroll + 3).min(max);
@@ -1013,6 +1030,13 @@ impl ChatLog {
         // The scrollbar: where the lines shown are among all of them; a press or a drag on it
         // moves there.
         let max = lines.len().saturating_sub(visible);
+        // The log is one stop for the pad, scrolled while it is entered.
+        {
+            let input = &mut *ctx.input;
+            input
+                .nav
+                .list_whole(area, *scroll < max, *scroll > 0, &input.occluders);
+        }
         let own = max > 0 && kit::scrollbar_width(p).is_some();
         if own {
             let k = p.scale;
@@ -1043,7 +1067,7 @@ impl ChatLog {
             let k = p.scale;
             let track = Rect::new(area.right() + 2.0 * k, area.y, 4.0 * k, area.h);
             let grab = Rect::new(track.x - 4.0 * k, track.y, track.w + 8.0 * k, track.h);
-            if ctx.over(&grab) && ctx.input.down[0] {
+            if ctx.over_quiet(&grab) && ctx.input.down[0] {
                 ctx.input.pressed[0] = false;
                 ctx.input.captured = true;
                 let t = ((ctx.input.mouse.1 - track.y) / track.h).clamp(0.0, 1.0);
@@ -1171,7 +1195,7 @@ impl ChatLog {
             };
             (*at, from + col)
         };
-        if ctx.input.pressed[0] && ctx.over(&area) {
+        if ctx.input.pressed[0] && ctx.over_quiet(&area) {
             ctx.input.pressed[0] = false;
             ctx.input.captured = true;
             let here = hit(mx, my);

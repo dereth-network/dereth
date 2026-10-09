@@ -82,6 +82,11 @@ pub trait Host: 'static {
         String::new()
     }
 
+    /// The host's pad, for one front end's life; a host with none reads nothing.
+    fn gamepad() -> Box<dyn crate::gamepad::HostGamepad> {
+        Box::new(crate::gamepad::NoGamepad)
+    }
+
     /// Read an install movie lazily. Missing or unreadable resources are skipped silently.
     fn movie_bytes(_path: &std::path::Path) -> Option<Vec<u8>> {
         None

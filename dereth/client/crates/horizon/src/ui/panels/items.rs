@@ -59,21 +59,26 @@ impl Windows {
         item: Option<&Item>,
         out: &mut Outcome,
     ) {
+        // What the pad has picked up stands empty in its slot while it is carried.
+        let carried = ctx.input.pad.carrying
+            && item.is_some_and(|it| ctx.drag.as_ref().is_some_and(|d| d.item == it.id));
+        let item = item.filter(|_| !carried);
         if let Some(it) = item {
             if ctx.input.double_clicked(&r) {
                 // The first press of the pair started a drag that never moved; it goes.
                 *ctx.drag = None;
-                out.requests.push(if state.targeting {
-                    UiRequest::ExecuteTargetItem(it.id)
-                } else {
-                    UiRequest::Use(it.id)
-                });
+                self.use_item(state, it, ctx.time, out);
                 self.item_slot(p, ctx, r, item);
                 return;
             }
             if ctx.input.right_clicked(&r) {
-                out.requests.push(UiRequest::Select(it.id));
-                out.requests.push(UiRequest::Examine(it.id));
+                // In gamepad mode, X on an item opens what can be done with it.
+                if ctx.input.pad.mode.is_some() {
+                    self.open_item_menu(it, r);
+                } else {
+                    out.requests.push(UiRequest::Select(it.id));
+                    out.requests.push(UiRequest::Examine(it.id));
+                }
             }
         }
         let pressed = self.item_slot(p, ctx, r, item);
@@ -127,6 +132,7 @@ impl Windows {
                         spell: None,
                         from_spell_slot: None,
                         component: false,
+                        stance: None,
                     });
                 }
             }
@@ -151,10 +157,20 @@ impl Windows {
                     .is_some_and(|(_, _, l)| l.iter().any(|i| i.id == id && i.container))
         });
         let index = index.min(items.len());
+        // With the pad, a thing carried further along its own pack takes the slot it is put
+        // down on, what was there moving along after it: the game places a drop in front of
+        // the slot's thing once the carried one has left its old place, so the place asked for
+        // is one further on.
+        let old = dragged.and_then(|d| items.iter().position(|i| i.id == d));
+        let place = if ctx.input.pad.mode.is_some() && old.is_some_and(|o| o < index) {
+            (index + 1).min(items.len())
+        } else {
+            index
+        };
         DropTarget::ItemListSlot {
             container,
             under: items.get(index).map(|i| i.id),
-            index: u32::try_from(index).unwrap_or(0),
+            index: u32::try_from(place).unwrap_or(0),
             num_ui_items: u32::try_from(items.len()).unwrap_or(0),
             dragged_is_container,
             container_list: false,

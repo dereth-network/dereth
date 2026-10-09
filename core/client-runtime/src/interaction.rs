@@ -99,6 +99,10 @@ pub struct UiMouseEvent {
 /// mutually exclusive and a build that printed both would be wrong twice.
 pub const CHANNEL_COMMAND_NEEDS_TEXT: &str = "You must specify the text you wish to broadcast!";
 
+/// Seconds after the last change to an interface's text property in the player module before
+/// the module is sent to the server.
+pub const MODULE_SAVE_DELAY: f64 = 3.0;
+
 /// The build-owned replacement for retail's verbose version string.
 ///
 /// Retail constructs its value from the running executable's VERSION resource. Cargo package
@@ -210,6 +214,10 @@ pub use crate::flags::StartsTrue;
 /// Viewport selection, combat input and shared UI targeting state used by this router.
 #[derive(Debug, Default)]
 pub struct Interaction {
+    /// When the player module goes to the server after an interface's text property changed:
+    /// a few seconds after the last change, so a run of edits is one save, and not before the
+    /// character has entered the world (the server ignores a save before that).
+    pub module_save_at: Option<ServerTime>,
     pub chat_interface: dereth_client_contract::options::interface::Interface,
     pending_chat_entries: Vec<dereth_client_contract::chat::entry::EntryUpdate>,
     chat_target_next: f64,

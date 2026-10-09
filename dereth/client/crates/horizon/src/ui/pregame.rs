@@ -517,6 +517,7 @@ impl Pregame {
             connect_status(p, ctx, state);
         }
         let can_log_in = ready && phase_ready && selected.is_some_and(|c| c.delete_seconds == 0);
+        ctx.input.nav.home(layout.log_in);
         if kit::button(p, ctx, layout.log_in, "Log In", can_log_in) {
             if let Some(c) = selected {
                 self.confirm = Some(Confirm::LogIn(c.id, c.name.clone()));
@@ -556,6 +557,8 @@ impl Pregame {
                 });
             }
         }
+        // The pad's cancel brings the focus to Exit.
+        ctx.input.nav.cancel(layout.exit);
         if kit::button(p, ctx, layout.exit, "Exit", ready) {
             out.quit = true;
         }
@@ -993,6 +996,8 @@ pub fn dialog_box(
     let plates = dialog_plates(p);
     if modal {
         p.fill(Rect::new(0.0, 0.0, sw, sh), 0x5000_0000);
+        // Nothing under a modal box is in the pad's reach.
+        ctx.input.nav.modal();
     }
     let mut state = WindowState {
         open: true,
@@ -1012,13 +1017,20 @@ pub fn dialog_box(
     let total = bw * buttons.len() as f32 + 10.0 * k * (buttons.len().saturating_sub(1)) as f32;
     let mut bx = r.x + w / 2.0 - total / 2.0;
     let by = r.bottom() - 46.0 * k - plates;
+    ctx.input.nav.mark_box();
     let mut clicked = None;
     for (i, label) in buttons.iter().enumerate() {
-        if kit::button(p, ctx, Rect::new(bx, by, bw, 30.0 * k), label, true) {
+        let b = Rect::new(bx, by, bw, 30.0 * k);
+        if kit::button(p, ctx, b, label, true) {
             clicked = Some(i);
+        }
+        // The pad's cancel answers with the last button: No to a question, OK to a notice.
+        if i + 1 == buttons.len() {
+            ctx.input.nav.cancel(b);
         }
         bx += bw + 10.0 * k;
     }
+    ctx.input.nav.end_layer();
     if modal && ctx.input.take_key(vk::ENTER) {
         clicked = Some(0);
     }

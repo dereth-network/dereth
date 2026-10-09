@@ -314,4 +314,107 @@ mod requests {
             "the window layout is saved"
         );
     }
+
+    /// A player module whose generic-quality list carries a float entry as the client writes it
+    /// (a key and an 8-byte double) still has its gameplay-options collection saved whole, a text
+    /// property an interface keeps there included.
+    #[test]
+    #[ignore = "waits on the generic-quality float entry being read as 12 bytes (a key and a                 double), in the protocol codec and in this handler's skip"]
+    fn a_double_float_quality_leaves_the_gameplay_options_and_their_text_property_whole() {
+        use dereth_protocol::archive::PackedHash;
+        use dereth_protocol::login::{
+            player_module_flags as f, CharacterCharacterOptionsEvent, GenericQualitiesData,
+            PlayerModule,
+        };
+        use dereth_protocol::property::{
+            BaseProperty, BasePropertyValue, PackObjPropertyCollection, PropertyCollection,
+        };
+
+        let mut h = super::fellowship::H::small();
+        let sa = h.player(A, "Alpha", 3);
+        in_world(&mut h, sa);
+        h.w.objects
+            .get_mut(A)
+            .unwrap()
+            .set_first_enter_world_done(true);
+
+        let text = "dxhb1;1;i5000000a,,s3e";
+        let layout = PackObjPropertyCollection {
+            properties: PropertyCollection {
+                bucket_index: 0,
+                entries: vec![(
+                    0xE5,
+                    BaseProperty {
+                        name: 0xE5,
+                        value: Some(BasePropertyValue::String(text.to_owned())),
+                    },
+                )],
+            },
+            ..PackObjPropertyCollection::default()
+        };
+        let module = PlayerModule {
+            option_flags: f::SPELL_LISTS_8
+                | f::SPELLBOOK_FILTERS
+                | f::CHARACTER_OPTIONS_2
+                | f::GENERIC_QUALITIES_DATA
+                | f::GAMEPLAY_OPTIONS,
+            spell_bars: vec![vec![]; 8],
+            spell_filters: 0x3FFF,
+            options2: 0x0000_0010,
+            generic_qualities: Some(GenericQualitiesData {
+                flags: 0x1,
+                option_ints: Some(PackedHash {
+                    table_size: 8,
+                    entries: vec![(1, 7)],
+                }),
+                option_bools: None,
+                option_floats: None,
+                option_strings: None,
+            }),
+            gameplay_options: Some(layout.clone()),
+            ..PlayerModule::default()
+        };
+        // The list as the client writes it: the int table, then a float table whose entry is a
+        // key and a double.
+        let ints_only: Vec<u8> = [1u32, 1 | (8 << 16), 1, 7]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        let mut with_float: Vec<u8> = [1u32 | 4, 1 | (8 << 16), 1, 7, 1 | (8 << 16), 2]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        with_float.extend_from_slice(&0.3f64.to_le_bytes());
+        let blob = pack_action(0x10, &CharacterCharacterOptionsEvent { module }).expect("encode");
+        let at = blob
+            .windows(ints_only.len())
+            .position(|w| w == ints_only.as_slice())
+            .expect("the list is in the message");
+        let mut blob2 = blob[..at].to_vec();
+        blob2.extend_from_slice(&with_float);
+        blob2.extend_from_slice(&blob[at + ints_only.len()..]);
+        handle_client_message(&mut h.w, ClientMessage::new(blob2).expect("opcode"), sa);
+        run_inbound_message_queue(&mut h.w);
+
+        let c =
+            h.w.objects
+                .get(A)
+                .unwrap()
+                .player
+                .as_ref()
+                .unwrap()
+                .player
+                .character
+                .as_ref()
+                .unwrap();
+        assert_eq!(c.character_options_2, 0x10);
+        let mut want = dereth_protocol::Writer::new();
+        layout.write(&mut want).expect("encode");
+        want.align4();
+        assert_eq!(
+            c.gameplay_options.as_deref(),
+            Some(want.into_inner().as_slice()),
+            "the gameplay options are saved from their own start"
+        );
+    }
 }

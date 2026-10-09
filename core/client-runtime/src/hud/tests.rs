@@ -669,3 +669,59 @@ fn event_0317_is_drawn_as_a_transient_line() {
     assert_eq!(got[0].ty, 0x1A);
     assert_eq!(h.stats.undecodable, 0);
 }
+
+/// Behaviour: none (what an interface reads to offer wearing or wielding an item).
+#[test]
+fn where_an_item_can_be_worn_reaches_the_interface_live_and_in_a_snapshot() {
+    use dereth_client_contract::snapshot::GameSnapshot;
+    use dereth_client_model::{Weenie, World};
+    let (sword, gem) = (ObjectId(7), ObjectId(8));
+    let mut world = World::new();
+    let mut w = Weenie::new(sword);
+    // Wielded in the main hand.
+    w.pwd.valid_locations = Some(0x0010_0000);
+    world.tables.weenies.insert(sword, w);
+    world.tables.weenies.insert(gem, Weenie::new(gem));
+    // The snapshot keeps the objects an interface is looking at: the selection among them.
+    world.selected = Some(sword);
+    let hud = Hud::new();
+    let view = HudView {
+        hud: &hud,
+        world: &world,
+    };
+    assert_eq!(view.equip_locations(sword), 0x0010_0000);
+    assert_eq!(view.equip_locations(gem), 0, "a gem is not worn");
+    assert_eq!(view.equip_locations(ObjectId(99)), 0, "nor what is unknown");
+    let captured = GameSnapshot::from_view(&view);
+    assert_eq!(captured.equip_locations(sword), 0x0010_0000);
+}
+
+/// Behaviour: none (what an interface reads to leave dropping and giving out for an attuned item).
+#[test]
+fn an_appraised_attuned_item_reads_as_attuned_live_and_in_a_snapshot() {
+    use dereth_client_contract::snapshot::GameSnapshot;
+    use dereth_client_model::{Weenie, World};
+    use dereth_protocol::{archive::PackedHash, types::appraisal::AppraisalProfile};
+    let (bound, plain) = (ObjectId(7), ObjectId(8));
+    let mut world = World::new();
+    world.tables.weenies.insert(bound, Weenie::new(bound));
+    world.tables.weenies.insert(plain, Weenie::new(plain));
+    let mut profile = AppraisalProfile::default();
+    profile.tables.ints = Some(PackedHash {
+        table_size: 8,
+        entries: vec![(0x72, 1)],
+    });
+    world.appraisal.set(bound, profile);
+    world.selected = Some(bound);
+    let hud = Hud::new();
+    let view = HudView {
+        hud: &hud,
+        world: &world,
+    };
+    assert!(view.item_attuned(bound));
+    assert!(
+        !view.item_attuned(plain),
+        "not appraised: not known to be attuned"
+    );
+    assert!(GameSnapshot::from_view(&view).item_attuned(bound));
+}

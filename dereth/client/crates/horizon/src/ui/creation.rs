@@ -476,6 +476,8 @@ impl Creation {
         let bw = 130.0 * k;
         let back = Rect::new(foot.right() - 2.0 * bw - 10.0 * k, foot.y, bw, foot.h);
         let next = Rect::new(foot.right() - bw, foot.y, bw, foot.h);
+        // The pad's cancel steps back, as this button does.
+        ctx.input.nav.cancel(back);
         if kit::button(
             p,
             ctx,
@@ -490,6 +492,7 @@ impl Creation {
         }
         let last = at + 1 == steps.len();
         let label = if last { "Create" } else { "Next" };
+        ctx.input.nav.home(next);
         if kit::button(
             p,
             ctx,

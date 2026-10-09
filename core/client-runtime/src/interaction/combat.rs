@@ -208,6 +208,17 @@ impl Interaction {
         if game.player_system.use_time_save(&mut req, now) {
             self.stats.player_modules_sent += 1;
         }
+        // An interface setting changed a few seconds ago: send the module now, once the
+        // character is in the world.
+        if self
+            .module_save_at
+            .is_some_and(|at| now.0 >= at.0 && game.player_system.login_complete_sent)
+        {
+            self.module_save_at = None;
+            if game.player_system.save_to_server(&mut req, false) {
+                self.stats.player_modules_sent += 1;
+            }
+        }
         self.absorb(game, Notices::default(), req);
     }
 

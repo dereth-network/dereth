@@ -142,6 +142,7 @@ pub const CORE_FORBIDDEN: &[&str] = &[
     "windows",
     "cpal",
     "ash",
+    "gilrs",
 ];
 
 /// What `dereth-client-runtime`'s code must never name.
@@ -229,12 +230,13 @@ pub const APPLICATION_HALVES: &[&str] = &[
 pub const FRONT_ENDS: &[&str] = &["dereth-client-shell", "dereth-classic-ui", "dereth-horizon"];
 
 /// What no dependency table of an application half may name directly: the window system, the
-/// operating system's bindings, the sound device, and the desktop's own platform crates.
+/// operating system's bindings, the sound device, the pads, and the desktop's own platform crates.
 pub const HALVES_FORBIDDEN: &[&str] = &[
     "winit",
     "windows",
     "windows-sys",
     "cpal",
+    "gilrs",
     "dereth-client",
     "dereth-desktop",
     "dereth-clipboard",
@@ -247,6 +249,7 @@ pub const HALVES_NAMES_NOT: &[&str] = &[
     "winit",
     "windows",
     "cpal",
+    "gilrs",
     "dereth_client",
     "dereth_desktop",
     "dereth_clipboard",

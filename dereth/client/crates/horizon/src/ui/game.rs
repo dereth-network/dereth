@@ -256,6 +256,12 @@ pub struct Item {
     pub stack: Option<u32>,
     /// Where it is worn, as a bit mask; `0` when carried.
     pub worn: u32,
+    /// Where it can be worn or wielded, as its description says; `0` for a thing that cannot be.
+    pub equip_locations: u32,
+    /// It cannot be given away or dropped, as its appraisal says (when it has been appraised).
+    pub attuned: bool,
+    /// Its weenie class.
+    pub wcid: u32,
     pub container: bool,
     /// What the game's item lists draw it from: its type and effects (the tile and the glow its
     /// icon is composed with), a container's capacity and how full it is.
@@ -349,6 +355,10 @@ pub struct GameState {
     /// The selection is used where it stands (a door, a lever), from a distance.
     pub target_usable_here: bool,
     pub target_pickable: bool,
+    /// The selection is a container in the world (a corpse, a chest, a pack on the ground).
+    pub target_container: bool,
+    /// The selection cannot be moved from where it stands (a corpse, a chest).
+    pub target_stuck: bool,
     /// Each listed character's level as it was when last seen in the world, for character
     /// select; a character never seen, or seen before levels were kept, has none.
     pub levels: std::collections::BTreeMap<ObjectId, u32>,
@@ -371,6 +381,16 @@ pub struct GameState {
     pub chargen_refusal: Option<String>,
     /// The host the client connected to.
     pub host: String,
+    /// The player looks where the camera does (camera-based movement), rather than along the
+    /// character's facing.
+    pub look_by_camera: bool,
+    /// Where each thing the pad can select stands on screen, for those in view.
+    pub on_screen: std::collections::BTreeMap<dereth_primitives::ObjectId, (f32, f32)>,
+    /// The things the last world draw could see (a click could pick them): `None` before a draw.
+    pub in_sight: Option<std::collections::BTreeSet<dereth_primitives::ObjectId>>,
+    /// The text properties of the player module the server keeps for the character: `None`
+    /// before it has arrived.
+    pub player_module_strings: Option<Vec<(u32, String)>>,
     /// The account's characters, once the server has listed them.
     pub characters: Vec<CharacterEntry>,
     /// How many characters the account may have.
@@ -428,6 +448,9 @@ pub struct GameState {
     pub effects: Vec<Effect>,
     pub target: Option<Target>,
     pub blips: Vec<Blip>,
+    /// Everything about the player the pad can select, radar or not: doors, corpses, chests,
+    /// people, creatures, things on the ground.
+    pub targets: Vec<Blip>,
     /// The names over the people and creatures near enough to read.
     pub nameplates: Vec<Nameplate>,
     /// The player, whose main pack is the player itself.
@@ -486,10 +509,14 @@ pub struct GameState {
     pub examine_closed: bool,
     /// A use or an examine is waiting for its target: a click on an item or a shortcut gives it.
     pub targeting: bool,
+    /// The item whose use waits for what it is used on, while it does.
+    pub armed: Option<ObjectId>,
     /// How far the radar reaches, in metres: further outdoors than in.
     pub radar_range: f32,
     /// The boxes the game has put up, messages first and then the question on screen.
     pub prompts: Vec<Prompt>,
+    /// Where on screen the pad's alternate selection stands, raised to its middle.
+    pub alt_at: Option<(f32, f32)>,
     /// The player's heading, degrees clockwise from north.
     pub heading: f32,
     /// The way the camera looks, degrees clockwise from north, as `heading` is given.

@@ -170,6 +170,9 @@ fn run_with(cfg: Config, replay: Option<input_replay::Replay>) -> Result<(), Str
         let mut frame = 1;
         loop {
             replay.drain_frame(frame, |event| app.queue_window_event(event));
+            if let Some(pad) = replay.drain_pad(frame) {
+                app.set_scripted_pad(pad);
+            }
             if !app.frame() {
                 break;
             }

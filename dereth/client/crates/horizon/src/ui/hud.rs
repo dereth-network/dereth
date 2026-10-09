@@ -20,7 +20,9 @@ use crate::ui::paint::{Align, Painter, TextStyle};
 use crate::ui::panels::{WindowId, Windows};
 use crate::ui::Outcome;
 
+pub mod cross;
 mod lamps;
+pub mod pad;
 
 /// The chat type of the game's own feedback to the player: refusals and warnings.
 const FEEDBACK_CHAT_TYPE: u8 = 0x1A;
@@ -92,6 +94,19 @@ pub struct Hud {
     pub minimap_rotates: bool,
     /// What the HUD's clicks asked the information windows to show this frame.
     asks: Vec<crate::ui::panels::info::Ask>,
+    /// The pad's cross hotbars, their sets and what is bound to them.
+    pub cross: cross::CrossBars,
+    /// The pad's alternate selection: what it rests on, cycled apart from the selection.
+    pub alt: Option<dereth_primitives::ObjectId>,
+    /// Something was selected, as the last frame had it.
+    pub has_target: bool,
+    /// An item's use waits for what it goes on (the game's targeting).
+    pub targeting: bool,
+    /// The middle of the screen across, in pixels, as last drawn: where the alternate selection
+    /// starts from.
+    pub screen_middle: f32,
+    /// Where the pad's menu stood last frame, while it is open.
+    pub pad_menu_rect: Option<Rect>,
 }
 
 /// The action that logs the character out (Shift+Escape), and the one that also quits.
@@ -108,6 +123,10 @@ pub const ACTION_CLOSEST_THING: u32 = 0x1000_002F;
 /// distance ([`tab_target`]).
 pub const ACTION_PREVIOUS_MONSTER: u32 = 0x1000_0036;
 pub const ACTION_NEXT_MONSTER: u32 = 0x1000_0037;
+/// The game's map action, which opens and closes the Map window.
+pub const ACTION_MAP: u32 = 0x1000_0017;
+/// The game's options-panel action, which opens and closes the Settings window.
+pub const ACTION_OPTIONS: u32 = 0x1000_001A;
 
 /// The monster to select for Tab: the nearest first, then each further one in turn (`nearer_first`),
 /// or the furthest first, then each nearer one (Shift+Tab), round again at the end. Monsters only:
@@ -476,6 +495,14 @@ impl Hud {
         out: &mut Outcome,
     ) {
         self.tip = None;
+        self.has_target = state.target.is_some();
+        self.targeting = state.targeting;
+        if std::mem::take(&mut ctx.input.pad.cancel_targeting) && state.targeting {
+            out.requests.push(UiRequest::SetTargetMode(
+                dereth_client_contract::view::TargetMode::None,
+            ));
+        }
+        self.screen_middle = p.screen.0 / 2.0;
         // The game's own feedback ("you cannot do that", the portal-space line) floats at the
         // top of the screen, where error messages go. The game shows that type in its
         // floating line only, never in a chat window.
@@ -546,7 +573,12 @@ impl Hud {
         element!("parameter", self.parameter_bar(p, ctx, state));
         element!("stance", self.stance_gauge(p, ctx, state, out));
         self.drop_slots.clear();
-        element!("hotbars", self.hotbars(p, ctx, state, out));
+        // In gamepad mode the cross hotbars stand where the shortcut bar would.
+        if ctx.input.pad.mode.is_some() {
+            self.cross_bars(p, ctx, state, out);
+        } else {
+            element!("hotbars", self.hotbars(p, ctx, state, out));
+        }
         element!("jump", self.jump_bar(p, state));
         let placed: Vec<(Rect, u32)> = self
             .drop_slots
@@ -952,7 +984,19 @@ impl Hud {
         // The power charge along the spell bar's width, drawn as the experience bar is and
         // charging red; the aimed power is the slider's knob on it, set by a click or a drag.
         // As thick as the jump bar.
-        let bar = Rect::new(left, sh - 138.0 * k, width, 16.0 * k);
+        // With the pad, the cross hotbars hold the attack heights, and the power bar sits
+        // narrower between their halves, level with the middle of their bottom slots.
+        let pad = ctx.input.pad.mode.is_some();
+        let bar = if pad {
+            Rect::new(
+                sw / 2.0 + 12.0 * k - 90.0 * k,
+                sh - 98.0 * k,
+                180.0 * k,
+                12.0 * k,
+            )
+        } else {
+            Rect::new(left, sh - 138.0 * k, width, 16.0 * k)
+        };
         let charge = state
             .power
             .filter(|_| !state.power_jump)
@@ -994,6 +1038,9 @@ impl Hud {
         }
         if !ctx.input.down[0] {
             self.power_drag = false;
+        }
+        if pad {
+            return;
         }
         // The attack heights, low to high, under the bar's right end.
         let (bw, bh, gap) = (78.0 * k, 26.0 * k, 6.0 * k);
@@ -1065,16 +1112,10 @@ impl Hud {
         };
         let k = p.scale;
         let (sw, sh) = p.screen;
-        // Over the spell bar, or the power bar where it stands, or else the shortcut bar.
-        let over_row = matches!(state.combat_mode, 2 | 4 | 8);
-        let top = if over_row {
-            sh - 134.0 * k
-        } else {
-            sh - 86.0 * k
-        };
+        // Above the stance button, in every stance and with the keyboard or the pad alike.
         // The hotbars' slots span twelve of 46 units, centred 12 units right of the middle.
         let w = 12.0 * 46.0 * k * 1.2;
-        let bar = Rect::new(sw / 2.0 + 12.0 * k - w / 2.0, top - 26.0 * k, w, 16.0 * k);
+        let bar = Rect::new(sw / 2.0 + 12.0 * k - w / 2.0, sh - 222.0 * k, w, 16.0 * k);
         let fill = power.clamp(0.0, 1.0);
         if !kit::own_gauge(p, bar, fill, 0xFFE8_B84A) {
             p.fill(bar, 0x60FF_FFFF);
@@ -1307,6 +1348,7 @@ impl Hud {
                                 spell: None,
                                 from_spell_slot: None,
                                 component: false,
+                                stance: None,
                             });
                         }
                         // A spell is picked up by the press, and cast by a release that did not
@@ -1333,6 +1375,7 @@ impl Hud {
                                 spell: Some(spell_id),
                                 from_spell_slot: Some((self.spell_tab, j)),
                                 component: false,
+                                stance: None,
                             });
                         }
                         (None, None) => out.requests.extend(action),

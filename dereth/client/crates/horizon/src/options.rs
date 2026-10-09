@@ -30,7 +30,7 @@ pub enum StartScreen {
 }
 
 /// The interface's settings, and how a run starts it.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HorizonOptions {
     /// The interface scale, 0.5 to 3; `None` is 1.
     pub scale: Option<f32>,
@@ -43,6 +43,8 @@ pub struct HorizonOptions {
     pub script: Vec<ScriptStep>,
     /// The camera's movement scheme and pointer directions.
     pub orbit: dereth_client_runtime::orbit::OrbitSettings,
+    /// The pad: whether gamepad mode is on, its sticks' dead zone and how fast it turns the camera.
+    pub pad: crate::pad::PadSettings,
     /// The minimap turns with the character, rather than standing north up.
     pub minimap_rotates: bool,
     /// The log window's tab names, one for each of the game's chat windows.
@@ -55,6 +57,44 @@ pub struct HorizonOptions {
     /// How large the player made each log window, in layout units: the docked window's (by the
     /// main tab), then each tab's popped out.
     pub chat_sizes: [Option<(f32, f32)>; 5],
+}
+
+impl Default for HorizonOptions {
+    /// With the keyboard and mouse the movement keys move along the character's facing; in
+    /// gamepad mode the left stick moves where the camera looks (the pad's own setting).
+    fn default() -> Self {
+        Self {
+            scale: None,
+            screen: StartScreen::default(),
+            open: Vec::new(),
+            auto_login: false,
+            start_character: None,
+            script: Vec::new(),
+            orbit: dereth_client_runtime::orbit::OrbitSettings {
+                movement: dereth_client_runtime::orbit::MovementMode::Character,
+                ..dereth_client_runtime::orbit::OrbitSettings::default()
+            },
+            pad: crate::pad::PadSettings::default(),
+            minimap_rotates: false,
+            chat_tabs: TabNames::default(),
+            chat_opacity: ChatOpacity::default(),
+            chat_popped: [None; 5],
+            chat_sizes: [None; 5],
+        }
+    }
+}
+
+impl HorizonOptions {
+    /// The camera's settings in effect: the pad's movement scheme in gamepad mode, the
+    /// keyboard's otherwise.
+    #[must_use]
+    pub fn orbit_in_effect(&self) -> dereth_client_runtime::orbit::OrbitSettings {
+        let mut o = self.orbit;
+        if self.pad.enabled {
+            o.movement = self.pad.movement;
+        }
+        o
+    }
 }
 
 /// The settings file's key for how large log window `slot` was made: the docked window's for
@@ -251,6 +291,22 @@ impl HorizonOptions {
                 "reverse-x" => o.orbit.reverse_x = parse_switch(value),
                 "reverse-y" => o.orbit.reverse_y = parse_switch(value),
                 "sidestep" => o.orbit.sidestep = parse_switch(value),
+                "gamepad" => o.pad.enabled = parse_switch(value),
+                "gamepad-movement" => {
+                    if let Some(m) = parse_movement(value) {
+                        o.pad.movement = m;
+                    }
+                }
+                "gamepad-dead-zone" => {
+                    if let Some(v) = parse_in(value, crate::pad::DEAD_ZONE_RANGE) {
+                        o.pad.dead_zone = v;
+                    }
+                }
+                "gamepad-camera-speed" => {
+                    if let Some(v) = parse_in(value, crate::pad::CAMERA_SPEED_RANGE) {
+                        o.pad.camera_speed = v;
+                    }
+                }
                 "mouse-turn" => parse_number(value, &mut o.orbit.mouse_turn),
                 "key-turn" => parse_number(value, &mut o.orbit.key_turn),
                 "tilt-min" => parse_number(value, &mut o.orbit.pitch_min),
@@ -289,6 +345,10 @@ movement={}
 reverse-x={}
 reverse-y={}
 sidestep={}
+gamepad={}
+gamepad-movement={}
+gamepad-dead-zone={}
+gamepad-camera-speed={}
 mouse-turn={}
 key-turn={}
 tilt-min={}
@@ -301,6 +361,10 @@ minimap-rotates={}
             self.orbit.reverse_x,
             self.orbit.reverse_y,
             self.orbit.sidestep,
+            self.pad.enabled,
+            movement_word(self.pad.movement),
+            self.pad.dead_zone,
+            self.pad.camera_speed,
             self.orbit.mouse_turn,
             self.orbit.key_turn,
             self.orbit.pitch_min,
@@ -384,17 +448,42 @@ fn parse_switch(s: &str) -> bool {
     )
 }
 
+/// A number a settings file holds, brought into `range`; `None` when it is not a number.
+#[must_use]
+pub fn parse_in(s: &str, range: (f32, f32)) -> Option<f32> {
+    s.trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|v| v.is_finite())
+        .map(|v| v.clamp(range.0, range.1))
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
 
     #[test]
-    fn the_camera_settings_default_to_camera_based_movement_and_read_back_what_was_written() {
+    fn the_keyboard_defaults_to_character_based_movement_the_pad_to_camera_based_and_both_read_back(
+    ) {
         use dereth_client_runtime::orbit::{MovementMode, OrbitSettings};
         assert_eq!(
             HorizonOptions::default().orbit.movement,
-            MovementMode::Camera
+            MovementMode::Character,
+            "the keyboard's movement along the character's facing"
+        );
+        assert_eq!(
+            HorizonOptions::default().pad.movement,
+            MovementMode::Camera,
+            "the pad's where the camera looks"
+        );
+        let mut both = HorizonOptions::default();
+        assert_eq!(both.orbit_in_effect().movement, MovementMode::Character);
+        both.pad.enabled = true;
+        assert_eq!(
+            both.orbit_in_effect().movement,
+            MovementMode::Camera,
+            "gamepad mode on: the pad's"
         );
         let o = HorizonOptions {
             orbit: OrbitSettings {
@@ -414,6 +503,7 @@ mod tests {
         assert_eq!(
             HorizonOptions::parse("movement=sideways\nreverse-y=yes").orbit,
             OrbitSettings {
+                movement: MovementMode::Character,
                 reverse_y: true,
                 ..OrbitSettings::default()
             },
@@ -524,5 +614,27 @@ noise
             "an older file's theme and resolution lines are ignored too"
         );
         assert_eq!(HorizonOptions::parse("scale=9").scale, Some(3.0));
+    }
+
+    #[test]
+    fn the_pad_settings_default_to_off_and_read_back_what_was_written_within_their_ranges() {
+        let d = HorizonOptions::default().pad;
+        assert!(
+            !d.enabled,
+            "gamepad mode waits for a pad's button, or the setting"
+        );
+        let o = HorizonOptions {
+            pad: crate::pad::PadSettings {
+                enabled: true,
+                movement: dereth_client_runtime::orbit::MovementMode::Character,
+                dead_zone: 0.3,
+                camera_speed: 1.75,
+            },
+            ..HorizonOptions::default()
+        };
+        assert_eq!(HorizonOptions::parse(&o.to_text()).pad, o.pad);
+        let odd = HorizonOptions::parse("gamepad-dead-zone=0.9\ngamepad-camera-speed=fast");
+        assert!((odd.pad.dead_zone - crate::pad::DEAD_ZONE_RANGE.1).abs() < 1e-6);
+        assert!((odd.pad.camera_speed - d.camera_speed).abs() < 1e-6);
     }
 }

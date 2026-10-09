@@ -13,7 +13,7 @@
 //!   off. Before them, wherever there are renderers to choose from (not in the browser), the
 //!   renderer the next start comes up on, with the one in use now under it.
 //! * **Controls**: how the movement keys move the character and which way the pointer turns the
-//!   camera.
+//!   camera, and the pad: whether it is read, its sticks' dead zone and its camera speed.
 //! * **Key Bindings**: every bindable action, rebound by pressing the new key.
 //!
 //! Every sheet row, its caption and where its value is kept is the sheet's; every value shown is
@@ -84,6 +84,8 @@ pub struct OptionsState {
     pub scale: f32,
     /// The camera's movement scheme and pointer directions as they stand.
     pub orbit: dereth_client_runtime::orbit::OrbitSettings,
+    /// The pad's settings as they stand.
+    pub pad: crate::pad::PadSettings,
     /// Whether the minimap turns with the character.
     pub minimap_rotates: bool,
     /// The log window's tab names as they stand.
@@ -919,7 +921,7 @@ Press Escape to leave it as it is.",
     // -----------------------------------------------------------------------------------------
 
     /// The camera: how the movement keys move the character, and which way the pointer turns
-    /// it.
+    /// it; then the pad.
     fn controls_options(
         &mut self,
         p: &mut Painter<'_>,
@@ -930,12 +932,12 @@ Press Escape to leave it as it is.",
         use dereth_client_runtime::orbit::MovementMode;
         let k = p.scale;
         let label = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
-        let row_h = 34.0 * k;
+        let row_h = 30.0 * k;
         let row = |i: f32| {
             let y = area.y + 8.0 * k + i * row_h;
             (
                 Rect::new(area.x + 16.0 * k, y, area.w * 0.5, row_h),
-                Rect::new(area.x + area.w * 0.55, y + 3.0 * k, area.w * 0.42, 28.0 * k),
+                Rect::new(area.x + area.w * 0.55, y + 2.0 * k, area.w * 0.42, 26.0 * k),
             )
         };
         let orbit = self.options_page.orbit;
@@ -1038,6 +1040,57 @@ Press Escape to leave it as it is.",
         if let Some(v) = kit::checkbox(p, ctx, c, !self.options_page.minimap_rotates) {
             out.settings
                 .push(("minimap-rotates".into(), (!v).to_string()));
+        }
+        // The pad, under a heading of its own.
+        let heading =
+            TextStyle::new(Family::Heading, 18.4, ctx.colours.heading()).edge(ctx.colours.edge());
+        let (l, _) = row(10.2);
+        p.text_in(&heading, l, Align::Left, "Gamepad (Experimental)");
+        let pad = self.options_page.pad;
+        let (l, c) = row(11.2);
+        self.mark("Gamepad Mode", c);
+        p.text_in(&label, l, Align::Left, "Gamepad Mode");
+        if let Some(v) = kit::checkbox(p, ctx, c, pad.enabled) {
+            out.settings.push(("gamepad".into(), v.to_string()));
+        }
+        {
+            let (l, c) = row(12.2);
+            self.mark("Movement in Gamepad Mode", c);
+            p.text_in(&label, l, Align::Left, "Movement in Gamepad Mode");
+            let schemes = [MovementMode::Camera, MovementMode::Character];
+            let at = schemes.iter().position(|m| *m == pad.movement).unwrap_or(0);
+            let names = ["Camera-based", "Character-based"];
+            if let Some(i) = self.dropdown(p, ctx, "Movement in Gamepad Mode", c, &names, at) {
+                out.settings.push((
+                    "gamepad-movement".into(),
+                    crate::options::movement_word(schemes[i]).into(),
+                ));
+            }
+        }
+        for (i, (caption, name, value, (lo, hi))) in [
+            (
+                "Stick Dead Zone",
+                "gamepad-dead-zone",
+                pad.dead_zone,
+                crate::pad::DEAD_ZONE_RANGE,
+            ),
+            (
+                "Camera Speed",
+                "gamepad-camera-speed",
+                pad.camera_speed,
+                crate::pad::CAMERA_SPEED_RANGE,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            #[allow(clippy::cast_precision_loss)]
+            let (l, c) = row(13.2 + i as f32);
+            self.mark(caption, c);
+            p.text_in(&label, l, Align::Left, caption);
+            if let Some(v) = kit::slider(p, ctx, c, value, lo, hi) {
+                out.settings.push((name.into(), format!("{v:.2}")));
+            }
         }
     }
 }

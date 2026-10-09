@@ -1,6 +1,6 @@
 //! The desktop host: the window and its event loop, the message pump, the settings folders, the
-//! sound device, the clipboard, the cursors, the log and the crash log, for any product that runs
-//! the client shell on a desktop.
+//! sound device, the clipboard, the cursors, the pads, the log and the crash log, for any product
+//! that runs the client shell on a desktop.
 //!
 //! **Depends on** the client shell (`dereth-client-shell`), whose `Host` this implements, the
 //! runtime it starts (`dereth-client-runtime`), the contract (`dereth-client-contract`) and
@@ -8,8 +8,9 @@
 //! input's key tables (`dereth-input`), the dat locator (`dereth-dat`), the two unsafe hops
 //! (`dereth-clipboard`, `dereth-console`), and the fonts it hands the classic interface (the
 //! Windows font system through `dereth-classic-gdi`, elsewhere the carried ones of
-//! `dereth-classic-fonts`, in the atlas format of `dereth-classic-dat`). **Used by** the desktop
-//! client (`dereth-client`), and by any other desktop product built on the client shell.
+//! `dereth-classic-fonts`, in the atlas format of `dereth-classic-dat`), and on Windows the pads
+//! (`gilrs`). **Used by** the desktop client (`dereth-client`), and by any other desktop product
+//! built on the client shell.
 //!
 //! **Must never** hold a UI, a screen or a game rule: it is the platform under the application, and
 //! a product is the [`Product`] it names -- its binary, its settings folder, its window's title and
@@ -32,6 +33,8 @@ pub mod crashlog;
 pub mod cursor;
 // Where a product keeps its files on this platform, and the one-time copy of the original game's.
 pub mod folders;
+// The pads.
+pub mod gamepad;
 mod host;
 // The HUD model's platform answers.
 pub mod hud;

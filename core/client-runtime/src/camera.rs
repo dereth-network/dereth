@@ -1827,6 +1827,9 @@ pub struct CameraControl {
     /// The player's own turning carries the orbit camera round with them (character-based
     /// movement, the turning keys held and no mouse button).
     pub orbit_turns_with_player: bool,
+    /// While the mouse turns the player rather than the camera (a spell being cast with the right
+    /// button held): how far it has moved across since last taken.
+    pub orbit_mouse_turn: Option<f32>,
     /// The way the body was drawn facing last frame, while the orbit camera is in use.
     orbit_last_heading: Option<f32>,
 }
@@ -1885,6 +1888,7 @@ impl CameraControl {
             drawn_offset: Vec3::ZERO,
             drawn_turn: 0.0,
             orbit_turns_with_player: false,
+            orbit_mouse_turn: None,
             orbit_last_heading: None,
         }
     }
@@ -1995,7 +1999,13 @@ impl CameraControl {
         // not turned by it.
         if self.orbit_active {
             #[allow(clippy::cast_precision_loss)]
-            self.orbit.rotate(dx as f32, dy as f32);
+            if let Some(across) = self.orbit_mouse_turn.as_mut() {
+                // The player turns, and the camera with them; it still tilts.
+                *across += dx as f32;
+                self.orbit.rotate(0.0, dy as f32);
+            } else {
+                self.orbit.rotate(dx as f32, dy as f32);
+            }
             return;
         }
         let in_head = CameraState::in_head(&self.manager);
@@ -2261,9 +2271,13 @@ impl CameraControl {
             input.look_down,
             dt,
         );
+        self.orbit.turn_stick(dt);
         // The game turning the player toward something brings the camera round behind them,
-        // but not against the player's own turning of it this frame.
-        if self.orbit.follow_behind && !(input.look_left || input.look_right) {
+        // but not against the player's own turning of it this frame (by key or stick).
+        if self.orbit.follow_behind
+            && !(input.look_left || input.look_right)
+            && self.orbit.stick.0 == 0.0
+        {
             self.orbit.ease_behind(heading, dt);
             // A turn of the game's is often over in a moment (a turn to face what is fought):
             // the camera goes on round once it ends, until it is directly behind, as it does

@@ -69,6 +69,12 @@ pub trait ClientPresentation: Presentation {
         None
     }
 
+    /// The objects the last world draw could see (those a click could pick): `None` when no
+    /// world has been drawn.
+    fn drawn_objects(&self) -> Option<std::collections::BTreeSet<ObjectId>> {
+        None
+    }
+
     /// Draw preview space `id` into that element's rectangle this frame. The spaces themselves
     /// are the presentation's own (`Presentation::preview_ensure` and the rest).
     fn preview_queue(&mut self, id: PreviewId, who: dereth_ui::ElemHandle, rect: Viewport);

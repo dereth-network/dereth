@@ -1,12 +1,27 @@
-//! Scheduled device events for an offscreen desktop client.
+//! Scheduled device events for an offscreen desktop client, and a pad held as they say.
 
 use std::collections::VecDeque;
 
 use dereth_input::host::HostEvent;
 use dereth_input::keys::{Key, MouseButton};
+use dereth_input::pad::{PadButton, PadState};
 
 pub struct Replay {
     events: VecDeque<(u64, HostEvent)>,
+    /// The pad's changes, by frame: `pad button <name> down|up`, `pad stick left|right <x> <y>`,
+    /// `pad trigger left|right <0..1>`, `pad off`.
+    pads: VecDeque<(u64, PadEdit)>,
+    /// The pad as the changes so far have left it; `None` before the first, and after `pad off`.
+    pad: Option<PadState>,
+}
+
+/// One change to the replayed pad.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PadEdit {
+    Button(PadButton, bool),
+    Stick { left: bool, at: (f32, f32) },
+    Trigger { left: bool, at: f32 },
+    Off,
 }
 
 impl Replay {
@@ -21,6 +36,7 @@ impl Replay {
 
     fn parse(text: &str) -> Result<Self, String> {
         let mut events = VecDeque::new();
+        let mut pads = VecDeque::new();
         let mut previous = 1;
         for (line, text) in text.lines().enumerate() {
             let text = text.trim();
@@ -35,18 +51,53 @@ impl Replay {
                 if frame == 0 || frame < previous {
                     return Err("frames must be positive and nondecreasing");
                 }
+                if fields.get(1) == Some(&"pad") {
+                    return Ok((frame, Err(parse_pad(&fields[2..])?)));
+                }
                 let event = parse_event(&fields[1..])?;
-                Ok((frame, event))
+                Ok((frame, Ok(event)))
             })();
             let (frame, event) =
                 parsed.map_err(|e| format!("--input-replay line {}: {e}", line + 1))?;
             previous = frame;
-            events.push_back((frame, event));
+            match event {
+                Ok(event) => events.push_back((frame, event)),
+                Err(pad) => pads.push_back((frame, pad)),
+            }
         }
-        if events.is_empty() {
+        if events.is_empty() && pads.is_empty() {
             return Err("--input-replay needs at least one event".into());
         }
-        Ok(Self { events })
+        Ok(Self {
+            events,
+            pads,
+            pad: None,
+        })
+    }
+
+    /// The pad as it is from `frame` on, when a change falls on that frame.
+    pub fn drain_pad(&mut self, frame: u64) -> Option<Option<PadState>> {
+        let mut changed = false;
+        while self.pads.front().is_some_and(|(at, _)| *at == frame) {
+            let Some((_, edit)) = self.pads.pop_front() else {
+                break;
+            };
+            changed = true;
+            if edit == PadEdit::Off {
+                self.pad = None;
+                continue;
+            }
+            let pad = self.pad.get_or_insert_with(PadState::default);
+            match edit {
+                PadEdit::Button(b, held) => pad.set(b, held),
+                PadEdit::Stick { left: true, at } => pad.left = at,
+                PadEdit::Stick { left: false, at } => pad.right = at,
+                PadEdit::Trigger { left: true, at } => pad.left_trigger = at,
+                PadEdit::Trigger { left: false, at } => pad.right_trigger = at,
+                PadEdit::Off => {}
+            }
+        }
+        changed.then_some(self.pad)
     }
 
     pub fn drain_frame(&mut self, frame: u64, mut emit: impl FnMut(HostEvent)) {
@@ -104,6 +155,57 @@ fn coordinate(value: &str) -> Result<f64, &'static str> {
         .ok()
         .filter(|v| v.is_finite())
         .ok_or("expected a finite pointer coordinate")
+}
+
+fn unit(value: &str, lo: f32) -> Result<f32, &'static str> {
+    value
+        .parse::<f32>()
+        .ok()
+        .filter(|v| (lo..=1.0).contains(v))
+        .ok_or("expected a pad position in its range")
+}
+
+fn side(value: &str) -> Result<bool, &'static str> {
+    match value {
+        "left" => Ok(true),
+        "right" => Ok(false),
+        _ => Err("expected left or right"),
+    }
+}
+
+fn parse_pad(fields: &[&str]) -> Result<PadEdit, &'static str> {
+    match fields {
+        ["button", name, state] => Ok(PadEdit::Button(
+            match *name {
+                "south" | "a" => PadButton::South,
+                "east" | "b" => PadButton::East,
+                "west" | "x" => PadButton::West,
+                "north" | "y" => PadButton::North,
+                "lb" => PadButton::LeftBumper,
+                "rb" => PadButton::RightBumper,
+                "back" => PadButton::Back,
+                "start" => PadButton::Start,
+                "up" => PadButton::DPadUp,
+                "down" => PadButton::DPadDown,
+                "left" => PadButton::DPadLeft,
+                "right" => PadButton::DPadRight,
+                "ls" => PadButton::LeftStick,
+                "rs" => PadButton::RightStick,
+                _ => return Err("unknown pad button"),
+            },
+            pressed(state)?,
+        )),
+        ["stick", which, x, y] => Ok(PadEdit::Stick {
+            left: side(which)?,
+            at: (unit(x, -1.0)?, unit(y, -1.0)?),
+        }),
+        ["trigger", which, at] => Ok(PadEdit::Trigger {
+            left: side(which)?,
+            at: unit(at, 0.0)?,
+        }),
+        ["off"] => Ok(PadEdit::Off),
+        _ => Err("expected pad button, stick, trigger or off with its documented fields"),
+    }
 }
 
 fn parse_event(fields: &[&str]) -> Result<HostEvent, &'static str> {
@@ -251,7 +353,40 @@ mod tests {
             assert!(err.contains("line 2:"), "{invalid}: {err}");
         }
         assert!(Replay::parse("2 move 1 2\n1 move 3 4").is_err());
+        for invalid in [
+            "1 pad",
+            "1 pad button z down",
+            "1 pad stick middle 0 0",
+            "1 pad stick left 2 0",
+            "1 pad trigger right -0.5",
+            "1 pad off now",
+        ] {
+            let err = Replay::parse(&format!("# header\n{invalid}"))
+                .err()
+                .unwrap();
+            assert!(err.contains("line 2:"), "{invalid}: {err}");
+        }
         assert!(Replay::parse("# empty\n").is_err());
+    }
+
+    /// Behaviour: shell.input-replay.validates-and-preserves-device-events
+    #[test]
+    fn a_replayed_pad_holds_each_change_from_its_frame_until_it_is_switched_off() {
+        let mut replay = Replay::parse(
+            "1 pad stick left 0 1\n1 pad button a down\n3 pad trigger right 0.75\n\
+             3 move 1 1\n5 pad off\n",
+        )
+        .unwrap();
+        let first = replay.drain_pad(1).unwrap().unwrap();
+        assert_eq!(first.left, (0.0, 1.0));
+        assert!(first.held(PadButton::South));
+        assert_eq!(replay.drain_pad(2), None, "nothing changes on frame 2");
+        let third = replay.drain_pad(3).unwrap().unwrap();
+        assert_eq!((third.left, third.right_trigger), ((0.0, 1.0), 0.75));
+        assert_eq!(replay.drain_pad(5), Some(None));
+        let mut events = Vec::new();
+        replay.drain_frame(3, |e| events.push(e));
+        assert_eq!(events, [HostEvent::CursorMoved { x: 1.0, y: 1.0 }]);
     }
 
     /// Behaviour: shell.input-replay.validates-and-preserves-device-events

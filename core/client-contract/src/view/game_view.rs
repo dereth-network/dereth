@@ -300,6 +300,13 @@ pub trait GameView: std::fmt::Debug {
         false
     }
 
+    /// The text properties at the top of the player module's gameplay-options collection, which
+    /// the server keeps for the character and returns at login: `None` before the module has
+    /// arrived, and an empty list when it holds none.
+    fn player_module_strings(&self) -> Option<Vec<(u32, String)>> {
+        None
+    }
+
     /// The link-status holder's connection status — the link lamp's only input.
     ///
     /// The connected state carries **seconds since the last datagram from the current
@@ -571,6 +578,18 @@ pub trait GameView: std::fmt::Debug {
     /// avoids four hash probes.
     fn slot_decoration(&self, _id: ObjectId) -> Option<SlotDecoration> {
         None
+    }
+
+    /// Where the object can be worn or wielded: its valid-locations mask from its description,
+    /// `0` for a thing that cannot be (or an object unknown).
+    fn equip_locations(&self, _id: ObjectId) -> u32 {
+        0
+    }
+
+    /// Whether the object is attuned (it cannot be given away or dropped), as far as its
+    /// appraisal is known; `false` before it has been appraised.
+    fn item_attuned(&self, _id: ObjectId) -> bool {
+        false
     }
 
     /// The object's plural name, which item lists request for a stack.

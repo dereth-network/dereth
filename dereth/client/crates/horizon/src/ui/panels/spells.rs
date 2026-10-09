@@ -227,6 +227,20 @@ impl Windows {
             Rect::new(body.x, area.bottom() + 6.0 * k, list_w, 40.0 * k),
             out,
         );
+        // Beside the level filters, under the details: the fighting stance's controls.
+        stance_controls(
+            p,
+            ctx,
+            state,
+            Rect::new(
+                area.right() + 12.0 * k,
+                area.bottom() + 4.0 * k,
+                body.right() - area.right() - 12.0 * k,
+                40.0 * k,
+            ),
+            out,
+            &mut self.tip,
+        );
         let row_h = 40.0 * k;
         #[allow(clippy::cast_precision_loss)]
         let content = row_h * spells.len() as f32;
@@ -246,6 +260,8 @@ impl Windows {
                 "No spells shown.",
             );
         }
+        // The pad's focus starts on the first spell in sight, not the search box above.
+        let mut homed = false;
         for (i, s) in spells.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let row = Rect::new(
@@ -263,6 +279,10 @@ impl Windows {
                 row.w,
                 row.bottom().min(area.bottom()) - row.y.max(area.y),
             );
+            if !homed && row.y >= area.y {
+                ctx.input.nav.home(visible);
+                homed = true;
+            }
             let on = self.actions_selected == Some(s.id);
             if on || ctx.input.hover(&visible) {
                 crate::ui::pregame::list_highlight(p, row, on);
@@ -295,8 +315,11 @@ impl Windows {
                 self.ask(super::info::Ask::Spell(s.id), ctx.time);
             } else if ctx.over(&visible) && ctx.input.clicked(&visible) {
                 self.actions_selected = Some(s.id);
-                // Pressed, it can be dragged to a spell bar slot.
-                *ctx.drag = Some(crate::ui::Drag {
+                // With the pad, choosing a spell takes the focus on to Add to Bar and Forget.
+                self.focus_spell_details = ctx.input.pad.mode.is_some();
+                // Pressed, it can be dragged to a spell bar slot (with the mouse; the pad adds
+                // it to a bar from its details).
+                *ctx.drag = ctx.input.pad.mode.is_none().then_some(crate::ui::Drag {
                     item: dereth_primitives::ObjectId(0),
                     look: None,
                     spell_look: Some((s.icon_power, s.bitfield)),
@@ -308,6 +331,7 @@ impl Windows {
                     spell: Some(s.id),
                     from_spell_slot: None,
                     component: false,
+                    stance: None,
                 });
             }
         }
@@ -342,14 +366,17 @@ impl Windows {
             &[],
         );
         let bw = (w - 8.0 * k) / 2.0;
-        if kit::button(
-            p,
-            ctx,
-            Rect::new(x, buttons_y, bw, 28.0 * k),
-            "Add to Bar",
-            true,
-        ) {
-            out.requests.extend(self.add_to_bar(state, id));
+        let add = Rect::new(x, buttons_y, bw, 28.0 * k);
+        if std::mem::take(&mut self.focus_spell_details) {
+            ctx.input.nav.want_focus(add);
+        }
+        if kit::button(p, ctx, add, "Add to Bar", true) {
+            // In gamepad mode the spell goes to a cross hotbar, through the bind-to-hotbar notice.
+            if ctx.input.pad.mode.is_some() {
+                out.bind_to_hotbar = Some(crate::ui::hud::cross::CrossBind::Spell(id));
+            } else {
+                out.requests.extend(self.add_to_bar(state, id));
+            }
         }
         if kit::button(
             p,
@@ -489,7 +516,8 @@ impl Windows {
                 (*label).to_string()
             };
             p.text(&dim, label_r.x + 2.0 * k, row.y + 2.0 * k, &shown);
-            let labelled = ctx.over(&label_r) && ctx.input.clicked(&label_r);
+            // The label answers the pointer, but its box is the one stop for the pad.
+            let labelled = ctx.over_quiet(&label_r) && ctx.input.clicked(&label_r);
             if boxed.is_some() || labelled {
                 let mask = if on { mask & !bit } else { mask | bit };
                 out.requests.push(UiRequest::SetSpellbookFilter { mask });
@@ -553,6 +581,63 @@ impl Windows {
     }
 }
 
+/// The fighting stance's five controls in a row over `r`, each to be put on a cross hotbar slot:
+/// confirming one starts the bind-to-hotbar notice, and the mouse drags it onto a slot. Each
+/// names itself (for the weapon in hand) while the pointer is over it.
+fn stance_controls(
+    p: &mut Painter<'_>,
+    ctx: &mut Ctx<'_>,
+    state: &GameState,
+    r: Rect,
+    out: &mut Outcome,
+    tip: &mut Option<(String, Vec<String>)>,
+) {
+    use crate::ui::hud::cross::{self, CrossBind, PowerAct};
+    let k = p.scale;
+    let missile = state.combat_mode == dereth_client_contract::combat_mode::MISSILE;
+    let side = 36.0 * k;
+    let gap = 8.0 * k;
+    for (i, act) in PowerAct::ALL.into_iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let tile = Rect::new(
+            r.x + i as f32 * (side + gap),
+            r.y + (r.h - side) / 2.0,
+            side,
+            side,
+        );
+        if tile.right() > r.right() {
+            break;
+        }
+        let bind = CrossBind::Power(act);
+        let pressed = cross::draw_slot(p, ctx, tile, None, Some(bind), missile, false, false);
+        if ctx.input.hover(&tile) {
+            *tip = Some((act.name(missile).to_owned(), Vec::new()));
+        }
+        if !pressed {
+            continue;
+        }
+        if ctx.input.pad.mode.is_some() {
+            out.bind_to_hotbar = Some(bind);
+        } else {
+            // Pressed, it can be dragged onto a cross hotbar slot.
+            *ctx.drag = Some(crate::ui::Drag {
+                item: dereth_primitives::ObjectId(0),
+                look: None,
+                spell_look: None,
+                from_shortcut: None,
+                icon: None,
+                origin: ctx.input.mouse,
+                active: false,
+                on_click: None,
+                spell: None,
+                from_spell_slot: None,
+                component: false,
+                stance: Some(act),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
@@ -597,6 +682,10 @@ mod tests {
         assert!(!eor.contains(&"Create Spell"));
         let early = names(&world(true, false));
         assert!(!early.contains(&"Void"));
-        assert_eq!(early.last(), Some(&"Create Spell"));
+        assert_eq!(
+            early[early.len() - 2..],
+            ["Components", "Create Spell"],
+            "Create Spell after the schools and Components; no page of the stance's controls"
+        );
     }
 }

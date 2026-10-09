@@ -180,6 +180,8 @@ zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 cpal = { version = "0.17.3", default-features = false }
 ctrlc = "3.5"
+# The desktop host's pads; no other crate depends on it.
+gilrs = { version = "0.11", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam = "0.30"
 png = "0.17"

@@ -15,6 +15,7 @@ pub mod hud;
 pub mod input;
 pub mod kit;
 pub mod layout;
+pub mod nav;
 pub mod paint;
 pub mod panels;
 pub mod pregame;
@@ -69,6 +70,9 @@ pub struct Drag {
     pub from_spell_slot: Option<(usize, usize)>,
     /// A spell component, its icon drawn as the component lists draw it.
     pub component: bool,
+    /// One of the fighting stance's controls, picked up from the spellbook's Combat page: only a
+    /// cross hotbar slot takes it.
+    pub stance: Option<hud::cross::PowerAct>,
 }
 
 /// How far the pointer must move, in pixels, before a press becomes a drag.
@@ -115,6 +119,12 @@ pub struct Outcome {
     pub identify_spell: Option<u32>,
     /// Open the chat line with this already typed (a tell to a friend).
     pub chat_prefill: Option<String>,
+    /// Actions to fire as a key tapped: pressed and let go.
+    pub action_taps: Vec<u32>,
+    /// Something to bind to a cross hotbar slot: the bind-to-hotbar notice comes up with it.
+    pub bind_to_hotbar: Option<hud::cross::CrossBind>,
+    /// A drop on a cross hotbar slot: the slot, and what it binds there.
+    pub cross_bind: Option<(usize, hud::cross::CrossBind)>,
     /// The book window was closed.
     pub book_closed: bool,
     /// An allegiance action to ask about: the action, the other player, the question's string
@@ -325,17 +335,24 @@ impl HorizonUi {
                     .rects(scale)
                     .into_iter()
                     .map(|(_, r)| r)
+                    .chain(self.windows.pad_box)
+                    .chain(self.hud.pad_menu_rect)
                     .collect();
                 // The log window's popped-out tabs are over the HUD too.
                 ctx.input.occluders.extend(self.hud.log.popped_rects());
                 ctx.input.occluders.extend(self.hud.log.menu_rect());
+                self.hud.screen_middle = p.screen.0 / 2.0;
+                self.hud
+                    .pad_world(&mut ctx, state, &mut self.windows, &mut out);
                 self.hud
                     .game_keys(&mut ctx, state, &mut self.windows, &mut out);
                 self.hud
                     .frame(&mut p, &mut ctx, state, &mut self.windows, &mut out);
+                self.hud.alt_ring(&mut p, &ctx, state);
                 self.windows.spell_tab = self.hud.spell_tab();
                 self.windows.options_page.scale = self.options.scale.unwrap_or(1.0);
                 self.windows.options_page.orbit = self.options.orbit;
+                self.windows.options_page.pad = self.options.pad;
                 self.windows.options_page.minimap_rotates = self.options.minimap_rotates;
                 self.hud.minimap_rotates = self.options.minimap_rotates;
                 self.windows
@@ -355,6 +372,8 @@ impl HorizonUi {
                     .rects(scale)
                     .into_iter()
                     .map(|(_, r)| r)
+                    .chain(self.windows.pad_box)
+                    .chain(self.hud.pad_menu_rect)
                     .collect();
                 // The HUD Layout window and the outlines it moves are over them too.
                 let layout = self.hud.layout_rects(&self.windows, scale, p.screen);
@@ -364,6 +383,7 @@ impl HorizonUi {
                 ctx.input.occluders.truncate(windows_only);
                 self.hud.layout_overlay(&mut p, &mut ctx, &mut self.windows);
                 self.windows.frame(&mut p, &mut ctx, state, &mut out);
+                self.hud.pad_menu(&mut p, &mut ctx, &mut self.windows);
                 if let Some(text) = out.chat_prefill.take() {
                     self.hud.open_chat(text);
                 }
@@ -382,6 +402,12 @@ impl HorizonUi {
                     .options_questions(&mut p, &mut ctx, state, &mut out);
                 self.windows.questions(&mut p, &mut ctx, state, &mut out);
                 drag_step(&mut p, &mut ctx, state, &self.hud.drop_slots, &mut out);
+                if let Some((slot, bind)) = out.cross_bind.take() {
+                    self.hud.cross.assign(slot, Some(bind));
+                }
+                if let Some(bind) = out.bind_to_hotbar.take() {
+                    self.hud.cross.binding = Some(bind);
+                }
             }
         }
         if state.disconnected {
@@ -395,6 +421,7 @@ impl HorizonUi {
                 out.quit = true;
             }
         }
+        hud::pad::overlays(&mut p, &mut ctx);
         self.drops = std::mem::take(&mut ctx.drops);
         self.pointer_over_ui = ctx.hot || ctx.input.captured;
         self.text_focus = ctx.input.text_focus;
@@ -420,6 +447,12 @@ fn prompts(
     state: &game::GameState,
     out: &mut Outcome,
 ) {
+    // The pad's A says yes to the question on top.
+    if std::mem::take(&mut ctx.input.pad.confirm) {
+        if let Some(prompt) = state.prompts.last() {
+            out.answers.push((prompt.id, true));
+        }
+    }
     for (i, prompt) in state.prompts.iter().enumerate() {
         let (title, buttons): (&str, &[&str]) = if prompt.question {
             ("Confirm", &["Yes", "No"])
@@ -461,6 +494,25 @@ pub(crate) fn place_spell(rows: &[u32], spell_id: u32, index: usize, tab: usize)
         .map_or_else(Vec::new, |plan| plan.requests(spell_id, tab))
 }
 
+/// A thing carried, drawn at `(x, y)`: lifted a little off where it is held, on a dark slot of
+/// its own, so it reads over windows and the world alike.
+pub(crate) fn draw_lifted(
+    p: &mut paint::Painter<'_>,
+    icon: &crate::art::Sprite,
+    (x, y): (f32, f32),
+) {
+    let k = p.scale;
+    let s = 40.0 * k;
+    let r = crate::draw::Rect::new(x - s / 2.0 - 4.0 * k, y - s / 2.0 - 6.0 * k, s, s);
+    let back = r.inset(-5.0 * k);
+    p.fill(back.offset(3.0 * k, 4.0 * k), 0x6000_0000);
+    p.fill(back, 0xE010_0E0C);
+    if let Some(frame) = p.piece("slot.empty") {
+        p.sprite(&frame, back, crate::draw::WHITE);
+    }
+    p.sprite(icon, r, crate::draw::WHITE);
+}
+
 /// The drag's frame: it becomes a drag once the pointer moves; while it is one its icon follows
 /// the pointer; and the release either clicks what was pressed or drops what is in hand.
 fn drag_step(
@@ -493,9 +545,7 @@ fn drag_step(
     if drag.active {
         ctx.input.captured = true;
         if let Some(icon) = drag_picture(p, drag) {
-            let s = 40.0 * p.scale;
-            let r = crate::draw::Rect::new(mx - s / 2.0, my - s / 2.0, s, s);
-            p.sprite(&icon, r, 0xD0FF_FFFF);
+            draw_lifted(p, &icon, (mx, my));
         }
     }
     if ctx.input.down[0] {
@@ -512,6 +562,22 @@ fn drag_step(
         .iter()
         .find(|(r, _)| r.contains(mx, my))
         .map(|(_, s)| *s);
+    // A drop on a cross hotbar slot binds what was dropped there.
+    if let Some((_, Some(kit::Drop::CrossSlot(index)))) =
+        ctx.drops.iter().rev().find(|(r, _)| r.contains(mx, my))
+    {
+        let bind = match (drag.stance, drag.spell) {
+            (Some(act), _) => hud::cross::CrossBind::Power(act),
+            (None, Some(id)) => hud::cross::CrossBind::Spell(id),
+            (None, None) => hud::cross::CrossBind::Item(drag.item),
+        };
+        out.cross_bind = Some((*index, bind));
+        return;
+    }
+    // A stance control lands nowhere but on a cross hotbar slot.
+    if drag.stance.is_some() {
+        return;
+    }
     if let Some(spell_id) = drag.spell {
         let slot = ctx.drops.iter().rev().find(|(r, _)| r.contains(mx, my));
         if let Some((_, Some(kit::Drop::SpellSlot { tab, index }))) = slot {

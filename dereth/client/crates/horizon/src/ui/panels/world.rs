@@ -724,6 +724,7 @@ impl Windows {
                         spell: None,
                         from_spell_slot: None,
                         component: true,
+                        stance: None,
                     });
                 }
             }

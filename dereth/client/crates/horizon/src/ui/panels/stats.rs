@@ -86,6 +86,18 @@ pub(super) fn label_and_value(
 
 /// How far a list inside a character panel keeps from the panel's sides: inside the frame's
 /// bars, so its scrollbar stands within the frame.
+/// Where a row of the attributes is a stop for the pad: from `left` to just short of its raise
+/// buttons, which end at `right`.
+fn row_stop(k: f32, left: f32, right: f32, y: f32) -> Rect {
+    let buttons = 76.0 * k;
+    Rect::new(
+        left,
+        y - 3.0 * k,
+        (right - buttons - 4.0 * k - left).max(0.0),
+        22.0 * k,
+    )
+}
+
 fn list_margin(p: &Painter<'_>) -> f32 {
     10.0 * p.scale
 }
@@ -196,6 +208,8 @@ impl Windows {
                 value_right,
                 &row.shown,
             );
+            // The row itself is a stop for the pad, left of its buttons.
+            ctx.stop(&row_stop(k, area.x + 14.0 * k, area.right() - 14.0 * k, y));
             let key = (row.vital, row.wire);
             let waiting = self.raising(ctx, key, &row.shown);
             if let Some(ten) = self.raise_buttons(
@@ -224,6 +238,14 @@ impl Windows {
                 self.raise_wait = Some((key, row.shown.clone(), ctx.time));
             }
             y += 26.0 * k;
+        }
+        // For the pad the rows are one list, entered by stepping onto it.
+        if y > area.y {
+            let input = &mut *ctx.input;
+            input.nav.list_of_rows(
+                Rect::new(area.x, area.y, area.w, y - area.y),
+                &input.occluders,
+            );
         }
         self.spend_footer(p, ctx, state, area);
     }
@@ -269,13 +291,13 @@ impl Windows {
         #[allow(clippy::cast_precision_loss)]
         let content = row_h * lines.len() as f32;
         // The bar stands a little in from the list's right edge.
-        let offset = kit::scroll(
-            p,
-            ctx,
-            Rect::new(list.x, list.y, list.w - 2.0 * k, list.h),
-            content,
-            &mut self.skills_scroll,
-        );
+        let scrolled = Rect::new(list.x, list.y, list.w - 2.0 * k, list.h);
+        let offset = kit::scroll(p, ctx, scrolled, content, &mut self.skills_scroll);
+        // For the pad the rows are one list, entered by stepping onto it.
+        {
+            let input = &mut *ctx.input;
+            input.nav.list_of_rows(scrolled, &input.occluders);
+        }
         // While the list scrolls, its bar stands at the right and the rows give way to it.
         let bar = if content > list.h {
             kit::scrollbar_width(p).unwrap_or(4.0) * k + 4.0 * k
@@ -315,6 +337,14 @@ impl Windows {
                 value_right,
                 &shown,
             );
+            // The row itself is a stop for the pad, left of its buttons.
+            let buttons = if s.training >= 2 { 76.0 } else { 80.0 };
+            ctx.stop(&Rect::new(
+                rows.x + 4.0 * k,
+                y - 3.0 * k,
+                (buttons_right - buttons * k - 4.0 * k - rows.x).max(0.0),
+                22.0 * k,
+            ));
             let key = (true, 0x1000 + s.id);
             let waiting = self.raising(ctx, key, &shown);
             if s.training >= 2 {

@@ -465,14 +465,35 @@ fn the_interface_scale_is_one_of_four_chosen_by_its_radio_buttons() {
 fn the_controls_page_sets_the_movement_scheme_and_the_turning_directions() {
     let state = in_world();
     let mut h = options_on("Controls", &state);
-    let out = choose(&mut h, &state, "Movement", 1);
+    let out = choose(&mut h, &state, "Movement", 0);
+    assert_eq!(out.settings, [("movement".to_owned(), "camera".to_owned())]);
+    let out = choose(&mut h, &state, "Movement in Gamepad Mode", 1);
     assert_eq!(
         out.settings,
-        [("movement".to_owned(), "character".to_owned())]
+        [("gamepad-movement".to_owned(), "character".to_owned())]
     );
     let r = control(&h, "Reverse Horizontal Turning");
     let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
     assert_eq!(out.settings, [("reverse-x".to_owned(), "true".to_owned())]);
+}
+
+#[test]
+fn the_controls_page_switches_gamepad_mode_on_and_sets_its_dead_zone_and_camera_speed() {
+    let state = in_world();
+    let mut h = options_on("Controls", &state);
+    let r = control(&h, "Gamepad Mode");
+    let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
+    assert_eq!(out.settings, [("gamepad".to_owned(), "true".to_owned())]);
+    for name in ["Stick Dead Zone", "Camera Speed"] {
+        let r = control(&h, name);
+        let out = click_at(&mut h, &state, r.x + 4.0, r.y + r.h / 2.0);
+        let [(setting, value)] = out.settings.as_slice() else {
+            panic!("{name}: {:?}", out.settings);
+        };
+        assert!(setting.starts_with("gamepad-"), "{name}: {setting}");
+        let v: f32 = value.parse().unwrap();
+        assert!(v < 0.3, "{name}: the left end is near the least: {v}");
+    }
 }
 
 #[test]
@@ -489,7 +510,7 @@ fn an_open_dropdown_list_takes_the_presses_over_it_and_a_press_elsewhere_only_cl
         &mut h,
         &state,
         reverse.x + 10.0,
-        reverse.y + reverse.h / 2.0,
+        r.y + r.h + 2.0 + 1.5 * r.h.max(24.0),
     );
     assert!(out.settings.is_empty(), "{:?}", out.settings);
     assert!(

@@ -24,8 +24,36 @@ fn vital(v: &impl GameView, id: dereth_primitives::ObjectId, which: ViewVital) -
 /// The description bits of a radar object that decide how it is drawn.
 mod bits {
     pub const ATTACKABLE: u32 = 0x10;
+    /// Fixed where it stands: not to be picked up.
+    pub const STUCK: u32 = 0x4;
     pub const LIFESTONE: u32 = 0x4000;
     pub const PORTAL: u32 = 0x0004_0000;
+    /// Hidden from the interface: not something to select.
+    pub const UI_HIDDEN: u32 = 0x80;
+}
+
+/// What the pad can select in the world: every object about the player that is in the world and
+/// not hidden from the interface (doors, corpses, chests, portals and things on the ground among
+/// them, whether or not the radar shows them), but the player.
+pub fn targets_of(
+    objects: &[dereth_client_contract::view::RadarEntry],
+    kind: impl Fn(&dereth_client_contract::view::RadarEntry) -> BlipKind,
+    name: impl Fn(dereth_primitives::ObjectId) -> String,
+) -> Vec<Blip> {
+    objects
+        .iter()
+        .filter(|r| !r.is_self && r.in_world && r.bitfield & bits::UI_HIDDEN == 0)
+        .map(|r| Blip {
+            id: r.id,
+            dx: r.player_space.0,
+            dy: r.player_space.1,
+            kind: kind(r),
+            colour: 0,
+            shape: 0,
+            name: name(r.id),
+        })
+        .filter(|b| !b.name.is_empty())
+        .collect()
 }
 
 /// The creature bit of an object's item type, from its public description.
@@ -157,6 +185,9 @@ pub fn snapshot<S: Shell>(
         local_time: local_clock(cx.hud().view(cx.objects()).utc_offset_secs()),
         world_message: pregame.character_screen_message.clone(),
         targeting: cx.target_mode() != dereth_client_runtime::interaction::TargetMode::None,
+        armed: (cx.target_mode() != dereth_client_runtime::interaction::TargetMode::None)
+            .then(|| cx.objects().world.targeting_object)
+            .filter(|id| id.0 != 0),
         connected: pregame.connected || pregame.has_packet_controller,
         session: phase_words(&pregame.phase),
         entering: pregame.phase == GamePhase::EnteringWorld,
@@ -260,7 +291,13 @@ pub fn snapshot<S: Shell>(
                 name: v.name(r.id).unwrap_or_default().to_owned(),
             })
             .collect();
+        g.targets = targets_of(
+            objects,
+            |r| blip_kind(&v, r),
+            |id| v.name(id).unwrap_or_default().to_owned(),
+        );
     }
+    g.player_module_strings = v.player_module_strings();
     // The shortcut bar's eighteen slots.
     for slot in 0..18u32 {
         if let Some(id) = v.shortcut(slot) {
@@ -528,6 +565,13 @@ pub fn snapshot<S: Shell>(
             .useability(sel)
             .is_some_and(|u| u & (USEABLE_REMOTE | USEABLE_VIEWED) != 0);
         g.target_pickable = !owned && !g.target_usable_here && is_loose_item(item_type);
+        const CONTAINER: u32 = 0x200;
+        g.target_container = !owned && item_type & CONTAINER != 0;
+        g.target_stuck = v
+            .radar_objects()
+            .iter()
+            .find(|r| r.id == sel)
+            .is_some_and(|r| r.bitfield & bits::STUCK != 0);
     }
     // The options pages' state: the world's era, the chat windows' filters and opacities.
     g.era = Some(v.era_features());
@@ -924,6 +968,9 @@ pub fn item_of(
         overlay: deco.as_ref().and_then(|d| d.icon_overlay_id).map(|d| d.0),
         stack: deco.as_ref().map(|d| d.stack_size),
         worn: 0,
+        equip_locations: view.equip_locations(id),
+        attuned: view.item_attuned(id),
+        wcid: view.item_wcid(id),
         container: deco.as_ref().is_some_and(|d| d.is_container),
         cooldown: deco.as_ref().and_then(|d| {
             let left = view.cooldown_remaining(d.cooldown_id, view.now())?;
@@ -955,6 +1002,52 @@ fn local_clock(offset_secs: i32) -> Option<String> {
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
+
+    #[test]
+    fn doors_and_corpses_are_targets_but_the_player_and_what_the_interface_hides_are_not() {
+        use dereth_client_contract::view::RadarEntry;
+        use dereth_primitives::ObjectId;
+        const DOOR: u32 = 0x1000;
+        const CORPSE: u32 = 0x2000;
+        let entry = |id: u32, bitfield: u32| RadarEntry {
+            id: ObjectId(id),
+            bitfield,
+            in_world: true,
+            // Shown on no radar: a door or corpse is a target all the same.
+            radar_enum: 0,
+            ..RadarEntry::default()
+        };
+        let objects = [
+            entry(0x7000_0001, DOOR),
+            entry(0x7000_0002, CORPSE),
+            entry(0x7000_0003, bits::UI_HIDDEN),
+            RadarEntry {
+                is_self: true,
+                ..entry(0x5000_0001, 0x8)
+            },
+            RadarEntry {
+                in_world: false,
+                ..entry(0x7000_0004, 0)
+            },
+            entry(0x7000_0005, 0),
+        ];
+        let name = |id: ObjectId| {
+            if id.0 == 0x7000_0005 {
+                String::new()
+            } else {
+                format!("Thing {:x}", id.0)
+            }
+        };
+        let ids: Vec<u32> = targets_of(&objects, |_| BlipKind::Item, name)
+            .iter()
+            .map(|b| b.id.0)
+            .collect();
+        assert_eq!(
+            ids,
+            [0x7000_0001, 0x7000_0002],
+            "the door and the corpse only"
+        );
+    }
 
     #[test]
     fn a_selection_just_picked_up_is_not_marked_where_it_lay() {

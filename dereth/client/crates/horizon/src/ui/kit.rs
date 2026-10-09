@@ -41,6 +41,8 @@ pub enum Drop {
     Salvage,
     /// Onto a window that takes what is dropped on it itself.
     Window,
+    /// Onto a slot of the pad's cross hotbars, which binds it there.
+    CrossSlot(usize),
 }
 
 impl From<dereth_client_contract::view::DropTarget> for Drop {
@@ -65,14 +67,38 @@ impl Drop {
                 dereth_client_contract::panels::salvage::SalvageAction::Add(item),
             )),
             // A spell bar takes spells; an item dropped there goes nowhere.
-            Self::SpellSlot { .. } | Self::Window => None,
+            Self::SpellSlot { .. } | Self::Window | Self::CrossSlot(_) => None,
         }
     }
 }
 
 impl Ctx<'_> {
-    /// Note that the pointer is over `r`, if it is, and say so.
+    /// Note that the pointer is over `r`, if it is, and say so, without offering `r` to the pad's
+    /// focus: a scrollbar, a label beside its box, a close button the pad's cancel stands for.
+    pub fn over_quiet(&mut self, r: &Rect) -> bool {
+        let over = self.input.hover(r);
+        if over {
+            self.hot = true;
+        }
+        over
+    }
+
+    /// Offer `r` to the pad's focus without answering the pointer: a control shown disabled,
+    /// which the focus can still rest on (so moving it does not jump past controls as they
+    /// enable and disable) though it does nothing.
+    pub fn stop(&mut self, r: &Rect) {
+        let input = &mut *self.input;
+        input
+            .nav
+            .note(*r, crate::ui::nav::Kind::Plain, &input.occluders);
+    }
+
+    /// Note that the pointer is over `r`, if it is, and say so; and offer `r` to the pad's focus.
     pub fn over(&mut self, r: &Rect) -> bool {
+        let input = &mut *self.input;
+        input
+            .nav
+            .note(*r, crate::ui::nav::Kind::Plain, &input.occluders);
         let over = self.input.hover(r);
         if over {
             self.hot = true;
@@ -328,6 +354,9 @@ pub fn window(
     }
     state.pos = Some((x, y));
     let rect = Rect::new(x, y, w, h);
+    ctx.input
+        .nav
+        .layer(rect, title, crate::ui::nav::PanelKind::Window);
     // A drop on a window lands in it, not on what is under it.
     ctx.drops.push((rect, None));
     let own = p.art.has_piece("window.tl");
@@ -406,7 +435,7 @@ pub fn window(
     let own_close = if own && state.no_close {
         Some(false)
     } else if own {
-        let over = ctx.over(&close);
+        let over = ctx.over_quiet(&close);
         let state = if over && ctx.input.down[0] {
             "pressed"
         } else if over {
@@ -426,8 +455,21 @@ pub fn window(
             closed = true;
         }
     }
+    // The pad's cancel closes the window it has the focus in, as its close button does.
+    if !state.no_close
+        && ctx
+            .input
+            .pad
+            .close
+            .is_some_and(|r| (r.x - rect.x).abs() < 1.0 && (r.y - rect.y).abs() < 1.0)
+    {
+        ctx.input.pad.close = None;
+        closed = true;
+    }
     p.fade = fade_before;
-    if ctx.over(&rect) {
+    // Over the window, but not a place for the pad's focus to rest: what it holds is.
+    if ctx.input.hover(&rect) {
+        ctx.hot = true;
         if ctx.input.pressed[0] && header.contains(ctx.input.mouse.0, ctx.input.mouse.1) {
             state.grab = Some((ctx.input.mouse.0 - x, ctx.input.mouse.1 - y));
         }
@@ -470,7 +512,12 @@ pub fn button_lit(
     enabled: bool,
     lit: bool,
 ) -> bool {
-    let over = enabled && ctx.over(&r);
+    let over = if enabled {
+        ctx.over(&r)
+    } else {
+        ctx.stop(&r);
+        false
+    };
     let state = if !enabled {
         "disabled"
     } else if over && ctx.input.down[0] {
@@ -607,13 +654,28 @@ fn tabs_sized(
     }
     let mut changed = false;
     let k = p.scale;
+    {
+        let input = &mut *ctx.input;
+        input.nav.tabs(r, &input.occluders);
+    }
+    // A shoulder button of the pad steps to the tab beside the one shown.
+    if let Some((bar, by)) = ctx.input.pad.tab_step {
+        if (bar.x - r.x).abs() < 1.0 && (bar.y - r.y).abs() < 1.0 {
+            ctx.input.pad.tab_step = None;
+            let n = i32::try_from(labels.len()).unwrap_or(1);
+            let at = i32::try_from(*selected).unwrap_or(0);
+            *selected = usize::try_from((at + by).rem_euclid(n)).unwrap_or(0);
+            changed = true;
+        }
+    }
     let style = TextStyle::new(Family::Body, 12.0, 0xFFEE_E1C5).edge(0xFF00_0000);
     let widths = tab_widths(p, r, labels, *selected, fill);
     let mut x = r.x;
     for (i, label) in labels.iter().enumerate() {
         let tr = Rect::new(x, r.y, widths[i], r.h);
         let on = i == *selected;
-        let over = ctx.over(&tr);
+        // Not a place for the pad's focus to rest: the shoulder buttons turn the tabs.
+        let over = ctx.over_quiet(&tr);
         let state = if on {
             "selected"
         } else if over {
@@ -929,6 +991,7 @@ pub fn track_slider(p: &mut Painter<'_>, ctx: &mut Ctx<'_>, r: Rect, t: f32) -> 
             );
         }
         let hit = Rect::new(track.x - 8.0 * k, r.y, track.w + 16.0 * k, r.h);
+        note_slider(ctx, hit, x0, x1, t);
         if hold(ctx, hit) {
             return Some(((ctx.input.mouse.0 - x0) / (x1 - x0).max(1.0)).clamp(0.0, 1.0));
         }
@@ -948,10 +1011,21 @@ pub fn track_slider(p: &mut Painter<'_>, ctx: &mut Ctx<'_>, r: Rect, t: f32) -> 
     );
     p.fill(knob, 0xFFEE_E1C5);
     let hit = Rect::new(track.x - 8.0 * k, r.y, track.w + 16.0 * k, r.h);
+    note_slider(ctx, hit, track.x, track.right(), t);
     if hold(ctx, hit) {
         return Some(((ctx.input.mouse.0 - track.x) / track.w).clamp(0.0, 1.0));
     }
     None
+}
+
+/// Note a slider for the pad's focus: left and right move its knob along `x0` to `x1`.
+fn note_slider(ctx: &mut Ctx<'_>, hit: Rect, x0: f32, x1: f32, t: f32) {
+    let input = &mut *ctx.input;
+    input.nav.note(
+        hit,
+        crate::ui::nav::Kind::Slider { x0, x1, t },
+        &input.occluders,
+    );
 }
 
 /// Whether the control over `hit` holds the pointer this frame: from a press on it until the
@@ -1020,7 +1094,12 @@ pub fn dropdown_box(
     enabled: bool,
 ) -> bool {
     let k = p.scale;
-    let over = enabled && ctx.over(&r);
+    let over = if enabled {
+        ctx.over(&r)
+    } else {
+        ctx.stop(&r);
+        false
+    };
     let lit = open || over;
     let own = p.halves("field", r, if lit { WHITE } else { 0xD0FF_FFFF });
     if !own {
@@ -1118,6 +1197,11 @@ pub fn dropdown_list(
 ) -> Option<usize> {
     let k = p.scale;
     let r = dropdown_list_rect(p, anchor, names.len());
+    // The open list is a box of its own for the pad's focus, which starts on the choice shown;
+    // the pad's cancel (Escape) closes it.
+    ctx.input
+        .nav
+        .layer(r, "Dropdown", crate::ui::nav::PanelKind::Box);
     let row_h = dropdown_row_height(p, anchor);
     let shown = names.len().min(DROPDOWN_ROWS);
     let last = names.len().saturating_sub(shown);
@@ -1141,6 +1225,9 @@ pub fn dropdown_list(
             row_h,
         );
         let over = ctx.over(&row);
+        if i == at {
+            ctx.input.nav.home(row);
+        }
         if i == at {
             crate::ui::pregame::list_highlight(p, row, true);
         } else if over {
@@ -1168,6 +1255,7 @@ pub fn dropdown_list(
         ctx.input.pressed = [false; 3];
         ctx.input.captured = true;
     }
+    ctx.input.nav.end_layer();
     act
 }
 
@@ -1241,7 +1329,7 @@ pub fn radios(
         let d = (18.0 * k).min(r.h).round();
         let label = Rect::new(cell.x + d + 6.0 * k, cell.y, cell.w - d - 6.0 * k, cell.h);
         p.text_in(&style, label, Align::Left, name);
-        if ctx.over(&label) && ctx.input.clicked(&label) {
+        if ctx.over_quiet(&label) && ctx.input.clicked(&label) {
             chosen = Some(i);
         }
     }
@@ -1263,7 +1351,7 @@ pub fn check_row(
     let w = p.measure(style, label);
     let text = Rect::new(r.x + 28.0 * k, r.y, w.min(r.w - 28.0 * k), r.h);
     p.text_in(style, text, Align::Left, label);
-    changed.or_else(|| (ctx.over(&text) && ctx.input.clicked(&text)).then_some(!on))
+    changed.or_else(|| (ctx.over_quiet(&text) && ctx.input.clicked(&text)).then_some(!on))
 }
 
 /// What a press on the scrollbar asks for.
@@ -1389,7 +1477,7 @@ pub fn own_scrollbar(
         ctx.input.held = None;
     }
     let holding = ctx.input.held == Some(key) && ctx.input.down[0];
-    if holding || (ctx.over(&channel) && ctx.input.pressed[0]) {
+    if holding || (ctx.over_quiet(&channel) && ctx.input.pressed[0]) {
         // Pressed on the channel, the bar keeps the pointer until the button comes up, wherever
         // the pointer goes.
         ctx.input.held = Some(key);
@@ -1399,9 +1487,9 @@ pub fn own_scrollbar(
             let t = (ctx.input.mouse.1 - channel.y - thumb_h / 2.0) / (channel.h - thumb_h);
             act = Some(ScrollAct::To(t.clamp(0.0, 1.0)));
         }
-    } else if ctx.over(&up) && ctx.input.clicked(&up) {
+    } else if ctx.over_quiet(&up) && ctx.input.clicked(&up) {
         act = Some(ScrollAct::Step(-1));
-    } else if ctx.over(&down) && ctx.input.clicked(&down) {
+    } else if ctx.over_quiet(&down) && ctx.input.clicked(&down) {
         act = Some(ScrollAct::Step(1));
     }
     Some(act)
@@ -1423,8 +1511,20 @@ pub fn scroll(
         *offset -= ctx.input.wheel * 48.0 * k;
         ctx.input.wheel = 0.0;
     }
+    // The pad's focus moving through the list scrolls it just as far as the focus needs.
+    if let Some((r, by)) = ctx.input.pad.scroll_list {
+        if (r.x - area.x).abs() < 1.0 && (r.y - area.y).abs() < 1.0 && (r.w - area.w).abs() < 1.0 {
+            *offset += by;
+            ctx.input.pad.scroll_list = None;
+        }
+    }
     *offset = offset.clamp(0.0, max);
     if max > 0.0 {
+        // For the pad, the rows are stops, and the list scrolls with them.
+        let input = &mut *ctx.input;
+        input
+            .nav
+            .list(area, *offset > 0.0, *offset < max, &input.occluders);
         if let Some(w) = scrollbar_width(p) {
             let bar = Rect::new(area.right() - w * k, area.y, w * k, area.h);
             let shown = area.h / content;
@@ -1474,7 +1574,12 @@ pub fn step_button(
         .unwrap_or(probe.w);
     let side = r.h;
     let kk = side / probe.w.max(1.0);
-    let over = enabled && ctx.over(&r);
+    let over = if enabled {
+        ctx.over(&r)
+    } else {
+        ctx.stop(&r);
+        false
+    };
     let tint = if !enabled {
         0x70FF_FFFF
     } else if over && ctx.input.down[0] {
@@ -1550,6 +1655,12 @@ pub fn text_box_aligned(
     use crate::ui::input::vk;
     let k = p.scale;
     let mut pressed_in = false;
+    {
+        let input = &mut *ctx.input;
+        input
+            .nav
+            .note(r, crate::ui::nav::Kind::Text, &input.occluders);
+    }
     if ctx.input.pressed[0] {
         if ctx.input.hover(&r) {
             *focus = id;

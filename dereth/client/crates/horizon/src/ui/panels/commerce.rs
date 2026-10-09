@@ -98,7 +98,9 @@ fn list(
             r.bottom().min(area.bottom()) - r.y.max(area.y),
         );
         let on = selected == Some(row.item);
-        if on || ctx.input.hover(&visible) {
+        // Each row is a stop for the pad.
+        let over = ctx.over(&visible);
+        if on || over {
             crate::ui::pregame::list_highlight(p, r, on);
         }
         let icon_r = Rect::new(r.x + 4.0 * k, r.y + 3.0 * k, 28.0 * k, 28.0 * k);
@@ -127,7 +129,7 @@ fn list(
         }
     }
     p.list.pop_clip();
-    if ctx.over(&area) {
+    if ctx.over_quiet(&area) {
         ctx.hot = true;
     }
     (clicked, doubled)
@@ -321,6 +323,13 @@ impl Windows {
             if let Some(i) = clicked {
                 self.vendor_selected = Some(rows[i].item);
                 self.vendor_quantity = 1;
+                // With the pad, confirming on a row of the stock puts one on the shopping list.
+                if ctx.input.pad.mode.is_some() {
+                    out.requests.push(UiRequest::VendorAddToBuyList {
+                        item: rows[i].item,
+                        split: 1,
+                    });
+                }
             }
             if let Some(i) = doubled {
                 out.requests.push(UiRequest::VendorBuySingle {

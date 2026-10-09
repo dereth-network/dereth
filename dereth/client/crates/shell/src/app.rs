@@ -240,6 +240,12 @@ impl<H: Host> App<H> {
         self.shell.queue_window_event(event);
     }
 
+    /// Hold the pad at `pad` in place of the host's, from the next frame, for in-process drivers;
+    /// `None` goes back to the host's pad.
+    pub fn set_scripted_pad(&mut self, pad: Option<crate::gamepad::PadState>) {
+        self.shell.shared.scripted_pad = pad;
+    }
+
     /// The device input, for the tests and the console's state line.
     pub fn input_manager_mut(&mut self) -> Option<&mut crate::input::InputShell> {
         self.shell.shared.input.as_mut()

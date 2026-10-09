@@ -689,6 +689,7 @@ impl<'a, S: Shell> UiContext<'a, S> {
         if settings.is_none() {
             self.app.orbit_keys = crate::orbit::MovementKeys::default();
             self.app.orbit_pending.clear();
+            self.app.orbit_look = (0.0, 0.0);
         }
         self.app.orbit = settings;
     }
@@ -733,6 +734,31 @@ impl<'a, S: Shell> UiContext<'a, S> {
         }
         #[cfg(not(feature = "hifi"))]
         let _ = horizon;
+    }
+
+    /// A pad's two sticks under the orbit camera, as they are pushed this frame: `movement` moves
+    /// the player (right and ahead, each from -1 to 1, `None` when it is let go; see
+    /// [`crate::orbit::MovementKeys::stick`]), and `look` turns the camera (right and up, each from
+    /// -1 to 1; see [`crate::orbit::OrbitCamera::turn_stick`]). Nothing without the orbit camera.
+    pub fn orbit_sticks(&mut self, movement: Option<(f32, f32)>, look: (f32, f32)) {
+        let Some(settings) = self.app.orbit else {
+            return;
+        };
+        let asks = self.app.orbit_keys.stick(movement, settings);
+        self.app.orbit_pending.extend(asks);
+        // While a spell is cast the look stick turns the player across, the camera following;
+        // it still tilts the camera.
+        if self.app.orbit_keys.locked() && !self.app.orbit_keys.mouse_turns_player() {
+            let turn = self.app.orbit_keys.cast_turn(look.0);
+            self.app.orbit_pending.extend(turn);
+            self.app.orbit_look = (0.0, look.1);
+        } else {
+            if !self.app.orbit_keys.mouse_turns_player() {
+                let stop = self.app.orbit_keys.cast_turn(0.0);
+                self.app.orbit_pending.extend(stop);
+            }
+            self.app.orbit_look = look;
+        }
     }
 
     /// One of the orbit camera's mouse buttons, the right one for `right`, going down or up over

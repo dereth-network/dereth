@@ -25,6 +25,7 @@ mod items;
 mod journal;
 mod notebook;
 pub mod options;
+pub mod pad_items;
 mod reading;
 mod social;
 mod spells;
@@ -300,6 +301,24 @@ pub struct CharacterOption {
 /// Every window's state.
 #[derive(Debug, Default)]
 pub struct Windows {
+    /// The pad's item menu, open on an item.
+    pub item_menu: Option<pad_items::ItemMenu>,
+    /// The pad's split box: the stack, and how many to split off.
+    pub split_box: Option<(Item, u32)>,
+    /// Where the item options or the split box stood last frame: over every window.
+    pub pad_box: Option<Rect>,
+    /// A spell was chosen with the pad: the focus goes on to what acts on it.
+    pub focus_spell_details: bool,
+    /// A thing to salvage, waiting for the salvage window the Ust was used to open.
+    pub salvage_waiting: Option<dereth_primitives::ObjectId>,
+    /// A thing to put on once what is worn in its places has come off.
+    pub equip_waiting: Option<pad_items::EquipWaiting>,
+    /// A pack picked up with the pad to be put down at another place among the packs, and its
+    /// picture as last drawn.
+    pub moving_pack: Option<dereth_primitives::ObjectId>,
+    moving_icon: Option<Sprite>,
+    /// Where the pad's menu stood last frame: over every window.
+    pub pad_menu: Option<Rect>,
     /// How far the inventory's grid and its pack column are scrolled, in pixels.
     inventory_scroll: f32,
     /// Each cooling item's countdown, run down every frame between the game's reports.
@@ -474,6 +493,17 @@ impl Windows {
         {
             self.order.retain(|w| *w != top);
             self.order.push(top);
+        }
+    }
+
+    /// Bring the window drawn over `r` (the pad's focus is in it) to the top.
+    fn raise_at(&mut self, r: Rect, scale: f32) {
+        let same = |a: &Rect| (a.x - r.x).abs() < 2.0 && (a.y - r.y).abs() < 2.0;
+        if let Some((id, _)) = self.rects(scale).into_iter().find(|(_, w)| same(w)) {
+            if self.order.last() != Some(&id) {
+                self.order.retain(|w| *w != id);
+                self.order.push(id);
+            }
         }
     }
 
@@ -666,6 +696,9 @@ impl Windows {
             }
         }
         self.raise_pressed(ctx.input, p.scale);
+        if let Some(r) = ctx.input.pad.raise.take() {
+            self.raise_at(r, p.scale);
+        }
         let rects = self.rects(p.scale);
         let order: Vec<WindowId> = self.order.clone();
         for id in order {
@@ -679,11 +712,16 @@ impl Windows {
                 .position(|(w, _)| *w == id)
                 .unwrap_or(rects.len());
             ctx.input.occluders = rects.iter().skip(at + 1).map(|(_, r)| *r).collect();
+            // The pad's item options and split box are over every window.
+            ctx.input.occluders.extend(self.pad_box);
+            ctx.input.occluders.extend(self.pad_menu);
             let (size, pos) = id.geometry();
             let k = p.scale;
             let mut s = self.states.get(&id).copied().unwrap_or_default();
             let title = Self::window_title(p, state, id, size.0 * k);
             let win = kit::window(p, ctx, &mut s, &title, size, (pos.0 * k, pos.1 * k));
+            // Known to the pad's focus by what the window is, whatever its title says now.
+            ctx.input.nav.rename(id.title());
             self.states.insert(id, s);
             let body = win.body;
             match id {
@@ -712,6 +750,14 @@ impl Windows {
             }
         }
         ctx.input.occluders.clear();
+        self.pad_item_boxes(p, ctx, state, out);
+        // A pack being moved, carried where the pad's focus is.
+        if self.moving_pack.is_none() {
+            self.moving_icon = None;
+        }
+        if let (Some(icon), Some(r)) = (self.moving_icon, ctx.input.pad.focus) {
+            crate::ui::draw_lifted(p, &icon, (r.x + r.w / 2.0, r.y + r.h / 2.0));
+        }
         if let Some((title, lines)) = &self.tip {
             kit::tooltip(p, ctx, title, lines);
         }
@@ -912,6 +958,21 @@ impl Windows {
                 ));
             }
             self.item_tile(p, ctx, state, r, worn, out);
+            // With the pad, what is worn is not picked up: confirming on it selects it, and its
+            // options (X) take it off.
+            if ctx.input.pad.mode.is_some() {
+                if let Some(w) = worn {
+                    if ctx
+                        .drag
+                        .as_ref()
+                        .is_some_and(|d| d.item == w.id && !d.active)
+                    {
+                        if let Some(d) = ctx.drag.take() {
+                            out.requests.extend(d.on_click);
+                        }
+                    }
+                }
+            }
             // An empty slot shows faintly what goes in it.
             if worn.is_none() {
                 if let Some((kind, tint)) = placeholder(*mask) {
@@ -1077,6 +1138,7 @@ impl Windows {
             column.w + 2.0 * margin,
             column.h + 2.0 * margin,
         ));
+        let mut pack_rects = Vec::with_capacity(packs.len());
         for (i, (id, pack)) in packs.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let r = Rect::new(
@@ -1085,7 +1147,9 @@ impl Windows {
                 slot,
                 slot,
             );
+            pack_rects.push(r);
             if r.bottom() < column.y || r.y > column.bottom() {
+                ctx.input.nav.note_hidden(r);
                 continue;
             }
             // A drop on a pack puts the item in it.
@@ -1098,6 +1162,9 @@ impl Windows {
             self.pack_tile(p, ctx, state, r, i, *pack, out);
         }
         p.list.pop_clip();
+        // The pad's shoulder buttons step through the packs.
+        let shown_icon = pack_rects.get(self.inventory_bag).copied();
+        ctx.input.nav.steps(pack_rects, self.inventory_bag);
         let pack_id = packs.get(self.inventory_bag).and_then(|(id, _)| *id);
         let (items, capacity) = self.bag(state, self.inventory_bag);
         // The open pack's name over its grid.
@@ -1150,6 +1217,12 @@ impl Windows {
             rows as f32 * pitch - gap,
             &mut self.inventory_scroll,
         );
+        // For the pad the pack's contents are what the window is for: it opens inside them, and
+        // a step back goes to the pack's icon.
+        if rows > 0 {
+            let input = &mut *ctx.input;
+            input.nav.list_inside(area, shown_icon, &input.occluders);
+        }
         // A drop in the grid's empty space goes into this pack.
         if let Some(pack) = pack_id {
             ctx.drops.push((
@@ -1174,9 +1247,11 @@ impl Windows {
                 slot + 2.0 * k,
             );
             if rect.bottom() < area.y {
+                ctx.input.nav.note_hidden(rect);
                 continue;
             }
             if rect.y > area.bottom() {
+                ctx.input.nav.note_hidden(rect);
                 break;
             }
             if let Some(pack) = pack_id {
@@ -1184,6 +1259,10 @@ impl Windows {
                     rect,
                     Some(Self::slot_drop(ctx, state, pack, items, i).into()),
                 ));
+            }
+            // The pad's focus starts on the first thing in the pack.
+            if i == 0 {
+                ctx.input.nav.home(rect);
             }
             self.item_tile(p, ctx, state, rect, items.get(i), out);
         }
@@ -1276,7 +1355,15 @@ impl Windows {
             None
         });
         let icon: Option<Sprite> = pack.and_then(|i| p.art.ac_item(i));
-        let pressed = kit::icon_slot(p, ctx, r, icon.as_ref(), WHITE);
+        // A pack being moved is carried: its place stands empty, and it is drawn lifted where
+        // the focus is.
+        let moving = pack.is_some_and(|it| self.moving_pack == Some(it.id));
+        let pressed = kit::icon_slot(p, ctx, r, icon.as_ref().filter(|_| !moving), WHITE)
+            // With the pad, confirming on a pack that holds nothing (a focus) does nothing.
+            && !(ctx.input.pad.mode.is_some() && capacity == Some(0) && self.moving_pack.is_none());
+        if moving {
+            self.moving_icon = icon;
+        }
         if pack.is_some_and(items::waiting) {
             p.fill(r, items::WAITING_WASH);
         }
@@ -1302,6 +1389,7 @@ impl Windows {
         if index == self.inventory_bag {
             p.outline(r, 2.0 * k, 0xFFF0_C860);
         }
+
         if let Some(it) = pack {
             if state.target.as_ref().is_some_and(|t| t.id == it.id) {
                 kit::selected_tile(p, r);
@@ -1313,8 +1401,20 @@ impl Windows {
                     out.requests.push(UiRequest::Use(it.id));
                 }
             } else if ctx.input.right_clicked(&r) {
-                out.requests.push(UiRequest::Select(it.id));
-                out.requests.push(UiRequest::Examine(it.id));
+                // In gamepad mode, X on a pack opens what can be done with it.
+                if ctx.input.pad.mode.is_some() {
+                    self.open_item_menu(it, r);
+                } else {
+                    out.requests.push(UiRequest::Select(it.id));
+                    out.requests.push(UiRequest::Examine(it.id));
+                }
+            }
+        }
+        // A pack being moved is put down at the place pressed, as a drop on the row of packs.
+        if pressed {
+            if let Some(moving) = self.moving_pack.take() {
+                out.requests.push(pack_move(state, moving, index));
+                return;
             }
         }
         if pressed {
@@ -1323,7 +1423,8 @@ impl Windows {
             if let Some(it) = pack {
                 if state.targeting {
                     out.requests.push(UiRequest::ExecuteTargetItem(it.id));
-                } else {
+                } else if ctx.input.pad.mode.is_none() {
+                    // With the pad, confirming on a pack shows it; only the mouse drags it.
                     *ctx.drag = Some(crate::ui::Drag {
                         item: it.id,
                         look: Some(it.clone()),
@@ -1336,6 +1437,7 @@ impl Windows {
                         spell: None,
                         from_spell_slot: None,
                         component: false,
+                        stance: None,
                     });
                 }
             }
@@ -1381,6 +1483,14 @@ impl Windows {
         match p.art.ac_icon(graphic::MAP_IMAGE.0) {
             Some(map) => p.sprite(&map, area, WHITE),
             None => p.fill(area, 0xFFC8_B488),
+        }
+        // The pad's focus starts on the map itself, none of its places chosen.
+        {
+            let input = &mut *ctx.input;
+            input
+                .nav
+                .note(area, crate::ui::nav::Kind::Plain, &input.occluders);
+            input.nav.home(area);
         }
         let style = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
         // The places the map names: framed and named while the pointer is on one, as the game's
@@ -1629,5 +1739,39 @@ mod slot_tests {
         {
             assert!(placeholder(*mask).is_some(), "{name}");
         }
+    }
+}
+
+/// The request that puts pack `moving` down at place `index` of the pack column (0 the main
+/// pack's, then the packs beside it): a drop on the row of packs at that place, as the game takes
+/// a pack dragged along it, which asks the server to put the pack in the character at that place
+/// among its packs.
+#[must_use]
+pub fn pack_move(
+    state: &GameState,
+    moving: dereth_primitives::ObjectId,
+    index: usize,
+) -> UiRequest {
+    let packs: Vec<dereth_primitives::ObjectId> =
+        state.side_packs.iter().map(|(p, _)| p.id).collect();
+    let at = index.saturating_sub(1).min(packs.len());
+    // Moved further along, it takes the place it is put on, the packs between moving up: the
+    // game puts a pack in front of the one it is dropped on once it has left its old place.
+    let old = packs.iter().position(|p| *p == moving);
+    let place = if old.is_some_and(|o| o < at) {
+        (at + 1).min(packs.len())
+    } else {
+        at
+    };
+    UiRequest::DragDrop {
+        item: moving,
+        target: dereth_client_contract::view::DropTarget::ItemListSlot {
+            container: state.player_id.unwrap_or_default(),
+            under: packs.get(at).copied(),
+            index: u32::try_from(place).unwrap_or(0),
+            num_ui_items: u32::try_from(packs.len()).unwrap_or(0),
+            dragged_is_container: true,
+            container_list: true,
+        },
     }
 }

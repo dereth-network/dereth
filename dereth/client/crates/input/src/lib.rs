@@ -50,6 +50,7 @@ mod message;
 pub mod mouse;
 pub mod names;
 pub mod objname;
+pub mod pad;
 pub mod presentation;
 pub mod pump;
 pub mod scheme;

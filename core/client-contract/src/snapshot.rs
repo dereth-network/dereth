@@ -105,6 +105,10 @@ pub struct ObjectSnapshot {
     pub selection_query_facts: Option<SelectionQueryFacts>,
     /// [`GameView::slot_decoration`].
     pub slot_decoration: Option<SlotDecoration>,
+    /// [`GameView::equip_locations`].
+    pub equip_locations: u32,
+    /// [`GameView::item_attuned`].
+    pub attuned: bool,
     /// [`GameView::plural_name`].
     pub plural_name: Option<String>,
     /// [`GameView::appraisal`].
@@ -179,6 +183,8 @@ pub struct GameSnapshot {
     pub radar_objects: Vec<RadarEntry>,
     /// [`GameView::radar_blank`].
     pub radar_blank: bool,
+    /// [`GameView::player_module_strings`].
+    pub player_module_strings: Option<Vec<(u32, String)>>,
     /// [`GameView::load`].
     pub load: Option<f32>,
     /// [`GameView::enchantment_counts`].
@@ -442,6 +448,8 @@ impl GameSnapshot {
                     item_waiting: view.item_waiting(id),
                     selection_query_facts: view.selection_query_facts(id),
                     slot_decoration: view.slot_decoration(id),
+                    equip_locations: view.equip_locations(id),
+                    attuned: view.item_attuned(id),
                     plural_name: view.plural_name(id).map(str::to_owned),
                     appraisal: view.appraisal(id),
                     inscription_mouse_facts: view.inscription_mouse_facts(id),
@@ -529,6 +537,7 @@ impl GameSnapshot {
             selected_object: view.selected_object(),
             radar_objects: view.radar_objects().to_vec(),
             radar_blank: view.radar_blank(),
+            player_module_strings: view.player_module_strings(),
             load: view.load(),
             enchantment_counts: view.enchantment_counts(),
             active_effects: view.active_effects(),
@@ -756,6 +765,9 @@ impl GameView for GameSnapshot {
     fn radar_blank(&self) -> bool {
         self.radar_blank
     }
+    fn player_module_strings(&self) -> Option<Vec<(u32, String)>> {
+        self.player_module_strings.clone()
+    }
     fn link_status(&self) -> Option<f64> {
         self.link_status
     }
@@ -845,6 +857,12 @@ impl GameView for GameSnapshot {
     }
     fn slot_decoration(&self, id: ObjectId) -> Option<SlotDecoration> {
         self.object(id)?.slot_decoration
+    }
+    fn equip_locations(&self, id: ObjectId) -> u32 {
+        self.object(id).map_or(0, |o| o.equip_locations)
+    }
+    fn item_attuned(&self, id: ObjectId) -> bool {
+        self.object(id).is_some_and(|o| o.attuned)
     }
     fn plural_name(&self, id: ObjectId) -> Option<&str> {
         self.object(id)?.plural_name.as_deref()

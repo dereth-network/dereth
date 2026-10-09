@@ -714,3 +714,176 @@ fn event_0318_raises_the_same_pop_up_as_0004() {
     assert_eq!(inter.stats.pop_up_strings, 2);
     assert_eq!(inter.stats.pop_up_strings_undecodable, 0);
 }
+
+/// A module as the server sent it, retained, with no generic-qualities bag.
+fn module_world() -> dereth_client_model::World {
+    let mut game = dereth_client_model::World::new();
+    game.player_system
+        .apply_player_module(&dereth_protocol::login::PlayerModule::default());
+    game
+}
+
+/// The module the client would send, put on the wire as `0x01A1` and read back.
+fn sent_and_read_back(game: &dereth_client_model::World) -> dereth_protocol::login::PlayerModule {
+    use dereth_protocol::login::CharacterCharacterOptionsEvent;
+    use dereth_protocol::Message as _;
+    let module = game.player_system.client_packed_module().unwrap();
+    let blob = dereth_protocol::actions::pack_action(1, &CharacterCharacterOptionsEvent { module })
+        .unwrap();
+    let mut action = dereth_protocol::actions::unpack_action(&blob).unwrap();
+    CharacterCharacterOptionsEvent::read(&mut action.body)
+        .unwrap()
+        .module
+}
+
+fn string_of(m: &dereth_protocol::login::PlayerModule, id: u32) -> Option<String> {
+    m.gameplay_options
+        .as_ref()?
+        .properties
+        .entries
+        .iter()
+        .find(|(k, _)| *k == id)
+        .and_then(|(_, p)| match &p.value {
+            Some(dereth_protocol::property::BasePropertyValue::String(s)) => Some(s.clone()),
+            _ => None,
+        })
+}
+
+/// Behaviour: none (an interface's own setting kept in the player module the server stores)
+#[test]
+fn an_interface_text_property_rides_in_the_module_sent_and_only_under_a_text_typed_id() {
+    use dereth_protocol::login::player_module_flags as f;
+    use dereth_protocol::property::{property_type, BasePropertyType};
+    // The id is one the game's property table types as text.
+    assert_eq!(property_type(0xE5), Some(BasePropertyType::String));
+    let mut game = module_world();
+    let mut inter = Interaction::new();
+    inter.queue(
+        Vec::new(),
+        vec![
+            UiRequest::SetPlayerModuleString {
+                property: 0xE5,
+                value: "dxhb1;1;i5000000a,,s3e".into(),
+            },
+            // A float-typed id is refused.
+            UiRequest::SetPlayerModuleString {
+                property: 0x1000_0080,
+                value: "no".into(),
+            },
+        ],
+    );
+    inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+    assert!(game.player_system.is_dirty());
+    let back = sent_and_read_back(&game);
+    assert_ne!(back.option_flags & f::GAMEPLAY_OPTIONS, 0);
+    assert_eq!(
+        string_of(&back, 0xE5).as_deref(),
+        Some("dxhb1;1;i5000000a,,s3e")
+    );
+    assert_eq!(string_of(&back, 0x1000_0080), None);
+    assert_eq!(
+        game.player_system.gameplay_option_strings(),
+        Some(vec![(0xE5, "dxhb1;1;i5000000a,,s3e".to_owned())])
+    );
+    // The server's module, read at login, gives the property back as it was sent.
+    let mut next = dereth_client_model::World::new();
+    next.player_system.apply_player_module(&back);
+    assert_eq!(
+        next.player_system.gameplay_option_strings(),
+        Some(vec![(0xE5, "dxhb1;1;i5000000a,,s3e".to_owned())])
+    );
+}
+
+/// Behaviour: none (an interface's own setting kept in the player module the server stores)
+#[test]
+fn the_classic_window_layout_and_an_interface_text_property_keep_each_other() {
+    let mut game = module_world();
+    // The other interface's window placement first, then the text property.
+    assert!(game
+        .player_system
+        .set_chat_window_option(1, 0x1000_0086, 120, ServerTime(1.0)));
+    assert!(game.player_system.set_gameplay_option_string(
+        0xE5,
+        "dxhb1;1;".into(),
+        ServerTime(1.0)
+    ));
+    // And the other way round: a later placement change keeps the text.
+    assert!(game
+        .player_system
+        .set_chat_window_option(2, 0x1000_0087, 40, ServerTime(2.0)));
+    let back = sent_and_read_back(&game);
+    assert_eq!(string_of(&back, 0xE5).as_deref(), Some("dxhb1;1;"));
+    let layout = back
+        .gameplay_options
+        .as_ref()
+        .unwrap()
+        .properties
+        .entries
+        .iter()
+        .any(|(k, _)| *k == 0x1000_008C);
+    assert!(layout, "the window layout is still there");
+    // A module read back from the server and changed by the other interface again keeps it too.
+    let mut next = dereth_client_model::World::new();
+    next.player_system.apply_player_module(&back);
+    assert!(next
+        .player_system
+        .set_chat_window_option(1, 0x1000_0086, 200, ServerTime(3.0)));
+    let again = sent_and_read_back(&next);
+    assert_eq!(string_of(&again, 0xE5).as_deref(), Some("dxhb1;1;"));
+}
+
+/// Behaviour: none (an interface's own setting kept in the player module the server stores)
+#[test]
+fn with_no_generic_qualities_from_the_server_the_module_sent_carries_none() {
+    use dereth_protocol::login::player_module_flags as f;
+    let mut game = module_world();
+    game.player_system
+        .set_gameplay_option_string(0xE5, "dxhb1;1;".into(), ServerTime(1.0));
+    let packed = game.player_system.client_packed_module().unwrap();
+    assert!(packed.generic_qualities.is_none());
+    assert_eq!(packed.option_flags & f::GENERIC_QUALITIES_DATA, 0);
+    assert!(sent_and_read_back(&game).generic_qualities.is_none());
+}
+
+/// Behaviour: none (an interface's own setting kept in the player module the server stores)
+#[test]
+fn an_interface_text_property_goes_to_the_server_a_few_seconds_after_the_last_change_once_in_the_world(
+) {
+    let mut game = module_world();
+    let mut inter = Interaction::new();
+    let set = |inter: &mut Interaction, game: &mut dereth_client_model::World, at: f64| {
+        inter.queue(
+            Vec::new(),
+            vec![UiRequest::SetPlayerModuleString {
+                property: 0xE5,
+                value: format!("dxhb1;{at};"),
+            }],
+        );
+        inter.run_ui_requests(game, false, ServerTime(at));
+    };
+    set(&mut inter, &mut game, 10.0);
+    set(&mut inter, &mut game, 11.0);
+    let sent = |inter: &Interaction| inter.stats.player_modules_sent;
+    // Not yet in the world: held, however long.
+    inter.run_player_module_use_time(&mut game, ServerTime(30.0));
+    assert_eq!(
+        sent(&inter),
+        0,
+        "never before the character has entered the world"
+    );
+    game.player_system.login_complete_sent = true;
+    set(&mut inter, &mut game, 40.0);
+    inter.run_player_module_use_time(&mut game, ServerTime(42.0));
+    assert_eq!(sent(&inter), 0, "a change two seconds ago waits");
+    set(&mut inter, &mut game, 42.0);
+    inter.run_player_module_use_time(&mut game, ServerTime(44.5));
+    assert_eq!(sent(&inter), 0, "the wait starts again at each change");
+    inter.run_player_module_use_time(&mut game, ServerTime(45.0));
+    assert_eq!(sent(&inter), 1, "one save for the run of changes");
+    assert!(matches!(
+        inter.pending_requests(),
+        [Request::CharacterOptionsEvent(_)]
+    ));
+    inter.run_player_module_use_time(&mut game, ServerTime(60.0));
+    assert_eq!(sent(&inter), 1, "and only one");
+}

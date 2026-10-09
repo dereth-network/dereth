@@ -601,6 +601,25 @@ impl GameView for HudView<'_> {
     /// `(bitfield & 0x800000) || items_capacity || containers_capacity`, and `0x800000` is
     /// an object that has to occupy a
     /// *container* slot, which is what a pack is, verified against the retail enum table.
+    fn player_module_strings(&self) -> Option<Vec<(u32, String)>> {
+        self.world.player_system.gameplay_option_strings()
+    }
+
+    fn item_attuned(&self, id: ObjectId) -> bool {
+        use dereth_client_model::appraisal_model as am;
+        self.world
+            .appraisal
+            .get(id)
+            .and_then(|p| am::inq::int(p, am::property::special::ATTUNED))
+            .is_some_and(|v| v > 0)
+    }
+
+    fn equip_locations(&self, id: ObjectId) -> u32 {
+        self.world
+            .weenie(id)
+            .map_or(0, |w| w.pwd.valid_locations.unwrap_or(0))
+    }
+
     fn slot_decoration(&self, id: ObjectId) -> Option<dereth_client_contract::SlotDecoration> {
         /// Public-description flag requiring a pack slot.
         const BF_REQUIRES_PACKSLOT: u32 = 0x0080_0000;

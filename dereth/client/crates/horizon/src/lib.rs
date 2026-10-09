@@ -29,6 +29,7 @@ pub mod draw;
 pub mod font;
 pub mod looks;
 pub mod options;
+pub mod pad;
 pub mod pieces;
 pub mod ring;
 pub mod runtime;

@@ -75,6 +75,18 @@ impl Rect {
     }
 }
 
+std::thread_local! {
+    /// The clip the draw list being built on this thread puts on what is drawn now.
+    static CLIP: std::cell::Cell<Option<Rect>> = const { std::cell::Cell::new(None) };
+}
+
+/// The clip what is drawn now is cut to, on the draw list being built: what the pad's focus
+/// leaves out of reach, a list's rows scrolled out of sight.
+#[must_use]
+pub fn current_clip() -> Option<Rect> {
+    CLIP.with(std::cell::Cell::get)
+}
+
 /// A colour, `0xAARRGGBB`.
 pub type Argb = u32;
 
@@ -119,6 +131,7 @@ impl DrawList {
     pub fn clear(&mut self) {
         self.quads.clear();
         self.clips.clear();
+        CLIP.with(|c| c.set(None));
     }
 
     /// Clip everything pushed until the matching [`Self::pop_clip`] to `r` (and any outer clip).
@@ -128,10 +141,12 @@ impl DrawList {
             None => r,
         };
         self.clips.push(r);
+        CLIP.with(|c| c.set(Some(r)));
     }
 
     pub fn pop_clip(&mut self) {
         self.clips.pop();
+        CLIP.with(|c| c.set(self.clips.last().copied()));
     }
 
     /// How many quads are in the list so far: where something drawn between them goes.

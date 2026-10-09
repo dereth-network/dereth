@@ -118,6 +118,31 @@ pub const PITCH_MAX: f32 = 0.9;
 pub const MOUSE_TURN: f32 = 0.005;
 /// Radians a second the look keys turn it.
 pub const KEY_TURN: f32 = 1.6;
+/// How fast the mouse moves across, in its own units a second, to turn the player while a spell
+/// is cast.
+const MOUSE_TURN_RATE: f32 = 40.0;
+
+/// Seconds the mouse's movement is counted over for its pace: a moment, whatever the frame rate.
+const MOUSE_TURN_WINDOW: f32 = 0.06;
+
+/// Seconds a turn of the mouse's is kept after its pace drops, over the gaps between its reports.
+const MOUSE_TURN_KEEP: f32 = 0.1;
+
+/// The mouse turning the player while a spell is cast: its movement across lately (fading with
+/// time), the way it turns them (-1 left, 1 right, 0 not), and how long that is still kept.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct CastMouse {
+    moved: f32,
+    way: f32,
+    keep: f32,
+}
+
+/// Radians a second a look stick pushed all the way turns it, and tilts it.
+pub const STICK_TURN: f32 = 2.6;
+pub const STICK_TILT: f32 = 1.6;
+/// How far a movement stick is pushed along an axis, from 0 to 1, before that axis moves the
+/// player under character-based movement, where the stick stands in for the movement keys.
+pub const STICK_ENGAGE: f32 = 0.35;
 /// How quickly what is shown closes on where the camera is set, per second: the turn and tilt
 /// quickly, the distance more gently. Each frame takes
 /// `1 - e^(-rate * dt)` of the gap, so the ease is the same at any frame rate.
@@ -141,6 +166,9 @@ pub struct OrbitCamera {
     pub settings: OrbitSettings,
     /// Whether it has been set behind the player yet.
     pub placed: bool,
+    /// A look stick's push, each axis from -1 to 1 (right and up positive), which turns it every
+    /// frame for as long as it is held.
+    pub stick: (f32, f32),
     /// The game is turning the player itself (toward what they cast at, use or fight), and the
     /// camera comes round behind them as they turn.
     pub follow_behind: bool,
@@ -173,6 +201,7 @@ impl Default for OrbitCamera {
             front_view: false,
             settings: OrbitSettings::default(),
             placed: false,
+            stick: (0.0, 0.0),
             follow_behind: false,
             settling_behind: false,
             zoom_hold: 0.0,
@@ -265,6 +294,25 @@ impl OrbitCamera {
         self.yaw = wrap(self.yaw + s.key_turn * dt * axis(right, left));
         self.pitch =
             (self.pitch + s.key_turn * dt * axis(down, up)).clamp(s.pitch_min, s.pitch_max);
+    }
+
+    /// Turn it for `dt` seconds of the look stick as [`Self::stick`] holds it: pushed right it looks
+    /// further right and pushed up it looks further up, each the other way when the settings
+    /// reverse it, faster the further it is pushed.
+    pub fn turn_stick(&mut self, dt: f32) {
+        let (x, y) = self.stick;
+        if x == 0.0 && y == 0.0 {
+            return;
+        }
+        // A turn of the stick is the player's own, and stops the camera settling behind.
+        if x != 0.0 {
+            self.settling_behind = false;
+        }
+        let rx = if self.settings.reverse_x { -1.0 } else { 1.0 };
+        let ry = if self.settings.reverse_y { -1.0 } else { 1.0 };
+        self.yaw = wrap(self.yaw - x * STICK_TURN * dt * rx);
+        self.pitch = (self.pitch + y * STICK_TILT * dt * ry)
+            .clamp(self.settings.pitch_min, self.settings.pitch_max);
     }
 
     /// Bring it `notches` of the wheel closer (or further, for a negative count).
@@ -434,9 +482,9 @@ impl OrbitCamera {
     }
 }
 
-/// The movement keys held, as the orbit camera's movement reads them, and both mouse buttons held
-/// together, which run forward.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// The movement keys held, as the orbit camera's movement reads them, both mouse buttons held
+/// together, which run forward, and a movement stick pushed.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct HeldMovement {
     pub forward: bool,
     pub back: bool,
@@ -444,13 +492,16 @@ pub struct HeldMovement {
     pub right: bool,
     /// Both mouse buttons are held: forward, where the camera looks.
     pub mouse: bool,
+    /// A movement stick pushed, under camera-based movement: right and ahead, each from -1 to 1,
+    /// against the camera's view.
+    pub stick: Option<(f32, f32)>,
 }
 
 impl HeldMovement {
     /// Whether any of them is held.
     #[must_use]
     pub fn any(&self) -> bool {
-        self.ahead() != 0 || self.forward || self.back || self.side() != 0
+        self.ahead() != 0 || self.forward || self.back || self.side() != 0 || self.stick.is_some()
     }
 
     /// Whether the player runs away from the camera: Back held without Forward.
@@ -487,10 +538,15 @@ impl HeldMovement {
     /// Running the way the keys point, the player faces that way: forward is the camera's way,
     /// back toward the camera, left and right across it, and two together between. Stepping
     /// sideways instead, they face the camera's way, or away from it with Back held alone.
+    /// A movement stick pushed with no key held runs the player the way it points, whichever.
     #[must_use]
     pub fn heading(&self, camera_heading: f32, sidestep: bool) -> Option<f32> {
         if !self.any() {
             return None;
+        }
+        if let Some((x, y)) = self.stick.filter(|_| self.ahead() == 0 && self.side() == 0) {
+            let turn = dereth_primitives::num::math::atan2f(x, y).to_degrees();
+            return Some((camera_heading + turn).rem_euclid(360.0));
         }
         let turn = if sidestep {
             if self.away() {
@@ -511,7 +567,7 @@ impl HeldMovement {
 
 /// What the movement keys do while the orbit camera is in use, turned into the game's movement:
 /// the keys held, what has been asked of the game for them, and the run/walk latch.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct MovementKeys {
     pub held: HeldMovement,
     /// The game is running the player forward for the keys.
@@ -523,10 +579,21 @@ pub struct MovementKeys {
     pub walking: bool,
     /// The mouse buttons: left, right.
     pub buttons: (bool, bool),
+    /// The movement keys a movement stick stands in for under character-based movement, while it
+    /// holds them: forward, back, left, right.
+    stick_keys: [bool; 4],
+    /// Which of those were pressed while the facing was held, and so went the way the movement
+    /// keys go then (backing up and stepping sideways): their letting go goes the same way.
+    stick_keys_held: [bool; 4],
     /// A spell is being cast.
     casting: bool,
     /// The player's facing is held where it is ([`Self::locked`]).
     locked: bool,
+    /// While a spell is cast, the player turning themselves (the mouse with the right button
+    /// held, or a look stick): the game's own turning key asked for on each side.
+    cast_turning: [bool; 2],
+    /// The mouse's part in that turn.
+    cast_mouse: CastMouse,
     /// The turning keys held, left then right.
     turns: [bool; 2],
     /// The sidestep keys held, left then right.
@@ -569,17 +636,14 @@ impl MovementKeys {
         e: dereth_client_contract::actions::Action,
         settings: OrbitSettings,
     ) -> Vec<dereth_client_contract::actions::Action> {
-        use dereth_client_contract::actions::{movement as a, Action, ActionPhase};
+        use dereth_client_contract::actions::{movement as a, ActionPhase};
         if e.id == a::TOGGLE_RUN_WALK {
             if e.phase != ActionPhase::Begin {
                 return Vec::new();
             }
+            let was = self.is_walking();
             self.walking = !self.walking;
-            return vec![if self.walking {
-                Action::begin(a::TOGGLE_RUN_WALK)
-            } else {
-                Action::end(a::TOGGLE_RUN_WALK)
-            }];
+            return self.walk_change(was).into_iter().collect();
         }
         let movement = matches!(
             e.id,
@@ -644,6 +708,11 @@ impl MovementKeys {
     /// are turned only by the mouse steering under character-based movement.
     #[must_use]
     pub fn facing(&self, settings: OrbitSettings, camera_heading: f32) -> Option<f32> {
+        // While a spell is cast with the right button held, the player turns by the game's own
+        // turning keys ([`Self::cast_mouse`]), not by being faced where the camera looks.
+        if self.locked && self.buttons.1 {
+            return None;
+        }
         match settings.movement {
             MovementMode::Camera if self.locked => None,
             MovementMode::Camera => self.held.heading(camera_heading, settings.sidestep),
@@ -796,6 +865,77 @@ impl MovementKeys {
         out
     }
 
+    /// Whether the player is turning themselves while a spell is cast.
+    #[must_use]
+    pub fn casting_turn(&self) -> bool {
+        self.cast_turning.iter().any(|t| *t)
+    }
+
+    /// Whether the mouse, moved sideways, turns the player now: a spell being cast with the right
+    /// button held. (The camera then turns with the player instead of with the mouse.)
+    #[must_use]
+    pub fn mouse_turns_player(&self) -> bool {
+        self.locked && self.buttons.1 && !self.buttons.0
+    }
+
+    /// While a spell is cast, the player turned by `push` (from -1, all the way left, to 1, all the
+    /// way right): pushed past [`STICK_ENGAGE`] the game's own turning key on that side is held,
+    /// a fresh press of the game's turn, so the player turns as a turning key turns them with the
+    /// camera following, and keeps the way they come to face. Outside a cast, or let go, any turn
+    /// held ends. What the game is asked for.
+    #[must_use]
+    pub fn cast_turn(&mut self, push: f32) -> Vec<dereth_client_contract::actions::Action> {
+        use dereth_client_contract::actions::{movement as a, Action};
+        let want = if self.locked {
+            [push <= -STICK_ENGAGE, push >= STICK_ENGAGE]
+        } else {
+            [false; 2]
+        };
+        let mut out = Vec::new();
+        for (side, id) in [a::TURN_LEFT, a::TURN_RIGHT].into_iter().enumerate() {
+            if want[side] != self.cast_turning[side] {
+                self.cast_turning[side] = want[side];
+                out.push(if want[side] {
+                    Action::begin(id)
+                } else {
+                    Action::end(id)
+                });
+            }
+        }
+        out
+    }
+
+    /// One frame, `dt` seconds long, of the mouse moved `dx` across while it turns the player
+    /// ([`Self::mouse_turns_player`]): the mouse's pace across, over the last few hundredths of a
+    /// second whatever the frame rate, turns them that way while it is above
+    /// [`MOUSE_TURN_RATE`]; the turn is kept [`MOUSE_TURN_KEEP`] seconds after the pace drops, and
+    /// ends then, or when the button is let go.
+    #[must_use]
+    pub fn cast_mouse(&mut self, dx: f32, dt: f32) -> Vec<dereth_client_contract::actions::Action> {
+        if !self.mouse_turns_player() {
+            // The mouse let go of the turn it was making; a stick's is its own.
+            if std::mem::take(&mut self.cast_mouse) == CastMouse::default() {
+                return Vec::new();
+            }
+            return self.cast_turn(0.0);
+        }
+        let m = &mut self.cast_mouse;
+        // The movement over the last moments, fading with time rather than with frames.
+        m.moved =
+            m.moved * dereth_primitives::num::math::expf(-dt.max(0.0) / MOUSE_TURN_WINDOW) + dx;
+        let pace = m.moved / MOUSE_TURN_WINDOW;
+        if pace.abs() >= MOUSE_TURN_RATE {
+            m.way = pace.signum();
+            m.keep = MOUSE_TURN_KEEP;
+        } else if m.keep > 0.0 {
+            m.keep -= dt;
+        } else {
+            m.way = 0.0;
+        }
+        let way = m.way;
+        self.cast_turn(way)
+    }
+
     /// Whether the mouse steers the player, facing them where the camera looks: the right button
     /// held, or both.
     #[must_use]
@@ -804,11 +944,15 @@ impl MovementKeys {
     }
 
     /// Whether, under `settings`, the player turning carries the orbit camera round with them:
+    /// while a spell is cast and the player turns themselves ([`Self::cast_turn`]); otherwise
     /// under character-based movement, with a turning key held, unless the mouse steers the
     /// player or the facing is held (the keys then step sideways) or the left button holds the
     /// camera where the pointer put it.
     #[must_use]
     pub fn camera_turns_with_player(&self, settings: OrbitSettings) -> bool {
+        if self.casting_turn() {
+            return true;
+        }
         settings.movement == MovementMode::Character
             && !self.mouse_steers()
             && !self.locked
@@ -907,6 +1051,92 @@ impl MovementKeys {
         self.run_for_held(!settings.sidestep)
     }
 
+    /// Whether the player walks: the run/walk key has them walking.
+    #[must_use]
+    pub fn is_walking(&self) -> bool {
+        self.walking
+    }
+
+    /// What the game is asked for when walking changed from `was`.
+    fn walk_change(&self, was: bool) -> Option<dereth_client_contract::actions::Action> {
+        use dereth_client_contract::actions::{movement as a, Action};
+        let now = self.is_walking();
+        (now != was).then(|| {
+            if now {
+                Action::begin(a::TOGGLE_RUN_WALK)
+            } else {
+                Action::end(a::TOGGLE_RUN_WALK)
+            }
+        })
+    }
+
+    /// A movement stick as it is pushed now: right and ahead, each from -1 to 1, `None` when it
+    /// is let go. What the game is asked for under `settings`.
+    ///
+    /// Under camera-based movement the player runs the way the stick points against the camera
+    /// ([`HeldMovement::heading`]) for as long as it is pushed. Under character-based movement it
+    /// stands in for the movement keys: pushed ahead or back past [`STICK_ENGAGE`] it holds
+    /// Forward or Back, and pushed sideways it holds the turning keys. Either way the player goes
+    /// at once at their pace, running, or walking while the run/walk key has them walking.
+    #[must_use]
+    pub fn stick(
+        &mut self,
+        stick: Option<(f32, f32)>,
+        settings: OrbitSettings,
+    ) -> Vec<dereth_client_contract::actions::Action> {
+        use dereth_client_contract::actions::{movement as a, Action};
+        let mut out = Vec::new();
+        // While the facing is held (a spell being cast) the stick stands in for the movement keys
+        // under either movement, and goes the way they go then: ahead walks on, back backs up and
+        // sideways steps, the facing kept.
+        let locked = self.locked;
+        let want = match (settings.movement, stick) {
+            (m, Some((x, y))) if m == MovementMode::Character || locked => [
+                y >= STICK_ENGAGE,
+                y <= -STICK_ENGAGE,
+                x <= -STICK_ENGAGE,
+                x >= STICK_ENGAGE,
+            ],
+            _ => [false; 4],
+        };
+        for (i, id) in [
+            a::MOVE_FORWARD,
+            a::MOVE_BACKWARD,
+            a::TURN_LEFT,
+            a::TURN_RIGHT,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if want[i] != self.stick_keys[i] {
+                self.stick_keys[i] = want[i];
+                let as_keys = if want[i] {
+                    locked
+                } else {
+                    self.stick_keys_held[i]
+                };
+                self.stick_keys_held[i] = want[i] && locked;
+                let e = if want[i] {
+                    Action::begin(id)
+                } else {
+                    Action::end(id)
+                };
+                if as_keys {
+                    out.extend(self.convert(e, settings));
+                } else {
+                    self.held.note(id, want[i]);
+                    out.push(e);
+                }
+            }
+        }
+        let pushed = stick.filter(|_| settings.movement == MovementMode::Camera && !locked);
+        if pushed != self.held.stick {
+            self.held.stick = pushed;
+            out.extend(self.run_for_held(!settings.sidestep));
+        }
+        out
+    }
+
     /// Start or stop the forward run as what is held asks: with `any_key`, any of them runs;
     /// otherwise only Forward, Back and the mouse do.
     fn run_for_held(&mut self, any_key: bool) -> Vec<dereth_client_contract::actions::Action> {
@@ -915,7 +1145,7 @@ impl MovementKeys {
         let want = if any_key {
             h.any()
         } else {
-            h.forward || h.back || h.mouse
+            h.forward || h.back || h.mouse || h.stick.is_some()
         };
         if want == self.running {
             return Vec::new();
@@ -1659,6 +1889,7 @@ mod tests {
             left,
             right,
             mouse: false,
+            stick: None,
         };
         // A camera looking east.
         assert!(near(
@@ -2162,6 +2393,12 @@ mod tests {
         c.turn_with_player(30.0);
         c.turn_held(true, false, false, false, 0.1);
         assert!(!c.settling_behind);
+        // And the look stick.
+        let mut c = OrbitCamera::default();
+        c.turn_with_player(30.0);
+        c.stick = (0.5, 0.0);
+        c.turn_stick(0.1);
+        assert!(!c.settling_behind);
     }
 
     #[test]
@@ -2172,5 +2409,348 @@ mod tests {
         c.turn_with_player(90.0);
         assert!(near(c.movement_heading(false), 90.0));
         assert!(near(c.shown.unwrap().yaw, c.yaw), "shown turned at once");
+    }
+
+    #[test]
+    fn a_look_stick_turns_it_while_held_faster_the_further_it_is_pushed_and_each_axis_reverses() {
+        let turned = |stick: (f32, f32), settings: OrbitSettings| {
+            let mut c = OrbitCamera {
+                settings,
+                ..OrbitCamera::default()
+            };
+            c.place_behind(0.0);
+            c.stick = stick;
+            for _ in 0..10 {
+                c.turn_stick(0.01);
+            }
+            c
+        };
+        let plain = OrbitSettings::default();
+        let right = turned((1.0, 0.0), plain);
+        assert!(
+            near(
+                right.movement_heading(false),
+                (STICK_TURN * 0.1).to_degrees()
+            ),
+            "pushed right it looks right at its full rate: {}",
+            right.movement_heading(false)
+        );
+        let half = turned((0.5, 0.0), plain);
+        assert!(near(
+            half.movement_heading(false),
+            (STICK_TURN * 0.05).to_degrees()
+        ));
+        let up = turned((0.0, 1.0), plain);
+        assert!(
+            near(up.pitch, DEFAULT_PITCH + STICK_TILT * 0.1),
+            "up looks up"
+        );
+        let still = turned((0.0, 0.0), plain);
+        assert!(near(still.yaw, 0.0) && near(still.pitch, DEFAULT_PITCH));
+        let reversed = OrbitSettings {
+            reverse_x: true,
+            reverse_y: true,
+            ..plain
+        };
+        assert!(turned((1.0, 0.0), reversed).movement_heading(false) > 270.0);
+        assert!(turned((0.0, 1.0), reversed).pitch < DEFAULT_PITCH);
+        // It stops at the tilt's limits, as the pointer does.
+        let mut c = OrbitCamera {
+            stick: (0.0, 1.0),
+            ..OrbitCamera::default()
+        };
+        c.turn_stick(10.0);
+        assert!(near(c.pitch, PITCH_MAX));
+    }
+
+    #[test]
+    fn under_camera_based_movement_a_pushed_stick_runs_the_player_the_way_it_points() {
+        let mut k = MovementKeys::default();
+        let s = camera(false);
+        assert_eq!(
+            ids(&k.stick(Some((0.0, 1.0)), s)),
+            [(a::MOVE_FORWARD, true)]
+        );
+        assert!(!k.is_walking());
+        // Turned, it keeps running; the way the player faces follows the stick against the
+        // camera, stepping sideways or not.
+        assert!(k.stick(Some((1.0, 0.0)), s).is_empty());
+        assert!(near(k.held.heading(90.0, false).unwrap(), 180.0));
+        assert!(near(k.held.heading(0.0, true).unwrap(), 90.0));
+        assert!(k
+            .stick(
+                Some((
+                    -std::f32::consts::FRAC_1_SQRT_2,
+                    -std::f32::consts::FRAC_1_SQRT_2
+                )),
+                s
+            )
+            .is_empty());
+        assert!(near(k.held.heading(0.0, false).unwrap(), 225.0));
+        // A key held decides over the stick.
+        k.held.forward = true;
+        assert!(near(k.held.heading(0.0, false).unwrap(), 0.0));
+        k.held.forward = false;
+        assert_eq!(ids(&k.stick(None, s)), [(a::MOVE_FORWARD, false)]);
+        assert_eq!(k.held.heading(0.0, false), None);
+    }
+
+    #[test]
+    fn a_stick_pushed_even_a_little_runs_unless_the_run_walk_key_has_the_player_walking() {
+        let mut k = MovementKeys::default();
+        let s = camera(false);
+        assert_eq!(
+            ids(&k.stick(Some((0.0, 0.1)), s)),
+            [(a::MOVE_FORWARD, true)],
+            "a little push runs at once"
+        );
+        assert!(!k.is_walking());
+        assert!(k.stick(Some((0.0, 1.0)), s).is_empty());
+        assert_eq!(ids(&k.stick(None, s)), [(a::MOVE_FORWARD, false)]);
+        // The run/walk key's walk stays, whatever the stick does.
+        let _ = k.convert(Action::begin(a::TOGGLE_RUN_WALK), s);
+        assert!(k.is_walking());
+        assert_eq!(
+            ids(&k.stick(Some((0.0, 1.0)), s)),
+            [(a::MOVE_FORWARD, true)]
+        );
+        assert!(k.is_walking());
+    }
+
+    #[test]
+    fn under_character_based_movement_a_stick_stands_in_for_the_movement_keys() {
+        let mut k = MovementKeys::default();
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        assert_eq!(
+            ids(&k.stick(Some((0.0, 1.0)), s)),
+            [(a::MOVE_FORWARD, true)]
+        );
+        assert_eq!(
+            ids(&k.stick(Some((0.9, 0.0)), s)),
+            [(a::MOVE_FORWARD, false), (a::TURN_RIGHT, true)]
+        );
+        assert!(
+            k.held.right && !k.held.forward,
+            "noted, so the camera turns with the player"
+        );
+        assert_eq!(
+            ids(&k.stick(Some((-0.7, -0.7)), s)),
+            [
+                (a::MOVE_BACKWARD, true),
+                (a::TURN_LEFT, true),
+                (a::TURN_RIGHT, false)
+            ]
+        );
+        assert!(k.stick(Some((0.1, 0.1)), s).iter().all(|e| !e.is_start()));
+        assert_eq!(
+            k.held,
+            HeldMovement::default(),
+            "inside the engage it holds nothing"
+        );
+        assert_eq!(
+            ids(&k.stick(Some((0.0, 0.45)), s)),
+            [(a::MOVE_FORWARD, true)]
+        );
+    }
+
+    #[test]
+    fn while_a_spell_is_cast_the_stick_backs_up_and_steps_with_the_facing_held_as_the_keys_do() {
+        for movement in [MovementMode::Camera, MovementMode::Character] {
+            let s = OrbitSettings {
+                movement,
+                ..OrbitSettings::default()
+            };
+            let mut keys = MovementKeys::default();
+            let _ = keys.set_casting(true, s);
+            assert!(keys.locked());
+            // Pushed back and left: backing up and stepping left, nothing turned.
+            let asked = keys.stick(Some((-0.9, -0.9)), s);
+            let begun: Vec<_> = asked
+                .iter()
+                .filter(|e| e.is_start())
+                .map(|e| e.id)
+                .collect();
+            assert!(begun.contains(&a::MOVE_BACKWARD), "{movement:?}: {asked:?}");
+            assert!(begun.contains(&a::STRAFE_LEFT), "{movement:?}: {asked:?}");
+            assert!(!begun.contains(&a::TURN_LEFT), "{movement:?}: no turn");
+            // Let go: what was begun ends.
+            let ended: Vec<_> = keys
+                .stick(None, s)
+                .iter()
+                .filter(|e| !e.is_start())
+                .map(|e| e.id)
+                .collect();
+            assert!(ended.contains(&a::MOVE_BACKWARD) && ended.contains(&a::STRAFE_LEFT));
+        }
+    }
+
+    fn begun(asked: &[dereth_client_contract::actions::Action]) -> Vec<ActionId> {
+        asked
+            .iter()
+            .filter(|e| e.is_start())
+            .map(|e| e.id)
+            .collect()
+    }
+
+    fn ended(asked: &[dereth_client_contract::actions::Action]) -> Vec<ActionId> {
+        asked
+            .iter()
+            .filter(|e| !e.is_start())
+            .map(|e| e.id)
+            .collect()
+    }
+
+    #[test]
+    fn the_mouse_dragged_with_the_right_button_while_a_spell_is_cast_turns_the_player_and_the_camera(
+    ) {
+        for movement in [MovementMode::Camera, MovementMode::Character] {
+            let s = OrbitSettings {
+                movement,
+                ..OrbitSettings::default()
+            };
+            let mut k = MovementKeys::default();
+            let _ = k.set_casting(true, s);
+            k.buttons.1 = true;
+            assert!(k.mouse_turns_player());
+            // Dragged right: the game's own turn right, pressed afresh, the camera following.
+            assert_eq!(
+                begun(&k.cast_mouse(12.0, 1.0 / 60.0)),
+                [a::TURN_RIGHT],
+                "{movement:?}"
+            );
+            assert!(k.camera_turns_with_player(s));
+            assert_eq!(k.facing(s, 123.0), None, "not faced where the camera looks");
+            // Held still: the turn is kept a moment, then ends.
+            let mut asked = Vec::new();
+            for _ in 0..30 {
+                asked.extend(k.cast_mouse(0.0, 1.0 / 60.0));
+            }
+            assert_eq!(ended(&asked), [a::TURN_RIGHT]);
+            // Backing up and stepping left meanwhile, as the keys do through a cast.
+            let mut asked = k.convert(Action::begin(a::MOVE_BACKWARD), s);
+            asked.extend(k.convert(Action::begin(a::TURN_LEFT), s));
+            let b = begun(&asked);
+            assert!(
+                b.contains(&a::MOVE_BACKWARD) && b.contains(&a::STRAFE_LEFT),
+                "{movement:?}: {asked:?}"
+            );
+            assert!(!b.contains(&a::TURN_LEFT));
+            // Dragged left again with the keys held: a turn left as well.
+            assert_eq!(begun(&k.cast_mouse(-9.0, 1.0 / 60.0)), [a::TURN_LEFT]);
+            // The button let go: the turn ends.
+            k.buttons.1 = false;
+            assert_eq!(ended(&k.cast_mouse(0.0, 1.0 / 60.0)), [a::TURN_LEFT]);
+        }
+    }
+
+    #[test]
+    fn outside_a_cast_the_right_button_and_the_look_stick_do_as_they_did() {
+        let s = OrbitSettings::default();
+        let mut k = MovementKeys::default();
+        k.buttons.1 = true;
+        assert!(!k.mouse_turns_player());
+        assert!(
+            k.cast_mouse(30.0, 1.0 / 60.0).is_empty(),
+            "the mouse turns the camera"
+        );
+        assert!(
+            k.cast_turn(1.0).is_empty(),
+            "nor does the stick turn the player"
+        );
+        assert!(!k.camera_turns_with_player(s));
+    }
+
+    #[test]
+    fn the_look_stick_while_a_spell_is_cast_turns_the_player_in_either_movement() {
+        for movement in [MovementMode::Camera, MovementMode::Character] {
+            let s = OrbitSettings {
+                movement,
+                ..OrbitSettings::default()
+            };
+            let mut k = MovementKeys::default();
+            let _ = k.set_casting(true, s);
+            assert_eq!(begun(&k.cast_turn(-0.8)), [a::TURN_LEFT]);
+            assert!(k.camera_turns_with_player(s));
+            assert!(k.cast_turn(-0.9).is_empty(), "held");
+            assert_eq!(ended(&k.cast_turn(0.0)), [a::TURN_LEFT]);
+        }
+    }
+
+    #[test]
+    fn a_turn_through_a_cast_refused_again_and_again_as_too_busy_is_kept_until_the_cast_ends() {
+        // The recorded run: the cast key pressed over and over through a cast, each refused at
+        // once as too busy, the turn the mouse began going on all through it.
+        let s = OrbitSettings::default();
+        let mut world = dereth_client_model::World::new();
+        let mut k = MovementKeys::default();
+        // A cast asked for, as the cast path marks it.
+        let ask = |w: &mut dereth_client_model::World| {
+            w.magic.casts_unanswered += 1;
+            w.magic.casting = true;
+        };
+        ask(&mut world);
+        let _ = k.set_casting(world.magic.casting, s);
+        k.buttons.1 = true;
+        assert_eq!(begun(&k.cast_mouse(10.0, 1.0 / 60.0)), [a::TURN_RIGHT]);
+        for _ in 0..8 {
+            // Asked for again, and refused at once as too busy.
+            ask(&mut world);
+            world.use_done(0x1d);
+            let asked = k.set_casting(world.magic.casting, s);
+            assert!(ended(&asked).is_empty(), "nothing let go: {asked:?}");
+            assert!(k.locked());
+            assert!(
+                k.cast_mouse(10.0, 1.0 / 60.0).is_empty(),
+                "the turn goes on"
+            );
+        }
+        world.use_done(0);
+        let _ = k.set_casting(world.magic.casting, s);
+        k.buttons.1 = false;
+        assert_eq!(
+            ended(&k.cast_mouse(0.0, 1.0 / 60.0)),
+            [a::TURN_RIGHT],
+            "over with the cast"
+        );
+    }
+
+    /// A drag of `pace` mouse units a second for half a second at `fps` frames a second, the
+    /// mouse reporting whole units as they add up: the turns asked for, frame by frame.
+    fn drag(fps: f32, pace: f32) -> Vec<Vec<ActionId>> {
+        let s = OrbitSettings::default();
+        let mut k = MovementKeys::default();
+        let _ = k.set_casting(true, s);
+        k.buttons.1 = true;
+        let dt = 1.0 / fps;
+        let mut owed = 0.0_f32;
+        let mut frames = Vec::new();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        for _ in 0..(fps / 2.0) as usize {
+            owed += pace * dt;
+            let whole = owed.floor();
+            owed -= whole;
+            let asked = k.cast_mouse(whole, dt);
+            frames.push(asked.iter().map(|e| e.id).collect());
+        }
+        frames
+    }
+
+    #[test]
+    fn a_slow_drag_turns_the_player_steadily_at_a_low_frame_rate_and_at_a_high_one() {
+        for fps in [30.0, 300.0] {
+            // 120 units a second: at 300 frames a second, under one unit a frame.
+            let frames = drag(fps, 120.0);
+            let asked: Vec<&ActionId> = frames.iter().flatten().collect();
+            assert_eq!(
+                asked,
+                [&a::TURN_RIGHT],
+                "{fps} fps: one turn, begun once and held"
+            );
+        }
+        // Barely moved: no turn.
+        assert!(drag(300.0, 10.0).iter().all(Vec::is_empty));
     }
 }

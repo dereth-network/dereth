@@ -274,6 +274,10 @@ pub(crate) struct FrontEndServices<H: Host> {
     clipboard: crate::clipboard::ClipboardBridge,
     /// The host's clipboard, which the bridge mirrors.
     host_clipboard: H::Clipboard,
+    /// The host's pad, read once a frame.
+    gamepad: Box<dyn crate::gamepad::HostGamepad>,
+    /// A pad state set by an in-process driver, read in place of the host's pad while it is set.
+    pub(crate) scripted_pad: Option<crate::gamepad::PadState>,
     /// The device input: the input manager and the registrations the client's systems make.
     /// Present whenever the input tables loaded, with or without `--ui`.
     pub(crate) input: Option<crate::input::InputShell>,
@@ -350,6 +354,8 @@ impl<H: Host> ClientShell<H> {
                 cursor: crate::cursor::CursorSystem::with_images(H::cursor_images(hwnd)),
                 clipboard: crate::clipboard::ClipboardBridge::default(),
                 host_clipboard: H::clipboard(),
+                gamepad: H::gamepad(),
+                scripted_pad: None,
                 ui_release: crate::gpu::UiReleaseReport::default(),
                 ui_draw_list: Vec::new(),
                 files_read: 0,
@@ -1555,6 +1561,7 @@ impl<H: Host> ClientShell<H> {
             .into_iter()
             .filter_map(|id| Some((id, present.target_projection(id, world)?)))
             .collect();
+        ui.in_sight = present.drawn_objects();
     }
 
     /// The interface shown now.
@@ -1875,8 +1882,21 @@ impl<H: Host> Shell for ClientShell<H> {
     fn window_input(&mut self, cx: &mut Cx<'_, H>, time_ms: u32) {
         cx.set_chat_interface(self.shown_interface());
         let events: Vec<_> = self.shared.window_events.borrow_mut().drain(..).collect();
+        // The pad is read every frame, so the host keeps up with it whichever interface is shown;
+        // only the Horizon interface answers it, after the window's events, so in gamepad mode the
+        // pad's pointer is the one the interface sees.
+        let pad = self.shared.gamepad.poll();
+        let pad = self.shared.scripted_pad.or(pad);
         if self.horizon.active {
             for event in &events {
+                route_horizon_event(cx, self, event, time_ms);
+            }
+            let keys = self
+                .horizon
+                .active_mut()
+                .map(|ui| ui.pad_input(cx, pad))
+                .unwrap_or_default();
+            for event in &keys {
                 route_horizon_event(cx, self, event, time_ms);
             }
             return;

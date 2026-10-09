@@ -94,6 +94,8 @@ impl<S: Shell> App<S> {
                         tracing::debug!("0x00A1 login complete (stamp {stamp})");
                         self.teleport.login_completes_sent += 1;
                         self.teleport.login_complete_sent();
+                        // The server takes module saves from here on.
+                        self.objects.world.player_system.login_complete_sent = true;
                     }
                     Err(e) => tracing::warn!("0x00A1 would not encode: {e}"),
                 }

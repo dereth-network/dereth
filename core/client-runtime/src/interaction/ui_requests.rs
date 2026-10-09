@@ -927,6 +927,19 @@ feedback,channel: 0x1A, text},
                         Err(_) => self.stats.requests_refused += 1,
                     }
                 }
+                UiRequest::GiveTo {
+                    item,
+                    target,
+                    amount,
+                } => {
+                    if game.is_owned_by_player(item)
+                        && game
+                            .attempt_give(&mut req, &mut out, item, target, amount, now, false)
+                            .is_err()
+                    {
+                        self.stats.requests_refused += 1;
+                    }
+                }
                 UiRequest::PutInWorld(item) => {
                     if game.is_owned_by_player(item)
                         && game
@@ -1244,6 +1257,16 @@ feedback,channel: 0x1A, text},
                 // five recorded blobs byte-identically, including the stamp. `save_to_server`
                 // re-packs the module the server sent — it is not
                 // rebuilt from this crate's model of it.
+                // An interface's own setting kept in the player module: written into the same
+                // module every other save re-packs, then sent once the edits pause.
+                UiRequest::SetPlayerModuleString { property, value } => {
+                    if game
+                        .player_system
+                        .set_gameplay_option_string(property, value, now)
+                    {
+                        self.module_save_at = Some(ServerTime(now.0 + MODULE_SAVE_DELAY));
+                    }
+                }
                 UiRequest::SavePlayerOptions => {
                     if game.player_system.save_to_server(&mut req, false) {
                         self.stats.player_modules_sent += 1;

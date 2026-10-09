@@ -1304,6 +1304,10 @@ mod imp {
             SceneRenderer::target_origin(self, id, world)
         }
 
+        fn drawn_objects(&self) -> Option<std::collections::BTreeSet<dereth_primitives::ObjectId>> {
+            SceneRenderer::drawn_objects(self)
+        }
+
         fn preview_queue(
             &mut self,
             id: PreviewId,

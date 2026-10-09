@@ -258,6 +258,7 @@ impl<S: Shell> App<S> {
             orbit_pending: Vec::new(),
             #[cfg(feature = "hifi")]
             hifi_interface,
+            orbit_look: (0.0, 0.0),
             last_mouse_move: 0.0,
             last_cursor: None,
             last_time: 0.0,

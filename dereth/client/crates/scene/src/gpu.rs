@@ -744,6 +744,18 @@ mod imp {
             })
         }
 
+        /// The objects the last world draw offered to the selection ray: those the cell walk
+        /// reached and the view took in, which is what can be seen and clicked. `None` before a
+        /// draw, or during a hidden world.
+        pub fn drawn_objects(
+            &self,
+        ) -> Option<std::collections::BTreeSet<dereth_primitives::ObjectId>> {
+            if self.world_hidden {
+                return None;
+            }
+            self.world.as_ref()?.drawn_objects()
+        }
+
         /// Where an object's own origin stands on screen; see
         /// `WorldScene::target_origin`. Nothing during a hidden world.
         pub fn target_origin(

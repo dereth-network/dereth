@@ -36,7 +36,7 @@ const EARLIER_SHIFT: u32 = 1;
 /// M map, J or L journal, K settings, `;` allegiance, P spellbook. Tab and Shift-Tab pick the next
 /// and the previous creature, Ctrl-Tab and Ctrl-Shift-Tab the next and the previous thing on the
 /// radar; `\`, `[` and `]` the closest, the previous and the next item. V held looks
-/// at the character's front, G examines. Enter opens the chat line, `/` opens it with a `/` in
+/// at the character's front, G examines, F uses the selection and Shift+F picks it up. Enter opens the chat line, `/` opens it with a `/` in
 /// it. 0, `-` and `=` are the tenth to twelfth shortcuts, and the spell bar's in a spell stance;
 /// with Ctrl they are the shortcuts', as Ctrl with 1 to 9 is.
 /// F12 takes a screenshot.
@@ -56,6 +56,7 @@ pub const HORIZON_KEYS: &[(u16, u32, &str)] = &[
     (0xC8, 0, "CameraRotateUp"),
     (0xD0, 0, "CameraRotateDown"),
     (0x21, 0, "USE"),
+    (0x21, SHIFT, "SelectionPickUp"),
     (0x34, 0, "USE"),
     (0x2E, 0, "ToggleCharacterInfoPanel"),
     (0x17, 0, "ToggleInventoryPanel"),

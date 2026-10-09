@@ -259,6 +259,11 @@ impl Windows {
         #[allow(clippy::cast_precision_loss)]
         let content = row_h * titles.titles.len() as f32;
         let offset = kit::scroll(p, ctx, list, content, &mut self.titles_scroll);
+        // For the pad the titles are the page's one list of rows.
+        {
+            let input = &mut *ctx.input;
+            input.nav.list_of_rows(list, &input.occluders);
+        }
         p.list.push_clip(list);
         for (i, (id, name)) in titles.titles.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
@@ -276,7 +281,8 @@ impl Windows {
                 crate::ui::pregame::list_highlight(p, r, on);
             }
             p.text_in(&value, r.offset(8.0 * k, 0.0), Align::Left, name);
-            if !on && ctx.over(&r) && ctx.input.clicked(&r) {
+            // The title shown is a stop too, though choosing it again changes nothing.
+            if ctx.over(&r) && !on && ctx.input.clicked(&r) {
                 out.requests
                     .push(UiRequest::SetDisplayCharacterTitle { title_id: *id });
             }

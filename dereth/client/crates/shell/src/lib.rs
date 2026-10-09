@@ -33,6 +33,9 @@ pub mod clipboard;
 
 pub mod cursor;
 
+// The host's pad, read once a frame.
+pub mod gamepad;
+
 /// The renderer: the scene's, and the UI drawn over it.
 pub mod gpu;
 pub mod hud;

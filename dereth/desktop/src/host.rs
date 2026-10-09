@@ -85,6 +85,10 @@ impl<P: Product> Host for Desktop<P> {
         std::env::var("DERETH_CLASSIC_WELCOME").unwrap_or_default()
     }
 
+    fn gamepad() -> Box<dyn dereth_client_shell::gamepad::HostGamepad> {
+        Box::new(crate::gamepad::DesktopGamepad::default())
+    }
+
     fn movie_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
         std::fs::read(path).ok()
     }

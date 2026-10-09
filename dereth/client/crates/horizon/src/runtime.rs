@@ -30,6 +30,8 @@ use crate::state::Projections;
 use crate::ui::input::InputFrame;
 use crate::ui::HorizonUi;
 
+mod pad_mode;
+
 /// The front-end context the shared runtime hands the Horizon interface at each step.
 pub type Cx<'a, S> = dereth_client_runtime::ui_context::UiContext<'a, S>;
 
@@ -175,6 +177,9 @@ pub struct HorizonFrontEnd {
     pub origins: std::collections::BTreeMap<ObjectId, (i32, i32)>,
     /// The objects the shell is asked to project for the next frame.
     pub wanted_projections: Vec<ObjectId>,
+    /// The objects the last world draw could see, as the shell reports them: `None` before a
+    /// draw.
+    pub in_sight: Option<std::collections::BTreeSet<ObjectId>>,
     /// The interface's settings file.
     settings_path: Option<PathBuf>,
     /// The runtime placed the portal space this frame: the swirl is drawn under everything.
@@ -214,6 +219,8 @@ pub struct HorizonFrontEnd {
     /// Which talk-focus destinations could be picked as of the last frame, for the notices that
     /// switch one off.
     focus_enabled: [bool; 14],
+    /// Gamepad mode's state.
+    pub pad_mode: pad_mode::PadMode,
 }
 
 impl HorizonFrontEnd {
@@ -264,6 +271,7 @@ impl HorizonFrontEnd {
             projections: Projections::new(),
             origins: std::collections::BTreeMap::new(),
             wanted_projections: Vec::new(),
+            in_sight: None,
             settings_path,
             portal: false,
             resolution: None,
@@ -281,6 +289,7 @@ impl HorizonFrontEnd {
             chat_titles: std::collections::BTreeMap::new(),
             chat_words: None,
             focus_enabled: [true; 14],
+            pad_mode: pad_mode::PadMode::default(),
         }
     }
 
@@ -546,6 +555,7 @@ impl HorizonFrontEnd {
     /// keeps presses over it and keys while a text box has the keyboard, and says whether the rest
     /// goes on.
     pub fn host_event(&mut self, event: &HostEvent, time_ms: u32) -> Routed {
+        self.pad_mode.note_event(event);
         // While the HUD is being laid out the pointer, the wheel and the keys are the layout's:
         // nothing goes on to the game but a release, so nothing stays held.
         let laying_out = self.ui.windows.is_open(crate::ui::panels::WindowId::Layout);
@@ -694,7 +704,7 @@ impl HorizonFrontEnd {
         mut notices: UiNotices,
     ) -> bool {
         // This interface's own camera, with the movement scheme and pointer directions chosen.
-        cx.set_orbit_camera(Some(self.ui.options.orbit));
+        cx.set_orbit_camera(Some(self.ui.options.orbit_in_effect()));
         self.deliver_power_bar_notices(std::mem::take(&mut notices.power_bar));
         let dt = self
             .last_time
@@ -750,6 +760,41 @@ impl HorizonFrontEnd {
                 crate::state::nameplates(&view, &state, &self.projections, &self.origins, &places);
         }
         self.wanted_projections = crate::state::nameplate_candidates(&state);
+        // Where each thing the pad can select stands on screen, and which can be seen: the
+        // alternate selection goes across the screen, and a thing on the ground is chosen only
+        // where it can be seen.
+        if self.ui.options.pad.enabled {
+            for t in &state.targets {
+                let at = self.origins.get(&t.id).copied().or_else(|| {
+                    match self.projections.get(&t.id)? {
+                        dereth_client_contract::target::Projection::OnScreen((x0, y0, x1, y1)) => {
+                            Some(((x0 + x1) / 2, (y0 + y1) / 2))
+                        }
+                        _ => None,
+                    }
+                });
+                let on = matches!(
+                    self.projections.get(&t.id),
+                    Some(dereth_client_contract::target::Projection::OnScreen(_))
+                );
+                if let (true, Some((x, y))) = (on, at) {
+                    #[allow(clippy::cast_precision_loss)]
+                    state.on_screen.insert(t.id, (x as f32, y as f32));
+                }
+                self.wanted_projections.push(t.id);
+            }
+            state.in_sight.clone_from(&self.in_sight);
+            state.look_by_camera = self.ui.options.orbit_in_effect().movement
+                == dereth_client_runtime::orbit::MovementMode::Camera;
+        }
+        // The pad's alternate selection, where it stands on screen for its ring.
+        if let Some(alt) = self.ui.hud.alt {
+            #[allow(clippy::cast_precision_loss)]
+            {
+                state.alt_at = self.origins.get(&alt).map(|(x, y)| (*x as f32, *y as f32));
+            }
+            self.wanted_projections.push(alt);
+        }
         self.ring_target = state
             .target
             .as_ref()
@@ -1258,6 +1303,11 @@ impl HorizonFrontEnd {
                 window: dereth_client_contract::chat::interface::window::MAIN,
             });
         }
+        for id in out.action_taps {
+            let id = dereth_client_runtime::actions::ActionId(id);
+            cx.inject_action(dereth_client_runtime::actions::Action::begin(id));
+            cx.inject_action(dereth_client_runtime::actions::Action::end(id));
+        }
         for id in out.actions {
             cx.inject_action(dereth_client_runtime::actions::Action::begin(
                 dereth_client_runtime::actions::ActionId(id),
@@ -1295,6 +1345,23 @@ impl HorizonFrontEnd {
                 "reverse-x" => options.orbit.reverse_x = value == "true",
                 "reverse-y" => options.orbit.reverse_y = value == "true",
                 "sidestep" => options.orbit.sidestep = value == "true",
+                "gamepad" => options.pad.enabled = value == "true",
+                "gamepad-movement" => {
+                    if let Some(m) = crate::options::parse_movement(value) {
+                        options.pad.movement = m;
+                    }
+                }
+                "gamepad-dead-zone" => {
+                    if let Some(v) = crate::options::parse_in(value, crate::pad::DEAD_ZONE_RANGE) {
+                        options.pad.dead_zone = v;
+                    }
+                }
+                "gamepad-camera-speed" => {
+                    if let Some(v) = crate::options::parse_in(value, crate::pad::CAMERA_SPEED_RANGE)
+                    {
+                        options.pad.camera_speed = v;
+                    }
+                }
                 "minimap-rotates" => options.minimap_rotates = value == "true",
                 "mouse-turn" | "key-turn" | "tilt-min" | "tilt-max" | "camera-height" => {
                     if let Ok(v) = value.parse::<f32>() {
@@ -1326,6 +1393,13 @@ impl HorizonFrontEnd {
             return;
         }
         self.ui.options = options.clone();
+        // Gamepad mode switched off for this run only (no pad at the start) is saved as it was
+        // set, unless the player has set it since.
+        if settings.iter().any(|(n, _)| n == "gamepad") {
+            self.pad_mode.off_for_session = false;
+        } else if self.pad_mode.off_for_session {
+            options.pad.enabled = true;
+        }
         if let Some(path) = &self.settings_path {
             if let Err(e) = options.save(path) {
                 self.errors.push(format!("{}: {e}", path.display()));

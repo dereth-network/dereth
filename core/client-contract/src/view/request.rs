@@ -359,6 +359,14 @@ pub enum UiRequest {
     /// This is a request because the module, dirty flag and wire sender belong to the
     /// host, not the option page.
     SavePlayerOptions,
+    /// Set a text property at the top of the player module's gameplay-options collection, which
+    /// the server keeps for the character, and send the module to the server a few seconds after
+    /// the last such change (once the character has entered the world). `property` must be one
+    /// the property table types as text; any other is ignored.
+    SetPlayerModuleString {
+        property: u32,
+        value: String,
+    },
     /// Save the current keymap file without prompting, from the Key Bindings page's
     /// *OK* arm in its element-message handler when the page reports itself changed.
     ///
@@ -723,6 +731,13 @@ pub enum UiRequest {
     /// Put `item`, one of the player's own, on the ground: the drop-selection key and a drag out
     /// of a pack onto the world.
     PutInWorld(ObjectId),
+    /// Give `amount` of `item`, one of the player's own, to `target` (a person, a creature): what
+    /// a drag of it onto them asks.
+    GiveTo {
+        item: ObjectId,
+        target: ObjectId,
+        amount: u32,
+    },
     /// Enter a combat mode (`1` peace, `2` melee, `4` missile, `8` magic), or with `0` the mode
     /// the wielded weapon calls for; refused, with the world's own words, when the player cannot
     /// change mode now.

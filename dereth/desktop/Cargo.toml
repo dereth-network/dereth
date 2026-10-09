@@ -1,6 +1,6 @@
 [package]
 name = "dereth-desktop"
-description = "The desktop host: the window and its event loop, the message pump, the settings folders, the sound device, the clipboard, the cursors, the log and the crash log, for any product that runs the client shell on a desktop."
+description = "The desktop host: the window and its event loop, the message pump, the settings folders, the sound device, the clipboard, the cursors, the pads, the log and the crash log, for any product that runs the client shell on a desktop."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -53,6 +53,8 @@ cpal.workspace = true
 # The classic interface's fonts from the Windows font system.
 dereth-classic-gdi.workspace = true
 windows = { version = "0.62", features = ["Foundation", "Globalization", "System"] }
+# The pads, through the system's XInput.
+gilrs = { workspace = true, features = ["xinput"] }
 
 # The same two host services off Windows.
 [target.'cfg(not(windows))'.dependencies]

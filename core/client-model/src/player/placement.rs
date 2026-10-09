@@ -147,6 +147,58 @@ impl super::PlayerSystem {
         true
     }
 
+    /// Set a `String` property at the top of the gameplay-options collection, as the float
+    /// setter does: the same retained module, the same dirty flag, nothing sent. A property the
+    /// table does not type as `String` is refused.
+    pub fn set_gameplay_option_string(
+        &mut self,
+        property: u32,
+        value: String,
+        now: ServerTime,
+    ) -> bool {
+        if dereth_protocol::property::property_type(property)
+            != Some(dereth_protocol::property::BasePropertyType::String)
+        {
+            return false;
+        }
+        let Some(module) = self.module.as_mut() else {
+            return false;
+        };
+        let options = module.gameplay_options.get_or_insert_with(|| {
+            dereth_protocol::property::PackObjPropertyCollection {
+                properties: PropertyCollection::default(),
+                ..Default::default()
+            }
+        });
+        set(
+            &mut options.properties,
+            BaseProperty {
+                name: property,
+                value: Some(BasePropertyValue::String(value)),
+            },
+        );
+        self.mark_dirty(now);
+        true
+    }
+
+    /// The `String` properties at the top of the retained gameplay-options collection; `None`
+    /// before the server's module has arrived.
+    #[must_use]
+    pub fn gameplay_option_strings(&self) -> Option<Vec<(u32, String)>> {
+        let module = self.module.as_ref()?;
+        Some(
+            module
+                .gameplay_options
+                .iter()
+                .flat_map(|o| o.properties.entries.iter())
+                .filter_map(|(key, p)| match &p.value {
+                    Some(BasePropertyValue::String(s)) => Some((*key, s.clone())),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
     fn set_chat_window_property(
         &mut self,
         window: u32,
