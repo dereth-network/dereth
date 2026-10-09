@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.0 (2026-10-09)
+
 - Horizon gamepad mode (experimental): the whole game played with a controller.
 - Horizon's options choose the renderer for the next start.
 - Horizon has highly experimental rendering effects, off by default and only on the wgpu renderer: better lighting, sun shadows, global illumination, ambient occlusion, lamps and torches, and sky.
