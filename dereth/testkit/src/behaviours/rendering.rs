@@ -115,7 +115,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "rendering.degrade.an-older-eras-part-draws-the-levels-its-own-id-reaches",
-        says: "A body part from the February 2005 files is drawn with its detail levels, so up close                the torso is the denser model those files list first rather than the coarser model                the body names, on the February 2005 world and in its look on the end-of-retail                world alike.",
+        says: "A body part from the February 2005 files is drawn with its detail levels, so up \
+               close the torso is the denser model those files list first rather than the coarser \
+               model the body names, on the February 2005 world and in its look on the \
+               end-of-retail world alike.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-PRETOD-DEGRADE-ID"),
         station: "dereth-client::dat::rendering::pre_tod_degrade::a_february_2005_torso_draws_its_records_nearest_level_up_close_on_either_world",
@@ -349,7 +352,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "rendering.interior.a-body-in-several-cells-is-drawn-by-each-of-them",
-        says: "A body that reaches into more than one room is drawn by every room it is in, each                seen through its own view: standing on cellar stairs with the camera in the room                above, the whole body is drawn, not only the legs the stairwell's opening shows.",
+        says: "A body that reaches into more than one room is drawn by every room it is in, each \
+               seen through its own view: standing on cellar stairs with the camera in the room \
+               above, the whole body is drawn, not only the legs the stairwell's opening shows.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-BODY-SHADOW-CELLS"),
         station: "dereth-client::gpu::rendering::interior_cell_views::a_body_on_the_cellar_stairs_is_drawn_whole_from_the_room_above",
@@ -1177,7 +1182,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "rendering.terrain.the-detail-textures-follow-the-drawn-ground-style",
-        says: "With detail textures turned on, every terrain mode draws them over the ground and                buildings, Palette Shift included: they come from the chosen style's own data                where it has them and from the world's own where it does not.",
+        says: "With detail textures turned on, every terrain mode draws them over the ground and \
+               buildings, Palette Shift included: they come from the chosen style's own data where \
+               it has them and from the world's own where it does not.",
         since: THIS_CLIENT,
         divergence: "CD-012",
         evidence: Evidence::Private("AC-EVID-TERRAIN-MODES-DETAIL"),

@@ -480,8 +480,9 @@ pub struct PhysicsObj {
 }
 
 /// The game-record facts the physics layer reads: four status bits, the candidate's creature
-/// answer, and the house restriction fields the cell's
-/// entry check reads.
+/// answer, the house restriction fields the cell's
+/// entry check reads, and the three answers that decide whether a position set places the
+/// object or puts it in its cell as sent ([`Self::placed_as_sent`]).
 ///
 /// One record serves both roles, because in the retail client both roles are the same
 /// class: the *mover* supplies [`can_bypass`](Self::can_bypass) and
@@ -525,6 +526,13 @@ pub struct WeenieRestrictions {
     /// `0x0248 House_UpdateRestrictions` delivers. NULL answers 1: a house whose restriction list
     /// has not arrived yet is open.
     pub restrictions: Option<Restrictions>,
+    /// The hook test: the public description's hook type and hook item types are both non-zero.
+    /// A house hook is the object that answers it, not an item that can be hung on one.
+    pub is_hook: bool,
+    /// The storage test: the weenie class is the dat's storage-chest class.
+    pub is_storage: bool,
+    /// The corpse test: PWD bit `0x2000`.
+    pub is_corpse: bool,
 }
 
 /// The restriction database, reduced to the three fields the entry query reads.
@@ -566,6 +574,14 @@ impl Restrictions {
 }
 
 impl WeenieRestrictions {
+    /// Whether every position set puts this object into its cell exactly as asked, with no
+    /// placement or slide: true for a hook, a storage chest and a corpse, false for everything
+    /// else. Nothing the object overlaps moves it.
+    #[must_use]
+    pub fn placed_as_sent(&self) -> bool {
+        self.is_hook || self.is_storage || self.is_corpse
+    }
+
     /// Test whether `mover` may enter `self`; `self` is the object
     /// the cell's `restriction_obj` names; `mover` is the body trying to enter.
     ///

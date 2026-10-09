@@ -14,8 +14,9 @@ use dereth_testkit::{ClientSpec, HeadlessClient};
 use dereth_ui::framework::Screen as _;
 
 use support::{
-    body_origin, body_position, create_event, fresh_local_body, give_part_array, position_event,
-    settled_at, store, xy_gap, CREATURE, DT, IMPENETRABLE, PK, PK_LITE, PLAYER, STEP,
+    body_origin, body_position, create_event, create_event_described, create_event_shaped,
+    fresh_local_body, give_part_array, position_event, settled_at, store, xy_gap, CREATURE, DT,
+    IMPENETRABLE, PK, PK_LITE, PLAYER, STEP,
 };
 
 dereth_testkit::scenarios! {
@@ -27,6 +28,8 @@ dereth_testkit::scenarios! {
     scenario_two_player_bodies_collide_only_for_the_pairs_that_are_not_exempt => two_player_bodies_collide_only_for_the_pairs_that_are_not_exempt ["movement.teleport.two-players-pass-through-each-other-only-while-neither-is-marked-for-combat"],
     scenario_an_update_with_no_ground_contact_moves_the_body_nowhere => an_update_with_no_ground_contact_moves_the_body_nowhere ["movement.correction.an-update-that-does-not-say-the-body-is-on-the-ground-moves-it-nowhere"],
     scenario_a_create_onto_an_occupied_spot_is_put_down_beside_it => a_create_onto_an_occupied_spot_is_put_down_beside_it ["movement.remote-body.a-create-onto-an-occupied-spot-is-put-down-beside-it"],
+    scenario_a_hook_a_storage_chest_or_a_corpse_is_put_down_exactly_where_sent => a_hook_a_storage_chest_or_a_corpse_is_put_down_exactly_where_sent ["movement.remote-body.a-hook-a-storage-chest-or-a-corpse-is-put-down-exactly-where-sent"],
+    scenario_a_re_create_of_a_held_object_moves_it_as_a_position_update_does => a_re_create_of_a_held_object_moves_it_as_a_position_update_does ["movement.remote-body.a-re-create-of-an-object-the-client-holds-moves-it-as-a-position-update-does"],
     scenario_a_nearby_correction_glides_the_body_over_the_following_frames => a_nearby_correction_glides_the_body_over_the_following_frames ["movement.correction.a-nearby-correction-glides-the-body-over-the-following-frames"],
     scenario_a_correction_out_of_reach_is_taken_in_one_step => a_correction_out_of_reach_is_taken_in_one_step ["movement.correction.a-correction-out-of-reach-is-taken-in-one-step-instead-of-a-glide"],
     scenario_a_body_not_yet_simulated_is_put_straight_onto_the_shards_position => a_body_not_yet_simulated_is_put_straight_onto_the_shards_position ["movement.correction.a-body-the-client-has-not-simulated-yet-is-put-straight-onto-the-shards-position"],
@@ -178,7 +181,9 @@ use bodies::{
     a_correction_out_of_reach_is_taken_in_one_step,
     a_create_onto_an_occupied_spot_is_put_down_beside_it,
     a_destination_in_an_unloaded_block_takes_the_body_out_of_the_world,
+    a_hook_a_storage_chest_or_a_corpse_is_put_down_exactly_where_sent,
     a_nearby_correction_glides_the_body_over_the_following_frames,
+    a_re_create_of_a_held_object_moves_it_as_a_position_update_does,
     a_running_bodys_report_is_the_retail_clients_own,
     a_teleport_onto_another_player_is_deflected_only_by_a_creature,
     a_teleport_out_of_the_world_drops_a_glide_in_flight,

@@ -1105,8 +1105,10 @@ impl PhysicsWorld {
     /// * enter-world stores the position, then requests placement with flags `0x11` =
     ///   `PLACEMENT_SPF | SLIDE_SPF`. This is the login arrival.
     ///
-    /// The force-into-cell path is a bypass for an object whose game record grants one
-    /// of the three non-collision exemptions. It performs no transition.
+    /// An object whose game record is a hook, a storage chest or a corpse
+    /// ([`crate::obj::WeenieRestrictions::placed_as_sent`]) takes neither: it is put into the
+    /// resolved cell at the position asked for and no transition runs. See
+    /// [`Self::resolve_cell_and_place`].
     ///
     /// The placement seeds the transition with `init_object(this, 0)` —
     /// a **literal zero** state word, so no contact plane and no `ON_WALKABLE` are carried in —
@@ -1146,9 +1148,10 @@ impl PhysicsWorld {
     ///    `store_position`, the object-maintenance lost-cell operation, and clearing `ACTIVE_TS` —
     ///    and it still
     ///    returns `OK_SPE`.
-    /// 4. Three game-record queries divert to the force path.
-    ///    No game record exists in this tree, so the tests
-    ///    are all `false` and the call is never reached. That bypass is [`Self::force_into_cell`].
+    /// 4. Three game-record queries — is it a hook, a storage chest, a corpse — and any one of
+    ///    them answering yes puts the object into the cell from (2) at the adjusted position
+    ///    and stops there ([`Self::place_as_sent`]). The answers are the host's, pushed with
+    ///    [`Self::set_weenie_restrictions`]; a body with no game record takes the placement.
     /// 5. `CheckPositionInternal(this, cell, pos, t, sps)` with the cell from (2),
     ///    then commits it.
     ///
@@ -1184,6 +1187,18 @@ impl PhysicsWorld {
             self.goto_lost_cell(h, &adjusted);
             return Ok(());
         };
+        // A hook, a storage chest or a corpse runs no transition at all: whatever it overlaps,
+        // it stands exactly where it was asked to. Every other object, and a body with no game
+        // record, is placed.
+        if self
+            .objects
+            .get(h)
+            .and_then(|o| o.weenie.as_ref())
+            .is_some_and(crate::obj::WeenieRestrictions::placed_as_sent)
+        {
+            self.place_as_sent(h, cell, &adjusted);
+            return Ok(());
+        }
         let Some(t) = self.run_transition(
             h,
             TransitionSeed::Placement {
@@ -1199,6 +1214,27 @@ impl PhysicsWorld {
         }
         self.set_position_internal(h, &t);
         Ok(())
+    }
+
+    /// The position set of an object that is [placed as
+    /// sent](crate::obj::WeenieRestrictions::placed_as_sent): its frame becomes `pos`'s, and only
+    /// when `cell` is not the cell it is already in does it change cell and have the cells it
+    /// reaches worked out again. Nothing is tested against the cell's contents, and the object's
+    /// contact plane, walkable and sliding state are left as they were.
+    ///
+    /// `cell` is the one position adjustment resolved for `pos`: an interior position names the
+    /// room containing the object's first sphere, and an outdoor one names its land cell, which
+    /// is never a building's room.
+    fn place_as_sent(&mut self, h: PhysHandle, cell: CellId, pos: &Position) {
+        let Some(o) = self.objects.get_mut(h) else {
+            return;
+        };
+        o.set_frame(pos.frame);
+        if o.cell != Some(cell) {
+            self.leave_cell(h);
+            self.enter_cell(h, cell);
+            self.calc_cross_cells(h, false);
+        }
     }
 
     /// The no-cell arm of position setting:
@@ -1224,11 +1260,13 @@ impl PhysicsWorld {
     /// * on `OK_SPE` only, sets `ACTIVE_TS` (`0x80`) for a non-`STATIC_PS` object, removes
     ///   link animations and notifies the movement manager of world entry.
     ///
-    /// **This is not `force_into_cell`.** The bypass takes the wire's `objcell_id` verbatim, so an
-    /// object created at an **outdoor** landcell while standing inside a building would keep the
-    /// outdoor cell forever. The outdoor draw would then render that cell's objects
+    /// **For an ordinary object this is not a forced insertion.** Forcing takes the cell position
+    /// adjustment resolves, which for an outdoor id is the land cell and never a building's room,
+    /// so an object created at an **outdoor** landcell while standing inside a building would
+    /// keep the outdoor cell forever. The outdoor draw would then render that cell's objects
     /// inside — before the `Clear(4)` and before the
-    /// interior is painted over the top.
+    /// interior is painted over the top. Only a hook, a storage chest or a corpse is put in its
+    /// cell that way.
     ///
     /// Returns `true` when placement succeeds with `OK_SPE`, and `false` otherwise.
     pub fn enter_world(&mut self, h: PhysHandle, pos: &Position) -> bool {
@@ -1275,7 +1313,9 @@ impl PhysicsWorld {
     /// cell. Nothing is committed: the object keeps its position, cell and shadows (as any
     /// transition, the placement still stops a velocity it is told to kill and raises the notice
     /// of a house barrier it meets). A host uses it to ask how a placement would come out before
-    /// it commits one.
+    /// it commits one. It does not ask the game record: for a body [placed as
+    /// sent](crate::obj::WeenieRestrictions::placed_as_sent), which entry does not place, it
+    /// answers the placement an ordinary body would get.
     pub fn placement_transition(&mut self, h: PhysHandle, pos: &Position) -> Option<Transition> {
         let target = {
             let o = self.objects.get_mut(h)?;
@@ -1722,8 +1762,9 @@ impl PhysicsWorld {
     /// non-teleport arm.
     ///
     /// 1. A `POSITION_TS` stamp that is not newer (the `0x7FFF` wrap rule) returns false.
-    /// 2. With no cell, or a newer `TELEPORT_TS` event: run the teleport hook, place with
-    ///    `TELEPORT_SPF | DONT_CREATE_CELLS_SPF`, return true.
+    /// 2. With no cell, or a newer `TELEPORT_TS` event: run the teleport hook, set the position
+    ///    with `0x1012` = `TELEPORT_SPF | SLIDE_SPF` plus the send-position-event bit, the
+    ///    flags [`Self::set_position`] describes, and return true.
     /// 3. Without contact, return false — the body is not repositioned at all.
     /// 4. Within `player_distance < 96.0`, interpolate to the position (moving-to flag passed on);
     ///    otherwise stop interpolation and set the position directly.

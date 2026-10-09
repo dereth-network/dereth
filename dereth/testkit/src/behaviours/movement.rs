@@ -72,7 +72,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "movement.era.an-older-worlds-client-sends-its-motion-in-its-files-numbering",
-        says: "On a world of older data files the client sends its stance and its movement                commands numbered as those files and the client of their day number them (sitting                in the February 2005 world is that client's sitting, not the later one's), and on                the end-of-retail world exactly as before.",
+        says: "On a world of older data files the client sends its stance and its movement \
+               commands numbered as those files and the client of their day number them (sitting \
+               in the February 2005 world is that client's sitting, not the later one's), and on \
+               the end-of-retail world exactly as before.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-MOTION-NUMBERING-WIRE"),
         station: "dereth-client::dat::movement::older_world_motions::on_an_older_world_the_client_sends_its_motion_state_in_its_files_numbering",
@@ -80,7 +83,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "movement.era.an-older-worlds-logout-plays-its-own-departure",
-        says: "On a world of older data files the server's logout, numbered as those files                number it, plays the departure those files give it on the body (the February 2005                one on that world), and the end-of-retail logout plays the end-of-retail departure                as before.",
+        says: "On a world of older data files the server's logout, numbered as those files number \
+               it, plays the departure those files give it on the body (the February 2005 one on \
+               that world), and the end-of-retail logout plays the end-of-retail departure as \
+               before.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-MOTION-NUMBERING-LOGOUT"),
         station: "dereth-client::dat::movement::older_world_motions::on_an_older_world_the_servers_logout_plays_the_departure_its_files_give_it",
@@ -88,7 +94,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "movement.era.every-emote-key-animates-an-older-worlds-human-body",
-        says: "On the world of February 2005 every emote and stance key animates the human body                from that world's own animation table, sitting, pointing and the snow angel                included, though those files number them differently from the end of retail.",
+        says: "On the world of February 2005 every emote and stance key animates the human body \
+               from that world's own animation table, sitting, pointing and the snow angel \
+               included, though those files number them differently from the end of retail.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-MOTION-NUMBERING-EMOTES"),
         station: "dereth-client::dat::movement::older_world_motions::every_emote_key_animates_the_february_2005_human_body",

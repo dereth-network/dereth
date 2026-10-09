@@ -611,6 +611,243 @@ pub fn a_create_onto_an_occupied_spot_is_put_down_beside_it() {
 }
 
 // -------------------------------------------------------------------------------------------
+// movement.remote-body.a-hook-a-storage-chest-or-a-corpse-is-put-down-exactly-where-sent
+// -------------------------------------------------------------------------------------------
+
+/// A house hook, a storage chest and a corpse, with the state words ACE sends them, stand exactly
+/// where they were sent and stay there through a second and a half of physics: sent a hand's
+/// breadth into the ground, and (the chest, the one of the three that is solid) onto a spot a
+/// creature already fills. The same descriptions without the one fact that makes each that kind
+/// are put on top of the ground, and the chest beside the creature.
+pub fn a_hook_a_storage_chest_or_a_corpse_is_put_down_exactly_where_sent() {
+    use dereth_physics::math::V3 as _;
+    use dereth_primitives::{LocalTime, ObjectId};
+    use dereth_protocol::types::PublicWeenieDesc;
+
+    const ARRIVAL: ObjectId = ObjectId(0x8000_114E);
+    const MONSTER: ObjectId = ObjectId(0x8000_114F);
+    /// The public description's corpse bit.
+    const CORPSE: u32 = 0x0000_2000;
+    /// A wall hook's hook type, and the item types it takes: all of them.
+    const WALL: u16 = 2;
+    const ANY_ITEM: u32 = u32::MAX;
+    /// The weenie classes ACE gives a wall hook and a decorative Lugian corpse.
+    const WALL_HOOK_CLASS: u32 = 9686;
+    const CORPSE_CLASS: u32 = 25457;
+    /// The state words ACE sends: a wall hook `IGNORE_COLLISIONS | ETHEREAL`, a storage chest
+    /// `GRAVITY | IGNORE_COLLISIONS | REPORT_COLLISIONS`, a corpse
+    /// `GRAVITY | IGNORE_COLLISIONS | ETHEREAL`.
+    const HOOK_STATE: u32 = 0x14;
+    const CHEST_STATE: u32 = 0x418;
+    const CORPSE_STATE: u32 = 0x414;
+    /// Their setups.
+    const HOOK_SETUP: u32 = 0x0200_0A8E;
+    const CHEST_SETUP: u32 = 0x0200_0A97;
+    const CORPSE_SETUP: u32 = 0x0200_0F9C;
+    /// How far into the ground they are sent, and how long physics then runs.
+    const INTO: f32 = 0.1;
+    const TICKS: usize = 30;
+
+    let store = store();
+    let storage = dereth_client_runtime::object_physics::storage_class(&*store)
+        .expect("the portal dat names the storage chest's class");
+    // The two hook fields go over the wire only when the header names them.
+    let described =
+        |name: &str, wcid: u32, bitfield: u32, hook: Option<(u16, u32)>| PublicWeenieDesc {
+            header: hook.map_or(0, |_| {
+                dereth_protocol::types::weeniedesc::header::HOOK_TYPE
+                    | dereth_protocol::types::weeniedesc::header::HOOK_ITEM_TYPES
+            }),
+            name: name.to_owned(),
+            wcid,
+            bitfield,
+            hook_type: hook.map(|h| h.0),
+            hook_item_types: hook.map(|h| h.1),
+            ..Default::default()
+        };
+    // Each kind with its setup and state, and the same description without the one fact that
+    // makes it that kind: a hook that takes no item types, the class after the storage chest's,
+    // a corpse without the bit.
+    let kinds = [
+        (
+            "a wall hook",
+            (HOOK_SETUP, HOOK_STATE),
+            described("Wall Hook", WALL_HOOK_CLASS, 0, Some((WALL, ANY_ITEM))),
+            described("Wall Hook", WALL_HOOK_CLASS, 0, Some((WALL, 0))),
+        ),
+        (
+            "a storage chest",
+            (CHEST_SETUP, CHEST_STATE),
+            described("Storage", storage, 0, None),
+            described("Storage", storage + 1, 0, None),
+        ),
+        (
+            "a corpse",
+            (CORPSE_SETUP, CORPSE_STATE),
+            described("Lugian Corpse", CORPSE_CLASS, CORPSE, None),
+            described("Lugian Corpse", CORPSE_CLASS, 0, None),
+        ),
+    ];
+
+    // Sent `dz` from the ground the local body stood on, with a creature a quarter of a metre
+    // along x when asked: how far the arrival ever stands from where it was sent over the ticks,
+    // and where it ends, from where it was sent.
+    let lands = |shape: (u32, u32), wdesc: PublicWeenieDesc, dz: f32, creature: bool| {
+        let mut c = fresh_local_body(&store);
+        let mut sent = c.position();
+        sent.frame.origin.z += dz;
+        let mut away = sent;
+        away.frame.origin.x -= 12.0;
+        away.frame.origin.z -= dz;
+        c.teleport(away);
+        let mut stream = dereth_client_runtime::objects::ObjectStream::new();
+        if creature {
+            let mut monster_at = sent;
+            monster_at.frame.origin.x += 0.25;
+            stream.apply_event(
+                &create_event(MONSTER, Some(monster_at), 0, "Monster"),
+                LocalTime(9.0),
+            );
+            stream.sync_physics(&store, &mut c.world);
+            assert_eq!(
+                body_origin(&c, MONSTER),
+                Some(monster_at.frame.origin),
+                "the creature's own create was moved, so the overlap under test is not the one \
+                 asked for"
+            );
+        }
+        stream.apply_event(
+            &create_event_shaped(ARRIVAL, Some(sent), 0, shape, wdesc),
+            LocalTime(9.0),
+        );
+        stream.sync_physics(&store, &mut c.world);
+        let off = |c: &dereth_client_runtime::character::Character| {
+            body_origin(c, ARRIVAL)
+                .expect("the arrival is in a cell")
+                .sub(sent.frame.origin)
+        };
+        let mut worst = off(&c).mag2().sqrt();
+        let mut t = 9.0;
+        for _ in 0..TICKS {
+            t += DT;
+            c.update(LocalTime(t));
+            worst = worst.max(off(&c).mag2().sqrt());
+        }
+        (worst, off(&c))
+    };
+
+    let mut exact = true;
+    let mut put_down = true;
+    for (kind, shape, it, without) in kinds {
+        let (sent, _) = lands(shape, it.clone(), -INTO, false);
+        let (_, raised) = lands(shape, without.clone(), -INTO, false);
+        println!(
+            "placement: {kind} sent into the ground is at most {sent:.6} m from where it was \
+             sent; without what makes it one it ends {:+.6} m from there",
+            raised.z
+        );
+        exact &= sent < 1e-4;
+        put_down &= raised.z > 0.05 && raised.z < 0.2;
+        // The one solid kind, onto a creature.
+        if shape.1 == CHEST_STATE {
+            let (onto, _) = lands(shape, it, 0.0, true);
+            let (_, beside) = lands(shape, without, 0.0, true);
+            let beside = beside.mag2().sqrt();
+            println!(
+                "placement: {kind} sent onto a creature is at most {onto:.6} m from where it was \
+                 sent; without what makes it one, {beside:.6} m"
+            );
+            exact &= onto < 1e-4;
+            put_down &= beside > 0.1 && beside <= 4.0;
+        }
+    }
+
+    let mut client = HeadlessClient::model();
+    client.assert_behaviour(
+        "movement.remote-body.a-hook-a-storage-chest-or-a-corpse-is-put-down-exactly-where-sent",
+        move |_| exact && put_down,
+    );
+}
+
+// -------------------------------------------------------------------------------------------
+// movement.remote-body.a-re-create-of-an-object-the-client-holds-moves-it-as-a-position-update-does
+// -------------------------------------------------------------------------------------------
+
+/// The shard sending again an object the client already holds moves it as a position update
+/// does: a body nearby glides to the new spot over the following frames rather than appearing
+/// there, and a re-send whose position is not newer moves nothing.
+pub fn a_re_create_of_a_held_object_moves_it_as_a_position_update_does() {
+    use dereth_physics::math::V3 as _;
+    use dereth_physics::pmanager::CLOSE_ENOUGH;
+    use dereth_primitives::{LocalTime, ObjectId};
+    use dereth_protocol::types::PublicWeenieDesc;
+
+    const VICTIM: ObjectId = ObjectId(0x8000_114C);
+
+    let store = store();
+    let (mut c, mut stream, mut t, destination) = glide_scene(&store, VICTIM, true);
+    let before = body_origin(&c, VICTIM).expect("the body is in a cell");
+    let distance = before.sub(destination.frame.origin).mag2().sqrt();
+    assert!(
+        distance > 2.0,
+        "the move under test is only {distance:.3} m long"
+    );
+    // The body's own description sent again, at the same instance as its first create.
+    let victim = || PublicWeenieDesc {
+        name: "Victim".to_owned(),
+        obj_type: CREATURE,
+        bitfield: PLAYER,
+        ..Default::default()
+    };
+    let arms = stream.physics.stats.interpolate_arm;
+    let merges = stream.stats.merges;
+
+    stream.apply_event(
+        &create_event_described(VICTIM, Some(destination), 1, victim()),
+        LocalTime(t),
+    );
+    stream.sync_physics(&store, &mut c.world);
+    let h = c.world.by_object_id(VICTIM).expect("the body exists");
+    let merged = stream.stats.merges == merges + 1;
+    let queued_not_moved = stream.physics.stats.interpolate_arm == arms + 1
+        && body_origin(&c, VICTIM) == Some(before)
+        && c.world.is_interpolating(h);
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let steps = (distance / STEP).ceil() as usize + 1;
+    for _ in 0..steps {
+        t += DT;
+        c.update(LocalTime(t));
+    }
+    let settled = body_origin(&c, VICTIM).expect("the body is in a cell");
+    let offset = settled.sub(destination.frame.origin).mag2().sqrt();
+    println!("re-create: after {steps} sub-steps the body is {offset:.6} m from the new spot");
+    let finished = offset < CLOSE_ENOUGH && !c.world.is_interpolating(h);
+
+    // The same position stamp again, naming the spot it started from: nothing moves.
+    let mut back = destination;
+    back.frame.origin = before;
+    stream.apply_event(
+        &create_event_described(VICTIM, Some(back), 1, victim()),
+        LocalTime(t),
+    );
+    stream.sync_physics(&store, &mut c.world);
+    for _ in 0..10 {
+        t += DT;
+        c.update(LocalTime(t));
+    }
+    let stale_moves_nothing = body_origin(&c, VICTIM)
+        .is_some_and(|o| o.sub(settled).mag2().sqrt() < 1e-4)
+        && !c.world.is_interpolating(h);
+
+    let mut client = HeadlessClient::model();
+    client.assert_behaviour(
+        "movement.remote-body.a-re-create-of-an-object-the-client-holds-moves-it-as-a-position-update-does",
+        move |_| merged && queued_not_moved && finished && stale_moves_nothing,
+    );
+}
+
+// -------------------------------------------------------------------------------------------
 // movement.correction.a-nearby-correction-glides-the-body-over-the-following-frames
 // movement.correction.a-correction-out-of-reach-is-taken-in-one-step-instead-of-a-glide
 // movement.correction.a-body-the-client-has-not-simulated-yet-is-put-straight-onto-the-shards-position

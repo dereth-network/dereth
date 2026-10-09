@@ -234,10 +234,15 @@ pub fn prepare_object_physics<S: AsObjectSim>(
             let c = character.as_mut().expect("body resolved above");
             let body = c.world.get_mut(h).expect("body resolved above");
             if o.physics_handle != Some(h) || body.motion.is_none() {
+                // Attaching the motion leaves the body's acceleration alone. The client works it
+                // out again only when the body's ground contact changes, when its transient
+                // states are cleared, when it is unparented or leaves the world, and when a
+                // move or placement is committed. A body put in its cell as sent (a storage
+                // chest, a corpse) has had none of those, so it keeps the zero it was made with
+                // and stays where the server put it, whatever its gravity bit says.
                 body.set_motion(Box::new(crate::character::SharedMotion::new(Rc::clone(
                     &o.driver,
                 ))));
-                body.calc_acceleration();
             }
         }
         o.physics_handle = handle;

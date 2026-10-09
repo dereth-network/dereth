@@ -234,7 +234,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "presentation.interface.a-switch-mid-press-leaves-no-press-behind",
-        says: "An interface switched away from while a mouse button is held keeps nothing of                that press: the press ends there as one dragged off its element does, with no                click, and when the player comes back one click opens a panel and the next                closes it, however many times the interfaces were switched.",
+        says: "An interface switched away from while a mouse button is held keeps nothing of that \
+               press: the press ends there as one dragged off its element does, with no click, and \
+               when the player comes back one click opens a panel and the next closes it, however \
+               many times the interfaces were switched.",
         since: THIS_CLIENT,
         divergence: "CD-015",
         evidence: Evidence::Private("AC-EVID-SWITCH-MID-PRESS"),

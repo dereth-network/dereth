@@ -451,7 +451,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "keys.shared.the-retail-interface-answers-this-clients-own-keys",
-        says: "In the modern interface hold sidestep is held for as long as its key is; the                inverted mouse look and mute-when-inactive keys flip the shared settings and the                right-click mouse look and stretched-interface keys the classic interface's,                each both ways; and the trade key shows the secure-trade window and hides it                again.",
+        says: "In the modern interface hold sidestep is held for as long as its key is; the \
+               inverted mouse look and mute-when-inactive keys flip the shared settings and the \
+               right-click mouse look and stretched-interface keys the classic interface's, each \
+               both ways; and the trade key shows the secure-trade window and hides it again.",
         since: THIS_CLIENT,
         divergence: "CD-019",
         evidence: Evidence::Private("AC-EVID-R2-OWN-KEYS-RETAIL"),

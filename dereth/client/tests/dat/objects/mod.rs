@@ -5,6 +5,7 @@ mod door_collision_symmetry;
 mod door_opens_ethereal;
 mod held_item_frame;
 mod mesh_collision;
+mod placed_as_sent;
 mod player_collision_shape;
 mod player_scale;
 mod resting_placement_pose;

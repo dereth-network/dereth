@@ -352,9 +352,10 @@ impl Bench {
     /// So the relocation is sent as the one `0xF748` arm that *does* land a body at a distance and
     /// bypasses that ordinary-arm contact refusal: the teleport arm, taken when
     /// `newer_event(TELEPORT_TS, ts)` answers true, which then places the body with
-    /// `TELEPORT_SPF | DONT_CREATE_CELLS_SPF` (combined value `0x1012`). It is still a `0xF748`
-    /// moving the object **in place** — the property the paragraph above needs — and it is
-    /// retail's own producer for a discontinuous relocation. The arm is asserted, not assumed.
+    /// `TELEPORT_SPF | SLIDE_SPF` plus the send-position-event bit (combined value `0x1012`). It
+    /// is still a `0xF748` moving the object **in place** — the property the paragraph above
+    /// needs — and it is retail's own producer for a discontinuous relocation. The arm is
+    /// asserted, not assumed.
     fn move_to(&mut self, id: ObjectId, offset: (f32, f32, f32)) {
         use dereth_protocol::movement::{position_flags, MovementPositionEvent, PositionPack};
 

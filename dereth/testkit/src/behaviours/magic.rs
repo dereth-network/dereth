@@ -224,7 +224,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "magic.examine.the-spell-pane-draws-its-icons-as-the-spellbook-and-components-tab-do",
-        says: "Examining a spell shows its icon composed as the spellbook composes it, on its power                level's background with the wash and badge its flags name, and each component of                its formula with the component's white outline turned black, as the Components                tab draws it.",
+        says: "Examining a spell shows its icon composed as the spellbook composes it, on its \
+               power level's background with the wash and badge its flags name, and each component \
+               of its formula with the component's white outline turned black, as the Components \
+               tab draws it.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-R2C-SPELL-EXAMINE-ICONS"),
         station: "dereth-ui-screens::dat::panels::spell_examine_icons::the_examined_spells_icon_is_composed_and_its_components_have_black_outlines",

@@ -493,15 +493,14 @@ pub struct Presence {
     pub teleported: bool,
     /// The `has_contact` half of the pair above.
     pub contact: bool,
-    /// Whether [`Self::position`] was written by a `0xF745` create rather than
-    /// by a `0xF748`.
+    /// Whether [`Self::position`] was written by a create — a `0xF745` for an object the client
+    /// did not hold, a newer instance, or a `0xF7DB` — rather than by received-position handling.
     ///
-    /// Create handling is the only caller of world entry, and it calls it on the **merge** path
-    /// too: a re-create for an existing id reapplies the description and places the body again. An ordinary
-    /// `0xF748` never reaches `enter_world` at all. Without this flag `ObjectPhysics` would have
-    /// to guess from whether it had placed the id before, and a returning player's re-create —
-    /// which is exactly how ACE re-tracks somebody who walked back into view — would be placed by
-    /// the wrong function.
+    /// Create handling is the only caller of world entry. An equal-instance re-create is not a
+    /// create here: the client already holds the object, and create handling hands the
+    /// description's position to received-position handling, exactly as a `0xF748`'s is handed,
+    /// so a returning player's re-create — which is how ACE re-tracks somebody who walked back
+    /// into view — reaches move-or-teleport and is never placed again.
     pub position_from_create: bool,
     /// The last movement buffer the server sent that the renderer has not applied yet.
     pub pending_movement: Option<MovementBuffer>,
@@ -510,6 +509,25 @@ pub struct Presence {
     /// Object-description unpacking opens by clearing the description, so this always *replaces* rather than
     /// merges, whether it arrived on a `0xF745` or on a `0xF625`.
     pub objdesc: dereth_protocol::types::ObjDesc,
+}
+
+/// One position as received-position handling takes it: the destination, the placement to
+/// install when no animation is playing, the ground-contact flag move-or-teleport reads, and the
+/// three stamps the handler gates on.
+///
+/// A `0xF748` supplies all of it. An equal-instance `0xF745` re-create supplies its
+/// description's position, its placement, the description's three position stamps and contact
+/// set, and `from_create` says which of the two it was.
+#[derive(Debug, Clone, Copy)]
+struct ReceivedPosition {
+    id: ObjectId,
+    destination: Position,
+    placement_id: Option<u32>,
+    contact: bool,
+    position_ts: u16,
+    teleport_ts: u16,
+    force_position_ts: u16,
+    from_create: bool,
 }
 
 /// A presence that has heard nothing but its own creation: every field zero **except**
@@ -1904,6 +1922,11 @@ impl ObjectStream {
         }
 
         let existed = self.presences.contains_key(&id);
+        // The equal-instance merge: the client already holds this very object, so the description
+        // is applied to it piecewise rather than building it again. A newer instance, which the
+        // world tables have just deleted and built again (its presence went with the delete), and
+        // a `0xF7DB` are creates.
+        let merged = existed && !recreate;
         let e = self.presences.entry(id).or_default();
         let d = &p.physicsdesc;
         e.instance = instance;
@@ -1941,33 +1964,35 @@ impl ObjectStream {
         // setup creation and final object initialization put there. 20 of the corpus's 839 creates take that
         // arm. A create that *does* carry a movement buffer takes the other arm of the same `if`
         // and never touches the placement, so it keeps what was installed.
-        if d.movement.is_none() {
+        //
+        // The merge does not set up a description, so it installs no placement here: its
+        // placement goes with its position, parent or pickup below.
+        if d.movement.is_none() && !merged {
             e.placement = d.animframe_id.unwrap_or(crate::models::PLACEMENT_DEFAULT);
         }
         // Create-object handling enters an object into the world when it has a
         // position and no parent; `objcell_id == 0` means it is carried, not placed.
-        let fresh_position = !existed
-            || recreate
-            || old_position_ts.is_some_and(|old| is_newer(old, d.timestamps.position));
-        if let Some(pos) = d
-            .position
-            .filter(|_| !existed || recreate || (fresh_position && d.parent.is_none()))
-        {
+        //
+        // **Only a create stores the description's position here.** The merge hands it to
+        // received-position handling below, as a `0xF748` is handed, and the stamps the object
+        // already holds decide whether it moves.
+        if let Some(pos) = d.position.filter(|_| !merged) {
             if pos.objcell_id != 0 {
                 e.set_wire_position(Some(pos.into()));
             } else {
                 e.set_wire_position(None);
             }
             // This position came from the create-object handler, the only
-            // caller of world entry. Its merge path reapplies the descriptor to a body
-            // already in a cell. A position arriving this way must therefore enter the world
-            // rather than use move-or-teleport, which belongs to position-event handling.
+            // caller of world entry. A position arriving this way must therefore enter the world
+            // rather than use move-or-teleport, which belongs to received-position handling.
             e.position_from_create = true;
         }
         // Object creation applies the whole descriptor, including the object description;
         // the equal-instance merge path re-applies it too, which is why this is unconditional.
         e.objdesc = p.objdesc.clone();
-        if fresh_position {
+        // The three position stamps are the received-position handler's on the merge, which
+        // advances each one only past its own gate.
+        if !merged {
             e.position_ts = d.timestamps.position;
         }
         e.movement_ts = d.timestamps.movement;
@@ -1982,8 +2007,58 @@ impl ObjectStream {
         // player create in the corpus, so the seed is not what makes the echo right — but a create
         // that carried a non-zero stamp would leave `newer_event` comparing against 0 and accept a
         // `0xF748` the client would have refused, the same failure as for `STATE_TS` above.
-        e.teleport_ts = d.timestamps.teleport;
-        e.force_position_ts = d.timestamps.force_position;
+        if !merged {
+            e.teleport_ts = d.timestamps.teleport;
+            e.force_position_ts = d.timestamps.force_position;
+        }
+        // **The merge's position, parent or pickup** — whichever one its description names, and
+        // before its movement, state and vector, as the merge applies them:
+        //
+        // * a parent: the parent event, gated on `POSITION_TS`, installs the description's
+        //   placement and attaches it to its holder;
+        // * a position in a cell: received-position handling, handed the description's
+        //   placement, its three position stamps and ground contact set. It is gated on the
+        //   stamps the object already holds and rolls back for an older teleport stamp, and a
+        //   remote object it accepts then takes move-or-teleport rather than being placed again;
+        // * no position, or a zero cell: the pickup event, gated on `POSITION_TS`.
+        if merged {
+            let placement = d.animframe_id.unwrap_or(crate::models::PLACEMENT_DEFAULT);
+            let newer = old_position_ts.is_some_and(|old| is_newer(old, d.timestamps.position));
+            if let Some((holder, location)) = d.parent.filter(|(id, _)| id.0 != 0) {
+                if newer {
+                    e.position_ts = d.timestamps.position;
+                    e.placement = placement;
+                    e.pending_placement = None;
+                    self.set_parent(id, holder, location, now);
+                } else {
+                    self.project_parent(id);
+                }
+            } else if let Some(pos) = d.position.filter(|pos| pos.objcell_id != 0) {
+                self.apply_received_position(
+                    &ReceivedPosition {
+                        id,
+                        destination: pos.into(),
+                        placement_id: Some(placement),
+                        contact: true,
+                        position_ts: d.timestamps.position,
+                        teleport_ts: d.timestamps.teleport,
+                        force_position_ts: d.timestamps.force_position,
+                        from_create: true,
+                    },
+                    now,
+                );
+            } else if newer {
+                e.position_ts = d.timestamps.position;
+                self.unset_parent(id, now);
+                self.world.leave_physics_world(id);
+                if let Some(e) = self.presences.get_mut(&id) {
+                    e.set_wire_position(None);
+                }
+            } else {
+                self.project_parent(id);
+            }
+        }
+        let e = self.presences.entry(id).or_default();
         // The ninth slot of the same loop. The equal-instance merge path closes by applying
         // the velocity pair under `ts[VECTOR_TS]`, which is the *same*
         // function the `0xF74E` receiver below calls, so seeding the stamp here is what stops a
@@ -2109,27 +2184,10 @@ impl ObjectStream {
         // Running `unparent_children` on a merge detaches held items the descriptor's list is not
         // obliged to re-name, and over the corpus that would make one of the 36 pickups that
         // arrive on a held object stop seeing one.
-        if !existed || recreate {
+        if !merged {
             self.project_created_children(id, d);
-        }
-        if !existed || recreate {
             // Placeholder initialization leaves the old parent intact when the descriptor has none.
-            self.project_parent(id);
-        } else if old_position_ts.is_some_and(|old| is_newer(old, d.timestamps.position)) {
-            // Equal-instance create handling routes the parent/position/pickup
-            // through POSITION_TS, not an unconditional descriptor-parent assignment.
-            if let Some((holder, location)) = d.parent.filter(|(id, _)| id.0 != 0) {
-                self.set_parent(id, holder, location, now);
-            } else {
-                self.unset_parent(id, now);
-                if d.position.is_none_or(|p| p.objcell_id == 0) {
-                    self.world.leave_physics_world(id);
-                    if let Some(e) = self.presences.get_mut(&id) {
-                        e.set_wire_position(None);
-                    }
-                }
-            }
-        } else {
+            // The merge's parent, position or pickup was applied above.
             self.project_parent(id);
         }
 
@@ -2213,15 +2271,44 @@ impl ObjectStream {
         self.stats.state_events += 1;
     }
 
+    /// A `0xF748`'s position, through received-position handling.
+    fn received_position(&mut self, m: &MovementPositionEvent, now: LocalTime) {
+        self.apply_received_position(
+            &ReceivedPosition {
+                id: m.id,
+                destination: Position::new(
+                    dereth_primitives::CellId(m.position.origin.objcell_id),
+                    dereth_primitives::Frame::new(
+                        m.position.origin.origin.into(),
+                        m.position.orientation.into(),
+                    ),
+                ),
+                placement_id: m.position.placement_id,
+                contact: m.position.has_contact(),
+                position_ts: m.position.position_timestamp,
+                teleport_ts: m.position.teleport_timestamp,
+                force_position_ts: m.position.force_position_timestamp,
+                from_create: false,
+            },
+            now,
+        );
+    }
+
     /// Apply a received position, reduced to what a viewer needs.
     ///
     /// The full handler also runs the player's force-position "blip" and answers it with a
     /// position event of its own; that is the *player's* arm and belongs with the local player
     /// body, which this build keeps outside this table. The ordinary path reproduces the `POSITION_TS` gate and
     /// older-`TELEPORT_TS` rollback before changing position, parent, placement or completion.
-    fn received_position(&mut self, m: &MovementPositionEvent, now: LocalTime) {
+    ///
+    /// Two messages come here: a `0xF748` (and the position half of a `0xF619`), and an
+    /// equal-instance `0xF745` re-create, whose description hands the same handler its position,
+    /// its placement and its three position stamps with ground contact set. The `0xF748`
+    /// counters in [`ObjectStats`] count only the first.
+    fn apply_received_position(&mut self, m: &ReceivedPosition, now: LocalTime) {
+        let counted = !m.from_create;
         let is_player = self.world.player == Some(m.id);
-        if is_player {
+        if is_player && counted {
             self.stats.player_positions += 1;
         }
         let Some(e) = self.presences.get_mut(&m.id) else {
@@ -2257,25 +2344,31 @@ impl ObjectStream {
         // and the difference matters: the blip is the arm that would make it non-zero, and it
         // has no producer here. Replacing the pin with an oracle needs a capture of a GM
         // teleport or an anti-cheat correction of the recording character.
-        if is_player && is_newer(e.force_position_ts, m.position.force_position_timestamp) {
-            e.force_position_ts = m.position.force_position_timestamp;
-            self.stats.force_position_stamps += 1;
+        if is_player && is_newer(e.force_position_ts, m.force_position_ts) {
+            e.force_position_ts = m.force_position_ts;
+            if counted {
+                self.stats.force_position_stamps += 1;
+            }
         }
         // apply and store only when strictly newer.
-        if !is_newer(e.position_ts, m.position.position_timestamp) {
-            self.stats.stale_positions += 1;
+        if !is_newer(e.position_ts, m.position_ts) {
+            if counted {
+                self.stats.stale_positions += 1;
+            }
             return;
         }
         let previous_position_ts = e.position_ts;
-        e.position_ts = m.position.position_timestamp;
+        e.position_ts = m.position_ts;
         // Save POSITION_TS before newer_event, then restore
         // it and return when TELEPORT_TS is older.
         // The reversed is_newer arguments also retain retail's exact 0x8000 half-window rule.
         // This is after the player-only `force_position_ts` update: that earlier accepted stamp
         // survives rejection. No parent/placement/position/teleport callback may run below it.
-        if is_newer(m.position.teleport_timestamp, e.teleport_ts) {
+        if is_newer(m.teleport_ts, e.teleport_ts) {
             e.position_ts = previous_position_ts;
-            self.stats.position_teleport_rollbacks += 1;
+            if counted {
+                self.stats.position_teleport_rollbacks += 1;
+            }
             return;
         }
         // **Past the gate, `TELEPORT_TS`.**
@@ -2286,18 +2379,14 @@ impl ObjectStream {
         // over the constrain correction, and a remote object's is the same call inside
         // the remote-object arm. So the write is common and only what follows
         // it differs — and what follows is the body's, not the table's.
-        let teleported = is_newer(e.teleport_ts, m.position.teleport_timestamp);
+        let teleported = is_newer(e.teleport_ts, m.teleport_ts);
         if teleported {
-            e.teleport_ts = m.position.teleport_timestamp;
-            self.stats.teleport_stamps += 1;
+            e.teleport_ts = m.teleport_ts;
+            if counted {
+                self.stats.teleport_stamps += 1;
+            }
         }
-        let destination = Position::new(
-            dereth_primitives::CellId(m.position.origin.objcell_id),
-            dereth_primitives::Frame::new(
-                m.position.origin.origin.into(),
-                m.position.orientation.into(),
-            ),
-        );
+        let destination = m.destination;
         e.set_wire_position(Some(destination));
         // The position-event handler passes these two arguments to
         // move-or-teleport for a non-player object. They are recorded beside the
@@ -2305,7 +2394,7 @@ impl ObjectStream {
         // which is the same test `MoveOrTeleport` reruns in the client and which nothing on this
         // build's physics body could answer a second time.
         e.teleported = teleported;
-        e.contact = m.position.has_contact();
+        e.contact = m.contact;
         e.position_from_create = false;
         // **The server moving the player's own body.**
         //
@@ -2332,7 +2421,9 @@ impl ObjectStream {
                         force_position: e.force_position_ts,
                     },
                 });
-            self.stats.player_teleports += 1;
+            if counted {
+                self.stats.player_teleports += 1;
+            }
         }
         // Past the gate, position-event handling does `unset_parent`, then
         // tests whether animations are active, and installs the placement only when none are.
@@ -2350,7 +2441,7 @@ impl ObjectStream {
         // This is the shared `unset_parent` helper, which also **clears**
         // `NODRAW_PS` when the holder it is leaving carries `HIDDEN_PS`; it is the only path
         // in the client that does.
-        let pid = m.position.placement_id;
+        let pid = m.placement_id;
         self.unset_parent(m.id, now);
         if let Some(pid) = pid {
             if let Some(e) = self.presences.get_mut(&m.id) {
@@ -2405,9 +2496,13 @@ impl ObjectStream {
         // once per frame, which is what the guard above is for.
         if was_in_a_container && !is_player {
             self.created.push(m.id);
-            self.stats.container_exits_offered += 1;
+            if counted {
+                self.stats.container_exits_offered += 1;
+            }
         }
-        self.stats.position_updates += 1;
+        if counted {
+            self.stats.position_updates += 1;
+        }
     }
 
     /// Smart-box pickup application, after the handler's lookups.
@@ -3287,6 +3382,122 @@ mod tests {
         );
         assert_eq!(s.stats.merges, 1);
         assert!(s.take_created().is_empty());
+    }
+
+    /// A create at `x` along the cell, with its position and teleport stamps.
+    fn stamped_create(
+        id: u32,
+        instance: u16,
+        position_ts: u16,
+        teleport_ts: u16,
+        x: f32,
+    ) -> SessionEvent {
+        let physicsdesc = PhysicsDesc {
+            bitfield: flags::SETUP | flags::POSITION | flags::ANIMFRAME,
+            setup_id: Some(0x0200_0124),
+            animframe_id: Some(0x65),
+            position: Some(dereth_protocol::types::PositionWire {
+                objcell_id: 0x00A9_B401,
+                frame: dereth_protocol::types::Frame {
+                    origin: dereth_protocol::types::Vec3 { x, y: 4.0, z: 0.0 },
+                    ..dereth_protocol::types::Frame::default()
+                },
+            }),
+            timestamps: dereth_protocol::types::PhysicsTimestamps {
+                instance,
+                position: position_ts,
+                teleport: teleport_ts,
+                ..dereth_protocol::types::PhysicsTimestamps::default()
+            },
+            ..PhysicsDesc::default()
+        };
+        ev(
+            Opcode::ITEM_CREATE_OBJECT,
+            write_body(&ItemCreateObject(
+                dereth_protocol::objects::ObjectCreatePayload {
+                    id: ObjectId(id),
+                    objdesc: ObjDesc::default(),
+                    physicsdesc,
+                    wdesc: PublicWeenieDesc::default(),
+                },
+            ))
+            .expect("encode"),
+        )
+    }
+
+    /// An equal-instance re-create hands its position to received-position handling: it is not
+    /// a create's position, it says the object is on the ground, it is gated and rolled back by
+    /// the stamps the object already holds, and its placement is parked for the draw rather than
+    /// installed. None of it is counted as a `0xF748`.
+    #[test]
+    fn an_equal_instance_re_create_moves_the_object_as_a_position_event_does() {
+        let id = ObjectId(0x38);
+        let mut s = ObjectStream::new();
+        let x = |s: &ObjectStream| {
+            s.presence(id)
+                .and_then(|p| p.position)
+                .map(|p| p.frame.origin.x)
+        };
+        s.apply_event(&stamped_create(id.0, 1, 5, 5, 0.0), LocalTime(0.0));
+        let p = s.presence(id).expect("created");
+        assert!(
+            p.position_from_create,
+            "a create's position is the create's"
+        );
+        assert_eq!(
+            (p.position_ts, p.teleport_ts),
+            (5, 5),
+            "a create seeds the stamps"
+        );
+        assert_eq!(p.placement, 0x65, "a create installs its placement");
+        s.placement_installed(id, 0x15);
+
+        // Newer: it moves, as an update with contact, and parks its placement.
+        s.apply_event(&stamped_create(id.0, 1, 6, 5, 3.0), LocalTime(1.0));
+        let p = s.presence(id).expect("merged");
+        assert_eq!(s.stats.merges, 1);
+        assert_eq!(x(&s), Some(3.0));
+        assert!(
+            !p.position_from_create,
+            "a re-create's position is a received position"
+        );
+        assert!(p.contact && !p.teleported);
+        assert_eq!(p.position_ts, 6);
+        assert_eq!(
+            p.placement, 0x15,
+            "the merge installs no placement of its own"
+        );
+        assert_eq!(
+            p.pending_placement,
+            Some(0x65),
+            "it parks the description's for the draw"
+        );
+        assert!(s.position_entries.contains(&id));
+
+        // Not newer: nothing moves.
+        s.apply_event(&stamped_create(id.0, 1, 6, 5, 9.0), LocalTime(2.0));
+        assert_eq!(x(&s), Some(3.0), "an equal position stamp moves nothing");
+        // Newer, but with an older teleport stamp: rolled back, and the stamp can be used again.
+        s.apply_event(&stamped_create(id.0, 1, 7, 4, 9.0), LocalTime(3.0));
+        assert_eq!(x(&s), Some(3.0), "an older teleport stamp moves nothing");
+        assert_eq!(s.presence(id).expect("merged").position_ts, 6);
+        // A newer teleport stamp is a teleport.
+        s.apply_event(&stamped_create(id.0, 1, 7, 6, 12.0), LocalTime(4.0));
+        let p = s.presence(id).expect("merged");
+        assert_eq!(x(&s), Some(12.0));
+        assert!(p.teleported && p.contact);
+        assert_eq!((p.position_ts, p.teleport_ts), (7, 6));
+
+        assert_eq!(
+            (
+                s.stats.position_updates,
+                s.stats.stale_positions,
+                s.stats.position_teleport_rollbacks
+            ),
+            (0, 0, 0),
+            "the 0xF748 counters count no re-create"
+        );
+        assert_eq!(s.stats.merges, 4);
     }
 
     /// The `POSITION_TS` gate: forwards moves, backwards does not.

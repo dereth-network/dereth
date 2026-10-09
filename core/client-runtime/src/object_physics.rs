@@ -19,7 +19,9 @@
 //! scenery and a creature a hologram, because physics is never told that anything else exists.
 //!
 //! Create handling tells physics about any unparented object with a nonzero cell through the
-//! placement-and-slide path: cell resolution, object insertion, and cross-cell calculation.
+//! placement-and-slide path: cell resolution, object insertion, and cross-cell calculation. A
+//! hook, a storage chest or a corpse is put into the resolved cell as sent instead, with no
+//! placement or slide; physics decides that from the weenie answers this module pushes.
 //! Leaving removes its cell and shadow membership. This module connects those operations to forced
 //! insertion and world-object destruction. Held objects remain non-solid because the collision
 //! walk skips parented shadows.
@@ -82,13 +84,21 @@ use dereth_world_data::setup::{
 /// | `house_owner` | the public description's house-owner identifier |
 /// | `monarch` | the monarch identifier read off the **mover** |
 /// | `restrictions` | the public description's restriction database, which `0x0248` delivers |
+/// | `is_hook` | hook type and hook item types both non-zero |
+/// | `is_storage` | the weenie class is `storage_class`, the dat's storage-chest class |
+/// | `is_corpse` | PWD bit `0x2000` |
 ///
 /// The restriction check reads only the bitmask's bit 0, the monarch iid and
 /// the *presence* of a key in the guest table, so the guest table's values — the per-guest storage
 /// permission — are dropped here rather than copied.
+///
+/// The last three are the answers every position set asks before it places an object: any one of
+/// them puts the object in its cell exactly as sent. `storage_class` is [`storage_class`]'s
+/// answer; with none, nothing is a storage chest.
 #[must_use]
 pub fn weenie_restrictions(
     w: &dereth_client_model::Weenie,
+    storage_class: Option<u32>,
 ) -> dereth_physics::obj::WeenieRestrictions {
     dereth_physics::obj::WeenieRestrictions {
         is_creature: w.is_creature(),
@@ -108,7 +118,21 @@ pub fn weenie_restrictions(
                 monarch: Some(db.monarch_iid).filter(|m| m.0 != 0),
                 guests: db.table.entries.iter().map(|(k, _)| k.0).collect(),
             }),
+        is_hook: w.is_hook(),
+        is_storage: storage_class.is_some_and(|c| w.is_storage(c)),
+        is_corpse: w.is_corpse(),
     }
+}
+
+/// The master enum map's weenie-class group, and the storage chest's entry in it.
+const WEENIE_CLASS_GROUP: u32 = 12;
+const STORAGE_CLASS_ENUM: u32 = 0x1000_0001;
+
+/// The weenie class of a storage chest, as the portal dat's weenie-class map names it, or `None`
+/// where the dat has no such entry. A description is a storage chest when its class is this one.
+#[must_use]
+pub fn storage_class(assets: &dyn dereth_primitives::AssetSource) -> Option<u32> {
+    crate::assets::enum_did(assets, WEENIE_CLASS_GROUP, STORAGE_CLASS_ENUM).map(|d| d.0)
 }
 
 /// What the physics half of the object stream has done, for the log line and for the tests.
@@ -252,6 +276,8 @@ pub struct ObjectPhysics {
     pub part_stats: SetupPartStats,
     /// `SceneConfig::mesh_collision`; see [`dereth_world_data::env_cells::CellStaticObjects`].
     pub mesh_collision: bool,
+    /// [`storage_class`] for the store [`Self::sync`] is handed, looked up on the first sync.
+    storage_class: Option<Option<u32>>,
 }
 
 impl Default for ObjectPhysics {
@@ -271,6 +297,7 @@ impl Default for ObjectPhysics {
             stats: ObjectPhysicsStats::default(),
             part_stats: SetupPartStats::default(),
             mesh_collision: true,
+            storage_class: None,
         }
     }
 }
@@ -478,6 +505,9 @@ impl ObjectPhysics {
             world.destroy(handle);
             self.stats.destroyed += 1;
         }
+        let storage = *self
+            .storage_class
+            .get_or_insert_with(|| storage_class(store));
         // 1. Gone: removed by `0xF747`, picked up (its position is now `None`), or the player's own
         //    object, which `Character` owns.
         let dead: Vec<ObjectId> = self
@@ -599,7 +629,10 @@ impl ObjectPhysics {
             // copied across here, on the same diff-and-write shape the state word above uses.
             // Every object gets one, not just houses: a candidate's creature type, the mover's
             // own player/PK status and the move-restriction bypass come through the same field.
-            let w = game.weenie(id).map(weenie_restrictions);
+            // So do the hook, storage and corpse answers every position set asks, which is why
+            // this is written before the position below: a hook's very first placement must
+            // already know it is a hook.
+            let w = game.weenie(id).map(|w| weenie_restrictions(w, storage));
             if self.restricted.get(&id) != Some(&w) {
                 world.set_weenie_restrictions(h, w.clone());
                 self.restricted.insert(id, w);
@@ -624,11 +657,13 @@ impl ObjectPhysics {
             // move-or-teleport test (the body has no cell) sends the second one to the same
             // full placement anyway.
             //
-            // [`crate::objects::Presence::position_from_create`] is the third case and it is not
-            // the same as "this id has no row": create-object handling calls `enter_world` on its
-            // **merge** path too, so a re-create for an id the client already holds — which is
-            // exactly how ACE re-tracks a player who walked back into view — is
-            // still a create and must still be placed by it.
+            // [`crate::objects::Presence::position_from_create`] says the position is a create's,
+            // and a create's position is always placed. A re-create of an object the client
+            // already holds at the same instance — which is how ACE re-tracks a player who walked
+            // back into view — is **not** one: create-object handling hands its position to
+            // received-position handling exactly as it hands a `0xF748`'s, ground contact set, so
+            // it arrives here as an ordinary update and takes move-or-teleport. A newer instance
+            // or a `0xF7DB` is a new object, retired and created again, and has no row.
             let outcome = if self.placed.contains_key(&id) && !p.position_from_create {
                 let arm = world.move_or_teleport(h, &pos, p.teleported, p.contact);
                 match arm {
@@ -743,7 +778,7 @@ impl ObjectPhysics {
         // body to the server's id, and `App::sync_objects` calls it immediately before this.
         if let Some(id) = exclude {
             if let Some(h) = world.by_object_id(id) {
-                let w = game.weenie(id).map(weenie_restrictions);
+                let w = game.weenie(id).map(|w| weenie_restrictions(w, storage));
                 if self.restricted.get(&id) != Some(&w) {
                     world.set_weenie_restrictions(h, w.clone());
                     self.restricted.insert(id, w);
@@ -902,19 +937,23 @@ impl ObjectPhysics {
     }
 
     /// Entering the world with a position handles object creation's
-    /// arrival, and every subsequent server position for the same object.
+    /// arrival, and the retry of a body this client has never managed to place. Every later
+    /// server position, an equal-instance re-create's included, is move-or-teleport's.
     ///
-    /// This is the full placement, not forced cell insertion. Forced insertion is the bypass
-    /// internal positioning takes for an object whose weenie reports one of three exemption
-    /// states — **hook**, **storage** and **corpse** objects — and runs no transition at all, so a
-    /// hooked item keeps the height the server assigned; it is not a general "non-colliding
-    /// object" arm. It takes the wire's `objcell_id` verbatim after `adjust_to_outside`, which
-    /// normalises an outdoor landcell index and never descends into a building. Used here, an
-    /// object created at an **outdoor** landcell while standing inside a building's interior cell
-    /// would keep the outdoor cell for ever — and an outdoor cell's objects are drawn inside the
-    /// outdoor pass, before the clear and before the interior cells are painted over the top. A
-    /// door standing two metres in front of the camera inside Holtburg's house painted **1 px of
-    /// 1,080,000** that way; the same door in the cell that contains it painted 321,487.
+    /// For every object but three kinds this is the full placement, not forced cell insertion.
+    /// Forced insertion is what every position set does for an object whose weenie reports one
+    /// of three states — **hook**, **storage** and **corpse** objects — and it runs no transition
+    /// at all, so a hooked item keeps the height the server assigned; it is not a general
+    /// "non-colliding object" arm, and the bodies of those three are pushed their answers by
+    /// [`weenie_restrictions`] before they are placed. It takes the cell position adjustment
+    /// resolves for the wire's `objcell_id`, and for an outdoor id that is the land cell
+    /// `adjust_to_outside` normalises it to, never a building's room. Used for anything else, an
+    /// object created at an **outdoor** landcell
+    /// while standing inside a building's interior cell would keep the outdoor cell for ever —
+    /// and an outdoor cell's objects are drawn inside the outdoor pass, before the clear and
+    /// before the interior cells are painted over the top. A door standing two metres in front of
+    /// the camera inside Holtburg's house painted **1 px of 1,080,000** that way; the same door
+    /// in the cell that contains it painted 321,487.
     ///
     /// The placement transition in `run_transition` is seeded from the cell resolved from the
     /// **destination**, not from the object's own cell: an object the create path is about has
@@ -1014,6 +1053,102 @@ impl ObjectPhysics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A weenie with only the facts the three placement answers read.
+    fn weenie(
+        wcid: u32,
+        bitfield: u32,
+        hook: (Option<u16>, Option<u32>),
+    ) -> dereth_client_model::Weenie {
+        let mut w = dereth_client_model::Weenie::new(ObjectId(0x7000_0001));
+        w.pwd.wcid = wcid;
+        w.pwd.bitfield = bitfield;
+        w.pwd.hook_type = hook.0;
+        w.pwd.hook_item_types = hook.1;
+        w
+    }
+
+    // The three answers, each from its own field: a hook needs both hook fields, a storage chest
+    // needs the storage class itself, a corpse needs bit 0x2000. An item that can merely be hung
+    // (a hook type and no hook item types) is not a hook.
+    #[test]
+    fn only_a_hook_a_storage_chest_or_a_corpse_is_placed_as_sent() {
+        const STORAGE: u32 = 0x25D7;
+        let answers = |w: &dereth_client_model::Weenie, class: Option<u32>| {
+            let r = weenie_restrictions(w, class);
+            (r.is_hook, r.is_storage, r.is_corpse, r.placed_as_sent())
+        };
+        let s = Some(STORAGE);
+        assert_eq!(
+            answers(&weenie(9686, 0, (Some(2), Some(u32::MAX))), s),
+            (true, false, false, true)
+        );
+        assert_eq!(
+            answers(&weenie(9686, 0, (Some(2), None)), s),
+            (false, false, false, false)
+        );
+        assert_eq!(
+            answers(&weenie(9686, 0, (Some(0), Some(u32::MAX))), s),
+            (false, false, false, false)
+        );
+        assert_eq!(
+            answers(&weenie(STORAGE, 0, (None, None)), s),
+            (false, true, false, true)
+        );
+        assert_eq!(
+            answers(&weenie(STORAGE + 1, 0, (None, None)), s),
+            (false, false, false, false)
+        );
+        assert_eq!(
+            answers(&weenie(STORAGE, 0, (None, None)), None),
+            (false, false, false, false)
+        );
+        assert_eq!(
+            answers(&weenie(0, 0, (None, None)), Some(0)),
+            (false, false, false, false)
+        );
+        assert_eq!(
+            answers(&weenie(21, 0x2000, (None, None)), s),
+            (false, false, true, true)
+        );
+        assert_eq!(
+            answers(&weenie(21, 0x0010, (None, None)), s),
+            (false, false, false, false)
+        );
+    }
+
+    // Oracle: the portal dat's weenie-class map, whose storage entry is named `STORAGE` and is
+    // class 9687, the class ACE gives its house storage chests.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn the_storage_class_is_the_weenie_class_maps_storage_entry() {
+        let store = dereth_dat::testing::open_store_or_fail();
+        assert_eq!(storage_class(&store), Some(9687));
+        let mapper = |did: u32| {
+            let bytes = store
+                .read_typed(DbType::DidMapper, DataId(did))
+                .expect("the mapper is in the portal dat");
+            <dereth_assets::tables::DidMapper as Decode>::decode_payload(DataId(did), &bytes)
+                .expect("the mapper decodes")
+        };
+        let group = mapper(dereth_assets::MASTER_DID_MAPPER.0)
+            .enum_to_id
+            .iter()
+            .find(|(k, _)| *k == WEENIE_CLASS_GROUP)
+            .map(|(_, v)| *v)
+            .expect("the master map names the weenie-class group");
+        let names = mapper(group).enum_to_name;
+        assert_eq!(
+            names
+                .iter()
+                .find(|(k, _)| *k == STORAGE_CLASS_ENUM)
+                .map(|(_, n)| n.as_str()),
+            Some("STORAGE")
+        );
+    }
 
     /// Every counter the two lines print, with the value one would have to change to move it.
     /// Enumerated here **as literals** and not derived from the key, because a test that reads a

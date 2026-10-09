@@ -240,6 +240,14 @@ impl Weenie {
         self.pwd.hook_type.unwrap_or(0) != 0 && self.pwd.hook_item_types.unwrap_or(0) != 0
     }
 
+    /// Whether this is a storage chest: its weenie class is `storage_class`, the class the
+    /// portal dat's weenie-class map names for storage. A description with no class is never
+    /// one.
+    #[must_use]
+    pub fn is_storage(&self, storage_class: u32) -> bool {
+        self.pwd.wcid != 0 && self.pwd.wcid == storage_class
+    }
+
     /// Return whether the public object description marks this object talkable.
     #[must_use]
     pub fn is_talkable(&self) -> bool {

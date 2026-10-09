@@ -94,13 +94,54 @@ pub fn settled_at(c: &mut Character, x: f32, y: f32, t: &mut f64) -> Position {
 /// `at == None` is the player's own create, which carries a description and no position: the
 /// object stream excludes the player from placement because the local body already owns it.
 pub fn create_event(id: ObjectId, at: Option<Position>, bitfield: u32, name: &str) -> SessionEvent {
+    create_event_described(
+        id,
+        at,
+        0,
+        PublicWeenieDesc {
+            name: name.to_owned(),
+            obj_type: CREATURE,
+            bitfield,
+            ..Default::default()
+        },
+    )
+}
+
+/// The same create with a whole public description and a position stamp: a description's
+/// class, hook fields and bits all really go over the wire. Instance 0, as every create here.
+pub fn create_event_described(
+    id: ObjectId,
+    at: Option<Position>,
+    position_stamp: u16,
+    wdesc: PublicWeenieDesc,
+) -> SessionEvent {
+    create_event_shaped(
+        id,
+        at,
+        position_stamp,
+        (
+            ALUVIAN_MALE_SETUP.0,
+            dereth_physics::PhysicsState::REPORT_COLLISIONS_PS,
+        ),
+        wdesc,
+    )
+}
+
+/// The same with the object's own setup and state word, `(setup, state)`.
+pub fn create_event_shaped(
+    id: ObjectId,
+    at: Option<Position>,
+    position_stamp: u16,
+    (setup, state): (u32, u32),
+    wdesc: PublicWeenieDesc,
+) -> SessionEvent {
     let payload = ObjectCreatePayload {
         id,
         objdesc: Default::default(),
         physicsdesc: match at {
             Some(at) => PhysicsDesc {
                 bitfield: flags::POSITION | flags::SETUP,
-                setup_id: Some(ALUVIAN_MALE_SETUP.0),
+                setup_id: Some(setup),
                 position: Some(PositionWire {
                     objcell_id: at.cell.raw(),
                     frame: dereth_protocol::types::Frame {
@@ -108,25 +149,38 @@ pub fn create_event(id: ObjectId, at: Option<Position>, bitfield: u32, name: &st
                         orientation: at.frame.rotation.into(),
                     },
                 }),
-                state: dereth_physics::PhysicsState::REPORT_COLLISIONS_PS,
+                state,
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    position: position_stamp,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             None => PhysicsDesc::default(),
         },
-        wdesc: PublicWeenieDesc {
-            name: name.to_owned(),
-            obj_type: CREATURE,
-            bitfield,
-            ..Default::default()
-        },
+        wdesc,
     };
-    let body = dereth_protocol::write_body(&ItemCreateObject(payload)).expect("the create encodes");
+    let body = dereth_protocol::write_body(&ItemCreateObject(payload.clone()))
+        .expect("the create encodes");
     let decoded = ItemCreateObject::read(&mut dereth_protocol::Reader::new(&body))
         .expect("the encoded create round trips")
         .0;
     assert_eq!(
-        decoded.wdesc.bitfield, bitfield,
-        "the description bits did not encode"
+        (
+            decoded.wdesc.bitfield,
+            decoded.wdesc.wcid,
+            decoded.wdesc.hook_type,
+            decoded.wdesc.hook_item_types,
+            decoded.physicsdesc.timestamps.position,
+        ),
+        (
+            payload.wdesc.bitfield,
+            payload.wdesc.wcid,
+            payload.wdesc.hook_type,
+            payload.wdesc.hook_item_types,
+            position_stamp,
+        ),
+        "the description did not encode"
     );
     SessionEvent::WorldObject {
         opcode: ItemCreateObject::OPCODE,

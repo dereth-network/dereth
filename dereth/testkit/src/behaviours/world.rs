@@ -668,6 +668,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "movement.remote-body.a-hook-a-storage-chest-or-a-corpse-is-put-down-exactly-where-sent",
+        says: "A house hook, a storage chest or a corpse appears exactly where the shard put it, \
+               even when it overlaps a wall or another body, and stays exactly where each later \
+               move puts it; anything else that first appears on such a spot is put down clear \
+               of what it overlaps.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CLIENT-PLACEMENT-AS-SENT"),
+        station: "dereth-testkit::dat::world::scenario_a_hook_a_storage_chest_or_a_corpse_is_put_down_exactly_where_sent",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "movement.remote-body.a-hook-a-storage-chest-or-a-corpse-stays-where-it-was-put-down",
+        says: "A house hook, a storage chest or a corpse stays exactly where the shard put it, frame \
+               after frame, even a hand's breadth above the ground: it does not drop to the floor, \
+               whatever its gravity says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CLIENT-PLACEMENT-AS-SENT-REST"),
+        station: "dereth-client::dat::objects::placed_as_sent::a_chest_a_corpse_and_a_hook_stay_where_they_were_sent_frame_after_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "movement.remote-body.a-re-create-of-an-object-the-client-holds-moves-it-as-a-position-update-does",
+        says: "When the shard sends again an object the client already has, the object moves to \
+               the new spot the way a position update moves it, gliding there when it is near \
+               rather than appearing there afresh, and a re-send that names no newer position \
+               moves nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-CLIENT-PLACEMENT-RECREATE"),
+        station: "dereth-testkit::dat::world::scenario_a_re_create_of_a_held_object_moves_it_as_a_position_update_does",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "movement.run.a-body-whose-animation-table-is-replaced-still-runs-when-the-player-said-run",
         says: "Anything the shard sends that replaces a body's animations puts it back to walking pace, and \
                the player never touched anything. The next time he presses a movement key the body works out \
