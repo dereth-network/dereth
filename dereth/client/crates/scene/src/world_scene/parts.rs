@@ -737,18 +737,34 @@ pub(super) fn static_subset_visible(batch: &StaticBatch) -> bool {
     )
 }
 
+/// Whether a static batch's own draw waits for an alpha flush: it blends without an alpha
+/// test, so it writes no depth and is ordered by nothing but when it is drawn.
+///
+/// That holds for a `Translucent | ClipMap` surface with "Multiple Pass Alpha" on as well.
+/// The client draws that subset's first pass in place, at its rank among its cell's parts,
+/// and the creatures, doors and body standing in the same cells are parts drawn in the same
+/// walk. This build draws those after the walk, so the first pass waits for them too:
+/// drawn in the walk, it would be painted over by every object behind it.
 pub(super) fn static_alpha_list_member(batch: &StaticBatch) -> bool {
     static_subset_visible(batch) && is_alpha_list_member(&batch.key)
 }
 
-/// Whether a static batch goes on the **alpha** list: it blends without an alpha test, and
-/// is not a clip-mapped one "Multiple Pass Alpha" puts on the clip list instead.
-pub(super) fn static_alpha_entry(
+/// Which list a blended static batch's own draw joins: the clip list for a clip-mapped subset
+/// (`Translucent | ClipMap`), the alpha list for the rest. It is the alpha-delay mask's choice,
+/// and the client makes it whether "Multiple Pass Alpha" is on or off: the option adds a second
+/// pass, also on the clip list, and moves nothing to the other list.
+pub(super) fn static_own_list(
     batch: &StaticBatch,
-    multi_pass_alpha: bool,
-    detail: bool,
-) -> bool {
-    static_alpha_list_member(batch) && !(multi_pass_alpha && static_multipass_member(batch, detail))
+) -> dereth_world_render::objects::alpha::AlphaList {
+    use dereth_world_render::objects::alpha::AlphaList;
+    use dereth_world_render::objects::draw::{classify_subset_passes, subset_mask};
+    classify_subset_passes(
+        subset_mask(batch.surface_type),
+        dereth_terrain::consts::S_ALPHA_DELAY_MASK,
+        false,
+    )
+    .list
+    .unwrap_or(AlphaList::Blend)
 }
 
 /// The other of the two lists a non-opaque subset can be appended to: the alpha-**tested**
@@ -761,7 +777,8 @@ pub(super) fn static_clip_list_member(batch: &StaticBatch) -> bool {
 }
 
 /// Whether "Multiple Pass Alpha", when on, queues this clip-mapped batch for a second pass
-/// at the alpha flush as well as drawing it in place.
+/// at the alpha flush as well as drawing it in place. (A blended member's first pass waits for
+/// the flush too; see [`static_alpha_list_member`].)
 ///
 /// Two things decide it besides the option: the mesh draw consults the alpha lists at all
 /// (not while a detail surface is installed, which for a static is a building's shell drawn

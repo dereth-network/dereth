@@ -1426,6 +1426,11 @@ impl SceneDraw {
             // next flush (the next building's, or the frame's) ahead of everything on the
             // alpha list. Drawing the first pass here, inside the walk, is what lets a
             // building's own flush carry the second.
+            //
+            // A `Translucent | ClipMap` subset's first pass blends and writes no depth, so it is
+            // not drawn here: the client draws it among its cell's objects, and this build draws
+            // the objects after the walk, so it waits on the alpha list with the other blended
+            // batches. Its second pass is queued here all the same.
             if self.cfg.render.multi_pass_alpha {
                 let detail =
                     self.current_detail(dereth_world_render::detail::DetailClass::Building);
@@ -1436,8 +1441,19 @@ impl SceneDraw {
                     .iter()
                     .filter(|b| static_multipass_member(b, detail.is_some()))
                 {
-                    submit_static_batch(gpu, per_frame, &world, batch, sun_set.as_deref(), detail)?;
-                    stats.clip += usize::from(batch.key.alpha_test);
+                    if batch.key.alpha_test {
+                        submit_static_batch(
+                            gpu,
+                            per_frame,
+                            &world,
+                            batch,
+                            sun_set.as_deref(),
+                            detail,
+                        )?;
+                        // What the walk put down, by the batch's own state.
+                        stats.clip += usize::from(batch.key.alpha_test);
+                        stats.blend_in_walk += usize::from(!batch.key.alpha_test);
+                    }
                     queued = true;
                 }
                 self.frame_landscape_alpha.set(stats);
@@ -1477,9 +1493,9 @@ impl SceneDraw {
             let Some(block) = self.blocks.get(&(slot.block_x, slot.block_y)) else {
                 continue;
             };
-            // With "Multiple Pass Alpha" on, the clip-mapped batches were drawn inside the
-            // walk; what is left here is the alpha-tested rest (an `Alpha | ClipMap` surface,
-            // a shell under the building detail texture).
+            // With "Multiple Pass Alpha" on, the alpha-tested clip-mapped batches were drawn
+            // inside the walk; what is left here is the alpha-tested rest (an `Alpha | ClipMap`
+            // surface, a shell under the building detail texture).
             let detail = self.current_detail(dereth_world_render::detail::DetailClass::Building);
             let in_walk = |b: &StaticBatch| {
                 self.cfg.render.multi_pass_alpha && static_multipass_member(b, detail.is_some())

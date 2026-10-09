@@ -223,6 +223,10 @@ pub struct LandscapeAlphaStats {
     /// frame's alpha flush, drawn before that flush's blended batches. Zero with the option
     /// off.
     pub multipass: usize,
+    /// Blended batches the block walk drew in place, before any object. Zero is the rule: a
+    /// blended batch writes no depth, so drawn in the walk it would be painted over by every
+    /// object behind it, and it waits for an alpha flush instead.
+    pub blend_in_walk: usize,
 }
 
 /// One draw out of the alpha lists, by kind, as [`WorldScene::drawn_alpha_order`] records
@@ -242,6 +246,12 @@ pub enum AlphaDraw {
     PartForced,
     /// Clip list: a landscape batch's "Multiple Pass Alpha" second pass.
     StaticForced,
+    /// Clip list: a cell static batch's "Multiple Pass Alpha" second pass, which the object
+    /// pass's own clip list carries.
+    CellForced,
+    /// Clip list: a blended static batch's own draw, for a clip-mapped surface
+    /// (`Translucent | ClipMap`).
+    StaticClip,
     /// Clip list: a particle's alpha-tested entry.
     ParticleClip,
     /// Clip list: a particle's "Multiple Pass Alpha" second pass.
@@ -250,7 +260,7 @@ pub enum AlphaDraw {
     PartBlend,
     /// Alpha list: a particle's blended entry.
     ParticleBlend,
-    /// Alpha list: a landscape batch's blended draw.
+    /// Alpha list: a blended static batch's draw, a landscape batch's or a cell's.
     StaticBlend,
 }
 
@@ -263,6 +273,8 @@ impl AlphaDraw {
             Self::PartClip
                 | Self::PartForced
                 | Self::StaticForced
+                | Self::CellForced
+                | Self::StaticClip
                 | Self::ParticleClip
                 | Self::ParticleForced
         )
@@ -1185,9 +1197,10 @@ pub struct SceneDraw {
     frame_multipass_pending: std::cell::RefCell<Vec<(i32, i32)>>,
     /// Same bracket: the alpha-list draws in device order. See [`AlphaDraw`].
     frame_alpha_order: std::cell::RefCell<Vec<AlphaDraw>>,
-    /// The blended static batches queued for the next object pass's alpha list: the
-    /// interior cells' (queued where cell drawing draws them) and, once that pass takes them,
-    /// the landscape's still pending. See [`StaticBlendRef`].
+    /// The static batch draws queued for the next object pass's lists: the interior cells'
+    /// blended batches and "Multiple Pass Alpha" second passes (queued where cell drawing
+    /// draws them) and, once that pass takes them, the landscape's blended batches still
+    /// pending. See [`StaticBlendRef`].
     frame_static_blend: std::cell::RefCell<Vec<StaticBlendRef>>,
     /// Same bracket: the object pass's blend-list draws (parts and particles) in device
     /// order, each with the viewer distance it was sorted by.
@@ -3569,7 +3582,8 @@ struct PartPass {
     /// The particle entries on each list, kept out of the parts' census.
     particle_clip: usize,
     particle_blend: usize,
-    /// The blended static batches on the alpha list, kept out of the parts' census.
+    /// The static batch draws on each list, kept out of the parts' census.
+    static_clip: usize,
     static_blend: usize,
 }
 
@@ -3589,12 +3603,25 @@ enum StaticBlendSource {
     Cell(u32),
 }
 
-/// One blended static batch waiting for the object pass's alpha list.
+/// Which draw of a static batch a [`StaticBlendRef`] owes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaticPass {
+    /// The batch's own draw: a blended one, which writes no depth.
+    Own,
+    /// "Multiple Pass Alpha"'s second draw of a clip-mapped batch, blended with surface setup's
+    /// force-alpha argument. It goes on the clip list.
+    Forced,
+}
+
+/// One static batch draw waiting for the object pass's lists.
 ///
 /// The client queues a static's blended subsets on the alpha list where its cell draws it,
-/// among every creature's and particle's, and flushes the list in that order. This build
+/// among every creature's and particle's, and flushes the list in that order; "Multiple Pass
+/// Alpha" puts a clip-mapped subset's second pass on the clip list the same way. This build
 /// draws the moving parts in one far-to-near pass after the walk, so a static takes its place
-/// among them by the same measure: its viewer distance.
+/// among them by the same measure: its viewer distance. Either way it is drawn at the flush,
+/// after every creature, door and body the pass draws in place, as the client's flush follows
+/// every object of the frame.
 #[derive(Debug, Clone, Copy)]
 struct StaticBlendRef {
     source: StaticBlendSource,
@@ -3608,6 +3635,11 @@ struct StaticBlendRef {
     /// Whether the batch was queued by a land cell's object draw, under the sun's light set,
     /// rather than an interior cell's.
     sun: bool,
+    /// Which of the batch's draws this is.
+    pass: StaticPass,
+    /// The list the draw joins: the clip list for the second pass and for a clip-mapped
+    /// batch's own draw ([`static_own_list`]), the alpha list for the rest.
+    list: dereth_world_render::objects::alpha::AlphaList,
 }
 
 /// One deferred subset, as [`PartPass::queued`] holds it.

@@ -367,9 +367,11 @@ impl SceneDraw {
                     }
                 }
                 // Flush the alpha list at depth 0.0: the queue everything that blends was
-                // put on. The interior statics' blended batches go to the interior object
-                // pass's alpha list, which flushes them among the creatures' and particles'
-                // by distance; their alpha-tested ones are drawn here.
+                // put on. The interior statics' blended batches, and the second passes
+                // "Multiple Pass Alpha" gives their clip-mapped ones, go to the interior object
+                // pass's lists, which flush them among the creatures' and particles' by
+                // distance and after every object that pass draws in place; their alpha-tested
+                // ones are drawn here.
                 IndoorStep::FlushAlphaList => {
                     // Each cell's blended draw keeps to the turn its object loop took; a cell
                     // with no turn draws nothing.
@@ -429,8 +431,9 @@ impl SceneDraw {
         // The turn of the object draw this is, `(cell, turn)`: the cell is the static's own,
         // another interior cell its statics are registered in, or a land cell outside.
         (by, turn): (u32, u32),
-        // `Some(viewer)` queues the batches that belong on the alpha list for the object pass,
-        // at their distance from `viewer`, instead of drawing them here.
+        // `Some(viewer)` queues the draws that belong on the object pass's lists -- the blended
+        // batches, and with "Multiple Pass Alpha" the clip-mapped batches' second passes -- at
+        // their distance from `viewer`, instead of drawing them here.
         defer: Option<Vec3>,
     ) -> Result<(), RenderError> {
         let batches = if blended {
@@ -501,28 +504,47 @@ impl SceneDraw {
         };
         let mut stats = self.frame_cell_statics.get();
         let mut scratch = self.static_scratch.borrow_mut();
+        let multi_pass_alpha = self.cfg.render.multi_pass_alpha;
         for (i, b) in batches.iter().enumerate() {
             let kept = kept_vertices(b, keep, &mut scratch);
             if kept == Kept::Nothing {
                 continue;
             }
             if let Some(viewer) = defer {
-                if static_alpha_entry(b, self.cfg.render.multi_pass_alpha, detail.is_some()) {
-                    if drawn_vertices(b).is_empty() {
-                        continue;
-                    }
+                // What the object pass's lists take from this batch: its own draw when it
+                // blends, and the option's second pass when it is clip-mapped. Both are drawn at
+                // that pass's flush, after the creatures, doors and body it draws in place, as
+                // the client's flush follows every object of the frame.
+                let own = static_alpha_list_member(b);
+                let second = multi_pass_alpha && static_multipass_member(b, detail.is_some());
+                if (own || second) && !drawn_vertices(b).is_empty() {
+                    use dereth_world_render::objects::alpha::AlphaList;
                     let c = Vec3::new(
                         b.sphere.0.x + origin.0,
                         b.sphere.0.y + origin.1,
                         b.sphere.0.z,
                     );
-                    self.frame_static_blend.borrow_mut().push(StaticBlendRef {
+                    // A blended batch is one placed object's, so its own draw takes that object's
+                    // place among the others on its list; an alpha-tested batch merges a cell's
+                    // objects, and its second pass takes the place of their joint sphere.
+                    let queue = |pass: StaticPass, list: AlphaList| StaticBlendRef {
                         source: StaticBlendSource::Cell(cell),
                         batch: i,
                         cypt: c.sub(viewer).mag2().sqrt(),
                         drawn_by: Some((stamp, by, turn)),
                         sun,
-                    });
+                        pass,
+                        list,
+                    };
+                    let mut queued = self.frame_static_blend.borrow_mut();
+                    if own {
+                        queued.push(queue(StaticPass::Own, static_own_list(b)));
+                    }
+                    if second {
+                        queued.push(queue(StaticPass::Forced, AlphaList::Clip));
+                    }
+                }
+                if own {
                     continue;
                 }
             }
@@ -557,47 +579,8 @@ impl SceneDraw {
                 (stamp, by),
             );
         }
-        // "Multiple Pass Alpha": the cell's clip-mapped batches again, blended, with surface
-        // setup's force-alpha argument. This path draws every batch in place rather than
-        // queueing any, so the second pass follows the cell's own statics directly instead of
-        // waiting for a flush.
-        if self.cfg.render.multi_pass_alpha {
-            for (i, b) in batches
-                .iter()
-                .enumerate()
-                .filter(|(_, b)| static_multipass_member(b, detail.is_some()))
-            {
-                let kept = kept_vertices(b, keep, &mut scratch);
-                if kept == Kept::Nothing {
-                    continue;
-                }
-                let vertices = if kept == Kept::Some {
-                    &scratch[..]
-                } else {
-                    drawn_vertices(b)
-                };
-                let set = lights(b);
-                submit_static_vertices(
-                    gpu,
-                    per_frame,
-                    &world,
-                    b,
-                    vertices,
-                    set.as_deref(),
-                    detail,
-                    true,
-                )?;
-                // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
-                #[allow(clippy::cast_possible_truncation)]
-                self.note_cell_runs(
-                    (cell, blended_list, i as u32),
-                    b,
-                    keep,
-                    CellRunPass::MultiPass,
-                    (stamp, by),
-                );
-            }
-        }
+        // "Multiple Pass Alpha"'s second passes are only ever queued above: a draw that queues
+        // nothing is of a cell's opaque list, which holds no clip-mapped batch.
         self.frame_cell_statics.set(stats);
         Ok(())
     }
@@ -1005,35 +988,38 @@ impl SceneDraw {
                 .push(AlphaDraw::FlushStart);
             self.drain_multipass_pending(gpu, per_frame)?;
         }
-        // A clip-mapped subset the option queued is on the clip list, not this one, even when
-        // its surface blends (`Translucent | ClipMap`): it was drawn inside the walk and its
-        // second pass went out above.
-        let blended = |b: &&StaticBatch| {
-            static_alpha_entry(b, self.cfg.render.multi_pass_alpha, detail.is_some())
-        };
+        // A `Translucent | ClipMap` batch's own draw blends and writes no depth, and it is on the
+        // clip list, so it goes out with the clip list's rest, ahead of every other blended
+        // batch; with the option on, its second pass went out above.
+        use dereth_world_render::objects::alpha::AlphaList;
         let mut stats = self.frame_landscape_alpha.get();
-        for key in pending {
-            let Some(block) = self.blocks.get(key) else {
-                continue;
-            };
-            if !block.blended.iter().any(|b| blended(&b)) {
-                continue;
-            }
-            let world = world_constants(&Frame::new(
-                Vec3::new(block.origin.0, block.origin.1, 0.0),
-                Quat::IDENTITY,
-            ));
-            for batch in block.blended.iter().filter(blended) {
-                submit_static_batch(gpu, per_frame, &world, batch, sun_set.as_deref(), detail)?;
-                match when {
-                    AlphaFlush::Building => stats.blend_early += 1,
-                    AlphaFlush::Frame => stats.blend += 1,
+        for list in [AlphaList::Clip, AlphaList::Blend] {
+            let blended =
+                |b: &&StaticBatch| static_alpha_list_member(b) && static_own_list(b) == list;
+            for key in pending {
+                let Some(block) = self.blocks.get(key) else {
+                    continue;
+                };
+                if !block.blended.iter().any(|b| blended(&b)) {
+                    continue;
                 }
-                self.frame_alpha_order
-                    .borrow_mut()
-                    .push(AlphaDraw::StaticBlend);
+                let world = world_constants(&Frame::new(
+                    Vec3::new(block.origin.0, block.origin.1, 0.0),
+                    Quat::IDENTITY,
+                ));
+                for batch in block.blended.iter().filter(blended) {
+                    submit_static_batch(gpu, per_frame, &world, batch, sun_set.as_deref(), detail)?;
+                    match when {
+                        AlphaFlush::Building => stats.blend_early += 1,
+                        AlphaFlush::Frame => stats.blend += 1,
+                    }
+                    self.frame_alpha_order.borrow_mut().push(match list {
+                        AlphaList::Clip => AlphaDraw::StaticClip,
+                        AlphaList::Blend => AlphaDraw::StaticBlend,
+                    });
+                }
+                flushed.insert(*key);
             }
-            flushed.insert(*key);
         }
         self.frame_landscape_alpha.set(stats);
         Ok(())

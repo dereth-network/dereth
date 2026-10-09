@@ -10,6 +10,7 @@ mod clipped_outdoor_pass;
 mod degrade_marker_parts;
 mod degraded_shell_interiors;
 mod detail_textures;
+pub(crate) mod dungeon_webs;
 mod foliage_occlusion;
 mod game_viewport;
 mod highres_texture_policy;

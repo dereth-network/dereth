@@ -406,22 +406,19 @@ impl SceneDraw {
         };
         particle_stats.meshes = self.particle_gfx.len();
         let particles_lit = self.cfg.object_lighting;
-        // The blended static batches: the landscape's still waiting for a flush, taken from
-        // its queue here, and whatever cell drawing queued. Sorted far to near and merged in
-        // after the parts and the particles, so each goes onto the alpha list in its place.
-        let detail_on = self
-            .current_detail(dereth_world_render::detail::DetailClass::Building)
-            .is_some();
+        // The static batch draws: the landscape's blended batches still waiting for a flush,
+        // taken from its queue here, and whatever cell drawing queued. Sorted far to near and
+        // merged in after the parts and the particles, so each goes onto its list in its place.
         let mut statics = std::mem::take(&mut *self.frame_static_blend.borrow_mut());
         for key in std::mem::take(&mut *self.frame_alpha_pending.borrow_mut()) {
             let Some(block) = self.blocks.get(&key) else {
                 continue;
             };
             for (i, b) in block.blended.iter().enumerate() {
-                // A batch whose selected levels draw nothing has nothing to queue.
-                if !static_alpha_entry(b, multi_pass_alpha, detail_on)
-                    || drawn_vertices(b).is_empty()
-                {
+                // A batch whose selected levels draw nothing has nothing to queue. A landscape
+                // batch's second pass is the landscape's own clip-list queue's, drawn by
+                // `clip_tail`, so only its own draw is taken here.
+                if !static_alpha_list_member(b) || drawn_vertices(b).is_empty() {
                     continue;
                 }
                 let c = Vec3::new(
@@ -435,6 +432,8 @@ impl SceneDraw {
                     cypt: c.sub(ws.camera.position).mag2().sqrt(),
                     drawn_by: None,
                     sun: true,
+                    pass: StaticPass::Own,
+                    list: static_own_list(b),
                 });
             }
         }
@@ -462,23 +461,32 @@ impl SceneDraw {
             let slot = match slot {
                 dereth_world_render::objects::parts::Merged::First(k) => moving[k],
                 dereth_world_render::objects::parts::Merged::Second(si) => {
-                    // A blended static: straight onto the alpha list, in its place.
+                    // A static batch draw: straight onto its list, in its place. A clip-mapped
+                    // batch's own draw goes on the clip list and the rest on the alpha list; the
+                    // option's second pass goes on the clip list with the force-alpha flag, as a
+                    // part's does.
+                    use dereth_world_render::objects::alpha::AlphaList;
+                    let forced = statics[si].pass == StaticPass::Forced;
+                    let list = statics[si].list;
                     // LINT-OK: an index into this frame's own static queue. Not a float.
                     #[allow(clippy::cast_possible_truncation)]
                     let handle = STATIC_ENTRY | si as u32;
                     if pass.lists.push(
-                        dereth_world_render::objects::alpha::AlphaList::Blend,
+                        list,
                         dereth_world_render::objects::alpha::AlphaEntry {
                             mesh: dereth_primitives::MeshHandle(handle),
                             surface_num: 0,
                             texture: None,
                             first_of_kind: false,
                             world_matrix: Frame::default(),
-                            multipass: false,
+                            multipass: forced,
                             range: 0..0,
                         },
                     ) {
-                        pass.static_blend += 1;
+                        match list {
+                            AlphaList::Clip => pass.static_clip += 1,
+                            AlphaList::Blend => pass.static_blend += 1,
+                        }
                     }
                     continue;
                 }
@@ -693,7 +701,7 @@ impl SceneDraw {
         cone_out.culled += cone.culled;
         let mut stats = AlphaListStats {
             parts: subs.len(),
-            clip: pass.lists.clip_len() - pass.particle_clip,
+            clip: pass.lists.clip_len() - pass.particle_clip - pass.static_clip,
             blend: pass.lists.blend_len() - pass.particle_blend - pass.static_blend,
             dropped: pass.lists.dropped,
             immediate: pass.counts.immediate,
@@ -718,7 +726,8 @@ impl SceneDraw {
                 }
                 // A particle's entry: drawn here, in its list and in its place in it, exactly
                 // as a part's is.
-                // A blended static batch's entry.
+                // A static batch draw's entry. The option's second pass is drawn with surface
+                // setup's force-alpha argument, like a part's.
                 if e.mesh.0 & STATIC_ENTRY != 0 {
                     let Some(r) = statics.get((e.mesh.0 & !STATIC_ENTRY) as usize) else {
                         continue;
@@ -796,7 +805,7 @@ impl SceneDraw {
                         vertices,
                         set.as_deref(),
                         self.current_detail(dereth_world_render::detail::DetailClass::Building),
-                        false,
+                        e.multipass,
                     )?;
                     if let (Some(cell), Some((stamp, by, turn))) = (cell, r.drawn_by) {
                         // LINT-OK: a batch index bounded by the cell's batch count. Not a float.
@@ -810,7 +819,11 @@ impl SceneDraw {
                                     .get(k as usize)
                                     .is_some_and(|p| p.drawn.get() == (stamp, by, turn))
                             },
-                            CellRunPass::AlphaList,
+                            if e.multipass {
+                                CellRunPass::MultiPass
+                            } else {
+                                CellRunPass::AlphaList
+                            },
                             (stamp, by),
                         );
                     }
@@ -820,12 +833,17 @@ impl SceneDraw {
                         land.blend += 1;
                         self.frame_landscape_alpha.set(land);
                     }
-                    self.frame_alpha_order
-                        .borrow_mut()
-                        .push(AlphaDraw::StaticBlend);
-                    self.frame_blend_order
-                        .borrow_mut()
-                        .push((AlphaDraw::StaticBlend, r.cypt));
+                    let kind = if e.multipass {
+                        AlphaDraw::CellForced
+                    } else if k < clip_entries {
+                        AlphaDraw::StaticClip
+                    } else {
+                        AlphaDraw::StaticBlend
+                    };
+                    self.frame_alpha_order.borrow_mut().push(kind);
+                    if k >= clip_entries {
+                        self.frame_blend_order.borrow_mut().push((kind, r.cypt));
+                    }
                     continue;
                 }
                 if e.mesh.0 & PARTICLE_ENTRY != 0 {

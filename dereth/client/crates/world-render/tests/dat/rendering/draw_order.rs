@@ -1,5 +1,6 @@
 //! Batches are far-to-near between and within blocks; sky passes land in their slots; a dungeon
-//! takes the indoor path with Z clear; the alpha list keeps cell order.
+//! takes the indoor path with Z clear; the alpha list keeps cell order; a dungeon web goes on the
+//! clip list, and a sealed dungeon room flushes the lists only after every cell's objects.
 //! Fixture: the shipped retail DAT records and recorded inputs.
 
 // Index arithmetic over a 5x5 block window and an 8x8 cell grid, bounded by the loops themselves.
@@ -350,5 +351,121 @@ fn the_alpha_list_inherits_the_cell_order_and_is_not_re_sorted() {
     assert_ne!(
         sorted, expected,
         "the cell order is not the numeric order, so a sort would show"
+    );
+}
+
+/// Drudge Hideout's entry room, and the surfaces of what stands in it: the cobweb `0x0800013C`
+/// and the floor stain `0x08000140` (both `Translucent | ClipMap`), and the cage door's bars
+/// `0x080004BE` (`ClipMap`).
+const HIDEOUT_ROOM: u32 = 0x019E_0114;
+const CLIP_MAPPED: [u32; 3] = [0x0800_013C, 0x0800_0140, 0x0800_04BE];
+
+/// Behaviour: rendering.draw-order.a-dungeon-web-is-drawn-over-what-stands-behind-it
+/// A cobweb's subset goes on the clip list, drawn in place as well with Multiple Pass Alpha on and
+/// only from the list with it off; and in a dungeon room sealed from the outdoors, the frame's
+/// only alpha flush comes after every cell's objects, the creatures and doors among them.
+#[test]
+fn a_dungeon_web_is_clip_listed_and_its_room_flushes_after_every_cells_objects() {
+    use dereth_world_render::objects::draw::{classify_subset_passes, subset_mask, SubsetPasses};
+    let s = store();
+    for id in CLIP_MAPPED {
+        let b = s
+            .read_typed(DbType::Surface, DataId(id))
+            .expect("the surface record");
+        let DecodedAsset::Surface(surface) =
+            decode_any(DbType::Surface, DataId(id), &b).expect("decodes")
+        else {
+            panic!("{id:#010X} is not a surface")
+        };
+        let mask = subset_mask(surface.surface_type);
+        assert_eq!(mask, 8, "{id:#010X} (type {:#x})", surface.surface_type);
+        let delay = dereth_terrain::consts::S_ALPHA_DELAY_MASK;
+        assert_eq!(
+            classify_subset_passes(mask, delay, true),
+            SubsetPasses {
+                list: Some(AlphaList::Clip),
+                immediate: true,
+                multipass: true,
+            },
+            "{id:#010X} with Multiple Pass Alpha on"
+        );
+        assert_eq!(
+            classify_subset_passes(mask, delay, false),
+            SubsetPasses {
+                list: Some(AlphaList::Clip),
+                immediate: false,
+                multipass: false,
+            },
+            "{id:#010X} with Multiple Pass Alpha off"
+        );
+    }
+
+    let mut cells: BTreeMap<u32, TraversalCell> = BTreeMap::new();
+    for idx in 0x0100u32..0x0200 {
+        let id = DataId((HIDEOUT_ROOM & 0xFFFF_0000) | idx);
+        let Ok(bytes) = s.read_typed(DbType::Cell, id) else {
+            continue;
+        };
+        let DecodedAsset::EnvCell(ec) = decode_any(DbType::Cell, id, &bytes).expect("decodes")
+        else {
+            continue;
+        };
+        let portals = ec
+            .portals
+            .iter()
+            .map(|p| CellPortal {
+                portal_side: u8::from(p.flags & 2 != 0),
+                other_cell_id: if p.other_cell_id == 0xFFFF_FFFF {
+                    OUTDOORS
+                } else {
+                    p.other_cell_id
+                },
+                other_portal_id: i32::from(p.other_portal_id),
+                exact_match: p.flags & 1 != 0,
+                vertex_dist_sq: [f32::from(p.polygon_id) + 1.0; 4],
+                viewpoint_side_distance: if p.flags & 2 != 0 { -1.0 } else { 1.0 },
+            })
+            .collect();
+        cells.insert(
+            id.0,
+            TraversalCell {
+                id: CellId(id.0),
+                portals,
+            },
+        );
+    }
+    assert!(
+        cells.len() > 50,
+        "the hideout has {} cells; its cell records are not being read",
+        cells.len()
+    );
+    let view = construct_view(&cells, CellId(HIDEOUT_ROOM), &|_, _| true);
+    assert_eq!(
+        view.outside_view_count, 0,
+        "no portal chain out of the hideout reaches the outdoors"
+    );
+    assert!(
+        view.cell_draw_list.contains(&CellId(HIDEOUT_ROOM)),
+        "the walk draws the entry room"
+    );
+    let steps = indoor_steps(&view);
+    let objects = steps
+        .iter()
+        .position(|x| *x == IndoorStep::Objects)
+        .expect("the cells' objects are drawn");
+    let flushes: Vec<usize> = steps
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| matches!(x, IndoorStep::FlushBeforeClear | IndoorStep::FlushAlphaList))
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(
+        flushes,
+        vec![steps.len() - 1],
+        "the one flush is the last step: {steps:?}"
+    );
+    assert!(
+        objects < flushes[0],
+        "and it follows the objects: {steps:?}"
     );
 }

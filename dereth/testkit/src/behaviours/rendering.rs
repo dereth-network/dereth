@@ -238,6 +238,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.draw-order.a-cobweb-goes-on-the-clip-list-with-the-cut-outs",
+        says: "Cobwebs and floor stains are drawn from the same list as the cut-out parts of \
+               creatures and doors, ahead of every translucent creature, effect and piece of \
+               furniture, with Multiple Pass Alpha on or off; a web nearer than a cage door's \
+               bars is drawn after the bars.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DUNGEON-WEBS-CLIP-LIST"),
+        station: "dereth-client::gpu::rendering::dungeon_webs::a_cobweb_s_own_draw_goes_on_the_clip_list_in_its_place_among_the_cut_outs",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "rendering.draw-order.a-dungeon-web-is-drawn-over-what-stands-behind-it",
+        says: "A cobweb strung across a dungeon room is drawn over a creature, a cage door's bars \
+               or the player standing behind it, with Multiple Pass Alpha on or off, so the \
+               strands show over them as they show over the wall.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-DUNGEON-WEBS-DRAW-ORDER"),
+        station: "dereth-client::gpu::rendering::dungeon_webs::a_cobweb_is_drawn_over_a_creature_standing_behind_it_with_the_option_on_and_off",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "rendering.draw-order.blocks-and-cells-draw-far-to-near-with-the-sky-around-them",
         says: "The ground is drawn from far to near, both between the blocks of land around the \
                player and between the squares within each block.",
