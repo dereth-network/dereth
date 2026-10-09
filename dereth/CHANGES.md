@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.0 (2026-10-09)
+
 - **Horizon, a third interface** beside the modern and classic ones, chosen in the options and
   switched live: its own art and fonts, an orbit camera that eases behind you, its own key layout,
   a HUD you can lay out, chat tabs that pop out, and every game window and dialog.
