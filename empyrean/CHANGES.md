@@ -24,8 +24,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
   furniture, landblock objects and scenery alone would move them or keep them out. Those on a
   dais or a platform stay on it, where they used to sink to the floor below: the Town Network
   portals by a quarter of a metre. Those it records partly inside something else stay there too,
-  where ACE moves them up to 4 m away or leaves them out: 25 portals stand on their stone plinths
-  and platforms rather than beside them, and 86 objects ACE does not create are there: 61 large
+  where ACE moves them up to 4 m away or leaves them out: 25 portals are sent on their stone plinths
+  and platforms rather than beside them (a client still steps a portal aside where its swirl does
+  not fit the arch around it, as retail's does), and 86 objects ACE does not create are there: 61 large
   waterfalls, 21 hot, cold and putrid air effects and a volcano's heat, a pressure plate, a
   spirit, and the portal to Samsur in its dungeon.
 - Rocks and other scenery that the landscape sets at a slight pitch stand at the angle they are

@@ -23,6 +23,13 @@ pre-release leaves it for the final release, and its notes show it as it is);
   outdoors again, at any distance; a room's hidden furniture is no longer drawn.
 - Furniture and scenery are solid in the same places as in retail: a few objects that reached
   into the next cell could be bumped into from there before you reached them.
+- Forests no longer thin out along every landblock boundary: 289,589 trees, bushes and other
+  pieces of scenery that retail grows within about 35 m of a boundary are drawn, and solid, again.
+  Drawing them costs frame time in dense forest, about a quarter more.
+- Rocks and other pieces placed to follow a slope stand upright and face downhill, as in retail,
+  where 57,662 of them were tipped over on their sides.
+- A creature whose body reaches over a cell boundary is solid from the cell beyond, and you are
+  drawn with the landscape only once you are through a doorway, as in retail.
 
 ## 0.2.1 (2026-10-06)
 
