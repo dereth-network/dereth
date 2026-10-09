@@ -84,6 +84,8 @@ pub enum CommandHandler {
     Squelch,
     Tell,
     Title,
+    /// This client's own time-of-day command, not retail's (CD-038).
+    Tod,
     Trade,
     Unfilter,
     Unsquelch,
@@ -761,6 +763,15 @@ pub const TURBINE_CHAT_COMMANDS: &[CommandEntry] = &[
     },
 ];
 
+/// This client's own commands, which retail does not have (CD-038). They are registered after
+/// retail's first pass, only where the name is still free, and share no name with the Turbine
+/// chat pass, so a retail command is never shadowed.
+pub const DERETH_COMMANDS: &[CommandEntry] = &[CommandEntry {
+    name: "tod",
+    handler: Some(CommandHandler::Tod),
+    help: Some("help_tod"),
+}];
+
 /// The names the Turbine-chat startup removes before re-adding, so the Turbine-chat entry wins.
 pub const TURBINE_REPLACES: &[&str] = &["a"];
 
@@ -860,5 +871,7 @@ pub const HELP_TEXTS: &[(&str, &[&str], &[&str])] = &[
     ("help_society", &["@society - Sends a message to the your Society chat channel. Also: @soc\n"], &["@society - Sends a message to the your Society chat channel. Also: @soc\n"]),
     ("help_trade", &["@trade - Sends a message to the global Trade chat channel. Also: @ct\n"], &["@trade - Sends a message to the global Trade chat channel. Also: @ct\n"]),
     ("help_unfilter", &["@unfilter - Commands to remove filters from incoming messages.\n"], &["The @unfilter commands remove specific filters from your incoming messages. For a complete list of message types that you can filter, type @help messagetypes.\n@unfilter <-message_type> - Removes filters on incoming messages of a specific type.  For example, the following allows spellcasting text to resume:\n     Example: @unfilter -spellcasting\n@unfilter -all - Removes all filters on incoming messages of all types.\n"]),
+    // This client's own command's help (CD-038), not one of retail's.
+    ("help_tod", &["@tod - Shows or sets the time of day this client draws.\n"], &["@tod - Shows the time of day the sky is drawn at, and whether it is the server's clock or one set on this client.\n@tod <0 to 1> - Draws the sky at that time of day and lets it run on from there: 0 is midnight, 0.25 dawn, 0.5 noon and 0.75 dusk.\n@tod midnight, dawn, noon, dusk or night - The same, by name; night is midnight.\n@tod reset - Returns to the server's clock. Also: @tod server\nOnly what this client draws changes: the sky, its light and the effects that follow it. Nothing is sent to the server.\n"]),
     ("help_version", &["@version - Tells you what version of the software you are using.\n"], &["@version - Tells you what version of the software you are using.\n"]),
 ];

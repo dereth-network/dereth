@@ -2000,6 +2000,7 @@ fn the_handler_names_with_no_arm_are_exactly_these() {
     let mut names: Vec<H> = dereth_client_model::cmd::table::INITIALIZE_COMMANDS
         .iter()
         .chain(dereth_client_model::cmd::table::TURBINE_CHAT_COMMANDS)
+        .chain(dereth_client_model::cmd::table::DERETH_COMMANDS)
         .filter_map(|e| e.handler)
         .collect();
     names.sort_unstable();
@@ -2073,6 +2074,7 @@ fn the_handler_names_with_no_arm_are_exactly_these() {
         H::Title,
         H::Day,
         H::Render,
+        H::Tod,
     ];
 
     let remaining: Vec<H> = names

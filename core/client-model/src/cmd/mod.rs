@@ -15,6 +15,7 @@ pub mod help;
 pub mod interp;
 pub mod loadfile;
 pub mod table;
+pub mod tod;
 
 pub use help::HelpType;
 pub use interp::{CommandInterp, CommandOutcome, TalkFocus, NOT_A_VALID_COMMAND};

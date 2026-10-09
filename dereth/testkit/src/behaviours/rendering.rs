@@ -1092,6 +1092,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.sky.tod-moves-only-this-clients-clock-and-reset-returns-to-the-servers",
+        says: "Setting the time of day with /tod puts the sky clock this client draws by at that \
+               hour, named times on their quarter of the day, and it runs on from there as the \
+               server's own clock moves; the land is relit at the new hour on the next frame. \
+               Resetting puts the sky back on the server's clock, at the time that clock has \
+               reached.",
+        since: THIS_CLIENT,
+        divergence: "CD-038",
+        evidence: Evidence::Private("AC-EVID-SKY-TOD"),
+        station: "dereth-client-runtime::lib::time_of_day::tests::tod_moves_the_sky_clock_and_reset_returns_it_to_the_servers_time",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.surfaces.a-forced-alpha-pass-blends-only-what-the-alpha-test-cut",
         says: "Drawing a cut-out texture a second time, blended and without the cut-off, changes \
                only the pixels the first drawing left out, each blended at its own transparency, \

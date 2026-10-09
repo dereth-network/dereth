@@ -713,6 +713,26 @@ impl Interaction {
                 }
             }
 
+            // **`@tod`**, this client's own (CD-038). A typed line that does not read is refused
+            // here, on the refusal channel, in the window it came from; one that does is carried
+            // out by App, which owns the sky clock. Either way nothing is sent.
+            H::Tod => match dereth_client_model::cmd::tod::parse(args) {
+                Ok(command) => self
+                    .pending_time_of_day
+                    .push((command, self.chat.current_command_source)),
+                Err(refusal) => {
+                    game.scroll.add_feedback_to_scroll(
+                        &refusal,
+                        dereth_client_model::chat::text_type::LOCAL_ERROR,
+                        true,
+                        self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
+                    );
+                    self.stats.chat_command_lines += 1;
+                    self.stats.chat_commands_refused += 1;
+                }
+            },
+
             // **`@loadfile`.** The joined name is
             // passed to `fopen("rt")` exactly as typed: unlike `@log`, there is no default extension.
             // Every `fgets(0x400)` chunk is substituted, displayed, then synchronously re-enters the

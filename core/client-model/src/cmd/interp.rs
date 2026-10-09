@@ -3,7 +3,9 @@
 //! re-join. An unrecognised command falls through to the server verbatim, **confirmed live**:
 //! a command only the server knows produced the server's answer in the chat window.
 
-use super::table::{CommandEntry, CommandHandler, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS};
+use super::table::{
+    CommandEntry, CommandHandler, DERETH_COMMANDS, INITIALIZE_COMMANDS, TURBINE_CHAT_COMMANDS,
+};
 
 /// The talk-focus enumeration, with values 1 through 13.
 ///
@@ -190,11 +192,13 @@ impl Default for CommandInterp {
 
 impl CommandInterp {
     /// The first command registration pass -- 115 entries, first registration
-    /// of a name wins.
+    /// of a name wins -- followed by this client's own commands, each only where its name is
+    /// still free.
     #[must_use]
     pub fn new() -> Self {
-        let mut table: Vec<CommandEntry> = Vec::with_capacity(INITIALIZE_COMMANDS.len());
-        for e in INITIALIZE_COMMANDS {
+        let mut table: Vec<CommandEntry> =
+            Vec::with_capacity(INITIALIZE_COMMANDS.len() + DERETH_COMMANDS.len());
+        for e in INITIALIZE_COMMANDS.iter().chain(DERETH_COMMANDS) {
             if !table.iter().any(|x| x.name.eq_ignore_ascii_case(e.name)) {
                 table.push(*e);
             }
@@ -475,6 +479,45 @@ mod tests {
         assert_eq!(c.entries().len(), before + 14);
         assert_eq!(c.entries().iter().filter(|e| e.name == "a").count(), 1);
         assert_eq!(c.lookup("A").unwrap().handler, Some(CommandHandler::Guild));
+    }
+
+    /// Behaviour: chat.commands.tod-is-answered-by-this-client-and-never-sent
+    #[test]
+    fn tod_is_this_clients_own_command_and_shadows_no_retail_one() {
+        use crate::cmd::table::DERETH_COMMANDS;
+        for own in DERETH_COMMANDS {
+            assert!(
+                !INITIALIZE_COMMANDS
+                    .iter()
+                    .chain(TURBINE_CHAT_COMMANDS)
+                    .any(|e| e.name.eq_ignore_ascii_case(own.name)),
+                "{} is one of retail's names",
+                own.name
+            );
+        }
+        let mut c = CommandInterp::new();
+        c.add_turbine_chat_commands();
+        for line in ["/tod 0.5", "@TOD 0.5"] {
+            match c.on_chat_command(line, 1, TalkFocus::Say) {
+                CommandOutcome::Handled { handler, args, .. } => {
+                    assert_eq!(handler, CommandHandler::Tod, "{line}");
+                    assert_eq!(args, vec!["0.5"], "{line}");
+                }
+                other => panic!("{line}: {other:?}"),
+            }
+        }
+        assert!(matches!(
+            c.on_chat_command("@tod", 1, TalkFocus::Say),
+            CommandOutcome::Handled {
+                handler: CommandHandler::Tod,
+                ..
+            }
+        ));
+        // Not a prefix: a longer word is still the server's.
+        assert_eq!(
+            c.on_chat_command("@today", 1, TalkFocus::Say),
+            CommandOutcome::ForwardVerbatim("@today".into())
+        );
     }
 
     /// Oracle: the recovered command-interpreter behavior §2 — only windows 1 and 8 are routed by talk focus.

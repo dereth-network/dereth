@@ -163,6 +163,8 @@ pub mod world_stream;
 
 /// The Dereth calendar clock.
 pub mod game_clock;
+/// `@tod` carried out on the world's sky clock.
+pub mod time_of_day;
 /// The simulation and residency half of the scene.
 pub mod world_state;
 

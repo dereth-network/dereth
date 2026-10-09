@@ -135,6 +135,79 @@ fn runtime_entry_requests_update_before_following_input_and_submission_records_o
     assert_eq!(inter.stats.chat_lines_sent, 2);
 }
 
+/// Behaviour: chat.commands.tod-is-answered-by-this-client-and-never-sent
+#[test]
+fn typed_tod_is_answered_by_this_client_and_nothing_reaches_the_server() {
+    use dereth_client_model::cmd::tod::{TimeOfDayCommand as Tod, USAGE};
+    let mut game = dereth_client_model::World::new();
+    let mut inter = Interaction::new();
+    let typed = [
+        (1, "/tod"),
+        (1, "@tod 0.5"),
+        (8, "/tod dusk"),
+        (1, "/TOD reset"),
+        (1, "@tod server"),
+        (8, "@tod 1.5"),
+        (1, "/tod noon please"),
+    ];
+    inter.queue(
+        Vec::new(),
+        typed
+            .iter()
+            .map(|(window, text)| UiRequest::ChatLine {
+                window: *window,
+                text: (*text).into(),
+            })
+            .collect(),
+    );
+    assert!(inter
+        .run_ui_requests(&mut game, false, ServerTime(1.0))
+        .is_empty());
+    assert_eq!(
+        inter.take_pending_requests(),
+        Vec::<Request>::new(),
+        "no line of @tod reaches the server"
+    );
+    assert_eq!(
+        inter.take_time_of_day_commands(),
+        vec![
+            (Tod::Show, 1),
+            (Tod::Set(0.5), 1),
+            (Tod::Set(0.75), 8),
+            (Tod::Reset, 1),
+            (Tod::Reset, 1),
+        ],
+        "each line that reads is handed on with the window it was typed in"
+    );
+    assert!(inter.take_time_of_day_commands().is_empty());
+    // The two that do not read are refused, one line each, in their own window, and neither is
+    // the catch-all "not a valid command".
+    let refusals: Vec<_> = game
+        .scroll
+        .drain()
+        .into_iter()
+        .map(|line| (line.window, line.chat_type, line.body))
+        .collect();
+    assert_eq!(refusals.len(), 2, "{refusals:?}");
+    for ((window, chat_type, body), (want_window, names)) in
+        refusals.iter().zip([(8, "\"1.5\""), (1, "Too many words")])
+    {
+        assert_eq!(*window, want_window, "{body}");
+        assert_eq!(
+            *chat_type,
+            dereth_client_model::chat::text_type::LOCAL_ERROR,
+            "{body}"
+        );
+        assert!(body.contains(names), "{body}");
+        assert!(body.contains(USAGE), "{body}");
+        assert!(
+            !body.contains(dereth_client_model::cmd::NOT_A_VALID_COMMAND),
+            "{body}"
+        );
+    }
+    assert_eq!(inter.stats.chat_commands_refused, 2);
+}
+
 /// Behaviour: spellbook.filter.changes-are-shared-before-the-server-replies
 #[test]
 fn a_spellbook_filter_change_updates_the_model_view_and_saved_module() {

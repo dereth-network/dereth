@@ -140,6 +140,32 @@ impl GameClock {
         self.use_time(cur_time);
     }
 
+    /// Drop any local adjustment, so the clock is the server's again: the inverse of
+    /// [`Self::set_time_of_day`], by the same mechanism (`TimeZeroDelta` back to zero, the next
+    /// event zeroed, the time used again).
+    pub fn clear_time_adjustment(&mut self, cur_time: f64) {
+        self.time_zero_start_delta = 0.0;
+        self.time_of_next_event = 0.0;
+        self.time_of_day_begin = -1.0;
+        self.use_time(cur_time);
+    }
+
+    /// Whether this client has moved its clock off the time it was given, so the sky is drawn at
+    /// a time of its own rather than the server's.
+    #[must_use]
+    pub fn is_adjusted(&self) -> bool {
+        self.time_zero_start_delta != 0.0
+    }
+
+    /// The region's name for the current part of the day ("Midsong" at noon in the shipped
+    /// region); `None` when the region names no times of day.
+    #[must_use]
+    pub fn time_of_day_name(&self) -> Option<&str> {
+        self.time_of_day_names
+            .get(self.current_time_of_day)
+            .map(String::as_str)
+    }
+
     /// Advance the game clock from the current client time; the frame loop calls this every frame.
     ///
     /// `t` is the client time plus `time_zero_start_delta` (the clock offset is 0). The day begin

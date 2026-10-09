@@ -328,6 +328,17 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "The 1999 art drawn with today's graphics, for a player who asks for it, without \
               changing how the game plays.",
     },
+    Divergence {
+        id: "CD-038",
+        title: "The time of day this client draws can be set from chat",
+        change: "/tod (or @tod) is a chat command of this client's own: alone it says the time of \
+                 day the sky is drawn at and whether that is the server's clock; given a fraction \
+                 of the day from 0 to 1, or midnight, dawn, noon, dusk or night, it draws the sky \
+                 and its light from that hour on; reset returns to the server's clock. It moves \
+                 only this client's sky clock, the offset the --time-of-day switch sets at start, \
+                 and is never sent to the server. The final client had no such command.",
+        why: "A player can look at the world by day or by night without waiting for the hour.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

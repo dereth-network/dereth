@@ -18,6 +18,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon has highly experimental rendering effects, off by default and only on the wgpu renderer: better lighting, sun shadows, global illumination, ambient occlusion, lamps and torches, and sky.
 - The browser client loads Horizon's art beside the module, so it fits Cloudflare Pages again.
 - Horizon shows the client's real version.
+- /tod sets the time of day this client draws, for looking at the world by day or night.
 
 ## 0.3.0 (2026-10-09)
 

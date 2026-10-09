@@ -88,6 +88,28 @@ impl<S: Shell> App<S> {
                 name, value,
             ));
         }
+        // The time-of-day command moves this client's sky clock, which the world owns, and
+        // answers in the window it was typed in. Nothing is sent.
+        for (command, window) in self.interaction.take_time_of_day_commands() {
+            use dereth_client_model::chat::text_type;
+            let (answer, ty) = match self.world.as_mut() {
+                Some(ws) => (
+                    crate::time_of_day::apply(ws, command, self.timer.cur_time),
+                    text_type::DEFAULT,
+                ),
+                None => (
+                    dereth_client_model::cmd::tod::NO_WORLD.to_owned(),
+                    text_type::LOCAL_ERROR,
+                ),
+            };
+            self.objects.world.scroll.add_feedback_to_scroll(
+                &answer,
+                ty,
+                true,
+                window,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
+        }
         // `--set-at`'s settings take the same road.
         for (name, value) in std::mem::take(&mut self.scripted_preferences) {
             unowned.push(dereth_client_contract::UiRequest::SetPreference(

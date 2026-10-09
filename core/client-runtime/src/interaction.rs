@@ -329,6 +329,10 @@ pub struct Interaction {
     /// command source; App owns the preference registry and live render consumer.
     pending_render_preferences: Vec<(&'static str, dereth_client_contract::view::PrefValue)>,
 
+    /// The time-of-day commands typed this frame, each with the chat window it came from.
+    /// Interaction has no world; App owns the sky clock and answers in that window.
+    pending_time_of_day: Vec<(dereth_client_model::cmd::tod::TimeOfDayCommand, u32)>,
+
     /// Ordered payloads from the title command. The live gameplay
     /// screen and its retained `PlayerModule` write-back share one App-owned delivery point.
     pending_chat_window_titles: Vec<(u32, String)>,
@@ -1018,6 +1022,14 @@ impl Interaction {
         &mut self,
     ) -> Vec<(&'static str, dereth_client_contract::view::PrefValue)> {
         std::mem::take(&mut self.pending_render_preferences)
+    }
+
+    /// The time-of-day commands typed since the last call, in command order, each with the chat
+    /// window its answer goes to.
+    pub fn take_time_of_day_commands(
+        &mut self,
+    ) -> Vec<(dereth_client_model::cmd::tod::TimeOfDayCommand, u32)> {
+        std::mem::take(&mut self.pending_time_of_day)
     }
 
     /// Pending popup-title notices in command order.
