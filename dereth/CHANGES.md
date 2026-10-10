@@ -17,6 +17,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's Better Lighting no longer lights sloped ground face by face, which showed as lime triangles under Global Illumination.
 - Horizon's Sky and Atmosphere effect no longer hazes over the land seen through a building's windows and doors.
 - Horizon's camera stops directly behind you after a turn
+- A speed no motion means, sent by a server, no longer freezes the client.
+- Turning your character with the right mouse button in Horizon no longer stutters.
 
 ## 0.4.0 (2026-10-09)
 

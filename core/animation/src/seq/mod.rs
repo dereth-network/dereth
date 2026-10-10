@@ -19,6 +19,10 @@ use dereth_primitives::{DataId, Vec3};
 
 use crate::data::{AnimAssets, AnimData, AnimFrame, AnimationData};
 
+/// The most nodes one update passes through: far more than any motion plays in a step, and a
+/// bound on the ones that would never use a step up (see [`update`]).
+pub const MOST_NODES: usize = 4096;
+
 /// `AnimSequenceNode` — one animation plus the frame range and rate it plays at.
 #[derive(Debug, Clone)]
 pub struct AnimSequenceNode {

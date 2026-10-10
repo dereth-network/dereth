@@ -1189,6 +1189,10 @@ pub struct Character {
     /// The body's place at its last two physics ticks and the time of each, for drawing it
     /// between them; and the time the frame being drawn is at.
     ticks: [Option<(Position, f64)>; 2],
+    /// How far, in degrees clockwise, the physics tick that last ran turned the body itself, from
+    /// the way it faced as the tick began: a turn the body was given between ticks (faced where
+    /// the camera looks) is not the tick's, and is not drawn again as one.
+    tick_turn: f32,
     frame_time: f64,
     /// Where the body is drawn, as an offset from where physics has it, and how fast that point
     /// moves: it follows the way between ticks on a short spring, so a tick that carries the body
@@ -1474,6 +1478,7 @@ impl Character {
             player_physics_updated: false,
             drawn_between_ticks: false,
             ticks: [None, None],
+            tick_turn: 0.0,
             frame_time: 0.0,
             drawn: None,
             turning: None,
@@ -2069,6 +2074,7 @@ impl Character {
     pub fn update(&mut self, now: LocalTime) -> bool {
         self.refresh_env();
         self.apply_input();
+        let facing = dereth_primitives::frame::get_heading(&self.position().frame);
 
         // The 30 Hz gate, sub-step ladder and remainder rule are all in
         // here and none of them is a frame-rate cap.
@@ -2149,6 +2155,8 @@ impl Character {
         self.frame_time = now.0;
         if ticked {
             self.ticks = [self.ticks[1], Some((self.position(), now.0))];
+            let faces = dereth_primitives::frame::get_heading(&self.position().frame);
+            self.tick_turn = (faces - facing + 540.0).rem_euclid(360.0) - 180.0;
         }
         self.step_drawn(dt);
         self.step_drawn_turn(dt);
@@ -2435,23 +2443,23 @@ impl Character {
         self.turning = Some(d);
     }
 
-    /// The body's turn between ticks, in degrees clockwise: back along its turn from the last tick
-    /// toward the one before, by the share of a tick still to run, so that a body the game turns
+    /// The body's turn between ticks, in degrees clockwise: back along the turn the last tick made
+    /// ([`Self::tick_turn`]), by the share of a tick still to run, so that a body the game turns
     /// is drawn turning every frame, a tick behind, as it is drawn moving. Nothing when it is not
     /// drawn between ticks, before two ticks, when something other than a tick has turned or
     /// moved it since the last one (facing it where the camera looks), or when the last tick
-    /// turned it further than [`DRAWN_TURN_LIMIT`].
+    /// turned it further than [`DRAWN_TURN_LIMIT`]. A turn given between the ticks is not the
+    /// tick's: a body faced where the camera looks every frame is drawn facing just that way,
+    /// never turned back by the turn it was given since the tick before.
     #[must_use]
     pub fn way_turn(&self) -> f32 {
-        let [Some((before, t0)), Some((last, t1))] = self.ticks else {
+        let [Some((_, t0)), Some((_, t1))] = self.ticks else {
             return 0.0;
         };
         if !self.drawn_between_ticks || !self.turned_by_last_tick() || t1 <= t0 {
             return 0.0;
         }
-        let heading = dereth_primitives::frame::get_heading;
-        let back =
-            (heading(&before.frame) - heading(&last.frame) + 540.0).rem_euclid(360.0) - 180.0;
+        let back = -self.tick_turn;
         if back.abs() > DRAWN_TURN_LIMIT {
             return 0.0;
         }

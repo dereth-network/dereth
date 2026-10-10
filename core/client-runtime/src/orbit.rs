@@ -3151,6 +3151,163 @@ mod tests {
         );
     }
 
+    /// One frame of a body the mouse steers under character-based movement: the game's own
+    /// turning and forward commands, the animation the body plays, how far through it and how
+    /// many frames its cycle has, the way the body is drawn facing, and whether physics ticked.
+    #[derive(Debug, Clone, Copy)]
+    struct SteerFrame {
+        turn: dereth_animation::MotionCommand,
+        forward: dereth_animation::MotionCommand,
+        anim: u32,
+        frame: f64,
+        cycle: f64,
+        drawn: f32,
+        ticked: bool,
+    }
+
+    /// A body standing (or running, `running`) at `fps` under character-based movement, steered
+    /// for `seconds` by the mouse dragged across at `pace` units a second with the right button
+    /// held, the mouse reporting whole units as they add up. Each frame is run as the runtime
+    /// runs it: the mouse read, the player faced where the camera looks, then the body and the
+    /// camera stepped and the parts placed.
+    fn steered(fps: f64, running: bool, pace: f32, seconds: f64) -> Vec<SteerFrame> {
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        c.camera.orbit_active = true;
+        c.camera.orbit.apply_settings(s);
+        c.drawn_between_ticks = true;
+        let block = c.position().cell.landblock();
+        let block = (i32::from(block.x()), i32::from(block.y()));
+        let mut keys = MovementKeys::default();
+        let mut t = 10.0;
+        let mut frame = |c: &mut crate::character::Character, keys: &MovementKeys, dx: i32| {
+            t += 1.0 / fps;
+            c.camera.mouse_look(dx, 0, dereth_primitives::LocalTime(t));
+            if c.camera.orbit.placed {
+                c.camera.orbit_turns_with_player = keys.camera_turns_with_player(s);
+                let face = keys.facing(s, c.camera.orbit.movement_heading(false));
+                if keys.buttons.1 {
+                    c.camera.orbit.let_go_of_player();
+                }
+                c.camera.orbit.follow_behind =
+                    keys.camera_follows_game_turn(face, c.is_moving_to());
+                if let Some(face) = face {
+                    c.face_heading(face);
+                }
+            }
+            let ticked = c.update(dereth_primitives::LocalTime(t));
+            c.update_camera(
+                crate::camera::CameraInput::default(),
+                dereth_primitives::LocalTime(t),
+                1.0 / fps,
+            );
+            let space = c.set_viewer_block(block);
+            c.place_parts(space);
+            let d = c.driver();
+            let seq = &d.sequence;
+            let (anim, at, cycle) = seq.curr().map_or((0, 0.0, 0.0), |i| {
+                let n = &seq.nodes()[i];
+                let cycle = f64::from((n.high_frame - n.low_frame).abs() + 1);
+                (n.anim_id.0, seq.frame_number(), cycle)
+            });
+            let st = &d.movement.interp.interpreted_state;
+            SteerFrame {
+                turn: st.turn_command,
+                forward: st.forward_command,
+                anim,
+                frame: at,
+                cycle,
+                drawn: dereth_animation::frame::get_heading(&c.position().frame) + c.drawn_turn(),
+                ticked,
+            }
+        };
+        for _ in 0..60 {
+            frame(&mut c, &keys, 0);
+        }
+        if running {
+            c.input.forward = true;
+            c.input.run = true;
+            for _ in 0..200 {
+                frame(&mut c, &keys, 0);
+            }
+        }
+        // The right button goes down: nothing is asked of the game for it.
+        keys.buttons.1 = true;
+        assert!(keys.mouse_run(false, s).is_empty() && keys.steering_changed(s).is_empty());
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = (1.0 / fps) as f32;
+        let mut owed = 0.0_f32;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = (seconds * fps).round() as usize;
+        (0..n)
+            .map(|_| {
+                owed += pace * dt;
+                let whole = owed.floor();
+                owed -= whole;
+                #[allow(clippy::cast_possible_truncation)]
+                frame(&mut c, &keys, whole as i32)
+            })
+            .collect()
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn a_body_the_mouse_steers_plays_on_and_is_drawn_turning_its_way_every_frame_never_back() {
+        // 600 mouse units a second, reported whole: two or three a frame at 240 frames a second.
+        let pace = 600.0;
+        for (fps, running) in [(240.0, false), (240.0, true), (60.0, false), (60.0, true)] {
+            let f = steered(fps, running, pace, 1.0);
+            // The mouse turns the body itself: the game is asked for no turn, and the animation
+            // it was playing plays on at its pace, never begun again.
+            assert!(
+                f.iter()
+                    .all(|r| r.turn == dereth_animation::MotionCommand::NONE),
+                "{fps} fps, running {running}: no turn asked of the game"
+            );
+            assert!(
+                f.iter()
+                    .all(|r| r.anim == f[0].anim && r.forward == f[0].forward),
+                "{fps} fps, running {running}: one animation throughout"
+            );
+            let ticks: Vec<&SteerFrame> = f.iter().filter(|r| r.ticked).collect();
+            let played: Vec<f64> = ticks
+                .windows(2)
+                .map(|w| (w[1].frame - w[0].frame).rem_euclid(w[1].cycle))
+                .collect();
+            #[allow(clippy::cast_precision_loss)]
+            let mean = played.iter().sum::<f64>() / played.len() as f64;
+            assert!(
+                mean > 0.0 && played.iter().all(|p| (p - mean).abs() < mean * 0.5),
+                "{fps} fps, running {running}: the animation goes on at its pace: {played:?}"
+            );
+            // Each frame the body is drawn turned the mouse's way by the mouse's own turn, never
+            // turned back by a tick: a mouse unit turns the camera `mouse_turn` radians.
+            #[allow(clippy::cast_possible_truncation)]
+            let most =
+                (pace / fps as f32).ceil() * OrbitSettings::default().mouse_turn.to_degrees();
+            let steps: Vec<f32> = f
+                .windows(2)
+                .map(|w| (w[1].drawn - w[0].drawn + 540.0).rem_euclid(360.0) - 180.0)
+                .collect();
+            assert!(
+                steps.iter().all(|d| *d > 0.0 && *d <= most + 1e-3),
+                "{fps} fps, running {running}: drawn turning a little every frame, never back: \
+                 {steps:?}"
+            );
+        }
+    }
+
     /// A drag of `pace` mouse units a second for half a second at `fps` frames a second, the
     /// mouse reporting whole units as they add up: the turns asked for, frame by frame.
     fn drag(fps: f32, pace: f32) -> Vec<Vec<ActionId>> {

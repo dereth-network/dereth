@@ -18,6 +18,13 @@
 //!
 //! `frame_number` is a **double** while `delta` is computed in **float**
 //! (`framerate * (float)dt`). Both are reproduced.
+//!
+//! One update passes through at most [`super::MOST_NODES`] nodes. A node is left only once it has
+//! been played through, so this is never reached at any speed a motion means; it bounds the two
+//! cases that would otherwise never use the step up: a frame rate so high that a node plays through
+//! in less time than the step's remainder can lose (a received motion's speed is the wire's own
+//! float), and a node whose frame range runs against its direction of play. Past it, the rest of
+//! the step is let go.
 
 use dereth_primitives::{Frame, Vec3};
 
@@ -99,6 +106,7 @@ impl Sequence {
     #[allow(clippy::too_many_lines)]
     fn update_internal(&mut self, dt: f64, mut frame: Option<&mut Frame>, out: &mut Vec<AnimHook>) {
         let mut dt = dt;
+        let mut passed = 0;
         loop {
             let Some(curr) = self.curr else {
                 return;
@@ -193,6 +201,10 @@ impl Sequence {
             }
             self.advance_to_next_animation(dt, frame.as_deref_mut());
             dt = leftover;
+            passed += 1;
+            if passed >= super::MOST_NODES {
+                return;
+            }
         }
     }
 
@@ -702,5 +714,78 @@ mod tests {
                 want.1
             );
         }
+    }
+
+    /// Run `f` on a thread of its own; whether it returned within ten seconds. A test of an
+    /// update that might never return fails rather than holding the suite.
+    fn returns(f: impl FnOnce() + Send + 'static) -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            f();
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10)).is_ok()
+    }
+
+    /// A ten-frame cycle at `framerate`, in a sequence of its own.
+    fn cycle_at(framerate: f32) -> Sequence {
+        let (id, a) = tagged_anim(1, 10, true);
+        let assets = assets(&[(id, a)]);
+        let mut s = Sequence::new();
+        s.append_animation(
+            AnimData {
+                anim_id: id,
+                low_frame: 0,
+                high_frame: 9,
+                framerate,
+            },
+            &assets,
+        );
+        s
+    }
+
+    /// A speed so high that a cycle plays through in less time than the step can tell from
+    /// nothing (a motion's speed is the server's to send) is played as far as an update goes and
+    /// the rest of the step let go, forwards and backwards; at no rate does an update fail to
+    /// return.
+    #[test]
+    fn at_any_frame_rate_an_update_returns_with_the_frame_inside_the_cycle() {
+        for framerate in [
+            3.0e21_f32,
+            -3.0e21,
+            3.0e9,
+            -3.0e9,
+            1.0e-30,
+            0.0,
+            f32::MAX,
+            -f32::MAX,
+        ] {
+            let ok = returns(move || {
+                let mut s = cycle_at(framerate);
+                let mut out = Vec::new();
+                let mut f = Frame::default();
+                for _ in 0..30 {
+                    s.update(1.0 / 30.0, Some(&mut f), &mut out);
+                    let at = s.curr_frame_number();
+                    assert!((0..=9).contains(&at), "{framerate}: frame {at}");
+                }
+            });
+            assert!(ok, "{framerate} frames a second: the update never returned");
+        }
+    }
+
+    /// A cycle turned round by a negative multiplier has its frame range the wrong way round for
+    /// its direction of play, and an update over it still returns.
+    #[test]
+    fn a_cycle_turned_round_by_a_negative_multiplier_still_returns() {
+        let ok = returns(|| {
+            let mut s = cycle_at(30.0);
+            s.multiply_cyclic_animation_fr(-0.65);
+            let mut out = Vec::new();
+            for _ in 0..30 {
+                s.update(1.0 / 30.0, Some(&mut Frame::default()), &mut out);
+            }
+        });
+        assert!(ok, "the update never returned");
     }
 }
