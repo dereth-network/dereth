@@ -281,9 +281,19 @@ mod imp {
         /// The luminosity / diffusion / translucency settings all land on the material — see
         /// `SkyObject::material` — because the shader carries the fixed-function vertex lighting
         /// and the material's Emissive and Diffuse. The texture-velocity UV delta is the `uv_offset` below.
-        pub fn use_time(&mut self, region: &Region, year: u32, day: u32, t: f32, dt: f32) {
+        ///
+        /// `asked` is the kind of day this client was asked to draw (CD-039), which takes the
+        /// place of the calendar's when the day is not already of that kind.
+        pub fn use_time(
+            &mut self,
+            region: &Region,
+            (year, day): (u32, u32),
+            asked: Option<sky::DayKind>,
+            t: f32,
+            dt: f32,
+        ) {
             self.advance_tex_velocity(dt);
-            let Some(group) = sky::present_day_group(region, year, day) else {
+            let Some(group) = sky::drawn_day_group(region, year, day, asked) else {
                 self.objects.clear();
                 return;
             };

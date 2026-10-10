@@ -704,11 +704,7 @@ impl<'a, S: Shell> UiContext<'a, S> {
     /// and the command line named at start-up, for the options page's renderer choice.
     #[must_use]
     pub fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
-        dereth_client_contract::options::renderer::RendererStatus {
-            preference: self.app.cfg.renderer_preference,
-            command_line: self.app.cfg.renderer_argument,
-            ..self.app.present.renderer_status()
-        }
+        self.app.renderer_status()
     }
 
     /// Where the experimental rendering effects stand on the device the client draws with, for

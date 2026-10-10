@@ -1,5 +1,5 @@
 //! The Client page of the settings ends, in a build with the experimental rendering effects, with
-//! their six boxes under a heading of their own: a box whose prerequisite is off is greyed and
+//! their seven boxes under a heading of their own: a box whose prerequisite is off is greyed and
 //! cannot be ticked, and the rest tick as any other.
 //!
 //! Behaviour: none (experimental Horizon interface)
@@ -220,6 +220,116 @@ fn off_the_wgpu_renderer_the_status_line_points_at_the_renderer_choice() {
         .options_page
         .control("Status: Off until the restart onto wgpu")
         .is_some());
+}
+
+/// The renderers a desktop build offers, with `running` drawing.
+#[cfg(feature = "hifi")]
+fn desktop_on(
+    running: dereth_client_contract::RendererChoice,
+) -> dereth_client_contract::options::renderer::RendererStatus {
+    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
+    dereth_client_contract::options::renderer::RendererStatus {
+        offered: vec![Vulkan, Wgpu],
+        running: Some(running),
+        ..Default::default()
+    }
+}
+
+/// The status lines the page drew in its last frame.
+fn status(h: &Harness) -> Vec<String> {
+    h.ui.windows
+        .options_page
+        .controls
+        .iter()
+        .map(|(l, _)| l.clone())
+        .filter(|l| l.starts_with("Status: "))
+        .collect()
+}
+
+/// Pick wgpu, tick, restart: on another renderer with wgpu chosen for the next start, the boxes
+/// tick (the lamps too: whether the card traces rays is the restart's to find) and the status line
+/// says the restart onto wgpu applies them; after it they draw, and on a card without ray tracing
+/// the lamps' box is greyed with its tick kept.
+#[test]
+#[cfg(feature = "hifi")]
+fn with_wgpu_chosen_on_another_renderer_the_boxes_tick_and_the_restart_onto_it_applies_them() {
+    use dereth_client_contract::options::renderer;
+    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
+    let (mut h, mut state) = client_page(Availability {
+        built: true,
+        ..Availability::default()
+    });
+    state.renderers = desktop_on(Vulkan);
+    store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(Wgpu)));
+    h.frame(&state);
+    assert_eq!(status(&h), ["Status: Off until the restart onto wgpu"]);
+    let asked = tick(&mut h, &state, caption(names::LIGHTING));
+    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
+    let asked = tick(&mut h, &state, caption(names::LAMPS));
+    assert_eq!(sets(&asked, names::LAMPS), Some(PrefValue::Bool(true)));
+    h.frame(&state);
+    assert_eq!(status(&h), ["Status: Restart onto wgpu to apply"]);
+    // Restarted onto wgpu with a box ticked: the device is asked for them, and they draw.
+    state.renderers = desktop_on(Wgpu);
+    state.hifi = Availability {
+        built: true,
+        wgpu: true,
+        widened: true,
+        supported: true,
+        rays: Some(false),
+        active: true,
+        failed: None,
+        wgpu_next: None,
+    };
+    h.frame(&state);
+    assert_eq!(status(&h), ["Status: Active"]);
+    // This card does not trace rays: the lamps' box keeps its tick and cannot be changed.
+    let asked = tick(&mut h, &state, caption(names::LAMPS));
+    assert_eq!(sets(&asked, names::LAMPS), None, "{asked:?}");
+    assert_eq!(store::inq_value(names::LAMPS), Some(PrefValue::Bool(true)));
+}
+
+/// Pick wgpu, restart, tick: on wgpu started without the effects there is nothing to say until a
+/// box is ticked, every box ticks (the lamps on a card that traces rays), and the status line says
+/// the restart applies them; after it they draw. The page never says wgpu is needed while it is
+/// the renderer.
+#[test]
+#[cfg(feature = "hifi")]
+fn on_wgpu_started_without_the_effects_a_tick_says_the_restart_applies_it() {
+    use dereth_client_contract::options::renderer;
+    use dereth_client_contract::RendererChoice::Wgpu;
+    let (mut h, mut state) = client_page(Availability {
+        built: true,
+        wgpu: true,
+        widened: false,
+        supported: true,
+        rays: Some(true),
+        active: false,
+        failed: None,
+        wgpu_next: None,
+    });
+    state.renderers = desktop_on(Wgpu);
+    store::set_value(renderer::RENDERER, PrefValue::Int(renderer::value(Wgpu)));
+    h.frame(&state);
+    assert!(status(&h).is_empty(), "{:?}", status(&h));
+    let asked = tick(&mut h, &state, caption(names::LIGHTING));
+    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
+    let asked = tick(&mut h, &state, caption(names::LAMPS));
+    assert_eq!(
+        sets(&asked, names::LAMPS),
+        Some(PrefValue::Bool(true)),
+        "the lamps on a card that traces rays"
+    );
+    h.frame(&state);
+    assert_eq!(status(&h), ["Status: Restart to apply"]);
+    // Restarted with a box ticked: the device is asked for them, and they draw.
+    state.hifi = Availability {
+        widened: true,
+        active: true,
+        ..state.hifi.clone()
+    };
+    h.frame(&state);
+    assert_eq!(status(&h), ["Status: Active"]);
 }
 
 /// Off the wgpu renderer, where a plain restart would not bring wgpu up, the status line says so

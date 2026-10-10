@@ -1117,6 +1117,18 @@ impl Gpu {
         }
     }
 
+    /// Whether the high-fidelity presentation traces rays here, on the `wgpu` device: the
+    /// adapter's answer, the same whether or not the device was asked for the presentation at
+    /// start-up.
+    #[must_use]
+    pub fn hifi_rays(&self) -> Option<bool> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => Some(g.hifi_rays()),
+            _ => None,
+        }
+    }
+
     /// The device's features, on the `wgpu` device.
     #[must_use]
     pub fn hifi_device_features(&self) -> Option<(::wgpu::Features, ::wgpu::Limits)> {

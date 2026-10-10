@@ -114,6 +114,10 @@ pub struct Prepared {
     adapter_kind: AdapterKind,
     bc: bool,
     anisotropy: bool,
+    /// Whether the adapter traces rays: what a device asked for the high-fidelity presentation
+    /// takes, whether or not this one was.
+    #[cfg(feature = "hifi")]
+    rays: bool,
     target: Target,
     format: wgpu::TextureFormat,
     size: (u32, u32),
@@ -253,6 +257,8 @@ fn prepared(
             .get_downlevel_capabilities()
             .flags
             .contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING),
+        #[cfg(feature = "hifi")]
+        rays: sidecar::adapter_rays(adapter),
         device,
         queue,
         adapter_name: format!("{} on {:?}", info.name, info.backend),
@@ -525,6 +531,10 @@ pub struct Gpu {
     /// Why the last sidecar was uninstalled, if it failed.
     #[cfg(feature = "hifi")]
     hifi_failed: Option<String>,
+    /// Whether the adapter traces rays, which a device asked for the high-fidelity presentation
+    /// takes.
+    #[cfg(feature = "hifi")]
+    adapter_rays: bool,
     /// Test builds: whether each frame's recording is digested, and the last digest.
     #[cfg(feature = "test-support")]
     digest_frames: bool,
@@ -758,6 +768,8 @@ impl Gpu {
             hifi_requested: false,
             #[cfg(feature = "hifi")]
             hifi_failed: None,
+            #[cfg(feature = "hifi")]
+            adapter_rays: p.rays,
             #[cfg(feature = "test-support")]
             digest_frames: false,
             #[cfg(feature = "test-support")]

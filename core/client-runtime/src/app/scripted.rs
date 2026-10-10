@@ -104,14 +104,20 @@ impl<S: Shell> App<S> {
         use dereth_client_contract::options::landscape::{Landscape, RegionStyle, WORLD_DEFAULT};
         #[cfg(feature = "hifi")]
         if w.fidelity_refused {
-            tracing::warn!("{FIDELITY_REFUSED}");
-            self.objects.world.scroll.add_feedback_to_scroll(
-                FIDELITY_REFUSED,
-                dereth_client_model::scroll::LOCAL_ERROR_TYPE,
-                true,
-                0,
-                dereth_client_contract::feedback::Feedback::LOCAL,
-            );
+            // Why, as the device and the renderer chosen for the next start say it: another
+            // renderer, or a restart that asks for the presentation. Each line once a session.
+            let why = self.hifi_availability().refusal();
+            tracing::warn!("{why}");
+            if !self.fidelity_told.contains(&why) {
+                self.fidelity_told.push(why);
+                self.objects.world.scroll.add_feedback_to_scroll(
+                    why,
+                    dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+                    true,
+                    0,
+                    dereth_client_contract::feedback::Feedback::LOCAL,
+                );
+            }
         }
         for (which, refused) in [
             (Landscape::Ground, w.ground_refused),

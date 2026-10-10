@@ -8,6 +8,7 @@ pub mod gtao;
 pub mod lamps;
 pub mod lighting;
 pub mod rt;
+pub mod weather;
 
 /// Every pass, each with its slot.
 #[must_use]
@@ -21,6 +22,7 @@ pub fn all() -> Vec<(Slot, Box<dyn HifiPass>)> {
         (Slot::Opaque, Box::new(gi::GlobalIllumination::default())),
         (Slot::Atmosphere, Box::new(gtao::Gtao::late())),
         (Slot::Atmosphere, Box::new(air)),
+        (Slot::Atmosphere, Box::new(weather::Weather::default())),
         (Slot::Hdr, Box::new(lighting::LightingPost::default())),
     ]
 }

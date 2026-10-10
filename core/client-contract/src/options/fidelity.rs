@@ -1,4 +1,4 @@
-//! The words and rules of the optional high-fidelity presentation's options: six check boxes on
+//! The words and rules of the optional high-fidelity presentation's options: seven check boxes on
 //! the Horizon interface's Client page, under a heading of their own, each off until the player
 //! ticks it.
 //!
@@ -40,8 +40,8 @@ pub struct FidelityOption {
     pub needs: Needs,
 }
 
-/// The six boxes, in page order.
-pub const OPTIONS: [FidelityOption; 6] = [
+/// The seven boxes, in page order.
+pub const OPTIONS: [FidelityOption; 7] = [
     FidelityOption {
         name: fidelity::LIGHTING,
         caption: "Better Lighting (HDR Sun and Sky Light)",
@@ -82,6 +82,13 @@ pub const OPTIONS: [FidelityOption; 6] = [
         caption: "Sky and Atmosphere",
         note: "A physical sky behind the authored clouds and sun, and air that blues the far \
                hills.",
+        needs: Needs::Nothing,
+    },
+    FidelityOption {
+        name: fidelity::WEATHER,
+        caption: "Weather (Rain, Wet Ground, Puddles, Snow)",
+        note: "On the game's rainy days: rain that roofs keep off, wet ground and puddles, and \
+               snow instead over snowy land. It replaces the game's own falling rain.",
         needs: Needs::Nothing,
     },
 ];
@@ -182,7 +189,9 @@ pub struct Availability {
     pub widened: bool,
     /// The device has what they draw with.
     pub supported: bool,
-    /// Whether the device traces rays, which the lamps need; `None` where that is not known.
+    /// Whether the effects trace rays here, which the lamps need; `None` where that is not known.
+    /// It is the graphics card's answer, so a `wgpu` device started without the effects says what
+    /// the start with them will have.
     pub rays: Option<bool>,
     /// They drew the last frame.
     pub active: bool,
@@ -242,13 +251,32 @@ const CHOOSE_WGPU: &str = "Off on this renderer: choose wgpu as the Renderer abo
 /// whole.
 const REASON_SHOWN: usize = 48;
 
+/// What the chat window tells a player who ticks a box while the client draws with a renderer
+/// other than `wgpu`.
+pub const REFUSED_RENDERER: &str = "The experimental rendering effects are off on this renderer: they draw only on the wgpu renderer (the Renderer choice on Horizon's Client page, or Renderer=wgpu), and a box first ticked takes effect at the next start.";
+
+/// What the chat window tells a player who ticks a box on another renderer while `wgpu` is chosen
+/// for the next start: that start has them.
+pub const REFUSED_UNTIL_RESTART_ONTO_WGPU: &str =
+    "The experimental rendering effects take effect at the restart onto wgpu: restart to apply them.";
+
+/// What the chat window tells a player who ticks a box on the `wgpu` renderer started without
+/// the effects: the next start has them.
+pub const REFUSED_UNTIL_RESTART: &str =
+    "The experimental rendering effects take effect at the next start: restart to apply them.";
+
+/// What the chat window tells a player who ticks a box on a `wgpu` device that lacks what the
+/// effects draw with.
+pub const REFUSED_BACKEND: &str =
+    "The experimental rendering effects are off: this graphics backend can't run them.";
+
 impl Availability {
     /// Whether the boxes can be ticked here: the client has the effects and draws with the
-    /// `wgpu` renderer. Elsewhere the page shows them greyed, and the status line says how to
-    /// get them.
+    /// `wgpu` renderer, or `wgpu` is chosen for the next start, which applies them. Elsewhere the
+    /// page shows them greyed, and the status line says how to get them.
     #[must_use]
     pub fn offered(&self) -> bool {
-        self.built && self.wgpu
+        self.built && (self.wgpu || self.wgpu_next == Some(WgpuNext::AtRestart))
     }
 
     /// The status line under the heading: whether the effects are drawn, or what stops them,
@@ -262,6 +290,7 @@ impl Availability {
         if !self.wgpu {
             return Some(
                 match self.wgpu_next {
+                    Some(WgpuNext::AtRestart) if ticked => "Restart onto wgpu to apply",
                     Some(WgpuNext::AtRestart) => "Off until the restart onto wgpu",
                     Some(WgpuNext::WithoutCommandLine) => {
                         "Off until a restart onto wgpu without --renderer"
@@ -295,6 +324,24 @@ impl Availability {
         }
         None
     }
+
+    /// What the chat window tells a player whose ticked box this device cannot draw: that the
+    /// restart onto `wgpu` chosen for the next start applies them, that they draw only on `wgpu`,
+    /// that the next start applies them, or that this backend cannot run them.
+    #[must_use]
+    pub fn refusal(&self) -> &'static str {
+        if !self.wgpu {
+            if self.wgpu_next == Some(WgpuNext::AtRestart) {
+                REFUSED_UNTIL_RESTART_ONTO_WGPU
+            } else {
+                REFUSED_RENDERER
+            }
+        } else if !self.widened {
+            REFUSED_UNTIL_RESTART
+        } else {
+            REFUSED_BACKEND
+        }
+    }
 }
 
 #[cfg(test)]
@@ -314,7 +361,9 @@ mod tests {
     #[test]
     fn a_box_whose_prerequisite_is_off_or_covered_says_why() {
         let with = |on: &'static [&'static str]| move |n: &str| on.contains(&n);
-        use fidelity::{AMBIENT_OCCLUSION, GLOBAL_ILLUMINATION, LAMPS, LIGHTING, SHADOWS, SKY};
+        use fidelity::{
+            AMBIENT_OCCLUSION, GLOBAL_ILLUMINATION, LAMPS, LIGHTING, SHADOWS, SKY, WEATHER,
+        };
         for name in [SHADOWS, GLOBAL_ILLUMINATION, LAMPS] {
             assert_eq!(
                 blocked(name, with(&[]), Some(true)),
@@ -338,6 +387,8 @@ mod tests {
             None
         );
         assert_eq!(blocked(SKY, with(&[]), Some(false)), None);
+        // The weather stands alone: it draws over the ordinary picture or the better light.
+        assert_eq!(blocked(WEATHER, with(&[]), Some(false)), None);
         assert_eq!(blocked(LIGHTING, with(&[]), Some(false)), None);
     }
 
@@ -407,6 +458,80 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_box_is_told_what_is_still_needed_and_never_told_wgpu_on_wgpu() {
+        let on_wgpu = Availability {
+            built: true,
+            wgpu: true,
+            widened: false,
+            supported: true,
+            rays: Some(true),
+            active: false,
+            failed: None,
+            wgpu_next: None,
+        };
+        // Started on wgpu without the effects: the restart is all that is left, as the status
+        // line says.
+        assert_eq!(on_wgpu.refusal(), REFUSED_UNTIL_RESTART);
+        assert_eq!(on_wgpu.status(true).as_deref(), Some("Restart to apply"));
+        // Started with them, on a backend that cannot run them.
+        let short = Availability {
+            widened: true,
+            supported: false,
+            ..on_wgpu.clone()
+        };
+        assert_eq!(short.refusal(), REFUSED_BACKEND);
+        for a in [&on_wgpu, &short] {
+            assert!(!a.refusal().contains("only on the wgpu"), "{a:?}");
+        }
+        // Another renderer, or a presentation that has no device to say.
+        let native = Availability {
+            wgpu: false,
+            widened: false,
+            supported: false,
+            rays: None,
+            ..on_wgpu
+        };
+        assert_eq!(native.refusal(), REFUSED_RENDERER);
+        assert_eq!(Availability::default().refusal(), REFUSED_RENDERER);
+        // Another renderer with wgpu chosen for the next start: the restart onto it applies them,
+        // and only a plain restart onto it does.
+        let chosen = |next| Availability {
+            wgpu_next: Some(next),
+            ..native.clone()
+        };
+        assert_eq!(
+            chosen(WgpuNext::AtRestart).refusal(),
+            REFUSED_UNTIL_RESTART_ONTO_WGPU
+        );
+        for next in [WgpuNext::WithoutCommandLine, WgpuNext::DidNotStart] {
+            assert_eq!(chosen(next).refusal(), REFUSED_RENDERER, "{next:?}");
+        }
+    }
+
+    #[test]
+    fn the_boxes_tick_on_another_renderer_once_wgpu_is_chosen_for_a_plain_restart() {
+        let native = Availability {
+            built: true,
+            ..Availability::default()
+        };
+        assert!(!native.offered(), "nothing chosen");
+        let chosen = |next| Availability {
+            wgpu_next: Some(next),
+            ..native.clone()
+        };
+        assert!(chosen(WgpuNext::AtRestart).offered());
+        // A restart that would not come up on wgpu applies nothing, so nothing ticks for it.
+        for next in [WgpuNext::WithoutCommandLine, WgpuNext::DidNotStart] {
+            assert!(!chosen(next).offered(), "{next:?}");
+        }
+        let unbuilt = Availability {
+            built: false,
+            ..chosen(WgpuNext::AtRestart)
+        };
+        assert!(!unbuilt.offered());
+    }
+
+    #[test]
     fn the_status_line_says_what_stops_the_effects_and_nothing_with_no_box_ticked() {
         let ready = Availability {
             built: true,
@@ -447,9 +572,9 @@ mod tests {
             default_device.status(false).as_deref(),
             Some("Off on this renderer: choose wgpu as the Renderer above, then restart")
         );
-        // What the renderer choice leaves wgpu at, ticked or not.
+        // What the renderer choice leaves wgpu at, ticked or not; chosen for a plain restart, a
+        // tick is applied by it.
         for (next, line) in [
-            (WgpuNext::AtRestart, "Off until the restart onto wgpu"),
             (
                 WgpuNext::WithoutCommandLine,
                 "Off until a restart onto wgpu without --renderer",
@@ -464,6 +589,18 @@ mod tests {
                 assert_eq!(chosen.status(ticked).as_deref(), Some(line), "{next:?}");
             }
         }
+        let chosen = Availability {
+            wgpu_next: Some(WgpuNext::AtRestart),
+            ..default_device.clone()
+        };
+        assert_eq!(
+            chosen.status(false).as_deref(),
+            Some("Off until the restart onto wgpu")
+        );
+        assert_eq!(
+            chosen.status(true).as_deref(),
+            Some("Restart onto wgpu to apply")
+        );
         // wgpu, started without a box ticked or under another interface: a tick takes effect at
         // the next start, and only a tick is said to need it.
         let started_elsewhere = Availability {

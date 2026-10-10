@@ -6,3 +6,4 @@ mod graph;
 mod reshade;
 mod shared;
 mod sky;
+mod weather;

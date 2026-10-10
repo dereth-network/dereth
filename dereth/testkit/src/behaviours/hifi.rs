@@ -265,7 +265,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "hifi.options.no-combination-of-the-boxes-draws-what-cannot-draw",
-        says: "Of every combination of the six boxes, on a device with ray tracing and without, \
+        says: "Of every combination of the seven boxes, on a device with ray tracing and without, \
                each box draws exactly when it is ticked and the options page does not grey it: \
                the shadows, the bounced light and the lamps draw nothing without the better \
                lighting, the lamps nothing without ray tracing, the ambient occlusion nothing \
@@ -292,7 +292,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "hifi.options.the-boxes-are-on-horizons-page-alone-each-off",
-        says: "The experimental rendering effects' six boxes are on the Horizon interface's \
+        says: "The experimental rendering effects' seven boxes are on the Horizon interface's \
                Client page alone, last, under a heading that calls them highly experimental, \
                each off by default; the classic and the modern interfaces' pages are exactly \
                what they are without the effects; and a build without the effects has no such \
@@ -615,8 +615,10 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "hifi.startup.a-device-that-cannot-draw-the-presentation-says-so",
         says: "A player who turns the high-fidelity presentation on while the client runs on a \
-               device that cannot draw it is told so once, on the channel the client's own \
-               refusals use, and the presentation stays off.",
+               device that cannot draw it is told why once, on the channel the client's own \
+               refusals use, and the presentation stays off: on a renderer other than wgpu, that \
+               it draws only on wgpu; on the wgpu renderer started without it, that the next \
+               start applies it.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-REFUSED-NOTICE"),
@@ -677,5 +679,189 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-HIFI-VISUAL-ONLY"),
         station: "dereth-client::gpu::rendering::hifi_visual_only::a_session_walks_turns_and_offers_the_same_objects_with_the_presentation_on",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.a-roof-keeps-the-weather-off-what-stands-under-it",
+        says: "Looking in at a house's open front door on the game's rainy day, the room under \
+               the roof takes no wet darkening, no puddle and no drop: it is drawn as on a day \
+               with the game's weather off, but for the few drops falling outside in front of the \
+               door: under fifteen pixels in ten thousand of it brightened, on average over eight \
+               frames.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-ROOF"),
+        station: "dereth-client::gpu::rendering::hifi_weather::a_roof_keeps_the_weather_off_what_stands_under_it",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.far-puddles-never-turn-white",
+        says: "In the town's street on the game's rainy day the far ground is hardly brightened \
+               by the weather: under one and a half percent of it, the falling streaks \
+               included, is lifted by more than forty levels; far puddles and wet road reflect \
+               a held-down sky, not white sheets.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-PUDDLES"),
+        station: "dereth-client::gpu::rendering::hifi_weather::far_puddles_never_turn_white",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.from-a-room-the-weather-is-drawn-over-what-its-openings-show",
+        says: "Standing in a house's doorway on the game's rainy day, with the camera in the room, \
+               the ground the open door shows outside is drawn wet as it is from outdoors, and \
+               the room under its roof takes no wet darkening and no drop: the weather does \
+               not stop when the viewer steps in, and never falls indoors. So it is whether the \
+               frame stamps the depth of the room's openings or leaves them cleared.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-DOORWAY"),
+        station: "dereth-client::gpu::rendering::hifi_weather::from_a_doorway_the_ground_outside_stays_wet_and_the_room_dry",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.it-falls-on-the-games-rainy-days-as-rain-or-over-snowy-land-as-snow",
+        says: "The weather falls on a day of a rainy weather group with the game's weather on: \
+               as rain, or as snow where four tenths of the land round the viewer is snow and \
+               ice, the nearer land counting more, so the share moves smoothly as the viewer \
+               walks; rain or snow asked for with /weather falls whatever the land.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-FALLS"),
+        station: "dereth-render-hifi::cpu::weather::precipitation::it_falls_on_a_rainy_day_as_rain_and_over_snowy_land_as_snow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.weather.nothing-passes-the-eye-as-a-large-blur",
+        says: "However near the eye a drop or a flake comes, its streak or its flake is drawn no \
+               wider than a set angle (a flake under seven pixels either side of its middle at \
+               1080p, a streak under one and a half) and a streak no longer than a tenth of a \
+               radian; within half a metre of the eye none is drawn, fading in by a metre and a \
+               half, so nothing passes the camera as a large blur.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-NEAR"),
+        station: "dereth-render-hifi::cpu::weather::falling::near_the_eye_no_drop_or_flake_is_drawn_large_and_within_half_a_metre_none_is_drawn",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.weather.on-a-rainy-day-it-falls-and-the-games-falling-rain-gives-way",
+        says: "On the game's rainy day, in the town and over snowy land, the weather is drawn and \
+               the game's own falling-rain layer is left out of the frame, so one precipitation \
+               falls; on a dry day the weather draws nothing at all.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-REPLACES"),
+        station: "dereth-client::gpu::rendering::hifi_weather::on_a_rainy_day_it_falls_and_the_games_falling_rain_gives_way",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.rain-snow-and-a-dry-day-ease-into-each-other",
+        says: "Nothing about the weather switches in one frame: the rain turns to snow, and the \
+               weather comes and goes with the day, over three seconds, a little each frame; and \
+               the form changes only once the land's share of snow is well past four tenths: \
+               over 0.45 for snow, under 0.35 for rain.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-EASES"),
+        station: "dereth-render-hifi::cpu::weather::precipitation::rain_snow_and_a_dry_day_ease_into_each_other_and_the_form_holds_near_its_mark",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.weather.snow-lies-white-on-the-roofs-and-evenly-on-snowy-land",
+        says: "In the town's street with snow asked for, the roofs take a cover of snow, white \
+               rather than grey-blue: over two pixels in a hundred of the frame's upper half \
+               lifted by more than sixty levels, their blue no more than four levels over their \
+               red; the grass takes none, its near ground moving by under eight levels. In a \
+               snowbound village on the game's rainy day the land painted as snow takes a light, \
+               even cover: brighter by over ten levels, and the spread of its brightness over \
+               squares of twenty-four pixels under six tenths of the painted ground's, with no \
+               drifts or patches.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-SNOW"),
+        station: "dereth-client::gpu::rendering::hifi_weather::snow_lies_white_on_the_roofs_and_evenly_on_snowy_land",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.snow-never-lies-on-open-water",
+        says: "At a snowy shore on the game's rainy day the snow falls and the open sea takes no \
+               cover: its mean brightness moves by under fifteen levels in 255, the falling flakes \
+               included.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-WATER"),
+        station: "dereth-client::gpu::rendering::hifi_weather::snow_never_lies_on_open_water",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.the-rain-and-snow-hold-still-in-the-world-as-the-viewer-moves",
+        says: "Every drop and flake, as the weather's shader places it, keeps its place in the \
+               world to a millimetre as the viewer takes a step, runs a second, jumps or swings \
+               the camera round a body: it moves only as it falls and the wind carries it, and \
+               nothing jumps where the fall, the wind's drift or the world's shift wraps round.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-ANCHORED"),
+        station: "dereth-render-hifi::cpu::weather::falling::every_drop_and_flake_keeps_its_place_in_the_world_however_the_viewer_moves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.weather.the-sky-and-the-far-land-are-not-veiled",
+        says: "At the rain stations the sky and the far land take only the falling streaks: their \
+               mean brightness moves less than three levels in 255, so no mist or haze veils the \
+               frame.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-VEIL"),
+        station: "dereth-client::gpu::rendering::hifi_weather::the_rain_leaves_the_sky_and_the_far_land_unveiled",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.the-weather-asked-for-falls-in-the-form-asked",
+        says: "With /weather rain on a sunny day in town the sky is drawn as a rainy day and the \
+               effect's rain falls in place of the game's own; with /weather snow over grass the \
+               effect's snow falls, and with /weather rain over snowy land its rain; with \
+               /weather clear on the game's rainy day nothing falls and the frame is drawn as \
+               the game draws it.",
+        since: THIS_CLIENT,
+        divergence: "CD-043",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-ASKED"),
+        station: "dereth-client::gpu::rendering::hifi_weather::the_weather_asked_for_falls_in_the_form_asked_whatever_the_day_and_the_land",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.weather.the-weather-shaders-validate",
+        says: "The weather's shader and its overhead shelter map's parse and validate, with the \
+               entry points their pipelines name: the full-screen pass over the ground and the \
+               falling rain and snow.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-SHADERS"),
+        station: "dereth-render-hifi::cpu::shared::shaders::the_weather_shaders_parse_and_validate",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.weather.the-weathers-motion-never-coarsens-in-a-long-session",
+        says: "The weather's clock steps by a frame's time to a hundredth of a frame after a \
+               thousand hours of play as at the start, and stays within the period every motion \
+               of the rain and snow repeats over, so streaks, flakes, ripples and splashes move \
+               as smoothly however long the client has run.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-CLOCK"),
+        station: "dereth-render-hifi::cpu::weather::precipitation::the_weathers_clock_steps_as_finely_after_hours_of_play_as_at_the_start",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "hifi.weather.where-a-puddles-mirror-finds-nothing-it-holds-the-sky",
+        says: "Where a puddle's mirror finds nothing on screen it is sure of (its reflection \
+               leaves the picture, runs behind something nearer such as the viewer's own body, \
+               or meets a surface edge-on), the puddle holds the sky in that direction, at least \
+               seven tenths of the fog's colour, never black; half sure of a black thing, it \
+               keeps half the sky.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-MIRROR"),
+        station: "dereth-render-hifi::cpu::weather::falling::where_a_puddles_mirror_finds_nothing_it_holds_the_sky_never_black",
+        tier: Tier::Cpu,
     },
 ];

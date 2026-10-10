@@ -1,6 +1,6 @@
 [package]
 name = "dereth-render-hifi"
-description = "The optional high-fidelity presentation: draws the world a second time, from the frame the renderer recorded, with modern lighting, sun shadows, bounced light, occlusion, lamps and a physical sky, changing pixels only."
+description = "The optional high-fidelity presentation: draws the world a second time, from the frame the renderer recorded, with modern lighting, sun shadows, bounced light, occlusion, lamps and a physical sky and weather, changing pixels only."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,11 @@ license.workspace = true
 publish = false
 # Test targets are declared explicitly, so a stray tests/*.rs cannot become one silently.
 autotests = false
+
+[features]
+# Captures only: the weather's masks may be shown and its clock stepped by frames, from the
+# environment the process starts with. A shipped build never reads them.
+capture = []
 
 [dependencies]
 # The frame's recording and the seam it is read through, on the `wgpu` device.

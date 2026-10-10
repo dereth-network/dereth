@@ -208,6 +208,80 @@ fn typed_tod_is_answered_by_this_client_and_nothing_reaches_the_server() {
     assert_eq!(inter.stats.chat_commands_refused, 2);
 }
 
+/// Behaviour: chat.commands.weather-is-answered-by-this-client-and-never-sent
+#[test]
+fn typed_weather_is_answered_by_this_client_and_nothing_reaches_the_server() {
+    use dereth_client_model::cmd::weather::{Weather, WeatherCommand as W, USAGE};
+    let mut game = dereth_client_model::World::new();
+    let mut inter = Interaction::new();
+    let typed = [
+        (1, "/weather"),
+        (1, "@weather rain"),
+        (8, "/weather SNOW"),
+        (1, "/WEATHER clear"),
+        (1, "@weather auto"),
+        (8, "@weather hail"),
+        (1, "/weather rain now"),
+    ];
+    inter.queue(
+        Vec::new(),
+        typed
+            .iter()
+            .map(|(window, text)| UiRequest::ChatLine {
+                window: *window,
+                text: (*text).into(),
+            })
+            .collect(),
+    );
+    assert!(inter
+        .run_ui_requests(&mut game, false, ServerTime(1.0))
+        .is_empty());
+    assert_eq!(
+        inter.take_pending_requests(),
+        Vec::<Request>::new(),
+        "no line of @weather reaches the server"
+    );
+    assert_eq!(
+        inter.take_weather_commands(),
+        vec![
+            (W::Show, 1),
+            (W::Set(Weather::Rain), 1),
+            (W::Set(Weather::Snow), 8),
+            (W::Set(Weather::Clear), 1),
+            (W::Set(Weather::Auto), 1),
+        ],
+        "each line that reads is handed on with the window it was typed in"
+    );
+    assert!(inter.take_weather_commands().is_empty());
+    // The two that do not read are refused, one line each, in their own window, and neither is
+    // the catch-all "not a valid command".
+    let refusals: Vec<_> = game
+        .scroll
+        .drain()
+        .into_iter()
+        .map(|line| (line.window, line.chat_type, line.body))
+        .collect();
+    assert_eq!(refusals.len(), 2, "{refusals:?}");
+    for ((window, chat_type, body), (want_window, names)) in refusals
+        .iter()
+        .zip([(8, "\"hail\""), (1, "Too many words")])
+    {
+        assert_eq!(*window, want_window, "{body}");
+        assert_eq!(
+            *chat_type,
+            dereth_client_model::chat::text_type::LOCAL_ERROR,
+            "{body}"
+        );
+        assert!(body.contains(names), "{body}");
+        assert!(body.contains(USAGE), "{body}");
+        assert!(
+            !body.contains(dereth_client_model::cmd::NOT_A_VALID_COMMAND),
+            "{body}"
+        );
+    }
+    assert_eq!(inter.stats.chat_commands_refused, 2);
+}
+
 /// Behaviour: spellbook.filter.changes-are-shared-before-the-server-replies
 #[test]
 fn a_spellbook_filter_change_updates_the_model_view_and_saved_module() {

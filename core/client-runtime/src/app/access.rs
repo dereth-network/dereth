@@ -3,6 +3,29 @@
 use super::*;
 
 impl<S: Shell> App<S> {
+    /// The renderers this build can create, the one drawing, and the ones the preferences file
+    /// and the command line named at start-up.
+    #[must_use]
+    pub fn renderer_status(&self) -> dereth_client_contract::options::renderer::RendererStatus {
+        dereth_client_contract::options::renderer::RendererStatus {
+            preference: self.cfg.renderer_preference,
+            command_line: self.cfg.renderer_argument,
+            ..self.present.renderer_status()
+        }
+    }
+
+    /// Where the experimental rendering effects stand: on the device the client draws with, and
+    /// where the renderer chosen for the next start leaves `wgpu`, the renderer they draw on.
+    #[cfg(feature = "hifi")]
+    #[must_use]
+    pub fn hifi_availability(&self) -> dereth_client_contract::options::fidelity::Availability {
+        use dereth_client_contract::options::{fidelity, renderer};
+        fidelity::Availability {
+            wgpu_next: fidelity::wgpu_next(&self.renderer_status(), renderer::stored()),
+            ..self.present.hifi_availability()
+        }
+    }
+
     /// How busy the client is, as any UI's cursor shows it: the world's one shared busy count,
     /// raised by a teleport, a cast, a use, a shop request, a swing, an examine and the allegiance
     /// request until each is answered. Nonzero is the hourglass.

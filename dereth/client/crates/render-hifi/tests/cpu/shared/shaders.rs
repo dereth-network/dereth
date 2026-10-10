@@ -142,3 +142,42 @@ fn the_lamp_shaders_parse_and_validate() {
         .unwrap_or_else(|e| panic!("{name}: {e:?}"));
     }
 }
+
+/// Behaviour: hifi.weather.the-weather-shaders-validate
+/// The weather's shader and the overhead shelter map's parse and validate without a device, with
+/// the entry points their pipelines name: the weather's full-screen pass over the ground and its
+/// falling rain and snow.
+#[test]
+fn the_weather_shaders_parse_and_validate() {
+    let sources: [(&str, String, &[&str]); 2] = [
+        (
+            "weather",
+            dereth_render_hifi::passes::weather::shader_source(),
+            &["vs_fullscreen", "fs_weather", "vs_fall", "fs_fall"],
+        ),
+        (
+            "shelter",
+            dereth_render_hifi::passes::weather::cover::shader_source().to_owned(),
+            &["vs"],
+        ),
+    ];
+    for (name, source, want) in sources {
+        let module = naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(&source)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let mut entries: Vec<&str> = module
+            .entry_points
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        entries.sort_unstable();
+        let mut want = want.to_vec();
+        want.sort_unstable();
+        assert_eq!(entries, want, "{name}");
+    }
+}

@@ -1327,7 +1327,7 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
             }
             #[cfg(feature = "hifi")]
             if let Some(why) = effect_box(row)
-                .filter(|_| state.hifi.offered())
+                .filter(|_| effects(state).offered())
                 .and_then(|name| effect_blocked(name, state))
             {
                 out.push(Line::Notice(why.reason()));
@@ -1364,22 +1364,27 @@ fn effect_blocked(name: &str, state: &GameState) -> Option<fidelity::Blocked> {
 }
 
 /// Whether the effect's box `name` is shown greyed, its tick kept but not changeable: the client
-/// draws with a renderer the effects are not offered on (the status line says how to get them),
-/// or what the effect needs is off.
+/// draws with a renderer the effects are not offered on and the next start is not on `wgpu` (the
+/// status line says how to get them), or what the effect needs is off.
 #[cfg(feature = "hifi")]
 fn effect_greyed(name: &str, state: &GameState) -> bool {
-    !state.hifi.offered() || effect_blocked(name, state).is_some()
+    !effects(state).offered() || effect_blocked(name, state).is_some()
+}
+
+/// Where the experimental effects stand: on the device, and where the renderer choice above
+/// leaves `wgpu`, the renderer they draw on.
+#[cfg(feature = "hifi")]
+fn effects(state: &GameState) -> fidelity::Availability {
+    fidelity::Availability {
+        wgpu_next: fidelity::wgpu_next(&state.renderers, renderer::stored()),
+        ..state.hifi.clone()
+    }
 }
 
 /// The experimental effects' status line, when there is something to say.
 #[cfg(feature = "hifi")]
 fn effects_status(state: &GameState) -> Option<String> {
-    // Where the renderer choice above leaves wgpu, the renderer the effects draw on.
-    fidelity::Availability {
-        wgpu_next: fidelity::wgpu_next(&state.renderers, renderer::stored()),
-        ..state.hifi.clone()
-    }
-    .status(fidelity::OPTIONS.iter().any(|o| ticked(o.name)))
+    effects(state).status(fidelity::OPTIONS.iter().any(|o| ticked(o.name)))
 }
 
 /// Set a profile preference: shown at once, applied and kept by the game's own preference chain.

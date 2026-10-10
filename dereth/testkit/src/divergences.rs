@@ -311,10 +311,12 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-037",
         title: "Opt-in experimental rendering effects under Horizon",
-        change: "Under the Horizon interface, six boxes on its options page (better lighting, \
+        change: "Under the Horizon interface, seven boxes on its options page (better lighting, \
                  real-time sun shadows, bounced light, ambient occlusion, lamps and torches, sky \
-                 and atmosphere) draw the world a second time with modern light, on the desktop \
-                 wgpu renderer. Everything the game reads still comes from the ordinary frame, \
+                 and atmosphere, weather) draw the world a second time with modern light, on the \
+                 desktop wgpu renderer. With the weather ticked, the game's own falling-rain \
+                 layer gives way to rain (or, over snowy land, snow) drawn by the effect, on the \
+                 same rainy days. Everything the game reads still comes from the ordinary frame, \
                  which is recorded in full either way. Every box is off by default; the classic \
                  and modern interfaces never draw the effects, and the browser client does not \
                  contain them. They draw only on the wgpu renderer, chosen by the player; the \
@@ -397,6 +399,20 @@ pub static DIVERGENCES: &[Divergence] = &[
                  before.",
         why: "Movement and animation on the most common displays are even rather than \
               stuttering, without changing how the game plays.",
+    },
+    Divergence {
+        id: "CD-043",
+        title: "The weather this client draws can be set from chat",
+        change: "/weather (or @weather) is a chat command of this client's own: alone it says the \
+                 weather drawn and whether it is the day's own; clear, rain or snow draws the sky, \
+                 its light and its fog as a clear or a rainy day in place of the one the calendar \
+                 gives, and with Horizon's Weather effect ticked its rain falls as rain or as snow \
+                 whatever the land (without the effect a snowy day is a rainy one, the game having \
+                 no snow of its own); auto returns to the day's own. It changes only what this \
+                 client draws, never the calendar, and is never sent to the server. The final \
+                 client had no such command.",
+        why: "A player can look at the world in the rain, the snow or the sun without waiting for \
+              the day.",
     },
 ];
 

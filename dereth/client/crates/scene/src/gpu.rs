@@ -180,9 +180,7 @@ mod imp {
                 wgpu: gpu.backend() == dereth_render::device::Backend::Wgpu,
                 widened: gpu.hifi_requested(),
                 supported: gpu.hifi_supported(),
-                rays: gpu.hifi_device_features().map(|(f, _)| {
-                    f.contains(dereth_render::wgpu::sidecar::wgpu::Features::EXPERIMENTAL_RAY_QUERY)
-                }),
+                rays: gpu.hifi_rays(),
                 active: gpu.hifi_report().is_some_and(|r| r.composited),
                 failed: gpu.hifi_failed(),
                 wgpu_next: None,

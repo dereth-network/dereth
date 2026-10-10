@@ -168,6 +168,8 @@ pub mod world_stream;
 pub mod game_clock;
 /// `@tod` carried out on the world's sky clock.
 pub mod time_of_day;
+/// `@weather` carried out on the world's weather.
+pub mod weather;
 /// The simulation and residency half of the scene.
 pub mod world_state;
 

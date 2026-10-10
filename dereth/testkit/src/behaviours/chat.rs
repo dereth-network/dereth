@@ -193,6 +193,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "chat.commands.weather-is-answered-by-this-client-and-never-sent",
+        says: "Typing /weather or @weather is answered by this client and nothing is sent to the \
+               shard: alone it says the weather drawn and whether it is the day's own or one set \
+               on this client; with clear, rain or snow it sets it, and with auto it returns to \
+               the day's own; and anything else is refused with one line saying what it takes, in \
+               the window it was typed in. No command of the final client's own is shadowed by it.",
+        since: THIS_CLIENT,
+        divergence: "CD-043",
+        evidence: Evidence::Private("AC-EVID-CHAT-WEATHER"),
+        station: "dereth-client-runtime::lib::interaction::tests::typed_weather_is_answered_by_this_client_and_nothing_reaches_the_server",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.death.a-death-the-player-was-part-of-reaches-the-log-only-when-he-was-not",
         says: "Somebody else's death is drawn in the chat log in the colour a plain line is drawn \
                in. A death the player was part of is not, whether he was the one killed, the one \

@@ -919,6 +919,7 @@ pub const BRIDGE_READS: &[&str] = &[
     "weather_enabled",
     "light_pools",
     "viewer_cell",
+    "cell_seen_outside",
 ];
 
 /// This checker's own source.

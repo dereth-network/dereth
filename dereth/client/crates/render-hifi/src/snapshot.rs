@@ -95,12 +95,29 @@ pub struct HifiSky {
     pub weather_enabled: bool,
     /// Whether the viewer is outdoors.
     pub outdoor: bool,
+    /// Whether the viewer sees the outdoors: outdoors, or in a room whose openings show it.
+    pub sees_outside: bool,
+    /// The form of the falling weather the player asked for, if any.
+    pub asked_fall: AskedFall,
     /// The time of day, 0..1.
     pub time_of_day: f32,
     /// The in-game year.
     pub year: u32,
     /// The in-game day of the year.
     pub day: u32,
+}
+
+/// The form of the falling weather the player asked for, which takes the place of the land's
+/// say in it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AskedFall {
+    /// Nothing asked: the land round the viewer says whether rain or snow falls.
+    #[default]
+    Land,
+    /// Rain, whatever the land.
+    Rain,
+    /// Snow, whatever the land.
+    Snow,
 }
 
 /// The world fog.

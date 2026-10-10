@@ -26,7 +26,7 @@ fn every_pass_has_one_slot_and_the_slots_run_in_the_fixed_order() {
         "passes out of slot order: {order:?}"
     );
     // Each option has its pass.
-    for name in ["gtao", "atmosphere", "lighting", "gi"] {
+    for name in ["gtao", "atmosphere", "lighting", "gi", "weather"] {
         assert!(names.contains(&name), "no {name} pass");
     }
 }

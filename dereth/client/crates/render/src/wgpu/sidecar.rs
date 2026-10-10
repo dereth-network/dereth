@@ -363,6 +363,14 @@ pub const HIFI_FEATURES: wgpu::Features = wgpu::Features::FLOAT32_FILTERABLE
     .union(wgpu::Features::TIMESTAMP_QUERY)
     .union(wgpu::Features::DEPTH_CLIP_CONTROL);
 
+/// Whether `adapter` traces rays: a device asked for the high-fidelity presentation on it asks for
+/// its ray queries.
+pub(super) fn adapter_rays(adapter: &wgpu::Adapter) -> bool {
+    adapter
+        .features()
+        .contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY)
+}
+
 /// The ordinary request widened for the high-fidelity presentation: the adapter's share of
 /// [`HIFI_FEATURES`] and of ray queries, and the adapter's own limits for the bindings and targets
 /// the presentation's passes use.
@@ -375,7 +383,7 @@ pub(super) fn widen_request(
     let s = adapter.limits();
     let mut features = features | (have & HIFI_FEATURES);
     let mut experimental = wgpu::ExperimentalFeatures::default();
-    if have.contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY) {
+    if adapter_rays(adapter) {
         // SAFETY: the token only permits asking for the adapter's experimental ray queries; the
         // presentation uses them through `wgpu`'s own validated API, never on the ordinary path.
         experimental = unsafe { wgpu::ExperimentalFeatures::enabled() };
@@ -1044,6 +1052,14 @@ impl Gpu {
     #[must_use]
     pub fn hifi_requested(&self) -> bool {
         self.hifi_requested
+    }
+
+    /// Whether the presentation traces rays here, which the lamps need: a device asked for what it
+    /// draws with takes the adapter's ray queries, so a device made without that request answers
+    /// for the one a start with it makes.
+    #[must_use]
+    pub fn hifi_rays(&self) -> bool {
+        self.adapter_rays
     }
 
     /// Whether the device has what the presentation draws with: compute shaders with storage

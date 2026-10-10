@@ -116,6 +116,34 @@ impl<S: Shell> App<S> {
                 dereth_client_contract::feedback::Feedback::LOCAL,
             );
         }
+        // The weather command changes the weather this client draws, which the world owns, and
+        // answers in the window it was typed in. Nothing is sent.
+        for (command, window) in self.interaction.take_weather_commands() {
+            use dereth_client_model::chat::text_type;
+            let weather_off = self
+                .objects
+                .world
+                .player_system
+                .options
+                .get(dereth_client_model::player::option::DISABLE_MOST_WEATHER_EFFECTS);
+            let (answer, ty) = match self.world.as_mut() {
+                Some(ws) => (
+                    crate::weather::apply(ws, command, weather_off),
+                    text_type::DEFAULT,
+                ),
+                None => (
+                    dereth_client_model::cmd::weather::NO_WORLD.to_owned(),
+                    text_type::LOCAL_ERROR,
+                ),
+            };
+            self.objects.world.scroll.add_feedback_to_scroll(
+                &answer,
+                ty,
+                true,
+                window,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
+        }
         // `--set-at`'s settings take the same road.
         for (name, value) in std::mem::take(&mut self.scripted_preferences) {
             unowned.push(dereth_client_contract::UiRequest::SetPreference(

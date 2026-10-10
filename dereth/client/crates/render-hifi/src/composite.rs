@@ -18,8 +18,8 @@
 //! depth the world had there with no stamp, so a pass that reads the depth finds the land at its
 //! real distance and the sky only where the sky was drawn. A frame that steps indoors clears the
 //! depth and stamps each opening of its rooms at the opening's own depth, so nothing beyond an
-//! opening draws over what is seen through it; there the seen depth puts back the depth seen
-//! before the step.
+//! opening draws over what is seen through it; there, and through an opening the step leaves
+//! cleared, the seen depth puts back the depth seen before the step.
 
 use dereth_render::PipelineKey;
 use dereth_render_cpu::pso::{portal_stamp_mask, PORTAL_STAMP_FAR_DEPTH};
@@ -189,16 +189,11 @@ pub fn last_building_stamp(tables: &SideTables) -> Option<u32> {
         .map(|d| d.cmd)
 }
 
-/// The commands from the frame's indoor step to the world's end, when the step stamps any
-/// opening of the rooms it draws.
+/// The commands from the frame's indoor step to the world's end, when it steps indoors: the
+/// rooms it draws over the depth it clears, and the stamps of their openings where it draws any.
 #[must_use]
-pub fn stamped_step(tables: &SideTables) -> Option<std::ops::Range<u32>> {
-    let rest = crate::reshade::ReshadePlan::new(tables)?.rest;
-    tables
-        .draws
-        .iter()
-        .any(|d| rest.contains(&d.cmd) && is_stamp(d))
-        .then_some(rest)
+pub fn indoor_step(tables: &SideTables) -> Option<std::ops::Range<u32>> {
+    Some(crate::reshade::ReshadePlan::new(tables)?.rest).filter(|rest| !rest.is_empty())
 }
 
 /// The replay that leaves every stamp out. It is not counted in the frame's census, so the rule
@@ -407,11 +402,11 @@ impl Compositor {
         )
     }
 
-    /// The depth each pixel sees after an indoor step, `step`, whose rooms stamp their openings:
-    /// `world`, the depth the step left, except where a room's stamp holds it or the step drew
-    /// nothing, which take `before`, the depth seen before the step. The step is replayed once
-    /// more with its stamps left out, and a stamp holds a pixel where it is nearer than anything
-    /// the step draws there without it.
+    /// The depth each pixel sees after an indoor step, `step`: `world`, the depth the step left,
+    /// except where a room's stamp holds it or the step drew nothing, which take `before`, the
+    /// depth seen before the step. A step that stamps its rooms' openings is replayed once more
+    /// with its stamps left out, and a stamp holds a pixel where it is nearer than anything the
+    /// step draws there without it; a step that stamps none leaves its openings cleared.
     ///
     /// # Errors
     /// [`HifiError::Budget`] when its targets do not fit the video memory budget.
@@ -426,13 +421,22 @@ impl Compositor {
         before: &wgpu::TextureView,
         step: std::ops::Range<u32>,
     ) -> Result<wgpu::TextureView, HifiError> {
-        let unstamped = Self::unstamped_depth(
-            cx,
-            resources,
-            encoder,
-            step,
-            timer.writes("unstamped depth"),
-        )?;
+        let stamped = cx
+            .tables()
+            .draws
+            .iter()
+            .any(|d| step.contains(&d.cmd) && is_stamp(d));
+        let unstamped = if stamped {
+            Self::unstamped_depth(
+                cx,
+                resources,
+                encoder,
+                step,
+                timer.writes("unstamped depth"),
+            )?
+        } else {
+            world.clone()
+        };
         let p = self
             .seen_after_step
             .get_or_insert_with(|| make_seen_pipeline(cx.device(), "fs_step", 3));

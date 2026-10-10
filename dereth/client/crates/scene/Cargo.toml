@@ -23,6 +23,9 @@ d3d12 = ["dereth-render/d3d12"]
 # frame. Off unless a build asks for it; without it the scene builds no bridge and behaves exactly
 # as before.
 hifi = ["dep:dereth-render-hifi", "dereth-render/hifi", "dereth-client-runtime/hifi", "wgpu"]
+# Opt-in capture controls for the test and capture tools: the presentation's own (the weather's
+# masks and a frame clock), when it is built in.
+test-support = ["dereth-render-hifi?/capture"]
 # Tier switch only: no code is gated on it. It un-ignores the unit tests that read the retail dats
 # under $DERETH_TEST_DAT_DIR.
 retail-dats = []

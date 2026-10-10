@@ -438,6 +438,64 @@ pub fn present_day_group(region: &Region, year: u32, day: u32) -> Option<&SkyDay
     sky.day_groups.get(k)
 }
 
+/// A kind of day the sky can be drawn as, in place of the one the calendar gives (CD-039).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DayKind {
+    /// A clear day: its name says neither rain nor cloud ("Sunny" and "Clear" in the shipped
+    /// region).
+    Clear,
+    /// A rainy day: its name says rain ("Rainy").
+    Rainy,
+}
+
+impl DayKind {
+    /// Whether `group` is a day of this kind.
+    #[must_use]
+    pub fn is(self, group: &SkyDayPreset) -> bool {
+        let name = group.day_name.to_ascii_lowercase();
+        let rainy = name.contains("rain");
+        match self {
+            Self::Rainy => rainy,
+            Self::Clear => !rainy && !name.contains("cloud"),
+        }
+    }
+}
+
+/// The day group the sky is drawn with: the present day's, or with a kind of day asked for, the
+/// present day's when it is of that kind and otherwise the region's first that is. A region with
+/// no day of that kind keeps the present day's.
+#[must_use]
+pub fn drawn_day_group(
+    region: &Region,
+    year: u32,
+    day: u32,
+    asked: Option<DayKind>,
+) -> Option<&SkyDayPreset> {
+    let sky = region.sky_info.as_ref()?;
+    let present = calc_present_day_group(
+        year,
+        region.game_time.days_per_year,
+        day,
+        sky.day_groups.len(),
+    );
+    pick_day_group(&sky.day_groups, present, asked)
+}
+
+/// Of `groups`, the one drawn when the calendar gives the `present`th and `asked` is the kind of
+/// day asked for, as [`drawn_day_group`] chooses.
+#[must_use]
+pub fn pick_day_group(
+    groups: &[SkyDayPreset],
+    present: usize,
+    asked: Option<DayKind>,
+) -> Option<&SkyDayPreset> {
+    let own = groups.get(present)?;
+    match asked {
+        Some(kind) if !kind.is(own) => Some(groups.iter().find(|g| kind.is(g)).unwrap_or(own)),
+        _ => Some(own),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,6 +769,44 @@ mod tests {
             0,
             "an empty table is index 0"
         );
+    }
+
+    /// Behaviour: rendering.sky.weather-draws-the-kind-of-day-asked-for-and-auto-returns-to-the-days-own
+    #[test]
+    fn the_sky_is_drawn_as_the_kind_of_day_asked_for_and_otherwise_the_calendars() {
+        let named = |name: &str| SkyDayPreset {
+            day_name: name.into(),
+            ..group(vec![sky_time(0.0, 0.5, 0.5, 0)], Vec::new())
+        };
+        let groups: Vec<SkyDayPreset> = ["Cloudy", "Rainy", "Sunny", "Rainy", "Clear"]
+            .into_iter()
+            .map(named)
+            .collect();
+        for present in 0..groups.len() {
+            let own = &groups[present];
+            // Nothing asked: the calendar's day.
+            assert!(std::ptr::eq(
+                pick_day_group(&groups, present, None).unwrap(),
+                own
+            ));
+            // A rainy day asked for: the day's own when it rains, else the first rainy one.
+            let rainy = pick_day_group(&groups, present, Some(DayKind::Rainy)).unwrap();
+            let want = if present == 3 { 3 } else { 1 };
+            assert!(std::ptr::eq(rainy, &groups[want]), "day {present}");
+            // A clear day: neither rain nor cloud, the day's own when it is clear.
+            let clear = pick_day_group(&groups, present, Some(DayKind::Clear)).unwrap();
+            let want = if present == 4 { 4 } else { 2 };
+            assert!(std::ptr::eq(clear, &groups[want]), "day {present}");
+        }
+        assert!(DayKind::Rainy.is(&named("RAINY")));
+        assert!(!DayKind::Clear.is(&named("Cloudy")));
+        // A table with no day of the kind keeps the calendar's.
+        let dry: Vec<SkyDayPreset> = ["Sunny", "Cloudy"].into_iter().map(named).collect();
+        assert_eq!(
+            pick_day_group(&dry, 1, Some(DayKind::Rainy)).map(|g| g.day_name.as_str()),
+            Some("Cloudy")
+        );
+        assert_eq!(pick_day_group(&dry, 5, Some(DayKind::Rainy)), None);
     }
 
     /// Oracle: the heading is about +z and the rotation is a

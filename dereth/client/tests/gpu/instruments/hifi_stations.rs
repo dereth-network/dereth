@@ -33,6 +33,18 @@ const DOORWAY_ORIGIN: Vec3 = Vec3::new(136.29, 5.155, 94.082);
 /// An interior cell: a room of a building in the town.
 const INDOOR_CELL: u32 = 0xA9B4_0143;
 
+/// A block in the snowfields north-east of Holtburg where the land round the viewer is mostly
+/// snow: 85% of the vertices of it and its eight neighbours.
+const SNOW_FIELD: u16 = 0xB7C4;
+
+/// The nearest block to Holtburg with buildings whose every vertex is snow: five houses on a
+/// high plateau.
+const SNOW_VILLAGE: u16 = 0xA5D3;
+
+/// A snowy shore of the northern sea: snow to the south of the block and open sea to its north,
+/// 80% of the vertices of it and its eight neighbours snow.
+const SNOW_SHORE: u16 = 0x39EA;
+
 /// When in the calendar a station is drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Clock {
@@ -521,6 +533,70 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
             land_radius: 3,
         },
         Station {
+            name: "rain-porch",
+            why: "in the rain, a step outside the front door of the Holtburg house the doorway \
+                  station stands at, looking in: the room under the roof stays dry",
+            place: Place::Free {
+                block: HOLTBURG,
+                x: 134.3,
+                y: 5.2,
+                eye: 1.6,
+                yaw: -std::f32::consts::FRAC_PI_2,
+                pitch: -0.15,
+            },
+            clock: Clock::Rainy(0.5),
+            weather: true,
+            land_radius: 3,
+        },
+        Station {
+            name: "snow-field",
+            why: "a block of the snowfields north-east of Holtburg, from six metres up, on the \
+                  Rainy day: the weather falls as snow over snowy land",
+            place: Place::Free {
+                block: SNOW_FIELD,
+                x: 96.0,
+                y: 96.0,
+                eye: 6.0,
+                yaw: 0.4,
+                pitch: -0.14,
+            },
+            clock: Clock::Rainy(0.5),
+            weather: true,
+            land_radius: 3,
+        },
+        Station {
+            name: "snow-village",
+            why: "the nearest snowbound block with buildings to Holtburg, at eye height before \
+                  its houses, on the Rainy day: snow on the roofs and none under them",
+            place: Place::Free {
+                block: SNOW_VILLAGE,
+                x: 72.0,
+                y: 104.0,
+                eye: 1.8,
+                yaw: -0.87,
+                pitch: 0.0,
+            },
+            clock: Clock::Rainy(0.5),
+            weather: true,
+            land_radius: 3,
+        },
+        Station {
+            name: "snow-shore",
+            why: "a snowy shore of the northern sea from eight metres up, looking out to sea, on \
+                  the Rainy day: the snow lies on the land and never on the water",
+            place: Place::Free {
+                block: SNOW_SHORE,
+                x: 120.0,
+                y: 96.0,
+                eye: 8.0,
+                yaw: 0.0,
+                pitch: -0.2,
+            },
+            clock: Clock::Rainy(0.5),
+            weather: true,
+            land_radius: 3,
+        },
+        Station {
             name: "dusk",
             why: "the town in the evening with the sun five degrees up: the low warm light",
             place: town,
@@ -727,9 +803,10 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
 
 /// The stations the classic and modern interfaces' frames are compared with the base build's
 /// at: outdoors by day, at dusk and at night, in town and the wilds, at the lamps, at a doorway
-/// split between outdoors and a room, indoors, underground, round a body and in water.
+/// split between outdoors and a room, indoors, underground, round a body, in water, and in the
+/// rain and the snow of a rainy day.
 pub(crate) fn isolation_stations(store: &RetailDatStore) -> Vec<Station> {
-    const NAMES: [&str; 19] = [
+    const NAMES: [&str; 22] = [
         "holtburg",
         "forest",
         "vista",
@@ -749,6 +826,9 @@ pub(crate) fn isolation_stations(store: &RetailDatStore) -> Vec<Station> {
         "glade-1",
         "town-1",
         "dungeon",
+        "rain-street",
+        "rain-porch",
+        "snow-village",
     ];
     let all: Vec<Station> = stations(store)
         .into_iter()
@@ -1521,6 +1601,12 @@ impl Shot {
         }
         self.scene.stream(&self.store, gpu).expect("stream");
         self.draw(gpu);
+    }
+
+    /// Hold the camera at `position`, turned `yaw` and pitched `pitch` (radians), over the chase
+    /// camera, from the next step on.
+    pub(crate) fn hold_camera(&mut self, position: Vec3, yaw: f32, pitch: f32) {
+        self.front = Some((position, yaw, pitch));
     }
 
     /// Draw the station again as it stands, without stepping it.

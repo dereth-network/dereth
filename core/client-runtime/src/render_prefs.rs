@@ -541,6 +541,8 @@ pub enum FidelityFeature {
     Lamps,
     /// `Fidelity.Sky`.
     Sky,
+    /// `Fidelity.Weather`.
+    Weather,
     /// `Fidelity.Debug`.
     Debug,
 }
@@ -548,13 +550,14 @@ pub enum FidelityFeature {
 #[cfg(feature = "hifi")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Lighting,
         Self::Shadows,
         Self::GlobalIllumination,
         Self::AmbientOcclusion,
         Self::Lamps,
         Self::Sky,
+        Self::Weather,
         Self::Debug,
     ];
 
@@ -568,6 +571,7 @@ impl FidelityFeature {
             Self::AmbientOcclusion => fidelity::AMBIENT_OCCLUSION,
             Self::Lamps => fidelity::LAMPS,
             Self::Sky => fidelity::SKY,
+            Self::Weather => fidelity::WEATHER,
             Self::Debug => fidelity::DEBUG,
         }
     }
@@ -604,7 +608,7 @@ impl FidelityFeature {
 pub struct FidelityPreferences {
     /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
     /// ticked box is 1.
-    pub values: [u32; 7],
+    pub values: [u32; 8],
     /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
     /// interface choice at start-up and follows the interface shown after that. Off, every option
     /// is off in effect, whatever it stores.

@@ -91,6 +91,8 @@ impl WorldState {
             environment_override: EnvironmentOverrideState::default(),
             // Off by default in retail.
             always_daylight: false,
+            // The day's own until the player asks for another.
+            weather: crate::weather::Weather::Auto,
             // Behind and a little above, looking slightly down: the client camera's own
             // defaults are explicitly not reproduced here (see [`crate::camera`]).
             camera_orbit: (0.0, -0.20),

@@ -341,6 +341,10 @@ pub struct Interaction {
     /// Interaction has no world; App owns the sky clock and answers in that window.
     pending_time_of_day: Vec<(dereth_client_model::cmd::tod::TimeOfDayCommand, u32)>,
 
+    /// The weather commands typed this frame, each with the chat window it came from. App owns
+    /// the world the weather is drawn in and answers in that window.
+    pending_weather: Vec<(dereth_client_model::cmd::weather::WeatherCommand, u32)>,
+
     /// Ordered payloads from the title command. The live gameplay
     /// screen and its retained `PlayerModule` write-back share one App-owned delivery point.
     pending_chat_window_titles: Vec<(u32, String)>,
@@ -1053,6 +1057,14 @@ impl Interaction {
         &mut self,
     ) -> Vec<(dereth_client_model::cmd::tod::TimeOfDayCommand, u32)> {
         std::mem::take(&mut self.pending_time_of_day)
+    }
+
+    /// The weather commands typed since the last call, in command order, each with the chat
+    /// window its answer goes to.
+    pub fn take_weather_commands(
+        &mut self,
+    ) -> Vec<(dereth_client_model::cmd::weather::WeatherCommand, u32)> {
+        std::mem::take(&mut self.pending_weather)
     }
 
     /// Pending popup-title notices in command order.

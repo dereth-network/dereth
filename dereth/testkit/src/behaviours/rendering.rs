@@ -1105,6 +1105,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "rendering.sky.weather-draws-the-kind-of-day-asked-for-and-auto-returns-to-the-days-own",
+        says: "Asking for the weather with /weather draws the sky, its light and its fog as a day \
+               of that kind in place of the calendar's: rain and snow a rainy day, with its \
+               falling rain, and clear a day whose name says neither rain nor cloud; the day's own \
+               when it is already of that kind, else the region's first that is. Auto returns to \
+               the calendar's day at once, the calendar itself never having moved, and the land is \
+               relit under the new sky on the next frame.",
+        since: THIS_CLIENT,
+        divergence: "CD-043",
+        evidence: Evidence::Private("AC-EVID-SKY-WEATHER"),
+        station: "dereth-world-render::lib::sky::tests::the_sky_is_drawn_as_the_kind_of_day_asked_for_and_otherwise_the_calendars",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "rendering.surfaces.a-forced-alpha-pass-blends-only-what-the-alpha-test-cut",
         says: "Drawing a cut-out texture a second time, blended and without the cut-off, changes \
                only the pixels the first drawing left out, each blended at its own transparency, \

@@ -13,7 +13,7 @@ autotests = false
 # for every target, and the desktop client turns this off and forwards its own three.
 [features]
 # Opt-in fixture controls and observations.
-test-support = ["dereth-client-runtime/test-support"]
+test-support = ["dereth-client-runtime/test-support", "dereth-scene/test-support"]
 default = ["wgpu"]
 vulkan = ["dereth-scene/vulkan", "dereth-render/vulkan"]
 wgpu = ["dereth-scene/wgpu", "dereth-render/wgpu"]

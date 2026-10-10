@@ -1,6 +1,6 @@
 //! The optional high-fidelity presentation: draws the world a second time, from the frame the
 //! renderer recorded, with modern lighting, sun shadows, bounced light, occlusion, lamps and a
-//! physical sky, changing pixels only.
+//! physical sky and weather, changing pixels only.
 //!
 //! **Depends on** the device and its seam (`dereth-render`, feature `hifi`), the device-free half
 //! of rendering (`dereth-render-cpu`), `dereth-primitives`, `wgpu` and `glam`. **Used by** the
@@ -12,8 +12,8 @@
 //! The renderer records every frame as it always has. When the player turns this presentation
 //! on, the device hands the frame's recording to a [`HifiRenderer`] at the end of the frame
 //! instead of replaying it in one pass. The renderer replays the world into targets of its own,
-//! runs its passes over them (light, shadow, bounced light, occlusion, lamps, sky), composites
-//! the result into the world viewport, and the interface is drawn over it unchanged.
+//! runs its passes over them (light, shadow, bounced light, occlusion, lamps, sky, weather),
+//! composites the result into the world viewport, and the interface is drawn over it unchanged.
 //!
 //! Everything the game reads -- what is drawn, what can be picked, where the camera may go, what
 //! the server is told -- comes from the ordinary frame, which is recorded in full whether or not
@@ -133,7 +133,7 @@ impl DebugView {
 /// preferences onto it, and nothing here reads a preference itself. Everything is off by default.
 ///
 /// The light per pixel is the base the shadows, the bounced light and the lamps are drawn inside:
-/// without it they draw nothing. The occlusion and the sky stand on their own.
+/// without it they draw nothing. The occlusion, the sky and the weather stand on their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct HifiSettings {
     /// Per-pixel sun and sky light, high dynamic range, bloom and exposure. `Low` is the light
@@ -151,6 +151,8 @@ pub struct HifiSettings {
     pub lamps: Level,
     /// A physical sky and aerial perspective.
     pub sky: Level,
+    /// Rain, snow and wet ground, when the day's own weather brings them.
+    pub weather: Level,
     /// A diagnostic view.
     pub debug: DebugView,
 }
@@ -174,6 +176,7 @@ impl HifiSettings {
             (self.ambient_occlusion, before.ambient_occlusion),
             (self.lamps, before.lamps),
             (self.sky, before.sky),
+            (self.weather, before.weather),
         ];
         pairs.iter().any(|(now, was)| was.is_on() && !now.is_on())
             || (before.debug != DebugView::Off && self.debug != before.debug)
@@ -608,7 +611,7 @@ impl HifiRenderer {
                                     timer.writes("indoor replay"),
                                     &mut LegacyReplay,
                                 );
-                                if let Some(step) = composite::stamped_step(cx.tables()) {
+                                if let Some(step) = composite::indoor_step(cx.tables()) {
                                     world_depth = self.compositor.seen_after_step(
                                         cx,
                                         &mut self.resources,
@@ -635,10 +638,10 @@ impl HifiRenderer {
                     }
                     _ if slot == Slot::WorldReplay => {
                         let mut chain = Chain(filters);
-                        if let Some(step) = composite::stamped_step(cx.tables()) {
-                            // A frame whose rooms stamp their openings is replayed in two, so
-                            // the depth seen before it steps indoors is kept for what is seen
-                            // through them.
+                        if let Some(step) = composite::indoor_step(cx.tables()) {
+                            // A frame that steps indoors is replayed in two, so the depth seen
+                            // before the step is kept for what is seen through its rooms'
+                            // openings.
                             Compositor::replay_legacy(
                                 cx,
                                 encoder,
@@ -803,6 +806,13 @@ impl FrameSidecar for HifiRenderer {
         }
         let mut failure = None;
         for (_, pass) in self.graph.passes_mut() {
+            pass.observe(&mut PrepareCx {
+                seam: cx,
+                settings: &self.settings,
+                frame,
+                caps: &self.caps,
+                resources: &mut self.resources,
+            });
             let wanted = failure.is_none() && pass.wanted(&self.settings, frame, &self.caps);
             if wanted {
                 let mut pcx = PrepareCx {
@@ -822,6 +832,14 @@ impl FrameSidecar for HifiRenderer {
             return Err(self.fail(&e));
         }
         self.plan = None;
+        // No pass changes this frame (the weather's dry day, the sky indoors): the ordinary frame,
+        // without the replay into the presentation's own targets.
+        if !self.wanted.iter().any(|w| *w)
+            && self.settings.debug == DebugView::Off
+            && CompositeMode::for_settings(&self.settings) == CompositeMode::Overlay
+        {
+            return Ok(SidecarFrame::Plain);
+        }
         self.readiness = reshade::Readiness::default();
         self.recorded_draws = (0, 0);
         if CompositeMode::for_settings(&self.settings) == CompositeMode::Reshade {
@@ -887,6 +905,9 @@ impl FrameSidecar for HifiRenderer {
         report
             .notes
             .push(("pipelines built", self.pipelines.ready_count() as u64));
+        for (_, pass) in self.graph.passes() {
+            pass.notes(&mut report.notes);
+        }
     }
 
     fn settle(&mut self, timeout: std::time::Duration) -> bool {

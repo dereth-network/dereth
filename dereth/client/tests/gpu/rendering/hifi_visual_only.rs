@@ -296,47 +296,60 @@ fn a_session_walks_turns_and_offers_the_same_objects_with_the_presentation_on() 
 
 /// Behaviour: hifi.startup.a-device-that-cannot-draw-the-presentation-says-so
 /// A player who turns the presentation on while the client runs on a device that cannot draw it
-/// is told so once, on the channel the client's own refusals use, and the presentation stays
-/// off.
+/// is told why once, on the channel the client's own refusals use, and the presentation stays
+/// off: on another renderer, that it draws only on `wgpu`; on `wgpu` started without it, that the
+/// next start applies it, and never that it needs `wgpu`.
 #[test]
 fn turning_the_presentation_on_where_it_cannot_draw_tells_the_player_once() {
+    use dereth_client_contract::options::fidelity::{REFUSED_RENDERER, REFUSED_UNTIL_RESTART};
+    use dereth_client_contract::RendererChoice::{Vulkan, Wgpu};
     let _gpu = crate::common::gpu_lock();
-    let mut app = crate::common::app::app_with_recorded_body_with(|mut cfg| {
-        cfg.renderer = Some(dereth_client_contract::RendererChoice::Vulkan);
-        App::new(cfg)
-    });
-    // A line the client adds to the scroll is drained from it by the next frame, so each frame's
-    // queue is read once.
-    let told = |app: &App| {
-        app.objects()
-            .world
-            .scroll
-            .pending()
-            .iter()
-            .filter(|l| {
-                l.body == dereth_client_runtime::app::FIDELITY_REFUSED
-                    && l.chat_type == dereth_client_model::scroll::LOCAL_ERROR_TYPE
-            })
-            .count()
-    };
-    assert_eq!(told(&app), 0);
-    app.renderer_mut()
-        .world_mut()
-        .expect("the scene is loaded")
-        .cfg
-        .render
-        .fidelity = FidelityPreferences::parse_switch("Debug=1").expect("pass-through");
-    let added = app.objects().world.scroll.added;
-    let mut seen = 0;
-    for _ in 0..4 {
-        frames(&mut app, 1);
-        seen += told(&app);
-    }
-    assert_eq!(seen, 1, "the player is told once");
     assert_eq!(
-        app.objects().world.scroll.added,
-        added + 1,
-        "and nothing else is said"
+        dereth_client_runtime::app::FIDELITY_REFUSED,
+        REFUSED_RENDERER
     );
-    assert!(app.renderer().gpu.hifi_report().is_none());
+    for (renderer, why, not) in [
+        (Vulkan, REFUSED_RENDERER, REFUSED_UNTIL_RESTART),
+        (Wgpu, REFUSED_UNTIL_RESTART, REFUSED_RENDERER),
+    ] {
+        let mut app = crate::common::app::app_with_recorded_body_with(|mut cfg| {
+            cfg.renderer = Some(renderer);
+            App::new(cfg)
+        });
+        // A line the client adds to the scroll is drained from it by the next frame, so each
+        // frame's queue is read once.
+        let told = |app: &App, line: &str| {
+            app.objects()
+                .world
+                .scroll
+                .pending()
+                .iter()
+                .filter(|l| {
+                    l.body == line && l.chat_type == dereth_client_model::scroll::LOCAL_ERROR_TYPE
+                })
+                .count()
+        };
+        assert_eq!(told(&app, why), 0, "{renderer:?}");
+        app.renderer_mut()
+            .world_mut()
+            .expect("the scene is loaded")
+            .cfg
+            .render
+            .fidelity = FidelityPreferences::parse_switch("Debug=1").expect("pass-through");
+        let added = app.objects().world.scroll.added;
+        let (mut seen, mut wrong) = (0, 0);
+        for _ in 0..4 {
+            frames(&mut app, 1);
+            seen += told(&app, why);
+            wrong += told(&app, not);
+        }
+        assert_eq!(seen, 1, "{renderer:?}: the player is told once");
+        assert_eq!(wrong, 0, "{renderer:?}");
+        assert_eq!(
+            app.objects().world.scroll.added,
+            added + 1,
+            "{renderer:?}: and nothing else is said"
+        );
+        assert!(app.renderer().gpu.hifi_report().is_none(), "{renderer:?}");
+    }
 }

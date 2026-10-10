@@ -87,6 +87,10 @@ const FEATURES: &[(&str, &str)] = &[
     ("gi-indirect", "Lighting=3,GlobalIllumination=3,Debug=4"),
     // Outdoor lamps, lanterns, torches and braziers lit after dusk.
     ("lamps", "Lighting,Shadows,Lamps"),
+    // Rain, wet ground, puddles and snow on the game's rainy days, over the ordinary picture
+    // and inside the better lighting.
+    ("weather", "Weather"),
+    ("weather-lit", "Lighting,Weather"),
 ];
 
 /// The diagnostic views written beside each feature's frames, as `<station>-<view>.png`.
@@ -249,7 +253,7 @@ fn fidelity_for(feature: &str) -> Option<dereth_client_runtime::render_prefs::Fi
 /// Every box ticked, as the options page ticks them.
 #[cfg(feature = "hifi")]
 pub(crate) const EVERY_BOX: &str =
-    "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1";
+    "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1";
 
 /// Wait for the presentation's pipelines, so the frames captured are its whole picture.
 fn settle(gpu: &mut Gpu) {
@@ -731,5 +735,219 @@ fn capture_a_walk() {
             height,
         );
         eprintln!("{}: {frames} frames", station.name);
+    }
+}
+
+/// Where the weather is judged in motion: a body standing on the ground on the game's rainy day,
+/// seen from behind by a camera placed as Horizon's orbit camera starts. Each is a name, a block,
+/// the body's block-local place, the heading it and the camera face (radians from north), and
+/// the weather asked for.
+const MOTION_SPOTS: &[(&str, u16, f32, f32, f32, &str)] = {
+    use hifi_stations::HOLTBURG;
+    &[
+        // On the cobbles before a Holtburg shop's porch, facing it, in the rain: puddles round
+        // the body's feet that mirror the shop.
+        (
+            "shop-porch",
+            HOLTBURG,
+            84.0,
+            146.0,
+            std::f32::consts::PI,
+            "auto",
+        ),
+        // The hillside south of Holtburg, looking down it north-east toward the town.
+        ("hillside", HOLTBURG, 116.11, 64.77, -0.6544, "auto"),
+        // Before the shop with snow asked for: snow on its roof and the cobbles.
+        (
+            "shop-snow",
+            HOLTBURG,
+            84.0,
+            146.0,
+            std::f32::consts::PI,
+            "snow",
+        ),
+        // The town's houses from the grass by the street, snow asked for: the roofs.
+        ("street-snow", HOLTBURG, 128.0, 120.0, 0.75, "snow"),
+        // The snowbound village, where the land itself is snow, before a stone platform and
+        // its houses.
+        ("snow-village", 0xA5D3, 95.0, 123.0, -0.87, "auto"),
+    ]
+};
+
+/// Horizon's orbit camera as it starts: how far behind the body and how high over its feet the
+/// camera stands, and its pitch.
+fn orbit_follow() -> (f32, f32, f32) {
+    use dereth_client_runtime::orbit::{DEFAULT_DISTANCE, DEFAULT_PITCH, PIVOT_HEIGHT};
+    use dereth_primitives::num::math::{cosf, sinf};
+    (
+        DEFAULT_DISTANCE * cosf(DEFAULT_PITCH),
+        PIVOT_HEIGHT - DEFAULT_DISTANCE * sinf(DEFAULT_PITCH),
+        DEFAULT_PITCH,
+    )
+}
+
+/// The weather in motion: each spot of [`MOTION_SPOTS`] named in `DERETH_HIFI_STATIONS` (all by
+/// default) drawn with the first feature of `DERETH_HIFI_CAPTURE` (or off, with `off`), at the
+/// frame rate `DERETH_HIFI_WEATHER_FRAME_CLOCK` names (default 60; the weather's clock steps by
+/// frames only when it is set as the process starts), for `DERETH_HIFI_MOTION_SECONDS` seconds
+/// (default 1) of each move of `DERETH_HIFI_MOTION` (default `still,walk,orbit,turn`):
+///
+/// - `still`: nothing moves but the weather;
+/// - `walk`: the body walks ahead at four metres a second, the camera behind it;
+/// - `orbit`: the camera swings round the body at the look keys' rate;
+/// - `turn`: the camera turns where it stands at the same rate.
+///
+/// Every frame is written as `<root>/motion-<feature>/<spot>-<move>-<fps>/NNN.png`, with a strip
+/// of eight of them beside the folder.
+#[test]
+#[ignore = "instrument: writes PNGs; run with DERETH_HIFI_CAPTURE_DIR set and --ignored"]
+#[allow(clippy::too_many_lines)]
+fn capture_the_weather_in_motion() {
+    use dereth_client_runtime::weather::Weather;
+    use dereth_primitives::Vec3;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let (width, height) = size();
+    let feature = features()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "off".into());
+    let list = |name: &str, default: &str| -> Vec<String> {
+        env(name)
+            .unwrap_or_else(|| default.to_owned())
+            .split(',')
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+    let fps: u32 = env("DERETH_HIFI_WEATHER_FRAME_CLOCK")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| {
+            eprintln!(
+                "DERETH_HIFI_WEATHER_FRAME_CLOCK is not set: the weather runs on the wall clock"
+            );
+            60
+        });
+    let moves = list("DERETH_HIFI_MOTION", "still,walk,orbit,turn");
+    let seconds: f32 = env("DERETH_HIFI_MOTION_SECONDS")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1.0);
+    let wanted_spot = |name: &str| {
+        env("DERETH_HIFI_STATIONS").is_none_or(|l| {
+            l.eq_ignore_ascii_case("all")
+                || l.split(',').any(|s| s.trim().eq_ignore_ascii_case(name))
+        })
+    };
+    let dir = root().join(format!("motion-{feature}"));
+    std::fs::create_dir_all(&dir).expect("the capture folder");
+    let (back, up, pitch) = orbit_follow();
+    // The look keys' rate, radians a second, and a walker's pace, metres a second.
+    let (turn_rate, pace) = (dereth_client_runtime::orbit::KEY_TURN, 4.0f32);
+    // `DERETH_HIFI_MOTION_AT=<block hex>,<x>,<y>,<heading>[,rain|snow]`: one more spot, named
+    // `at`.
+    let extra: Vec<(&str, u16, f32, f32, f32, &str)> = env("DERETH_HIFI_MOTION_AT")
+        .and_then(|v| {
+            let f: Vec<&str> = v.split(',').map(str::trim).collect();
+            let asked = match f.get(4).copied() {
+                Some("rain") => "rain",
+                Some("snow") => "snow",
+                _ => "auto",
+            };
+            Some((
+                "at",
+                u16::from_str_radix(f.first()?.trim_start_matches("0x"), 16).ok()?,
+                f.get(1)?.parse().ok()?,
+                f.get(2)?.parse().ok()?,
+                f.get(3)?.parse().ok()?,
+                asked,
+            ))
+        })
+        .into_iter()
+        .collect();
+    for &(name, block, x, y, heading, asked) in MOTION_SPOTS.iter().chain(&extra) {
+        if !wanted_spot(name) {
+            continue;
+        }
+        let station = Station {
+            name,
+            why: "a body on the ground in the weather, seen from the orbit camera",
+            place: hifi_stations::Place::Ground {
+                block,
+                x,
+                y,
+                yaw: heading.to_degrees(),
+            },
+            clock: hifi_stations::Clock::Rainy(0.5),
+            weather: true,
+            land_radius: 3,
+        };
+        let asked = match asked {
+            "rain" => Weather::Rain,
+            "snow" => Weather::Snow,
+            _ => Weather::Auto,
+        };
+        for motion in &moves {
+            let mut device = device(width, height);
+            let gpu = &mut device;
+            let mut shot = Shot::open(&store, gpu, &station);
+            shot.scene.weather = asked;
+            #[cfg(feature = "hifi")]
+            if let Some(prefs) = (feature != "off").then(|| fidelity_for(&feature)).flatten() {
+                shot.scene.draw.cfg.render.fidelity = prefs;
+            }
+            shot.poll(gpu);
+            shot.follow = Some([back, up, pitch, heading]);
+            for _ in 1..WARM {
+                shot.step(gpu);
+                settle(gpu);
+            }
+            let feet = shot
+                .scene
+                .character
+                .as_ref()
+                .map(|c| c.render_frame().origin)
+                .expect("a body");
+            let (ax, ay) = (
+                -dereth_primitives::num::math::sinf(heading),
+                dereth_primitives::num::math::cosf(heading),
+            );
+            let eye = Vec3::new(feet.x - ax * back, feet.y - ay * back, feet.z + up);
+            let folder = dir.join(format!("{name}-{motion}-{fps}"));
+            std::fs::create_dir_all(&folder).expect("the sequence's folder");
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss
+            )]
+            let frames = ((seconds * fps as f32).round() as usize).max(1);
+            let mut kept = Vec::new();
+            for k in 0..frames {
+                #[allow(clippy::cast_precision_loss)] // a few hundred frames
+                let at = k as f32 / fps as f32;
+                match motion.as_str() {
+                    "walk" => shot.walk_to(&station, pace * at),
+                    "orbit" => {
+                        shot.follow = Some([back, up, pitch, heading + turn_rate * at]);
+                    }
+                    "turn" => shot.hold_camera(eye, heading + turn_rate * at, pitch),
+                    _ => {}
+                }
+                shot.step(gpu);
+                let rgba = capture(gpu);
+                write_png(&folder.join(format!("{k:03}.png")), width, height, &rgba);
+                if k * 8 / frames != (k + 1) * 8 / frames {
+                    kept.push(rgba);
+                }
+            }
+            kept.truncate(8);
+            let rows: Vec<Vec<Vec<u8>>> = kept.chunks(4).map(<[Vec<u8>]>::to_vec).collect();
+            write_grid(
+                &dir.join(format!("{name}-{motion}-{fps}-strip.png")),
+                &rows,
+                width,
+                height,
+            );
+            eprintln!("{name} {motion} at {fps} frames a second: {frames} frames");
+        }
     }
 }

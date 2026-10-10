@@ -99,6 +99,11 @@ pub trait HifiPass {
     /// The pass's name, as the capture and timing tools spell it.
     fn name(&self) -> &'static str;
 
+    /// Follow the frame before it is decided whether the pass runs: called on every frame the
+    /// presentation is on, whether or not the pass is wanted, so a pass can keep what the frame
+    /// hands over only once (a block's retained geometry) and step what changes with time.
+    fn observe(&mut self, _cx: &mut PrepareCx<'_, '_>) {}
+
     /// Whether the pass runs this frame. False whenever its option is off, the device lacks
     /// what it needs, or its resources are not ready yet.
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, caps: &Caps) -> bool;
@@ -123,6 +128,9 @@ pub trait HifiPass {
     /// # Errors
     /// As for [`HifiPass::prepare`].
     fn encode(&mut self, cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError>;
+
+    /// Counts the pass reports with the frame: what it holds, for the capture and timing tools.
+    fn notes(&self, _notes: &mut Vec<(&'static str, u64)>) {}
 }
 
 /// The passes, each in its slot.
@@ -165,6 +173,11 @@ impl Graph {
     }
 
     /// Every pass with its slot, in the order they run.
+    pub fn passes(&self) -> impl Iterator<Item = (Slot, &(dyn HifiPass + 'static))> {
+        self.passes.iter().map(|(s, p)| (*s, p.as_ref()))
+    }
+
+    /// Every pass with its slot, in the order they run, to change.
     pub fn passes_mut(&mut self) -> impl Iterator<Item = (Slot, &mut (dyn HifiPass + 'static))> {
         self.passes.iter_mut().map(|(s, p)| (*s, p.as_mut()))
     }

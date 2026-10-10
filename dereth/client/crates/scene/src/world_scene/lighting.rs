@@ -180,6 +180,18 @@ pub(super) fn blend_override_color(base: u32, target: u32, transition: f32) -> u
     channel(24) | channel(16) | channel(8) | channel(0)
 }
 
+/// The kind of day `@weather` asks the sky to be drawn as (CD-039): none for the day's own, a
+/// clear day, or a rainy one for rain and for snow, whose snow only the Weather effect draws.
+pub(crate) fn asked_day(ws: &WorldState) -> Option<dereth_world_render::sky::DayKind> {
+    use dereth_client_runtime::weather::Weather;
+    use dereth_world_render::sky::DayKind;
+    match ws.weather {
+        Weather::Auto => None,
+        Weather::Clear => Some(DayKind::Clear),
+        Weather::Rain | Weather::Snow => Some(DayKind::Rainy),
+    }
+}
+
 pub(super) fn color_rgb(color: u32) -> [u8; 3] {
     [
         u8::try_from((color >> 16) & 0xFF).unwrap_or(0),
@@ -224,10 +236,11 @@ impl SceneDraw {
         } else {
             ws.clock.present_time_of_day
         };
-        let Some(group) = dereth_world_render::sky::present_day_group(
+        let Some(group) = dereth_world_render::sky::drawn_day_group(
             self.sky_region.as_deref().unwrap_or(&self.land.region),
             ws.clock.current_year,
             ws.clock.current_day,
+            asked_day(ws),
         ) else {
             return false;
         };
@@ -346,10 +359,11 @@ impl SceneDraw {
                 false,
             );
         }
-        let Some(group) = dereth_world_render::sky::present_day_group(
+        let Some(group) = dereth_world_render::sky::drawn_day_group(
             self.sky_region.as_deref().unwrap_or(&self.land.region),
             ws.clock.current_year,
             ws.clock.current_day,
+            asked_day(ws),
         ) else {
             return (
                 dereth_render::camera::FogParams {
@@ -418,8 +432,8 @@ impl SceneDraw {
             // needs the elapsed time to scale by.
             sky.use_time(
                 self.sky_region.as_deref().unwrap_or(&self.land.region),
-                year,
-                day,
+                (year, day),
+                asked_day(ws),
                 t,
                 dt,
             );

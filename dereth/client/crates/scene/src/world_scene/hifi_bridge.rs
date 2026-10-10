@@ -20,8 +20,8 @@ use std::collections::HashMap;
 
 use dereth_client_runtime::render_prefs::{FidelityFeature, FidelityPreferences};
 use dereth_render_hifi::snapshot::{
-    HifiCamera, HifiFog, HifiFrame, HifiLamp, HifiLight, HifiSky, HifiSkyObject, HifiStaticBatch,
-    HifiStaticBlock, HifiTerrainBlock, LampSource,
+    AskedFall, HifiCamera, HifiFog, HifiFrame, HifiLamp, HifiLight, HifiSky, HifiSkyObject,
+    HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
 
@@ -114,6 +114,7 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
             Level::Off
         },
         sky: level_of(raw(FidelityFeature::Sky), Level::High),
+        weather: level_of(raw(FidelityFeature::Weather), Level::High),
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
 }
@@ -313,10 +314,11 @@ fn snapshot(
     let sun = v3(lighting.sunlight);
     let fog = draw.world_fog_state(ws);
     let region = draw.sky_region();
-    let group = dereth_world_render::sky::present_day_group(
+    let group = dereth_world_render::sky::drawn_day_group(
         region,
         ws.clock.current_year,
         ws.clock.current_day,
+        super::lighting::asked_day(ws),
     );
     frame.sky = HifiSky {
         sun_direction: sun.normalize_or_zero(),
@@ -350,6 +352,15 @@ fn snapshot(
         day_group: group.map(|g| g.day_name.clone()).unwrap_or_default(),
         weather_enabled: draw.weather_enabled().unwrap_or(false),
         outdoor: ws.viewer_cell().is_none(),
+        sees_outside: ws
+            .viewer_cell()
+            .is_none_or(|cell| ws.cell_seen_outside(cell)),
+        asked_fall: match ws.weather {
+            dereth_client_runtime::weather::Weather::Rain => AskedFall::Rain,
+            dereth_client_runtime::weather::Weather::Snow => AskedFall::Snow,
+            dereth_client_runtime::weather::Weather::Auto
+            | dereth_client_runtime::weather::Weather::Clear => AskedFall::Land,
+        },
         time_of_day: ws.clock.present_time_of_day,
         year: ws.clock.current_year,
         day: ws.clock.current_day,
@@ -578,6 +589,7 @@ mod tests {
             n::AMBIENT_OCCLUSION => s.ambient_occlusion,
             n::LAMPS => s.lamps,
             n::SKY => s.sky,
+            n::WEATHER => s.weather,
             _ => unreachable!("{name}"),
         }
     }
@@ -590,7 +602,7 @@ mod tests {
             HifiSettings::default()
         );
         // Every box ticked, under another interface: nothing on.
-        let mut every = boxes(0b11_1111);
+        let mut every = boxes(0b111_1111);
         every.interface = false;
         assert_eq!(settings(&every, true), HifiSettings::default());
         assert!(!settings(&every, true).any_effective());
@@ -610,6 +622,7 @@ mod tests {
         );
         assert_eq!(on.lamps, Level::High);
         assert_eq!(on.sky, Level::High);
+        assert_eq!(on.weather, Level::High);
         assert_eq!(on.debug, DebugView::Off);
         // A capture's level past a tick is kept.
         let mut rig = FidelityPreferences::parse_switch("Lighting=3,Shadows=4,Debug=6").unwrap();
@@ -620,7 +633,7 @@ mod tests {
         assert!(!settings(&rig, true).any_effective());
     }
 
-    /// Every combination of the six boxes, with and without ray queries: a box draws exactly when
+    /// Every combination of the seven boxes, with and without ray queries: a box draws exactly when
     /// it is ticked and the page does not grey it, nothing is re-shaded without the better
     /// lighting, and a dependent comes back when its prerequisite is ticked again.
     ///
@@ -628,7 +641,7 @@ mod tests {
     #[test]
     fn every_combination_of_the_boxes_draws_only_what_its_prerequisites_allow() {
         for rays in [false, true] {
-            for ticked in 0..64u32 {
+            for ticked in 0..128u32 {
                 let prefs = boxes(ticked);
                 let s = settings(&prefs, rays);
                 let is = |name: &str| {
@@ -643,14 +656,14 @@ mod tests {
                     assert_eq!(
                         drawn,
                         is(o.name) && !greyed,
-                        "{} with boxes {ticked:06b}, rays {rays}",
+                        "{} with boxes {ticked:07b}, rays {rays}",
                         o.name
                     );
                 }
                 assert_eq!(
                     CompositeMode::for_settings(&s) == CompositeMode::Reshade,
                     s.lighting.is_on(),
-                    "boxes {ticked:06b}: re-shaded exactly with the better lighting"
+                    "boxes {ticked:07b}: re-shaded exactly with the better lighting"
                 );
                 if !s.lighting.is_on() {
                     assert!(
@@ -660,12 +673,12 @@ mod tests {
             }
         }
         // Lighting off keeps the dependents' ticks; on again, they draw again.
-        let both = boxes(0b00_0011);
+        let both = boxes(0b000_0011);
         assert!(settings(&both, true).shadows.is_on());
-        let unlit = boxes(0b00_0010);
+        let unlit = boxes(0b000_0010);
         assert!(!settings(&unlit, true).shadows.is_on());
         assert_eq!(unlit.value(FidelityFeature::Shadows), 1);
-        assert_eq!(settings(&boxes(0b00_0011), true), settings(&both, true));
+        assert_eq!(settings(&boxes(0b000_0011), true), settings(&both, true));
     }
 
     /// The planes come back out of the projection they went into.

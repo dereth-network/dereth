@@ -167,7 +167,7 @@ fn every_station_records_and_draws_what_the_base_build_did() {
     let store = crate::common::dats();
     let stations = hifi_stations::isolation_stations(&store);
     let every_box = dereth_client_runtime::render_prefs::FidelityPreferences::parse_switch(
-        "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Interface=0",
+        "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1,Interface=0",
     )
     .expect("every box under another interface");
     let mut backends = vec![Backend::Wgpu, Backend::Vulkan];
@@ -375,7 +375,7 @@ mod presentation {
         let mut gpu = wgpu_device(W, H, true);
         let mut shot = still_view(&store, &mut gpu);
         let every_box =
-            "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1";
+            "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1";
         assert!(!set(&mut shot, &mut gpu, FidelityPreferences::default()));
         assert!(gpu.hifi_sidecar_mut().is_none());
         assert!(set(
@@ -518,7 +518,7 @@ mod presentation {
 
     /// Every box, as the options page ticks them.
     const EVERY_BOX: &str =
-        "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1";
+        "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1";
 
     /// [`frame`], with the scene's census.
     fn frame_and_census(
@@ -535,8 +535,9 @@ mod presentation {
     }
 
     /// Behaviour: hifi.off.leaving-horizon-with-every-box-ticked-restores-everything
-    /// At the town by day, at night, under the street lamps, at a doorway and underground, each
-    /// on a device of its own: a frame drawn with every box ticked under Horizon for thirty
+    /// At the town by day, at night, under the street lamps, at a doorway, underground, in the
+    /// town's street in the rain and in a snowbound village, each on a device of its own: a frame
+    /// drawn with every box ticked under Horizon for thirty
     /// frames and then left by leaving Horizon is, once it is left, the frame drawn before, pixel
     /// for pixel, with the same recording, draws, textures, texture slots, render passes and
     /// scene census, and every object the device holds by its own count, its memory included,
@@ -546,7 +547,15 @@ mod presentation {
     fn leaving_horizon_with_every_box_ticked_restores_every_pixel_counter_and_device_object() {
         let _gpu = crate::common::gpu_lock();
         let store = crate::common::dats();
-        let names = ["holtburg", "night", "lamps-street", "doorway", "dungeon"];
+        let names = [
+            "holtburg",
+            "night",
+            "lamps-street",
+            "doorway",
+            "dungeon",
+            "rain-street",
+            "snow-village",
+        ];
         let stations: Vec<_> = hifi_stations::isolation_stations(&store)
             .into_iter()
             .filter(|s| names.contains(&s.name))

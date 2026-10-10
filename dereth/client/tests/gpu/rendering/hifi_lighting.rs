@@ -22,7 +22,7 @@ const H: u32 = 540;
 const STEPS: usize = 40;
 /// Every box, as the options page ticks them.
 const EVERY_BOX: &str =
-    "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1";
+    "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1";
 
 fn device() -> Gpu {
     let cfg = DeviceConfig {

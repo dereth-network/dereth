@@ -520,6 +520,26 @@ mod tests {
         );
     }
 
+    /// Behaviour: chat.commands.weather-is-answered-by-this-client-and-never-sent
+    #[test]
+    fn weather_is_this_clients_own_command_and_a_longer_word_is_the_servers() {
+        let mut c = CommandInterp::new();
+        c.add_turbine_chat_commands();
+        for line in ["/weather snow", "@WEATHER snow"] {
+            match c.on_chat_command(line, 1, TalkFocus::Say) {
+                CommandOutcome::Handled { handler, args, .. } => {
+                    assert_eq!(handler, CommandHandler::Weather, "{line}");
+                    assert_eq!(args, vec!["snow"], "{line}");
+                }
+                other => panic!("{line}: {other:?}"),
+            }
+        }
+        assert_eq!(
+            c.on_chat_command("@weatherman", 1, TalkFocus::Say),
+            CommandOutcome::ForwardVerbatim("@weatherman".into())
+        );
+    }
+
     /// Oracle: the recovered command-interpreter behavior §2 — only windows 1 and 8 are routed by talk focus.
     #[test]
     fn only_two_windows_honour_the_talk_focus() {

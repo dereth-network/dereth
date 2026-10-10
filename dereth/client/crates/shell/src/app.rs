@@ -1025,6 +1025,103 @@ mod tests {
         );
     }
 
+    /// Pick wgpu, tick, restart: a player in Horizon on Vulkan who chooses wgpu for the next start
+    /// and ticks a box on the page leaves, at the save, a profile whose next start comes up on
+    /// wgpu with the device asked for what the presentation draws with.
+    ///
+    /// Behaviour: hifi.startup.the-device-is-widened-only-on-wgpu-in-horizon-with-a-box-ticked
+    #[test]
+    #[cfg(feature = "hifi")]
+    fn a_box_ticked_on_vulkan_with_wgpu_chosen_starts_the_next_run_on_the_widened_wgpu_device() {
+        use dereth_client_contract::options::fidelity::{self, Availability};
+        use dereth_client_contract::options::renderer::{self, RendererStatus};
+        use dereth_client_contract::options::store;
+        use dereth_client_contract::persist::preferences::UserPreferences;
+        use dereth_client_contract::{PrefValue, RendererChoice, UiRequest};
+        use dereth_horizon::ui::panels::{options::tab, WindowId};
+        use dereth_render::device::Backend;
+
+        // The profile the client started with: Horizon, nothing ticked, no renderer chosen.
+        store::init();
+        let started = UserPreferences::parse("[UI]\nInterface=Horizon\n").expect("a profile");
+        store::load(&started);
+        // Drawing on Vulkan, and wgpu chosen on the page for the next start.
+        let state = dereth_horizon::ui::game::GameState {
+            in_world: true,
+            name: "Tester".into(),
+            hifi: Availability {
+                built: true,
+                ..Availability::default()
+            },
+            renderers: RendererStatus {
+                offered: vec![RendererChoice::Vulkan, RendererChoice::Wgpu],
+                running: Some(RendererChoice::Vulkan),
+                ..RendererStatus::default()
+            },
+            ..Default::default()
+        };
+        assert!(store::set_value(
+            renderer::RENDERER,
+            PrefValue::Int(renderer::value(RendererChoice::Wgpu))
+        ));
+        // The Client page, scrolled to the effects.
+        let mut ui = dereth_horizon::ui::HorizonUi::new(
+            std::sync::Arc::new(dereth_horizon::art::Art::empty()),
+            dereth_horizon::options::HorizonOptions::default(),
+        );
+        let mut list = dereth_horizon::draw::DrawList::default();
+        let mut input = dereth_horizon::ui::input::InputFrame::default();
+        let mut frame = |ui: &mut dereth_horizon::ui::HorizonUi,
+                         input: &mut dereth_horizon::ui::input::InputFrame| {
+            let out = ui.frame(&mut list, (1920.0, 1080.0), 1.0 / 60.0, &state, input);
+            input.next_frame();
+            out.requests
+        };
+        frame(&mut ui, &mut input);
+        ui.windows.open(WindowId::Options, 0.0);
+        ui.windows.options_page.tab = tab::CLIENT;
+        frame(&mut ui, &mut input);
+        ui.windows.options_page.scroll[tab::CLIENT] = 1.0e6;
+        frame(&mut ui, &mut input);
+        frame(&mut ui, &mut input);
+        // A click on the better lighting's box.
+        let lighting = fidelity::find(dereth_client_contract::options::names::fidelity::LIGHTING)
+            .expect("the lighting's box");
+        let r = ui
+            .windows
+            .options_page
+            .control(lighting.caption)
+            .expect("the lighting's row");
+        input.mouse = (r.x + 10.0, r.y + r.h / 2.0);
+        input.down[0] = true;
+        input.pressed[0] = true;
+        let mut asked = frame(&mut ui, &mut input);
+        input.down[0] = false;
+        input.released[0] = true;
+        asked.extend(frame(&mut ui, &mut input));
+        assert!(
+            asked.iter().any(|r| matches!(
+                r,
+                UiRequest::SetPreference(n, PrefValue::Bool(true)) if *n == lighting.name
+            )),
+            "the box ticks: {asked:?}"
+        );
+        // Saved at quit, and read by the next start.
+        let mut saved = started;
+        store::save_into(&mut saved);
+        let next = Config::from_args_and_prefs_with(
+            &[],
+            &dereth_client_runtime::config::Preferences::parse(&saved.to_text()),
+        )
+        .expect("the saved profile starts");
+        assert_eq!(
+            startup_device(&next, Backend::Vulkan, true),
+            (Backend::Wgpu, true),
+            "{}",
+            saved.to_text()
+        );
+    }
+
     /// The host's physical resize reaches both the real backbuffer and the UI coordinate space, so
     /// the picture is the window's real pixels at any desktop scaling (retail runs DPI-unaware and
     /// lets Windows scale it). Client divergence CD-004.

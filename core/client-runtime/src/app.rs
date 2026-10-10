@@ -235,10 +235,12 @@ pub(crate) fn kept_for_the_next_world(name: &str) -> bool {
 }
 
 /// What the player is told when a box of the optional high-fidelity presentation is ticked and
-/// the device the client is drawing with cannot draw it: it draws only on the `wgpu` renderer,
-/// and only on a device asked for it at start-up, when the client starts in the Horizon
-/// interface with a box ticked.
-pub const FIDELITY_REFUSED: &str = "The experimental rendering effects are off on this renderer: they draw only on the wgpu renderer (the Renderer choice on Horizon's Client page, or Renderer=wgpu), and a box first ticked takes effect at the next start.";
+/// the client draws with a renderer other than `wgpu`, the only one it draws on, and no restart
+/// onto `wgpu` is chosen. Otherwise the player is told what the device and the renderer chosen
+/// for the next start say ([`dereth_client_contract::options::fidelity::Availability::refusal`]):
+/// the presentation draws only on a device asked for it at start-up, when the client starts in the
+/// Horizon interface on `wgpu` with a box ticked, so a box first ticked takes effect at that start.
+pub const FIDELITY_REFUSED: &str = dereth_client_contract::options::fidelity::REFUSED_RENDERER;
 
 /// Consume `UiRequest::OpenUrl` requests from the two support-ticket buttons.
 ///
@@ -703,6 +705,10 @@ pub struct App<S: Shell> {
     /// follows it as it changes ([`crate::ui_context::UiContext::set_hifi_interface`]).
     #[cfg(feature = "hifi")]
     pub hifi_interface: bool,
+    /// What the player has been told this session of a box of the presentation that this device
+    /// cannot draw: each line is said once.
+    #[cfg(feature = "hifi")]
+    fidelity_told: Vec<&'static str>,
     /// A look stick's push, each axis from -1 to 1, which turns the orbit camera every frame.
     pub orbit_look: (f32, f32),
     /// Every animated body drawn between its animation's keyframes, as an interface asked

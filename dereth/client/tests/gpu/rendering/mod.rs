@@ -18,8 +18,12 @@ mod hifi_atmosphere;
 #[cfg(feature = "hifi")]
 mod hifi_lighting;
 mod hifi_off;
+#[cfg(feature = "hifi")]
+mod hifi_options;
 mod hifi_reshade;
 mod hifi_visual_only;
+#[cfg(feature = "hifi")]
+mod hifi_weather;
 mod highres_texture_policy;
 mod hud_raster;
 mod indoor_depth_clear;
