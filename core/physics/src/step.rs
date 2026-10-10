@@ -728,9 +728,10 @@ impl PhysicsWorld {
             self.last_physics_time = now.0;
             return false;
         }
-        if elapsed < globals::MIN_QUANTUM {
+        if !globals::tick_is_due(elapsed) {
             // Below the gate nothing in physics moves at all, and the residual elapsed time is
-            // carried forward because last_physics_time is NOT updated.
+            // carried forward because last_physics_time is NOT updated. The gate is the quantum
+            // less `TICK_TOLERANCE` (CD-042).
             return false;
         }
 

@@ -225,9 +225,7 @@ fn cached_velocity_is_the_achieved_velocity_not_the_requested_one() {
     let h = spawn(&mut w, 1, 100.0, 100.0, 20.0);
     walk(&mut w, h, Vec3::new(0.15, 0.0, 0.0), 200);
     // 20 fps: every frame clears the 30 Hz gate cleanly, so each sub-step is exactly 0.05 s and
-    // the achieved velocity is 0.15 / 0.05 = 3 m/s. (At exactly 30 fps the accumulated wall clock
-    // straddles the gate and roughly every other frame is skipped, which is correct behaviour but
-    // makes the arithmetic here ambiguous.)
+    // the achieved velocity is 0.15 / 0.05 = 3 m/s.
     let _ = run(&mut w, 1.0, 20.0);
     let o = w.get(h).expect("live");
     assert!(
@@ -250,10 +248,11 @@ fn cached_velocity_is_the_achieved_velocity_not_the_requested_one() {
 
 #[test]
 fn the_thirty_hertz_gate_bounds_how_often_physics_runs() {
-    // Whatever the frame rate, the gate opens at most 30 times a second: two seconds cost at most
-    // ~60 ticks even at 250 fps. It can open slightly *less* often than 30 Hz, because the
-    // accumulated wall clock straddles `1/30` and the residual is carried forward rather than
-    // dropped - that is the same float behaviour the client has.
+    // Whatever the frame rate, the gate opens at most once per quantum less its tolerance: two
+    // seconds cost at most 64 ticks even at 250 fps, where every eighth frame opens it (31.25 Hz).
+    // It can open less often than 30 Hz, because the stamp is the frame's time and the residual
+    // past the quantum is discarded.
+    let most = (2.0 / (globals::MIN_QUANTUM - globals::TICK_TOLERANCE)).floor() + 1.0;
     let mut positions = Vec::new();
     for fps in [250.0_f64, 120.0, 60.0] {
         let mut w = flat_world();
@@ -261,8 +260,8 @@ fn the_thirty_hertz_gate_bounds_how_often_physics_runs() {
         walk(&mut w, h, Vec3::new(0.15, 0.0, 0.0), 400);
         let ticks = run(&mut w, 2.0, fps);
         assert!(
-            ticks <= 61,
-            "{fps} fps produced {ticks} physics ticks in 2 s; the gate is 30 Hz"
+            f64::from(ticks) <= most,
+            "{fps} fps produced {ticks} physics ticks in 2 s; the gate allows {most}"
         );
         assert!(ticks >= 40, "{fps} fps produced only {ticks} ticks");
         positions.push((fps, ticks, w.get(h).expect("live").position.frame.origin.x));

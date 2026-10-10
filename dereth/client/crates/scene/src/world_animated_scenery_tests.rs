@@ -153,6 +153,15 @@ fn the_butterfly_west_of_shoushi_is_a_live_object_whose_wings_move_from_frame_to
             host.animate(t + 0.04),
             "{name}: the carried time is spent on the next frame"
         );
+        // It steps when the world's physics would: a frame within the tick's tolerance of a whole
+        // quantum (two frames of a 60 Hz display, read a little early) is a step.
+        let t = t + 0.04;
+        assert!(
+            host.animate(t + 0.032),
+            "{name}: a frame a millisecond and a third short of the quantum is a step, as it is \
+             for the world"
+        );
+        let t = t + 0.032;
         let before = pose(&host);
         assert!(
             !host.animate(t + 3.0),

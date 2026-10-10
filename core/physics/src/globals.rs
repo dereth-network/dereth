@@ -59,6 +59,28 @@ pub const SLED_LOW_FRICTION: f32 = 0.2;
 
 /// `MIN_QUANTUM`. A `double` in the original.
 pub const MIN_QUANTUM: f64 = 1.0 / 30.0;
+
+/// How far short of [`MIN_QUANTUM`] the time since the last physics tick may fall and still open
+/// the next one. This client's own rule (CD-042); the final client waited for the whole quantum.
+///
+/// A tick stamps the time it was taken and discards the rest, so on a display refreshing at a
+/// multiple of 30 Hz two frames (or four, or eight) add up to the quantum itself, and whether
+/// they reach it is decided by the clock's last bits and the frame's own jitter: the world steps
+/// after two frames or after three, irregularly, at 20 to 30 Hz. Two milliseconds absorbs that,
+/// so such a display steps the world on a steady cadence, every second frame at 60 Hz and every
+/// fourth at 120. A frame rate whose frames do not add up to the quantum keeps the cadence it had,
+/// and no tick is ever shorter than this much under it.
+///
+/// A tick covers the time that has passed since the one before, so bodies move as far per second
+/// as they did; only when the steps fall changes.
+pub const TICK_TOLERANCE: f64 = 0.002;
+
+/// Whether `elapsed` seconds since the last physics tick open the next one: the gate every tick of
+/// the world, and of the animated statics stepped with it, waits on.
+#[must_use]
+pub fn tick_is_due(elapsed: f64) -> bool {
+    elapsed >= MIN_QUANTUM - TICK_TOLERANCE
+}
 /// `MAX_QUANTUM`. ACE uses `0.1` and its own comment calls that buggy.
 pub const MAX_QUANTUM: f64 = 0.2;
 /// The "huge quantum" literal in the physics update; anything above it is discarded.

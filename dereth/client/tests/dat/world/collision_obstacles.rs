@@ -473,7 +473,9 @@ fn a_body_walking_into_a_holtburg_wall_is_stopped_only_when_the_client_registers
             };
             let mut w = PhysicsWorld::new(source);
             let h = spawn(&mut w, 1, a.start, a.step);
-            run(&mut w, 4.0);
+            // Seventy-five steps, 9 m: from 2.5 m out, through where the wall stands and into the
+            // building when it is not registered, without walking on out of the far side.
+            run(&mut w, 2.5);
             w.get(h).expect("live").position.frame.origin
         };
 

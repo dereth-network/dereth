@@ -324,9 +324,6 @@ pub(crate) struct EmitterHost {
     pub(crate) part_cypt: Vec<f32>,
 }
 
-/// The shortest step a static's animation advances by, in seconds: a frame shorter than this is
-/// carried into the next one.
-const STATIC_MIN_STEP: f64 = dereth_physics::globals::MIN_QUANTUM;
 /// The longest gap a static's animation advances over, in seconds; after a longer one (a hitch, a
 /// return from elsewhere) the animation picks up where it was.
 const STATIC_MAX_STEP: f64 = 2.0;
@@ -399,9 +396,10 @@ impl EmitterHost {
     /// The animation half of a static's physics tick at frame time `now`: advance the default
     /// animation by the time since the last advance and re-place the parts.
     ///
-    /// A gap shorter than [`STATIC_MIN_STEP`] is left to accumulate into the next frame; a gap
-    /// longer than [`STATIC_MAX_STEP`] restarts the clock without advancing. A host with no
-    /// default animation only has its parts re-placed. Returns whether the animation advanced.
+    /// A gap too short to open the physics tick ([`dereth_physics::globals::tick_is_due`]) is left
+    /// to accumulate into the next frame, so a static steps when the world does; a gap longer than
+    /// [`STATIC_MAX_STEP`] restarts the clock without advancing. A host with no default animation
+    /// only has its parts re-placed. Returns whether the animation advanced.
     pub(crate) fn animate(&mut self, now: f64) -> bool {
         use dereth_physics::MotionSource;
         let mut advanced = false;
@@ -412,7 +410,7 @@ impl EmitterHost {
                     let dt = now - last;
                     if dt < STATIC_NO_TIME {
                         self.update_time = Some(now);
-                    } else if dt >= STATIC_MIN_STEP {
+                    } else if dereth_physics::globals::tick_is_due(dt) {
                         if dt <= STATIC_MAX_STEP {
                             let _ = self.driver.advance(dt);
                             advanced = true;

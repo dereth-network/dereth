@@ -2269,10 +2269,15 @@ impl CameraControl {
         // still drawn coming round to the way they stopped (it is drawn a tick behind, on its
         // spring), and the camera goes on with it until it is there, so that the two stop
         // together, the camera directly behind; let go of at once, it would be left short and
-        // the body would turn on past it. Anything else turning the body ends that.
+        // the body would turn on past it. Anything else turning the body ends that; a step that
+        // leaves the stopped body facing the same way is not a turn, though the way it faces can
+        // come back from the step a few millionths of a degree from where it was.
         let last = self.orbit_last_heading;
         let finishing = self.orbit.carried
-            && last.is_some_and(|(_, was)| was == physics)
+            && last.is_some_and(|(_, was)| {
+                ((physics - was + 540.0).rem_euclid(360.0) - 180.0).abs()
+                    <= crate::orbit::CARRIED_UNTIL
+            })
             && self.drawn_turn.abs() > crate::orbit::CARRIED_UNTIL;
         self.orbit.carried = self.orbit_turns_with_player || finishing;
         if self.orbit.carried {

@@ -47,9 +47,9 @@
 //! authored to the same 4.0.
 //!
 //! The observable is never a scale factor read back out of the field that set it, and never a
-//! per-tick figure: the physics gate opens on every *other* headless frame, so "metres on the
-//! frames that moved" is twice the speed and reads plausibly. A machine without the retail dats
-//! fails here.
+//! per-tick figure: a step covers the time since the last one, so "metres a step" changes with
+//! how often the physics gate opens and reads plausibly at any of them. A machine without the
+//! retail dats fails here.
 #![allow(clippy::pedantic)]
 
 use crate::common::sim_app::{
@@ -166,9 +166,9 @@ fn setup() -> App {
 /// not the cycle whose speed this file is about.
 const SETTLE: usize = 45;
 /// Frames measured. Headless `App::frame` steps the simulated clock by exactly `MIN_QUANTUM`
-/// (1/30 s), so this is `WINDOW / 30` simulated seconds. **Even**, and the window is opened
-/// immediately after a physics tick, so it contains a whole number of gate openings: the gate opens
-/// on alternate frames here and a ragged window would be one tick of travel out.
+/// (1/30 s), so this is `WINDOW / 30` simulated seconds. The window is opened immediately after a
+/// physics tick and the gate opens on every headless frame, so it holds exactly `WINDOW` gate
+/// openings: a ragged window would be one tick of travel out.
 const WINDOW: usize = 120;
 
 /// What one run of the body measured.
@@ -206,8 +206,8 @@ fn measured_run(app: &mut App, t0: u32) -> Run {
         "premise: the body must actually be running, or this measures a walk"
     );
 
-    // Open the window on the frame after a gate opening, so `WINDOW` even frames hold exactly
-    // `WINDOW / 2` of them.
+    // Open the window on the frame after a gate opening, so its `WINDOW` frames hold exactly
+    // `WINDOW` of them.
     let seen = body(app).stats.physics_ticks;
     while body(app).stats.physics_ticks == seen {
         frames(app, 1);
@@ -297,8 +297,7 @@ fn the_body_covers_ground_at_the_run_skills_rate() {
     // --- premises, so a green result cannot be an accident of a body that never ran ------------
     for (name, r) in [("A", &a), ("B", &b)] {
         assert_eq!(
-            r.ticks as usize,
-            WINDOW / 2,
+            r.ticks as usize, WINDOW,
             "run {name}: the window must hold a whole number of gate openings, not {} over \
              {WINDOW} frames",
             r.ticks

@@ -177,6 +177,10 @@ pub(crate) fn walk_at_an_obstacle(top: f32, step_up_height: f32) -> Walk {
     walk_past_an_obstacle(top, step_up_height, 0.0)
 }
 
+/// How long each walk lasts: 136 steps of [`SCRIPT_STEP`], 8.1 m, which reaches an obstacle's
+/// face about halfway through and then pushes against it for the rest.
+pub(crate) const WALK_SECONDS: f64 = 4.5;
+
 /// The same walk, started `lateral` metres to the north so the approach is **not** exactly through
 /// the obstacle's centre.
 ///
@@ -261,7 +265,7 @@ pub(crate) fn walk_past_an_obstacle(top: f32, step_up_height: f32, lateral: f32)
     let mut deepest = f32::MAX;
     let mut path: Vec<Vec3> = Vec::new();
     let mut t = 0.0;
-    while t < 8.0 {
+    while t < WALK_SECONDS {
         t += 1.0 / 30.0;
         w.use_time(LocalTime(t), false);
         let p = w.get(mover).expect("live").position.frame.origin;

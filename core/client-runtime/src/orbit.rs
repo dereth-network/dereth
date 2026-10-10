@@ -2164,6 +2164,35 @@ mod tests {
         }
     }
 
+    /// The camera stops with the body whichever frame between two physics steps the turning key
+    /// is let go on, including one just before a step that leaves the stopped body facing a few
+    /// millionths of a degree from where it stood.
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn whichever_frame_the_turning_key_is_let_go_on_the_camera_stops_directly_behind() {
+        for fps in [60.0, 144.0] {
+            let mut off = Vec::new();
+            for k in 0..24 {
+                let held = 0.75 + f64::from(k) / fps;
+                let f =
+                    turned_by_the_keys(fps, false, &[(a::TURN_LEFT, 0.75), (a::TURN_RIGHT, held)]);
+                let worst = f
+                    .iter()
+                    .filter(|r| r.turn == 1 && r.since_let_go >= 0.0)
+                    .map(|r| r.off.abs())
+                    .fold(0.0, f32::max);
+                if worst >= 0.05 {
+                    off.push((k, worst));
+                }
+            }
+            assert!(
+                off.is_empty(),
+                "{fps} fps: let go so many frames after three quarters of a second, the camera was \
+                 left so many degrees off the body: {off:?}"
+            );
+        }
+    }
+
     #[test]
     #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
     fn turned_off_to_one_side_a_turning_key_brings_it_round_behind_the_turning_body_quickly() {

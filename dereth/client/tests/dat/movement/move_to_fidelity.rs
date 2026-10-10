@@ -690,8 +690,8 @@ fn targetting_runs_once_per_physics_sub_step_before_use_time() {
         "the target update initialized the move-to by return from the same update"
     );
 
-    // One 0.04 s step: one sub-step (above the physics scheduler's 1/30 s gate, which a step of
-    // exactly `1/30` falls under by float rounding, and below `MAX_QUANTUM`), and no second update
+    // One 0.04 s step: one sub-step (above the physics scheduler's 1/30 s gate and below
+    // `MAX_QUANTUM`), and no second update
     // from a target that has not moved because its displacement remains below the update radius.
     c.update(LocalTime(3.54));
     let (ticks2, updates2) = {
@@ -706,9 +706,9 @@ fn targetting_runs_once_per_physics_sub_step_before_use_time() {
     );
 
     // At App level each admitted physics sweep is exactly one sub-step (`HEADLESS_STEP ==
-    // MIN_QUANTUM`, so no admitted sweep's elapsed exceeds `MAX_QUANTUM`) -- and the scheduler's
-    // 1/30 s gate admits only every other headless frame by float rounding (the scene's
-    // `updates_without_a_sweep`), so the count is against **sweeps**, not frames.
+    // MIN_QUANTUM`, so no admitted sweep's elapsed exceeds `MAX_QUANTUM`) -- and the count is
+    // against **sweeps**, not frames, so that it does not rest on the gate opening on every
+    // headless frame (the scene's `updates_without_a_sweep` counts the frames it does not).
     let (mut app, rows) = app_with_recorded_body(true);
     let _ = place_golem(&mut app, &rows, 8.0);
     let bytes = recorded_approach(&rows, GOLEM, PLAYER, body_position(&app), 1);

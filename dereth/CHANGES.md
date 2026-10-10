@@ -25,6 +25,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's names stand on the heads of the people and creatures they name, however tall (a lugian's over its head, not on its chest; a rat's just over its back), and stay on them as they and the camera move rather than trailing a frame behind.
 - Turning the camera with the mouse hides the pointer and holds it still, as the original client did, and it comes back where the drag began; in the browser, holding both mouse buttons now runs forward in Horizon.
 - In Horizon one press of an attack key or of the Low, Medium or High buttons is the whole attack: the bar charges to the power you aim at and the arrow or swing goes by itself, and goes on repeating until Escape, a step, peace or losing the target stops it. Horizon never uses the advanced combat interface. The buttons used to charge for ever and never attack.
+- On a 60 Hz display (and at 30, 120 or 240 Hz) the world moves on a steady 30 steps a second instead of stepping unevenly 20 to 25 times a second.
 
 ## 0.4.0 (2026-10-09)
 

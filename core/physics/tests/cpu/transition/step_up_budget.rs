@@ -150,7 +150,7 @@ fn a_body_refused_a_lift_is_stopped_at_the_obstacles_face() {
     let unimpeded = free.end.x - 100.0;
     assert!(
         unimpeded > 7.0,
-        "an unimpeded walk covers {unimpeded:.3} m in eight seconds"
+        "an unimpeded walk covers {unimpeded:.3} m in {WALK_SECONDS} seconds"
     );
 
     assert!(

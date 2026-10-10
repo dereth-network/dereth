@@ -319,11 +319,14 @@ fn a_row_of_cylspheres_on_one_object_is_a_wall_the_body_cannot_cross() {
     )
     .mul(0.12);
 
+    // Three seconds, ninety steps: the control walks through where the wall would be, and the
+    // stopped body slides along the wall for over a second without reaching its end, past which
+    // it would walk round to the far side.
     let trial = |with: bool| -> Vec<Vec3> {
         let mut w = flat_world();
         register(&mut w, at, wall(with));
         let h = spawn(&mut w, start, step);
-        run_sampled(&mut w, h, 5.0)
+        run_sampled(&mut w, h, 3.0)
     };
     let through = trial(false);
     let stopped = trial(true);

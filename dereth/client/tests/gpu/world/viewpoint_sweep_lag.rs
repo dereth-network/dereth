@@ -476,9 +476,8 @@ fn the_one_frame_lag_is_bounded_by_one_frame_of_camera_travel_at_every_station()
 /// This is the assertion that fails if anything inside `update` ever starts writing the
 /// viewpoint, which would make every number in this file mean something else.
 ///
-/// The sweep moves the viewpoint on **exactly the frames the 30 Hz gate opened on** — 75 of these
-/// 120, because a clock accumulated in `f64` steps of `1/30` lands a hair under `MIN_QUANTUM` on
-/// two frames in five. The body-physics callback reaches the camera update only inside the physics
+/// The sweep moves the viewpoint on **exactly the frames the 30 Hz gate opened on**, which on this
+/// clock of `1/30` steps is every one of them. The body-physics callback reaches the camera update only inside the physics
 /// gate's taken arm, so on a frame that does not tick the sought position does not change and the
 /// sweep re-lands on the same point. The guard is stated against the gate rather than the frame
 /// count: not "it moved often" but "it moved on a tick and never off one".

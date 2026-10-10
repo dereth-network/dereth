@@ -8,7 +8,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -31,6 +31,30 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-R2-5"),
         station: "dereth-testkit::cpu::frame::scenario_the_frame_log_is_the_counters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "frame.physics-tick.a-display-at-a-multiple-of-thirty-hertz-steps-the-world-on-a-steady-cadence",
+        says: "On a display refreshing at 30, 60, 120 or 240 Hz the world is stepped every first, \
+               second, fourth or eighth frame, every time, 30 times a second, whether the clock \
+               is read exactly, added up frame by frame, or off a counter with a server's time \
+               added and up to half a millisecond of jitter.",
+        since: THIS_CLIENT,
+        divergence: "CD-042",
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TICK-STEADY"),
+        station: "dereth-physics::lib::step::tests::a_display_at_a_multiple_of_thirty_hertz_steps_the_world_every_whole_quantum_of_frames",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "frame.physics-tick.a-tick-short-of-the-quantum-steps-the-world-by-the-time-that-passed",
+        says: "A step taken a little before a thirtieth of a second has passed covers the time \
+               that did pass: every body's clock lands on the frame's, and a falling body's speed \
+               is gravity times the time simulated, so bodies cover the same ground each second \
+               whatever the beat.",
+        since: THIS_CLIENT,
+        divergence: "CD-042",
+        evidence: Evidence::Private("AC-EVID-PHYSICS-TICK-SPEED"),
+        station: "dereth-physics::lib::step::tests::a_tick_opened_short_of_the_quantum_steps_the_world_by_the_time_that_passed",
         tier: Tier::Cpu,
     },
     behaviour! {

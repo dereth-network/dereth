@@ -210,7 +210,7 @@ pub fn step_physics(
         physics_ticked = if elapsed < 0.0 {
             ws.last_bodyless_tick = now.0;
             false
-        } else if elapsed < dereth_physics::globals::MIN_QUANTUM {
+        } else if !dereth_physics::globals::tick_is_due(elapsed) {
             false
         } else {
             ws.last_bodyless_tick = now.0;
@@ -998,14 +998,15 @@ mod tests {
                     still(&stepped),
                     stepped.len()
                 );
-                // Between them it moves every frame, by much less than a keyframe's step.
+                // Between them it moves every frame, by no more than half a keyframe's step:
+                // exactly half at 60 fps, where the world steps every second frame.
                 assert_eq!(
                     still(&smooth),
                     0,
                     "{fps} fps, {who}: drawn between keyframes it moves every frame"
                 );
                 assert!(
-                    most(&smooth) < most(&stepped) * 0.5,
+                    most(&smooth) <= most(&stepped) * 0.5 * 1.001,
                     "{fps} fps, {who}: its largest step {} against {} at keyframes",
                     most(&smooth),
                     most(&stepped)
@@ -1834,5 +1835,49 @@ mod tests {
                  {on:.1} us between ticks; the drawing between ticks alone {drawing:.1} us"
             );
         }
+    }
+
+    /// A scene with no body keeps the world's own beat: at 60 Hz its objects are stepped every
+    /// second frame, as they are around a body.
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn a_scene_with_no_body_steps_its_objects_every_second_frame_at_sixty_hertz() {
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {}",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let cfg = SceneConfig {
+            landblock: 0xA9B4,
+            character: false,
+            ..SceneConfig::default()
+        };
+        let (mut ws, _residency) = crate::world_build::load(&store, &cfg).expect("the world loads");
+        assert!(ws.character.is_none(), "premise: no body");
+        let mut stats = StepCounters::default();
+        let mut now = 1.0;
+        let mut ticks = Vec::new();
+        for i in 0..240 {
+            now += 1.0 / 60.0;
+            if step_physics(
+                &mut ws,
+                CameraInput::default(),
+                CharacterInput::default(),
+                LocalTime(now),
+                1.0 / 60.0,
+                &mut stats,
+            ) {
+                ticks.push(i);
+            }
+        }
+        let gaps: Vec<i32> = ticks.windows(2).map(|p| p[1] - p[0]).collect();
+        assert!(
+            gaps.len() > 100 && gaps.iter().all(|g| *g == 2),
+            "the objects must be stepped every second frame; gaps {gaps:?}"
+        );
     }
 }

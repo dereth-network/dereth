@@ -48,9 +48,9 @@ use {
 };
 
 /// The four refresh rates in play. 60 and 120 are the two that sit *on* `MIN_QUANTUM` (two and
-/// four frames respectively land on 1/30 s in exact arithmetic, so the accumulated clock decides
-/// the gap frame by frame); 144 and 165 clear it every fifth and sixth frame with room to spare
-/// and are perfectly regular.
+/// four frames respectively land on 1/30 s in exact arithmetic, and the gate's tolerance opens it
+/// on every second and fourth frame); 144 and 165 clear it every fifth and sixth frame with room
+/// to spare. All four are regular.
 const RATES: [f64; 4] = [60.0, 120.0, 144.0, 165.0];
 
 fn store() -> Arc<RetailDatStore> {

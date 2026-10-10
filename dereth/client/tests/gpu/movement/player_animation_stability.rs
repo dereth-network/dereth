@@ -32,8 +32,8 @@ use {
 /// The middle of Holtburg's own landblock, where the other embodied-body tests spawn.
 const SPAWN: (f32, f32) = (96.0, 96.0);
 
-/// The three cadences. 30 and 60 straddle `MIN_QUANTUM` (`0.03333333333333333`),
-/// and 144 clears it every fifth frame, so the gate opens on a different rhythm in each.
+/// The three cadences. The gate opens on every frame at 30, every second at 60 and every fifth at
+/// 144, a different rhythm in each.
 const RATES: [f64; 3] = [30.0, 60.0, 144.0];
 
 fn store() -> Arc<RetailDatStore> {
@@ -199,8 +199,7 @@ fn the_players_own_animation_does_not_oscillate_between_two_frames_at_any_frame_
 
             // --- The **tick** stream, which is what (3) and (4) have to be measured on.
             //
-            // The 30 Hz physics gate (`MIN_QUANTUM <= elapsed`) advances the sequence on only
-            // some display frames. Poses can persist across several displayed frames, producing
+            // The 30 Hz physics gate advances the sequence on only some display frames. Poses can persist across several displayed frames, producing
             // `A A B B A A`, in which `A B A` never matches even for a real alternation.
             // Consecutive repeats are collapsed here so an oscillation is `A B A` however long
             // each pose is held.

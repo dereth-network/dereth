@@ -332,15 +332,20 @@ fn walking_carries_the_body_along_its_own_heading_and_it_stays_on_the_ground() {
 
 /// Behaviour: movement.tick.physics-runs-at-thirty-hertz-whatever-the-frame-rate
 /// Oracle: `core/physics/tests/cpu/transition/walk_scenarios.rs`'s own gate test, reproduced over real terrain and
-/// through the real animation. Its bounds are used verbatim, including the "slightly less than 30"
-/// allowance for the accumulated wall clock straddling `1/30`.
+/// through the real animation. Its bounds are used verbatim: at most one tick per quantum less the
+/// tick's tolerance, and possibly fewer than 30 a second, because a tick discards the time past
+/// the quantum.
 ///
-/// **The gate is not a frame-rate cap.** Whatever the frame rate, physics runs at most 30 times a
+/// **The gate is not a frame-rate cap.** Whatever the frame rate, physics runs about 30 times a
 /// second and the distance walked tracks the tick count, not the frame count. Conflating the two is
 /// the trap this test exists for.
 #[test]
 fn the_thirty_hertz_gate_bounds_physics_and_the_frame_rate_does_not() {
     let store = store();
+    let most = (2.0
+        / (dereth_physics::globals::MIN_QUANTUM - dereth_physics::globals::TICK_TOLERANCE))
+        .floor()
+        + 1.0;
     let mut results = Vec::new();
     for fps in [250.0_f64, 120.0, 60.0] {
         let mut c = character(&store);
@@ -353,8 +358,8 @@ fn the_thirty_hertz_gate_bounds_physics_and_the_frame_rate_does_not() {
         let (_, ticks) = run(&mut c, t, 2.0, fps);
         let moved = len(diff(c.position().frame.origin, start));
         assert!(
-            ticks <= 61,
-            "{fps} fps produced {ticks} physics ticks in 2 s; the gate is 30 Hz"
+            f64::from(ticks) <= most,
+            "{fps} fps produced {ticks} physics ticks in 2 s; the gate allows {most}"
         );
         assert!(ticks >= 40, "{fps} fps produced only {ticks} ticks");
         results.push((fps, ticks, moved));

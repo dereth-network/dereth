@@ -100,8 +100,10 @@ pub fn local_utc_offset_secs(unix_secs: i64) -> i32 {
 /// The simulated step a headless run advances by, one per frame.
 ///
 /// 1/30 s is exactly [`dereth_physics::globals::MIN_QUANTUM`], so every headless frame opens the
-/// physics gate once and the state after *n* frames is the state after *n* sub-steps. It is **not**
-/// a frame rate and it is **not** the gate: see [`Clock::fixed_step`].
+/// physics gate once and the state after *n* frames is the state after *n* sub-steps: a clock
+/// added up in thirtieths lands a hair under the quantum on some frames, which the gate's
+/// tolerance absorbs. It is **not** a frame rate and it is **not** the gate: see
+/// [`Clock::fixed_step`].
 pub const HEADLESS_STEP: f64 = dereth_physics::globals::MIN_QUANTUM;
 
 use web_time::Instant;

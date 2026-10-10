@@ -427,7 +427,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "movement.tick.physics-runs-at-thirty-hertz-whatever-the-frame-rate",
-        says: "Physics runs at most thirty times a second whatever the frame rate: at 250, 120 or \
+        says: "Physics runs about thirty times a second whatever the frame rate: at 250, 120 or \
                60 frames a second, a character walking for two seconds takes about the same number \
                of physics steps and covers the same distance.",
         since: RETAIL,

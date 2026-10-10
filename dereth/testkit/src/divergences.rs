@@ -382,6 +382,22 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "Other characters and creatures move as smoothly as the rest of the picture at high \
               frame rates, for a player who asks for it, without changing how the game plays.",
     },
+    Divergence {
+        id: "CD-042",
+        title: "The world steps on a steady beat on a 60 Hz display",
+        change: "The world is stepped once a thirtieth of a second has passed since its last \
+                 step, less two milliseconds. The final client waited for the whole thirtieth, so \
+                 on a display refreshing at 60 Hz, whose two frames add up to exactly that, it \
+                 stepped after two frames or after three as the clock's last digits and each \
+                 frame's jitter fell, irregularly, 20 to 25 times a second, and the same at 30, \
+                 120 and 240 Hz; this client steps every second frame at 60 Hz, 30 times a \
+                 second, and as evenly at the others. Other refresh rates step as before, and a \
+                 very high frame rate steps up to 32 times a second rather than 30. Every step \
+                 covers the time that has passed, so everything moves as far each second as \
+                 before.",
+        why: "Movement and animation on the most common displays are even rather than \
+              stuttering, without changing how the game plays.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

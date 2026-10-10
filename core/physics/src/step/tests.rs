@@ -124,23 +124,186 @@ fn an_opened_gate_stamps_the_clock_verbatim_and_discards_the_residual() {
         w.last_physics_time()
     );
 
-    // .. and the consequence, which is the number this station exists for. A perfectly
-    // regular 60 Hz clock -- `i / 60.0`, the vsync case -- lands its two-frame elapsed a
-    // handful of ulps *under* `MIN_QUANTUM` (2/60 and 1/30 are the same double, but
-    // `(i+1)/60 - (i-1)/60` computed from rounded quotients is not), so the gate waits a third
-    // frame. The client's body therefore ticks at ~21 Hz, not 30, and **that is retail**.
+    // .. and so a long frame buys no catching up: the next tick waits a whole quantum, less the
+    // tolerance, from that stamp.
+    let next = now + globals::MIN_QUANTUM - globals::TICK_TOLERANCE;
+    assert!(!w.use_time(LocalTime(next - 1e-6), false));
+    assert!(w.use_time(LocalTime(next + 1e-9), false));
+}
+
+/// Frame times for `frames` frames of a display refreshing at `hz`, `frames + 1` samples from
+/// frame 0, read off one of the clocks the client can find itself on.
+#[derive(Clone, Copy, Debug)]
+enum DisplayClock {
+    /// `i / hz`, each sample rounded once.
+    Quotient,
+    /// `1 / hz` added up frame by frame, as a fixed-step run advances.
+    Accumulated,
+    /// A 10 MHz counter read in seconds with a server's clock added: a server clock seventeen
+    /// years into the game's calendar, where a second's last bit is a ten-millionth of it.
+    Counter,
+    /// The same counter read up to half a millisecond early or late each frame.
+    JitteredCounter,
+}
+
+impl DisplayClock {
+    const ALL: [Self; 4] = [
+        Self::Quotient,
+        Self::Accumulated,
+        Self::Counter,
+        Self::JitteredCounter,
+    ];
+
+    fn frames(self, hz: f64, frames: u32) -> Vec<f64> {
+        // A fixed linear congruential sequence, so the jitter is the same on every run.
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut jitter = move || {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            #[allow(clippy::cast_precision_loss)] // 53 bits, exactly representable
+            let unit = (seed >> 11) as f64 / (1u64 << 53) as f64;
+            (unit - 0.5) * 0.001
+        };
+        let mut sum = 0.0f64;
+        (0..=frames)
+            .map(|i| match self {
+                Self::Quotient => f64::from(i) / hz,
+                Self::Accumulated => {
+                    let t = sum;
+                    sum += 1.0 / hz;
+                    t
+                }
+                Self::Counter | Self::JitteredCounter => {
+                    let late = if matches!(self, Self::JitteredCounter) {
+                        jitter()
+                    } else {
+                        0.0
+                    };
+                    let counted = ((5.0 + f64::from(i) / hz + late) * 1e7).floor() / 1e7;
+                    counted + 5.4e8
+                }
+            })
+            .collect()
+    }
+}
+
+/// The frames on which the gate opened, as the gaps between them in frames, over ten seconds of
+/// `clock` at `hz`.
+fn tick_gaps(hz: f64, clock: DisplayClock) -> Vec<u32> {
     let mut w = world();
-    let _ = falling_object(&mut w, 100.0);
-    let frames = 600;
-    let ticks = (1..=frames)
-        .filter(|i| w.use_time(LocalTime(f64::from(*i) / 60.0), false))
-        .count();
-    assert_eq!(
-        ticks, 209,
-        "600 frames of a regular 60 Hz clock must open the gate exactly 209 times \
-             (~20.9 Hz). 300 would mean the residual is being accumulated; anything else means \
-             the compare (which ticks on equality) or \
-             the stamp moved."
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let times = clock.frames(hz, (hz * 10.0) as u32);
+    // The first frame starts the gate's clock wherever this clock starts.
+    w.last_physics_time = times[0];
+    let ticks: Vec<u32> = (1u32..)
+        .zip(&times[1..])
+        .filter(|(_, t)| w.use_time(LocalTime(**t), false))
+        .map(|(i, _)| i)
+        .collect();
+    ticks.windows(2).map(|p| p[1] - p[0]).collect()
+}
+
+/// Behaviour: frame.physics-tick.a-display-at-a-multiple-of-thirty-hertz-steps-the-world-on-a-steady-cadence
+///
+/// A display refreshing at a multiple of 30 Hz steps the world every `hz / 30` frames, every
+/// time, whatever clock it is read on. Two of its frames add up to the quantum itself; without
+/// the tolerance, whether they reach it is left to the clock's last bits and the frame's jitter,
+/// and the world waits a third frame much of the time, at 20 to 25 Hz.
+#[test]
+fn a_display_at_a_multiple_of_thirty_hertz_steps_the_world_every_whole_quantum_of_frames() {
+    for hz in [30.0, 60.0, 120.0, 240.0] {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let every = (hz / 30.0) as u32;
+        for clock in DisplayClock::ALL {
+            let gaps = tick_gaps(hz, clock);
+            assert!(gaps.len() > 290, "{hz} Hz, {clock:?}: {} ticks", gaps.len());
+            let odd: Vec<u32> = gaps.iter().copied().filter(|g| *g != every).collect();
+            assert!(
+                odd.is_empty(),
+                "{hz} Hz on a {clock:?} clock must tick every {every} frames, 30 Hz; {} of {} \
+                 gaps were not, e.g. {:?}",
+                odd.len(),
+                gaps.len(),
+                &odd[..odd.len().min(8)]
+            );
+        }
+    }
+}
+
+/// A display whose frames do not add up to the quantum steps the world on the first frame past
+/// it, as it did without the tolerance on a steady clock: 75 Hz every third frame, 144 Hz every
+/// fifth, 165 Hz every sixth, a 59.94 Hz television rate every second (which half a millisecond of
+/// jitter no longer turns into a mix of second and third frames). One far faster than 30 Hz ticks
+/// on the first frame within the tolerance of the quantum, every 32nd at 1000 Hz rather than
+/// every 34th.
+#[test]
+fn a_frame_rate_whose_frames_miss_the_quantum_keeps_the_cadence_the_quantum_gives() {
+    for (hz, every) in [(59.94, 2), (75.0, 3), (144.0, 5), (165.0, 6), (1000.0, 32)] {
+        for clock in DisplayClock::ALL {
+            if hz > 500.0 && matches!(clock, DisplayClock::JitteredCounter) {
+                // Half a millisecond of jitter is half a frame here: the gap is 31 to 33.
+                continue;
+            }
+            let gaps = tick_gaps(hz, clock);
+            assert!(gaps.len() > 240, "{hz} Hz, {clock:?}: {} ticks", gaps.len());
+            let mut counts = std::collections::BTreeMap::<u32, u32>::new();
+            for g in &gaps {
+                *counts.entry(*g).or_default() += 1;
+            }
+            assert!(
+                counts.keys().eq([every].iter()),
+                "{hz} Hz on a {clock:?} clock must tick every {every} frames; gaps {counts:?}"
+            );
+        }
+    }
+}
+
+/// Behaviour: frame.physics-tick.a-tick-short-of-the-quantum-steps-the-world-by-the-time-that-passed
+///
+/// A tick the tolerance opens before a whole quantum has passed covers the time that did pass,
+/// as every tick does: each body's clock lands on the frame's own, and a falling body's speed is
+/// gravity times the time simulated, so bodies cover the same ground per second on any cadence.
+#[test]
+fn a_tick_opened_short_of_the_quantum_steps_the_world_by_the_time_that_passed() {
+    let mut w = world();
+    let h = falling_object(&mut w, 1000.0);
+    // Three seconds of a 60 Hz display read on the jittered counter, the body's clock and the
+    // gate's starting together at its first frame.
+    let times = DisplayClock::JitteredCounter.frames(60.0, 180);
+    w.last_physics_time = times[0];
+    w.get_mut(h).expect("live").update_time = times[0];
+    let mut last_tick = times[0];
+    let mut short = 0;
+    for &now in &times[1..] {
+        if !w.use_time(LocalTime(now), false) {
+            continue;
+        }
+        if now - last_tick < globals::MIN_QUANTUM {
+            short += 1;
+        }
+        last_tick = now;
+        let o = w.get(h).expect("live");
+        assert_eq!(
+            o.update_time,
+            now,
+            "a tick {:.6} s in stepped the body's clock to {:.6} s",
+            now - times[0],
+            o.update_time - times[0]
+        );
+    }
+    assert!(
+        short > 30,
+        "only {short} ticks opened short of the quantum, so this measured nothing new"
+    );
+    let o = w.get(h).expect("live");
+    let simulated = o.update_time - times[0];
+    let speed = f64::from(o.velocity_vector.z);
+    let expected = f64::from(globals::GRAVITY) * simulated;
+    assert!(
+        (speed - expected).abs() < 1e-3,
+        "after {simulated:.4} s of falling the body moves at {speed:.5} m/s; gravity gives \
+         {expected:.5}"
     );
 }
 
@@ -324,7 +487,8 @@ fn a_falling_object_gains_velocity_before_it_gains_displacement() {
 /// dropped remainder show up, so the three do **not** agree — and that is the point.
 #[test]
 fn the_same_fall_at_250_30_and_4_fps_diverges_exactly_where_the_ladder_says() {
-    let run = |fps: f64, seconds: f64| -> f64 {
+    // The height reached and the time the body's clock got to.
+    let run = |fps: f64, seconds: f64| -> (f64, f64) {
         let mut w = world();
         let h = falling_object(&mut w, 10_000.0);
         let dt = 1.0 / fps;
@@ -333,17 +497,26 @@ fn the_same_fall_at_250_30_and_4_fps_diverges_exactly_where_the_ladder_says() {
             t += dt;
             w.use_time(LocalTime(t), false);
         }
-        f64::from(w.get(h).expect("live").position.frame.origin.z)
+        let o = w.get(h).expect("live");
+        (f64::from(o.position.frame.origin.z), o.update_time)
     };
-    let a = run(250.0, 1.0);
-    let b = run(30.0, 1.0);
-    let c = run(4.0, 1.0);
-    // All three fall, and none of them falls further than the analytic 4.9 m.
-    for (name, z) in [("250fps", a), ("30fps", b), ("4fps", c)] {
+    let (a, a_time) = run(250.0, 1.0);
+    let (b, b_time) = run(30.0, 1.0);
+    let (c, c_time) = run(4.0, 1.0);
+    // All three fall, and none of them falls further than free fall over the time simulated
+    // (about a second: a clock added up in thirtieths is a hair short of 1.0 after thirty
+    // frames, so the 30 fps run takes a thirty-first), give or take the millimetre a height of
+    // 10 km is held to.
+    for (name, z, time) in [
+        ("250fps", a, a_time),
+        ("30fps", b, b_time),
+        ("4fps", c, c_time),
+    ] {
         assert!(z < 10_000.0, "{name} did not fall");
+        let free = 0.5 * -f64::from(globals::GRAVITY) * time * time;
         assert!(
-            z > 10_000.0 - 5.0,
-            "{name} fell {} m, more than free fall",
+            10_000.0 - z <= free + 0.05,
+            "{name} fell {} m in {time} s, more than free fall's {free} m",
             10_000.0 - z
         );
     }
