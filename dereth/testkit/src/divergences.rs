@@ -351,6 +351,20 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "Bodies move as smoothly as the rest of the picture at high frame rates, for a \
               player who asks for it, without changing how the game plays.",
     },
+    Divergence {
+        id: "CD-040",
+        title: "A camera drag hides the pointer once the drag has moved it",
+        change: "While the mouse turns the camera the pointer is hidden and held still as the \
+                 final client held it, but only once the drag has moved it past the drag \
+                 threshold of about four pixels; the final client hid it the moment mouse look \
+                 began. A click of the button that turns the camera, which examines or \
+                 selects, never hides it. The press that began a drag is never taken for the \
+                 first click of a double-click: a click at once after the drag, where the \
+                 pointer is shown again, is a single click.",
+        why: "A click does not make the pointer blink, and the browser client does not ask to \
+              lock the pointer for every click. A quick turn of the camera followed by a click \
+              selects or examines and never uses what is under the pointer.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

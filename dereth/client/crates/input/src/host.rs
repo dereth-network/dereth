@@ -32,6 +32,10 @@ pub enum HostEvent {
     },
     /// `WM_MOUSEMOVE`, in client pixels.
     CursorMoved { x: f64, y: f64 },
+    /// The mouse's movement while the host holds the pointer still for a camera drag, in client
+    /// pixels as the pointer would have moved: what the host reports in place of
+    /// [`HostEvent::CursorMoved`] while it holds the pointer, which itself stays where it is.
+    PointerMotion { dx: f64, dy: f64 },
     /// `WM_MOUSELEAVE`.
     CursorLeft,
     /// One button transition, at the last position [`HostEvent::CursorMoved`] reported.

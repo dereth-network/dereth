@@ -1366,7 +1366,8 @@ impl HorizonFrontEnd {
                 }
                 "minimap-rotates" => options.minimap_rotates = value == "true",
                 "smooth-animation" => options.smooth_animation = value == "true",
-                "mouse-turn" | "key-turn" | "tilt-min" | "tilt-max" | "camera-height" => {
+                "mouse-turn" | "key-turn" | "tilt-min" | "tilt-max" | "camera-height"
+                | "camera-recentre" => {
                     if let Ok(v) = value.parse::<f32>() {
                         let o = &mut options.orbit;
                         *match name.as_str() {
@@ -1374,6 +1375,7 @@ impl HorizonFrontEnd {
                             "key-turn" => &mut o.key_turn,
                             "tilt-min" => &mut o.pitch_min,
                             "tilt-max" => &mut o.pitch_max,
+                            "camera-recentre" => &mut o.recentre,
                             _ => &mut o.height,
                         } = v;
                         options.orbit = options.orbit.held_to_ranges();
@@ -1987,6 +1989,24 @@ mod tests {
             "a destination already off is no edge"
         );
     }
+
+    #[test]
+    fn how_quickly_the_camera_comes_round_set_on_the_controls_page_is_taken_within_its_range() {
+        use dereth_client_runtime::orbit::{limits, RECENTRE};
+        let mut front =
+            HorizonFrontEnd::new(Arc::new(Art::empty()), HorizonOptions::default(), None);
+        let recentre = |front: &HorizonFrontEnd| front.ui.options.orbit.recentre;
+        assert!((recentre(&front) - RECENTRE).abs() < 1e-6);
+        for (value, taken) in [("0.5", 0.5), ("0", 0.0), ("7", limits::RECENTRE.1)] {
+            front.apply_settings(&[("camera-recentre".to_owned(), value.to_owned())]);
+            assert!(
+                (recentre(&front) - taken).abs() < 1e-6,
+                "{value}: {}",
+                recentre(&front)
+            );
+        }
+    }
+
     #[test]
     #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
     fn a_creation_model_idles_in_its_motion_table_s_standing_cycle() {

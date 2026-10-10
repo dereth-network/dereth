@@ -82,6 +82,13 @@ pub trait Host: 'static {
         String::new()
     }
 
+    /// The host's hold on the pointer during a camera drag, over `window` (the native handle,
+    /// `None` without one), for one front end's life. A host with none never holds the pointer:
+    /// every drag keeps it shown.
+    fn pointer(_window: Option<isize>) -> Box<dyn crate::pointer::HostPointer> {
+        Box::new(crate::pointer::NoPointerHold)
+    }
+
     /// The host's pad, for one front end's life; a host with none reads nothing.
     fn gamepad() -> Box<dyn crate::gamepad::HostGamepad> {
         Box::new(crate::gamepad::NoGamepad)

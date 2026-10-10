@@ -6,7 +6,7 @@
 
 // `behaviour!` is `#[macro_export]`ed by `mod.rs` above this module's declaration, so it is in
 // textual scope here and needs no import.
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -20,6 +20,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "camera.mouse-look.a-drag-is-never-the-first-click-of-a-double-click",
+        says: "A press that drags -- the pointer moved past the drag threshold, or held still for \
+               a camera drag -- is not taken for a click: a click at once after it, where the \
+               drag's held pointer is shown again, is a click and not the second of a \
+               double-click, so after a drag of the right button it examines, and after a drag \
+               of the left it uses nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD-040",
+        evidence: Evidence::Private("AC-EVID-DRAG-NOT-A-CLICK"),
+        station: "dereth-client-shell::lib::front_end::pointer_hold_tests::a_click_at_once_after_a_drag_is_a_click_and_not_a_double_click",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "camera.mouse-look.hides-the-pointer-and-shows-it-again-where-it-began",
+        says: "While the mouse turns the camera the pointer is hidden and held still, and the \
+               mouse's movement turns the camera as the pointer's would have; when the look \
+               ends the pointer is shown again where it was when the look began.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-POINTER-HOLD"),
+        station: "dereth-client-shell::lib::front_end::pointer_hold_tests::the_game_cameras_mouse_look_holds_the_pointer_once_dragged_and_shows_it_where_it_began",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "camera.mouse-look.only-moves-from-the-sixth-frame",
         says: "Mouse-look is smoothed over five samples: moving the mouse leaves the camera still \
                for the first five samples on an axis and moves it from the sixth, swinging it \
@@ -28,6 +51,18 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC-EVID-CAMERA-MOUSE-LOOK"),
         station: "dereth-client::gpu::camera::camera_collision::mouse_look_only_moves_the_camera_from_the_sixth_frame",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "camera.mouse-look.the-pointer-is-held-once-the-drag-moves-it",
+        says: "A press of the button that turns the camera leaves the pointer shown; the \
+               pointer is hidden and held only once the drag has moved it past the drag \
+               threshold, about four pixels, so a click that examines or selects never hides \
+               it.",
+        since: THIS_CLIENT,
+        divergence: "CD-040",
+        evidence: Evidence::Private("AC-EVID-POINTER-HOLD-THRESHOLD"),
+        station: "dereth-client-shell::lib::pointer::tests::a_drag_holds_the_pointer_past_the_threshold_and_shows_it_where_it_began",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "camera.mouse-turning.the-body-stops-turning-when-the-mouse-stops-or-the-button-is-let-go",

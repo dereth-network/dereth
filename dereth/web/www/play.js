@@ -107,6 +107,9 @@ worker.onmessage = (ev) => {
   if (m.open) window.open(m.open, '_blank', 'noopener');
   // The interface's own cursor, at its own size.
   if (m.cursor) view.style.cursor = `url(${m.cursor.url}) ${m.cursor.hx} ${m.cursor.hy}, default`;
+  // A camera drag holds the pointer, or has ended.
+  if (m.pointerLock === true) lockPointer();
+  if (m.pointerLock === false) unlockPointer();
   // The client ended (its own Exit, or a lost connection) or could not start: the front page
   // comes back, saying what went wrong. Data files already open stay open for the next start.
   if (m.ended) {
@@ -151,10 +154,29 @@ function at(ev) {
   };
 }
 
-view.addEventListener('pointermove', (ev) => send({ kind: 'move', ...at(ev) }));
+// The mouse's own movement, in canvas pixels: what turns the camera while a drag holds the pointer.
+function movement(ev) {
+  const r = view.getBoundingClientRect();
+  return { dx: (ev.movementX * size[0]) / r.width, dy: (ev.movementY * size[1]) / r.height };
+}
+
+// Each button's bit in a pointer event's `buttons`, by its number.
+const BUTTON_BIT = [1, 4, 2, 8, 16];
+
+// The pointer that last went down, kept for the canvas to keep its events after a lock ends.
+let lastPointer = null;
+
+view.addEventListener('pointermove', (ev) => {
+  // A button pressed or let go of while another is held comes as a movement that names it.
+  if (ev.button >= 0 && ev.button < BUTTON_BIT.length) {
+    send({ kind: 'button', button: ev.button, pressed: (ev.buttons & BUTTON_BIT[ev.button]) !== 0 });
+  }
+  send({ kind: 'move', ...at(ev), ...movement(ev), buttons: ev.buttons });
+});
 view.addEventListener('pointerdown', (ev) => {
   view.focus();
   if (audio && audio.ctx.state !== 'running') audio.ctx.resume();
+  lastPointer = ev.pointerId;
   view.setPointerCapture(ev.pointerId);
   send({ kind: 'move', ...at(ev) });
   send({ kind: 'button', button: ev.button, pressed: true });
@@ -166,6 +188,32 @@ view.addEventListener('pointerup', (ev) => {
   ev.preventDefault();
 });
 view.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+// A camera drag hides the pointer and holds it still: the browser locks it to the canvas, if it
+// will. It locks it only soon after a press on the page, which a drag follows; refused, the pointer
+// stays shown and the drag still turns the camera.
+function lockPointer() {
+  if (document.pointerLockElement === view) return;
+  try {
+    const asked = view.requestPointerLock();
+    if (asked && typeof asked.catch === 'function') asked.catch(() => {});
+  } catch (_) {
+    // Refused: the pointer stays shown.
+  }
+}
+function unlockPointer() {
+  if (document.pointerLockElement === view) document.exitPointerLock();
+}
+// A lock the browser ended with a button still down: the canvas keeps the pointer's events, so the
+// button's release still reaches the client.
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === view || lastPointer === null) return;
+  try {
+    view.setPointerCapture(lastPointer);
+  } catch (_) {
+    // The pointer is no longer down.
+  }
+});
 view.addEventListener('wheel', (ev) => {
   // One detent is about 100 pixels, or three lines.
   const notches = ev.deltaMode === 1 ? -ev.deltaY / 3 : -ev.deltaY / 100;

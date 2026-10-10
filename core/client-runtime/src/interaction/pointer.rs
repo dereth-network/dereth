@@ -66,6 +66,15 @@ impl Interaction {
         self.wrapper_mouse(event, screen, is_world_click(event.over));
     }
 
+    /// The right button came up, and `dragged` says whether its press was a drag: the pointer
+    /// moved past the drag threshold while the button was down, or was held still for a camera
+    /// drag. Said by the front end, which sees every movement of the pointer, before the release
+    /// reaches [`Self::wrapper_mouse`], which then examines nothing after a drag, wherever the
+    /// release lands. A release the front end has said nothing of is judged by where it lands.
+    pub fn note_right_release(&mut self, dragged: bool) {
+        self.right_release_dragged = dragged;
+    }
+
     /// Hover search from the global loop or mouse movement. A click/drop reason wins;
     /// hover never selects or uses an object. Object search has a synchronous UI-item arm.
     /// Retail returns without searching when the reason is at least 1; otherwise
@@ -474,16 +483,20 @@ impl Interaction {
         // this rebuild the answer to that test is *yes*: the host's camera input turns the camera
         // on a held right button unconditionally, at the window-system level and outside this
         // wrapper. The press point is recorded here — **above** the viewport guard, so a release
-        // that lands on the HUD cannot leave a stale one behind for the next gesture.
-        let right_press = if e.action == action::SECONDARY_CLICK {
+        // that lands on the HUD cannot leave a stale one behind for the next gesture; the front
+        // end's word on the release is read here for the same reason.
+        let (right_press, right_dragged) = if e.action == action::SECONDARY_CLICK {
             if e.start {
                 self.right_pressed_at = Some((e.x, e.y));
-                None
+                (None, false)
             } else {
-                self.right_pressed_at.take()
+                (
+                    self.right_pressed_at.take(),
+                    std::mem::take(&mut self.right_release_dragged),
+                )
             }
         } else {
-            None
+            (None, false)
         };
         if !world_click {
             return false;
@@ -510,7 +523,10 @@ impl Interaction {
                     arm(self, r)
                 }
                 // `case 10`: the left double-click, gated on mouse-look being off.
-                0x0A if self.reason < SearchReason::Use => arm(self, SearchReason::Use),
+                0x0A if self.reason < SearchReason::Use => {
+                    self.stats.use_searches += 1;
+                    arm(self, SearchReason::Use)
+                }
                 _ => false,
             }
         } else {
@@ -531,15 +547,21 @@ impl Interaction {
                     // the same spot is a click, a press and release more than
                     // `DRAG_THRESHOLD_SQUARED` apart is a drag. `crate::actions::ui`'s constant is used
                     // rather than a new one because it is the same question
-                    // as the native drag-start test.
-                    let dragged = right_press.is_some_and(|(px, py)| {
-                        let (dx, dy) = (e.x - px, e.y - py);
-                        dx * dx + dy * dy > crate::actions::ui::DRAG_THRESHOLD_SQUARED
-                    });
+                    // as the native drag-start test. Like that test it is asked all the while the
+                    // button is down, not only where it comes up: a turn let go where it began (the
+                    // pointer held still for the turn and shown again there, or brought back by
+                    // hand) is still a turn. The front end, which sees every movement of the
+                    // pointer, says so ([`Self::note_right_release`]).
+                    let dragged = right_dragged
+                        || right_press.is_some_and(|(px, py)| {
+                            let (dx, dy) = (e.x - px, e.y - py);
+                            dx * dx + dy * dy > crate::actions::ui::DRAG_THRESHOLD_SQUARED
+                        });
                     if dragged {
                         self.stats.mouse_look_releases += 1;
                         false
                     } else {
+                        self.stats.examine_searches += 1;
                         arm(self, SearchReason::Examine)
                     }
                 }

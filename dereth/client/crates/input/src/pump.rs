@@ -59,7 +59,10 @@ impl DeviceMessages {
                 let wparam = ((ticks as u32) << 16) as usize;
                 m(msg::WM_MOUSEWHEEL, wparam, 0)
             }
-            HostEvent::CloseRequested
+            // The held pointer's motion turns the camera and is no window message: the pointer
+            // itself stays where it was.
+            HostEvent::PointerMotion { .. }
+            | HostEvent::CloseRequested
             | HostEvent::Destroyed
             | HostEvent::Focused(_)
             | HostEvent::Resized { .. }

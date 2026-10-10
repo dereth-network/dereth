@@ -1103,4 +1103,173 @@ mod tests {
         );
         assert!(moved > 2.0, "the body moved {moved} m");
     }
+
+    /// A headless app at 60 frames a second under the Horizon camera with `movement`, its body
+    /// standing in the world and the camera turned a quarter round to the right by the pointer
+    /// and left there a second.
+    fn camera_turned_off(movement: crate::orbit::MovementMode) -> (App<NullShell>, NullShell) {
+        let store = Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let mut app = App::<NullShell>::bring_up_with_store(
+            Config {
+                headless: true,
+                frames: None,
+                connect: false,
+                sound: false,
+                dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+                ..Config::default()
+            },
+            Some(store),
+            |_| {
+                let mut p = Platform::headless(64, 64);
+                p.clock = Box::new(crate::platform::clock::FixedStepClock::new(1.0 / 60.0));
+                Ok(p)
+            },
+            |_, _, _, _| Ok(Box::new(SimPresentation::new(64, 64))),
+        )
+        .expect("bring-up");
+        let mut shell = NullShell;
+        app.start_shell(&mut shell).expect("the shell starts");
+        app.load_static_scene(SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        })
+        .expect("the world loads");
+        app.orbit = Some(crate::orbit::OrbitSettings {
+            movement,
+            ..crate::orbit::OrbitSettings::default()
+        });
+        for _ in 0..30 {
+            assert!(app.frame(&mut shell));
+        }
+        let orbit = &mut app
+            .world
+            .as_mut()
+            .and_then(|w| w.character.as_mut())
+            .expect("a body")
+            .camera
+            .orbit;
+        orbit.rotate(90_f32.to_radians() / orbit.settings.mouse_turn, 0.0);
+        for _ in 0..60 {
+            assert!(app.frame(&mut shell));
+        }
+        (app, shell)
+    }
+
+    /// `n` frames, and after each how far, in degrees clockwise, the body is drawn facing from
+    /// the way the camera as shown looks.
+    fn body_off_the_camera(app: &mut App<NullShell>, shell: &mut NullShell, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|_| {
+                assert!(app.frame(shell));
+                let c = app
+                    .world
+                    .as_ref()
+                    .and_then(|w| w.character.as_ref())
+                    .expect("a body");
+                let drawn =
+                    dereth_animation::frame::get_heading(&c.position().frame) + c.drawn_turn();
+                (drawn - c.camera.orbit.facing_degrees() + 540.0).rem_euclid(360.0) - 180.0
+            })
+            .collect()
+    }
+
+    /// Whether, frame by frame at 60 a second, the camera came round within a degree of directly
+    /// behind the body within a quarter of a second and stayed there, never passing it.
+    fn came_round(off: &[f32]) -> bool {
+        let n = off
+            .iter()
+            .rposition(|o| o.abs() >= 1.0)
+            .map_or(0, |i| i + 1);
+        n < 15 && off.iter().all(|o| *o < 0.05)
+    }
+
+    /// Whether it stayed the quarter round the pointer put it.
+    fn stayed(off: &[f32]) -> bool {
+        off.iter().all(|o| (o + 90.0).abs() < 1.0)
+    }
+
+    /// Behaviour: none (the Horizon interface's own camera, not the retail client's)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn under_character_based_movement_moving_ahead_swings_the_camera_behind_unless_it_is_held() {
+        use crate::orbit::MovementMode;
+        let key = |name: &str| names::action_for_enum_name(name).expect("a shipped name");
+        // Standing, it stays where the pointer put it; moving ahead, straight, with a step to the
+        // side or on the run lock, it comes round behind; backing up or stepping sideways alone,
+        // it stays.
+        for (keys, behind) in [
+            (&[][..], false),
+            (&["MovementForward"][..], true),
+            (&["MovementForward", "MovementStrafeLeft"][..], true),
+            (&["MovementRunLock"][..], true),
+            (&["MovementBackup"][..], false),
+            (&["MovementStrafeRight"][..], false),
+        ] {
+            let (mut app, mut shell) = camera_turned_off(MovementMode::Character);
+            for k in keys {
+                app.inject_action(Action::begin(key(k)));
+            }
+            let off = body_off_the_camera(&mut app, &mut shell, 60);
+            assert!(
+                if behind {
+                    came_round(&off)
+                } else {
+                    stayed(&off)
+                },
+                "{keys:?}: behind {behind}: {off:?}"
+            );
+        }
+        // A pad's movement stick pushed ahead stands in for Forward.
+        let (mut app, mut shell) = camera_turned_off(MovementMode::Character);
+        let settings = app.orbit.expect("the Horizon camera");
+        let asks = app.orbit_keys.stick(Some((0.0, 1.0)), settings);
+        app.orbit_pending.extend(asks);
+        let off = body_off_the_camera(&mut app, &mut shell, 60);
+        assert!(came_round(&off), "the movement stick: {off:?}");
+        // Held by the left mouse button, or by the look stick pushed (only to tilt it), it stays
+        // while the player runs; let go, it comes round.
+        for stick in [false, true] {
+            let (mut app, mut shell) = camera_turned_off(MovementMode::Character);
+            if stick {
+                app.orbit_look = (0.0, 0.5);
+            } else {
+                app.orbit_keys.buttons.0 = true;
+            }
+            app.inject_action(Action::begin(key("MovementForward")));
+            let held = body_off_the_camera(&mut app, &mut shell, 60);
+            assert!(stayed(&held), "held by the stick {stick}: {held:?}");
+            app.orbit_look = (0.0, 0.0);
+            app.orbit_keys.buttons.0 = false;
+            let free = body_off_the_camera(&mut app, &mut shell, 60);
+            assert!(came_round(&free), "let go, by the stick {stick}: {free:?}");
+        }
+        // Under camera-based movement the camera stays where the pointer put it, and the body
+        // turns to run the way it looks.
+        let (mut app, mut shell) = camera_turned_off(MovementMode::Camera);
+        let yaw = |app: &App<NullShell>| {
+            app.world
+                .as_ref()
+                .and_then(|w| w.character.as_ref())
+                .expect("a body")
+                .camera
+                .orbit
+                .yaw
+        };
+        let before = yaw(&app);
+        app.inject_action(Action::begin(key("MovementForward")));
+        let off = body_off_the_camera(&mut app, &mut shell, 60);
+        assert!(
+            (yaw(&app) - before).abs() < 1e-5,
+            "camera-based: the camera kept its way: {before} to {}",
+            yaw(&app)
+        );
+        assert!(
+            off.last().is_some_and(|o| o.abs() < 1.0),
+            "camera-based: the body faced the camera's way: {off:?}"
+        );
+    }
 }

@@ -200,6 +200,26 @@ impl InputManager {
         self.fire_input_event(cs, ControlType::Button, 0x00, time_ms);
     }
 
+    /// Forget the last press of `button`, a press that was a drag and not a click: a release
+    /// after this is no tap, and the button's next press is a first click, never the second of a
+    /// double-click.
+    pub fn forget_mouse_press(&mut self, button: crate::keys::MouseButton) {
+        use crate::keys::MouseButton;
+        // The order the button messages number them in, from `win32::mouse_button`.
+        let number = match button {
+            MouseButton::Left => 0,
+            MouseButton::Right => 1,
+            MouseButton::Middle => 2,
+            MouseButton::Back => 3,
+            MouseButton::Forward => 4,
+            MouseButton::Other(_) => return,
+        };
+        if let Some(idx) = self.device_index(DeviceType::Mouse) {
+            self.history
+                .remove(ControlCode::new(idx, SubControlIndex::None, number + 0x0C));
+        }
+    }
+
     pub(crate) fn device_index(&self, want: DeviceType) -> Option<u8> {
         self.keymap
             .devices
@@ -528,5 +548,43 @@ mod tests {
         m.on_window_event(&down(5000), &no_lead);
         let e = m.take_events();
         assert!(e.iter().all(|x| x.action != ActionId(10)), "{e:?}");
+    }
+
+    /// Behaviour: camera.mouse-look.a-drag-is-never-the-first-click-of-a-double-click
+    ///
+    /// A press forgotten as a drag is not the first click of a double-click: the next press, in
+    /// time and in place, is a click. Only that button's press is forgotten.
+    #[test]
+    fn a_press_forgotten_as_a_drag_is_no_first_click_of_a_double_click() {
+        use crate::keys::MouseButton;
+        let mut m = manager();
+        let lbutton = ControlCode::new(1, SubControlIndex::None, 0x0C);
+        if let Some(ui) = m.keymap.section_mut(InputMapId(3)) {
+            ui.add_mapping(
+                ControlChord::new(lbutton, 0, activation::MOUSE_DBL_CLICK),
+                ActionId(10),
+            );
+        }
+        let down = |t| Win32Message::new(msg::WM_LBUTTONDOWN, 0, 0, t);
+        let up = |t| Win32Message::new(msg::WM_LBUTTONUP, 0, 0, t);
+
+        m.on_window_event(&down(1000), &no_lead);
+        m.forget_mouse_press(MouseButton::Left);
+        m.on_window_event(&up(1050), &no_lead);
+        m.take_events();
+        m.on_window_event(&down(1100), &no_lead);
+        let e = m.take_events();
+        assert!(e.iter().any(|x| x.action == ActionId(7)), "a click: {e:?}");
+        assert!(e.iter().all(|x| x.action != ActionId(10)), "{e:?}");
+
+        m.on_window_event(&up(1150), &no_lead);
+        m.forget_mouse_press(MouseButton::Right);
+        m.take_events();
+        m.on_window_event(&down(1200), &no_lead);
+        let e = m.take_events();
+        assert!(
+            e.iter().any(|x| x.action == ActionId(10)),
+            "the other button's forgotten press leaves this one's: {e:?}"
+        );
     }
 }

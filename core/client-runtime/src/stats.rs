@@ -107,6 +107,11 @@ pub struct InteractionStats {
     /// arm `SearchReason::Examine` — the mouse-up handler's early return when it turns mouse look
     /// off. Without it every camera turn would appraise whatever was under the cursor.
     pub mouse_look_releases: u64,
+    /// Right-button releases in the world that started an examine search: clicks of the right
+    /// button.
+    pub examine_searches: u64,
+    /// Left double-clicks in the world that started a use search.
+    pub use_searches: u64,
     /// `Item_ServerSaysContainID`, wear-item and move-item applies.
     pub move_items_applied: u64,
     /// `0x0022 Item_ServerSaysContainID` replies whose item did **not** exist yet and

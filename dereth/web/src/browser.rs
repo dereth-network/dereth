@@ -332,11 +332,24 @@ impl WebPlay {
             .collect()
     }
 
+    /// The pointer moved to `(x, y)` in canvas pixels and the mouse by `(dx, dy)`, with the
+    /// page's `buttons` bits down (negative when the event does not say): see
+    /// [`crate::play::Play::pointer_move_by`].
     #[wasm_bindgen(js_name = pointerMove)]
-    pub fn pointer_move(&mut self, x: f64, y: f64) {
+    pub fn pointer_move(&mut self, x: f64, y: f64, dx: f64, dy: f64, buttons: i32) {
         if let Some(p) = self.play.as_mut() {
-            p.pointer_move(x, y);
+            p.pointer_move_by(x, y, (dx, dy), u16::try_from(buttons).ok());
         }
+    }
+
+    /// Whether the page is to lock the pointer to the canvas (`true`) or unlock it (`false`),
+    /// once each time the client's hold changes; `undefined` when nothing has changed.
+    #[wasm_bindgen(js_name = pointerLock)]
+    #[must_use]
+    pub fn pointer_lock(&self) -> Option<bool> {
+        self.play
+            .as_ref()
+            .and_then(crate::play::Play::pointer_lock_request)
     }
 
     #[wasm_bindgen(js_name = pointerButton)]

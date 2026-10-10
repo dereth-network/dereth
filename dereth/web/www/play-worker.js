@@ -221,6 +221,9 @@ function loop() {
     }
     const cursor = play.cursorChange();
     if (cursor) showCursor(cursor);
+    // A camera drag holds the pointer, or has ended: the page locks it to the canvas, or unlocks it.
+    const lock = play.pointerLock();
+    if (lock !== undefined) postMessage({ pointerLock: lock });
     sound(now);
     for (const url of play.takeOpenedUrls()) postMessage({ open: url });
     // What a patch wrote into the world's overlay this frame goes to disk.
@@ -287,7 +290,7 @@ async function showCursor(bytes) {
 function input(ev) {
   if (!play) return;
   switch (ev.kind) {
-    case 'move': play.pointerMove(ev.x, ev.y); break;
+    case 'move': play.pointerMove(ev.x, ev.y, ev.dx ?? 0, ev.dy ?? 0, ev.buttons ?? -1); break;
     case 'button': play.pointerButton(ev.button, ev.pressed); break;
     case 'wheel': play.wheel(ev.notches); break;
     case 'key': play.key(ev.code, ev.pressed, ev.text ?? undefined); break;

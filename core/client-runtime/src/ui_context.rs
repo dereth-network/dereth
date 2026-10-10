@@ -469,6 +469,12 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.interaction.dispatch_ui_mouse(event, viewport);
     }
 
+    /// The right button came up, ending a drag when `dragged`: the release that reaches the world
+    /// examines nothing then, wherever it lands.
+    pub fn note_right_release(&mut self, dragged: bool) {
+        self.app.interaction.note_right_release(dragged);
+    }
+
     /// The pointer resting at `position` over the world, over item `item` if a slot is under it.
     pub fn hover(
         &mut self,

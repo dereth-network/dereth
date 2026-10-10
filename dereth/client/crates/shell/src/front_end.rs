@@ -276,6 +276,8 @@ pub(crate) struct FrontEndServices<H: Host> {
     host_clipboard: H::Clipboard,
     /// The host's pad, read once a frame.
     gamepad: Box<dyn crate::gamepad::HostGamepad>,
+    /// The pointer, held by the host during a camera drag.
+    pub(crate) pointer: crate::pointer::PointerHold,
     /// A pad state set by an in-process driver, read in place of the host's pad while it is set.
     pub(crate) scripted_pad: Option<crate::gamepad::PadState>,
     /// The device input: the input manager and the registrations the client's systems make.
@@ -355,6 +357,7 @@ impl<H: Host> ClientShell<H> {
                 clipboard: crate::clipboard::ClipboardBridge::default(),
                 host_clipboard: H::clipboard(),
                 gamepad: H::gamepad(),
+                pointer: crate::pointer::PointerHold::new(H::pointer(hwnd)),
                 scripted_pad: None,
                 ui_release: crate::gpu::UiReleaseReport::default(),
                 ui_draw_list: Vec::new(),
@@ -1628,6 +1631,13 @@ impl<H: Host> ClientShell<H> {
             Interface::Classic => self.enter_classic(cx),
             Interface::Horizon => self.enter_horizon(cx),
         }
+        // The interface shown now never saw the press that turned the camera with the pointer:
+        // the camera stops turning with it, and a pointer held for the drag is shown again where
+        // the drag began.
+        if cx.mouse_look() {
+            cx.mouse_look_button(false);
+        }
+        self.shared.pointer.let_go();
     }
 
     /// Bring `want` up, if it is not up already.
@@ -1851,6 +1861,123 @@ impl<H: Host> ClientShell<H> {
         }
         tracing::info!("the Horizon interface is shown");
     }
+
+    /// One of the window's events, routed through the interface shown.
+    fn route_window_event(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        event: &dereth_input::host::HostEvent,
+        time_ms: u32,
+    ) {
+        if self.horizon.active {
+            route_horizon_event(cx, self, event, time_ms);
+        } else if self.classic.active {
+            self.route_classic_event(cx, event, time_ms);
+        } else {
+            route_host_event(cx, self, event, time_ms);
+        }
+    }
+
+    /// One of the window's events while the classic interface is shown: a lifecycle event as any
+    /// interface routes it, and a device event to the interface's widgets and its key map, in the
+    /// order its own window procedure takes them.
+    fn route_classic_event(
+        &mut self,
+        cx: &mut Cx<'_, H>,
+        event: &dereth_input::host::HostEvent,
+        time_ms: u32,
+    ) {
+        use dereth_input::host::HostEvent;
+        if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
+            cx.window_event(self, &lifecycle, time_ms);
+            if let Some(input) = self.shared.input.as_mut() {
+                for message in dereth_client_runtime::pump::Pump::map_window_event(&lifecycle) {
+                    input.on_message(crate::pump::from_window(message, time_ms));
+                }
+            }
+        }
+        let key = match event {
+            HostEvent::KeyboardInput { key, .. } => u16::try_from(key.virtual_key).ok(),
+            _ => None,
+        };
+        if let Some(ui) = self.classic.active_mut() {
+            ui.prepare_host_input(cx, event);
+        }
+        let capturing = self
+            .classic
+            .active()
+            .is_some_and(|ui| ui.input_scope(key).2);
+        self.sync_classic_input(cx, capturing, key, true);
+        // The widget receives key transitions, but characters come only from the
+        // normalized input stream after its text-mode gate.
+        let widget_event = match event {
+            HostEvent::KeyboardInput { key, pressed, .. } => HostEvent::KeyboardInput {
+                key: *key,
+                pressed: *pressed,
+                text: None,
+            },
+            _ => event.clone(),
+        };
+        let keyboard = matches!(event, HostEvent::KeyboardInput { .. });
+        if !keyboard {
+            if let Some(ui) = self.classic.active_mut() {
+                ui.window_input(
+                    cx,
+                    std::slice::from_ref(&widget_event),
+                    &mut ClassicClipboard(&mut self.shared.host_clipboard),
+                );
+            }
+        }
+        let mut widget_key_pending = keyboard;
+        for message in self.shared.devices.map_device_event(event, time_ms) {
+            cx.window_message(crate::pump::window_message(message), message.time_ms);
+            if let Some(input) = self.shared.input.as_mut() {
+                input.on_message(message);
+            }
+            let consumed = self.drain_classic_message(cx);
+            if widget_key_pending {
+                widget_key_pending = false;
+                if !consumed || capturing {
+                    if let Some(ui) = self.classic.active_mut() {
+                        ui.window_input(
+                            cx,
+                            std::slice::from_ref(&widget_event),
+                            &mut ClassicClipboard(&mut self.shared.host_clipboard),
+                        );
+                    }
+                }
+                self.sync_classic_input(cx, capturing, key, true);
+            }
+        }
+        self.drain_classic_message(cx);
+        self.sync_classic_input(cx, false, None, true);
+    }
+
+    /// The camera drag after one of the window's events: the pointer is held once the drag has
+    /// moved it far enough, and shown again where the drag began when the camera stops turning
+    /// with it, which the interface shown is told as the pointer moving there. Gamepad mode holds
+    /// nothing.
+    fn follow_pointer_drag(&mut self, cx: &mut Cx<'_, H>, time_ms: u32) {
+        let gamepad_mode = self
+            .horizon
+            .active()
+            .is_some_and(|ui| ui.ui.options.pad.enabled);
+        self.shared.pointer.follow(cx.mouse_look(), !gamepad_mode);
+        if let Some((x, y)) = self.shared.pointer.take_returned() {
+            let back = dereth_input::host::HostEvent::CursorMoved { x, y };
+            self.route_window_event(cx, &back, time_ms);
+        }
+    }
+
+    /// The mouse moved while the pointer is held, and the camera's pointer is now at `(x, y)`:
+    /// the camera turns as it does for the pointer's own movement, and the interface's pointer
+    /// stays where it was held.
+    fn camera_pointer(&mut self, cx: &mut Cx<'_, H>, x: f64, y: f64) {
+        match self.classic.active_mut() {
+            Some(ui) => ui.camera_pointer(cx, x, y),
+            None => cx.cursor_moved(x, y),
+        }
+    }
 }
 
 impl<H: Host> Shell for ClientShell<H> {
@@ -1880,6 +2007,13 @@ impl<H: Host> Shell for ClientShell<H> {
     }
 
     /// The window's queued events, in arrival order, then the end of the drain.
+    ///
+    /// Each event passes the pointer's hold first ([`crate::pointer`]): while a camera drag holds
+    /// the pointer, the mouse's own movement turns the camera alone and the pointer's reports are
+    /// not routed, and when the drag ends the interface is told the pointer is back where the
+    /// drag began. A drag is never a click: before a button's release after a drag is routed,
+    /// the device input forgets the press, so the next is no second click of a double-click, and
+    /// a right button's release is said to end a drag, so it examines nothing.
     fn window_input(&mut self, cx: &mut Cx<'_, H>, time_ms: u32) {
         cx.set_chat_interface(self.shown_interface());
         let events: Vec<_> = self.shared.window_events.borrow_mut().drain(..).collect();
@@ -1888,10 +2022,28 @@ impl<H: Host> Shell for ClientShell<H> {
         // pad's pointer is the one the interface sees.
         let pad = self.shared.gamepad.poll();
         let pad = self.shared.scripted_pad.or(pad);
-        if self.horizon.active {
-            for event in &events {
-                route_horizon_event(cx, self, event, time_ms);
+        // A drag that ended after the last frame's events (the interface changed, say).
+        self.follow_pointer_drag(cx, time_ms);
+        for event in &events {
+            let gate = self.shared.pointer.gate(event);
+            if let Some((button, dragged)) = self.shared.pointer.take_release() {
+                if dragged {
+                    if let Some(input) = self.shared.input.as_mut() {
+                        input.manager.forget_mouse_press(button);
+                    }
+                }
+                if button == dereth_input::keys::MouseButton::Right {
+                    cx.note_right_release(dragged);
+                }
             }
+            match gate {
+                crate::pointer::Gate::Route => self.route_window_event(cx, event, time_ms),
+                crate::pointer::Gate::Camera(x, y) => self.camera_pointer(cx, x, y),
+                crate::pointer::Gate::Drop => {}
+            }
+            self.follow_pointer_drag(cx, time_ms);
+        }
+        if self.horizon.active {
             let keys = self
                 .horizon
                 .active_mut()
@@ -1900,81 +2052,6 @@ impl<H: Host> Shell for ClientShell<H> {
             for event in &keys {
                 route_horizon_event(cx, self, event, time_ms);
             }
-            return;
-        }
-        if self.classic.active {
-            for event in &events {
-                use dereth_input::host::HostEvent;
-                if let Some(lifecycle) = crate::platform::window::lifecycle(event) {
-                    cx.window_event(self, &lifecycle, time_ms);
-                    if let Some(input) = self.shared.input.as_mut() {
-                        for message in
-                            dereth_client_runtime::pump::Pump::map_window_event(&lifecycle)
-                        {
-                            input.on_message(crate::pump::from_window(message, time_ms));
-                        }
-                    }
-                }
-                let key = match event {
-                    HostEvent::KeyboardInput { key, .. } => u16::try_from(key.virtual_key).ok(),
-                    _ => None,
-                };
-                if let Some(ui) = self.classic.active_mut() {
-                    ui.prepare_host_input(cx, event);
-                }
-                let capturing = self
-                    .classic
-                    .active()
-                    .is_some_and(|ui| ui.input_scope(key).2);
-                self.sync_classic_input(cx, capturing, key, true);
-                // The widget receives key transitions, but characters come only from the
-                // normalized input stream after its text-mode gate.
-                let widget_event = match event {
-                    HostEvent::KeyboardInput { key, pressed, .. } => HostEvent::KeyboardInput {
-                        key: *key,
-                        pressed: *pressed,
-                        text: None,
-                    },
-                    _ => event.clone(),
-                };
-                let keyboard = matches!(event, HostEvent::KeyboardInput { .. });
-                if !keyboard {
-                    if let Some(ui) = self.classic.active_mut() {
-                        ui.window_input(
-                            cx,
-                            std::slice::from_ref(&widget_event),
-                            &mut ClassicClipboard(&mut self.shared.host_clipboard),
-                        );
-                    }
-                }
-                let mut widget_key_pending = keyboard;
-                for message in self.shared.devices.map_device_event(event, time_ms) {
-                    cx.window_message(crate::pump::window_message(message), message.time_ms);
-                    if let Some(input) = self.shared.input.as_mut() {
-                        input.on_message(message);
-                    }
-                    let consumed = self.drain_classic_message(cx);
-                    if widget_key_pending {
-                        widget_key_pending = false;
-                        if !consumed || capturing {
-                            if let Some(ui) = self.classic.active_mut() {
-                                ui.window_input(
-                                    cx,
-                                    std::slice::from_ref(&widget_event),
-                                    &mut ClassicClipboard(&mut self.shared.host_clipboard),
-                                );
-                            }
-                        }
-                        self.sync_classic_input(cx, capturing, key, true);
-                    }
-                }
-                self.drain_classic_message(cx);
-                self.sync_classic_input(cx, false, None, true);
-            }
-            return;
-        }
-        for event in &events {
-            route_host_event(cx, self, event, time_ms);
         }
     }
 
@@ -2448,6 +2525,8 @@ impl<H: Host> Shell for ClientShell<H> {
     /// UI cleanup: the flow and every root element it holds, then the element manager, with the
     /// texture slots they held handed back first.
     fn cleanup_ui(&mut self, cx: &mut Cx<'_, H>) {
+        // A pointer held for a camera drag is shown again before the window goes.
+        self.shared.pointer.let_go();
         self.classic.ui = None;
         self.classic.active = false;
         self.horizon.ui = None;
@@ -2874,3 +2953,7 @@ mod classic_text_tests;
 #[cfg(test)]
 #[path = "../tests/horizon_switch_tests.rs"]
 mod horizon_switch_tests;
+
+#[cfg(test)]
+#[path = "../tests/pointer_hold_tests.rs"]
+mod pointer_hold_tests;

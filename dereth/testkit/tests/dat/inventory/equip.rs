@@ -2926,15 +2926,17 @@ pub fn the_shards_refusal_lets_go_of_the_one_at_a_time_hold_as_well_as_the_grey(
 // ui.pointer.turning-the-camera-with-the-right-button-is-not-an-appraisal
 // -----------------------------------------------------------------------------------------
 
-/// Holding the right button and moving turns the camera, and letting it go there appraises
-/// **nothing**; pressing and letting go in the same place is a click, and that does appraise
-/// what is under the pointer. Without the distinction every camera turn looked at whatever
-/// happened to be under the cursor when the button came up.
+/// Holding the right button and moving turns the camera, and letting it go appraises
+/// **nothing**, even back where it went down; pressing and letting go in the same place is a
+/// click, and that does appraise what is under the pointer. Without the distinction every camera
+/// turn looked at whatever happened to be under the cursor when the button came up.
 ///
 /// Both directions are the measurement: a check that only asked about the turn would pass on
 /// a client where the right button does nothing at all, which is a different and equally
 /// wrong answer. The line between them is the client's own -- three pixels of hand-shake is
-/// still a click and four is a turn.
+/// still a click and four is a turn. Where the release lands is all the world sees of a press
+/// on its own; a turn let go where it began is told apart by the front end, which saw the
+/// pointer go past the line, and its word is read by that release alone.
 pub fn turning_the_camera_with_the_right_button_is_not_an_appraisal() {
     use dereth_client_runtime::interaction::SearchReason;
     use dereth_client_shell::ui::UiMouseEvent;
@@ -2942,19 +2944,26 @@ pub fn turning_the_camera_with_the_right_button_is_not_an_appraisal() {
     /// The right button, as the pointer table names it.
     const RIGHT: u32 = 8;
 
-    let pointer = |dx: i32| {
+    // Right-button presses let go `dx` pixels from where each went down, all on one client, each
+    // said by the front end to have been a drag or not, or left unsaid.
+    let presses = |gestures: &[(i32, Option<bool>)]| {
         let mut c = HeadlessClient::model();
-        for (start, x) in [(true, 400), (false, 400 + dx)] {
-            let e = UiMouseEvent {
-                action: RIGHT,
-                start,
-                x,
-                y: 300,
-                over: None,
-            };
-            let world_click = dereth_client_runtime::interaction::is_world_click(e.over);
-            c.interaction_mut()
-                .wrapper_mouse(e, (800, 600), world_click);
+        for &(dx, dragged) in gestures {
+            for (start, x) in [(true, 400), (false, 400 + dx)] {
+                let e = UiMouseEvent {
+                    action: RIGHT,
+                    start,
+                    x,
+                    y: 300,
+                    over: None,
+                };
+                let world_click = dereth_client_runtime::interaction::is_world_click(e.over);
+                let inter = c.interaction_mut();
+                if let (false, Some(dragged)) = (start, dragged) {
+                    inter.note_right_release(dragged);
+                }
+                inter.wrapper_mouse(e, (800, 600), world_click);
+            }
         }
         let inter = c.interaction_mut();
         (
@@ -2963,16 +2972,30 @@ pub fn turning_the_camera_with_the_right_button_is_not_an_appraisal() {
             inter.stats.mouse_look_releases,
         )
     };
+    let pointer = |dx: i32| presses(&[(dx, None)]);
 
     let a_click = pointer(0) == (SearchReason::Examine, 1, 0);
     let a_turn = pointer(120) == (SearchReason::None, 0, 1);
     let three_pixels_is_still_a_click = pointer(3).0 == SearchReason::Examine;
     let four_is_a_turn = pointer(4).0 == SearchReason::None;
+    let a_turn_let_go_where_it_began_is_still_a_turn =
+        presses(&[(0, Some(true))]) == (SearchReason::None, 0, 1);
+    let a_click_said_to_be_one_is_a_click = presses(&[(0, Some(false))]).0 == SearchReason::Examine;
+    let the_word_is_read_by_that_release_alone =
+        presses(&[(0, Some(true)), (0, None)]) == (SearchReason::Examine, 1, 1);
 
     let mut c = HeadlessClient::model();
     c.assert_behaviour(
         "ui.pointer.turning-the-camera-with-the-right-button-is-not-an-appraisal",
-        move |_| a_click && a_turn && three_pixels_is_still_a_click && four_is_a_turn,
+        move |_| {
+            a_click
+                && a_turn
+                && three_pixels_is_still_a_click
+                && four_is_a_turn
+                && a_turn_let_go_where_it_began_is_still_a_turn
+                && a_click_said_to_be_one_is_a_click
+                && the_word_is_read_by_that_release_alone
+        },
     );
 }
 

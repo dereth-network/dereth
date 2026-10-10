@@ -14,16 +14,17 @@
 //! **Must never** reach a platform itself: no window system, no operating system call and no sound
 //! device (`cargo xtask seams`, `seam: application halves`). Everything platform-specific arrives
 //! through [`platform::host::Host`], which the application is generic over: the window and its
-//! clock, the time zone, the URL launch, the sound output, the clipboard and the cursor images.
+//! clock, the time zone, the URL launch, the sound output, the clipboard, the cursor images and
+//! the pointer's hold during a camera drag.
 //! Its code reaches the concrete screens only through the UI framework's hooks, never by name
 //! (`seam: host -> screens`).
 //!
 //! The frame loop is the runtime's. What this crate owns is what plugs into it: the front end and
 //! the application with it ([`app::ClientShell`], [`app::App`]), the modern UI ([`ui`],
 //! [`ui_draw`], [`hud`], [`hud_drive`]), the renderer that draws the UI over the scene ([`gpu`],
-//! [`present`]), the cursor ([`cursor`]), the clipboard bridge ([`clipboard`]), the device input
-//! ([`input`], [`pump`]), the layout and keymap files ([`persist`]) and the targeted-use
-//! confirmations. Runtime and scene types are named through their owning crates.
+//! [`present`]), the cursor ([`cursor`]) and the pointer held during a camera drag ([`pointer`](mod@pointer)),
+//! the clipboard bridge ([`clipboard`]), the device input ([`input`], [`pump`]), the layout and
+//! keymap files ([`persist`]) and the targeted-use confirmations. Runtime and scene types are named through their owning crates.
 
 pub mod app;
 pub mod front_end;
@@ -50,6 +51,9 @@ pub mod input;
 /// `dereth_client_contract::persist`; the path branch and the reads and writes, through the
 /// runtime's file seam, are here.
 pub mod persist;
+
+// The pointer during a camera drag: hidden, held still, and shown again where the drag began.
+pub mod pointer;
 
 // What the shell needs from the platform under it (`platform::host::Host`), and the window
 // events and key identities every platform shares.

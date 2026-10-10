@@ -402,6 +402,9 @@ pub struct Interaction {
     /// Where the right button went down in the viewport, for
     /// the wrapper's mouse-up mouse-look gate. See [`Interaction::wrapper_mouse`].
     right_pressed_at: Option<(i32, i32)>,
+    /// The front end's word that the right button's last release ends a drag, read once by that
+    /// release. See [`Interaction::note_right_release`].
+    right_release_dragged: bool,
     /// The latest cursor position in window coordinates.
     ///
     /// The original drop-release handler reads shared input state because element

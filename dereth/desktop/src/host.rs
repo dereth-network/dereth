@@ -1,6 +1,7 @@
 //! The desktop host: what the client shell is given on a desktop -- the `winit` window and the
 //! system clock, the operating system's time zone and URL launch, the `cpal` sound output, the
-//! system clipboard and the system cursors -- for the product `P`.
+//! system clipboard, the system cursors and the window's hold on the pointer -- for the product
+//! `P`.
 
 use std::marker::PhantomData;
 
@@ -83,6 +84,10 @@ impl<P: Product> Host for Desktop<P> {
 
     fn classic_welcome() -> String {
         std::env::var("DERETH_CLASSIC_WELCOME").unwrap_or_default()
+    }
+
+    fn pointer(window: Option<isize>) -> Box<dyn dereth_client_shell::pointer::HostPointer> {
+        crate::cursor::desktop_pointer(window)
     }
 
     fn gamepad() -> Box<dyn dereth_client_shell::gamepad::HostGamepad> {

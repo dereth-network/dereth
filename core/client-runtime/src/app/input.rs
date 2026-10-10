@@ -565,6 +565,12 @@ impl<S: Shell> App<S> {
         if keys.buttons.0 || keys.buttons.1 {
             c.camera.orbit.let_go_of_player();
         }
+        // Moving ahead under character-based movement brings the camera round behind, from the
+        // moment the player is not holding it with a mouse button or the look stick.
+        let ahead = self.char_input.forward && !self.char_input.back;
+        if keys.camera_comes_behind_moving_ahead(settings, ahead, self.orbit_look) {
+            c.camera.orbit.settling_behind = true;
+        }
         // Turned by the game itself (a move or turn toward something used, cast at or fought)
         // while the player neither steers nor holds a mouse button: the camera comes behind.
         c.camera.orbit.follow_behind = keys.camera_follows_game_turn(face, c.is_moving_to());

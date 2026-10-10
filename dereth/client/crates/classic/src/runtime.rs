@@ -518,6 +518,12 @@ impl ClassicUi {
             self.finish_chat_keyboard(cx, first_input);
         }
     }
+    /// The mouse moved while the host holds the pointer for a camera drag, and the camera's
+    /// pointer is now at `(x, y)`: the camera turns as it does for the pointer's own movement,
+    /// and the interface's pointer stays where it is.
+    pub fn camera_pointer<S: Host>(&mut self, cx: &mut Cx<'_, S>, x: f64, y: f64) {
+        crate::keyboard_runtime::cursor_moved(cx, &mut self.last_pointer, x, y);
+    }
     /// Chat keyboard edits complete before the next host key is classified.
     /// Other device inputs and window requests keep their usual frame queue.
     fn finish_chat_keyboard<S: Host>(&mut self, cx: &mut Cx<'_, S>, first_input: usize) {

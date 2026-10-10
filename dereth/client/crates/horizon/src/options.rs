@@ -41,7 +41,7 @@ pub struct HorizonOptions {
     pub start_character: Option<String>,
     /// The scripted steps to take once in the world, in order.
     pub script: Vec<ScriptStep>,
-    /// The camera's movement scheme and pointer directions.
+    /// The camera's movement scheme, pointer directions, speeds and limits.
     pub orbit: dereth_client_runtime::orbit::OrbitSettings,
     /// The pad: whether gamepad mode is on, its sticks' dead zone and how fast it turns the camera.
     pub pad: crate::pad::PadSettings,
@@ -316,6 +316,7 @@ impl HorizonOptions {
                 "tilt-min" => parse_number(value, &mut o.orbit.pitch_min),
                 "tilt-max" => parse_number(value, &mut o.orbit.pitch_max),
                 "camera-height" => parse_number(value, &mut o.orbit.height),
+                "camera-recentre" => parse_number(value, &mut o.orbit.recentre),
                 "minimap-rotates" => o.minimap_rotates = parse_switch(value),
                 "smooth-animation" => o.smooth_animation = parse_switch(value),
                 other => {
@@ -359,6 +360,7 @@ key-turn={}
 tilt-min={}
 tilt-max={}
 camera-height={}
+camera-recentre={}
 minimap-rotates={}
 smooth-animation={}
 ",
@@ -376,6 +378,7 @@ smooth-animation={}
             self.orbit.pitch_min,
             self.orbit.pitch_max,
             self.orbit.height,
+            self.orbit.recentre,
             self.minimap_rotates,
             self.smooth_animation,
         );
@@ -515,6 +518,7 @@ mod tests {
                 pitch_min: -1.0,
                 pitch_max: 0.5,
                 height: 0.75,
+                recentre: 0.5,
             },
             ..HorizonOptions::default()
         };
@@ -541,6 +545,23 @@ camera-height=lots",
         );
         assert!(held.pitch_max.abs() < 1e-6);
         assert!(held.height.abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_camera_comes_round_behind_quickly_until_set_and_its_time_reads_back_within_its_range() {
+        use dereth_client_runtime::orbit::{limits, RECENTRE};
+        assert!((HorizonOptions::default().orbit.recentre - RECENTRE).abs() < 1e-6);
+        assert!((HorizonOptions::parse("").orbit.recentre - RECENTRE).abs() < 1e-6);
+        for recentre in [0.0, 0.35, limits::RECENTRE.1] {
+            let mut o = HorizonOptions::default();
+            o.orbit.recentre = recentre;
+            let back = HorizonOptions::parse(&o.to_text()).orbit.recentre;
+            assert!((back - recentre).abs() < 1e-6, "{recentre}: {back}");
+        }
+        let read = |line: &str| HorizonOptions::parse(line).orbit.recentre;
+        assert!((read("camera-recentre=9") - limits::RECENTRE.1).abs() < 1e-6);
+        assert!(read("camera-recentre=-1").abs() < 1e-6);
+        assert!((read("camera-recentre=soon") - RECENTRE).abs() < 1e-6);
     }
 
     #[test]

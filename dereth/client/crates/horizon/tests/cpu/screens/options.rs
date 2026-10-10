@@ -513,6 +513,52 @@ fn the_controls_page_switches_gamepad_mode_on_and_sets_its_dead_zone_and_camera_
 }
 
 #[test]
+fn the_controls_page_sets_how_quickly_the_camera_comes_round_slowly_at_the_left_at_once_at_the_right(
+) {
+    use dereth_client_runtime::orbit::limits;
+    let state = in_world();
+    let mut h = options_on("Controls", &state);
+    let r = control(&h, "Camera Recentre Speed");
+    // Its track leaves room at its right for the value shown beside it.
+    let mut set_at = |x: f32| {
+        let out = click_at(&mut h, &state, x, r.y + r.h / 2.0);
+        let [(setting, value)] = out.settings.as_slice() else {
+            panic!("{:?}", out.settings);
+        };
+        assert_eq!(setting, "camera-recentre");
+        value.parse::<f32>().unwrap()
+    };
+    let right = set_at(r.right() - 60.0);
+    assert!(
+        right.abs() < 1e-6,
+        "the right end comes round at once: {right}"
+    );
+    let left = set_at(r.x - 4.0);
+    assert!(
+        (left - limits::RECENTRE.1).abs() < 1e-6,
+        "the left end is the slowest: {left}"
+    );
+    let middle = set_at(r.x + (r.w - 64.0) * 0.75);
+    assert!(
+        middle > 0.2 && middle < 0.3,
+        "three quarters along, a quarter of the slowest: {middle}"
+    );
+    // The page, with the slider among the camera's, is still all inside the window.
+    let window =
+        h.ui.windows
+            .rects(1.0)
+            .into_iter()
+            .find(|(id, _)| *id == WindowId::Options)
+            .map(|(_, w)| w)
+            .expect("Settings open");
+    let last = control(&h, "Camera Speed");
+    assert!(
+        last.bottom() <= window.bottom(),
+        "the pad's last slider {last:?} in the window {window:?}"
+    );
+}
+
+#[test]
 fn an_open_dropdown_list_takes_the_presses_over_it_and_a_press_elsewhere_only_closes_it() {
     let state = in_world();
     let mut h = options_on("Controls", &state);

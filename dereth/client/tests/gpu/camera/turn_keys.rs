@@ -325,7 +325,9 @@ fn wire_heading(p: &dereth_protocol::types::PositionWire) -> f32 {
 /// heading, matching `TurnRight 0x6500000D` on the sibling arm.
 ///
 /// The camera follows because in first person it **is** the head: `viewer_offset` never moves and
-/// the drawn frame's yaw tracks the body's.
+/// the drawn frame's yaw comes to the body's. Only its place is stiff in first person; its turn is
+/// eased at the camera's stiffness, one step a tick, so it trails a turning body and closes on it
+/// once the body stops.
 ///
 /// The decision reaches the body's turn-to-heading path and the body turns the way it asked; a
 /// held key keeps turning (see the note under the last assertion).
@@ -386,9 +388,9 @@ fn in_first_person_the_turn_key_turns_the_body_and_the_camera_follows() {
         IN_HEAD_OFFSET,
         "and the camera must not have orbited instead"
     );
-    // The camera-follows-the-head comparison is taken after the key is released and the body has
-    // settled (below): with the body turning one animation frame per sweep, any
-    // single-frame read of body and camera is one sweep apart.
+    // The camera-follows-the-head comparison is taken a second after the key is released, when
+    // the body has stopped and the camera's eased turn has closed on it (below): while the body
+    // turns the camera trails it, about 16 degrees at 30 ticks a second.
 
     // The first-person arm emits no movement event of its own — only the mouse-turning arm does —
     // so the once-a-second `0xF753` tells the server, and it must carry a heading the body held.
@@ -427,14 +429,14 @@ fn in_first_person_the_turn_key_turns_the_body_and_the_camera_follows() {
         CAMERA_MAP,
         false,
     );
-    frames(&mut app, 10);
+    frames(&mut app, 30);
     // `FreeCamera::yaw` is counter-clockwise from north and the body's heading is clockwise, so a
     // body turning +d degrees is a camera yawing -d. Read settled, see above.
     let h2 = heading(&app);
     let yaw2 = camera_yaw_degrees(&app);
     let camera_moved = turned(-yaw0, -yaw2);
     assert!(
-        (camera_moved - turned(h0, h2)).abs() < 3.0,
+        (camera_moved - turned(h0, h2)).abs() < 1.0,
         "the camera must follow the head it is in: body {}, camera {camera_moved}",
         turned(h0, h2)
     );

@@ -1,5 +1,6 @@
 //! The cursor: the client shell's cursor state ([`dereth_client_shell::cursor`], re-exported
-//! here) over the desktop's cursor images.
+//! here) over the desktop's cursor images, and the window's hold on the pointer during a camera
+//! drag ([`desktop_pointer`]).
 //!
 //! A cursor image is the window system's own cursor, made from the dat surface's 32x32 icon and
 //! installed as the window's pointer, on every desktop platform: Windows, macOS, X11 and Wayland.
@@ -14,6 +15,7 @@ use crate::platform::window::{
 };
 
 pub use dereth_client_shell::cursor::*;
+use dereth_client_shell::pointer::HostPointer;
 
 /// The desktop's cursor images, put on the window whose handle is `window`.
 #[must_use]
@@ -86,6 +88,32 @@ impl CursorImages for WindowCursors {
             icon,
             took,
         })
+    }
+}
+
+/// The desktop's hold on the pointer during a camera drag, on the window whose handle is
+/// `window`: see [`DesktopWindow::hold_pointer`].
+#[must_use]
+pub fn desktop_pointer(window: Option<isize>) -> Box<dyn HostPointer> {
+    Box::new(WindowPointer(window.and_then(cursor_window)))
+}
+
+/// The pointer held by the window, while it is open; `None` under `--headless`, which holds
+/// nothing.
+struct WindowPointer(Option<Weak<DesktopWindow>>);
+
+impl HostPointer for WindowPointer {
+    fn capture(&mut self, at: (f64, f64)) -> bool {
+        self.0
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|window| window.hold_pointer(at))
+    }
+
+    fn release(&mut self, at: (f64, f64)) {
+        if let Some(window) = self.0.as_ref().and_then(Weak::upgrade) {
+            window.let_pointer_go(Some(at));
+        }
     }
 }
 

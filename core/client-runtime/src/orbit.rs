@@ -18,7 +18,7 @@ pub enum MovementMode {
     #[default]
     Camera,
     /// The game's own: Forward and Back move along the player's facing, and the turning keys
-    /// turn.
+    /// turn. Moving ahead brings the camera round behind the player.
     Character,
 }
 
@@ -43,6 +43,10 @@ pub struct OrbitSettings {
     /// Metres the point it looks at is raised above where it would be, to look over the
     /// player's head; 0 looks where it always has.
     pub height: f32,
+    /// Seconds it takes to come round behind the player when it does (after a turn of theirs, as
+    /// they move ahead under character-based movement, or as the game turns them); 0 brings it
+    /// round at once.
+    pub recentre: f32,
 }
 
 impl Default for OrbitSettings {
@@ -57,6 +61,7 @@ impl Default for OrbitSettings {
             pitch_min: PITCH_MIN,
             pitch_max: PITCH_MAX,
             height: 0.0,
+            recentre: RECENTRE,
         }
     }
 }
@@ -73,6 +78,8 @@ pub mod limits {
     pub const PITCH_MAX: (f32, f32) = (0.0, 1.5);
     /// The look point's raise, metres.
     pub const HEIGHT: (f32, f32) = (-1.0, 3.0);
+    /// Seconds to come round behind the player: from at once to a second.
+    pub const RECENTRE: (f32, f32) = (0.0, 1.0);
 }
 
 impl OrbitSettings {
@@ -93,6 +100,7 @@ impl OrbitSettings {
             pitch_min: hold(self.pitch_min, limits::PITCH_MIN, PITCH_MIN),
             pitch_max: hold(self.pitch_max, limits::PITCH_MAX, PITCH_MAX),
             height: hold(self.height, limits::HEIGHT, 0.0),
+            recentre: hold(self.recentre, limits::RECENTRE, RECENTRE),
             ..self
         }
     }
@@ -179,6 +187,9 @@ pub struct OrbitCamera {
     /// until the body is drawn facing the way they stopped, unless it is turned by hand or held
     /// meanwhile.
     pub carried: bool,
+    /// How fast, in radians a second, it is swinging round behind the player of its own accord,
+    /// over and above any turn of the player's carrying it.
+    swing: f32,
     /// A zoom held: `1` closer, `-1` further, `0` none; and for how long.
     zoom_hold: f32,
     zoom_held_for: f32,
@@ -209,6 +220,7 @@ impl Default for OrbitCamera {
             follow_behind: false,
             settling_behind: false,
             carried: false,
+            swing: 0.0,
             zoom_hold: 0.0,
             zoom_held_for: 0.0,
             shown: None,
@@ -231,9 +243,14 @@ pub fn eased_shortfall(shown: f32, now: f32, dt: f32) -> f32 {
     }
 }
 
-/// How fast the orbit camera comes round behind a player the game turns: the share of the rest
-/// of the turn it closes in a second, as an ease rate.
-pub const BEHIND_EASE: f32 = 2.5;
+/// Seconds the orbit camera takes to come round behind the player, unless its settings say
+/// otherwise: quick and firm.
+pub const RECENTRE: f32 = 0.2;
+
+/// The swing round behind is a critically damped spring, which starts and stops smoothly and
+/// never swings past. Its rate is this over the recentre time, so that in that time it closes all
+/// but a hundredth of the way from wherever it starts: `(1 + u) e^-u` is a hundredth here.
+const RECENTRE_SPRING: f32 = 6.638_352;
 
 /// How close to directly behind, in radians, a camera settling after a turn counts as there.
 const SETTLED: f32 = 0.002;
@@ -354,11 +371,31 @@ impl OrbitCamera {
         }
     }
 
-    /// Bring it `dt` seconds of the way round behind a player facing `heading` (degrees clockwise
-    /// from north), gently, at the same pace at any frame rate.
+    /// Swing it `dt` seconds of the way round behind a player facing `heading` (degrees clockwise
+    /// from north), in the time its settings give, or at once: setting off and slowing smoothly,
+    /// never past directly behind, and the same at any frame rate. What is shown swings with it,
+    /// so the swing is what is seen.
     pub fn ease_behind(&mut self, heading: f32, dt: f32) {
-        let gap = wrap(yaw_of_heading(heading) - self.yaw);
-        self.yaw = wrap(self.yaw + gap * ease_share(BEHIND_EASE, dt));
+        let off = wrap(self.yaw - yaw_of_heading(heading));
+        let time = self.settings.recentre;
+        let mut next = 0.0;
+        if time > 0.0 {
+            // The spring stepped exactly, rather than a frame's slope at a time, so any number
+            // of frames over the same time leave it in the same place.
+            let rate = RECENTRE_SPRING / time;
+            let dt = dt.max(0.0);
+            let fade = dereth_primitives::num::math::expf(-rate * dt);
+            let push = (self.swing + rate * off) * dt;
+            next = (off + push) * fade;
+            self.swing = (self.swing - rate * push) * fade;
+        }
+        // Brought to directly behind, or carried past it by a swing begun when the player faced
+        // elsewhere: it stops there.
+        if next * off <= 0.0 {
+            next = 0.0;
+            self.swing = 0.0;
+        }
+        self.turn_by(next - off);
     }
 
     /// Bring it `dt` seconds on round behind a player facing `heading`, while it is settling after
@@ -368,9 +405,19 @@ impl OrbitCamera {
             return;
         }
         self.ease_behind(heading, dt);
-        if wrap(yaw_of_heading(heading) - self.yaw).abs() < SETTLED {
-            self.yaw = yaw_of_heading(heading);
+        let rest = wrap(yaw_of_heading(heading) - self.yaw);
+        if rest.abs() < SETTLED {
+            self.turn_by(rest);
             self.settling_behind = false;
+            self.swing = 0.0;
+        }
+    }
+
+    /// Turn it, and what is shown, by `r` radians counter-clockwise.
+    fn turn_by(&mut self, r: f32) {
+        self.yaw = wrap(self.yaw + r);
+        if let Some(s) = &mut self.shown {
+            s.yaw = wrap(s.yaw + r);
         }
     }
 
@@ -388,17 +435,14 @@ impl OrbitCamera {
     pub fn let_go_of_player(&mut self) {
         self.carried = false;
         self.settling_behind = false;
+        self.swing = 0.0;
     }
 
     /// Turn it with the player, who turned by `degrees` clockwise: it keeps its place behind them
     /// as they turn. What is shown turns at once too, so it rides with them without lagging.
     pub fn turn_with_player(&mut self, degrees: f32) {
         self.settling_behind = true;
-        let r = -degrees.to_radians();
-        self.yaw = wrap(self.yaw + r);
-        if let Some(s) = &mut self.shown {
-            s.yaw = wrap(s.yaw + r);
-        }
+        self.turn_by(-degrees.to_radians());
     }
 
     /// Ease what is shown `dt` seconds toward where the camera is set, looking at `pivot`, which
@@ -970,19 +1014,42 @@ impl MovementKeys {
 
     /// Whether, under `settings`, the player turning carries the orbit camera round with them:
     /// while a spell is cast and the player turns themselves ([`Self::cast_turn`]); otherwise
-    /// under character-based movement, with a turning key held, unless the mouse steers the
-    /// player or the facing is held (the keys then step sideways) or the left button holds the
-    /// camera where the pointer put it.
+    /// under character-based movement, with a turning key held (or a movement stick pushed
+    /// across), unless the mouse steers the player or the facing is held (the keys then step
+    /// sideways) or the left button holds the camera where the pointer put it. A sidestep key
+    /// turns no one, and leaves the camera where it is.
     #[must_use]
     pub fn camera_turns_with_player(&self, settings: OrbitSettings) -> bool {
         if self.casting_turn() {
             return true;
         }
+        let turning = self.turns.iter().any(|t| *t) || self.stick_keys[2] || self.stick_keys[3];
         settings.movement == MovementMode::Character
             && !self.mouse_steers()
             && !self.locked
             && !self.buttons.0
-            && (self.held.left || self.held.right)
+            && turning
+    }
+
+    /// Whether, under `settings`, the player moving ahead (`ahead`: the game moving them forward,
+    /// straight or with a step to the side, walking or running, by a movement key, the run lock
+    /// or a stick) brings the orbit camera round behind them: under character-based movement,
+    /// unless a mouse button holds the camera or the look stick (`look`, as
+    /// [`OrbitCamera::stick`] has it) is pushed. Both buttons run the player ahead facing where
+    /// it looks, so it is behind them already. Backing up and stepping sideways alone leave it
+    /// where it is.
+    #[must_use]
+    pub fn camera_comes_behind_moving_ahead(
+        &self,
+        settings: OrbitSettings,
+        ahead: bool,
+        look: (f32, f32),
+    ) -> bool {
+        settings.movement == MovementMode::Character
+            && ahead
+            && !self.buttons.0
+            && !self.buttons.1
+            && look == (0.0, 0.0)
     }
 
     /// One movement key under character-based movement: the game's own, except that while the
@@ -1752,6 +1819,60 @@ mod tests {
         out
     }
 
+    /// A body standing at `fps` under character-based movement, its camera turned `off` degrees
+    /// clockwise by the mouse and left there a second, then the left turning key held for two
+    /// seconds, read as the runtime reads it each frame before the body and then the camera are
+    /// stepped: each frame from the press, how far, in degrees clockwise, the body is drawn facing
+    /// from the way the camera as shown looks.
+    fn turned_with_the_camera_off(fps: f64, off: f32) -> Vec<f32> {
+        use dereth_client_contract::actions::Action;
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        c.camera.orbit_active = true;
+        c.camera.orbit.apply_settings(s);
+        c.drawn_between_ticks = true;
+        let mut keys = MovementKeys::default();
+        let mut t = 10.0;
+        let mut frame = |c: &mut crate::character::Character, keys: &MovementKeys| {
+            t += 1.0 / fps;
+            if c.camera.orbit.placed {
+                c.camera.orbit_turns_with_player = keys.camera_turns_with_player(s);
+            }
+            c.update(dereth_primitives::LocalTime(t));
+            c.update_camera(
+                crate::camera::CameraInput::default(),
+                dereth_primitives::LocalTime(t),
+                1.0 / fps,
+            );
+            let drawn = dereth_animation::frame::get_heading(&c.position().frame) + c.drawn_turn();
+            (drawn - c.camera.orbit.facing_degrees() + 540.0).rem_euclid(360.0) - 180.0
+        };
+        for _ in 0..60 {
+            frame(&mut c, &keys);
+        }
+        c.camera.orbit.rotate(off.to_radians() / s.mouse_turn, 0.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let second = fps.round() as usize;
+        for _ in 0..second {
+            frame(&mut c, &keys);
+        }
+        for e in keys.convert(Action::begin(a::TURN_LEFT), s) {
+            c.input.turn_left = e.is_start();
+        }
+        (0..second * 2).map(|_| frame(&mut c, &keys)).collect()
+    }
+
     /// What the camera kept and how it stood when the player was put down somewhere new.
     #[derive(Debug)]
     struct PutDown {
@@ -2040,6 +2161,33 @@ mod tests {
                     "{fps} fps, running {running}, turn {turn}: directly behind: {last} degrees"
                 );
             }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn turned_off_to_one_side_a_turning_key_brings_it_round_behind_the_turning_body_quickly() {
+        for fps in [60.0, 240.0] {
+            let f = turned_with_the_camera_off(fps, 90.0);
+            assert!(
+                f[0] < -80.0,
+                "{fps} fps: it starts a quarter round: {}",
+                f[0]
+            );
+            let n = f.iter().rposition(|o| o.abs() >= 1.0).map_or(0, |i| i + 1);
+            #[allow(clippy::cast_precision_loss)]
+            let t = (n + 1) as f64 / fps;
+            assert!(
+                (0.15..=0.25).contains(&t),
+                "{fps} fps: round within a degree of behind the turning body in {t} s"
+            );
+            let past = f.iter().copied().fold(f32::MIN, f32::max);
+            assert!(
+                past < 0.05,
+                "{fps} fps: never swung past behind the body: {past} degrees"
+            );
+            let last = f.last().expect("frames").abs();
+            assert!(last < 0.05, "{fps} fps: riding directly behind: {last}");
         }
     }
 
@@ -2679,6 +2827,63 @@ mod tests {
     }
 
     #[test]
+    fn under_character_based_movement_a_stick_pushed_across_turns_the_camera_but_a_sidestep_does_not(
+    ) {
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        let mut k = MovementKeys::default();
+        let _ = k.stick(Some((-1.0, 0.0)), s);
+        assert!(
+            k.camera_turns_with_player(s),
+            "a movement stick pushed across turns the player, the camera with them"
+        );
+        let _ = k.stick(None, s);
+        assert!(!k.camera_turns_with_player(s), "let go");
+        let _ = k.convert(Action::begin(a::STRAFE_LEFT), s);
+        assert!(
+            !k.camera_turns_with_player(s),
+            "a sidestep key turns no one"
+        );
+    }
+
+    #[test]
+    fn moving_ahead_brings_the_camera_behind_under_character_based_movement_unless_it_is_held() {
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        let still = (0.0, 0.0);
+        let k = MovementKeys::default();
+        assert!(k.camera_comes_behind_moving_ahead(s, true, still));
+        assert!(
+            !k.camera_comes_behind_moving_ahead(s, false, still),
+            "not moving ahead"
+        );
+        assert!(
+            !k.camera_comes_behind_moving_ahead(camera(false), true, still),
+            "camera-based movement turns the player to the camera instead"
+        );
+        for buttons in [(true, false), (false, true), (true, true)] {
+            let k = MovementKeys {
+                buttons,
+                ..MovementKeys::default()
+            };
+            assert!(
+                !k.camera_comes_behind_moving_ahead(s, true, still),
+                "{buttons:?}: a mouse button holds it"
+            );
+        }
+        for look in [(0.6, 0.0), (0.0, -0.4)] {
+            assert!(
+                !k.camera_comes_behind_moving_ahead(s, true, look),
+                "{look:?}: the look stick holds it"
+            );
+        }
+    }
+
+    #[test]
     fn the_run_walk_key_flips_at_each_press_and_its_release_and_repeats_do_nothing() {
         let mut k = MovementKeys::default();
         let s = camera(false);
@@ -2745,7 +2950,7 @@ mod tests {
     }
 
     #[test]
-    fn it_comes_round_behind_a_player_the_game_turns_gently_at_any_frame_rate() {
+    fn it_comes_round_behind_a_player_the_game_turns_at_the_same_pace_at_any_frame_rate() {
         let behind = |fps: u32, seconds: f32, start: f32, heading: f32| {
             let mut c = OrbitCamera {
                 yaw: start,
@@ -2759,8 +2964,12 @@ mod tests {
             }
             c.yaw
         };
-        // A quarter turn: part of the way in half a second, the same at 60 and 240 a second.
-        let (slow, fast) = (behind(60, 0.5, 0.0, 90.0), behind(240, 0.5, 0.0, 90.0));
+        // A quarter turn: part of the way in a moment, the same at 60 and 240 a second.
+        let moment = RECENTRE / 4.0;
+        let (slow, fast) = (
+            behind(60, moment, 0.0, 90.0),
+            behind(240, moment, 0.0, 90.0),
+        );
         assert!((slow - fast).abs() < 1e-3, "{slow} {fast}");
         let target = -std::f32::consts::FRAC_PI_2;
         assert!(slow < 0.0 && slow > target, "partway: {slow}");
@@ -2800,7 +3009,8 @@ mod tests {
             c
         };
         let behind = yaw_of_heading(30.0);
-        let (slow, fast) = (settle(60, 0.3), settle(240, 0.3));
+        let moment = RECENTRE / 4.0;
+        let (slow, fast) = (settle(60, moment), settle(240, moment));
         assert!(
             (slow.yaw - fast.yaw).abs() < 1e-3,
             "{} {}",
@@ -2833,6 +3043,195 @@ mod tests {
         c.stick = (0.5, 0.0);
         c.turn_stick(0.1);
         assert!(!c.settling_behind);
+    }
+
+    /// A camera set `off` degrees round from directly behind a player facing north and shown
+    /// there, coming round behind them under `settings` at `fps` frames a second for two seconds:
+    /// how far round from directly behind it is shown each frame, in degrees.
+    fn coming_round(settings: OrbitSettings, fps: u32, off: f32) -> Vec<f32> {
+        let mut c = OrbitCamera::default();
+        c.apply_settings(settings);
+        c.place_behind(off);
+        c.ease(Vec3::ZERO, 0.0);
+        c.turn_with_player(0.0);
+        #[allow(clippy::cast_precision_loss)]
+        let dt = 1.0 / fps as f32;
+        (0..fps * 2)
+            .map(|_| {
+                c.settle_behind(0.0, dt);
+                c.ease(Vec3::ZERO, dt);
+                (c.facing_degrees() + 540.0).rem_euclid(360.0) - 180.0
+            })
+            .collect()
+    }
+
+    /// The seconds from the start until it is shown within a degree of directly behind for good.
+    #[allow(clippy::cast_precision_loss)]
+    fn round_in(frames: &[f32], fps: u32) -> f32 {
+        let n = frames
+            .iter()
+            .rposition(|o| o.abs() >= 1.0)
+            .map_or(0, |i| i + 1);
+        (n + 1) as f32 / fps as f32
+    }
+
+    #[test]
+    fn off_to_one_side_it_comes_round_behind_the_player_in_about_a_fifth_of_a_second_never_past() {
+        for fps in [60, 240] {
+            // From a quarter turn it takes from 0.15 to 0.25 seconds; from less, less.
+            for (off, soonest) in [(30.0, 0.0), (90.0, 0.15), (179.0, 0.0), (-90.0, 0.15)] {
+                let f = coming_round(OrbitSettings::default(), fps, off);
+                let t = round_in(&f, fps);
+                assert!(
+                    (soonest..=0.25).contains(&t),
+                    "{fps} fps, {off} degrees off: round within a degree in {t} s"
+                );
+                // It never passes directly behind, nor turns back.
+                let side = f[0].signum();
+                assert!(
+                    f.iter().all(|o| o * side >= 0.0)
+                        && f.windows(2).all(|w| w[1].abs() <= w[0].abs() + 1e-4),
+                    "{fps} fps, {off} degrees off: never past behind: {f:?}"
+                );
+                let last = f.last().expect("frames").abs();
+                assert!(last < 1e-3, "{fps} fps: directly behind: {last}");
+            }
+            // It sets off smoothly and gathers pace rather than jumping at the start.
+            let f = coming_round(OrbitSettings::default(), fps, 90.0);
+            let steps: Vec<f32> = std::iter::once(90.0 - f[0].abs())
+                .chain(f.windows(2).map(|w| w[0].abs() - w[1].abs()))
+                .collect();
+            let most = steps.iter().copied().fold(0.0, f32::max);
+            assert!(
+                steps[0] < most * 0.6,
+                "{fps} fps: its first step {} against its largest {most}",
+                steps[0]
+            );
+        }
+    }
+
+    #[test]
+    fn it_comes_round_behind_the_same_way_at_any_frame_rate() {
+        for recentre in [RECENTRE, 0.6] {
+            let s = OrbitSettings {
+                recentre,
+                ..OrbitSettings::default()
+            };
+            let (f30, f60, f240) = (
+                coming_round(s, 30, 90.0),
+                coming_round(s, 60, 90.0),
+                coming_round(s, 240, 90.0),
+            );
+            // Where each is shown at every thirtieth of a second.
+            for (i, at30) in f30.iter().enumerate() {
+                let (at60, at240) = (f60[i * 2 + 1], f240[i * 8 + 7]);
+                assert!(
+                    (at30 - at60).abs() < 0.01 && (at30 - at240).abs() < 0.01,
+                    "{recentre} s, frame {i}: {at30} {at60} {at240}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn how_quickly_it_comes_round_is_set_from_at_once_to_a_second() {
+        let set = |recentre: f32| OrbitSettings {
+            recentre,
+            ..OrbitSettings::default()
+        };
+        assert!((OrbitSettings::default().recentre - RECENTRE).abs() < 1e-6);
+        // At once: directly behind from the first frame.
+        for fps in [60, 240] {
+            let f = coming_round(set(0.0), fps, 90.0);
+            assert!(f.iter().all(|o| o.abs() < 1e-3), "{fps} fps: {:?}", &f[..4]);
+        }
+        // Slowest: a second.
+        let (_, slowest) = limits::RECENTRE;
+        for fps in [60, 240] {
+            let f = coming_round(set(slowest), fps, 90.0);
+            let t = round_in(&f, fps);
+            assert!(
+                (0.9..=1.05).contains(&t),
+                "{fps} fps: round in {t} s at the slowest"
+            );
+            assert!(
+                f[fps as usize / 4].abs() > 30.0,
+                "{fps} fps: still well off after a quarter of a second: {}",
+                f[fps as usize / 4]
+            );
+        }
+        // Between, in the time set.
+        let t = |recentre: f32| round_in(&coming_round(set(recentre), 240, 90.0), 240);
+        assert!(
+            (t(0.5) - 2.5 * t(0.2)).abs() < 0.01,
+            "{} {}",
+            t(0.5),
+            t(0.2)
+        );
+        // Held to its range, a value that is not a number taking the default.
+        assert!(set(-1.0).held_to_ranges().recentre.abs() < 1e-6);
+        assert!((set(5.0).held_to_ranges().recentre - slowest).abs() < 1e-6);
+        assert!((set(f32::NAN).held_to_ranges().recentre - RECENTRE).abs() < 1e-6);
+    }
+
+    #[test]
+    fn swinging_round_it_stops_directly_behind_when_the_player_turns_toward_it() {
+        let mut c = OrbitCamera::default();
+        c.place_behind(90.0);
+        c.ease(Vec3::ZERO, 0.0);
+        c.turn_with_player(0.0);
+        let dt = 1.0 / 240.0;
+        for _ in 0..12 {
+            c.settle_behind(0.0, dt);
+            c.ease(Vec3::ZERO, dt);
+        }
+        // Swinging hard, it is brought nearly round by the player's facing changing under it.
+        let at = c.facing_degrees();
+        assert!(at > 30.0 && at < 60.0, "partway: {at}");
+        let facing = at - 0.5;
+        for _ in 0..240 {
+            c.settle_behind(facing, dt);
+            c.ease(Vec3::ZERO, dt);
+            let off = c.facing_degrees() - facing;
+            assert!(off > -1e-3, "never past behind: {off}");
+        }
+        assert!((c.facing_degrees() - facing).abs() < 1e-3);
+    }
+
+    #[test]
+    fn turned_by_hand_mid_swing_its_next_swing_sets_off_from_still() {
+        let dt = 1.0 / 240.0;
+        let quarter_off = || {
+            let mut c = OrbitCamera::default();
+            c.place_behind(90.0);
+            c.ease(Vec3::ZERO, 0.0);
+            c
+        };
+        let first_step = |mut c: OrbitCamera| {
+            let before = c.facing_degrees();
+            c.turn_with_player(0.0);
+            c.settle_behind(0.0, dt);
+            c.ease(Vec3::ZERO, dt);
+            before - c.facing_degrees()
+        };
+        let mut c = quarter_off();
+        c.turn_with_player(0.0);
+        for _ in 0..12 {
+            c.settle_behind(0.0, dt);
+            c.ease(Vec3::ZERO, dt);
+        }
+        // Swinging hard, it is turned back a quarter round by hand, and shown there.
+        let back = (90.0 - c.facing_degrees()).to_radians() / c.settings.mouse_turn;
+        c.rotate(back, 0.0);
+        for _ in 0..240 {
+            c.ease(Vec3::ZERO, dt);
+        }
+        assert!((c.facing_degrees() - 90.0).abs() < 1e-3);
+        let (again, fresh) = (first_step(c), first_step(quarter_off()));
+        assert!(
+            (again - fresh).abs() < 1e-3,
+            "it sets off as a camera that never swung: {again} against {fresh} degrees"
+        );
     }
 
     #[test]

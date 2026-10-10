@@ -17,9 +17,11 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's Better Lighting no longer lights sloped ground face by face, which showed as lime triangles under Global Illumination.
 - Horizon's Sky and Atmosphere effect no longer hazes over the land seen through a building's windows and doors.
 - Horizon's camera stops directly behind you after a turn
+- Horizon's camera comes round behind you quickly and firmly, in a fifth of a second, and with character-based movement running forward brings it round too; Camera Recentre Speed on the Controls page sets how quickly, up to at once.
 - A speed no motion means, sent by a server, no longer freezes the client.
 - Turning your character with the right mouse button in Horizon no longer stutters.
 - Horizon can draw characters and creatures moving smoothly between their animations' frames, at any frame rate: Smooth Animation, on the Client page of its options, off by default.
+- Turning the camera with the mouse hides the pointer and holds it still, as the original client did, and it comes back where the drag began; in the browser, holding both mouse buttons now runs forward in Horizon.
 
 ## 0.4.0 (2026-10-09)
 

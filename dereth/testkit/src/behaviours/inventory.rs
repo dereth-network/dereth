@@ -3512,12 +3512,13 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.pointer.turning-the-camera-with-the-right-button-is-not-an-appraisal",
-        says: "Holding the right button and moving turns the camera, and letting it go there \
-               looks at nothing; pressing and letting go in the same place is a click, and that \
-               does look at what is under the pointer. Without the distinction every camera turn \
-               appraised whatever happened to be under the cursor when the button came up. The \
-               line between them is the client's own: three pixels of hand-shake is still a \
-               click and four is a turn.",
+        says: "Holding the right button and moving turns the camera, and letting it go looks at \
+               nothing, wherever it is let go, back where it went down included; pressing and \
+               letting go without moving is a click, and that does look at what is under the \
+               pointer. Without the distinction every camera turn appraised whatever happened to \
+               be under the cursor when the button came up. The line between them is the \
+               client's own: three pixels of hand-shake is still a click and four is a turn, \
+               however far the pointer comes back before the button is let go.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O85-CAMERA-TURN"),
         station: "dereth-testkit::dat::inventory::equip::scenario_turning_the_camera_with_the_right_button_is_not_an_appraisal",

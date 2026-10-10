@@ -46,6 +46,7 @@ pub use {
 };
 
 use dereth_client_contract::options::store::DisplayMode;
+use dereth_client_shell::pointer::PutBack;
 use dereth_render::window_proc::{Rect, ScreenMetrics};
 use {dereth_input::keys::Key, dereth_input::keys::MouseButton};
 
@@ -303,6 +304,98 @@ pub struct DesktopWindow {
     window: winit::window::Window,
     /// Borrowed mutably only while a drain runs; a cursor is made between drains.
     event_loop: std::cell::RefCell<winit::event_loop::EventLoop<()>>,
+    /// How the window holds the pointer for a camera drag, if it does.
+    hold: std::cell::Cell<Hold>,
+}
+
+/// How the window holds the pointer for a camera drag.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Hold {
+    /// Not held: the pointer moves, and is shown.
+    Free,
+    /// Locked where it is by the window system, which reports the mouse's own movement: on a
+    /// window system where the client cannot place the pointer.
+    Locked,
+    /// Hidden and put back in the middle of the window, its movement read off the window's own
+    /// reports of it.
+    PutBack(PutBack),
+}
+
+/// What the window makes of one of its events while it may hold the pointer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum HeldEvent {
+    /// Reported as it came.
+    Report,
+    /// Not reported: the held pointer's report of being put back, or of leaving the window.
+    Swallow,
+    /// Not reported, and the mouse's movement reported in its place, in client pixels.
+    Motion((f64, f64)),
+    /// Reported, and the pointer let go of where it is first: the window lost the focus or was
+    /// minimised, and another window may need the pointer.
+    LetGo,
+}
+
+/// One of the window's events, as the window sees it while it may hold the pointer: only what
+/// [`held_event`] tells apart.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Seen {
+    /// The pointer moved to this point, in client pixels.
+    PointerAt((f64, f64)),
+    /// The pointer left the window.
+    PointerLeft,
+    /// The window lost the focus, or was minimised.
+    Away,
+    Other,
+}
+
+impl Seen {
+    fn of(event: &winit::event::WindowEvent) -> Self {
+        use winit::event::WindowEvent;
+        match event {
+            WindowEvent::CursorMoved { position, .. } => Self::PointerAt((position.x, position.y)),
+            WindowEvent::CursorLeft { .. } => Self::PointerLeft,
+            WindowEvent::Focused(false) => Self::Away,
+            WindowEvent::Resized(size) if size.width == 0 || size.height == 0 => Self::Away,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// What a window holding the pointer as `hold` makes of an event it has seen.
+fn held_event(hold: &mut Hold, seen: Seen) -> HeldEvent {
+    if *hold == Hold::Free {
+        return HeldEvent::Report;
+    }
+    match seen {
+        Seen::PointerAt(at) => match hold {
+            Hold::PutBack(put_back) => put_back
+                .moved(at)
+                .map_or(HeldEvent::Swallow, HeldEvent::Motion),
+            _ => HeldEvent::Swallow,
+        },
+        Seen::PointerLeft => HeldEvent::Swallow,
+        Seen::Away => HeldEvent::LetGo,
+        Seen::Other => HeldEvent::Report,
+    }
+}
+
+/// Whether `window` is an X11 window: the one window system here that places the pointer in its
+/// own time rather than at once.
+fn is_x11(window: &winit::window::Window) -> bool {
+    use winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+    window.window_handle().is_ok_and(|h| {
+        matches!(
+            h.as_raw(),
+            RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_)
+        )
+    })
+}
+
+impl Drop for DesktopWindow {
+    /// A pointer held for a camera drag is let go of before the window closes.
+    fn drop(&mut self) {
+        self.let_pointer_go(None);
+    }
 }
 
 impl std::fmt::Debug for DesktopWindow {
@@ -369,6 +462,118 @@ impl DesktopWindow {
     /// Wayland and macOS attach it to the window's surface.
     pub fn set_cursor(&self, cursor: &HostCursor) {
         self.window.set_cursor(cursor.0.clone());
+    }
+
+    /// Hide the pointer and hold it still for a camera drag, where it is at `at` in client
+    /// pixels. While it is held the window reports the mouse's movement
+    /// ([`HostEvent::PointerMotion`]) and not the pointer's.
+    ///
+    /// Where the window system lets the client place the pointer (Windows, macOS, X11) it is held
+    /// as the final client held it under mouse look: hidden, put in the middle of the window and
+    /// put back there after every drain in which it moved, its movement read off the window's
+    /// reports of it ([`PutBack`]), so it turns the camera at the pointer's own speed and
+    /// acceleration. On X11 it is also kept inside the window meanwhile, the window system placing
+    /// it in its own time. Where the pointer cannot be placed (Wayland) it is locked where it is,
+    /// and its movement is the mouse's own. `false` when the window system can do neither.
+    pub fn hold_pointer(&self, at: (f64, f64)) -> bool {
+        use winit::window::CursorGrabMode;
+        if self.hold.get() != Hold::Free {
+            return true;
+        }
+        let window = &self.window;
+        let hold = if is_wayland(window) {
+            if window.set_cursor_grab(CursorGrabMode::Locked).is_err() {
+                return false;
+            }
+            window.set_cursor_visible(false);
+            Hold::Locked
+        } else {
+            let at_once = !is_x11(window);
+            // Not on Windows: there a hidden pointer kept inside the window is held in its middle
+            // by the window system, which would leave no movement to read.
+            let kept_inside = !at_once && window.set_cursor_grab(CursorGrabMode::Confined).is_ok();
+            let size = window.inner_size();
+            let middle = (f64::from(size.width / 2), f64::from(size.height / 2));
+            let (put_back, now) = PutBack::new(at, middle, at_once);
+            window.set_cursor_visible(false);
+            if let Some((x, y)) = now {
+                if window
+                    .set_cursor_position(winit::dpi::PhysicalPosition::new(x, y))
+                    .is_err()
+                {
+                    window.set_cursor_visible(true);
+                    if kept_inside {
+                        let _ = window.set_cursor_grab(CursorGrabMode::None);
+                    }
+                    return false;
+                }
+            }
+            Hold::PutBack(put_back)
+        };
+        self.hold.set(hold);
+        tracing::debug!("pointer held for a camera drag: {hold:?}");
+        true
+    }
+
+    /// Put a held pointer back in the middle of the window, after a drain in which it moved.
+    fn put_pointer_back(&self) {
+        let Hold::PutBack(mut put_back) = self.hold.get() else {
+            return;
+        };
+        if let Some((x, y)) = put_back.put_back() {
+            let _ = self
+                .window
+                .set_cursor_position(winit::dpi::PhysicalPosition::new(x, y));
+        }
+        self.hold.set(Hold::PutBack(put_back));
+    }
+
+    /// Stop holding the pointer and show it again, put at `at` in client pixels first when
+    /// given. Nothing when the pointer is not held.
+    pub fn let_pointer_go(&self, at: Option<(f64, f64)>) {
+        use winit::window::CursorGrabMode;
+        if self.hold.replace(Hold::Free) == Hold::Free {
+            return;
+        }
+        let put = |at: Option<(f64, f64)>| {
+            if let Some((x, y)) = at {
+                let _ = self
+                    .window
+                    .set_cursor_position(winit::dpi::PhysicalPosition::new(x, y));
+            }
+        };
+        // Put there while it is still locked as well, for a window system that places a locked
+        // pointer only by where it is to appear when it is let go.
+        put(at);
+        let _ = self.window.set_cursor_grab(CursorGrabMode::None);
+        put(at);
+        self.window.set_cursor_visible(true);
+    }
+
+    /// Whether the window holds the pointer locked, its movement the mouse's own.
+    fn holds_pointer_locked(&self) -> bool {
+        self.hold.get() == Hold::Locked
+    }
+
+    /// What the window makes of one of its events, while it may hold the pointer.
+    fn held(&self, event: &winit::event::WindowEvent) -> HeldEvent {
+        let mut hold = self.hold.get();
+        let held = held_event(&mut hold, Seen::of(event));
+        self.hold.set(hold);
+        if held == HeldEvent::LetGo {
+            self.let_pointer_go(None);
+        }
+        held
+    }
+}
+
+/// Let go of a pointer held for a camera drag by the window this thread opened, leaving it where
+/// it is: before the operating system's own modal box takes the pointer.
+pub fn let_go_of_pointer() {
+    let window =
+        CURSOR_WINDOW.with(|w| w.borrow().as_ref().and_then(|(_, window)| window.upgrade()));
+    if let Some(window) = window {
+        window.let_pointer_go(None);
     }
 }
 
@@ -739,6 +944,7 @@ pub fn open_window(
     let shared = std::rc::Rc::new(DesktopWindow {
         window,
         event_loop: std::cell::RefCell::new(event_loop),
+        hold: std::cell::Cell::new(Hold::Free),
     });
     let opened = WinitWindow {
         shared,
@@ -811,9 +1017,10 @@ impl winit::application::ApplicationHandler for Opening<'_> {
     }
 }
 
-/// The event loop's handler for one drain: every window event, routed onto the queue.
+/// The event loop's handler for one drain: every window event, routed onto the queue, and the
+/// mouse's own movement while the window holds the pointer.
 struct Drain<'a> {
-    window: &'a winit::window::Window,
+    shared: &'a DesktopWindow,
     held: &'a HeldSize,
     pins_size_limits: bool,
     /// The client size last asked for, and whether the window is full screen.
@@ -839,14 +1046,37 @@ impl winit::application::ApplicationHandler for Drain<'_> {
         _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        match self.shared.held(&event) {
+            HeldEvent::Report | HeldEvent::LetGo => {}
+            HeldEvent::Swallow => return,
+            HeldEvent::Motion((dx, dy)) => {
+                self.queue.push(HostEvent::PointerMotion { dx, dy });
+                return;
+            }
+        }
         route_window_event(
-            self.window,
+            &self.shared.window,
             self.held,
             self.pins_size_limits,
             self.presentation,
             self.queue,
             event,
         );
+    }
+
+    /// The mouse's own movement, reported while the window holds the pointer locked, as the
+    /// window system reads it off the mouse.
+    fn device_event(
+        &mut self,
+        _event_loop: &winit::event_loop::ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        if let winit::event::DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
+            if self.shared.holds_pointer_locked() {
+                self.queue.push(HostEvent::PointerMotion { dx, dy });
+            }
+        }
     }
 }
 
@@ -1039,7 +1269,7 @@ impl WindowHost for WinitWindow {
 
         let mut queue = self.events.borrow_mut();
         let mut drain = Drain {
-            window: &self.shared.window,
+            shared: &self.shared,
             held: &self.held,
             pins_size_limits: self.pins_size_limits,
             presentation: (
@@ -1053,6 +1283,9 @@ impl WindowHost for WinitWindow {
             .event_loop
             .borrow_mut()
             .pump_app_events(Some(std::time::Duration::ZERO), &mut drain);
+        // A held pointer that moved during the drain is put back, as the final client put it
+        // back once a frame under mouse look.
+        self.shared.put_pointer_back();
         // PumpStatus::Exit is winit's WM_QUIT. "WM_QUIT stops the drain but does not by itself
         // set the done flag" -- but by the time winit reports Exit its window is gone, so the only
         // honest response is to end the loop.
@@ -1604,6 +1837,47 @@ mod tests {
         assert_eq!(picture_hotspot(31), 31);
         assert_eq!(picture_hotspot(32), 31);
         assert_eq!(picture_hotspot(u32::MAX), 31);
+    }
+
+    /// While the window holds the pointer by putting it back, its reports of the pointer become
+    /// the mouse's movement and its report of the put-back is not reported; a locked pointer
+    /// reports nothing of its own; leaving the window is not reported; and the window losing the
+    /// focus or being minimised lets go of the pointer and is reported. With nothing held every
+    /// event is reported.
+    #[test]
+    fn a_held_pointer_reports_its_movement_and_not_its_put_back_and_is_let_go_when_the_window_goes_away(
+    ) {
+        let (put_back, now) = PutBack::new((100.0, 50.0), (400.0, 300.0), true);
+        assert_eq!(now, Some((400.0, 300.0)));
+        let mut held = Hold::PutBack(put_back);
+        assert_eq!(
+            held_event(&mut held, Seen::PointerAt((400.0, 300.0))),
+            HeldEvent::Swallow,
+            "the report of the pointer put in the middle"
+        );
+        assert_eq!(
+            held_event(&mut held, Seen::PointerAt((430.0, 290.0))),
+            HeldEvent::Motion((30.0, -10.0))
+        );
+        assert_eq!(
+            held_event(&mut held, Seen::PointerAt((431.0, 290.0))),
+            HeldEvent::Motion((1.0, 0.0))
+        );
+        assert_eq!(held_event(&mut held, Seen::PointerLeft), HeldEvent::Swallow);
+        assert_eq!(held_event(&mut held, Seen::Other), HeldEvent::Report);
+        assert_eq!(held_event(&mut held, Seen::Away), HeldEvent::LetGo);
+        let mut free = Hold::Free;
+        assert_eq!(
+            held_event(&mut free, Seen::PointerAt((3.0, 4.0))),
+            HeldEvent::Report
+        );
+        assert_eq!(held_event(&mut free, Seen::Away), HeldEvent::Report);
+        let mut locked = Hold::Locked;
+        assert_eq!(
+            held_event(&mut locked, Seen::PointerAt((3.0, 4.0))),
+            HeldEvent::Swallow
+        );
+        assert_eq!(held_event(&mut locked, Seen::Away), HeldEvent::LetGo);
     }
 
     /// The named keys are what the host table answers.

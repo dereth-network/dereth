@@ -13,8 +13,9 @@
 //!   status of the device they draw on, and a greyed box with its reason where what it needs is
 //!   off. Before them, wherever there are renderers to choose from (not in the browser), the
 //!   renderer the next start comes up on, with the one in use now under it.
-//! * **Controls**: how the movement keys move the character and which way the pointer turns the
-//!   camera, and the pad: whether it is read, its sticks' dead zone and its camera speed.
+//! * **Controls**: how the movement keys move the character, which way the pointer turns the
+//!   camera, its speeds and limits and how quickly it comes round behind the character, and the
+//!   pad: whether it is read, its sticks' dead zone and its camera speed.
 //! * **Key Bindings**: every bindable action, rebound by pressing the new key.
 //!
 //! Every sheet row, its caption and where its value is kept is the sheet's; every value shown is
@@ -950,8 +951,8 @@ Press Escape to leave it as it is.",
     // Controls
     // -----------------------------------------------------------------------------------------
 
-    /// The camera: how the movement keys move the character, and which way the pointer turns
-    /// it; then the pad.
+    /// The camera: how the movement keys move the character, which way the pointer turns it, its
+    /// speeds and limits, and how quickly it comes round behind the character; then the pad.
     fn controls_options(
         &mut self,
         p: &mut Painter<'_>,
@@ -962,7 +963,7 @@ Press Escape to leave it as it is.",
         use dereth_client_runtime::orbit::MovementMode;
         let k = p.scale;
         let label = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
-        let row_h = 30.0 * k;
+        let row_h = 28.0 * k;
         let row = |i: f32| {
             let y = area.y + 8.0 * k + i * row_h;
             (
@@ -1007,13 +1008,14 @@ Press Escape to leave it as it is.",
             use dereth_client_runtime::orbit::limits;
             let value_style =
                 TextStyle::new(Family::Body, 13.0, ctx.colours.text()).edge(ctx.colours.edge());
-            let sliders: [CameraSlider; 5] = [
+            let sliders: [CameraSlider; 6] = [
                 (
                     "Mouse Turning Speed",
                     "mouse-turn",
                     orbit.mouse_turn,
                     limits::MOUSE_TURN,
                     |v| format!("{:.0}%", v / 0.005 * 100.0),
+                    false,
                 ),
                 (
                     "Key Turning Speed",
@@ -1021,6 +1023,7 @@ Press Escape to leave it as it is.",
                     orbit.key_turn,
                     limits::KEY_TURN,
                     |v| format!("{:.0}%", v / 1.6 * 100.0),
+                    false,
                 ),
                 (
                     "Lowest Tilt",
@@ -1028,6 +1031,7 @@ Press Escape to leave it as it is.",
                     orbit.pitch_min,
                     limits::PITCH_MIN,
                     |v| format!("{:.0}°", v.to_degrees()),
+                    false,
                 ),
                 (
                     "Highest Tilt",
@@ -1035,6 +1039,7 @@ Press Escape to leave it as it is.",
                     orbit.pitch_max,
                     limits::PITCH_MAX,
                     |v| format!("{:.0}°", v.to_degrees()),
+                    false,
                 ),
                 (
                     "Camera Height",
@@ -1042,18 +1047,36 @@ Press Escape to leave it as it is.",
                     orbit.height,
                     limits::HEIGHT,
                     |v| format!("{v:+.1} m"),
+                    false,
+                ),
+                // The time it takes, as a speed: quicker to the right, at once at the right end.
+                (
+                    "Camera Recentre Speed",
+                    "camera-recentre",
+                    orbit.recentre,
+                    limits::RECENTRE,
+                    |v| {
+                        if v < 0.005 {
+                            "Instant".to_owned()
+                        } else {
+                            format!("{v:.2} s")
+                        }
+                    },
+                    true,
                 ),
             ];
-            for (i, (caption, name, v, (lo, hi), show)) in sliders.into_iter().enumerate() {
+            for (i, (caption, name, v, (lo, hi), show, quicker_right)) in
+                sliders.into_iter().enumerate()
+            {
                 #[allow(clippy::cast_precision_loss)]
                 let (l, c) = row(4.0 + i as f32);
                 self.mark(caption, c);
                 p.text_in(&label, l, Align::Left, caption);
                 let track = Rect::new(c.x, c.y, c.w - 64.0 * k, c.h);
-                let t = (v - lo) / (hi - lo);
-                if let Some(t) = kit::track_slider(p, ctx, track, t) {
+                let flip = |t: f32| if quicker_right { 1.0 - t } else { t };
+                if let Some(t) = kit::track_slider(p, ctx, track, flip((v - lo) / (hi - lo))) {
                     out.settings
-                        .push((name.into(), (lo + t * (hi - lo)).to_string()));
+                        .push((name.into(), (lo + flip(t) * (hi - lo)).to_string()));
                 }
                 p.text_in(
                     &value_style,
@@ -1064,7 +1087,7 @@ Press Escape to leave it as it is.",
             }
         }
         // The minimap: north up (the arrow showing the character's facing), or turning with them.
-        let (l, c) = row(9.0);
+        let (l, c) = row(10.0);
         self.mark("Lock Minimap North", c);
         p.text_in(&label, l, Align::Left, "Lock Minimap North");
         if let Some(v) = kit::checkbox(p, ctx, c, !self.options_page.minimap_rotates) {
@@ -1074,17 +1097,17 @@ Press Escape to leave it as it is.",
         // The pad, under a heading of its own.
         let heading =
             TextStyle::new(Family::Heading, 18.4, ctx.colours.heading()).edge(ctx.colours.edge());
-        let (l, _) = row(10.2);
+        let (l, _) = row(11.2);
         p.text_in(&heading, l, Align::Left, "Gamepad (Experimental)");
         let pad = self.options_page.pad;
-        let (l, c) = row(11.2);
+        let (l, c) = row(12.2);
         self.mark("Gamepad Mode", c);
         p.text_in(&label, l, Align::Left, "Gamepad Mode");
         if let Some(v) = kit::checkbox(p, ctx, c, pad.enabled) {
             out.settings.push(("gamepad".into(), v.to_string()));
         }
         {
-            let (l, c) = row(12.2);
+            let (l, c) = row(13.2);
             self.mark("Movement in Gamepad Mode", c);
             p.text_in(&label, l, Align::Left, "Movement in Gamepad Mode");
             let schemes = [MovementMode::Camera, MovementMode::Character];
@@ -1115,7 +1138,7 @@ Press Escape to leave it as it is.",
         .enumerate()
         {
             #[allow(clippy::cast_precision_loss)]
-            let (l, c) = row(13.2 + i as f32);
+            let (l, c) = row(14.2 + i as f32);
             self.mark(caption, c);
             p.text_in(&label, l, Align::Left, caption);
             if let Some(v) = kit::slider(p, ctx, c, value, lo, hi) {
@@ -1125,14 +1148,16 @@ Press Escape to leave it as it is.",
     }
 }
 
-/// A camera setting's slider: its caption, its settings name, its value, its range, and how its
-/// value is shown beside it.
+/// A camera setting's slider: its caption, its settings name, its value, its range, how its
+/// value is shown beside it, and whether its value runs the other way, from the top of its range
+/// at the left (a time shown as a speed).
 type CameraSlider = (
     &'static str,
     &'static str,
     f32,
     (f32, f32),
     fn(f32) -> String,
+    bool,
 );
 
 /// A line of a page: a heading, or a row under it.

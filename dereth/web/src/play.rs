@@ -20,8 +20,6 @@ use dereth_client_runtime::net::ClientNetwork;
 use dereth_dat::RetailDatStore;
 use dereth_primitives::LocalTime;
 
-use dereth_input::keys::MouseButton;
-
 use crate::frame;
 use crate::host::clock::{FramePaced, SystemClock};
 use crate::host::dialog::SystemDialog;
@@ -199,6 +197,8 @@ impl Play {
         // The page has the focus when the client starts; a window that has not been told so is
         // minimised to the runtime, which paces it at ten frames a second.
         events.borrow_mut().push(HostEvent::Focused(true));
+        // Nothing is held, and no button down, from an earlier run on the page.
+        crate::host::pointer::with_page_lock(|lock| *lock = Default::default());
         Ok(Self {
             app,
             events,
@@ -286,21 +286,34 @@ impl Play {
 
     /// The pointer moved to `(x, y)` in canvas pixels.
     pub fn pointer_move(&mut self, x: f64, y: f64) {
-        self.event(HostEvent::CursorMoved { x, y });
+        self.pointer_move_by(x, y, (0.0, 0.0), None);
+    }
+
+    /// The pointer moved to `(x, y)` in canvas pixels, the mouse by `movement` (canvas pixels),
+    /// with the buttons `buttons` down when the page says (its `buttons` bits). While the client
+    /// holds the pointer for a camera drag the movement is the mouse's
+    /// ([`crate::host::pointer`]), and a button the page never said was let go of is let go of.
+    pub fn pointer_move_by(&mut self, x: f64, y: f64, movement: (f64, f64), buttons: Option<u16>) {
+        let events =
+            crate::host::pointer::with_page_lock(|lock| lock.moved((x, y), movement, buttons));
+        for event in events {
+            self.event(event);
+        }
     }
 
     /// Pointer button `button` (the page's numbering: 0 left, 1 middle, 2 right, 3 back,
     /// 4 forward) went down or up.
     pub fn pointer_button(&mut self, button: u16, pressed: bool) {
-        let button = match button {
-            0 => MouseButton::Left,
-            1 => MouseButton::Middle,
-            2 => MouseButton::Right,
-            3 => MouseButton::Back,
-            4 => MouseButton::Forward,
-            n => MouseButton::Other(n),
-        };
+        crate::host::pointer::with_page_lock(|lock| lock.button(button, pressed));
+        let button = crate::host::pointer::page_button(button);
         self.event(HostEvent::MouseInput { button, pressed });
+    }
+
+    /// Whether the page is to lock the pointer to the canvas (`Some(true)`) or unlock it
+    /// (`Some(false)`) for a camera drag, once each time the client's hold changes.
+    #[must_use]
+    pub fn pointer_lock_request(&self) -> Option<bool> {
+        crate::host::pointer::with_page_lock(crate::host::pointer::PageLock::take_request)
     }
 
     /// The wheel turned `notches` detents, away from the player positive.

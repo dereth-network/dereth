@@ -15,6 +15,8 @@ pub struct SystemDialog;
 
 impl ErrorDialogHost for SystemDialog {
     fn show_modal(&mut self, popup: &ErrorPopup) {
+        // The box needs the pointer: one held for a camera drag is let go of first.
+        crate::platform::window::let_go_of_pointer();
         dereth_console::error_box(&popup.caption, &popup.text, popup.style);
     }
 }

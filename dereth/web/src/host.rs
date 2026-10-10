@@ -3,7 +3,8 @@
 //! page's audio worklet as the sound output, the fonts the client carries for the classic
 //! interface's text, and the Horizon interface's art as the page fetched it from beside the module
 //! ([`hand_over_horizon_art`]). The cursor is the page's to draw
-//! ([`crate::play::Play::cursor_change`]), so the shell's cursor images are never installed here.
+//! ([`crate::play::Play::cursor_change`]), so the shell's cursor images are never installed here;
+//! the pointer held for a camera drag is the page's to lock ([`pointer`](mod@pointer)).
 
 // The sound output: a pull the worker posts to the page.
 pub mod audio;
@@ -13,6 +14,8 @@ pub mod clipboard;
 pub mod clock;
 // The modal error box, which a page shows as a log line.
 pub mod dialog;
+// The pointer held for a camera drag, which the page locks to the canvas.
+pub mod pointer;
 // The canvas as the window, and the events the page queues on it.
 pub mod window;
 
@@ -69,6 +72,11 @@ impl Host for WebHost {
 
     fn cursor_images(_window: Option<isize>) -> Box<dyn CursorImages> {
         Box::new(PortableCursors)
+    }
+
+    /// The page's lock on the pointer: see [`pointer`](mod@pointer).
+    fn pointer(_window: Option<isize>) -> Box<dyn dereth_client_shell::pointer::HostPointer> {
+        Box::new(pointer::PagePointer)
     }
 
     /// The fonts the client carries, drawn as the Windows font system draws them, so the classic
