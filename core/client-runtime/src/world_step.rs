@@ -123,11 +123,20 @@ impl HookSounds for SoundStash<'_> {
 /// viewer walks) added to the block-local origin.
 #[must_use]
 pub fn render_frame_of(ws: &WorldState, fallback_landblock: u16, pos: Position) -> Frame {
-    let viewer = ws
-        .streamer
+    render_frame_in(viewer_block(ws, fallback_landblock), pos)
+}
+
+/// The block the render space is relative to: the window's centre, or the configured landblock
+/// before the window has one.
+fn viewer_block(ws: &WorldState, fallback_landblock: u16) -> (i32, i32) {
+    ws.streamer
         .window
         .viewer_block()
-        .unwrap_or_else(|| dereth_world_data::landblock::block_xy(fallback_landblock));
+        .unwrap_or_else(|| dereth_world_data::landblock::block_xy(fallback_landblock))
+}
+
+/// [`render_frame_of`] in the render space relative to `viewer`.
+fn render_frame_in(viewer: (i32, i32), pos: Position) -> Frame {
     let block = pos.cell.landblock();
     let length = dereth_terrain::consts::BLOCK_LENGTH;
     #[allow(clippy::cast_precision_loss)] // a block index difference, at most 255
@@ -168,6 +177,9 @@ pub fn step_physics(
     let mut d = ObjectStepStats::default();
     crate::object_step::prepare_object_physics(&mut ws.objects, &mut ws.character, &mut d, now);
     stats.fold_steps(d);
+    if ws.smooth_movement {
+        note_before_tick(ws);
+    }
     let physics_ticked;
     if let Some(c) = ws.character.as_mut() {
         c.input = character;
@@ -210,6 +222,27 @@ pub fn step_physics(
     crate::object_step::finish_object_physics(&mut ws.objects, &mut ws.character, &mut d);
     stats.fold_steps(d);
     physics_ticked
+}
+
+/// Where every object stands as the frame's physics tick, if it has one, begins, for drawing it
+/// between ticks: where its body is, for an object physics steps, and otherwise where it is.
+fn note_before_tick(ws: &mut WorldState) {
+    let WorldState {
+        objects, character, ..
+    } = ws;
+    for o in objects.values_mut() {
+        let body = o
+            .sim
+            .physics_handle
+            .and_then(|h| character.as_ref().and_then(|c| c.world.get(h)));
+        let here = match body {
+            Some(b) => b.cell.map(|_| b.position),
+            None => o.sim.position,
+        };
+        if let Some(here) = here {
+            o.between.before_tick(here);
+        }
+    }
 }
 
 /// Re-centre the streaming window on the viewer. Returns the render space the frame's drawn
@@ -307,19 +340,31 @@ fn advance_objects(
     );
     stats.fold_steps(d);
     // Part placement reads the current animation frame; nothing interpolates, unless the bodies
-    // are drawn between keyframes. Done for every object, moved or not, because a position event
-    // may have changed the frame without the clock moving.
+    // are drawn between keyframes or between ticks. Done for every object, moved or not, because
+    // a position event may have changed the frame without the clock moving.
     let ids: Vec<ObjectId> = ws.objects.keys().copied().collect();
+    let viewer = viewer_block(ws, cfg.landblock);
     for id in &ids {
         // Re-derived rather than stored: a window scroll moves the origin of this space.
-        let Some(f) = ws
-            .objects
-            .get(id)
-            .and_then(|o| o.sim.position)
-            .map(|q| render_frame_of(ws, cfg.landblock, q))
-        else {
+        let Some(here) = ws.objects.get(id).and_then(|o| o.sim.position) else {
             continue;
         };
+        let mut f = render_frame_in(viewer, here);
+        // Drawn between physics ticks, it is drawn on its way between them instead.
+        if ws.smooth_movement {
+            let placements = placements_of(ws, *id);
+            if let Some(o) = ws.objects.get_mut(id) {
+                f = drawn_between_ticks(
+                    &mut o.between,
+                    f,
+                    now,
+                    physics_ticked,
+                    here,
+                    placements,
+                    viewer,
+                );
+            }
+        }
         // Drawn between keyframes, how long since the object's animation was last advanced: by
         // physics for an object with a body, by the fallback ladder for one without.
         let ahead = ws
@@ -354,6 +399,44 @@ fn advance_objects(
     place_held_objects(ws, &ids, stats);
     // Hook processing runs at the end of the step that raised them.
     process_hooks(ws, stats);
+}
+
+/// How many times physics has placed object `id`'s body rather than moved it; zero for an object
+/// without one.
+fn placements_of(ws: &WorldState, id: ObjectId) -> u32 {
+    ws.objects
+        .get(&id)
+        .and_then(|o| o.sim.physics_handle)
+        .and_then(|h| ws.character.as_ref()?.world.get(h))
+        .map_or(0, |b| b.placements)
+}
+
+/// The frame an object is drawn at between its physics ticks: `f`, where physics has it (`here`)
+/// in the render space relative to `viewer`, moved and turned by its way between ticks, after one
+/// frame of its drawing at `now` (`crate::between_ticks::BetweenTicks::frame`).
+fn drawn_between_ticks(
+    between: &mut crate::between_ticks::BetweenTicks,
+    mut f: Frame,
+    now: LocalTime,
+    ticked: bool,
+    here: Position,
+    placements: u32,
+    viewer: (i32, i32),
+) -> Frame {
+    let space = |p: Position| render_frame_in(viewer, p).origin;
+    between.frame(now.0, ticked, here, placements, true, space);
+    let offset = between.offset(here, true, space);
+    f.origin = Vec3::new(
+        f.origin.x + offset.x,
+        f.origin.y + offset.y,
+        f.origin.z + offset.z,
+    );
+    let turn = between.turn(here, true);
+    if turn != 0.0 {
+        let heading = dereth_primitives::frame::get_heading(&f);
+        dereth_primitives::frame::set_heading(&mut f, heading + turn);
+    }
+    f
 }
 
 /// When object `id`'s animation was last advanced: by physics, for an object with a body; by the
@@ -973,5 +1056,783 @@ mod tests {
         assert!(between
             .iter()
             .any(|s| !s.body_at_keyframe && !s.drudge_at_keyframe));
+    }
+
+    /// A remote player, made as the server makes one, and the motions the server gives one.
+    const HUMAN: u32 = 0x0200_0001;
+    const HUMAN_MOTIONS: u32 = 0x0900_0001;
+    /// An arrow's setup, flown as a spell bolt flies: no motion table, a velocity, the missile
+    /// state word and no gravity.
+    const ARROW: u32 = 0x0200_0124;
+    const BOLT_STATE: u32 = 0x0002_8B48;
+    /// A creature's state word: solid, and falling to the ground.
+    const CREATURE_STATE: u32 = 0x0000_0408;
+
+    /// The three movers of the stations below: a player running past the body, a drudge running
+    /// after him, and an arrow flying the same way.
+    const RUNNER: ObjectId = ObjectId(0x8300_0110);
+    const CHASER: ObjectId = ObjectId(0x8300_0111);
+    const BOLT: ObjectId = ObjectId(0x8300_0112);
+    const MOVERS: [ObjectId; 3] = [RUNNER, CHASER, BOLT];
+
+    /// One mover on one frame: where physics has it, as a position and in the space the world is
+    /// drawn in; where it is drawn; where its parts are drawn, and whether they are exactly where
+    /// its animation's keyframe puts them against where it is drawn; and the part frames its body
+    /// collides with.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Mover {
+        physics: Position,
+        at: Frame,
+        drawn: Frame,
+        parts: Vec<Frame>,
+        at_keyframes: bool,
+        collides: Option<Vec<Frame>>,
+    }
+
+    /// One frame of the stations below: each mover, in [`MOVERS`] order; where the body is; and
+    /// how many physics ticks have run.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Movers {
+        movers: Vec<Option<Mover>>,
+        body: Position,
+        ticks: u64,
+    }
+
+    #[allow(clippy::too_many_arguments)] // one parameter per field of the create
+    fn create(
+        stream: &mut crate::objects::ObjectStream,
+        id: ObjectId,
+        setup: u32,
+        mtable: Option<u32>,
+        at: Position,
+        velocity: Option<Vec3>,
+        state: u32,
+        now: f64,
+    ) {
+        use dereth_protocol::types::physicsdesc::flags;
+        let mut bitfield = flags::POSITION | flags::SETUP;
+        if mtable.is_some() {
+            bitfield |= flags::MTABLE;
+        }
+        if velocity.is_some() {
+            bitfield |= flags::VELOCITY;
+        }
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id,
+            physicsdesc: dereth_protocol::types::PhysicsDesc {
+                bitfield,
+                state,
+                setup_id: Some(setup),
+                mtable_id: mtable,
+                velocity: velocity.map(Into::into),
+                position: Some(dereth_protocol::types::PositionWire {
+                    objcell_id: at.cell.0,
+                    frame: dereth_protocol::types::Frame {
+                        origin: at.frame.origin.into(),
+                        orientation: at.frame.rotation.into(),
+                    },
+                }),
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    instance: 1,
+                    ..dereth_protocol::types::PhysicsTimestamps::default()
+                },
+                ..dereth_protocol::types::PhysicsDesc::default()
+            },
+            ..Default::default()
+        };
+        let body =
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload))
+                .expect("encode");
+        stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+                body,
+            },
+            LocalTime(now),
+        );
+        stream.world.update_visible_object_list();
+    }
+
+    /// How the server moves the player in the stations below: teleports him three metres to his
+    /// right, or corrects where he is by a short way to his right.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ServerMove {
+        Teleport,
+        Correct,
+    }
+
+    impl ServerMove {
+        const fn metres(self) -> f32 {
+            match self {
+                Self::Teleport => 3.0,
+                Self::Correct => 0.8,
+            }
+        }
+    }
+
+    /// The server moving `id` to `to`: a `Movement_PositionEvent` (`0xF748`) with a newer position
+    /// stamp, and a newer teleport stamp when it is a teleport.
+    fn server_moves(
+        stream: &mut crate::objects::ObjectStream,
+        id: ObjectId,
+        to: Position,
+        how: ServerMove,
+        now: f64,
+    ) {
+        use dereth_protocol::movement::{position_flags, MovementPositionEvent, PositionPack};
+        let body = dereth_protocol::write_body(&MovementPositionEvent {
+            id,
+            position: PositionPack {
+                flags: position_flags::IS_GROUNDED,
+                origin: dereth_protocol::types::Origin {
+                    objcell_id: to.cell.0,
+                    origin: to.frame.origin.into(),
+                },
+                orientation: to.frame.rotation.into(),
+                instance_timestamp: 1,
+                position_timestamp: 1,
+                teleport_timestamp: u16::from(how == ServerMove::Teleport),
+                ..PositionPack::default()
+            },
+        })
+        .expect("encode");
+        stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::MOVEMENT_POSITION_EVENT,
+                body,
+            },
+            LocalTime(now),
+        );
+    }
+
+    /// Two seconds at `fps` of a player running past a body standing in Holtburg, a drudge running
+    /// after him and turning as it runs, and an arrow flying the same way, each frame run as the
+    /// client runs it (the server's objects synchronised, then the world stepped), with the
+    /// movers drawn between their physics ticks (`smooth`) or where physics has them. With
+    /// `server`, the server moves the player to his right on that frame.
+    fn movers(fps: f64, smooth: bool, server: Option<(usize, ServerMove)>) -> Vec<Movers> {
+        use dereth_animation::motion::interp::InterpretedMotionState;
+        use dereth_animation::MotionCommand;
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {}",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let cfg = SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        };
+        let (mut ws, mut residency) =
+            crate::world_build::load(&store, &cfg).expect("the world loads");
+        ws.smooth_movement = smooth;
+        let mut stats = StepCounters::default();
+        let mut stream = crate::objects::ObjectStream::new();
+        let mut counters = crate::world_objects::ObjectCounters::default();
+        let step = 1.0 / fps;
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = step as f32;
+        let mut now = 1.0;
+        // One frame, in the client's order: the server's objects, their bodies, the world.
+        let mut frame = |ws: &mut WorldState,
+                         residency: &mut crate::world_build::BlockResidency,
+                         stream: &mut crate::objects::ObjectStream| {
+            now += step;
+            crate::world_objects::sync_objects(
+                ws,
+                &store,
+                &cfg,
+                stream,
+                &mut counters,
+                &mut crate::world_objects::NoAppearance,
+            )
+            .expect("the objects synchronise");
+            if let Some(c) = ws.character.as_mut() {
+                stream.sync_physics_at(&store, &mut c.world, LocalTime(now));
+            }
+            update(
+                ws,
+                residency,
+                &cfg,
+                CameraInput::default(),
+                CharacterInput::default(),
+                LocalTime(now),
+                dt,
+                &mut stats,
+            );
+            residency.stream(ws, &store, &cfg);
+            now
+        };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let half = (fps / 2.0) as usize;
+        let mut settled = 0.0;
+        for _ in 0..half {
+            settled = frame(&mut ws, &mut residency, &mut stream);
+        }
+        // Beside the body and facing its way: the player three metres to its right, the drudge
+        // six behind him, the arrow ten behind and above.
+        let at = ws.character.as_ref().expect("a body").position();
+        let axes = dereth_primitives::frame::l2g(at.frame.rotation);
+        let along = |right: f32, ahead: f32, up: f32| {
+            let v = dereth_primitives::frame::localtoglobalvec(axes, Vec3::new(right, ahead, up));
+            let o = at.frame.origin;
+            Position::new(
+                at.cell,
+                Frame::new(
+                    Vec3::new(o.x + v.x, o.y + v.y, o.z + v.z),
+                    at.frame.rotation,
+                ),
+            )
+        };
+        let forward = dereth_primitives::frame::localtoglobalvec(axes, Vec3::new(0.0, 15.0, 0.0));
+        create(
+            &mut stream,
+            RUNNER,
+            HUMAN,
+            Some(HUMAN_MOTIONS),
+            along(3.0, 0.0, 0.0),
+            None,
+            CREATURE_STATE,
+            settled,
+        );
+        create(
+            &mut stream,
+            CHASER,
+            DRUDGE,
+            Some(DRUDGE_MOTIONS),
+            along(3.0, -6.0, 0.0),
+            None,
+            CREATURE_STATE,
+            settled,
+        );
+        create(
+            &mut stream,
+            BOLT,
+            ARROW,
+            None,
+            along(5.0, -10.0, 1.5),
+            Some(forward),
+            BOLT_STATE,
+            settled,
+        );
+        frame(&mut ws, &mut residency, &mut stream);
+        // The player runs, and the drudge runs after him, turning a little as it goes.
+        let run = |ws: &WorldState, id: ObjectId, state: &InterpretedMotionState| {
+            ws.objects
+                .get(&id)
+                .expect("the mover is made")
+                .sim
+                .driver
+                .borrow_mut()
+                .move_to_interpreted_state(state, false);
+        };
+        run(
+            &ws,
+            RUNNER,
+            &InterpretedMotionState {
+                forward_command: MotionCommand::RUN_FORWARD,
+                forward_speed: 2.5,
+                ..InterpretedMotionState::default()
+            },
+        );
+        run(
+            &ws,
+            CHASER,
+            &InterpretedMotionState {
+                forward_command: MotionCommand::RUN_FORWARD,
+                forward_speed: 1.5,
+                turn_command: MotionCommand::TURN_RIGHT,
+                turn_speed: 0.2,
+                ..InterpretedMotionState::default()
+            },
+        );
+        // Up to speed.
+        let mut clock = settled;
+        for _ in 0..half / 2 {
+            clock = frame(&mut ws, &mut residency, &mut stream);
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = (2.0 * fps) as usize;
+        (0..n)
+            .map(|i| {
+                if let Some((_, how)) = server.filter(|(at, _)| *at == i) {
+                    let p = ws.objects[&RUNNER].sim.position.expect("the player stands");
+                    let axes = dereth_primitives::frame::l2g(p.frame.rotation);
+                    let right = dereth_primitives::frame::localtoglobalvec(
+                        axes,
+                        Vec3::new(how.metres(), 0.0, 0.0),
+                    );
+                    let o = p.frame.origin;
+                    let to = Position::new(
+                        p.cell,
+                        Frame::new(
+                            Vec3::new(o.x + right.x, o.y + right.y, o.z + right.z),
+                            p.frame.rotation,
+                        ),
+                    );
+                    server_moves(&mut stream, RUNNER, to, how, clock);
+                }
+                clock = frame(&mut ws, &mut residency, &mut stream);
+                let viewer = viewer_block(&ws, cfg.landblock);
+                let c = ws.character.as_ref().expect("a body");
+                let movers = MOVERS
+                    .iter()
+                    .map(|id| {
+                        let o = ws.objects.get(id)?;
+                        let physics = o.sim.position?;
+                        let d = o.sim.driver.borrow();
+                        let collides = o.sim.physics_handle.and_then(|h| {
+                            c.world
+                                .get(h)
+                                .and_then(|b| b.part_frames.as_deref().cloned())
+                        });
+                        Some(Mover {
+                            physics,
+                            at: render_frame_in(viewer, physics),
+                            drawn: o.frame,
+                            parts: d.part_array.parts.iter().map(|p| p.pos).collect(),
+                            at_keyframes: at_keyframe(&d, &o.frame),
+                            collides,
+                        })
+                    })
+                    .collect();
+                Movers {
+                    movers,
+                    body: c.position(),
+                    ticks: c.stats.physics_ticks,
+                }
+            })
+            .collect()
+    }
+
+    /// Each frame, how far mover `n` is drawn from where it was drawn the frame before, where it
+    /// was drawn on both.
+    fn drawn_steps(frames: &[Movers], n: usize) -> Vec<f32> {
+        frames
+            .windows(2)
+            .filter_map(|w| {
+                let (a, b) = (w[0].movers[n].as_ref()?, w[1].movers[n].as_ref()?);
+                let (a, b) = (a.drawn.origin, b.drawn.origin);
+                Some(Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z).magnitude())
+            })
+            .collect()
+    }
+
+    fn sub(a: Vec3, b: Vec3) -> Vec3 {
+        Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z)
+    }
+
+    fn dot(a: Vec3, b: Vec3) -> f32 {
+        a.x * b.x + a.y * b.y + a.z * b.z
+    }
+
+    /// The largest step `steps` takes, and how many of them stand still.
+    fn largest_and_still(steps: &[f32]) -> (f32, usize) {
+        (
+            steps.iter().copied().fold(0.0, f32::max),
+            steps.iter().filter(|d| **d < 1e-5).count(),
+        )
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_a_running_player_and_a_chasing_creature_move_a_little_every_frame() {
+        for fps in [240.0, 60.0] {
+            let stepped = movers(fps, false, None);
+            let smooth = movers(fps, true, None);
+            for (n, who) in [(0, "the player"), (1, "the drudge"), (2, "the arrow")] {
+                let (a, b) = (drawn_steps(&stepped, n), drawn_steps(&smooth, n));
+                let ((most_a, still_a), (most_b, still_b)) =
+                    (largest_and_still(&a), largest_and_still(&b));
+                eprintln!(
+                    "{fps} fps, {who}: largest drawn step {most_a:.4} m stepping, {most_b:.4} m \
+                     smooth; frames standing still {still_a} and {still_b} of {}",
+                    b.len()
+                );
+                if n == 2 {
+                    // The arrow is measured, not asserted: it may strike something on its way.
+                    continue;
+                }
+                assert_eq!(a.len(), b.len(), "{fps} fps, {who}: drawn on every frame");
+                assert!(
+                    still_a * 3 > a.len(),
+                    "{fps} fps, {who}: where physics has it, it stands still between ticks: \
+                     {still_a} of {}",
+                    a.len()
+                );
+                assert_eq!(
+                    still_b, 0,
+                    "{fps} fps, {who}: drawn between ticks it moves every frame"
+                );
+                assert!(
+                    most_b < most_a * 0.75,
+                    "{fps} fps, {who}: its largest step {most_b} against {most_a} stepping"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_a_running_body_is_never_drawn_ahead_of_where_physics_has_it() {
+        for fps in [240.0, 60.0] {
+            let frames = movers(fps, true, None);
+            for (n, who) in [(0, "the player"), (1, "the drudge"), (2, "the arrow")] {
+                // The way physics last carried it: from where it stood at the tick before.
+                let mut way: Option<Vec3> = None;
+                let mut stood: Option<Vec3> = None;
+                let mut longest = 0.0f32;
+                let mut behind = 0usize;
+                for (f, m) in frames.iter().enumerate() {
+                    let Some(m) = m.movers[n].as_ref() else {
+                        continue;
+                    };
+                    if let Some(s) = stood.filter(|s| *s != m.at.origin) {
+                        way = Some(sub(m.at.origin, s));
+                    }
+                    stood = Some(m.at.origin);
+                    let off = sub(m.drawn.origin, m.at.origin);
+                    let Some(way) = way else { continue };
+                    let length = way.magnitude();
+                    if length < 1e-4 {
+                        continue;
+                    }
+                    longest = longest.max(length);
+                    let ahead = dot(off, way) / length;
+                    assert!(
+                        ahead <= 1e-4,
+                        "{fps} fps, {who}, frame {f}: drawn {ahead} m ahead of physics"
+                    );
+                    // A tick behind, and a spring's settling time more.
+                    assert!(
+                        off.magnitude() <= 4.0 * longest,
+                        "{fps} fps, {who}, frame {f}: drawn {} m from physics, against a \
+                         tick's {longest} m",
+                        off.magnitude()
+                    );
+                    if ahead < -1e-3 {
+                        behind += 1;
+                    }
+                }
+                // The arrow may strike something and stop on its way.
+                assert!(
+                    n == 2 || behind * 2 > frames.len(),
+                    "{fps} fps, {who}: drawn behind physics on {behind} of {} frames",
+                    frames.len()
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_a_player_the_server_teleports_is_drawn_where_he_lands_at_once() {
+        let at = 120;
+        let frames = movers(240.0, true, Some((at, ServerMove::Teleport)));
+        let runner = |f: &Movers| f.movers[0].clone().expect("the player");
+        let (before, landed) = (runner(&frames[at - 1]), runner(&frames[at]));
+        let moved = sub(landed.at.origin, before.at.origin);
+        assert!(
+            moved.magnitude() > 2.5 && moved.magnitude() < crate::between_ticks::DRAWN_STEP_LIMIT,
+            "the teleport, shorter than a step, has put him {} m away",
+            moved.magnitude()
+        );
+        // Sideways: the teleport's way, not the run's.
+        let side = sub(landed.at.origin, before.at.origin);
+        let side = Vec3::new(side.x, side.y, 0.0);
+        for (n, f) in frames.iter().enumerate().skip(at) {
+            let m = runner(f);
+            let off = sub(m.drawn.origin, m.at.origin);
+            let back = -dot(off, side) / side.magnitude();
+            assert!(
+                back < 0.05,
+                "frame {n}: drawn {back} m back toward where he was teleported from"
+            );
+        }
+        assert_eq!(
+            landed.drawn, landed.at,
+            "drawn where he lands on the frame he lands"
+        );
+        assert!(
+            frames[at + 24..]
+                .iter()
+                .any(|f| runner(f).drawn != runner(f).at),
+            "and drawn between his ticks again once two have passed"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_a_player_the_server_corrects_a_short_way_is_drawn_gliding_there() {
+        let at = 120;
+        let stepped = movers(240.0, false, Some((at, ServerMove::Correct)));
+        let smooth = movers(240.0, true, Some((at, ServerMove::Correct)));
+        let runner = |f: &Movers| f.movers[0].clone().expect("the player");
+        // To his right, the correction's way, against where he stood as it was sent.
+        let start = runner(&smooth[at - 1]);
+        let axes = dereth_primitives::frame::l2g(start.physics.frame.rotation);
+        let right = dereth_primitives::frame::localtoglobalvec(axes, Vec3::new(1.0, 0.0, 0.0));
+        let aside = |m: &Mover| dot(sub(m.at.origin, start.at.origin), right);
+        let walked = aside(&runner(&smooth[at + 48]));
+        assert!(
+            walked > 0.5,
+            "physics walks him most of the way to where the server says he is: {walked} m"
+        );
+        // Drawn, he glides there: every frame a little further, never by much more than his
+        // running step, where drawn as physics has him he stands still and then steps.
+        let (before, _) = largest_and_still(&drawn_steps(&smooth[at - 48..at], 0));
+        let (gliding, still) = largest_and_still(&drawn_steps(&smooth[at - 1..at + 48], 0));
+        let (stepping, _) = largest_and_still(&drawn_steps(&stepped[at - 1..at + 48], 0));
+        eprintln!(
+            "corrected {walked:.3} m aside: largest drawn step {gliding:.4} m smooth, \
+             {stepping:.4} m stepping, {before:.4} m running before it"
+        );
+        assert_eq!(still, 0, "drawn moving every frame through the correction");
+        assert!(
+            gliding < before * 2.0,
+            "no jump: its largest step {gliding} against {before} running"
+        );
+        assert!(
+            gliding < stepping * 0.5,
+            "its largest step {gliding} against {stepping} stepping"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_or_where_physics_has_them_the_movers_move_and_collide_alike() {
+        let stepped = movers(240.0, false, Some((120, ServerMove::Teleport)));
+        let smooth = movers(240.0, true, Some((120, ServerMove::Teleport)));
+        assert_eq!(stepped.len(), smooth.len());
+        for (n, (a, b)) in stepped.iter().zip(&smooth).enumerate() {
+            assert_eq!(
+                (&a.body, a.ticks),
+                (&b.body, b.ticks),
+                "frame {n}: the body"
+            );
+            for (who, (x, y)) in a.movers.iter().zip(&b.movers).enumerate() {
+                let (x, y) = (x.as_ref(), y.as_ref());
+                assert_eq!(
+                    x.map(|m| (&m.physics, &m.at, &m.collides)),
+                    y.map(|m| (&m.physics, &m.at, &m.collides)),
+                    "frame {n}, mover {who}: only the drawing differs"
+                );
+            }
+        }
+        assert!(
+            smooth.iter().any(|f| f.movers[0]
+                .as_ref()
+                .is_some_and(|m| m.drawn != m.at && m.at_keyframes)),
+            "drawn between ticks, the player is drawn off where physics has him, posed there"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn with_smooth_movement_off_every_mover_is_drawn_exactly_where_physics_has_it() {
+        for fps in [240.0, 60.0] {
+            let frames = movers(fps, false, Some((60, ServerMove::Teleport)));
+            let mut drawn = 0usize;
+            for (n, f) in frames.iter().enumerate() {
+                for (who, m) in f.movers.iter().enumerate() {
+                    let Some(m) = m else { continue };
+                    drawn += 1;
+                    assert_eq!(
+                        m.drawn, m.at,
+                        "{fps} fps, frame {n}, mover {who}: its frame"
+                    );
+                    assert!(
+                        m.at_keyframes,
+                        "{fps} fps, frame {n}, mover {who}: its parts, posed where physics has it"
+                    );
+                }
+            }
+            assert!(drawn > frames.len() * 2, "the movers are drawn");
+        }
+    }
+
+    /// A crowd in Holtburg: `n` players and drudges in a grid around a standing body, every one
+    /// of them running and turning, stepped for five seconds at 240 frames a second, drawn between
+    /// their ticks (`smooth`) or where physics has them. Answers the mean time one frame's world
+    /// step took, in microseconds, and the mean time of the drawing between ticks alone.
+    fn crowd(n: usize, smooth: bool) -> (f64, f64) {
+        use dereth_animation::motion::interp::InterpretedMotionState;
+        use dereth_animation::MotionCommand;
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("the dats"));
+        let cfg = SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        };
+        let (mut ws, mut residency) =
+            crate::world_build::load(&store, &cfg).expect("the world loads");
+        ws.smooth_movement = smooth;
+        let mut stats = StepCounters::default();
+        let mut stream = crate::objects::ObjectStream::new();
+        let mut counters = crate::world_objects::ObjectCounters::default();
+        let fps = 240.0;
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = (1.0 / fps) as f32;
+        let mut now = 1.0;
+        let mut sync =
+            |ws: &mut WorldState, stream: &mut crate::objects::ObjectStream, now: f64| {
+                crate::world_objects::sync_objects(
+                    ws,
+                    &store,
+                    &cfg,
+                    stream,
+                    &mut counters,
+                    &mut crate::world_objects::NoAppearance,
+                )
+                .expect("the objects synchronise");
+                if let Some(c) = ws.character.as_mut() {
+                    stream.sync_physics_at(&store, &mut c.world, LocalTime(now));
+                }
+            };
+        let step = |ws: &mut WorldState,
+                    residency: &mut crate::world_build::BlockResidency,
+                    stats: &mut StepCounters,
+                    now: f64| {
+            update(
+                ws,
+                residency,
+                &cfg,
+                CameraInput::default(),
+                CharacterInput::default(),
+                LocalTime(now),
+                dt,
+                stats,
+            );
+        };
+        for _ in 0..120 {
+            now += 1.0 / fps;
+            sync(&mut ws, &mut stream, now);
+            step(&mut ws, &mut residency, &mut stats, now);
+            residency.stream(&mut ws, &store, &cfg);
+        }
+        let at = ws.character.as_ref().expect("a body").position();
+        #[allow(clippy::cast_possible_truncation)]
+        let side = (n as f64).sqrt().ceil() as usize;
+        let ids: Vec<ObjectId> = (0..n)
+            .map(|k| ObjectId(0x8400_0000 + u32::try_from(k).expect("a crowd")))
+            .collect();
+        for (k, id) in ids.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let (x, y) = (
+                (k % side) as f32 * 2.5 - 12.0,
+                (k / side) as f32 * 2.5 - 12.0,
+            );
+            let o = at.frame.origin;
+            let p = Position::new(
+                at.cell,
+                Frame::new(Vec3::new(o.x + x, o.y + y, o.z), at.frame.rotation),
+            );
+            let (setup, motions) = if k % 2 == 0 {
+                (HUMAN, HUMAN_MOTIONS)
+            } else {
+                (DRUDGE, DRUDGE_MOTIONS)
+            };
+            create(
+                &mut stream,
+                *id,
+                setup,
+                Some(motions),
+                p,
+                None,
+                CREATURE_STATE,
+                now,
+            );
+        }
+        now += 1.0 / fps;
+        sync(&mut ws, &mut stream, now);
+        step(&mut ws, &mut residency, &mut stats, now);
+        for (k, id) in ids.iter().enumerate() {
+            if let Some(o) = ws.objects.get(id) {
+                o.sim.driver.borrow_mut().move_to_interpreted_state(
+                    &InterpretedMotionState {
+                        forward_command: MotionCommand::RUN_FORWARD,
+                        forward_speed: 1.5,
+                        turn_command: if k % 3 == 0 {
+                            MotionCommand::TURN_RIGHT
+                        } else {
+                            MotionCommand::NONE
+                        },
+                        turn_speed: 0.3,
+                        ..InterpretedMotionState::default()
+                    },
+                    false,
+                );
+            }
+        }
+        let frames = 1200;
+        let mut stepping = std::time::Duration::ZERO;
+        let mut drawing = std::time::Duration::ZERO;
+        for _ in 0..frames {
+            now += 1.0 / fps;
+            sync(&mut ws, &mut stream, now);
+            let t = std::time::Instant::now();
+            step(&mut ws, &mut residency, &mut stats, now);
+            stepping += t.elapsed();
+            // The drawing between ticks alone, run again over every object on a copy of its
+            // state: what the frame above spent on it.
+            if smooth {
+                let viewer = viewer_block(&ws, cfg.landblock);
+                let mut copies: Vec<(crate::between_ticks::BetweenTicks, Position)> = ws
+                    .objects
+                    .values()
+                    .filter_map(|o| Some((o.between.clone(), o.sim.position?)))
+                    .collect();
+                let t = std::time::Instant::now();
+                for (b, here) in &mut copies {
+                    let f = render_frame_in(viewer, *here);
+                    std::hint::black_box(drawn_between_ticks(
+                        b,
+                        f,
+                        LocalTime(now),
+                        true,
+                        *here,
+                        0,
+                        viewer,
+                    ));
+                }
+                drawing += t.elapsed();
+            }
+            residency.stream(&mut ws, &store, &cfg);
+        }
+        let mean = |d: std::time::Duration| d.as_secs_f64() * 1e6 / f64::from(frames);
+        (mean(stepping), mean(drawing))
+    }
+
+    /// What drawing a busy town's bodies between their ticks costs a frame.
+    #[test]
+    #[ignore = "instrument: prints timings; run with --features retail-dats and --ignored"]
+    fn measure_what_drawing_a_crowd_between_ticks_costs() {
+        for n in [100, 300] {
+            let (off, _) = crowd(n, false);
+            let (on, drawing) = crowd(n, true);
+            eprintln!(
+                "{n} running bodies: a frame's world step {off:.1} us where physics has them, \
+                 {on:.1} us between ticks; the drawing between ticks alone {drawing:.1} us"
+            );
+        }
     }
 }

@@ -795,6 +795,13 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.smooth_animation = on;
     }
 
+    /// Draw every object physics or the server moves moving between its physics ticks (`on`), or
+    /// where physics has it as the game draws it. Only the drawing changes; see
+    /// `crate::world_state::WorldState::smooth_movement`.
+    pub fn set_smooth_movement(&mut self, on: bool) {
+        self.app.smooth_movement = on;
+    }
+
     /// The orbit camera as the body's camera has it, when there is a body.
     #[must_use]
     pub fn orbit_camera(&self) -> Option<crate::orbit::OrbitCamera> {

@@ -709,6 +709,10 @@ pub struct App<S: Shell> {
     /// ([`crate::ui_context::UiContext::set_smooth_animation`]); the drawn world takes it each
     /// frame (`crate::world_state::WorldState::smooth_animation`).
     pub smooth_animation: bool,
+    /// Every object physics or the server moves drawn moving between its physics ticks, as an
+    /// interface asked ([`crate::ui_context::UiContext::set_smooth_movement`]); the drawn world
+    /// takes it each frame (`crate::world_state::WorldState::smooth_movement`).
+    pub smooth_movement: bool,
     /// When the cursor last moved under mouse look, for the input poll's 0.2 s idle tick.
     last_mouse_move: f64,
     pub last_cursor: Option<(f64, f64)>,

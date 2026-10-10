@@ -84,6 +84,9 @@ pub struct WorldObject {
     /// on the create and `crate::objects::Presence` does not keep it, so this takes the
     /// setup's; the gap is a known one.
     pub sound_table: Option<DataId>,
+    /// The object as it is drawn between its physics ticks, while the bodies are
+    /// ([`WorldState::smooth_movement`]).
+    pub between: crate::between_ticks::BetweenTicks,
 }
 
 impl AsObjectSim for WorldObject {
@@ -259,6 +262,14 @@ pub struct WorldState {
     /// are advanced, fire their hooks and move the bodies exactly as they do with it off, and
     /// what the bodies collide with is posed at the keyframes either way.
     pub smooth_animation: bool,
+    /// Every object physics or the server moves is drawn moving between its physics ticks, a
+    /// presentation's choice (`crate::between_ticks`): a tick behind, along the way physics swept
+    /// it, and where it is put at once when it is put somewhere. Off, each is drawn where physics
+    /// has it, stepping thirty times a second, as the game draws it. Only where the bodies are
+    /// drawn changes, and what follows the drawing: their parts, what they hold, their lights and
+    /// sounds, and what a click on them hits. Where they are, what they collide with and what is
+    /// sent are the same either way.
+    pub smooth_movement: bool,
 }
 
 /// One object's **pose**, as [`WorldState::server_object_pose`] reports it: the animation ids

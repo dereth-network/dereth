@@ -365,6 +365,23 @@ pub static DIVERGENCES: &[Divergence] = &[
               lock the pointer for every click. A quick turn of the camera followed by a click \
               selects or examines and never uses what is under the pointer.",
     },
+    Divergence {
+        id: "CD-041",
+        title: "Smooth Movement under Horizon",
+        change: "Under the Horizon interface, a box on its options page (Smooth Movement, off by \
+                 default) draws every other player, creature and moving object gliding between \
+                 the physics steps that move it thirty times a second, where the final client \
+                 draws it where its last step left it. Each is drawn a step behind, on the way \
+                 physics carried it, never ahead of where physics has it; anything put somewhere \
+                 rather than stepped there (a teleport, a portal, a recall, a correction too far \
+                 to walk) is drawn where it lands at once. Where each object is, what it collides \
+                 with and what is sent are the same either way; what follows the drawing follows \
+                 it (what it holds, its parts' lights and sounds, and the parts a click is tested \
+                 against, so a click selects what is drawn under the pointer). The classic and \
+                 modern interfaces never draw it.",
+        why: "Other characters and creatures move as smoothly as the rest of the picture at high \
+              frame rates, for a player who asks for it, without changing how the game plays.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

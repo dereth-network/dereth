@@ -260,6 +260,7 @@ impl<S: Shell> App<S> {
             hifi_interface,
             orbit_look: (0.0, 0.0),
             smooth_animation: false,
+            smooth_movement: false,
             last_mouse_move: 0.0,
             last_cursor: None,
             last_time: 0.0,

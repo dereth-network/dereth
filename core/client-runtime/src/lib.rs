@@ -84,6 +84,7 @@ pub mod flags;
 
 // The object / character / physics chain.
 
+pub mod between_ticks;
 /// The free camera and the character camera. The four functions that take a
 /// `crate::present::Scene` stay in `dereth_client_runtime::camera`, with the two tests whose oracle is
 /// `dereth_render::camera::view_from_frame`.

@@ -21,6 +21,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - A speed no motion means, sent by a server, no longer freezes the client.
 - Turning your character with the right mouse button in Horizon no longer stutters.
 - Horizon can draw characters and creatures moving smoothly between their animations' frames, at any frame rate: Smooth Animation, on the Client page of its options, off by default.
+- Horizon can draw other players, creatures and missiles moving smoothly at any frame rate, rather than stepping thirty times a second: Smooth Movement, beside Smooth Animation, off by default.
 - Turning the camera with the mouse hides the pointer and holds it still, as the original client did, and it comes back where the drag began; in the browser, holding both mouse buttons now runs forward in Horizon.
 
 ## 0.4.0 (2026-10-09)

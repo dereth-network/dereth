@@ -355,6 +355,7 @@ impl HorizonUi {
                 self.windows.options_page.pad = self.options.pad;
                 self.windows.options_page.minimap_rotates = self.options.minimap_rotates;
                 self.windows.options_page.smooth_animation = self.options.smooth_animation;
+                self.windows.options_page.smooth_movement = self.options.smooth_movement;
                 self.hud.minimap_rotates = self.options.minimap_rotates;
                 self.windows
                     .options_page

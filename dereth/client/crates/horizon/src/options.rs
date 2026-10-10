@@ -1,6 +1,7 @@
 //! The Horizon interface's own settings: the interface scale, the camera's movement scheme and
-//! pointer directions, whether bodies are drawn between their animations' keyframes, and the log
-//! window's tab names, opacities and where its tabs stand popped out. They are kept in a small file of their own
+//! pointer directions, whether bodies are drawn between their animations' keyframes and between
+//! their physics ticks, and the log window's tab names, opacities and where its tabs stand popped
+//! out. They are kept in a small file of their own
 //! (`horizon.txt`) beside the preferences, and System Configuration changes them live.
 //!
 //! [`HorizonOptions`] also carries what a test or a scripted run starts the interface with: the first
@@ -50,6 +51,10 @@ pub struct HorizonOptions {
     /// Every animated body is drawn between its animation's keyframes, at any frame rate, rather
     /// than at them as the game draws it. Only the drawing changes.
     pub smooth_animation: bool,
+    /// Every body physics or the server moves is drawn moving between its physics ticks, at any
+    /// frame rate, rather than stepping thirty times a second as the game draws it. Only the
+    /// drawing changes.
+    pub smooth_movement: bool,
     /// The log window's tab names, one for each of the game's chat windows.
     pub chat_tabs: TabNames,
     /// How opaque the log window's ground is, docked and popped out.
@@ -80,6 +85,7 @@ impl Default for HorizonOptions {
             pad: crate::pad::PadSettings::default(),
             minimap_rotates: false,
             smooth_animation: false,
+            smooth_movement: false,
             chat_tabs: TabNames::default(),
             chat_opacity: ChatOpacity::default(),
             chat_popped: [None; 5],
@@ -319,6 +325,7 @@ impl HorizonOptions {
                 "camera-recentre" => parse_number(value, &mut o.orbit.recentre),
                 "minimap-rotates" => o.minimap_rotates = parse_switch(value),
                 "smooth-animation" => o.smooth_animation = parse_switch(value),
+                "smooth-movement" => o.smooth_movement = parse_switch(value),
                 other => {
                     if let Some(slot) = TabNames::slot_of(other) {
                         let name = if value.is_empty() {
@@ -363,6 +370,7 @@ camera-height={}
 camera-recentre={}
 minimap-rotates={}
 smooth-animation={}
+smooth-movement={}
 ",
             self.scale.unwrap_or(1.0),
             movement_word(self.orbit.movement),
@@ -381,6 +389,7 @@ smooth-animation={}
             self.orbit.recentre,
             self.minimap_rotates,
             self.smooth_animation,
+            self.smooth_movement,
         );
         for slot in 0..DEFAULT_TAB_NAMES.len() {
             let _ = writeln!(
@@ -472,6 +481,20 @@ pub fn parse_in(s: &str, range: (f32, f32)) -> Option<f32> {
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
+
+    #[test]
+    fn bodies_are_drawn_where_physics_has_them_until_smooth_movement_is_set_and_it_reads_back() {
+        assert!(!HorizonOptions::default().smooth_movement);
+        assert!(!HorizonOptions::parse("").smooth_movement);
+        let on = HorizonOptions {
+            smooth_movement: true,
+            ..HorizonOptions::default()
+        };
+        let read = HorizonOptions::parse(&on.to_text());
+        assert!(read.smooth_movement);
+        assert!(!read.smooth_animation, "the two boxes are kept apart");
+        assert!(!HorizonOptions::parse(&HorizonOptions::default().to_text()).smooth_movement);
+    }
 
     #[test]
     fn bodies_are_drawn_at_their_keyframes_until_smooth_animation_is_set_and_it_reads_back() {

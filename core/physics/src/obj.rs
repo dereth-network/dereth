@@ -477,6 +477,11 @@ pub struct PhysicsObj {
     /// host's way to supply the target a server-side projectile carries: the missile-ignore test
     /// then passes a missile through every weenie-backed creature other than its target.
     pub projectile_target_id: ObjectId,
+    /// How many times a position has been set on the body: placed somewhere (a create, a
+    /// teleport, a correction snapped to, a blip) rather than swept there by a step. Physics
+    /// never reads it; a drawing that shows the body moving between its steps draws it where it
+    /// was placed at once, never sliding it across the placement.
+    pub placements: u32,
 }
 
 /// The game-record facts the physics layer reads: four status bits, the candidate's creature
@@ -652,6 +657,7 @@ impl PhysicsObj {
             part_frames: None,
             weenie: None,
             projectile_target_id: ObjectId(0),
+            placements: 0,
         };
         // The cached physics-BSP flag asks whether any part's graphics object carries a tree.
         // It does not use the setup's serialized data flag, which no collision path reads.

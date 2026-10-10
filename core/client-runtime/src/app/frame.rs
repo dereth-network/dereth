@@ -266,6 +266,7 @@ impl<S: Shell> App<S> {
             .filter(|_| self.pending_scene.is_none())
         {
             world.world_mut().smooth_animation = self.smooth_animation;
+            world.world_mut().smooth_movement = self.smooth_movement;
             world.update(input, char_input, now, dt);
             if let Some(c) = world.character() {
                 self.objects.publish_physics_cells(&c.world);

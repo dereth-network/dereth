@@ -7,8 +7,8 @@
 //!   the main tab, its opacity popped out, kept with this interface's settings, and its chat
 //!   window's message filter, which the server keeps: the same filter the tab's own menu sets.
 //! * **Client**: the profile's settings: display, graphics, sound, camera and the interface choice,
-//!   with this interface's scale beside the interface choice and its smooth animation last under
-//!   the graphics quality; in a build with the experimental
+//!   with this interface's scale beside the interface choice and its smooth animation and smooth
+//!   movement last under the graphics quality; in a build with the experimental
 //!   rendering effects, their boxes last, under a heading of their own with a warning, the
 //!   status of the device they draw on, and a greyed box with its reason where what it needs is
 //!   off. Before them, wherever there are renderers to choose from (not in the browser), the
@@ -60,14 +60,26 @@ pub const SCALES: [(&str, f32); 4] = [("100%", 1.0), ("150%", 1.5), ("200%", 2.0
 /// The caption of the interface scale's row, on the Client page under the interface choice.
 const SCALE_CAPTION: &str = "Interface Scale";
 
-/// The caption of the smooth animation's row, on the Client page last under the graphics quality,
-/// and what it does, for its tooltip.
-const SMOOTH_CAPTION: &str = "Smooth Animation";
-const SMOOTH_NOTE: &str = "Draws every body between its animation's frames, at any frame rate, \
-                           rather than stepping from one frame to the next. Only the drawing \
-                           changes.";
+/// This interface's own boxes on the Client page, last under the graphics quality, in order: each
+/// one's caption, what it does, for its tooltip, and the setting it writes.
+const SMOOTH_BOXES: [(&str, &str, &str); 2] = [
+    (
+        "Smooth Animation",
+        "Draws every body between its animation's frames, at any frame rate, rather than \
+         stepping from one frame to the next. Only the drawing changes.",
+        "smooth-animation",
+    ),
+    (
+        "Smooth Movement",
+        "Draws characters, creatures and moving objects gliding between the game's thirty \
+         steps a second, at any frame rate, rather than stepping from one to the next; anything \
+         put somewhere, by a portal or a recall, is drawn there at once. Only the drawing \
+         changes.",
+        "smooth-movement",
+    ),
+];
 
-/// The heading the smooth animation's row closes.
+/// The heading the smooth boxes close.
 const SMOOTH_HEADING: &str = "Graphics Quality";
 
 /// A dropdown box's list, open over the window.
@@ -102,6 +114,8 @@ pub struct OptionsState {
     pub minimap_rotates: bool,
     /// Whether bodies are drawn between their animations' keyframes.
     pub smooth_animation: bool,
+    /// Whether moving bodies are drawn between their physics ticks.
+    pub smooth_movement: bool,
     /// The log window's tab names as they stand.
     pub chat_tabs: crate::options::TabNames,
     /// The log window's opacities as they stand.
@@ -380,8 +394,7 @@ Press Escape to leave it as it is.",
                             ));
                         }
                     }
-                    Line::Scale | Line::SmoothAnimation | Line::Renderer | Line::RendererNotice => {
-                    }
+                    Line::Scale | Line::Smooth(_) | Line::Renderer | Line::RendererNotice => {}
                     #[cfg(feature = "hifi")]
                     Line::Notice(_) | Line::EffectsStatus => {}
                     Line::Row(row) => match row.value {
@@ -570,20 +583,20 @@ Press Escape to leave it as it is.",
                             self.mark(&text, at);
                         }
                     }
-                    Line::SmoothAnimation => {
+                    &Line::Smooth(n) => {
+                        let (caption, note, setting) = SMOOTH_BOXES[n];
                         let at = Rect::new(list.x + 16.0 * k, y, list.w * 0.5, row_h);
-                        p.text_in(&label, at, Align::Left, SMOOTH_CAPTION);
+                        p.text_in(&label, at, Align::Left, caption);
                         let control =
                             Rect::new(list.x + list.w * 0.55, y + 3.0 * k, list.w * 0.42, 28.0 * k);
-                        self.mark(SMOOTH_CAPTION, control);
-                        let on = self.options_page.smooth_animation;
+                        self.mark(caption, control);
+                        let page = &self.options_page;
+                        let on = [page.smooth_animation, page.smooth_movement][n];
                         if let Some(on) = kit::checkbox(p, ctx, control, on) {
-                            out.settings
-                                .push(("smooth-animation".into(), on.to_string()));
+                            out.settings.push((setting.into(), on.to_string()));
                         }
                         if at.intersect(&list).is_some_and(|at| ctx.over(&at)) {
-                            self.tip =
-                                Some((SMOOTH_CAPTION.to_owned(), vec![SMOOTH_NOTE.to_owned()]));
+                            self.tip = Some((caption.to_owned(), vec![note.to_owned()]));
                         }
                     }
                     Line::Scale => {
@@ -1174,9 +1187,10 @@ enum Line {
     EffectsStatus,
     /// This interface's scale, under the interface choice.
     Scale,
-    /// Whether bodies are drawn between their animations' keyframes, last under the graphics
-    /// quality.
-    SmoothAnimation,
+    /// One of this interface's own boxes last under the graphics quality, by its place in
+    /// [`SMOOTH_BOXES`]: whether bodies are drawn between their animations' keyframes, and whether
+    /// moving bodies are drawn between their physics ticks.
+    Smooth(usize),
     /// The renderer the next start comes up on.
     Renderer,
     /// The renderer in use now, and the one the next start takes when that is another.
@@ -1320,7 +1334,7 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
             }
         }
         if smooth {
-            out.push(Line::SmoothAnimation);
+            out.extend((0..SMOOTH_BOXES.len()).map(Line::Smooth));
         }
     }
     out.extend(renderer_lines.into_iter().flatten());

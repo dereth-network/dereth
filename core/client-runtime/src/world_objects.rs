@@ -317,6 +317,7 @@ pub fn prepare_object_dispatch<H: ObjectAppearance>(
                 frame,
                 placement,
                 sound_table: described_sound_table.unwrap_or(setup.default_sound_table),
+                between: crate::between_ticks::BetweenTicks::default(),
             },
         );
         // The create path sets the description's state word on the object it just built, then

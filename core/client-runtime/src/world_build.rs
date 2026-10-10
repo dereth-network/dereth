@@ -78,6 +78,7 @@ impl WorldState {
             // Nothing has been dispatched yet, so the server holds no control.
             player_movement_applied: false,
             smooth_animation: false,
+            smooth_movement: false,
             player_object: None,
             character_state: PhysicsState::DEFAULT,
             character_sound_table: None,

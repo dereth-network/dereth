@@ -1162,6 +1162,10 @@ impl PhysicsWorld {
         h: PhysHandle,
         pos: &Position,
     ) -> Result<(), SetPositionError> {
+        // Counted for the drawing, whatever the outcome; physics never reads it.
+        if let Some(o) = self.objects.get_mut(h) {
+            o.placements = o.placements.wrapping_add(1);
+        }
         // The sphere path's local sphere — `SetPosition` has already run `init_sphere`, so
         // this is the object's first path sphere, or the dummy sphere's centre when it has none.
         let center = self.objects.get(h).map_or(Vec3::ZERO, |o| {
@@ -1754,6 +1758,7 @@ impl PhysicsWorld {
         if let Some(o) = self.objects.get_mut(h) {
             o.set_frame(pos.frame);
             o.position.cell = pos.cell;
+            o.placements = o.placements.wrapping_add(1);
         }
         self.calc_cross_cells(h, false);
     }

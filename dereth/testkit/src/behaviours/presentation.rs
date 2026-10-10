@@ -438,6 +438,85 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "presentation.smooth-movement.a-body-is-never-drawn-ahead-of-physics",
+        says: "A body drawn between its physics ticks is drawn behind, on the way physics carried \
+               it: never further along that way than physics has it, and never more than a few \
+               ticks' travel behind.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-NEVER-AHEAD"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_ticks_a_running_body_is_never_drawn_ahead_of_where_physics_has_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-movement.a-short-server-correction-is-drawn-gliding",
+        says: "A remote player the server corrects a short way, which physics walks him over a few \
+               ticks, is drawn gliding there, moving every frame by no more than his running \
+               step, where drawn as physics has him he steps most of the way in one tick.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-CORRECTION-GLIDES"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_ticks_a_player_the_server_corrects_a_short_way_is_drawn_gliding_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-movement.a-teleported-body-is-drawn-where-it-lands-at-once",
+        says: "A remote player the server teleports, even a shorter way than a step, is drawn \
+               where he lands on the frame he lands and is never drawn sliding back toward where \
+               he was; he is drawn between his ticks again once two have passed.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-TELEPORT-JUMPS"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_ticks_a_player_the_server_teleports_is_drawn_where_he_lands_at_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-movement.moving-bodies-drawn-between-ticks-move-every-frame",
+        says: "Drawn between their physics ticks, a remote player running and a creature running \
+               after him move every frame, at 60 and at 240 frames a second, by much less than \
+               the step they take on a tick, where drawn as physics has them they stand still \
+               between ticks and then jump.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-EVERY-FRAME"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_ticks_a_running_player_and_a_chasing_creature_move_a_little_every_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-movement.off-every-body-is-drawn-exactly-where-physics-has-it",
+        says: "With Smooth Movement off, every moving object is drawn exactly where physics has \
+               it, bit for bit, and its parts exactly where its animation's keyframe puts them \
+               there, as the game draws them.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-OFF-EXACT"),
+        station: "dereth-client-runtime::lib::world_step::tests::with_smooth_movement_off_every_mover_is_drawn_exactly_where_physics_has_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-movement.only-the-drawing-changes",
+        says: "Drawn between their ticks or where physics has them, a running player, a creature, \
+               a flying arrow and the body move, are teleported and collide alike, frame for \
+               frame: where physics has each and the part frames each collides with are the same, \
+               and only where each is drawn differs.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-DRAWING-ONLY"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_ticks_or_where_physics_has_them_the_movers_move_and_collide_alike",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-movement.only-under-horizon-with-its-box-ticked",
+        says: "Moving bodies are drawn between their physics ticks only while the Horizon \
+               interface is shown with its Smooth Movement box ticked; the modern and classic \
+               interfaces draw them where physics has them, as before.",
+        since: THIS_CLIENT,
+        divergence: "CD-041",
+        evidence: Evidence::Private("AC-EVID-MOVE-SMOOTH-HORIZON-ONLY"),
+        station: "dereth-client-shell::lib::front_end::horizon_switch_tests::bodies_are_drawn_between_ticks_only_while_horizon_is_shown_with_its_box_ticked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.startup.a-second-client-starts-while-the-first-is-running",
         says: "A second client starts, and runs its interface, while another is still running on \
                the same machine; neither refuses the other.",
