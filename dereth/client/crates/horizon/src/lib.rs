@@ -21,7 +21,8 @@
 //! The pieces: [`runtime`] is the front end the shell drives ([`runtime::HorizonFrontEnd`]); [`ui`] is
 //! the interface; [`state`] reads the game for it; [`dialogs`] shows the game's questions;
 //! [`draw`] draws it; [`art`] reads the art; [`pieces`] are the interface's own art's files;
-//! [`font`] holds the tables its text is drawn from.
+//! [`font`] holds the tables its text is drawn from; [`scale`] says which interface scales a
+//! window offers and the one it is drawn at.
 
 pub mod art;
 pub mod dialogs;
@@ -33,6 +34,7 @@ pub mod pad;
 pub mod pieces;
 pub mod ring;
 pub mod runtime;
+pub mod scale;
 pub mod state;
 pub mod strings;
 pub mod ui;

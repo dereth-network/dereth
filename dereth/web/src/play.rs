@@ -132,6 +132,9 @@ impl Play {
             width,
             height,
             preferences_file: preferences_file.clone(),
+            // A player whose settings name no interface starts in the new player's, as on the
+            // desktop.
+            new_player_interface: Some(dereth_client_contract::options::interface::NEW_PLAYER),
             overlay_dat_dir: overlay,
             ..Config::default()
         };

@@ -7,7 +7,8 @@
 //!   the main tab, its opacity popped out, kept with this interface's settings, and its chat
 //!   window's message filter, which the server keeps: the same filter the tab's own menu sets.
 //! * **Client**: the profile's settings: display, graphics, sound, camera and the interface choice,
-//!   with this interface's scale beside the interface choice and its smooth animation and smooth
+//!   with this interface's scale beside the interface choice (Auto, or one of the steps the window
+//!   offers, with a note naming the window a larger one needs) and its smooth animation and smooth
 //!   movement last under the graphics quality; in a build with the experimental
 //!   rendering effects, their boxes last, under a heading of their own with a warning, the
 //!   status of the device they draw on, and a greyed box with its reason where what it needs is
@@ -54,11 +55,11 @@ pub mod tab {
 /// How many keys a row of the key bindings page shows.
 pub const KEY_SLOTS: usize = 3;
 
-/// The interface scales offered, as the choice reads and as the scale is kept.
-pub const SCALES: [(&str, f32); 4] = [("100%", 1.0), ("150%", 1.5), ("200%", 2.0), ("300%", 3.0)];
-
 /// The caption of the interface scale's row, on the Client page under the interface choice.
 const SCALE_CAPTION: &str = "Interface Scale";
+
+/// The interface scale's first choice: the largest scale the window offers, up to 200%.
+pub const AUTOMATIC_SCALE: &str = "Auto";
 
 /// This interface's own boxes on the Client page, last under the graphics quality, in order: each
 /// one's caption, what it does, for its tooltip, and the setting it writes.
@@ -104,8 +105,10 @@ pub struct OptionsState {
     pub scroll: [f32; TABS.len()],
     /// The key bindings page's group.
     key_group: usize,
-    /// This interface's scale as it stands.
-    pub scale: f32,
+    /// The interface scale the player chose; `None` for the automatic one.
+    pub scale: Option<f32>,
+    /// The window's size in pixels, which says which scales are offered.
+    pub window: (f32, f32),
     /// The camera's movement scheme and pointer directions as they stand.
     pub orbit: dereth_client_runtime::orbit::OrbitSettings,
     /// The pad's settings as they stand.
@@ -394,7 +397,11 @@ Press Escape to leave it as it is.",
                             ));
                         }
                     }
-                    Line::Scale | Line::Smooth(_) | Line::Renderer | Line::RendererNotice => {}
+                    Line::Scale
+                    | Line::ScaleNote
+                    | Line::Smooth(_)
+                    | Line::Renderer
+                    | Line::RendererNotice => {}
                     #[cfg(feature = "hifi")]
                     Line::Notice(_) | Line::EffectsStatus => {}
                     Line::Row(row) => match row.value {
@@ -484,7 +491,15 @@ Press Escape to leave it as it is.",
         out: &mut Outcome,
     ) {
         let k = p.scale;
-        let rows = sheet_lines(PageId::Client, state);
+        let mut rows = sheet_lines(PageId::Client, state);
+        // Under the scale's choices, what a larger window would offer, when there is something
+        // to say.
+        let scale_note = crate::scale::note(self.options_page.scale, self.options_page.window);
+        if scale_note.is_some() {
+            if let Some(at) = rows.iter().position(|l| matches!(l, Line::Scale)) {
+                rows.insert(at + 1, Line::ScaleNote);
+            }
+        }
         let row_h = 34.0 * k;
         let label = TextStyle::new(Family::Body, 14.0, ctx.colours.text()).edge(ctx.colours.edge());
         let heading =
@@ -609,12 +624,37 @@ Press Escape to leave it as it is.",
                         let control =
                             Rect::new(list.x + list.w * 0.55, y + 3.0 * k, list.w * 0.42, 28.0 * k);
                         self.mark(SCALE_CAPTION, control);
-                        let names: Vec<&str> = SCALES.iter().map(|(n, _)| *n).collect();
-                        let now = self.options_page.scale;
-                        let at = SCALES.iter().position(|(_, v)| (v - now).abs() < 0.01);
+                        // Auto, then the steps the window offers; a step it does not offer is
+                        // left out, and the note under the row says why.
+                        let steps = crate::scale::ladder(self.options_page.window);
+                        let labels: Vec<String> =
+                            steps.iter().map(|s| crate::scale::label(*s)).collect();
+                        let names: Vec<&str> = std::iter::once(AUTOMATIC_SCALE)
+                            .chain(labels.iter().map(String::as_str))
+                            .collect();
+                        let at = match self.options_page.scale {
+                            None => Some(0),
+                            Some(chosen) => steps
+                                .iter()
+                                .position(|s| (s - chosen).abs() < 0.01)
+                                .map(|i| i + 1),
+                        };
                         if let Some(i) = kit::radios(p, ctx, control, &names, at) {
-                            out.settings
-                                .push(("scale".into(), format!("{:.2}", SCALES[i].1)));
+                            let value = i
+                                .checked_sub(1)
+                                .and_then(|i| steps.get(i))
+                                .map_or_else(|| "auto".to_owned(), |s| format!("{s:.2}"));
+                            out.settings.push(("scale".into(), value));
+                        }
+                    }
+                    Line::ScaleNote => {
+                        if let Some(text) = &scale_note {
+                            let dim = TextStyle::new(Family::Body, 13.0, ctx.colours.dim())
+                                .edge(ctx.colours.edge());
+                            let at = Rect::new(list.x + 16.0 * k, y, list.w - 32.0 * k, row_h);
+                            p.text_in(&dim, at, Align::Left, text);
+                            // Marked by its words, so a run can read what the page says.
+                            self.mark(text, at);
                         }
                     }
                 }
@@ -1187,6 +1227,9 @@ enum Line {
     EffectsStatus,
     /// This interface's scale, under the interface choice.
     Scale,
+    /// Under the scale, which scales a larger window would offer, or why the one chosen is not
+    /// the one drawn.
+    ScaleNote,
     /// One of this interface's own boxes last under the graphics quality, by its place in
     /// [`SMOOTH_BOXES`]: whether bodies are drawn between their animations' keyframes, and whether
     /// moving bodies are drawn between their physics ticks.

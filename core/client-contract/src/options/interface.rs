@@ -139,13 +139,42 @@ pub fn choice_rows(name: &str) -> Option<Vec<super::store::Choice>> {
     )
 }
 
-/// Register the option in the option value store, holding the modern interface.
+/// Register the option in the option value store, holding the modern interface: what a run built
+/// in code (a test, a tool) starts in. A player starts in [`NEW_PLAYER`] ([`start_new_player`]).
 pub fn register() -> usize {
     usize::from(super::store::register_preference(
         INTERFACE,
         PrefValue::Int(Interface::Modern.value()),
         super::store::DataType::UInt,
     ))
+}
+
+/// The interface a new player starts in: one whose preferences name none.
+pub const NEW_PLAYER: Interface = Interface::Horizon;
+
+/// The interface the preferences file `ini` names, when it names one this client reads; the
+/// last such line, as the load takes the last.
+#[must_use]
+pub fn named_in(ini: &crate::persist::preferences::UserPreferences) -> Option<Interface> {
+    ini.entries
+        .iter()
+        .rev()
+        .filter(|(key, _)| key.trim().eq_ignore_ascii_case(INTERFACE))
+        .find_map(|(_, raw)| parse_value(INTERFACE, raw))
+        .map(Interface::from_value)
+}
+
+/// Start a player whose preferences (`ini`; `None` when there is no file) name no interface in
+/// `first`, after the file is loaded; a player whose preferences name one keeps it. True when
+/// `first` was given.
+pub fn start_new_player(
+    ini: Option<&crate::persist::preferences::UserPreferences>,
+    first: Interface,
+) -> bool {
+    if ini.and_then(named_in).is_some() {
+        return false;
+    }
+    super::store::set_value(INTERFACE, PrefValue::Int(first.value()))
 }
 
 #[cfg(test)]
@@ -200,5 +229,48 @@ mod tests {
         let restored = UserPreferences::parse(&saved).unwrap();
         assert_eq!(store::load(&restored).1, 0);
         assert_eq!(store::inq_value(INTERFACE), Some(PrefValue::Int(0)));
+    }
+
+    #[test]
+    fn a_player_whose_preferences_name_no_interface_starts_in_horizon_and_a_saved_one_is_kept() {
+        use crate::{options::store, persist::preferences::UserPreferences};
+        let start = |file: Option<&str>| {
+            store::init();
+            let ini = file.map(|text| UserPreferences::parse(text).unwrap());
+            if let Some(ini) = &ini {
+                store::load(ini);
+            }
+            let started = start_new_player(ini.as_ref(), NEW_PLAYER);
+            (started, Interface::chosen())
+        };
+        assert_eq!(NEW_PLAYER, Interface::Horizon);
+        assert_eq!(start(None), (true, Interface::Horizon), "no file at all");
+        assert_eq!(
+            start(Some("[Display]\nFullScreen=True\n")),
+            (true, Interface::Horizon),
+            "a file with no interface in it, as the original game's"
+        );
+        assert_eq!(
+            start(Some("[UI]\nInterface=Retail\n")),
+            (true, Interface::Horizon),
+            "a word this client does not read names none"
+        );
+        for (saved, kept) in [
+            ("Modern", Interface::Modern),
+            ("classic", Interface::Classic),
+            ("Horizon", Interface::Horizon),
+            ("0", Interface::Modern),
+        ] {
+            assert_eq!(
+                start(Some(&format!("[UI]\nInterface={saved}\n"))),
+                (false, kept),
+                "{saved}"
+            );
+        }
+        assert_eq!(
+            start(Some("[UI]\nInterface=Classic\nInterface=Modern\n")),
+            (false, Interface::Modern),
+            "the last line, as the load takes it"
+        );
     }
 }

@@ -584,6 +584,7 @@ fn draw_the_effects_section_for_a_person_to_look_at() {
             ui: HorizonUi::new(Arc::clone(&art), Default::default()),
             list: DrawList::default(),
             input: InputFrame::default(),
+            screen: (1920.0, 1080.0),
         };
         h.frame(&state);
         h.ui.windows.open(WindowId::Options, 0.0);

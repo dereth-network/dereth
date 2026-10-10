@@ -38,6 +38,8 @@ pub struct InputFrame {
     /// Shift and control held.
     pub shift: bool,
     pub ctrl: bool,
+    /// Alt held, as the window says.
+    pub alt: bool,
     /// Set by a widget that took this frame's press: the world does not see it.
     pub captured: bool,
     /// Set by a text box that has the keyboard.

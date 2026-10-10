@@ -253,6 +253,12 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.applied_full_screen
     }
 
+    /// Whether the host can make the window full screen, so an interface may offer the switch.
+    #[must_use]
+    pub fn full_screen_offered(&self) -> bool {
+        self.app.window.offers_full_screen()
+    }
+
     /// Draw the world around `landblock` behind the screens before the player is in it, the
     /// camera turned and tilted by `yaw` and `pitch` radians from where the scene starts it. See
     /// [`App::show_backdrop`]. True while it is up.

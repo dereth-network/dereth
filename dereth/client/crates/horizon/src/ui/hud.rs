@@ -27,6 +27,11 @@ pub mod pad;
 /// The chat type of the game's own feedback to the player: refusals and warnings.
 const FEEDBACK_CHAT_TYPE: u8 = 0x1A;
 
+/// How far left of the screen's middle what is centred along its foot reaches at most, in layout
+/// units: the spell bar's tab keys, or in gamepad mode the left cross hotbar held up. The log
+/// window docked at the bottom left stops short of it.
+pub const FOOT_REACH: f32 = 380.0;
+
 /// How long a feedback line floats at the top of the screen.
 const NOTICE_SECONDS: f64 = 4.0;
 

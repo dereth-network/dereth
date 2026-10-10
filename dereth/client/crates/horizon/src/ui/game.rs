@@ -324,6 +324,9 @@ pub struct GameState {
     /// The renderers this build can create and the one drawing, for the options page's renderer
     /// choice; none offered where there is nothing to choose.
     pub renderers: dereth_client_contract::options::renderer::RendererStatus,
+    /// Whether the window is full screen, where the host can make it so: what the switch on the
+    /// screens before the world shows.
+    pub full_screen: Option<bool>,
     /// Where the experimental rendering effects stand on the device the client draws with, for
     /// the options page.
     #[cfg(feature = "hifi")]

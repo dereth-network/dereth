@@ -3,7 +3,9 @@
 //!
 //! Character select is the title and the lobby in one: the client's name and the world it
 //! reached, the world's news, the characters with the selected one standing in the middle, and
-//! the ways on: log in, create, delete or restore, and exit.
+//! the ways on: log in, create, delete or restore, and exit. Character select and creation have
+//! the switch between full screen and a window at their top right, where the host can make the
+//! window full screen; Alt and Enter switch it too.
 
 use dereth_client_contract::pregame::CharacterAction;
 use dereth_primitives::ObjectId;
@@ -181,6 +183,10 @@ impl Pregame {
             Screen::Entering => self.entering(p, ctx, state),
             Screen::Creation => self.creating(screen, p, ctx, state, out),
             Screen::Game => {}
+        }
+        // Not over a question character select is asking.
+        if matches!(screen, Screen::Lobby | Screen::Creation) && self.confirm.is_none() {
+            full_screen_switch(p, ctx, state, out);
         }
         self.footer(p, ctx, state);
     }
@@ -834,6 +840,40 @@ impl Pregame {
         };
         let w = p.measure(&small, &status);
         p.text(&small, sw - w - 25.0 * k, sh - 30.0 * k, &status);
+    }
+}
+
+/// Where the switch between full screen and a window stands: the top right of the screen.
+#[must_use]
+pub fn full_screen_switch_rect(p: &Painter<'_>) -> Rect {
+    let k = p.scale;
+    Rect::new(p.screen.0 - 190.0 * k, 22.0 * k, 150.0 * k, 30.0 * k)
+}
+
+/// The switch between full screen and a window, where the host can make the window full screen:
+/// it says what a press makes the window, and the press sets the game's own full-screen setting,
+/// as the options page's box does.
+fn full_screen_switch(
+    p: &mut Painter<'_>,
+    ctx: &mut Ctx<'_>,
+    state: &GameState,
+    out: &mut Outcome,
+) {
+    use dereth_client_contract::options::{names, store};
+    use dereth_client_contract::view::PrefValue;
+    let Some(full) = state.full_screen else {
+        return;
+    };
+    let r = full_screen_switch_rect(p);
+    let label = if full { "Windowed" } else { "Full Screen" };
+    if kit::button(p, ctx, r, label, true) {
+        let value = PrefValue::Bool(!full);
+        store::set_value(names::DISPLAY_FULL_SCREEN, value.clone());
+        out.requests
+            .push(dereth_client_contract::UiRequest::SetPreference(
+                names::DISPLAY_FULL_SCREEN,
+                value,
+            ));
     }
 }
 

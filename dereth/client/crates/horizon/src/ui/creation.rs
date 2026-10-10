@@ -1392,6 +1392,135 @@ mod tests {
     }
 
     #[test]
+    fn creation_stands_whole_on_the_smallest_windows_each_interface_scale_is_offered_on() {
+        let mut cases = vec![((1920.0, 1080.0), 1.0), ((2560.0, 1440.0), 1.5)];
+        for step in [1.5, 2.0, 3.0] {
+            let (w, h) = crate::scale::smallest_window(step);
+            #[allow(clippy::cast_precision_loss)]
+            let (w, h) = (w as f32, h as f32);
+            cases.push(((w, h), step));
+            cases.push((((h * 16.0 / 9.0).ceil(), h), step));
+        }
+        let pieces = crate::pieces::Pieces::built_in().expect("the built-in art");
+        let art = std::sync::Arc::new(crate::art::Art::new(std::sync::Arc::new(pieces)));
+        for (screen, step) in cases {
+            let mut ui = crate::ui::HorizonUi::new(
+                std::sync::Arc::clone(&art),
+                crate::options::HorizonOptions {
+                    scale: Some(step),
+                    ..crate::options::HorizonOptions::default()
+                },
+            );
+            ui.screen = crate::ui::Screen::Creation;
+            ui.pregame.creation = Some(creation());
+            let state = GameState {
+                full_screen: Some(false),
+                ..lobby()
+            };
+            let k = ui.layout_scale(screen);
+            assert!((k - step).abs() < 1e-4, "{screen:?} at {step}");
+            // The wizard's window, at the right and centred down the screen.
+            let window = Rect::new(
+                screen.0 - (760.0 + 60.0) * k,
+                (screen.1 - 640.0 * k) / 2.0,
+                760.0 * k,
+                640.0 * k,
+            );
+            let mut list = crate::draw::DrawList::default();
+            let mut input = crate::ui::input::InputFrame::default();
+            let steps = creation().steps();
+            for page in steps {
+                if let Some(c) = ui.pregame.creation.as_mut() {
+                    c.step = page;
+                }
+                let _ = ui.frame(&mut list, screen, 1.0 / 60.0, &state, &mut input);
+                input.next_frame();
+                let what = format!("{screen:?} at {step}, {page:?}");
+                let off: Vec<Rect> = list
+                    .quads
+                    .iter()
+                    .filter(|q| q.turn == 0.0)
+                    .filter_map(|q| q.clip.map_or(Some(q.dst), |c| q.dst.intersect(&c)))
+                    .filter(|r| {
+                        r.x < -0.5
+                            || r.y < -0.5
+                            || r.right() > screen.0 + 0.5
+                            || r.bottom() > screen.1 + 0.5
+                    })
+                    .collect();
+                assert!(off.is_empty(), "{what}: drawn off the screen: {off:?}");
+                let preview = ui
+                    .pregame
+                    .creation
+                    .as_ref()
+                    .and_then(|c| c.preview)
+                    .expect("the model's frame");
+                assert!(
+                    preview.x >= 0.0
+                        && preview.y >= 0.0
+                        && preview.right() <= window.x
+                        && preview.bottom() <= screen.1
+                        && preview.w >= 300.0 * k,
+                    "{what}: the model's frame {preview:?} beside the window {window:?}"
+                );
+                assert!(window.x >= 0.0 && window.y >= 0.0, "{what}: {window:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_creation_screen_has_the_switch_between_full_screen_and_a_window_at_its_top_right() {
+        use dereth_client_contract::options::names::DISPLAY_FULL_SCREEN;
+        use dereth_client_contract::view::PrefValue;
+        let mut ui = crate::ui::HorizonUi::new(
+            std::sync::Arc::new(crate::art::Art::empty()),
+            crate::options::HorizonOptions::default(),
+        );
+        ui.screen = crate::ui::Screen::Creation;
+        ui.pregame.creation = Some(creation());
+        let state = GameState {
+            full_screen: Some(true),
+            ..lobby()
+        };
+        let screen = (1920.0, 1080.0);
+        let mut list = crate::draw::DrawList::default();
+        let mut input = crate::ui::input::InputFrame::default();
+        let mut requests = Vec::new();
+        // The switch's middle, then a press and a release there.
+        input.mouse = (1920.0 - 190.0 + 75.0, 22.0 + 15.0);
+        for press in [None, Some(true), Some(false)] {
+            match press {
+                Some(true) => {
+                    input.down[0] = true;
+                    input.pressed[0] = true;
+                }
+                Some(false) => {
+                    input.down[0] = false;
+                    input.released[0] = true;
+                }
+                None => {}
+            }
+            requests.extend(
+                ui.frame(&mut list, screen, 1.0 / 60.0, &state, &mut input)
+                    .requests,
+            );
+            input.next_frame();
+        }
+        assert_eq!(
+            ui.screen,
+            crate::ui::Screen::Creation,
+            "still making a character"
+        );
+        assert!(
+            requests.contains(&UiRequest::SetPreference(
+                DISPLAY_FULL_SCREEN,
+                PrefValue::Bool(false)
+            )),
+            "{requests:?}"
+        );
+    }
+
+    #[test]
     fn a_named_character_goes_to_the_server_in_the_first_free_slot() {
         let mut c = creation();
         c.name = "Aurelia".into();

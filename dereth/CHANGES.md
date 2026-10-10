@@ -20,13 +20,16 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's camera comes round behind you quickly and firmly, in a fifth of a second, and with character-based movement running forward brings it round too; Camera Recentre Speed on the Controls page sets how quickly, up to at once.
 - A speed no motion means, sent by a server, no longer freezes the client.
 - Turning your character with the right mouse button in Horizon no longer stutters.
-- Horizon can draw characters and creatures moving smoothly between their animations' frames, at any frame rate: Smooth Animation, on the Client page of its options, off by default.
-- Horizon can draw other players, creatures and missiles moving smoothly at any frame rate, rather than stepping thirty times a second: Smooth Movement, beside Smooth Animation, off by default.
+- Horizon can draw characters and creatures moving smoothly between their animations' frames, at any frame rate: Smooth Animation, on the Client page of its options, on by default.
+- Horizon can draw other players, creatures and missiles moving smoothly at any frame rate, rather than stepping thirty times a second: Smooth Movement, beside Smooth Animation, on by default.
 - Horizon's names stand on the heads of the people and creatures they name, however tall (a lugian's over its head, not on its chest; a rat's just over its back), and stay on them as they and the camera move rather than trailing a frame behind.
 - Turning the camera with the mouse hides the pointer and holds it still, as the original client did, and it comes back where the drag began; in the browser, holding both mouse buttons now runs forward in Horizon.
 - In Horizon one press of an attack key or of the Low, Medium or High buttons is the whole attack: the bar charges to the power you aim at and the arrow or swing goes by itself, and goes on repeating until Escape, a step, peace or losing the target stops it. Horizon never uses the advanced combat interface. The buttons used to charge for ever and never attack.
 - On a 60 Hz display (and at 30, 120 or 240 Hz) the world moves on a steady 30 steps a second instead of stepping unevenly 20 to 25 times a second.
 - Horizon's experimental effects gain Weather (rain that roofs keep off, wet ground, puddles, and snow over snowy land), and /weather sets the weather this client draws: clear, rain, snow or auto.
+- A new player starts in Horizon; a player who chose the modern or classic interface keeps it.
+- Horizon's character select and character creation can be full screen: Alt+Enter, or the switch at their top right, and the choice carries into the world and back.
+- Horizon's interface scale chooses itself until you choose one: the largest the window holds, up to 200% (150% at 1440p, 200% on a 4K monitor), and only the scales the window holds are offered.
 - On the wgpu renderer, Horizon's experimental effects no longer say they need wgpu or that the graphics card lacks ray tracing: a box first ticked says to restart, and the restart turns it on.
 
 ## 0.4.0 (2026-10-09)

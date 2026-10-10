@@ -26,6 +26,15 @@ struct Client {
 /// The client on host `H` at the character list in the modern interface, its settings kept in
 /// `state`.
 fn at_the_character_list<H: Host>(state: &std::path::Path) -> (CoreApp<H>, ClientShell<H>) {
+    started::<H>(state, None)
+}
+
+/// The client on host `H` at the character list, its settings kept in `state`, a player whose
+/// settings name no interface starting in `new_player` (the modern interface for `None`).
+fn started<H: Host>(
+    state: &std::path::Path,
+    new_player: Option<Interface>,
+) -> (CoreApp<H>, ClientShell<H>) {
     let cfg = dereth_client_runtime::config::Config {
         headless: true,
         connect: false,
@@ -35,6 +44,7 @@ fn at_the_character_list<H: Host>(state: &std::path::Path) -> (CoreApp<H>, Clien
         height: 600,
         dat_dir: dereth_dat::testing::dat_dir(),
         preferences_file: state.join("prefs.ini"),
+        new_player_interface: new_player,
         ..Default::default()
     };
     let mut app = CoreApp::<H>::bring_up_with_store(
@@ -286,6 +296,50 @@ fn the_horizon_choice_comes_up_on_its_own_art_with_nothing_to_build_first() {
         c.frame();
     }
     assert_eq!(c.shown(), Interface::Horizon);
+    c.finish();
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn a_fresh_settings_folder_starts_in_horizon_and_a_saved_modern_choice_stays_modern() {
+    use dereth_client_contract::options::interface::NEW_PLAYER;
+    let state = std::env::temp_dir().join(format!("dereth-new-player-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&state);
+    std::fs::create_dir_all(&state).expect("a scratch settings folder");
+    let prefs = state.join("prefs.ini");
+
+    // A fresh folder, as the desktop and browser clients start a player.
+    let (app, shell) = started::<NullHost>(&state, Some(NEW_PLAYER));
+    let c = Client { app, shell };
+    assert_eq!(
+        c.shown(),
+        Interface::Horizon,
+        "a new player starts in Horizon"
+    );
+    assert_eq!(Interface::chosen(), Interface::Horizon);
+    c.finish();
+    let saved = std::fs::read_to_string(&prefs).expect("the settings are saved at the end");
+    assert!(
+        saved.contains("Interface=Horizon"),
+        "and keeps it as the player's choice: {saved}"
+    );
+
+    // A player who chose the modern interface keeps it.
+    std::fs::write(&prefs, "[UI]\r\nInterface=Modern\r\n").expect("writable");
+    let (app, shell) = started::<NullHost>(&state, Some(NEW_PLAYER));
+    let mut c = Client { app, shell };
+    for _ in 0..3 {
+        c.frame();
+    }
+    assert_eq!(c.shown(), Interface::Modern, "a saved Modern stays Modern");
+    c.finish();
+
+    // A run that asks for no new-player interface (a run built in code) starts in the modern one.
+    std::fs::remove_file(&prefs).expect("removable");
+    let (app, shell) = started::<NullHost>(&state, None);
+    let c = Client { app, shell };
+    assert_eq!(c.shown(), Interface::Modern);
     c.finish();
     let _ = std::fs::remove_dir_all(&state);
 }
@@ -837,6 +891,7 @@ fn bodies_are_drawn_between_ticks_only_while_horizon_is_shown_with_its_box_ticke
         c.install_classic(&state);
         c.install_horizon_with(dereth_horizon::options::HorizonOptions {
             smooth_movement: ticked,
+            smooth_animation: false,
             ..Default::default()
         });
         assert!(

@@ -608,14 +608,16 @@ impl ChatLog {
             self.forgotten = false;
         }
         let x = 20.0 * k;
-        // As wide as it may be without reaching the vitals centred along the bottom (three
-        // gauges of 164 units).
-        let vitals_left = sw / 2.0 - 1.5 * 164.0 * k;
+        // As wide as it may be without reaching what is centred along the bottom, at its widest
+        // (the spell bar's tab keys, or the cross hotbars), and no narrower than it may be made.
+        let foot_left = sw / 2.0 - crate::ui::hud::FOOT_REACH * k;
         let home_h = 230.0 * k;
         self.home = Rect::new(
             x,
             sh - home_h - 24.0 * k,
-            (480.0 * k).min(vitals_left - x - 12.0 * k),
+            (480.0 * k)
+                .min(foot_left - x - 12.0 * k)
+                .max(Self::smallest(0, k).0),
             home_h,
         );
         let y = self.home.y;

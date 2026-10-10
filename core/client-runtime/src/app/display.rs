@@ -14,14 +14,16 @@ impl<S: Shell> App<S> {
         // `s.full_screen = s.allow_full_screen_mode && !s.full_screen` is the event loop's own
         // epilogue -- and left at its `true` default it would make Alt+Enter live in every mode.
         //
-        // It is the exact gate the full-screen rule needs: full screen belongs to
-        // gameplay, so Alt+Enter is refused outside it rather than honoured and then quietly
-        // undone by [`Self::follow_gameplay_full_screen`] at the next mode edge. Inside gameplay
-        // the toggle is untouched and still overrides the preference until the player leaves.
+        // It is the exact gate the full-screen rule needs: full screen belongs to the world and
+        // to the screens drawn at the player's own size ([`Self::full_screen_allowed`]), so
+        // Alt+Enter is refused at a screen before the world held at the login size rather than
+        // honoured and then quietly undone by [`Self::follow_gameplay_full_screen`] at the next
+        // mode edge. Where it is allowed the toggle is untouched and still overrides the
+        // preference until the player reaches a screen where it is not.
         //
         // Set every frame rather than on the mode edge because it has to be right at the instant
         // the drain below consumes the latch, which is not an edge frame.
-        self.pump.state.allow_full_screen_mode = shell.in_gameplay();
+        self.pump.state.allow_full_screen_mode = Self::full_screen_allowed(shell);
         let drained = self
             .window
             .pump_events((self.cfg.width, self.cfg.height), self.applied_full_screen);
@@ -353,7 +355,7 @@ impl<S: Shell> App<S> {
         requests: Vec<dereth_client_contract::UiRequest>,
     ) -> Vec<dereth_client_contract::UiRequest> {
         use dereth_client_contract::{PrefValue, UiRequest};
-        let in_gameplay = shell.in_gameplay();
+        let allowed = Self::full_screen_allowed(shell);
         let mut resolution: Option<i32> = None;
         let rest: Vec<UiRequest> = requests
             .into_iter()
@@ -397,11 +399,12 @@ impl<S: Shell> App<S> {
                             // preference is stored whatever mode the player is in -- the options
                             // page is reachable from character select, and a box they tick there
                             // has to survive to the next save. The *shadow* only ever carries it
-                            // in gameplay, because that is where full screen lives. Ticking the box
-                            // outside gameplay therefore changes nothing on screen until they enter
-                            // the world, which is what [`Self::follow_gameplay_full_screen`] then
-                            // does.
-                            self.pump.state.full_screen = *v && in_gameplay;
+                            // where full screen lives: in the world, and at a screen drawn at the
+                            // player's own size ([`Self::full_screen_allowed`]). Ticking the box at
+                            // a screen held at the login size therefore changes nothing on screen
+                            // until they enter the world, which is what
+                            // [`Self::follow_gameplay_full_screen`] then does.
+                            self.pump.state.full_screen = *v && allowed;
                             return false;
                         }
                         if name.eq_ignore_ascii_case(
@@ -579,36 +582,46 @@ impl<S: Shell> App<S> {
     /// The gameplay object exists exactly while the current mode is gameplay, so observing the
     /// mode-switch edge reproduces its constructor and destructor. `Pump::is_done` supplies the
     /// quitting predicate; a closing window is never resized.
-    /// **`Display.FullScreen` applies on entering the game, and only there.** This is a
-    /// declared divergence (client divergence CD-005) with no retail counterpart, because retail's full screen is a D3D9
-    /// device mode that exists for the life of the process.
     ///
-    /// Two separate things are wrong with applying it at start-up. Creating the window
-    /// borderless and moving it to the monitor rectangle **is not a fullscreen request** and is
-    /// not portable: a window cannot position itself on Wayland, and on macOS the rectangle does
-    /// not cover the menu bar or the Dock, so both platforms would draw a chromeless window that
-    /// does not fill the screen. And on Windows, where the rectangle does work, coming into
-    /// gameplay *from* a full-screen character select goes through
-    /// [`Self::follow_screen_forced_resolution`]'s forced display resolution on the same edge,
-    /// which fights it.
+    /// **`Display.FullScreen` applies where the screen is drawn at the player's own size: in the
+    /// world, and before it under an interface that draws its screens there at that size**
+    /// ([`Self::full_screen_allowed`]). A screen held at the fixed login size is always a window:
+    /// a declared divergence (client divergence CD-005), because retail's full screen there was a
+    /// D3D9 device mode at that size, and this client switches no display mode, so those screens
+    /// drawn at the monitor's size would be a login-sized island in its corner. Coming into the
+    /// world from such a screen also goes through [`Self::follow_screen_forced_resolution`]'s
+    /// forced display resolution on the same edge, which would fight a full-screen one.
     ///
-    /// So: the pre-game flow is windowed, the world is whatever the preference says, and the
-    /// transition is the mode edge. This runs on the same `screen_changed` edge as the forced
-    /// resolution and for the same reason -- the flow has just swapped the screen, so
-    /// this *is* the gameplay-screen construction/destruction edge. It writes only the shadow;
-    /// [`Self::apply_changed_display_presentation`] notices and
+    /// So: a screen held at the login size is windowed, and on an edge onto a screen where full
+    /// screen is allowed from one where it was not (start-up among them) the preference is
+    /// applied. Between two screens where it is allowed -- an interface drawn at the player's size
+    /// entering the world or leaving it -- full screen stays as it is, so a switch made at
+    /// character select is kept in the world and the other way round. This runs on the same
+    /// `screen_changed` edge as the forced resolution and for the same reason -- the flow has just
+    /// swapped the screen, so this *is* the gameplay-screen construction/destruction edge. It
+    /// writes only the shadow; [`Self::apply_changed_display_presentation`] notices and
     /// [`Self::change_presentation`] does the work, exactly as it does for Alt+Enter and for the
     /// options page.
     ///
-    /// Alt+Enter outside gameplay is refused rather than fought: this function would undo it on
-    /// the next mode edge, and a toggle that silently reverts is worse than one that does
-    /// nothing. The event loop (`do_event_loop`) is where that refusal lives.
+    /// Alt+Enter at a screen held at the login size is refused rather than fought: this function
+    /// would undo it on the next mode edge, and a toggle that silently reverts is worse than one
+    /// that does nothing. The event loop (`do_event_loop`) is where that refusal lives.
     pub fn follow_gameplay_full_screen(&mut self, shell: &mut S) {
         self.duties.gameplay_followed = Some(shell.in_gameplay());
         if self.pump.state.is_done {
             return;
         }
-        self.pump.state.full_screen = shell.in_gameplay() && self.cfg.display.full_screen;
+        let allowed = Self::full_screen_allowed(shell);
+        let was_allowed = self.duties.full_screen_followed.replace(allowed);
+        if !(allowed && was_allowed == Some(true)) {
+            self.pump.state.full_screen = allowed && self.cfg.display.full_screen;
+        }
+    }
+
+    /// Whether the window may be full screen now: in the world, and before it while the interface
+    /// draws its screens there at the player's own size rather than at the fixed login size.
+    pub(crate) fn full_screen_allowed(shell: &S) -> bool {
+        shell.in_gameplay() || !shell.keeps_login_size()
     }
 
     /// The forced pre-game display size on the game screen's construction and destruction edges.

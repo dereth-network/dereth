@@ -2,8 +2,9 @@
 
 The client's third interface, beside the modern and the classic one: character select and
 character creation, the in-game HUD and its windows, drawn from its own art.
-It is chosen in Options (Interface: Horizon) and switched to and from live, as the classic interface
-is. Unlike the other two, it draws the screens before the world at the player's own window size.
+A new player starts in it (one whose settings name no interface, the original game's included);
+it is chosen in Options (Interface) and switched to and from live, as the classic interface is.
+Unlike the other two, it draws the screens before the world at the player's own window size.
 
 The game underneath is the client's: the same runtime, network session, object model, physics,
 world renderer and key maps. Only the interface differs.
@@ -14,8 +15,8 @@ The interface draws its own art: pieces packed into atlases at several scales wi
 names them (`pieces/`), and its fonts as glyph pages with their table. The desktop client carries
 these files built in. The browser client's module does not: they are served beside it
 (`pkg/horizon/`), and the page fetches them from when it opens, without the client waiting for
-them. Until they are in, a choice of Horizon waits (a saved one starts in the modern interface)
-and the chat says the art is loading; the frame they are in, Horizon is shown. When they could not
+them. Until they are in, a choice of Horizon waits (a saved one, or a new player's, starts in the
+modern interface) and the chat says the art is loading; the frame they are in, Horizon is shown. When they could not
 be fetched, choosing Horizon is refused and the chat says why. The modern and classic interfaces
 are not affected either way. Where a piece is missing it
 draws plainly in its place. The game's own icons (items, spells, effects) are read from the game's
@@ -23,8 +24,14 @@ data.
 
 ## Its settings
 
-The interface scale (100%, 150%, 200% or 300%, on the Settings window's Client page) and the
-camera's settings (its Controls page) are kept in `horizon.txt` beside the preferences.
+The interface scale (on the Settings window's Client page) and the camera's settings (its Controls
+page) are kept in `horizon.txt` beside the preferences. A scale is offered only on a window that
+holds nine tenths of a 1600 by 960 canvas at the scale, the smallest every screen stands whole on:
+150% from 2160 by 1296 pixels, 200% from 2880 by 1728, 300% from 4320 by 2592, 100% on any window,
+the system's display scaling already in the window's pixels. Until the player chooses one (Auto)
+the interface is drawn at the largest the window offers, up to 200%: 100% at 1080p, 150% at 1440p
+and 200% on a 4K monitor, maximised or full screen. A chosen scale the window does not offer is
+kept, and the interface is drawn at Auto's until the window offers it again.
 
 ## How the game's concepts are drawn
 

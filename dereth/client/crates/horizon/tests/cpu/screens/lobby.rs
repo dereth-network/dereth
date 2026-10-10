@@ -203,3 +203,100 @@ fn the_selected_character_stands_between_the_news_and_the_list_only_when_its_loo
     h.frame(&state);
     assert_eq!(h.ui.pregame.doll, None, "the second's is not");
 }
+
+/// A press and release at `at`, and what each of the two frames asked of the game.
+fn requests_of_a_click(
+    h: &mut Harness,
+    state: &GameState,
+    at: (f32, f32),
+) -> Vec<dereth_client_contract::UiRequest> {
+    h.move_to(at.0, at.1);
+    h.press();
+    let mut requests = h.frame(state).requests;
+    h.release();
+    requests.extend(h.frame(state).requests);
+    requests
+}
+
+#[test]
+fn the_switch_at_the_top_right_of_character_select_sets_full_screen_or_a_window() {
+    use dereth_client_contract::options::{names::DISPLAY_FULL_SCREEN, store};
+    use dereth_client_contract::view::PrefValue;
+    use dereth_client_contract::UiRequest;
+    store::init();
+    let switch = centre(dereth_horizon::draw::Rect::new(
+        1920.0 - 190.0,
+        22.0,
+        150.0,
+        30.0,
+    ));
+    for full in [false, true] {
+        let mut state = account();
+        state.full_screen = Some(full);
+        let mut h = Harness::new(HorizonOptions::default());
+        h.frame(&state);
+        let asked = requests_of_a_click(&mut h, &state, switch);
+        assert_eq!(
+            asked,
+            [UiRequest::SetPreference(
+                DISPLAY_FULL_SCREEN,
+                PrefValue::Bool(!full)
+            )],
+            "full screen {full}"
+        );
+        assert_eq!(
+            store::inq_value(DISPLAY_FULL_SCREEN),
+            Some(PrefValue::Bool(!full)),
+            "the setting itself, as the options page's box writes it"
+        );
+    }
+    // Not over the question it asks before a log-in.
+    let mut state = account();
+    state.full_screen = Some(false);
+    let mut h = Harness::new(HorizonOptions::default());
+    h.frame(&state);
+    h.input.keys.push(vk::ENTER);
+    h.frame(&state);
+    assert!(requests_of_a_click(&mut h, &state, switch).is_empty());
+    // Where the host cannot make the window full screen there is no switch.
+    let state = account();
+    let mut h = Harness::new(HorizonOptions::default());
+    h.frame(&state);
+    assert!(requests_of_a_click(&mut h, &state, switch).is_empty());
+}
+
+#[test]
+fn alt_and_enter_switch_full_screen_and_neither_ask_to_log_in_nor_stay_in_a_text_box() {
+    use dereth_input::host::HostEvent;
+    use dereth_input::keys::Key;
+    let enter = |pressed| HostEvent::KeyboardInput {
+        key: Key::new(vk::ENTER, 0x1C),
+        pressed,
+        text: None,
+    };
+    let mut front = dereth_horizon::runtime::HorizonFrontEnd::new(
+        std::sync::Arc::new(dereth_horizon::art::Art::empty()),
+        HorizonOptions::default(),
+        None,
+    );
+    front.host_event(&HostEvent::ModifiersChanged { alt: true }, 0);
+    assert!(
+        front.host_event(&enter(true), 0).forward,
+        "on to the window's loop"
+    );
+    assert!(
+        !front.frame_input.keys.contains(&vk::ENTER),
+        "character select is not asked to log in"
+    );
+    front.ui.text_focus = true;
+    assert!(
+        front.host_event(&enter(true), 0).forward,
+        "a text box that has the keyboard does not keep it"
+    );
+    front.host_event(&HostEvent::ModifiersChanged { alt: false }, 0);
+    assert!(
+        !front.host_event(&enter(true), 0).forward,
+        "Enter alone is the text box's"
+    );
+    assert!(front.frame_input.keys.contains(&vk::ENTER));
+}

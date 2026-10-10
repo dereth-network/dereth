@@ -197,8 +197,9 @@ crash logs included. Otherwise:
 
 The launcher keeps its own settings beside it, in `launcher`. On Windows the first run **copies**
 (never moves) the original game's `Documents\Asheron's Call` folder into it, once.
-`Display.FullScreen` applies when the player enters the world; login and character select are
-always windowed. A run that fails, panics or crashes leaves its log in
+`Display.FullScreen` applies from the first screen in Horizon; in the modern and classic
+interfaces it applies when the player enters the world, and login and character select are always
+windowed. A run that fails, panics or crashes leaves its log in
 `crash-logs/dereth-client-<pid>.log` in that directory, whatever `-prefs` says, with the account,
 password and ticket values hidden; a run that ends cleanly removes its own, and only the newest 20
 are kept.

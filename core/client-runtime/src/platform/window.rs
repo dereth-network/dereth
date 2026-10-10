@@ -136,6 +136,12 @@ pub trait WindowHost {
     /// screen and [`Self::client_size`] is already whatever the caller resized the target to.
     fn set_borderless_fullscreen(&self, _full_screen: bool) {}
 
+    /// Whether [`Self::set_borderless_fullscreen`] really makes the window full screen, so an
+    /// interface may offer the switch. The default is the headless answer: no.
+    fn offers_full_screen(&self) -> bool {
+        false
+    }
+
     /// Ask for a client rectangle and answer with the one the window system granted.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         (width, height)

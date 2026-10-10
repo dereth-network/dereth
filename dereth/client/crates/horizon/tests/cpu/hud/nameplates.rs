@@ -28,6 +28,7 @@ fn harness() -> Harness {
         ui: HorizonUi::new(art, Default::default()),
         list: DrawList::default(),
         input: InputFrame::default(),
+        screen: (1920.0, 1080.0),
     }
 }
 

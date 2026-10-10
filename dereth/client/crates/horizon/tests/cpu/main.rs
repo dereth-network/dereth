@@ -17,12 +17,14 @@ use dereth_horizon::ui::game::GameState;
 use dereth_horizon::ui::input::InputFrame;
 use dereth_horizon::ui::{HorizonUi, Outcome};
 
-/// The interface at 1920x1080 with no art behind it.
+/// The interface at 1920x1080, unless the test says another size, with no art behind it.
 #[derive(Debug)]
 pub struct Harness {
     pub ui: HorizonUi,
     pub list: DrawList,
     pub input: InputFrame,
+    /// The window's size in pixels.
+    pub screen: (f32, f32),
 }
 
 impl Harness {
@@ -31,6 +33,7 @@ impl Harness {
             ui: HorizonUi::new(Arc::new(Art::empty()), options),
             list: DrawList::default(),
             input: InputFrame::default(),
+            screen: (1920.0, 1080.0),
         }
     }
 
@@ -38,7 +41,7 @@ impl Harness {
     pub fn frame(&mut self, state: &GameState) -> Outcome {
         let out = self.ui.frame(
             &mut self.list,
-            (1920.0, 1080.0),
+            self.screen,
             1.0 / 60.0,
             state,
             &mut self.input,

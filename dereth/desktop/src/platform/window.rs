@@ -821,11 +821,12 @@ fn window_attributes(
     // graphics-engine startup handing D3D9 a `Windowed = FALSE` presentation that makes the
     // **D3D9 runtime** restyle and resize it afterwards.
     //
-    // This build goes one step further on purpose: full screen is applied when the player
-    // **enters the game** and taken away when they leave it, so the whole pre-game flow --
-    // login, character select, the intro -- is windowed. `App::follow_gameplay_full_screen` is
-    // the other half; this function's job is only to not pre-empt it, so
-    // `cfg.display.full_screen` is *not* read here.
+    // This build goes one step further on purpose: full screen is applied once a screen that
+    // allows it is shown -- the world, or under Horizon its first screen, which it draws at the
+    // player's own size -- and a screen held at the login size (the modern and classic
+    // interfaces' login, character select and intro) is windowed.
+    // `App::follow_gameplay_full_screen` is the other half; this function's job is only to not
+    // pre-empt it, so `cfg.display.full_screen` is *not* read here.
     let screen = monitor_metrics(monitor, (0, 0, 0));
     let place = dereth_render::window_proc::placement(
         false,
@@ -1258,6 +1259,11 @@ impl WindowHost for WinitWindow {
             full_screen,
             self.pins_size_limits,
         );
+    }
+
+    /// A desktop window is made full screen by the window system's own request.
+    fn offers_full_screen(&self) -> bool {
+        true
     }
 
     /// Drain the event queue completely.

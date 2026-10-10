@@ -2671,6 +2671,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "window.full-screen.screens-drawn-at-the-players-own-size-are-full-screen-before-the-world-too",
+        says: "Where the screens before the world are drawn at the player's own size, as Horizon \
+               draws them, the full-screen setting applies from the first of them, the keyboard \
+               shortcut and the setting's box switch it there, and a switch made there is kept \
+               on entering the world and on leaving it. A screen held at the login size stays a \
+               window, and an interface switched in before the world follows the rule of its own \
+               screens.",
+        since: THIS_CLIENT,
+        divergence: "CD-005",
+        evidence: Evidence::Private("AC-EVID-FULLSCREEN-OWN-SIZE"),
+        station: "dereth-client-runtime::lib::app::tests::screens_before_the_world_drawn_at_the_players_size_are_full_screen_and_a_switch_there_is_kept",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "window.full-screen.the-options-page-turns-it-on-and-off-while-the-player-plays",
         says: "Ticking the full-screen box on the options page reaches the window on the very \
                next frame, and unticking it puts the window back -- and either way the setting is \
@@ -2682,10 +2696,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "window.full-screen.the-setting-is-kept-from-the-start-and-applied-on-entering-the-world",
-        says: "A client whose saved setting asks for full screen still starts windowed: the \
-               patch screen and the character list are a window, and the setting is applied on \
-               entering the world and taken away again on leaving it. The setting itself survives \
-               the round trip.",
+        says: "Under the modern and classic interfaces, a client whose saved setting asks for \
+               full screen still starts windowed: the patch screen and the character list are a \
+               window, and the setting is applied on entering the world and taken away again on \
+               leaving it. The setting itself survives the round trip.",
         since: THIS_CLIENT,
         divergence: "CD-005",
         evidence: Evidence::Private("AC-EVID-P1-18-GAMEPLAY"),
@@ -2694,10 +2708,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "window.full-screen.the-switch-key-is-refused-outside-the-world-and-works-inside-it",
-        says: "The keyboard shortcut that switches between full screen and a window does nothing \
-               at the character list, and switches both ways once the player is in the world. It \
-               is refused rather than honoured and quietly undone, which is what happened before \
-               the gate was shut.",
+        says: "Under the modern and classic interfaces, the keyboard shortcut that switches \
+               between full screen and a window does nothing at the character list, and switches \
+               both ways once the player is in the world. It is refused rather than honoured and \
+               quietly undone, which is what happened before the gate was shut.",
         since: THIS_CLIENT,
         divergence: "CD-005",
         evidence: Evidence::Private("AC-EVID-P1-18-ALTENTER"),

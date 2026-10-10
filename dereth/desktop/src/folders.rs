@@ -318,6 +318,11 @@ pub fn load_config(
         if cfg.preferences_file.as_os_str().is_empty() && !cfg.headless {
             cfg.preferences_file = default_preferences.to_path_buf();
         }
+        // A player whose settings name no interface starts in the new player's. A run that keeps
+        // no settings (a headless run that named none) is a tool's, and keeps the modern one.
+        if !cfg.preferences_file.as_os_str().is_empty() {
+            cfg.new_player_interface = Some(dereth_client_contract::options::interface::NEW_PLAYER);
+        }
         Ok(cfg)
     };
     let mut cfg = load()?;
@@ -684,5 +689,28 @@ FullScreen=True
         assert!(matches!(copied, Some((_, _, Ok(0)))), "{copied:?}");
         assert!(again.display.full_screen);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A run that keeps the player's settings starts a player whose settings name no interface in
+    /// Horizon; a headless run that keeps none is a tool's, and keeps the modern interface.
+    ///
+    /// Behaviour: none (experimental Horizon interface)
+    #[test]
+    fn a_players_run_starts_a_new_player_in_horizon_and_a_tools_headless_run_does_not() {
+        use dereth_client_contract::options::interface::{Interface, NEW_PLAYER};
+        let scratch = Scratch::new("new-player");
+        let settings = scratch.0.join("client");
+        let prefs = settings.join(PREFERENCES_FILE_NAME);
+        let (cfg, _) = load_config(&[], &prefs, Some(&settings), None).unwrap();
+        assert_eq!(cfg.new_player_interface, Some(NEW_PLAYER));
+        assert_eq!(NEW_PLAYER, Interface::Horizon);
+        let (tool, _) =
+            load_config(&["--headless".to_owned()], &prefs, Some(&settings), None).unwrap();
+        // Unless the environment names a settings folder outright, which such a run then keeps.
+        assert_eq!(
+            tool.new_player_interface.is_some(),
+            !tool.preferences_file.as_os_str().is_empty(),
+            "only a run that keeps settings starts a player"
+        );
     }
 }

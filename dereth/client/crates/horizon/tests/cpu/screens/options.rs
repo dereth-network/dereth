@@ -447,22 +447,134 @@ fn the_pages_are_character_chat_client_controls_and_key_bindings() {
     }
 }
 
-#[test]
-fn the_interface_scale_is_one_of_four_chosen_by_its_radio_buttons() {
-    store::init();
-    let state = in_world();
-    let mut h = options_on("Client", &state);
-    scroll_to(&mut h, &state, "Interface Scale");
-    let r = control(&h, "Interface Scale");
-    // Four marks across the row, each at the left of its quarter: the second is 150%.
-    let out = click_at(&mut h, &state, r.x + r.w / 4.0 + 9.0, r.y + r.h / 2.0);
-    assert_eq!(out.settings, [("scale".to_owned(), "1.50".to_owned())]);
-    let out = click_at(&mut h, &state, r.x + r.w * 0.75 + 9.0, r.y + r.h / 2.0);
-    assert_eq!(out.settings, [("scale".to_owned(), "3.00".to_owned())]);
+/// The interface with Settings open on `tab`, on a window of `screen` pixels, with `options`.
+fn options_at(
+    tab: &str,
+    state: &GameState,
+    screen: (f32, f32),
+    options: HorizonOptions,
+) -> Harness {
+    let mut h = Harness::new(options);
+    h.screen = screen;
+    h.frame(state);
+    h.ui.windows.open(WindowId::Options, -1.0);
+    h.frame(state);
+    click(&mut h, state, tab);
+    h
 }
 
 #[test]
-fn smooth_movement_is_this_interface_s_own_box_under_smooth_animation_and_off_until_ticked() {
+fn the_interface_scale_offers_auto_and_the_steps_the_window_holds_and_says_what_a_larger_needs() {
+    store::init();
+    let state = in_world();
+    // A 4K window: Auto, 100%, 150% and 200%, four marks across the row, each at the left of its
+    // quarter; 300% is left out and the note under the row says what it needs.
+    let uhd = (3840.0, 2160.0);
+    let mut h = options_at("Client", &state, uhd, HorizonOptions::default());
+    scroll_to(&mut h, &state, "Interface Scale");
+    let r = control(&h, "Interface Scale");
+    let note = "300% needs a window of 4320 \u{d7} 2592 or larger.";
+    assert!(
+        h.ui.windows.options_page.control(note).is_some(),
+        "the note"
+    );
+    let mark = |n: f32| (r.x + r.w * n / 4.0 + 9.0, r.y + r.h / 2.0);
+    for (n, chosen) in [(1.0, "1.00"), (2.0, "1.50"), (3.0, "2.00")] {
+        let (x, y) = mark(n);
+        let out = click_at(&mut h, &state, x, y);
+        assert_eq!(out.settings, [("scale".to_owned(), chosen.to_owned())]);
+    }
+    // A choice is kept until the player picks Auto, which lets the window choose again.
+    let chose = HorizonOptions {
+        scale: Some(1.5),
+        ..HorizonOptions::default()
+    };
+    let mut h = options_at("Client", &state, uhd, chose);
+    scroll_to(&mut h, &state, "Interface Scale");
+    let r = control(&h, "Interface Scale");
+    let out = click_at(&mut h, &state, r.x + 9.0, r.y + r.h / 2.0);
+    assert_eq!(out.settings, [("scale".to_owned(), "auto".to_owned())]);
+
+    // A 1080p window: Auto and 100% alone, half the row each, and the note says what 150% needs.
+    let fhd = (1920.0, 1080.0);
+    let mut h = options_at("Client", &state, fhd, HorizonOptions::default());
+    scroll_to(&mut h, &state, "Interface Scale");
+    let r = control(&h, "Interface Scale");
+    let note = "150% and larger need a window of 2160 \u{d7} 1296 or larger.";
+    assert!(
+        h.ui.windows.options_page.control(note).is_some(),
+        "the note"
+    );
+    let out = click_at(&mut h, &state, r.x + r.w / 2.0 + 9.0, r.y + r.h / 2.0);
+    assert_eq!(out.settings, [("scale".to_owned(), "1.00".to_owned())]);
+    // A 200% chosen on a larger window is drawn at 100% here, and the note says so.
+    let chose = HorizonOptions {
+        scale: Some(2.0),
+        ..HorizonOptions::default()
+    };
+    let mut h = options_at("Client", &state, fhd, chose);
+    scroll_to(
+        &mut h,
+        &state,
+        "200% needs a window of 2880 \u{d7} 1728 or larger: 100% until then.",
+    );
+}
+
+#[test]
+fn the_interface_follows_its_window_frame_by_frame_and_a_choice_waits_for_one_that_offers_it() {
+    let state = with_chat_windows();
+    let uhd = (3840.0, 2160.0);
+    let fhd = (1920.0, 1080.0);
+    // The log window's height at 100%, to measure the scale a frame was drawn at by.
+    let mut h = Harness::new(HorizonOptions::default());
+    h.frame(&state);
+    let at_100 = h.ui.hud.log.dock.h;
+    let drawn_at = |h: &mut Harness, screen: (f32, f32)| {
+        h.screen = screen;
+        h.frame(&state);
+        h.ui.hud.log.dock.h / at_100
+    };
+    // Never chosen: the largest the window offers up to 200%, as it is resized or moved to
+    // another monitor.
+    let mut h = Harness::new(HorizonOptions::default());
+    for (screen, scale) in [
+        (uhd, 2.0),
+        (fhd, 1.0),
+        ((2560.0, 1440.0), 1.5),
+        ((2560.0, 1377.0), 1.5),
+        ((1920.0, 1200.0), 1.0),
+        (uhd, 2.0),
+    ] {
+        assert!(
+            (drawn_at(&mut h, screen) - scale).abs() < 0.01,
+            "{screen:?} at {scale}"
+        );
+        assert!((h.ui.layout_scale(screen) - scale).abs() < 0.01);
+    }
+    assert_eq!(h.ui.options.scale, None, "the window's choice is not saved");
+    // Chosen: drawn at while the window offers it, the automatic scale while it does not, and
+    // the choice kept for when it does again.
+    for (chosen, screens) in [
+        (1.5, [(uhd, 1.5), (fhd, 1.0), (uhd, 1.5)]),
+        (3.0, [(uhd, 2.0), (fhd, 1.0), ((6016.0, 3384.0), 3.0)]),
+        (1.0, [(uhd, 1.0), (fhd, 1.0), (uhd, 1.0)]),
+    ] {
+        let mut h = Harness::new(HorizonOptions {
+            scale: Some(chosen),
+            ..HorizonOptions::default()
+        });
+        for (screen, scale) in screens {
+            assert!(
+                (drawn_at(&mut h, screen) - scale).abs() < 0.01,
+                "{chosen} on {screen:?} at {scale}"
+            );
+            assert_eq!(h.ui.options.scale, Some(chosen), "the choice is kept");
+        }
+    }
+}
+
+#[test]
+fn smooth_movement_is_this_interface_s_own_box_under_smooth_animation_and_on_until_unticked() {
     store::init();
     let state = in_world();
     let mut h = options_on("Client", &state);
@@ -476,14 +588,14 @@ fn smooth_movement_is_this_interface_s_own_box_under_smooth_animation_and_off_un
     let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
     assert_eq!(
         out.settings,
-        [("smooth-movement".to_owned(), "true".to_owned())],
-        "ticked, it is this interface's own setting, not a preference"
+        [("smooth-movement".to_owned(), "false".to_owned())],
+        "unticked, it is this interface's own setting, not a preference"
     );
     assert!(out.requests.is_empty(), "{:?}", out.requests);
 }
 
 #[test]
-fn smooth_animation_is_this_interface_s_own_box_on_the_client_page_and_off_until_ticked() {
+fn smooth_animation_is_this_interface_s_own_box_on_the_client_page_and_on_until_unticked() {
     store::init();
     let state = in_world();
     let mut h = options_on("Client", &state);
@@ -492,8 +604,8 @@ fn smooth_animation_is_this_interface_s_own_box_on_the_client_page_and_off_until
     let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
     assert_eq!(
         out.settings,
-        [("smooth-animation".to_owned(), "true".to_owned())],
-        "ticked, it is this interface's own setting, not a preference"
+        [("smooth-animation".to_owned(), "false".to_owned())],
+        "unticked, it is this interface's own setting, not a preference"
     );
     assert!(out.requests.is_empty(), "{:?}", out.requests);
 }
@@ -729,6 +841,8 @@ fn a_popped_out_tab_comes_back_where_it_was_put_at_any_scale() {
     };
     options.chat_popped[2] = Some((300.0, 150.0));
     let mut h = Harness::new(options);
+    // 200% is offered on a 4K window.
+    h.screen = (3840.0, 2160.0);
     h.frame(&state);
     pop_out(&mut h, &state, "Allegiance");
     assert_eq!(h.ui.hud.log.popped_at(2), Some((600.0, 300.0)));
@@ -1063,6 +1177,8 @@ fn every_chat_window_is_sized_by_its_bottom_corner_and_keeps_its_size() {
     };
     options.chat_sizes[1] = Some((300.0, 150.0));
     let mut h = Harness::new(options);
+    // 200% is offered on a 4K window.
+    h.screen = (3840.0, 2160.0);
     h.frame(&state);
     pop_out(&mut h, &state, "Combat");
     assert_eq!(h.ui.hud.log.window_size(1, 2.0), (600.0, 300.0));

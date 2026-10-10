@@ -74,10 +74,14 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD-005",
-        title: "Full screen applies in the world only",
-        change: "The screens before the world are always a window; full screen is applied on \
-                 entering the world and the switch key works only there.",
-        why: "Before the world, full screen cannot be held reliably on every platform.",
+        title: "Full screen waits for the world under the modern and classic interfaces",
+        change: "Under the modern and classic interfaces the screens before the world are always a \
+                 window; full screen is applied on entering the world and the switch key works \
+                 only there. Horizon, which draws those screens at the player's own size, is full \
+                 screen there when asked, as the final client was.",
+        why: "The final client's full screen there switched the monitor to their fixed 800 by 600; \
+              this client switches no display mode, and those screens drawn at the monitor's \
+              size would be an 800 by 600 island in its corner.",
     },
     Divergence {
         id: "CD-006",
@@ -344,14 +348,15 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-039",
         title: "Smooth Animation under Horizon",
-        change: "Under the Horizon interface, a box on its options page (Smooth Animation, off by \
-                 default) draws every animated body between its animation's keyframes, at any \
-                 frame rate, where the final client steps each part from one keyframe to the next. \
-                 The animations are advanced, fire their hooks and move the bodies as they do with \
-                 it off, and what bodies collide with is posed at the keyframes either way; the \
-                 classic and modern interfaces never draw it.",
-        why: "Bodies move as smoothly as the rest of the picture at high frame rates, for a \
-              player who asks for it, without changing how the game plays.",
+        change: "Under the Horizon interface, a box on its options page (Smooth Animation, on \
+                 until the player turns it off) draws every animated body between its \
+                 animation's keyframes, at any frame rate, where the final client steps each part \
+                 from one keyframe to the next. The animations are advanced, fire their hooks and \
+                 move the bodies as they do with it off, and what bodies collide with is posed at \
+                 the keyframes either way; the classic and modern interfaces never draw it.",
+        why: "Bodies move as smoothly as the rest of the picture at high frame rates without \
+              changing how the game plays; a player who wants the final client's steps turns it \
+              off.",
     },
     Divergence {
         id: "CD-040",
@@ -370,19 +375,20 @@ pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
         id: "CD-041",
         title: "Smooth Movement under Horizon",
-        change: "Under the Horizon interface, a box on its options page (Smooth Movement, off by \
-                 default) draws every other player, creature and moving object gliding between \
-                 the physics steps that move it thirty times a second, where the final client \
-                 draws it where its last step left it. Each is drawn a step behind, on the way \
-                 physics carried it, never ahead of where physics has it; anything put somewhere \
-                 rather than stepped there (a teleport, a portal, a recall, a correction too far \
-                 to walk) is drawn where it lands at once. Where each object is, what it collides \
-                 with and what is sent are the same either way; what follows the drawing follows \
-                 it (what it holds, its parts' lights and sounds, and the parts a click is tested \
-                 against, so a click selects what is drawn under the pointer). The classic and \
-                 modern interfaces never draw it.",
+        change: "Under the Horizon interface, a box on its options page (Smooth Movement, on until \
+                 the player turns it off) draws every other player, creature and moving object \
+                 gliding between the physics steps that move it thirty times a second, where the \
+                 final client draws it where its last step left it. Each is drawn a step behind, \
+                 on the way physics carried it, never ahead of where physics has it; anything put \
+                 somewhere rather than stepped there (a teleport, a portal, a recall, a \
+                 correction too far to walk) is drawn where it lands at once. Where each object \
+                 is, what it collides with and what is sent are the same either way; what follows \
+                 the drawing follows it (what it holds, its parts' lights and sounds, and the \
+                 parts a click is tested against, so a click selects what is drawn under the \
+                 pointer). The classic and modern interfaces never draw it.",
         why: "Other characters and creatures move as smoothly as the rest of the picture at high \
-              frame rates, for a player who asks for it, without changing how the game plays.",
+              frame rates without changing how the game plays; a player who wants the final \
+              client's steps turns it off.",
     },
     Divergence {
         id: "CD-042",

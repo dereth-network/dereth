@@ -1055,6 +1055,9 @@ struct FrameDuties {
     /// Whether the interface the screen size last followed keeps the login size before the
     /// world; `None` before the first.
     login_size_followed: Option<bool>,
+    /// Whether full screen was allowed where the full-screen state last followed the screen
+    /// ([`App::follow_gameplay_full_screen`]); `None` before the first.
+    full_screen_followed: Option<bool>,
     /// [`App::start_preferences`] has run.
     preferences_started: bool,
     /// [`App::portal_space_use_time`] ran this frame.

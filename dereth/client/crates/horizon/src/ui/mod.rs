@@ -207,13 +207,15 @@ impl HorizonUi {
         s
     }
 
-    /// The layout scale for a screen of `height` pixels: the player's scale, a layout unit to a
-    /// pixel at 100% on any screen of 1080 lines or more (a taller screen shows more, not
-    /// larger); a shorter screen, which the layouts do not fit, shrinks them to fit its height.
+    /// The layout scale for a screen of `screen` pixels: the interface scale in effect on it
+    /// ([`crate::scale::in_effect`]: the player's while the screen offers it, else the largest it
+    /// offers up to 200%), a layout unit to a pixel at 100% on any screen of 1080 lines or more (a
+    /// taller screen shows more, not larger); a shorter screen, which the layouts do not fit,
+    /// shrinks them to fit its height.
     #[must_use]
     pub fn layout_scale(&self, screen: (f32, f32)) -> f32 {
         let fit = (screen.1 / 1080.0).clamp(0.5, 1.0);
-        fit * self.options.scale.unwrap_or(1.0)
+        fit * crate::scale::in_effect(self.options.scale, screen)
     }
 
     /// Draw one frame of the interface into `list` and say what the player did.
@@ -350,7 +352,8 @@ impl HorizonUi {
                     .frame(&mut p, &mut ctx, state, &mut self.windows, &mut out);
                 self.hud.alt_ring(&mut p, &ctx, state);
                 self.windows.spell_tab = self.hud.spell_tab();
-                self.windows.options_page.scale = self.options.scale.unwrap_or(1.0);
+                self.windows.options_page.scale = self.options.scale;
+                self.windows.options_page.window = screen;
                 self.windows.options_page.orbit = self.options.orbit;
                 self.windows.options_page.pad = self.options.pad;
                 self.windows.options_page.minimap_rotates = self.options.minimap_rotates;

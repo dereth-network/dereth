@@ -363,3 +363,139 @@ fn a_live_fidelity_or_landscape_change_is_kept_for_the_next_world() {
         .fidelity
         .eq(&Default::default()));
 }
+
+/// A front end whose screen is the world or one before it, drawn at the player's own size or
+/// held at the login size, as the test says.
+#[derive(Debug, Default)]
+struct Screens {
+    world: bool,
+    own_size: bool,
+}
+
+impl Shell for Screens {
+    type Hud = crate::shell::PlainHud;
+    type Present = dyn crate::present::Presentation;
+    fn has_ui(&self) -> bool {
+        true
+    }
+    fn in_gameplay(&self) -> bool {
+        self.world
+    }
+    fn keeps_login_size(&self) -> bool {
+        !self.own_size
+    }
+}
+
+/// A client whose saved setting asks for full screen, brought up at the screen `shell` says.
+fn full_screen_client(shell: &mut Screens) -> App<Screens> {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let mut cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    cfg.display.full_screen = true;
+    let mut app = App::<Screens>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(800, 600)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(800, 600))),
+    )
+    .expect("bring-up");
+    show(&mut app, shell);
+    app
+}
+
+/// The screen `shell` says is shown: the edge a front end follows, and what the window wears
+/// after it.
+fn show(app: &mut App<Screens>, shell: &mut Screens) {
+    app.follow_screen_forced_resolution(shell);
+    app.follow_gameplay_full_screen(shell);
+    app.apply_changed_display_presentation(shell);
+}
+
+/// Alt and Enter, as the window's loop takes them: latched, then the loop's own epilogue.
+fn alt_enter(app: &mut App<Screens>, shell: &mut Screens) {
+    app.pump.state.toggle_full_screen_mode = true;
+    let _ = app.do_event_loop(shell);
+}
+
+/// The options' full-screen box, ticked or not.
+fn tick(app: &mut App<Screens>, shell: &mut Screens, on: bool) {
+    use dereth_client_contract::{options::names::DISPLAY_FULL_SCREEN, PrefValue, UiRequest};
+    let rest = app.apply_display_preference_requests(
+        shell,
+        vec![UiRequest::SetPreference(
+            DISPLAY_FULL_SCREEN,
+            PrefValue::Bool(on),
+        )],
+    );
+    assert!(rest.is_empty(), "the box is the display's to take");
+    app.apply_changed_display_presentation(shell);
+}
+
+/// Behaviour: window.full-screen.screens-drawn-at-the-players-own-size-are-full-screen-before-the-world-too
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn screens_before_the_world_drawn_at_the_players_size_are_full_screen_and_a_switch_there_is_kept() {
+    // Character select drawn at the player's own size, as Horizon draws it.
+    let mut own = Screens {
+        world: false,
+        own_size: true,
+    };
+    let mut app = full_screen_client(&mut own);
+    assert!(app.applied_full_screen, "the setting applies at once");
+    alt_enter(&mut app, &mut own);
+    assert!(!app.applied_full_screen, "the switch key works there");
+    own.world = true;
+    show(&mut app, &mut own);
+    assert!(
+        !app.applied_full_screen,
+        "a switch made at character select is kept into the world"
+    );
+    alt_enter(&mut app, &mut own);
+    assert!(app.applied_full_screen);
+    own.world = false;
+    show(&mut app, &mut own);
+    assert!(app.applied_full_screen, "and back out of it");
+    tick(&mut app, &mut own, false);
+    assert!(!app.applied_full_screen, "the box works there");
+    tick(&mut app, &mut own, true);
+    assert!(app.applied_full_screen);
+    assert!(app.config().display.full_screen, "the setting is kept");
+
+    // Character select held at the login size, as the modern and classic interfaces hold it.
+    let mut login = Screens::default();
+    let mut app = full_screen_client(&mut login);
+    assert!(!app.applied_full_screen, "a window there");
+    alt_enter(&mut app, &mut login);
+    assert!(!app.applied_full_screen, "the switch key is refused");
+    tick(&mut app, &mut login, true);
+    assert!(!app.applied_full_screen, "the box waits for the world");
+    login.world = true;
+    show(&mut app, &mut login);
+    assert!(app.applied_full_screen, "the world takes the setting");
+    login.world = false;
+    show(&mut app, &mut login);
+    assert!(!app.applied_full_screen, "and leaving gives it back");
+
+    // An interface drawn at the player's size switched in before the world takes the setting;
+    // one held at the login size switched in after it gives the window back.
+    login.own_size = true;
+    show(&mut app, &mut login);
+    assert!(app.applied_full_screen);
+    login.own_size = false;
+    show(&mut app, &mut login);
+    assert!(!app.applied_full_screen);
+}

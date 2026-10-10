@@ -27,8 +27,8 @@ const ready = init().then(async (exports) => {
 // The Horizon interface's art, which the module does not carry: its files are served beside the
 // module, in pkg/horizon/, and fetched from when the page opens. Nothing waits for them: the
 // client offers the Horizon interface once they are in (a choice of it before then waits, and a
-// saved one starts in the modern interface), and a failure leaves the other interfaces as they
-// are and says so.
+// saved one, or a new player's, starts in the modern interface), and a failure leaves the other
+// interfaces as they are and says so.
 ready.then(async () => {
   try {
     await Promise.all(dereth.horizonFiles().map(async (name) => {

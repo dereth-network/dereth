@@ -33,7 +33,9 @@ pub enum StartScreen {
 /// The interface's settings, and how a run starts it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HorizonOptions {
-    /// The interface scale, 0.5 to 3; `None` is 1.
+    /// The interface scale the player chose, 0.5 to 3; `None` until they choose one, which draws
+    /// the interface at the largest scale the window offers up to 200% ([`crate::scale`]). A
+    /// choice the window does not offer is kept, and drawn at once the window offers it.
     pub scale: Option<f32>,
     pub screen: StartScreen,
     pub open: Vec<String>,
@@ -49,11 +51,12 @@ pub struct HorizonOptions {
     /// The minimap turns with the character, rather than standing north up.
     pub minimap_rotates: bool,
     /// Every animated body is drawn between its animation's keyframes, at any frame rate, rather
-    /// than at them as the game draws it. Only the drawing changes.
+    /// than at them as the game draws it. Only the drawing changes. On until the player turns it
+    /// off.
     pub smooth_animation: bool,
     /// Every body physics or the server moves is drawn moving between its physics ticks, at any
     /// frame rate, rather than stepping thirty times a second as the game draws it. Only the
-    /// drawing changes.
+    /// drawing changes. On until the player turns it off.
     pub smooth_movement: bool,
     /// The log window's tab names, one for each of the game's chat windows.
     pub chat_tabs: TabNames,
@@ -84,8 +87,8 @@ impl Default for HorizonOptions {
             },
             pad: crate::pad::PadSettings::default(),
             minimap_rotates: false,
-            smooth_animation: false,
-            smooth_movement: false,
+            smooth_animation: true,
+            smooth_movement: true,
             chat_tabs: TabNames::default(),
             chat_opacity: ChatOpacity::default(),
             chat_popped: [None; 5],
@@ -286,13 +289,7 @@ impl HorizonOptions {
             };
             let value = value.trim();
             match key.trim().to_ascii_lowercase().as_str() {
-                "scale" => {
-                    o.scale = value
-                        .parse::<f32>()
-                        .ok()
-                        .filter(|s| s.is_finite())
-                        .map(|s| s.clamp(0.5, 3.0));
-                }
+                "scale" => o.scale = parse_scale(value),
                 "movement" => {
                     if let Some(m) = parse_movement(value) {
                         o.orbit.movement = m;
@@ -372,7 +369,7 @@ minimap-rotates={}
 smooth-animation={}
 smooth-movement={}
 ",
-            self.scale.unwrap_or(1.0),
+            scale_word(self.scale),
             movement_word(self.orbit.movement),
             self.orbit.reverse_x,
             self.orbit.reverse_y,
@@ -432,6 +429,34 @@ smooth-movement={}
     }
 }
 
+/// The interface scale as the settings file writes it: `auto` while the player has chosen none,
+/// else the choice in percent (`150%`).
+#[must_use]
+pub fn scale_word(scale: Option<f32>) -> String {
+    scale.map_or_else(|| "auto".to_owned(), |s| format!("{}%", s * 100.0))
+}
+
+/// The interface scale a settings file's word names, held between 0.5 and 3: `None` for `auto`,
+/// a word it cannot read, or the bare `1` a file from before the automatic scale wrote for a scale
+/// never chosen; a percentage, or any other bare number (such a file's choice), is the player's.
+#[must_use]
+pub fn parse_scale(value: &str) -> Option<f32> {
+    let value = value.trim();
+    let held = |s: f32| s.is_finite().then(|| s.clamp(0.5, 3.0));
+    if let Some(percent) = value.strip_suffix('%') {
+        return percent
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .and_then(|p| held(p / 100.0));
+    }
+    value
+        .parse::<f32>()
+        .ok()
+        .filter(|s| (s - 1.0).abs() > f32::EPSILON)
+        .and_then(held)
+}
+
 /// A number from the settings file into `into`; one that does not read leaves it as it was.
 fn parse_number(value: &str, into: &mut f32) {
     if let Ok(v) = value.parse::<f32>() {
@@ -483,29 +508,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bodies_are_drawn_where_physics_has_them_until_smooth_movement_is_set_and_it_reads_back() {
-        assert!(!HorizonOptions::default().smooth_movement);
-        assert!(!HorizonOptions::parse("").smooth_movement);
-        let on = HorizonOptions {
-            smooth_movement: true,
+    fn bodies_are_drawn_between_their_ticks_for_a_new_player_and_a_saved_choice_reads_back() {
+        assert!(HorizonOptions::default().smooth_movement);
+        assert!(
+            HorizonOptions::parse("").smooth_movement,
+            "a file that does not say, a new player's or an older one, has it on"
+        );
+        let off = HorizonOptions {
+            smooth_movement: false,
             ..HorizonOptions::default()
         };
-        let read = HorizonOptions::parse(&on.to_text());
-        assert!(read.smooth_movement);
-        assert!(!read.smooth_animation, "the two boxes are kept apart");
-        assert!(!HorizonOptions::parse(&HorizonOptions::default().to_text()).smooth_movement);
+        let read = HorizonOptions::parse(&off.to_text());
+        assert!(!read.smooth_movement, "turned off, it stays off");
+        assert!(read.smooth_animation, "the two boxes are kept apart");
+        assert!(HorizonOptions::parse(&HorizonOptions::default().to_text()).smooth_movement);
     }
 
     #[test]
-    fn bodies_are_drawn_at_their_keyframes_until_smooth_animation_is_set_and_it_reads_back() {
-        assert!(!HorizonOptions::default().smooth_animation);
-        assert!(!HorizonOptions::parse("").smooth_animation);
-        let on = HorizonOptions {
-            smooth_animation: true,
+    fn bodies_are_drawn_between_their_keyframes_for_a_new_player_and_a_saved_choice_reads_back() {
+        assert!(HorizonOptions::default().smooth_animation);
+        assert!(HorizonOptions::parse("").smooth_animation);
+        let off = HorizonOptions {
+            smooth_animation: false,
             ..HorizonOptions::default()
         };
-        assert!(HorizonOptions::parse(&on.to_text()).smooth_animation);
-        assert!(!HorizonOptions::parse(&HorizonOptions::default().to_text()).smooth_animation);
+        let read = HorizonOptions::parse(&off.to_text());
+        assert!(!read.smooth_animation, "turned off, it stays off");
+        assert!(read.smooth_movement, "the two boxes are kept apart");
+        assert!(HorizonOptions::parse(&HorizonOptions::default().to_text()).smooth_animation);
     }
 
     #[test]
@@ -594,6 +624,34 @@ camera-height=lots",
             ..HorizonOptions::default()
         };
         assert_eq!(HorizonOptions::parse(&o.to_text()).scale, Some(1.5));
+    }
+
+    #[test]
+    fn a_scale_never_chosen_is_written_as_automatic_and_a_chosen_one_reads_back_even_at_100() {
+        let fresh = HorizonOptions::default();
+        assert_eq!(fresh.scale, None);
+        assert!(
+            fresh.to_text().lines().any(|l| l == "scale=auto"),
+            "{}",
+            fresh.to_text()
+        );
+        assert_eq!(HorizonOptions::parse(&fresh.to_text()).scale, None);
+        for chosen in [1.0, 1.5, 2.0, 3.0] {
+            let o = HorizonOptions {
+                scale: Some(chosen),
+                ..HorizonOptions::default()
+            };
+            assert_eq!(HorizonOptions::parse(&o.to_text()).scale, Some(chosen));
+        }
+        assert_eq!(parse_scale("200%"), Some(2.0));
+        assert_eq!(parse_scale("1.5"), Some(1.5), "an older file's choice");
+        assert_eq!(
+            parse_scale("1"),
+            None,
+            "an older file wrote 1 for a scale never chosen"
+        );
+        assert_eq!(parse_scale("auto"), None);
+        assert_eq!(parse_scale("900%"), Some(3.0));
     }
 
     #[test]

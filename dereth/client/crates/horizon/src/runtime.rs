@@ -605,8 +605,13 @@ impl HorizonFrontEnd {
                 // over a window it scrolls that window.
                 forward = !self.ui.pointer_over_ui && !laying_out;
             }
+            HostEvent::ModifiersChanged { alt } => f.alt = *alt,
             HostEvent::KeyboardInput { key, pressed, text } => {
-                if *pressed {
+                // Alt and Enter together switch full screen, which the window's own loop does:
+                // the Enter is not the interface's, and the keys go on to the loop even while a
+                // text box has the keyboard.
+                let switch = f.alt && key.virtual_key == crate::ui::input::vk::ENTER;
+                if *pressed && !switch {
                     f.keys.push(key.virtual_key);
                     if let Some(t) = text {
                         f.chars.extend(t.chars().filter(|c| !c.is_control()));
@@ -620,7 +625,7 @@ impl HorizonFrontEnd {
                 }
                 // Keys go to the text box that has the keyboard, and never on to the world; a
                 // release is still forwarded so no action stays held.
-                if (self.ui.text_focus || laying_out) && *pressed {
+                if (self.ui.text_focus || laying_out) && *pressed && !switch {
                     forward = false;
                 }
                 // Control-C or Control-Insert copying the log's selection is the interface's: the
@@ -737,6 +742,7 @@ impl HorizonFrontEnd {
         let chat = hold_early_chat(&mut self.early_chat, in_game, entering, chat);
         let mut state = crate::state::snapshot(cx, chat);
         state.renderers = cx.renderer_status();
+        state.full_screen = cx.full_screen_offered().then(|| cx.full_screen());
         #[cfg(feature = "hifi")]
         {
             state.hifi = cx.hifi_availability();
@@ -1353,6 +1359,7 @@ impl HorizonFrontEnd {
         let mut options = self.ui.options.clone();
         for (name, value) in settings {
             match name.as_str() {
+                // `auto` lets the window choose again.
                 "scale" => options.scale = value.parse::<f32>().ok().map(|s| s.clamp(0.5, 3.0)),
                 "movement" => {
                     if let Some(m) = crate::options::parse_movement(value) {

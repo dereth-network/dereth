@@ -160,7 +160,7 @@ impl<S: Shell> App<S> {
         // the divergence is about not moving a window that already exists, and a window being
         // created has no position to keep.
         // `false`, not `cfg.display.full_screen`: the window is created windowed whatever the
-        // preference says, and full screen is applied on entering the game. See
+        // preference says, and full screen is applied once a screen that allows it is shown. See
         // [`Self::follow_gameplay_full_screen`] and `platform::window::open_window`.
         let frame_metrics = window.frame_metrics().unwrap_or((0, 0, 0));
         let window_rect = if window.has_window() {
@@ -198,13 +198,13 @@ impl<S: Shell> App<S> {
         //
         // **It starts `false` regardless of the preference.** The preference
         // lives in `cfg.display.full_screen` and is what the options page writes;
-        // it is applied on entering gameplay. Seeding the
+        // it is applied once a screen that allows full screen is shown. Seeding the
         // shadow from the preference here would make the first frame full screen and then make
-        // [`Self::follow_gameplay_full_screen`] undo it, which is a visible flash rather than a
-        // no-op. See that function for the whole rule.
+        // [`Self::follow_gameplay_full_screen`] undo it at a screen held at the login size, which
+        // is a visible flash rather than a no-op. See that function for the whole rule.
         //
-        // `allow_full_screen_mode` starts `false` for the same reason: there is no gameplay
-        // screen yet. [`Self::do_event_loop`] maintains it from the second line of every frame.
+        // `allow_full_screen_mode` starts `false` for the same reason: no screen that allows it
+        // is shown yet. [`Self::do_event_loop`] maintains it from the second line of every frame.
         pump.state.allow_full_screen_mode = false;
         // A headless run has no window to lose focus, so it is always the foreground application.
         // That matters: the frame pacer would otherwise cap every frame at 99 ms.
@@ -541,22 +541,34 @@ impl<S: Shell> App<S> {
     /// A front end that rebuilds the registry itself runs this straight after; otherwise
     /// [`Self::start_shell`] registers the defaults and runs it once the UI is up. The display
     /// choices go before the file because a saved resolution resolves through their label list.
+    ///
+    /// A player whose file names no interface (a new player, or one whose file came from the
+    /// original game) starts in the configuration's new-player interface, when it names one.
     pub fn start_preferences(&mut self) {
-        use dereth_client_contract::options::store;
+        use dereth_client_contract::options::{interface, store};
         self.duties.preferences_started = true;
         self.register_display_modes();
-        match crate::platform::files::read_to_string(&self.cfg.preferences_file)
+        let ini = crate::platform::files::read_to_string(&self.cfg.preferences_file)
             .ok()
             .and_then(|t| {
                 dereth_client_contract::persist::preferences::UserPreferences::parse(&t).ok()
-            }) {
+            });
+        match &ini {
             Some(ini) => {
-                let (applied, ignored) = store::load(&ini);
+                let (applied, ignored) = store::load(ini);
                 tracing::debug!("user preferences: {applied} applied, {ignored} for other owners");
             }
             // "A missing file is not an error": retail ignores the preference loader's result,
             // and the registered defaults are then what the page shows.
             None => tracing::info!("no UserPreferences.ini; registered defaults stand"),
+        }
+        if let Some(first) = self.cfg.new_player_interface {
+            if interface::start_new_player(ini.as_ref(), first) {
+                tracing::info!(
+                    "the preferences name no interface: starting in the {} interface",
+                    first.label()
+                );
+            }
         }
     }
 

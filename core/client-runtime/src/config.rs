@@ -192,6 +192,11 @@ pub struct Config {
     /// each of them. A headless run is a capture or a regression run, and its output must depend
     /// on nothing in the player's folder, nor change anything there. Naming a file asks for it.
     pub preferences_named: bool,
+    /// The interface a player whose preferences name none starts in, for a host that starts
+    /// players (the desktop and browser clients ask for
+    /// [`dereth_client_contract::options::interface::NEW_PLAYER`]). `None` leaves the interface
+    /// option's registered one, the modern interface: what a run built in code starts in.
+    pub new_player_interface: Option<dereth_client_contract::options::interface::Interface>,
     /// Which graphics backend to bring the device up on:
     /// `--renderer vulkan|d3d12`, else the `Renderer=` preference, else `None`, which leaves the
     /// choice to the default (Vulkan). A rebuild-only
@@ -483,6 +488,7 @@ impl Default for Config {
             client_port: 0,
             preferences_file: PathBuf::new(),
             preferences_named: false,
+            new_player_interface: None,
             renderer: None,
             renderer_preference: None,
             renderer_argument: None,
