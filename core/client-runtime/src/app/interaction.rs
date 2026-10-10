@@ -49,6 +49,12 @@ impl<S: Shell> App<S> {
         // held through it moving the player.
         self.interaction
             .note_casts_keep_moving(self.orbit.is_some());
+        // An interface whose presses are whole attacks, which has no advanced combat interface.
+        self.interaction.note_press_attacks(self.press_attacks);
+        self.objects
+            .world
+            .refuse_advanced_combat(self.press_attacks);
+        self.objects.world.always_repeat_attacks(self.press_attacks);
         let (mut unowned, left) = crate::interaction::draw_use_time_with_chat_focus(
             &mut self.interaction,
             &self.store,

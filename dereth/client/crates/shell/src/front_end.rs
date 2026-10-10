@@ -1837,6 +1837,8 @@ impl<H: Host> ClientShell<H> {
         cx.set_orbit_camera(None);
         cx.set_smooth_animation(false);
         cx.set_smooth_movement(false);
+        // The game's attack controls again: held, they charge.
+        cx.set_press_attacks(false);
         cx.set_hifi_interface(false);
         self.horizon.active = false;
         cx.hud_mut().horizon_active = false;

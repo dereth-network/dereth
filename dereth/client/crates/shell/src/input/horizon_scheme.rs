@@ -192,9 +192,12 @@ pub fn default_map(
 
 /// The game's actions whose shipped keys the Horizon layout keeps: fighting (combat mode, the
 /// attack's height and power, aim), the spells (cast, step, turn the tab: Insert, Page Up, Delete,
-/// Page Down, End), the shortcut and spell slots on the number keys and mouse look. The
-/// thirteenth to eighteenth shortcuts keep no key: the bar has twelve.
+/// Page Down, End), the shortcut and spell slots on the number keys, mouse look, and the game's
+/// Escape, which the interface hands on when it has nothing of its own to close or let go of (an
+/// attack charging or repeating, which it stops). The thirteenth to eighteenth shortcuts keep no
+/// key: the bar has twelve.
 const KEPT_FROM_GAME: &[&str] = &[
+    "EscapeKey",
     "CombatToggleCombat",
     "CombatDecreaseAttackPower",
     "CombatIncreaseAttackPower",

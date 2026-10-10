@@ -178,6 +178,10 @@ pub const MISSILE_READY_STYLES: [u32; 6] = [
     0x8000_013C,
 ];
 
+/// The shard's attack-done answer that ends an attack sequence it is not repeating: its
+/// action-cancelled error.
+pub const ATTACK_SEQUENCE_ENDED: u32 = 0x0036;
+
 /// DataID quality key 4 — `CombatTable`, the DataID quality `player_in_ready_position`'s melee arm reads
 /// from the player's qualities. The invalid data id is zero.
 pub const COMBAT_TABLE_DID: u32 = 4;
@@ -211,6 +215,19 @@ pub struct CombatState {
     /// The power-slider setting — the "cap". Resets to **0.5**.
     pub ui_requested_power: f32,
     pub advanced_combat_mode: bool,
+    /// The interface shown has no advanced combat interface: [`Self::advanced_combat_mode`] stays
+    /// off whatever the player's option says ([`crate::World::refuse_advanced_combat`]). This
+    /// client's own; the final client always followed the option. The interface sets it again
+    /// every frame, so the session reset clearing it loses nothing.
+    pub advanced_combat_refused: bool,
+    /// The interface shown repeats every attack until it is interrupted, whatever the player's
+    /// Repeat Attacks option says ([`crate::World::always_repeat_attacks`]); with the option off
+    /// the shard does not repeat it, and the client sends each next attack itself. This client's
+    /// own, set again by the interface every frame.
+    pub always_repeat: bool,
+    /// The shard refused the attack that is out, with an error of its own, while the client
+    /// repeats attacks itself: its answer to that attack then ends the repeat.
+    pub attack_refused: bool,
     /// Time of the last defender notification, measured on the client timer.
     ///
     /// Read by automatic targeting's 15-second freshness test and written
@@ -260,6 +277,9 @@ impl CombatState {
             attack_when_response_received_power: 0.0,
             ui_requested_power: 0.5,
             advanced_combat_mode: false,
+            advanced_combat_refused: false,
+            always_repeat: false,
+            attack_refused: false,
             last_attacked_time: 0.0,
             current_style: 0x8000_003D, // NonCombat
             forward_command: MOTION_READY,
@@ -848,6 +868,11 @@ impl World {
             }
         }
         self.combat.combat_mode = mode;
+        // A repeat the client drives itself stops when the stance changes, as the shard stops its
+        // own.
+        if self.repeats_attacks_itself() && self.combat.repeat_attacking {
+            self.abort_automatic_attack(req);
+        }
         // Retail does **not** clear the pending combat mode here: the only two writes
         // are the store in the not-ready branch above and the session reset. The
         // per-frame retry clears the pending mode after attempting it. The difference is
@@ -859,9 +884,9 @@ impl World {
                 combat_mode: mode.raw(),
             }));
         }
-        // Refresh the advanced-combat option. This is the field's only production writer; six
-        // readers gate `power_bar_mode`, the advanced UI's target-free swing and
-        // `end_attack_request`'s cap on it.
+        // Refresh the advanced-combat option. This and `Self::refuse_advanced_combat` are the
+        // field's only production writers; six readers gate `power_bar_mode`, the advanced UI's
+        // target-free swing and `end_attack_request`'s cap on it.
         //
         // The option reader returns **bit 12 of the first option word**,
         // which is `PLAYER_OPTIONS[12] = ("AdvancedCombatUI", One, 0x1000)` here.
@@ -869,13 +894,59 @@ impl World {
         // player who flips the option mid-session gets the new value at the next mode change and
         // not before — which is the client's own behaviour and is why the read is here rather
         // than at the six use sites.
-        self.combat.advanced_combat_mode = self.player_system.options.advanced_combat_ui();
+        //
+        // An interface with no advanced combat interface refuses it whatever the option says.
+        self.combat.advanced_combat_mode =
+            self.player_system.options.advanced_combat_ui() && !self.combat.advanced_combat_refused;
         // Mode-change notification — see the
         // doc comment: delivered in this build by the gameplay screen's own mode edge.
         //
         // The input-map registration for `(combat_mode, old_mode)` — polled by the client.
         self.combat_mode_fixup_target(out);
         Ok(())
+    }
+
+    /// Use the basic combat controls whatever the advanced-combat option says (`refuse`), for an
+    /// interface of this client's own that has no advanced combat interface; or follow the option
+    /// again. Only a change does anything: refused, the advanced mode is off at once; no longer
+    /// refused, it is the option's again, as a mode change would make it.
+    pub fn refuse_advanced_combat(&mut self, refuse: bool) {
+        if refuse == self.combat.advanced_combat_refused {
+            return;
+        }
+        self.combat.advanced_combat_refused = refuse;
+        self.combat.advanced_combat_mode =
+            !refuse && self.player_system.options.advanced_combat_ui();
+    }
+
+    /// Repeat every attack until it is interrupted, whatever the player's Repeat Attacks option
+    /// says (`on`), for an interface of this client's own that always repeats; or follow the
+    /// option again. The option itself is left as the player set it.
+    pub fn always_repeat_attacks(&mut self, on: bool) {
+        self.combat.always_repeat = on;
+    }
+
+    /// Whether attacks repeat: the player's Repeat Attacks option, or an interface that always
+    /// repeats them.
+    #[must_use]
+    pub fn auto_repeat(&self) -> bool {
+        self.player_system.options.auto_repeat_attack() || self.combat.always_repeat
+    }
+
+    /// Whether the client sends each next attack of a repeat itself: attacks always repeat, and
+    /// the shard, which repeats them only for a player whose option is on, will not.
+    #[must_use]
+    pub fn repeats_attacks_itself(&self) -> bool {
+        self.combat.always_repeat && !self.player_system.options.auto_repeat_attack()
+    }
+
+    /// The shard refused something with an error of its own. While the client repeats attacks
+    /// itself and an attack is out, that is the attack refused, and the shard's answer to it ends
+    /// the repeat ([`Self::handle_attack_done`]).
+    pub fn note_shard_refusal(&mut self) {
+        if self.repeats_attacks_itself() && self.combat.attack_server_response_pending {
+            self.combat.attack_refused = true;
+        }
     }
 
     /// Repair the selection after changing combat mode.
@@ -1129,10 +1200,11 @@ impl World {
     ///
     /// The option is the **first** test and it dominates: with `AutoRepeatAttack` off this is
     /// `false` however the power bar is charging, which is why `EscapeKey`'s cascade reaches the
-    /// selection legs at all for a player who has the option off.
+    /// selection legs at all for a player who has the option off. An interface that always repeats
+    /// attacks answers for the option ([`Self::auto_repeat`]).
     #[must_use]
     pub fn repeat_attack_in_progress(&self) -> bool {
-        self.player_system.options.auto_repeat_attack()
+        self.auto_repeat()
             && (self.combat.attack_in_progress
                 || self.combat.power_bar_mode == PowerBarMode::Combat)
     }
@@ -1284,7 +1356,7 @@ impl World {
                         // `player_in_ready_position` went false mid-charge. The cancel is gated on
                         // the **option**, not on `repeat_attacking`, which is the client's own
                         // asymmetry and is reproduced.
-                        if self.player_system.options.auto_repeat_attack() {
+                        if self.auto_repeat() {
                             req.send(Request::CancelAttack(CombatCancelAttack));
                             self.combat.repeat_attacking = false;
                         }
@@ -1583,7 +1655,8 @@ impl World {
                     _ => {}
                 }
                 if fired {
-                    if self.player_system.options.auto_repeat_attack() {
+                    self.combat.attack_refused = false;
+                    if self.auto_repeat() {
                         self.combat.repeat_attacking = true;
                     }
                     self.combat.attack_server_response_pending = true;
@@ -1662,13 +1735,24 @@ impl World {
         self.combat.attack_server_response_pending = false;
         self.attack_in_progress = false;
 
-        if result != 0 && self.combat.repeat_attacking {
+        // A shard repeating nothing ends every attack with an action-cancelled answer, so for a
+        // client repeating attacks itself that answer is the attack's end, and only another
+        // answer, or an error the shard gave while the attack was out, is a refusal.
+        let refused = if self.repeats_attacks_itself() {
+            (result != 0 && result != ATTACK_SEQUENCE_ENDED) || self.combat.attack_refused
+        } else {
+            result != 0
+        };
+        self.combat.attack_refused = false;
+        if refused && self.combat.repeat_attacking {
             self.abort_automatic_attack(req);
         }
-        let auto_repeat = self.player_system.options.auto_repeat_attack();
+        let auto_repeat = self.auto_repeat();
+        // A client that repeats the attack itself sends the next one at the slider anyway.
         if !self.combat.attack_request_in_progress
             && !self.combat.advanced_combat_mode
             && auto_repeat
+            && !self.repeats_attacks_itself()
             && self.combat.repeat_attacking
             && (self.combat.requested_attack_power - self.combat.ui_requested_power).abs()
                 > SLIDER_TOLERANCE
@@ -1681,6 +1765,12 @@ impl World {
             if !self.combat.attack_request_in_progress {
                 self.combat.start_power_bar_build(now);
                 self.combat.current_build_is_automatic = true;
+                // The shard repeats the attack and this bar only shows it; a client that repeats
+                // it itself sends the next one when the bar reaches the slider.
+                if self.repeats_attacks_itself() {
+                    self.combat.current_build_is_automatic = false;
+                    self.combat.requested_attack_power = self.combat.ui_requested_power;
+                }
             }
         } else {
             self.combat.repeat_attacking = false;

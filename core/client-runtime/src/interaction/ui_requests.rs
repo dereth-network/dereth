@@ -1136,6 +1136,12 @@ feedback,channel: 0x1A, text},
                 // functions the *keys* reach (`handle_combat_action`), which is why
                 // there is one implementation here and not a parallel mouse path: the press sets
                 // the height and starts the build, the click releases at `-1.0`.
+                // Under an interface whose presses are whole attacks the button's press is the
+                // whole attack, as the key's is.
+                UiRequest::CombatSetAttackHeight { height } if self.press_attacks => {
+                    let h = attack_height_from_raw(height);
+                    self.press_attack(game, &mut req, h, ready, local_now);
+                }
                 UiRequest::CombatSetAttackHeight { height } => {
                     let h = attack_height_from_raw(height);
                     if let Err(text) = game.set_requested_attack_height(h, ready, local_now) {

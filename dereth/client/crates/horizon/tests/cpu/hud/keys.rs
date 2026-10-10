@@ -226,6 +226,31 @@ fn escape_asks_to_log_out_only_with_nothing_selected_open_waiting_or_building() 
 }
 
 #[test]
+fn escape_is_the_games_while_an_attack_charges_or_repeats_and_lets_go_of_nothing_itself() {
+    use dereth_horizon::ui::input::vk::ESCAPE;
+    let mut fighting = world();
+    selecting(&mut fighting, NEAR, Relation::Hostile);
+    fighting.combat_mode = dereth_client_contract::combat_mode::MISSILE;
+    fighting.power = Some(0.5);
+    assert!(!escape_deselects(&fighting, false), "the attack goes first");
+    assert!(!escape_logs_out(&fighting, false));
+    let mut h = Harness::new(Default::default());
+    h.frame(&fighting);
+    assert!(
+        !h.ui.wants_escape,
+        "the game's Escape, which stops the attack"
+    );
+    h.input.keys.push(ESCAPE);
+    let out = h.frame(&fighting);
+    assert!(
+        !out.requests.contains(&UiRequest::Select(ObjectId(0))),
+        "{:?}",
+        out.requests
+    );
+    assert!(!h.ui.hud.log_out_asked());
+}
+
+#[test]
 fn escape_closes_the_top_window_then_lets_go_of_the_selection_then_asks_to_log_out() {
     use dereth_horizon::ui::input::vk::ESCAPE;
     use dereth_horizon::ui::panels::WindowId;

@@ -901,6 +901,75 @@ fn bodies_are_drawn_between_keyframes_only_while_horizon_is_shown_with_its_box_t
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn a_press_is_the_whole_attack_only_while_horizon_is_shown() {
+    let state = std::env::temp_dir().join(format!(
+        "dereth-switch-horizon-attacks-{}",
+        std::process::id()
+    ));
+    let mut c = Client::new(&state);
+    c.install_classic(&state);
+    c.install_horizon(dereth_horizon::options::StartScreen::Game);
+    assert!(!c.app.press_attacks, "the modern interface's keys are held");
+    for (to, press) in [
+        (Interface::Horizon, true),
+        (Interface::Classic, false),
+        (Interface::Horizon, true),
+        (Interface::Modern, false),
+    ] {
+        c.choose(to);
+        c.frame();
+        assert_eq!(c.shown(), to);
+        assert_eq!(c.app.press_attacks, press, "{to:?}");
+        // And there every attack repeats, the player's own option left as it is.
+        let combat = &c.app.objects.world.combat;
+        assert_eq!(combat.always_repeat, press, "{to:?}");
+        assert_eq!(combat.advanced_combat_refused, press, "{to:?}");
+    }
+    c.finish();
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn under_horizon_escape_is_still_the_games_own_escape_for_what_the_interface_hands_on() {
+    let state = std::env::temp_dir().join(format!(
+        "dereth-switch-horizon-escape-{}",
+        std::process::id()
+    ));
+    // Escape, unmodified, in the game's interface map: the game's own Escape.
+    let escapes = |c: &Client| {
+        let input = c.shell.shared.input.as_ref().expect("input");
+        let key = dereth_input::scheme::keyboard_key(&input.manager.keymap, 0x01, 0)
+            .expect("the Escape key");
+        input
+            .manager
+            .keymap
+            .section(dereth_input::maps::UI)
+            .is_some_and(|s| {
+                s.bindings().iter().any(|(k, a)| {
+                    k.is_exactly_equal(&key)
+                        && *a == dereth_client_contract::actions::mapped::ESCAPE_KEY
+                })
+            })
+    };
+    let mut c = Client::new(&state);
+    assert!(escapes(&c), "the modern keys");
+    c.install_horizon(dereth_horizon::options::StartScreen::Game);
+    c.choose(Interface::Horizon);
+    c.frame();
+    assert!(
+        escapes(&c),
+        "Escape stops an attack charging or repeating, which the interface hands on"
+    );
+    c.finish();
+    let _ = std::fs::remove_dir_all(&state);
+}
+
+#[test]
 #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
 fn the_horizon_interface_plays_with_its_own_keys_and_camera_and_gives_the_others_back() {
     let state = std::env::temp_dir().join(format!(

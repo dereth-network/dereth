@@ -713,6 +713,12 @@ pub struct App<S: Shell> {
     /// interface asked ([`crate::ui_context::UiContext::set_smooth_movement`]); the drawn world
     /// takes it each frame (`crate::world_state::WorldState::smooth_movement`).
     pub smooth_movement: bool,
+    /// A press of an attack key or an attack height button is the whole attack, which repeats
+    /// until it is interrupted, and the advanced combat interface is never used, as an interface
+    /// asked
+    /// ([`crate::ui_context::UiContext::set_press_attacks`]); the combat system takes it each
+    /// frame (`crate::interaction::Interaction::note_press_attacks`).
+    pub press_attacks: bool,
     /// When the cursor last moved under mouse look, for the input poll's 0.2 s idle tick.
     last_mouse_move: f64,
     pub last_cursor: Option<(f64, f64)>,

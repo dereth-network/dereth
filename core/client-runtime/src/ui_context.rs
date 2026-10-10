@@ -802,6 +802,16 @@ impl<'a, S: Shell> UiContext<'a, S> {
         self.app.smooth_movement = on;
     }
 
+    /// Make a press of an attack key or an attack height button the whole attack (`on`): the
+    /// attack starts at that height and goes by itself when the power bar reaches the power aimed
+    /// at, however long the key or button is held; the attack repeats until it is interrupted, and
+    /// the advanced combat interface is not used, whatever the player's options say (the options
+    /// themselves are left as the player set them). Off, the keys and buttons work as the game's
+    /// do: held, they charge, and let go, the attack goes, repeating as the player's option says.
+    pub fn set_press_attacks(&mut self, on: bool) {
+        self.app.press_attacks = on;
+    }
+
     /// The orbit camera as the body's camera has it, when there is a body.
     #[must_use]
     pub fn orbit_camera(&self) -> Option<crate::orbit::OrbitCamera> {

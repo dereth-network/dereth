@@ -50,7 +50,7 @@ pub fn commence(
         feedback(game, status, true);
         return false;
     }
-    if game.player_system.options.auto_repeat_attack() {
+    if game.auto_repeat() {
         cancel_attack();
         game.combat.repeat_attacking = false;
     }

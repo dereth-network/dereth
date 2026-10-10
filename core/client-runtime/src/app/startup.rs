@@ -261,6 +261,7 @@ impl<S: Shell> App<S> {
             orbit_look: (0.0, 0.0),
             smooth_animation: false,
             smooth_movement: false,
+            press_attacks: false,
             last_mouse_move: 0.0,
             last_cursor: None,
             last_time: 0.0,

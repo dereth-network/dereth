@@ -712,6 +712,10 @@ impl HorizonFrontEnd {
         cx.set_orbit_camera(Some(self.ui.options.orbit_in_effect()));
         cx.set_smooth_animation(self.ui.options.smooth_animation);
         cx.set_smooth_movement(self.ui.options.smooth_movement);
+        // A press of an attack key or height button is the whole attack here, repeating until it
+        // is interrupted: no hold to charge, no advanced combat interface and no Repeat Attacks
+        // option.
+        cx.set_press_attacks(true);
         self.deliver_power_bar_notices(std::mem::take(&mut notices.power_bar));
         let dt = self
             .last_time

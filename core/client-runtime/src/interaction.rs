@@ -384,6 +384,12 @@ pub struct Interaction {
     /// Whether a cast asked for while a spell is still being cast leaves the player moving, as
     /// it does under the Horizon camera. Pushed in by `App::interaction_use_time`.
     casts_keep_moving: bool,
+    /// Whether a press of an attack key or an attack height button is the whole attack, as it is
+    /// under the Horizon interface: the attack starts at that height and goes by itself when the
+    /// power bar reaches the power aimed at, however long the key or button is held, it repeats
+    /// until it is interrupted, and the advanced combat interface is never used. Pushed in by
+    /// `App::interaction_use_time`.
+    press_attacks: bool,
     /// Set by `EscapeKey`'s "nothing is selected" leg to the visibility-toggle action;
     /// drained by `App`, which owns the UI tree.
     visibility_toggle_requested: Option<u32>,
@@ -1006,6 +1012,12 @@ impl Interaction {
         self.casts_keep_moving = on;
     }
 
+    /// Whether a press of an attack key or an attack height button is the whole attack (`on`
+    /// under the Horizon interface); see the field.
+    pub fn note_press_attacks(&mut self, on: bool) {
+        self.press_attacks = on;
+    }
+
     /// A panel visibility toggle was asked for by the `EscapeKey`
     /// arm; `App` owns the UI tree.
     pub fn take_visibility_toggle(&mut self) -> Option<u32> {
@@ -1155,6 +1167,18 @@ pub fn player_option_action(id: u32) -> Option<usize> {
         .map(|(_, o)| *o)
 }
 
+/// The height an attack key attacks at: `CombatLowAttack` and `CombatAimLow` low, the medium and
+/// high pairs likewise; `None` for any other action.
+#[must_use]
+fn attack_key_height(a: dereth_client_contract::actions::ActionId) -> Option<AttackHeight> {
+    match a {
+        action::COMBAT_LOW_ATTACK | action::COMBAT_AIM_LOW => Some(AttackHeight::Low),
+        action::COMBAT_MEDIUM_ATTACK | action::COMBAT_AIM_MEDIUM => Some(AttackHeight::Medium),
+        action::COMBAT_HIGH_ATTACK | action::COMBAT_AIM_HIGH => Some(AttackHeight::High),
+        _ => None,
+    }
+}
+
 /// Retail's attack height (`HIGH` 1, `MEDIUM` 2, `LOW` 3) as `dereth_client_model`'s enum —
 /// the one place the combat window's raw number crosses into the model.
 ///
@@ -1283,3 +1307,6 @@ mod shared_social_tests;
 
 #[cfg(test)]
 mod feedback_tests;
+
+#[cfg(test)]
+mod press_attack_tests;

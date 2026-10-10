@@ -1032,6 +1032,16 @@ impl Interaction {
         ready: bool,
         now: dereth_primitives::LocalTime,
     ) -> bool {
+        // An interface whose presses are whole attacks: the press starts the attack and lets it
+        // go at once, and the key's repeats and its release do nothing more.
+        if self.press_attacks {
+            if let Some(height) = attack_key_height(e.id) {
+                if e.phase == crate::actions::ActionPhase::Begin {
+                    self.press_attack(game, req, height, ready, now);
+                }
+                return true;
+            }
+        }
         // The release table: the same six actions, and only those six.
         if !e.is_start() {
             if !matches!(
@@ -1077,11 +1087,7 @@ impl Interaction {
             | action::COMBAT_AIM_LOW
             | action::COMBAT_AIM_MEDIUM
             | action::COMBAT_AIM_HIGH) => {
-                let height = match a {
-                    action::COMBAT_LOW_ATTACK | action::COMBAT_AIM_LOW => AttackHeight::Low,
-                    action::COMBAT_HIGH_ATTACK | action::COMBAT_AIM_HIGH => AttackHeight::High,
-                    _ => AttackHeight::Medium,
-                };
+                let height = attack_key_height(a).unwrap_or(AttackHeight::Medium);
                 // `set_requested_attack_height`, whose tail is `start_attack_request`.
                 // The requested height lives in `dereth_client_model`'s own
                 // `CombatState`, because the attack-done handler re-fires the
@@ -1096,6 +1102,36 @@ impl Interaction {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// A press that is the whole attack, under an interface whose presses are
+    /// ([`Self::note_press_attacks`]): the height is set and the attack request started, as a press
+    /// of the key starts it, and at once let go, as its release lets it go. So the power bar
+    /// charges to the power aimed at and the attack goes by itself when it gets there, and the
+    /// shard repeats it while the player's Repeat Attacks option is on; a press while an attack is
+    /// still out goes once the shard has answered it. Nothing is charged past the power aimed at,
+    /// however long the key or the button is held.
+    pub(super) fn press_attack(
+        &mut self,
+        game: &mut dereth_client_model::World,
+        req: &mut RecordingRequests,
+        height: AttackHeight,
+        ready: bool,
+        now: dereth_primitives::LocalTime,
+    ) {
+        match game.set_requested_attack_height(height, ready, now) {
+            Ok(()) => self.stats.attack_height_changes += 1,
+            Err(text) => {
+                self.refuse(game, text);
+                self.stats.requests_refused += 1;
+                return;
+            }
+        }
+        let before = req.0.len();
+        game.end_attack_request(req, height, None, ready, now);
+        if req.0.len() > before {
+            self.stats.attacks_released += 1;
         }
     }
 

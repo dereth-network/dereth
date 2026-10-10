@@ -472,6 +472,11 @@ pub fn apply_events_at_boundary(
                 inter.stats.player_visual_descs += 1;
             }
 
+            // An error the shard gives refuses whatever the player asked for: while the client
+            // repeats attacks itself, the attack that is out.
+            Opcode::COMMUNICATION_WEENIE_ERROR | Opcode::COMMUNICATION_WEENIE_ERROR_WITH_STRING => {
+                game.note_shard_refusal();
+            }
             // Commence-attack handling is the server's acknowledgement that the swing began.
             Opcode::COMBAT_HANDLE_COMMENCE_ATTACK_EVENT => {
                 game.handle_commence_attack();
