@@ -4106,6 +4106,18 @@ pub trait SceneReads: sealed::SceneHalves {
         draw.target_projection(world, id, viewport)
     }
 
+    /// [`SceneDraw::target_origin`] on the scene.
+    fn target_origin(&self, id: ObjectId, viewport: (u32, u32)) -> Option<(i32, i32)> {
+        let (world, draw) = self.halves();
+        draw.target_origin(world, id, viewport)
+    }
+
+    /// [`SceneDraw::target_top`] on the scene.
+    fn target_top(&self, id: ObjectId, viewport: (u32, u32)) -> Option<(f32, f32)> {
+        let (world, draw) = self.halves();
+        draw.target_top(world, id, viewport)
+    }
+
     /// [`SceneDraw::upload_reservation`] on the scene.
     fn upload_reservation(&self) -> usize {
         let (_, draw) = self.halves();

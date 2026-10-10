@@ -124,6 +124,32 @@ pub struct DrawList {
     pub quads: Vec<Quad>,
     /// The clip every quad pushed from now on takes, innermost last.
     clips: Vec<Rect>,
+    /// The quads that stand over something in the world, and where it stood when they were
+    /// drawn: [`Self::follow`] moves them to where it stands when the world is drawn.
+    pub anchored: Vec<Anchored>,
+}
+
+/// Which point of an object in the world some quads stand on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Anchor {
+    /// The top of its body as drawn: a name over it.
+    Top,
+    /// Its origin, raised to the middle of its selection sphere: a ring round it.
+    Origin,
+}
+
+/// Quads drawn over an object in the world.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Anchored {
+    pub id: dereth_primitives::ObjectId,
+    pub anchor: Anchor,
+    /// The quads, in the list.
+    pub quads: std::ops::Range<usize>,
+    /// Where the point they stand on was on screen when they were drawn.
+    pub at: (f32, f32),
+    /// Where they were drawn from before being put on whole pixels (a line of text's top left):
+    /// moved, they land on the whole pixels they would have been drawn on there.
+    pub snap: (f32, f32),
 }
 
 impl DrawList {
@@ -131,7 +157,66 @@ impl DrawList {
     pub fn clear(&mut self) {
         self.quads.clear();
         self.clips.clear();
+        self.anchored.clear();
         CLIP.with(|c| c.set(None));
+    }
+
+    /// Note that the quads from `from` to the end of the list stand on `anchor` of `id`, which
+    /// was at `at` on screen, drawn from `snap`.
+    pub fn anchor(
+        &mut self,
+        id: dereth_primitives::ObjectId,
+        anchor: Anchor,
+        from: usize,
+        at: (f32, f32),
+        snap: (f32, f32),
+    ) {
+        if from < self.quads.len() {
+            self.anchored.push(Anchored {
+                id,
+                anchor,
+                quads: from..self.quads.len(),
+                at,
+                snap,
+            });
+        }
+    }
+
+    /// Move every anchored quad to where the point it stands on is now, as `now` says (`None`:
+    /// nowhere on screen, and it is not drawn). The list is drawn up before the world moves for
+    /// the frame; this is called once it has, so what stands over the world stands over it as it
+    /// is drawn.
+    pub fn follow(
+        &mut self,
+        now: impl Fn(dereth_primitives::ObjectId, Anchor) -> Option<(f32, f32)>,
+    ) {
+        let Self {
+            quads: list,
+            anchored,
+            ..
+        } = self;
+        for a in anchored {
+            let Some(quads) = list.get_mut(a.quads.clone()) else {
+                continue;
+            };
+            match now(a.id, a.anchor) {
+                Some((x, y)) => {
+                    let snap = (a.snap.0 + x - a.at.0, a.snap.1 + y - a.at.1);
+                    let dx = snap.0.round() - a.snap.0.round();
+                    let dy = snap.1.round() - a.snap.1.round();
+                    for q in quads {
+                        q.dst = q.dst.offset(dx, dy);
+                    }
+                    a.at = (x, y);
+                    a.snap = snap;
+                }
+                None => {
+                    for q in quads {
+                        q.dst = Rect::new(q.dst.x, q.dst.y, 0.0, 0.0);
+                    }
+                }
+            }
+        }
     }
 
     /// Clip everything pushed until the matching [`Self::pop_clip`] to `r` (and any outer clip).

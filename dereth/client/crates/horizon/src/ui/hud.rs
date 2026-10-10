@@ -13,7 +13,7 @@
 use dereth_client_contract::UiRequest;
 
 use crate::art::{Family, Sprite};
-use crate::draw::{with_alpha, Argb, Rect, WHITE};
+use crate::draw::{with_alpha, Anchor, Argb, Rect, WHITE};
 use crate::ui::game::{BlipKind, ChatLine, GameState, Relation};
 use crate::ui::kit::{self, Ctx};
 use crate::ui::paint::{Align, Painter, TextStyle};
@@ -2237,18 +2237,28 @@ impl Hud {
             let style = TextStyle::new(Family::Body, 14.0 * fade, with_alpha(colour, fade))
                 .edge(with_alpha(0xFF00_0000, fade));
             let w = p.measure(&style, &plate.name);
-            // Clear of the subject's head: a little higher the taller it stands on screen.
-            let y = plate.y - 32.0 * k - plate.bounds.h * 0.04;
-            p.text(&style, (plate.x - w / 2.0).round(), y.round(), &plate.name);
+            // Standing on the top of the subject's body, a little clear of it.
+            let (x, y) = (
+                plate.x - w / 2.0,
+                plate.y - p.line_height(&style) - NAME_CLEARANCE * k,
+            );
+            let from = p.list.mark();
+            let (tx, ty) = (x.round(), y.round());
+            p.text(&style, tx, ty, &plate.name);
             if plate.selected {
                 if let Some(marker) = p.piece("target.marker") {
                     let mh = 26.0 * k;
                     let mw = mh * marker.w / marker.h.max(1.0);
                     let bob = 2.0 * k * crate::ui::wave(ctx.time, 4.0);
-                    let r = Rect::new(plate.x - mw / 2.0, y - mh - 6.0 * k - bob, mw, mh);
+                    // Over the middle of the name as it is drawn.
+                    let r = Rect::new(tx + (w - mw) / 2.0, ty - mh - 6.0 * k - bob, mw, mh);
                     p.sprite(&marker, r, WHITE);
                 }
             }
+            // Drawn from where the body stood when the last frame was drawn: moved to where it
+            // stands when this one is.
+            p.list
+                .anchor(plate.id, Anchor::Top, from, (plate.x, plate.y), (x, y));
         }
     }
 
@@ -2308,6 +2318,9 @@ const RADAR_EASE_SECONDS: f32 = 0.08;
 
 /// How much of the names' range they show at full size, before shrinking away over the rest.
 const NAME_FULL_SIZE_SHARE: f32 = 0.6;
+
+/// How far a name's line stands clear of the top of the body it names, in layout units.
+pub const NAME_CLEARANCE: f32 = 4.0;
 
 /// A countdown the game reports now and then, run down every frame between its reports: `seen` is
 /// the last figure taken and when it was taken; a report that disagrees with the run-down figure

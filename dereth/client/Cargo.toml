@@ -89,6 +89,8 @@ dereth-dat = { workspace = true, features = ["test-support"] }
 dereth-render = { workspace = true, features = ["mock", "test-support"] }
 dereth-world-data.workspace = true
 dereth-classic-ui.workspace = true
+# The Horizon interface's names, drawn over the world in the instrument that pictures them.
+dereth-horizon.workspace = true
 glam.workspace = true
 winit = { workspace = true, features = ["rwh_06"] }
 # Capture tests inspect PNGs; production encoding belongs to the scene and icon decoding

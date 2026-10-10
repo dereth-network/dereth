@@ -1896,19 +1896,40 @@ impl SceneDraw {
             .setup
             .as_ref()
             .map_or(0.1, |s| s.selection_sphere.center.z * parts.scale.z);
+        let p = localtoglobal(&object.frame, Vec3::new(0.0, 0.0, height));
+        let (x, y) = self.screen_point(ws, viewport, p)?;
+        Some((
+            dereth_primitives::num::to_i32_f64(f64::from(x)),
+            dereth_primitives::num::to_i32_f64(f64::from(y)),
+        ))
+    }
+
+    /// Where the top of `id`'s body as drawn this frame stands on screen, in pixels: the point
+    /// over its drawn origin at the height of the highest point its parts draw
+    /// ([`WorldState::drawn_top`]), seen from where the camera is this frame. The point a name
+    /// over the body stands on. `None` behind the camera or for an object not drawn.
+    #[must_use]
+    pub fn target_top(
+        &self,
+        ws: &WorldState,
+        id: ObjectId,
+        viewport: (u32, u32),
+    ) -> Option<(f32, f32)> {
+        self.screen_point(ws, viewport, ws.drawn_top(id)?)
+    }
+
+    /// Where the render-space point `p` stands on screen, in pixels; `None` behind the camera.
+    fn screen_point(&self, ws: &WorldState, viewport: (u32, u32), p: Vec3) -> Option<(f32, f32)> {
         let view = self.view_params(ws, viewport.0, viewport.1);
         let eye = self.eye_transform(ws, &view);
         let matrix = dereth_render::camera::projection(&view) * view.view;
-        let p = localtoglobal(&object.frame, Vec3::new(0.0, 0.0, height));
         let q = matrix * glam::Vec4::new(p.x, p.z, p.y, 1.0);
         if q.w < 0.0002 {
             return None;
         }
-        let x = (q.x / q.w) * eye.width * 0.5 + eye.width * 0.5;
-        let y = eye.height * 0.5 - (q.y / q.w) * eye.height * 0.5;
         Some((
-            dereth_primitives::num::to_i32_f64(f64::from(x)),
-            dereth_primitives::num::to_i32_f64(f64::from(y)),
+            (q.x / q.w) * eye.width * 0.5 + eye.width * 0.5,
+            eye.height * 0.5 - (q.y / q.w) * eye.height * 0.5,
         ))
     }
 

@@ -773,6 +773,23 @@ mod imp {
             })
         }
 
+        /// Where the top of an object's body as drawn stands on screen; see
+        /// `SceneDraw::target_top`. Nothing during a hidden world.
+        pub fn target_top(
+            &self,
+            id: dereth_primitives::ObjectId,
+            ws: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<(f32, f32)> {
+            if self.world_hidden {
+                return None;
+            }
+            let world = self.world.as_ref()?;
+            let ws = ws?;
+            dereth_render::camera::view_distance_override::with(self.view_distance, || {
+                world.target_top(ws, id, self.size())
+            })
+        }
+
         /// Draw the world scene when present and visible.
         ///
         /// # Errors

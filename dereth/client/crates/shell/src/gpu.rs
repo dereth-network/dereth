@@ -1304,6 +1304,14 @@ mod imp {
             SceneRenderer::target_origin(self, id, world)
         }
 
+        fn target_top(
+            &self,
+            id: dereth_primitives::ObjectId,
+            world: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> Option<(f32, f32)> {
+            SceneRenderer::target_top(self, id, world)
+        }
+
         fn drawn_objects(&self) -> Option<std::collections::BTreeSet<dereth_primitives::ObjectId>> {
             SceneRenderer::drawn_objects(self)
         }

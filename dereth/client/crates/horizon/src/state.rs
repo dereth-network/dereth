@@ -707,13 +707,18 @@ pub type Projections = std::collections::BTreeMap<
     dereth_client_contract::target::Projection,
 >;
 
+/// Where the top of each object's body as drawn stands on screen, as the shell projected it.
+pub type Tops = std::collections::BTreeMap<dereth_primitives::ObjectId, (f32, f32)>;
+
 /// The names over the people and creatures near the player: each blip within range whose box is
-/// on screen, placed at the top of that box.
+/// on screen, standing on the top of its body as drawn (`tops`); on the top of its box where that
+/// is not known.
 pub fn nameplates(
     v: &impl GameView,
     state: &GameState,
     projections: &Projections,
     origins: &std::collections::BTreeMap<dereth_primitives::ObjectId, (i32, i32)>,
+    tops: &Tops,
     places: &std::collections::BTreeMap<dereth_primitives::ObjectId, (bool, f32)>,
 ) -> Vec<crate::ui::game::Nameplate> {
     let selected = state.target.as_ref().map(|t| t.id);
@@ -738,14 +743,18 @@ pub fn nameplates(
             else {
                 return None;
             };
-            // Centred on the object's own origin where it is known (the box swings with what
-            // it holds and how it stands); the box's top for the height.
+            // On the top of the body as drawn, over its own origin. Where that is not known, the
+            // box's top, centred on the origin where that is known (the box swings with what it
+            // holds and how it stands).
             #[allow(clippy::cast_precision_loss)]
-            let x = origins
-                .get(&id)
-                .map_or((x0 + x1) as f32 / 2.0, |(ox, _)| *ox as f32);
-            #[allow(clippy::cast_precision_loss)]
-            let y = y0 as f32;
+            let (x, y) = tops.get(&id).copied().unwrap_or_else(|| {
+                (
+                    origins
+                        .get(&id)
+                        .map_or((x0 + x1) as f32 / 2.0, |(ox, _)| *ox as f32),
+                    y0 as f32,
+                )
+            });
             #[allow(clippy::cast_precision_loss)]
             let bounds = crate::draw::Rect::new(
                 x0 as f32,
@@ -754,6 +763,7 @@ pub fn nameplates(
                 (y1 - y0).max(0) as f32,
             );
             Some(crate::ui::game::Nameplate {
+                id,
                 name: v.name(id).unwrap_or_default().to_owned(),
                 x,
                 y,

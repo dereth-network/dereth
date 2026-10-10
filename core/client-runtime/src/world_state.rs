@@ -179,6 +179,9 @@ pub struct WorldState {
     pub character_state: PhysicsState,
     /// The `AnimAssets` every remote object's `MotionDriver` reads through, built once.
     pub anim_assets: Option<Arc<DatAnimAssets>>,
+    /// The points the objects' meshes are made of, read from the files [`Self::anim_assets`]
+    /// reads, for [`Self::drawn_top`].
+    pub drawn_points: crate::body_top::DrawnPoints,
     /// The body's own default sound-table id.
     pub character_sound_table: Option<DataId>,
     /// the body translucency the chase camera **last applied**.
@@ -513,6 +516,25 @@ impl WorldState {
     #[must_use]
     pub fn server_object_frame(&self, id: ObjectId) -> Option<Frame> {
         self.objects.get(&id).filter(|o| o.drawn).map(|o| o.frame)
+    }
+
+    /// The point over object `id`'s drawn origin at the top of its body as drawn this frame: the
+    /// highest point of the meshes its parts draw, posed and scaled as they are drawn
+    /// ([`crate::body_top`]). Where its meshes cannot be read, the top of its selection sphere,
+    /// placed and scaled as it is drawn. `None` for an object not drawn this frame.
+    #[must_use]
+    pub fn drawn_top(&self, id: ObjectId) -> Option<Vec3> {
+        let o = self.objects.get(&id).filter(|o| o.drawn)?;
+        let driver = o.sim.driver.borrow();
+        let parts = &driver.part_array;
+        let meshes = self.anim_assets.as_ref().and_then(|assets| {
+            crate::body_top::top_of_parts(&parts.parts, |g| self.drawn_points.of(assets.store(), g))
+        });
+        let top = meshes.unwrap_or_else(|| {
+            let s = parts.selection_sphere();
+            dereth_primitives::frame::localtoglobal(&o.frame, s.center).z + s.radius
+        });
+        Some(Vec3::new(o.frame.origin.x, o.frame.origin.y, top))
     }
 
     /// The cell this object is drawn **in**, as

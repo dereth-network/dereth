@@ -930,6 +930,7 @@ dependencies = [
  "dereth-console",
  "dereth-dat",
  "dereth-desktop",
+ "dereth-horizon",
  "dereth-input",
  "dereth-launch",
  "dereth-physics",

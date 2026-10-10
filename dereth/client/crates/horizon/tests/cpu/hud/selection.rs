@@ -54,6 +54,7 @@ fn the_selection_is_named_on_screen_without_brackets_round_it() {
             ..Target::default()
         }),
         nameplates: vec![Nameplate {
+            id: FAR_CHEST,
             name: "Chest".into(),
             x: 960.0,
             y: 500.0,

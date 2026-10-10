@@ -468,9 +468,19 @@ impl Hud {
     /// The alternate selection's ring: turning marks round where it stands on screen, and no
     /// name.
     pub fn alt_ring(&self, p: &mut Painter<'_>, ctx: &Ctx<'_>, state: &GameState) {
-        let (Some(_), Some((x, y))) = (self.alt, state.alt_at) else {
+        let (Some(alt), Some((x, y))) = (self.alt, state.alt_at) else {
             return;
         };
+        let from = p.list.mark();
+        Self::ring_at(p, ctx, (x, y));
+        // Drawn from where its object stood when the last frame was drawn: moved to where it
+        // stands when this one is.
+        p.list
+            .anchor(alt, crate::draw::Anchor::Origin, from, (x, y), (x, y));
+    }
+
+    /// The turning marks of the alternate selection's ring round `(x, y)`.
+    fn ring_at(p: &mut Painter<'_>, ctx: &Ctx<'_>, (x, y): (f32, f32)) {
         let k = p.scale;
         let radius = (34.0 + 4.0 * crate::ui::wave(ctx.time, 4.0)) * k;
         let turn = crate::ui::narrow(ctx.time * 2.0);

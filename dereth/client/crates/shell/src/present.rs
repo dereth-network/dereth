@@ -69,6 +69,12 @@ pub trait ClientPresentation: Presentation {
         None
     }
 
+    /// Where the top of a tracked object's body, as the world is drawn this frame, stands on
+    /// screen: the point a name over it stands on.
+    fn target_top(&self, _id: ObjectId, _world: Option<&WorldState>) -> Option<(f32, f32)> {
+        None
+    }
+
     /// The objects the last world draw could see (those a click could pick): `None` when no
     /// world has been drawn.
     fn drawn_objects(&self) -> Option<std::collections::BTreeSet<ObjectId>> {

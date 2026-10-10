@@ -120,8 +120,10 @@ pub enum BlipKind {
 /// the selection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Nameplate {
+    /// What it names.
+    pub id: ObjectId,
     pub name: String,
-    /// The centre of the object's top edge, in screen pixels.
+    /// The top of its body as drawn, over its origin, in screen pixels: the name stands on it.
     pub x: f32,
     pub y: f32,
     pub kind: BlipKind,

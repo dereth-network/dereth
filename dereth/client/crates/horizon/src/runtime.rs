@@ -175,6 +175,9 @@ pub struct HorizonFrontEnd {
     /// Where each object's own origin stands on screen, raised to its middle: the point names
     /// and the selection marker centre on, which does not swing as the object turns.
     pub origins: std::collections::BTreeMap<ObjectId, (i32, i32)>,
+    /// Where the top of each object's body as drawn stands on screen: the point its name stands
+    /// on.
+    pub tops: crate::state::Tops,
     /// The objects the shell is asked to project for the next frame.
     pub wanted_projections: Vec<ObjectId>,
     /// The objects the last world draw could see, as the shell reports them: `None` before a
@@ -270,6 +273,7 @@ impl HorizonFrontEnd {
             was_gameplay: None,
             projections: Projections::new(),
             origins: std::collections::BTreeMap::new(),
+            tops: crate::state::Tops::new(),
             wanted_projections: Vec::new(),
             in_sight: None,
             settings_path,
@@ -759,8 +763,14 @@ impl HorizonFrontEnd {
                     .filter_map(|id| Some((id, cx.object_place(id)?)))
                     .collect();
             let view = cx.hud().view(cx.objects());
-            state.nameplates =
-                crate::state::nameplates(&view, &state, &self.projections, &self.origins, &places);
+            state.nameplates = crate::state::nameplates(
+                &view,
+                &state,
+                &self.projections,
+                &self.origins,
+                &self.tops,
+                &places,
+            );
         }
         self.wanted_projections = crate::state::nameplate_candidates(&state);
         // Where each thing the pad can select stands on screen, and which can be seen: the
@@ -1412,6 +1422,18 @@ impl HorizonFrontEnd {
                 self.errors.push(format!("{}: {e}", path.display()));
             }
         }
+    }
+
+    /// Put what this frame's interface draws over things in the world (their names, the ring
+    /// round the pad's other choice) over them where the world is drawn this frame, as `now` says
+    /// each stands on screen. The interface's frame is drawn before the world moves for the frame,
+    /// from where the last frame drew it; this is called once it has moved, before
+    /// [`Self::compose`], so a name stands on its body as it is drawn, not a frame behind it.
+    pub fn follow_drawn_world(
+        &mut self,
+        now: impl Fn(ObjectId, crate::draw::Anchor) -> Option<(f32, f32)>,
+    ) {
+        self.list.follow(now);
     }
 
     /// Turn this frame's draw list into the overlay, uploading what it newly needs. Outside the

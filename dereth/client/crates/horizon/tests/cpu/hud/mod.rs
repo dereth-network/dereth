@@ -5,5 +5,6 @@ mod cross;
 mod hotbar;
 mod keys;
 mod layout;
+mod nameplates;
 mod pad_mode;
 mod selection;

@@ -1560,6 +1560,10 @@ impl<H: Host> ClientShell<H> {
             .iter()
             .filter_map(|&id| Some((id, present.target_origin(id, world)?)))
             .collect();
+        ui.tops = wanted
+            .iter()
+            .filter_map(|&id| Some((id, present.target_top(id, world)?)))
+            .collect();
         ui.projections = wanted
             .into_iter()
             .filter_map(|id| Some((id, present.target_projection(id, world)?)))

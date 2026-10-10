@@ -84,6 +84,7 @@ impl WorldState {
             character_sound_table: None,
             camera_translucency: 0.0,
             anim_assets: None,
+            drawn_points: crate::body_top::DrawnPoints::default(),
             clock,
             next_tick: 0.0,
             next_light_tick: 0.0,
