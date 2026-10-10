@@ -4,8 +4,9 @@
 //! their crest; the authored night sky, its stars and the hills' line against it are kept; at
 //! dusk the near land toward the sun keeps its colour and a near tree its silhouette; a rainy
 //! sky is no brighter than the authored one; interiors and frames split between an interior and
-//! the outdoors are drawn as they always are; and the frame the scene records is the same with
-//! them on.
+//! the outdoors are drawn as they always are; land seen through a building's windows keeps its
+//! colour, and from inside a room the depth the effects read through its openings is the
+//! outdoors'; and the frame the scene records is the same with them on.
 //!
 //! Each frame is compared with the same station loaded again and stepped the same number of
 //! frames with the presentation off, because the clouds move with every frame drawn.
@@ -15,9 +16,10 @@
 #![cfg(gpu)]
 
 use dereth_client_runtime::render_prefs::FidelityPreferences;
+use dereth_client_runtime::scene::SceneConfig;
 use dereth_render::device::{Backend, DeviceConfig, Gpu};
 use dereth_render::wgpu::sidecar::SidecarReport;
-use dereth_scene::world_scene::SceneWrites;
+use dereth_scene::world_scene::{SceneReads, SceneWrites};
 
 use crate::instruments::hifi_stations::{self, capture, moved, Shot, Station};
 
@@ -61,16 +63,34 @@ struct Run {
     rgba: Vec<u8>,
     digest: Option<u64>,
     report: Option<SidecarReport>,
+    /// The outlines of the building openings the frame drew rooms through, in pixels.
+    openings: Vec<Vec<(f32, f32)>>,
 }
 
 /// `station` loaded with `prefs` and stepped [`STEPS`] frames, on a device of its own so the
 /// texture slots, and with them the recorded frame, are the same from run to run.
 fn run(station: &Station, prefs: FidelityPreferences) -> Run {
+    run_with(station, prefs, |_| {})
+}
+
+/// As [`run`], with a building's openings stamped into the depth before its rooms are drawn
+/// through them as the client stamps them, or never.
+fn run_stamped(station: &Station, prefs: FidelityPreferences, stamp: bool) -> Run {
+    run_with(station, prefs, |cfg| cfg.portal_depth_stamp = stamp)
+}
+
+/// As [`run`], with the scene's configuration changed by `change` once it is loaded.
+fn run_with(
+    station: &Station,
+    prefs: FidelityPreferences,
+    change: impl FnOnce(&mut SceneConfig),
+) -> Run {
     let mut device = device();
     let gpu = &mut device;
     let store = crate::common::dats();
     let mut shot = Shot::open(&store, gpu, station);
     shot.scene.draw.cfg.render.fidelity = prefs;
+    change(&mut shot.scene.draw.cfg);
     shot.scene
         .update_from_preferences(&store, gpu)
         .expect("the preferences poll");
@@ -82,6 +102,7 @@ fn run(station: &Station, prefs: FidelityPreferences) -> Run {
         rgba: capture(gpu),
         digest: gpu.last_frame_digest(),
         report: gpu.hifi_report(),
+        openings: shot.scene.building_portal_screen_polygons(W, H),
     }
 }
 
@@ -472,4 +493,174 @@ fn interiors_and_split_frames_are_drawn_as_they_always_are() {
         assert_eq!(changed, 0, "{name}: the interior changed");
         assert_eq!(on.digest, off.digest, "{name}");
     }
+}
+
+/// Whether `(x, y)` lies inside `poly`, by even-odd crossing.
+fn inside(poly: &[(f32, f32)], x: f32, y: f32) -> bool {
+    let mut hit = false;
+    for i in 0..poly.len() {
+        let (x0, y0) = poly[i];
+        let (x1, y1) = poly[(i + 1) % poly.len()];
+        if (y0 > y) != (y1 > y) && x < x0 + (y - y0) / (y1 - y0) * (x1 - x0) {
+            hit = !hit;
+        }
+    }
+    hit
+}
+
+/// With `DERETH_HIFI_CAPTURE_DIR` set, write each of `frames` of `name` into its
+/// `sky/through-window` folder.
+fn keep(name: &str, frames: &[(&str, &[u8])]) {
+    let Some(root) = std::env::var_os("DERETH_HIFI_CAPTURE_DIR") else {
+        return;
+    };
+    let dir = std::path::Path::new(&root)
+        .join("sky")
+        .join("through-window");
+    for (suffix, px) in frames {
+        hifi_stations::write_png(&dir.join(format!("{name}-{suffix}.png")), W, H, px);
+    }
+}
+
+/// Behaviour: hifi.sky.land-seen-through-a-building-keeps-its-colour
+/// From the porches on either side of a shop in the town at noon, looking in at a window and out
+/// through the window across the room, the picture inside the openings the rooms are drawn
+/// through is, to within eight levels at all but a thousandth of its pixels, the one drawn with
+/// the air off wherever what is seen there is nearer than about sixty metres, which the air
+/// leaves alone; and farther out, over the far land and the sky beyond the window, the one the
+/// air draws when no opening is stamped into the depth. The land beyond the far window keeps its
+/// colour, and none of it takes the haze of the far distance. How far each pixel is comes from
+/// the depth view of the frame drawn with no opening stamped.
+#[test]
+fn land_seen_through_a_buildings_windows_keeps_its_colour() {
+    let _gpu = crate::common::gpu_lock();
+    for name in ["shop-north", "shop-south"] {
+        let at = station(name);
+        let off = run(&at, FidelityPreferences::default());
+        let on = run(&at, fidelity("Sky=3"));
+        let unstamped = run_stamped(&at, fidelity("Sky=3"), false).rgba;
+        let depth = run_stamped(&at, fidelity("Debug=2"), false).rgba;
+        let report = on.report.expect("the presentation is installed");
+        assert!(report.composited, "{name}: {report:?}");
+        keep(
+            name,
+            &[
+                ("off", &off.rgba),
+                ("on", &on.rgba),
+                ("on-unstamped", &unstamped),
+                ("depth", &depth),
+            ],
+        );
+        // Pixels inside the openings, and those changed by more than eight levels: near, then
+        // farther out.
+        let (mut near, mut far, mut worst) = ((0u32, 0u32), (0u32, 0u32), 0u8);
+        for y in 0..H {
+            for x in 0..W {
+                #[allow(clippy::cast_precision_loss)] // pixel coordinates
+                let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+                if !off.openings.iter().any(|p| inside(p, fx, fy)) {
+                    continue;
+                }
+                let i = ((y * W + x) * 4) as usize;
+                let (want, count) = if depth[i] >= 100 {
+                    (&off.rgba, &mut near)
+                } else {
+                    (&unstamped, &mut far)
+                };
+                let d = (0..3)
+                    .map(|c| on.rgba[i + c].abs_diff(want[i + c]))
+                    .max()
+                    .unwrap_or(0);
+                count.0 += 1;
+                count.1 += u32::from(d > 8);
+                worst = worst.max(d);
+            }
+        }
+        let timings: Vec<_> = report
+            .gpu_ms
+            .iter()
+            .filter(|(pass, _)| matches!(*pass, "unstamped depth" | "seen depth"))
+            .collect();
+        eprintln!(
+            "{name}: {} openings; {} pixels inside them near, {} changed by more than 8 levels; \
+             {} farther out, {} changed; as much as {worst}; {timings:?}",
+            off.openings.len(),
+            near.0,
+            near.1,
+            far.0,
+            far.1
+        );
+        assert!(
+            near.0 > 20_000,
+            "{name}: the station sees into no building: {} pixels",
+            near.0
+        );
+        for (what, (all, changed)) in [("near", near), ("farther out", far)] {
+            assert!(
+                changed <= all / 1000,
+                "{name}: {changed} of the {all} pixels {what} inside the openings changed by \
+                 more than 8 levels, as much as {worst}"
+            );
+        }
+    }
+}
+
+/// Behaviour: hifi.sky.from-inside-a-room-the-depth-through-its-openings-is-the-outdoors
+/// From a room at noon, looking out through its door past a body in the doorway, a frame split
+/// between the room and the outdoors: the depth the effects read, as the depth view shows it, and
+/// the ambient occlusion they draw are, with the screen-space effects alone and with the frame
+/// re-shaded, the ones the frame has when the room is drawn with no depth clear and so no opening
+/// stamped, to within four levels at all but half a percent of the frame. Through the door the
+/// depth is the outdoors', not the flat depth of the opening the room stamps there.
+#[test]
+fn from_inside_a_room_the_depth_through_its_openings_is_the_outdoors() {
+    let _gpu = crate::common::gpu_lock();
+    let at = station("doorway");
+    let opened = |cfg: &mut SceneConfig| cfg.indoor_z_clear = false;
+    let mut failures = Vec::new();
+    for (view, spec) in [
+        ("depth", "Debug=2"),
+        ("occlusion", "Debug=4,AmbientOcclusion=3"),
+        ("re-shaded depth", "Lighting=1,Debug=2"),
+        (
+            "re-shaded occlusion",
+            "Lighting=1,Debug=4,AmbientOcclusion=3",
+        ),
+    ] {
+        let stamped = run(&at, fidelity(spec));
+        let open = run_with(&at, fidelity(spec), opened).rgba;
+        let report = stamped.report.expect("the presentation is installed");
+        assert!(report.composited, "{view}: {report:?}");
+        keep(
+            &format!("doorway-{}", view.replace(' ', "-")),
+            &[("stamped", &stamped.rgba), ("open", &open)],
+        );
+        let (mut over, mut worst) = (0u32, 0u8);
+        for (a, b) in stamped
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(open.as_chunks::<4>().0)
+        {
+            let d = (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
+            over += u32::from(d > 4);
+            worst = worst.max(d);
+        }
+        let timings: Vec<_> = report
+            .gpu_ms
+            .iter()
+            .filter(|(pass, _)| matches!(*pass, "unstamped depth" | "seen depth"))
+            .collect();
+        eprintln!(
+            "{view}: {over} pixels differ by more than 4 levels, as much as {worst}; {timings:?}"
+        );
+        if over > W * H / 200 {
+            failures.push(format!("{view}: {over} pixels, as much as {worst}"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "the views differ from the room drawn with no depth clear: {failures:?}"
+    );
 }

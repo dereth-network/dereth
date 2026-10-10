@@ -662,6 +662,35 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
             land_radius: 3,
         },
         Station {
+            name: "shop-north",
+            why: "on the porch of a Holtburg shop at noon, looking in at a window and out through \
+                  the window across the room at the land beyond",
+            place: Place::Look {
+                block: HOLTBURG,
+                x: 89.09,
+                y: 141.5,
+                eye: 2.2,
+                at: [89.09, 112.0, f32::NAN],
+            },
+            clock: Clock::Sunny(0.5),
+            weather: false,
+            land_radius: 3,
+        },
+        Station {
+            name: "shop-south",
+            why: "the same shop from its other porch, looking in and out the other way",
+            place: Place::Look {
+                block: HOLTBURG,
+                x: 89.09,
+                y: 121.5,
+                eye: 2.2,
+                at: [89.09, 152.0, f32::NAN],
+            },
+            clock: Clock::Sunny(0.5),
+            weather: false,
+            land_radius: 3,
+        },
+        Station {
             name: "doorway",
             why: "a body in a house's doorway with its camera in the room: a frame split between \
                   outdoors and an interior",

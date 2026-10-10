@@ -828,6 +828,24 @@ impl<'a> SidecarContext<'a> {
         census
     }
 
+    /// Replay as [`SidecarContext::replay`] does, without adding the draws to the frame's
+    /// census: for a replay that only works out something about the frame, such as a depth of its
+    /// own, and draws none of the picture.
+    pub fn replay_uncounted(
+        &self,
+        range: Range<u32>,
+        pass: &mut wgpu::RenderPass<'_>,
+        filter: &mut dyn ReplayFilter,
+    ) -> Census {
+        self.replayer.replay(
+            range.start as usize..range.end as usize,
+            &self.tables.marks,
+            self.tables,
+            pass,
+            filter,
+        )
+    }
+
     /// How the replays so far this frame handled each recorded draw.
     #[must_use]
     pub fn census(&self) -> Census {

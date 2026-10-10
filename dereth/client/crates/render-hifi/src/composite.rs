@@ -9,9 +9,27 @@
 //! that point. The composite copies the finished picture into the frame target texel for texel,
 //! with a load rather than a filtered sample, so with no pass in between the frame target holds
 //! exactly what the ordinary frame would.
+//!
+//! **The passes read the depth each pixel sees.** Before the rooms of a building are drawn from
+//! outdoors, each of its openings is stamped into the depth just short of the far plane, with no
+//! colour, so the rooms draw over whatever was behind the opening. Where no room covers the
+//! opening afterwards (through a window on the far side of the room, say) the stamp stays, over
+//! the colour of the land or the sky beyond. The seen depth puts back, at just those pixels, the
+//! depth the world had there with no stamp, so a pass that reads the depth finds the land at its
+//! real distance and the sky only where the sky was drawn. A frame that steps indoors clears the
+//! depth and stamps each opening of its rooms at the opening's own depth, so nothing beyond an
+//! opening draws over what is seen through it; there the seen depth puts back the depth seen
+//! before the step.
+
+use dereth_render::PipelineKey;
+use dereth_render_cpu::pso::{portal_stamp_mask, PORTAL_STAMP_FAR_DEPTH};
 
 use crate::resources::{ResourceName, Resources, TextureSpec};
-use crate::{DebugView, HifiError, HifiSettings, ReplayFilter, SidecarContext};
+use crate::timing::GpuTimer;
+use crate::{
+    DebugView, DrawAction, DrawNote, HifiError, HifiSettings, ReplayFilter, SideTables,
+    SidecarContext, SkipRule,
+};
 
 /// How the world is replayed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -82,6 +100,51 @@ fn fs_depth(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 }
 ";
 
+/// The seen depth's shader: a full-target triangle that writes the world's depth, or, where a
+/// stamp holds it, the depth of what the picture shows there.
+fn seen_depth_wgsl() -> String {
+    format!(
+        r"
+const STAMP: f32 = {PORTAL_STAMP_FAR_DEPTH:?}f;
+@group(0) @binding(0) var world: texture_depth_2d;
+@group(0) @binding(1) var unstamped: texture_depth_2d;
+@group(0) @binding(2) var before: texture_depth_2d;
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
+    let x = f32((i << 1u) & 2u);
+    let y = f32(i & 2u);
+    return vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+}}
+
+// Outdoors: a building's stamp carries the constant with w = 1, so a stamped pixel holds it
+// exactly, and the world with no stamp holds what is seen there.
+@fragment
+fn fs_seen(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 {{
+    let px = vec2<i32>(p.xy);
+    let d = textureLoad(world, px, 0);
+    if (d == STAMP) {{
+        return textureLoad(unstamped, px, 0);
+    }}
+    return d;
+}}
+
+// After an indoor step: a room's stamp holds the depth of its opening, nearer than anything the
+// step draws there without it; where it holds the depth, or where the step drew none, the
+// picture is the one drawn before the step.
+@fragment
+fn fs_step(@builtin(position) p: vec4<f32>) -> @builtin(frag_depth) f32 {{
+    let px = vec2<i32>(p.xy);
+    let d = textureLoad(world, px, 0);
+    if (d < textureLoad(unstamped, px, 0) || d >= 1.0) {{
+        return textureLoad(before, px, 0);
+    }}
+    return d;
+}}
+"
+    )
+}
+
 /// The composite's pipelines, made on first use for the target's format.
 #[derive(Debug)]
 struct Pipelines {
@@ -92,10 +155,64 @@ struct Pipelines {
     params: wgpu::Buffer,
 }
 
+/// One of the seen depth's pipelines, made on first use.
+#[derive(Debug)]
+struct SeenPipeline {
+    layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::RenderPipeline,
+}
+
 /// The world replay and the composite into the frame target.
 #[derive(Debug, Default)]
 pub struct Compositor {
     pipelines: Option<Pipelines>,
+    seen: Option<SeenPipeline>,
+    seen_after_step: Option<SeenPipeline>,
+}
+
+/// Whether `note` is a stamp of an opening: a building's, drawn before its rooms from outdoors,
+/// or a room's, drawn after an indoor step. The two share their pipeline.
+fn is_stamp(note: &DrawNote) -> bool {
+    !note.splat && note.key == PipelineKey::portal_stamp(portal_stamp_mask::BUILDING)
+}
+
+/// The command of the last building stamp drawn before the frame steps indoors, if it draws one.
+#[must_use]
+pub fn last_building_stamp(tables: &SideTables) -> Option<u32> {
+    let cut = crate::reshade::ReshadePlan::new(tables)?.rest.start;
+    tables
+        .draws
+        .iter()
+        .rev()
+        .filter(|d| d.cmd < cut)
+        .find(|d| is_stamp(d))
+        .map(|d| d.cmd)
+}
+
+/// The commands from the frame's indoor step to the world's end, when the step stamps any
+/// opening of the rooms it draws.
+#[must_use]
+pub fn stamped_step(tables: &SideTables) -> Option<std::ops::Range<u32>> {
+    let rest = crate::reshade::ReshadePlan::new(tables)?.rest;
+    tables
+        .draws
+        .iter()
+        .any(|d| rest.contains(&d.cmd) && is_stamp(d))
+        .then_some(rest)
+}
+
+/// The replay that leaves every stamp out. It is not counted in the frame's census, so the rule
+/// a stamp is left out under says nothing.
+struct Unstamped;
+
+impl ReplayFilter for Unstamped {
+    fn draw(&mut self, _cmd: u32, note: Option<&DrawNote>) -> DrawAction<'_> {
+        if note.is_some_and(is_stamp) {
+            DrawAction::Skip(SkipRule::ReplacedByPass)
+        } else {
+            DrawAction::Legacy
+        }
+    }
 }
 
 /// The two targets the world is replayed into, as views.
@@ -186,6 +303,148 @@ impl Compositor {
             },
         );
         Ok(kept)
+    }
+
+    /// The depth the commands in `range` leave with no stamp: replayed with the recorded
+    /// pipelines and every stamp left out, into depth of its own (and a scratch picture nothing
+    /// reads), cleared as the world replay clears. From the world's start, that is the world's
+    /// depth with no building stamped; from an indoor step, the depth the step's rooms leave, which
+    /// the step clears before it stamps or draws them. The replay is not counted in the frame's
+    /// census.
+    ///
+    /// # Errors
+    /// [`HifiError::Budget`] when its targets do not fit the video memory budget.
+    pub fn unstamped_depth(
+        cx: &mut SidecarContext<'_>,
+        resources: &mut Resources,
+        encoder: &mut wgpu::CommandEncoder,
+        range: std::ops::Range<u32>,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+    ) -> Result<wgpu::TextureView, HifiError> {
+        let (width, height) = cx.surface_size();
+        let colour = resources.texture(
+            cx.device(),
+            ResourceName::ScratchColour,
+            TextureSpec {
+                width,
+                height,
+                format: cx.surface_format(),
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+            },
+        )?;
+        let depth = resources.texture(
+            cx.device(),
+            ResourceName::WorldDepthUnstamped,
+            TextureSpec {
+                width,
+                height,
+                format: SidecarContext::depth_format(),
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+            },
+        )?;
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("unstamped depth"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &colour,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: timestamps,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        cx.count_pass();
+        cx.replay_uncounted(range, &mut pass, &mut Unstamped);
+        drop(pass);
+        Ok(depth)
+    }
+
+    /// The depth each pixel sees: `world`, except where it holds a building stamp, which takes
+    /// `unstamped` there instead.
+    ///
+    /// # Errors
+    /// [`HifiError::Budget`] when it does not fit the video memory budget.
+    pub fn seen_depth(
+        &mut self,
+        cx: &mut SidecarContext<'_>,
+        resources: &mut Resources,
+        encoder: &mut wgpu::CommandEncoder,
+        world: &wgpu::TextureView,
+        unstamped: &wgpu::TextureView,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+    ) -> Result<wgpu::TextureView, HifiError> {
+        let p = self
+            .seen
+            .get_or_insert_with(|| make_seen_pipeline(cx.device(), "fs_seen", 2));
+        draw_seen(
+            p,
+            cx,
+            resources,
+            encoder,
+            ResourceName::WorldDepthSeen,
+            &[world, unstamped],
+            timestamps,
+        )
+    }
+
+    /// The depth each pixel sees after an indoor step, `step`, whose rooms stamp their openings:
+    /// `world`, the depth the step left, except where a room's stamp holds it or the step drew
+    /// nothing, which take `before`, the depth seen before the step. The step is replayed once
+    /// more with its stamps left out, and a stamp holds a pixel where it is nearer than anything
+    /// the step draws there without it.
+    ///
+    /// # Errors
+    /// [`HifiError::Budget`] when its targets do not fit the video memory budget.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seen_after_step(
+        &mut self,
+        cx: &mut SidecarContext<'_>,
+        resources: &mut Resources,
+        encoder: &mut wgpu::CommandEncoder,
+        timer: &mut GpuTimer,
+        world: &wgpu::TextureView,
+        before: &wgpu::TextureView,
+        step: std::ops::Range<u32>,
+    ) -> Result<wgpu::TextureView, HifiError> {
+        let unstamped = Self::unstamped_depth(
+            cx,
+            resources,
+            encoder,
+            step,
+            timer.writes("unstamped depth"),
+        )?;
+        let p = self
+            .seen_after_step
+            .get_or_insert_with(|| make_seen_pipeline(cx.device(), "fs_step", 3));
+        draw_seen(
+            p,
+            cx,
+            resources,
+            encoder,
+            ResourceName::WorldDepthSeenAfterStep,
+            &[world, &unstamped, before],
+            timer.writes("seen depth"),
+        )
     }
 
     /// Replay `range` with the recorded pipelines (unless `filter` says otherwise) into
@@ -466,8 +725,131 @@ fn make_pipelines(device: &wgpu::Device, format: wgpu::TextureFormat) -> Pipelin
     }
 }
 
+/// Draw `p` over the whole of the depth target `name`, its depth textures `views` bound in
+/// order; the target's view.
+fn draw_seen(
+    p: &SeenPipeline,
+    cx: &mut SidecarContext<'_>,
+    resources: &mut Resources,
+    encoder: &mut wgpu::CommandEncoder,
+    name: ResourceName,
+    views: &[&wgpu::TextureView],
+    timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+) -> Result<wgpu::TextureView, HifiError> {
+    let (width, height) = cx.surface_size();
+    let seen = resources.texture(
+        cx.device(),
+        name,
+        TextureSpec {
+            width,
+            height,
+            format: SidecarContext::depth_format(),
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+        },
+    )?;
+    let entries: Vec<wgpu::BindGroupEntry<'_>> = (0u32..)
+        .zip(views)
+        .map(|(binding, view)| wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::TextureView(view),
+        })
+        .collect();
+    let bind = cx.device().create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("seen depth"),
+        layout: &p.layout,
+        entries: &entries,
+    });
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("seen depth"),
+        color_attachments: &[],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: &seen,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(1.0),
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        }),
+        timestamp_writes: timestamps,
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    cx.count_pass();
+    pass.set_pipeline(&p.pipeline);
+    pass.set_bind_group(0, &bind, &[]);
+    pass.draw(0..3, 0..1);
+    drop(pass);
+    Ok(seen)
+}
+
+/// The seen depth's pipeline drawing with the fragment stage `entry`, which reads `bindings`
+/// depth textures.
+fn make_seen_pipeline(device: &wgpu::Device, entry: &str, bindings: u32) -> SeenPipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("seen depth"),
+        source: wgpu::ShaderSource::Wgsl(seen_depth_wgsl().into()),
+    });
+    let entries: Vec<wgpu::BindGroupLayoutEntry> = (0..bindings)
+        .map(|binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Depth,
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        })
+        .collect();
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("seen depth"),
+        entries: &entries,
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("seen depth"),
+        bind_group_layouts: &[Some(&layout)],
+        immediate_size: 0,
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("seen depth"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: SidecarContext::depth_format(),
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Always),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some(entry),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &[],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+    SeenPipeline { layout, pipeline }
+}
+
 /// The composite's shader, for the device-free validation test.
 #[must_use]
 pub const fn composite_shader() -> &'static str {
     COMPOSITE_WGSL
+}
+
+/// The seen depth's shader, for the device-free validation test.
+#[must_use]
+pub fn seen_depth_shader() -> String {
+    seen_depth_wgsl()
 }

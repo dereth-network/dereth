@@ -390,8 +390,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "hifi.shaders.the-composite-shader-validates",
-        says: "The shader the high-fidelity composite draws with parses and validates without a \
-               device.",
+        says: "The shaders the high-fidelity composite and the depth each pixel sees are drawn \
+               with parse and validate without a device, and the second looks for exactly the \
+               depth a building's stamp writes.",
         since: TOOLING,
         evidence: Evidence::Private("AC-EVID-HIFI-COMPOSITE-SHADER"),
         station: "dereth-render-hifi::cpu::shared::shaders::the_composite_shader_parses_and_validates",
@@ -436,6 +437,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "hifi.sky.from-inside-a-room-the-depth-through-its-openings-is-the-outdoors",
+        says: "In a frame split between a room and the outdoors, the depth the effects read and \
+               the occlusion they draw are, through the room's door, the outdoors', not the flat \
+               depth of the opening the room stamps there: as they are with the room drawn with \
+               no depth clear, whether or not the frame is re-shaded.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-SKY-ROOM-OPENINGS"),
+        station: "dereth-client::gpu::rendering::hifi_atmosphere::from_inside_a_room_the_depth_through_its_openings_is_the_outdoors",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "hifi.sky.hills-at-the-edge-of-the-land-fade-evenly",
         says: "Hills reaching the edge of the resident landscape fade evenly into the haze: the \
                land below a crest never brightens against the crest by more than a few levels \
@@ -455,6 +468,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-SKY-INTERIORS"),
         station: "dereth-client::gpu::rendering::hifi_atmosphere::interiors_and_split_frames_are_drawn_as_they_always_are",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.sky.land-seen-through-a-building-keeps-its-colour",
+        says: "From outdoors, the land seen through a building's window and on out through the \
+               window across the room keeps the colour it has with the air off: none of it \
+               inside the openings turns to the haze of the far distance.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-SKY-THROUGH-WINDOW"),
+        station: "dereth-client::gpu::rendering::hifi_atmosphere::land_seen_through_a_buildings_windows_keeps_its_colour",
         tier: Tier::Gpu,
     },
     behaviour! {

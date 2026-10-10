@@ -20,6 +20,15 @@ pub enum ResourceName {
     WorldDepth,
     /// The world's depth as it stood before an indoor step cleared it.
     WorldDepthBeforeClear,
+    /// The world's depth with no opening stamped into it: up to the last building stamp, or
+    /// the indoor step's.
+    WorldDepthUnstamped,
+    /// The depth each pixel sees: the world's, with the unstamped depth where a stamp is left
+    /// uncovered.
+    WorldDepthSeen,
+    /// The depth each pixel sees after an indoor step: the step's, with the depth seen before
+    /// it where a room's stamp is left uncovered or the step drew nothing.
+    WorldDepthSeenAfterStep,
     /// The world re-shaded in linear high dynamic range.
     SceneHdr,
     /// The world's view-space normals, with the material class in alpha.

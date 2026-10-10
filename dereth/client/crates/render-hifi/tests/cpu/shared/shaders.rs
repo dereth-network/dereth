@@ -22,24 +22,51 @@ fn every_shared_shader_parses_and_validates() {
 }
 
 /// Behaviour: hifi.shaders.the-composite-shader-validates
+/// The composite's shader and the seen depth's parse and validate without a device, with the
+/// entry points their pipelines name, and the seen depth looks for exactly the depth a building
+/// stamp writes.
 #[test]
 fn the_composite_shader_parses_and_validates() {
-    let source = dereth_render_hifi::composite::composite_shader();
-    let module = naga::front::wgsl::parse_str(source)
-        .unwrap_or_else(|e| panic!("composite: {}", e.emit_to_string(source)));
-    let info = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
-    )
-    .validate(&module)
-    .unwrap_or_else(|e| panic!("composite: {e:?}"));
-    let entries: Vec<&str> = module
-        .entry_points
-        .iter()
-        .map(|e| e.name.as_str())
-        .collect();
-    assert_eq!(entries, ["vs", "fs_copy", "fs_depth"]);
-    drop(info);
+    let seen = dereth_render_hifi::composite::seen_depth_shader();
+    let shaders: [(&str, &str, &[&str]); 2] = [
+        (
+            "composite",
+            dereth_render_hifi::composite::composite_shader(),
+            &["vs", "fs_copy", "fs_depth"],
+        ),
+        ("seen depth", &seen, &["vs", "fs_seen", "fs_step"]),
+    ];
+    for (name, source, want) in shaders {
+        let module = naga::front::wgsl::parse_str(source)
+            .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(source)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let entries: Vec<&str> = module
+            .entry_points
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(entries, want, "{name}");
+        if name == "seen depth" {
+            let stamp = module
+                .constants
+                .iter()
+                .find(|(_, c)| c.name.as_deref() == Some("STAMP"))
+                .map(|(_, c)| &module.global_expressions[c.init]);
+            let want = dereth_render_cpu::pso::PORTAL_STAMP_FAR_DEPTH;
+            assert!(
+                matches!(
+                    stamp,
+                    Some(naga::Expression::Literal(naga::Literal::F32(v))) if v.to_bits() == want.to_bits()
+                ),
+                "the stamp's depth in the shader is {stamp:?}, not {want:?}"
+            );
+        }
+    }
 }
 
 /// Behaviour: hifi.shaders.the-re-shade-shaders-validate

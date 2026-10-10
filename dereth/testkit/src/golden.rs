@@ -55,12 +55,17 @@ pub fn rewriting() -> bool {
 /// Panics with the first differing line when the two disagree, and when the golden is absent on a
 /// run that is not rewriting -- an absent golden is a missing oracle, never a pass.
 pub fn check(name: &str, actual: &str) {
+    check_or_rewrite(name, actual, rewriting());
+}
+
+/// [`check`], rewriting when `rewrite` says so rather than when the environment does.
+fn check_or_rewrite(name: &str, actual: &str, rewrite: bool) {
     let path = golden_dir().join(format!("{name}.txt"));
     // Committed files in this repository are LF, and a golden written on Windows must be too or
     // every line of it differs the first time it is read on another host.
     let actual = normalise(actual);
 
-    if rewriting() {
+    if rewrite {
         // `name` may carry a directory -- `ui/<name>` is `UiSnapshot::assert_tree`'s --
         // so the directory made is the file's own parent and not always `golden_dir()`.
         let dir = path.parent().unwrap_or(&path).to_path_buf();
@@ -128,9 +133,13 @@ mod tests {
         assert_eq!(normalise("a\nb\n\n\n"), "a\nb\n");
     }
 
+    /// Compared, whatever the environment asks: a rewriting run must neither write the file
+    /// nor fail here.
     #[test]
     fn an_absent_golden_is_a_panic_and_not_a_pass() {
-        let e = std::panic::catch_unwind(|| check("no-such-golden-missing-oracle", "anything"));
+        let e = std::panic::catch_unwind(|| {
+            check_or_rewrite("no-such-golden-missing-oracle", "anything", false);
+        });
         assert!(e.is_err(), "a missing oracle must not read as a pass");
     }
 
