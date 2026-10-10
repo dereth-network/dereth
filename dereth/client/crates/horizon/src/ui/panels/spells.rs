@@ -234,7 +234,7 @@ impl Windows {
             state,
             Rect::new(
                 area.right() + 12.0 * k,
-                area.bottom() + 4.0 * k,
+                area.bottom() + 6.0 * k,
                 body.right() - area.right() - 12.0 * k,
                 40.0 * k,
             ),
@@ -597,10 +597,15 @@ fn stance_controls(
     let missile = state.combat_mode == dereth_client_contract::combat_mode::MISSILE;
     let side = 36.0 * k;
     let gap = 8.0 * k;
+    // The row of tiles stands centred in `r`, across and up and down, so it sits level with the
+    // two rows of level filters beside it.
+    #[allow(clippy::cast_precision_loss)]
+    let count = PowerAct::ALL.len() as f32;
+    let left = r.x + ((r.w - (count * side + (count - 1.0) * gap)) / 2.0).max(0.0);
     for (i, act) in PowerAct::ALL.into_iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
         let tile = Rect::new(
-            r.x + i as f32 * (side + gap),
+            left + i as f32 * (side + gap),
             r.y + (r.h - side) / 2.0,
             side,
             side,
