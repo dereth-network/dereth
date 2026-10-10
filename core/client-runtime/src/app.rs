@@ -705,6 +705,10 @@ pub struct App<S: Shell> {
     pub hifi_interface: bool,
     /// A look stick's push, each axis from -1 to 1, which turns the orbit camera every frame.
     pub orbit_look: (f32, f32),
+    /// Every animated body drawn between its animation's keyframes, as an interface asked
+    /// ([`crate::ui_context::UiContext::set_smooth_animation`]); the drawn world takes it each
+    /// frame (`crate::world_state::WorldState::smooth_animation`).
+    pub smooth_animation: bool,
     /// When the cursor last moved under mouse look, for the input poll's 0.2 s idle tick.
     last_mouse_move: f64,
     pub last_cursor: Option<(f64, f64)>,

@@ -253,6 +253,12 @@ pub struct WorldState {
     /// `sync_objects`**, so the retail order — dispatch, then —
     /// holds inside one frame.
     pub player_movement_applied: bool,
+    /// Every animated body is drawn between its animation's keyframes, a presentation's choice
+    /// (`dereth_animation::seq::between`); off, each part is drawn at the keyframe its animation
+    /// stands at, as the game draws it. Only where the parts are drawn changes: the animations
+    /// are advanced, fire their hooks and move the bodies exactly as they do with it off, and
+    /// what the bodies collide with is posed at the keyframes either way.
+    pub smooth_animation: bool,
 }
 
 /// One object's **pose**, as [`WorldState::server_object_pose`] reports it: the animation ids
@@ -1120,7 +1126,11 @@ impl WorldState {
         };
         // Re-derived rather than stored, for the reason `advance_objects` gives at its own
         // loop: a window scroll moves the origin of the space these frames are expressed in.
-        c.place_parts(space);
+        if self.smooth_animation {
+            c.place_parts_between(space);
+        } else {
+            c.place_parts(space);
+        }
     }
 
     /// Apply-lighting's object half:

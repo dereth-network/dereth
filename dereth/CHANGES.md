@@ -19,6 +19,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's camera stops directly behind you after a turn
 - A speed no motion means, sent by a server, no longer freezes the client.
 - Turning your character with the right mouse button in Horizon no longer stutters.
+- Horizon can draw characters and creatures moving smoothly between their animations' frames, at any frame rate: Smooth Animation, on the Client page of its options, off by default.
 
 ## 0.4.0 (2026-10-09)
 

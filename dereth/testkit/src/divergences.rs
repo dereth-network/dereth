@@ -339,6 +339,18 @@ pub static DIVERGENCES: &[Divergence] = &[
                  and is never sent to the server. The final client had no such command.",
         why: "A player can look at the world by day or by night without waiting for the hour.",
     },
+    Divergence {
+        id: "CD-039",
+        title: "Smooth Animation under Horizon",
+        change: "Under the Horizon interface, a box on its options page (Smooth Animation, off by \
+                 default) draws every animated body between its animation's keyframes, at any \
+                 frame rate, where the final client steps each part from one keyframe to the next. \
+                 The animations are advanced, fire their hooks and move the bodies as they do with \
+                 it off, and what bodies collide with is posed at the keyframes either way; the \
+                 classic and modern interfaces never draw it.",
+        why: "Bodies move as smoothly as the rest of the picture at high frame rates, for a \
+              player who asks for it, without changing how the game plays.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

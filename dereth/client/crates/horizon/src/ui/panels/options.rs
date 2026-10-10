@@ -7,7 +7,8 @@
 //!   the main tab, its opacity popped out, kept with this interface's settings, and its chat
 //!   window's message filter, which the server keeps: the same filter the tab's own menu sets.
 //! * **Client**: the profile's settings: display, graphics, sound, camera and the interface choice,
-//!   with this interface's scale beside the interface choice; in a build with the experimental
+//!   with this interface's scale beside the interface choice and its smooth animation last under
+//!   the graphics quality; in a build with the experimental
 //!   rendering effects, their boxes last, under a heading of their own with a warning, the
 //!   status of the device they draw on, and a greyed box with its reason where what it needs is
 //!   off. Before them, wherever there are renderers to choose from (not in the browser), the
@@ -58,6 +59,16 @@ pub const SCALES: [(&str, f32); 4] = [("100%", 1.0), ("150%", 1.5), ("200%", 2.0
 /// The caption of the interface scale's row, on the Client page under the interface choice.
 const SCALE_CAPTION: &str = "Interface Scale";
 
+/// The caption of the smooth animation's row, on the Client page last under the graphics quality,
+/// and what it does, for its tooltip.
+const SMOOTH_CAPTION: &str = "Smooth Animation";
+const SMOOTH_NOTE: &str = "Draws every body between its animation's frames, at any frame rate, \
+                           rather than stepping from one frame to the next. Only the drawing \
+                           changes.";
+
+/// The heading the smooth animation's row closes.
+const SMOOTH_HEADING: &str = "Graphics Quality";
+
 /// A dropdown box's list, open over the window.
 #[derive(Debug, Clone)]
 pub struct OpenMenu {
@@ -88,6 +99,8 @@ pub struct OptionsState {
     pub pad: crate::pad::PadSettings,
     /// Whether the minimap turns with the character.
     pub minimap_rotates: bool,
+    /// Whether bodies are drawn between their animations' keyframes.
+    pub smooth_animation: bool,
     /// The log window's tab names as they stand.
     pub chat_tabs: crate::options::TabNames,
     /// The log window's opacities as they stand.
@@ -366,7 +379,8 @@ Press Escape to leave it as it is.",
                             ));
                         }
                     }
-                    Line::Scale | Line::Renderer | Line::RendererNotice => {}
+                    Line::Scale | Line::SmoothAnimation | Line::Renderer | Line::RendererNotice => {
+                    }
                     #[cfg(feature = "hifi")]
                     Line::Notice(_) | Line::EffectsStatus => {}
                     Line::Row(row) => match row.value {
@@ -553,6 +567,22 @@ Press Escape to leave it as it is.",
                             p.text_in(&dim, at, Align::Left, &text);
                             // Marked by its words, so a run can read what the page says.
                             self.mark(&text, at);
+                        }
+                    }
+                    Line::SmoothAnimation => {
+                        let at = Rect::new(list.x + 16.0 * k, y, list.w * 0.5, row_h);
+                        p.text_in(&label, at, Align::Left, SMOOTH_CAPTION);
+                        let control =
+                            Rect::new(list.x + list.w * 0.55, y + 3.0 * k, list.w * 0.42, 28.0 * k);
+                        self.mark(SMOOTH_CAPTION, control);
+                        let on = self.options_page.smooth_animation;
+                        if let Some(on) = kit::checkbox(p, ctx, control, on) {
+                            out.settings
+                                .push(("smooth-animation".into(), on.to_string()));
+                        }
+                        if at.intersect(&list).is_some_and(|at| ctx.over(&at)) {
+                            self.tip =
+                                Some((SMOOTH_CAPTION.to_owned(), vec![SMOOTH_NOTE.to_owned()]));
                         }
                     }
                     Line::Scale => {
@@ -1119,6 +1149,9 @@ enum Line {
     EffectsStatus,
     /// This interface's scale, under the interface choice.
     Scale,
+    /// Whether bodies are drawn between their animations' keyframes, last under the graphics
+    /// quality.
+    SmoothAnimation,
     /// The renderer the next start comes up on.
     Renderer,
     /// The renderer in use now, and the one the next start takes when that is another.
@@ -1234,6 +1267,7 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
         if rows.is_empty() {
             continue;
         }
+        let smooth = page == PageId::Client && heading.title == SMOOTH_HEADING;
         #[cfg(feature = "hifi")]
         if heading.title == fidelity::HEADING {
             out.extend(renderer_lines.take().into_iter().flatten());
@@ -1259,6 +1293,9 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
             {
                 out.push(Line::Notice(why.reason()));
             }
+        }
+        if smooth {
+            out.push(Line::SmoothAnimation);
         }
     }
     out.extend(renderer_lines.into_iter().flatten());

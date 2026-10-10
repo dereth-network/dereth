@@ -11,6 +11,7 @@
 //!   `num_anims − 1`. There is no explicit loop flag.
 //! * `curr` is the node being played; `frame_number` is a **double** and is fractional.
 
+pub mod between;
 pub mod update;
 
 use std::sync::Arc;
@@ -19,8 +20,10 @@ use dereth_primitives::{DataId, Vec3};
 
 use crate::data::{AnimAssets, AnimData, AnimFrame, AnimationData};
 
-/// The most nodes one update passes through: far more than any motion plays in a step, and a
-/// bound on the ones that would never use a step up (see [`update`]).
+/// The most nodes one update, or one look ahead ([`Sequence::between`]), passes through:
+/// far more than any motion plays in a step, and a bound on the ones that would never use a step
+/// up (see [`update`]). The two share it, so a look ahead names the keyframe an update would pose
+/// at any rate.
 pub const MOST_NODES: usize = 4096;
 
 /// `AnimSequenceNode` — one animation plus the frame range and rate it plays at.

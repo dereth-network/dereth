@@ -5,3 +5,4 @@ mod dungeon_web_frames;
 mod hifi_frames;
 pub(crate) mod hifi_stations;
 mod scenery_edge_frames;
+mod smooth_animation_frames;

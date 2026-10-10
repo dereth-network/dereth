@@ -1,6 +1,6 @@
 //! The Horizon interface's own settings: the interface scale, the camera's movement scheme and
-//! pointer directions, and the log window's tab names, opacities and where its tabs stand
-//! popped out. They are kept in a small file of their own
+//! pointer directions, whether bodies are drawn between their animations' keyframes, and the log
+//! window's tab names, opacities and where its tabs stand popped out. They are kept in a small file of their own
 //! (`horizon.txt`) beside the preferences, and System Configuration changes them live.
 //!
 //! [`HorizonOptions`] also carries what a test or a scripted run starts the interface with: the first
@@ -47,6 +47,9 @@ pub struct HorizonOptions {
     pub pad: crate::pad::PadSettings,
     /// The minimap turns with the character, rather than standing north up.
     pub minimap_rotates: bool,
+    /// Every animated body is drawn between its animation's keyframes, at any frame rate, rather
+    /// than at them as the game draws it. Only the drawing changes.
+    pub smooth_animation: bool,
     /// The log window's tab names, one for each of the game's chat windows.
     pub chat_tabs: TabNames,
     /// How opaque the log window's ground is, docked and popped out.
@@ -76,6 +79,7 @@ impl Default for HorizonOptions {
             },
             pad: crate::pad::PadSettings::default(),
             minimap_rotates: false,
+            smooth_animation: false,
             chat_tabs: TabNames::default(),
             chat_opacity: ChatOpacity::default(),
             chat_popped: [None; 5],
@@ -313,6 +317,7 @@ impl HorizonOptions {
                 "tilt-max" => parse_number(value, &mut o.orbit.pitch_max),
                 "camera-height" => parse_number(value, &mut o.orbit.height),
                 "minimap-rotates" => o.minimap_rotates = parse_switch(value),
+                "smooth-animation" => o.smooth_animation = parse_switch(value),
                 other => {
                     if let Some(slot) = TabNames::slot_of(other) {
                         let name = if value.is_empty() {
@@ -355,6 +360,7 @@ tilt-min={}
 tilt-max={}
 camera-height={}
 minimap-rotates={}
+smooth-animation={}
 ",
             self.scale.unwrap_or(1.0),
             movement_word(self.orbit.movement),
@@ -371,6 +377,7 @@ minimap-rotates={}
             self.orbit.pitch_max,
             self.orbit.height,
             self.minimap_rotates,
+            self.smooth_animation,
         );
         for slot in 0..DEFAULT_TAB_NAMES.len() {
             let _ = writeln!(
@@ -462,6 +469,18 @@ pub fn parse_in(s: &str, range: (f32, f32)) -> Option<f32> {
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
+
+    #[test]
+    fn bodies_are_drawn_at_their_keyframes_until_smooth_animation_is_set_and_it_reads_back() {
+        assert!(!HorizonOptions::default().smooth_animation);
+        assert!(!HorizonOptions::parse("").smooth_animation);
+        let on = HorizonOptions {
+            smooth_animation: true,
+            ..HorizonOptions::default()
+        };
+        assert!(HorizonOptions::parse(&on.to_text()).smooth_animation);
+        assert!(!HorizonOptions::parse(&HorizonOptions::default().to_text()).smooth_animation);
+    }
 
     #[test]
     fn the_keyboard_defaults_to_character_based_movement_the_pad_to_camera_based_and_both_read_back(

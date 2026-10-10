@@ -703,8 +703,10 @@ impl HorizonFrontEnd {
         now: LocalTime,
         mut notices: UiNotices,
     ) -> bool {
-        // This interface's own camera, with the movement scheme and pointer directions chosen.
+        // This interface's own camera, with the movement scheme and pointer directions chosen,
+        // and its bodies drawn between keyframes when that is chosen.
         cx.set_orbit_camera(Some(self.ui.options.orbit_in_effect()));
+        cx.set_smooth_animation(self.ui.options.smooth_animation);
         self.deliver_power_bar_notices(std::mem::take(&mut notices.power_bar));
         let dt = self
             .last_time
@@ -1363,6 +1365,7 @@ impl HorizonFrontEnd {
                     }
                 }
                 "minimap-rotates" => options.minimap_rotates = value == "true",
+                "smooth-animation" => options.smooth_animation = value == "true",
                 "mouse-turn" | "key-turn" | "tilt-min" | "tilt-max" | "camera-height" => {
                     if let Ok(v) = value.parse::<f32>() {
                         let o = &mut options.orbit;

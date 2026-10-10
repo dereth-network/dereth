@@ -96,6 +96,22 @@ impl Client {
         self.shell.horizon.ui = Some(ui);
     }
 
+    /// The Horizon interface brought up beside the others and not shown, in the world, with its
+    /// bodies drawn between keyframes (`smooth`) or at them.
+    fn install_horizon_drawing(&mut self, smooth: bool) {
+        let mut ui = dereth_horizon::runtime::HorizonFrontEnd::new(
+            std::sync::Arc::new(dereth_horizon::art::Art::empty()),
+            dereth_horizon::options::HorizonOptions {
+                screen: dereth_horizon::options::StartScreen::Game,
+                smooth_animation: smooth,
+                ..Default::default()
+            },
+            None,
+        );
+        ui.start(&mut self.app.ui_context());
+        self.shell.horizon.ui = Some(ui);
+    }
+
     /// The classic interface brought up beside the others and not shown.
     fn install_classic(&mut self, state: &std::path::Path) {
         struct Fonts;
@@ -796,6 +812,43 @@ fn key_does(c: &Client, scan: u16, name: &str) -> bool {
         .keys_for_action(action, map)
         .iter()
         .any(|k| k.is_exactly_equal(&key))
+}
+
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads retail and classic interface data"
+)]
+fn bodies_are_drawn_between_keyframes_only_while_horizon_is_shown_with_its_box_ticked() {
+    let state = std::env::temp_dir().join(format!(
+        "dereth-switch-horizon-smooth-{}",
+        std::process::id()
+    ));
+    for ticked in [true, false] {
+        let mut c = Client::new(&state);
+        c.install_classic(&state);
+        c.install_horizon_drawing(ticked);
+        assert!(
+            !c.app.smooth_animation,
+            "the modern interface draws as the game does"
+        );
+        for (to, smooth) in [
+            (Interface::Horizon, ticked),
+            (Interface::Classic, false),
+            (Interface::Horizon, ticked),
+            (Interface::Modern, false),
+        ] {
+            c.choose(to);
+            c.frame();
+            assert_eq!(c.shown(), to);
+            assert_eq!(
+                c.app.smooth_animation, smooth,
+                "{to:?}, the box ticked {ticked}"
+            );
+        }
+        c.finish();
+    }
+    let _ = std::fs::remove_dir_all(&state);
 }
 
 #[test]

@@ -782,6 +782,13 @@ impl<'a, S: Shell> UiContext<'a, S> {
         }
     }
 
+    /// Draw every animated body between its animation's keyframes (`on`), or at them as the
+    /// game draws them. Only the drawing changes; see
+    /// `crate::world_state::WorldState::smooth_animation`.
+    pub fn set_smooth_animation(&mut self, on: bool) {
+        self.app.smooth_animation = on;
+    }
+
     /// The orbit camera as the body's camera has it, when there is a body.
     #[must_use]
     pub fn orbit_camera(&self) -> Option<crate::orbit::OrbitCamera> {

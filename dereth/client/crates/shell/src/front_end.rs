@@ -1819,8 +1819,9 @@ impl<H: Host> ClientShell<H> {
             input.set_text_mode(false);
             input.activate_horizon(false);
         }
-        // The game's camera again, where it was left.
+        // The game's camera again, where it was left, and the bodies drawn as the game draws them.
         cx.set_orbit_camera(None);
+        cx.set_smooth_animation(false);
         cx.set_hifi_interface(false);
         self.horizon.active = false;
         cx.hud_mut().horizon_active = false;

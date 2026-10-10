@@ -259,6 +259,7 @@ impl<S: Shell> App<S> {
             #[cfg(feature = "hifi")]
             hifi_interface,
             orbit_look: (0.0, 0.0),
+            smooth_animation: false,
             last_mouse_move: 0.0,
             last_cursor: None,
             last_time: 0.0,

@@ -77,6 +77,7 @@ impl WorldState {
             last_bodyless_tick: 0.0,
             // Nothing has been dispatched yet, so the server holds no control.
             player_movement_applied: false,
+            smooth_animation: false,
             player_object: None,
             character_state: PhysicsState::DEFAULT,
             character_sound_table: None,

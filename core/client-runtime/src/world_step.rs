@@ -269,6 +269,22 @@ pub fn step_objects(
     advance_objects(ws, cfg, now, physics_ticked, stats);
 }
 
+/// The furthest on, in seconds, a body drawn between its animation's keyframes is drawn from where
+/// its animation was last advanced: three physics ticks. Between ticks a body is drawn up to one
+/// tick on; one whose animation is not being advanced (held still, or the world held while a
+/// portal is crossed) is drawn this far on, and no further, until it is advanced again.
+pub const MOST_AHEAD: f64 = 3.0 * dereth_physics::globals::MIN_QUANTUM;
+
+/// How far on from where its animation was last advanced, `since` seconds ago, a body drawn
+/// between keyframes is drawn: that long, up to [`MOST_AHEAD`], and never back.
+#[must_use]
+pub fn drawn_ahead(since: f64) -> f64 {
+    if since.is_nan() {
+        return 0.0;
+    }
+    since.clamp(0.0, MOST_AHEAD)
+}
+
 /// Pose every remote object's parts and advance only the bodyless animation fallback: the motion
 /// interpreter's time-stepping ladder with the position half removed, for objects with no
 /// attached dynamic body (attached bodies advanced in the physics sweep). Then held objects are
@@ -290,9 +306,9 @@ fn advance_objects(
         physics_ticked,
     );
     stats.fold_steps(d);
-    // Part placement reads the current animation frame; nothing interpolates. Done for every
-    // object, moved or not, because a position event may have changed the frame without the clock
-    // moving.
+    // Part placement reads the current animation frame; nothing interpolates, unless the bodies
+    // are drawn between keyframes. Done for every object, moved or not, because a position event
+    // may have changed the frame without the clock moving.
     let ids: Vec<ObjectId> = ws.objects.keys().copied().collect();
     for id in &ids {
         // Re-derived rather than stored: a window scroll moves the origin of this space.
@@ -304,13 +320,22 @@ fn advance_objects(
         else {
             continue;
         };
+        // Drawn between keyframes, how long since the object's animation was last advanced: by
+        // physics for an object with a body, by the fallback ladder for one without.
+        let ahead = ws
+            .smooth_animation
+            .then(|| advanced_at(ws, *id).map_or(0.0, |at| drawn_ahead(now.0 - at)));
         // The same frame reaches the body: drawing and object collision both read the part
         // array, and without this every solid object would collide at its setup's placement
-        // frame for its whole life.
+        // frame for its whole life. What it collides with is the keyframe's, drawn between
+        // keyframes or not.
         let frames = if let Some(o) = ws.objects.get_mut(id) {
             o.frame = f;
             let mut driver = o.sim.driver.borrow_mut();
-            driver.update_parts(&f);
+            match ahead {
+                Some(ahead) => driver.update_parts_between(&f, ahead),
+                None => driver.update_parts(&f),
+            }
             driver
                 .sequence
                 .get_curr_animframe()
@@ -329,6 +354,16 @@ fn advance_objects(
     place_held_objects(ws, &ids, stats);
     // Hook processing runs at the end of the step that raised them.
     process_hooks(ws, stats);
+}
+
+/// When object `id`'s animation was last advanced: by physics, for an object with a body; by the
+/// fallback ladder, for one without.
+fn advanced_at(ws: &WorldState, id: ObjectId) -> Option<f64> {
+    let o = ws.objects.get(&id)?;
+    match o.sim.physics_handle {
+        Some(h) => Some(ws.character.as_ref()?.world.get(h)?.update_time()),
+        None => Some(o.sim.update_time),
+    }
 }
 
 /// Put every held object on its holder. Setting a frame in the client updates the children, so
@@ -583,5 +618,360 @@ mod tests {
             "the body moved {moved} m from {start:?} to {end:?}"
         );
         assert_eq!(stats.updates, 60);
+    }
+
+    #[test]
+    fn a_body_drawn_between_keyframes_is_drawn_on_up_to_three_ticks_and_never_back() {
+        assert_eq!(drawn_ahead(-0.5), 0.0, "a clock behind the animation's");
+        assert_eq!(drawn_ahead(0.01), 0.01);
+        assert_eq!(
+            drawn_ahead(10.0),
+            MOST_AHEAD,
+            "an animation not advanced lately"
+        );
+        assert_eq!(drawn_ahead(f64::NAN), 0.0);
+        assert!((MOST_AHEAD - 0.1).abs() < 1e-12);
+    }
+
+    /// A drudge, the creature the stations below set fighting, and the motions the server gives
+    /// one.
+    const DRUDGE: u32 = 0x0200_07DD;
+    const DRUDGE_MOTIONS: u32 = 0x0900_0008;
+
+    /// One frame of the stations below: the body's place, its animation (the animation playing
+    /// and the frame it stands at), its parts as drawn, in the body's own frame, and whether each
+    /// is drawn exactly where its animation's keyframe puts it; the same for the drudge, with the
+    /// part frames its body collides with; and the attack hooks that have reached physics so far.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Shot {
+        body: Position,
+        body_pose: (u32, f64),
+        body_parts: Vec<Vec3>,
+        body_at_keyframe: bool,
+        drudge: Option<Position>,
+        drudge_pose: (u32, f64),
+        drudge_parts: Vec<Vec3>,
+        drudge_at_keyframe: bool,
+        drudge_collides: Option<Vec<Frame>>,
+        attacks: u64,
+    }
+
+    /// Whether every part of `driver` is drawn exactly where the keyframe its animation stands at
+    /// puts it, against `root`.
+    fn at_keyframe(driver: &dereth_animation::MotionDriver, root: &Frame) -> bool {
+        use dereth_primitives::frame::V3 as _;
+        let Some(af) = driver.sequence.get_curr_animframe() else {
+            return true;
+        };
+        let scale = driver.part_array.scale;
+        driver
+            .part_array
+            .parts
+            .iter()
+            .zip(&af.frames)
+            .all(|(p, f)| {
+                let scaled = Frame::new(f.origin.mul_componentwise(scale), f.rotation);
+                p.pos == dereth_primitives::frame::combine(root, &scaled)
+            })
+    }
+
+    /// The parts of `driver`, placed against `root`, as offsets in `root`'s own frame.
+    fn parts_in(driver: &dereth_animation::MotionDriver, root: &Frame) -> Vec<Vec3> {
+        driver
+            .part_array
+            .parts
+            .iter()
+            .map(|p| {
+                let d = Vec3::new(
+                    p.pos.origin.x - root.origin.x,
+                    p.pos.origin.y - root.origin.y,
+                    p.pos.origin.z - root.origin.z,
+                );
+                dereth_primitives::frame::globaltolocalvec(
+                    dereth_primitives::frame::l2g(root.rotation),
+                    d,
+                )
+            })
+            .collect()
+    }
+
+    fn pose(driver: &dereth_animation::MotionDriver) -> (u32, f64) {
+        let s = &driver.sequence;
+        s.curr()
+            .map_or((0, 0.0), |i| (s.nodes()[i].anim_id.0, s.frame_number()))
+    }
+
+    /// Two seconds at `fps` of a body running north through Holtburg, a drudge beside its way
+    /// fighting (into its combat stance, then a swing begun every second), each frame run as the
+    /// drawn world runs it, with the bodies drawn between keyframes (`smooth`) or at them.
+    fn running_past_a_fighting_drudge(fps: f64, smooth: bool) -> Vec<Shot> {
+        use dereth_animation::motion::MovementParameters;
+        use dereth_animation::MotionCommand;
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+            panic!(
+                "the retail dats are this test's oracle and they are not under {}",
+                dereth_dat::testing::dat_dir().display()
+            )
+        }));
+        let cfg = SceneConfig {
+            landblock: 0xA9B4,
+            character: true,
+            ..SceneConfig::default()
+        };
+        let (mut ws, mut residency) =
+            crate::world_build::load(&store, &cfg).expect("the world loads");
+        ws.smooth_animation = smooth;
+        let mut stats = StepCounters::default();
+        let step = 1.0 / fps;
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = step as f32;
+        let mut now = 1.0;
+        let mut frame = |ws: &mut WorldState,
+                         residency: &mut crate::world_build::BlockResidency,
+                         stats: &mut StepCounters,
+                         input: CharacterInput| {
+            now += step;
+            update(
+                ws,
+                residency,
+                &cfg,
+                CameraInput::default(),
+                input,
+                LocalTime(now),
+                dt,
+                stats,
+            );
+            now
+        };
+        let mut settled = 0.0;
+        for _ in 0..30 {
+            settled = frame(
+                &mut ws,
+                &mut residency,
+                &mut stats,
+                CharacterInput::default(),
+            );
+            residency.stream(&mut ws, &store, &cfg);
+        }
+        // The drudge, three metres east of the body, made as the server makes a creature.
+        let at = ws.character.as_ref().expect("a body").position();
+        let id = ObjectId(0x8300_0100);
+        let mut stream = crate::objects::ObjectStream::new();
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id,
+            physicsdesc: dereth_protocol::types::PhysicsDesc {
+                bitfield: dereth_protocol::types::physicsdesc::flags::POSITION
+                    | dereth_protocol::types::physicsdesc::flags::SETUP
+                    | dereth_protocol::types::physicsdesc::flags::MTABLE,
+                setup_id: Some(DRUDGE),
+                mtable_id: Some(DRUDGE_MOTIONS),
+                position: Some(dereth_protocol::types::PositionWire {
+                    objcell_id: at.cell.0,
+                    frame: dereth_protocol::types::Frame {
+                        origin: Vec3::new(
+                            at.frame.origin.x + 3.0,
+                            at.frame.origin.y + 6.0,
+                            at.frame.origin.z,
+                        )
+                        .into(),
+                        orientation: dereth_primitives::Quat::IDENTITY.into(),
+                    },
+                }),
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    instance: 1,
+                    ..dereth_protocol::types::PhysicsTimestamps::default()
+                },
+                ..dereth_protocol::types::PhysicsDesc::default()
+            },
+            ..Default::default()
+        };
+        let body =
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload))
+                .expect("encode");
+        stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+                body,
+            },
+            LocalTime(settled),
+        );
+        stream.world.update_visible_object_list();
+        let mut counters = crate::world_objects::ObjectCounters::default();
+        crate::world_objects::sync_objects(
+            &mut ws,
+            &store,
+            &cfg,
+            &mut stream,
+            &mut counters,
+            &mut crate::world_objects::NoAppearance,
+        )
+        .expect("the drudge is made");
+        // Its body, as the client gives a creature one.
+        stream.sync_physics(&store, &mut ws.character.as_mut().expect("a body").world);
+        let params = MovementParameters::default();
+        let drudge = |ws: &WorldState| ws.objects.get(&id).map(|o| o.sim.driver.clone());
+        drudge(&ws)
+            .expect("the drudge")
+            .borrow_mut()
+            .do_interpreted_motion(MotionCommand::HAND_COMBAT, &params);
+        for _ in 0..30 {
+            frame(
+                &mut ws,
+                &mut residency,
+                &mut stats,
+                CharacterInput::default(),
+            );
+        }
+        let run = CharacterInput {
+            forward: true,
+            run: true,
+            ..CharacterInput::default()
+        };
+        // Up to speed.
+        for _ in 0..60 {
+            frame(&mut ws, &mut residency, &mut stats, run);
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let n = (2.0 * fps) as usize;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let every = fps as usize;
+        (0..n)
+            .map(|i| {
+                if i % every == 0 {
+                    drudge(&ws)
+                        .expect("the drudge")
+                        .borrow_mut()
+                        .do_interpreted_motion(MotionCommand::ATTACK_HIGH1, &params);
+                }
+                frame(&mut ws, &mut residency, &mut stats, run);
+                residency.stream(&mut ws, &store, &cfg);
+                let c = ws.character.as_ref().expect("a body");
+                let root = c.drawn_frame();
+                let o = ws.objects.get(&id).expect("the drudge");
+                let d = o.sim.driver.borrow();
+                let collides = o.sim.physics_handle.and_then(|h| {
+                    c.world
+                        .get(h)
+                        .and_then(|b| b.part_frames.as_deref().cloned())
+                });
+                Shot {
+                    body: c.position(),
+                    body_pose: pose(&c.driver()),
+                    body_parts: parts_in(&c.driver(), &root),
+                    body_at_keyframe: at_keyframe(&c.driver(), &root),
+                    drudge: o.sim.position,
+                    drudge_pose: pose(&d),
+                    drudge_parts: parts_in(&d, &o.frame),
+                    drudge_at_keyframe: at_keyframe(&d, &o.frame),
+                    drudge_collides: collides,
+                    attacks: stats.attack.hooks,
+                }
+            })
+            .collect()
+    }
+
+    /// Each frame, the furthest any part of a body moves within the body against the frame
+    /// before.
+    fn part_steps(shots: &[Shot], parts: impl Fn(&Shot) -> &Vec<Vec3>) -> Vec<f32> {
+        shots
+            .windows(2)
+            .map(|w| {
+                parts(&w[0])
+                    .iter()
+                    .zip(parts(&w[1]))
+                    .map(|(a, b)| {
+                        let d = Vec3::new(b.x - a.x, b.y - a.y, b.z - a.z);
+                        d.magnitude()
+                    })
+                    .fold(0.0, f32::max)
+            })
+            .collect()
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_keyframes_a_running_body_and_a_fighting_drudge_move_a_little_every_frame() {
+        for fps in [240.0, 60.0] {
+            let at = running_past_a_fighting_drudge(fps, false);
+            let between = running_past_a_fighting_drudge(fps, true);
+            for (who, parts) in [
+                (
+                    "the body",
+                    (|s: &Shot| &s.body_parts) as fn(&Shot) -> &Vec<Vec3>,
+                ),
+                ("the drudge", |s: &Shot| &s.drudge_parts),
+            ] {
+                let (stepped, smooth) = (part_steps(&at, parts), part_steps(&between, parts));
+                let still = |steps: &[f32]| steps.iter().filter(|s| **s < 1e-6).count();
+                let most = |steps: &[f32]| steps.iter().copied().fold(0.0, f32::max);
+                // At keyframes a part stands still between them and then jumps.
+                assert!(
+                    still(&stepped) * 3 > stepped.len(),
+                    "{fps} fps, {who}: drawn at keyframes it stands still between them: \
+                     {} of {}",
+                    still(&stepped),
+                    stepped.len()
+                );
+                // Between them it moves every frame, by much less than a keyframe's step.
+                assert_eq!(
+                    still(&smooth),
+                    0,
+                    "{fps} fps, {who}: drawn between keyframes it moves every frame"
+                );
+                assert!(
+                    most(&smooth) < most(&stepped) * 0.5,
+                    "{fps} fps, {who}: its largest step {} against {} at keyframes",
+                    most(&smooth),
+                    most(&stepped)
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_keyframes_or_at_them_the_bodies_move_animate_fight_and_collide_alike() {
+        let at = running_past_a_fighting_drudge(240.0, false);
+        let between = running_past_a_fighting_drudge(240.0, true);
+        assert!(
+            at.last()
+                .is_some_and(|s| s.attacks > 0 && s.drudge_collides.is_some()),
+            "the drudge has a body and its swings reach physics"
+        );
+        for (n, (a, b)) in at.iter().zip(&between).enumerate() {
+            assert_eq!(
+                (
+                    &a.body,
+                    a.body_pose,
+                    &a.drudge,
+                    a.drudge_pose,
+                    &a.drudge_collides,
+                    a.attacks
+                ),
+                (
+                    &b.body,
+                    b.body_pose,
+                    &b.drudge,
+                    b.drudge_pose,
+                    &b.drudge_collides,
+                    b.attacks
+                ),
+                "frame {n}: only the drawing differs"
+            );
+        }
+        // At keyframes, every part is exactly where its keyframe puts it, every frame; between
+        // them, the drawing does differ.
+        assert!(at
+            .iter()
+            .all(|s| s.body_at_keyframe && s.drudge_at_keyframe));
+        assert!(between
+            .iter()
+            .any(|s| !s.body_at_keyframe && !s.drudge_at_keyframe));
     }
 }

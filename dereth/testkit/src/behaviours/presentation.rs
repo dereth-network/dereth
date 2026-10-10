@@ -415,6 +415,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "presentation.smooth-animation.bodies-drawn-between-keyframes-move-and-collide-as-at-them",
+        says: "Drawn between their animations' keyframes, a running body and a fighting creature \
+               move every frame by much less than a keyframe's step, while where they stand, the \
+               animation they play and the frame it is at, the swings that reach physics and the \
+               part frames they collide with are what they are when drawn at the keyframes.",
+        since: THIS_CLIENT,
+        divergence: "CD-039",
+        evidence: Evidence::Private("AC-EVID-ANIM-SMOOTH-DRAWING-ONLY"),
+        station: "dereth-client-runtime::lib::world_step::tests::drawn_between_keyframes_or_at_them_the_bodies_move_animate_fight_and_collide_alike",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "presentation.smooth-animation.only-under-horizon-with-its-box-ticked",
+        says: "Bodies are drawn between keyframes only while the Horizon interface is shown with \
+               its Smooth Animation box ticked; the modern and classic interfaces draw them at the \
+               keyframes, as before.",
+        since: THIS_CLIENT,
+        divergence: "CD-039",
+        evidence: Evidence::Private("AC-EVID-ANIM-SMOOTH-HORIZON-ONLY"),
+        station: "dereth-client-shell::lib::front_end::horizon_switch_tests::bodies_are_drawn_between_keyframes_only_while_horizon_is_shown_with_its_box_ticked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "presentation.startup.a-second-client-starts-while-the-first-is-running",
         says: "A second client starts, and runs its interface, while another is still running on \
                the same machine; neither refuses the other.",

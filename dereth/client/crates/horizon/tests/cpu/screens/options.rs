@@ -462,6 +462,22 @@ fn the_interface_scale_is_one_of_four_chosen_by_its_radio_buttons() {
 }
 
 #[test]
+fn smooth_animation_is_this_interface_s_own_box_on_the_client_page_and_off_until_ticked() {
+    store::init();
+    let state = in_world();
+    let mut h = options_on("Client", &state);
+    scroll_to(&mut h, &state, "Smooth Animation");
+    let r = control(&h, "Smooth Animation");
+    let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
+    assert_eq!(
+        out.settings,
+        [("smooth-animation".to_owned(), "true".to_owned())],
+        "ticked, it is this interface's own setting, not a preference"
+    );
+    assert!(out.requests.is_empty(), "{:?}", out.requests);
+}
+
+#[test]
 fn the_controls_page_sets_the_movement_scheme_and_the_turning_directions() {
     let state = in_world();
     let mut h = options_on("Controls", &state);

@@ -562,6 +562,32 @@ impl PartArray {
         }
     }
 
+    /// Update the parts as a body drawn between its animation's keyframes is posed: each part
+    /// placed as [`Self::update_parts`] places it, from its frame blended between the keyframe
+    /// the sequence would pose `ahead` seconds on and the next
+    /// ([`Sequence::between`], [`crate::seq::between::blend`]), rather
+    /// than from the keyframe alone. The scale applies to the blended frame. With no animation,
+    /// or a keyframe missing, the parts are placed as [`Self::update_parts`] places them.
+    pub fn update_parts_between(&mut self, world: &Frame, seq: &Sequence, ahead: f64) {
+        let pair = seq
+            .between(ahead)
+            .and_then(|b| Some((seq.keyframe(b.from)?, seq.keyframe(b.to)?, b.share)));
+        let Some((from, to, share)) = pair else {
+            self.update_parts(world, seq);
+            return;
+        };
+        let n = self.parts.len().min(from.frames.len());
+        for i in 0..n {
+            let a = from.frames[i];
+            let f = to
+                .frames
+                .get(i)
+                .map_or(a, |b| crate::seq::between::blend(&a, b, share));
+            let scaled = Frame::new(f.origin.mul_componentwise(self.scale), f.rotation);
+            self.parts[i].pos = combine(world, &scaled);
+        }
+    }
+
     /// Set the part array's scale.
     pub fn set_scale_internal(&mut self, v: Vec3) {
         self.scale = v;
@@ -918,6 +944,54 @@ mod tests {
             pa.parts[1].pos.origin,
             Vec3::new(10.0, 22.0, 30.0),
             "part 1 is NOT composed onto part 0"
+        );
+    }
+
+    /// A body drawn between keyframes is blended in its animation's own units and then scaled:
+    /// at three times the size, a part a quarter of the way between keyframes a metre apart stands
+    /// three quarters of a metre on. With no animation it stands at its placement frame, as at
+    /// keyframes.
+    #[test]
+    fn a_scaled_body_drawn_between_keyframes_is_blended_then_scaled() {
+        let mut assets = MapAssets::default();
+        let id = DataId(0x0300_0002);
+        let at = |x: f32| AnimFrame {
+            frames: vec![Frame::new(Vec3::new(x, 0.0, 0.0), Quat::IDENTITY)],
+            hooks: Vec::new(),
+        };
+        assets.animations.insert(
+            id.0,
+            Arc::new(crate::data::AnimationData {
+                num_frames: 2,
+                num_parts: 1,
+                pos_frames: None,
+                part_frames: vec![at(0.0), at(1.0)],
+                has_hooks: false,
+            }),
+        );
+        let mut seq = Sequence::new();
+        let mut pa = PartArray::create_setup(setup(), true, &mut seq, &NoAssets).expect("setup");
+        let world = Frame::new(Vec3::new(5.0, 0.0, 0.0), Quat::IDENTITY);
+        pa.update_parts_between(&world, &seq, 0.25);
+        assert_eq!(pa.parts[0].pos.origin, Vec3::new(5.0, 0.0, 1.0));
+        seq.append_animation(
+            crate::data::AnimData {
+                anim_id: id,
+                low_frame: 0,
+                high_frame: -1,
+                framerate: 30.0,
+            },
+            &assets,
+        );
+        pa.set_scale_internal(Vec3::new(3.0, 3.0, 3.0));
+        pa.update_parts_between(&world, &seq, 0.25 / 30.0);
+        let x = pa.parts[0].pos.origin.x;
+        assert!((x - 5.75).abs() < 1e-5, "{x}");
+        pa.update_parts(&world, &seq);
+        assert_eq!(
+            pa.parts[0].pos.origin,
+            Vec3::new(5.0, 0.0, 0.0),
+            "at keyframes"
         );
     }
 

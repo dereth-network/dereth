@@ -982,6 +982,15 @@ impl MotionDriver {
         self.part_array.update_parts(world, &self.sequence);
     }
 
+    /// Place every part as a body drawn between its animation's keyframes is posed, `ahead`
+    /// seconds on from where its sequence was last advanced
+    /// ([`crate::parts::PartArray::update_parts_between`]). The sequence is not advanced.
+    pub fn update_parts_between(&mut self, world: &Frame, ahead: f64) {
+        self.placed_frame = Some(*world);
+        self.part_array
+            .update_parts_between(world, &self.sequence, ahead);
+    }
+
     /// The frame an emitter that hangs off the object itself, rather than one of its parts,
     /// follows: the frame the parts were last placed with.
     ///

@@ -2269,6 +2269,29 @@ impl Character {
     /// that has not chosen a block has nothing to pass and does not compile. The token is
     /// otherwise unused — it is a proof, not a parameter.
     pub fn place_parts(&self, _space: RenderSpace) {
+        let world_frame = self.drawn_frame();
+        self.driver.borrow_mut().update_parts(&world_frame);
+    }
+
+    /// [`Self::place_parts`] for a body drawn between its animation's keyframes: each part posed
+    /// between the keyframe its animation would stand at now and the next
+    /// (`dereth_animation::MotionDriver::update_parts_between`), the time since physics last
+    /// advanced the animation looked ahead over ([`crate::world_step::drawn_ahead`]). The
+    /// animation itself is not advanced.
+    pub fn place_parts_between(&self, _space: RenderSpace) {
+        let world_frame = self.drawn_frame();
+        let since = self
+            .world
+            .get(self.handle)
+            .map_or(0.0, |o| self.frame_time - o.update_time());
+        self.driver
+            .borrow_mut()
+            .update_parts_between(&world_frame, crate::world_step::drawn_ahead(since));
+    }
+
+    /// The frame the body is drawn at this frame, in render space: where physics has it, moved
+    /// and turned by its way between ticks ([`Self::drawn_offset`], [`Self::drawn_turn`]).
+    pub(crate) fn drawn_frame(&self) -> Frame {
         let mut world_frame = self.render_frame();
         let offset = self.drawn_offset();
         world_frame.origin = Vec3::new(
@@ -2281,7 +2304,7 @@ impl Character {
             let heading = dereth_primitives::frame::get_heading(&world_frame);
             dereth_primitives::frame::set_heading(&mut world_frame, heading + turn);
         }
-        self.driver.borrow_mut().update_parts(&world_frame);
+        world_frame
     }
 
     /// Move the drawn body one frame of `dt` seconds along its spring toward its way between
