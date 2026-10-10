@@ -68,10 +68,20 @@ fn run_reshaded(station: &Station, prefs: FidelityPreferences) -> (Vec<u8>, bool
 
 /// [`run_reshaded`], with or without the light that follows the player.
 fn run_with(station: &Station, prefs: FidelityPreferences, viewer_light: bool) -> (Vec<u8>, bool) {
+    run_on(station, prefs, viewer_light, false)
+}
+
+/// [`run_with`], with the landscape blended by the splat when `splat`.
+fn run_on(
+    station: &Station,
+    prefs: FidelityPreferences,
+    viewer_light: bool,
+    splat: bool,
+) -> (Vec<u8>, bool) {
     let mut device = device();
     let gpu = &mut device;
     let store = crate::common::dats();
-    let mut shot = Shot::open(&store, gpu, station);
+    let mut shot = Shot::open_blending(&store, gpu, station, splat);
     shot.scene.draw.set_viewer_light(viewer_light);
     shot.scene.draw.cfg.render.fidelity = prefs;
     shot.scene
@@ -240,4 +250,44 @@ fn at_night_in_the_open_the_light_that_follows_the_player_leaves_the_ground_as_d
         body_share >= ground_share * 0.9,
         "the body kept {body_share:.3} of its brightness against the ground's {ground_share:.3}"
     );
+}
+
+/// Behaviour: hifi.lighting.a-slope-turned-from-the-low-sun-does-not-light-up
+/// On the hillside above Holtburg in the evening, seen as the Horizon interface's orbit camera
+/// sees it and with the landscape blended by the splat (the client's own way), the steep
+/// triangle beside the player that faces away from the low sun is drawn, with the better
+/// lighting, with the bounced light over it and with every box ticked, no brighter against the
+/// ground on either side of it than the ordinary frame draws it: it does not light up.
+#[test]
+fn on_the_evening_hillside_the_triangle_turned_from_the_sun_does_not_light_up() {
+    let _gpu = crate::common::gpu_lock();
+    let station = station("hillside");
+    // Well inside the triangle, and on the ground either side of it: the level top it falls
+    // from on the left, and the slope the player stands on, on the right.
+    let triangle = |rgba: &[u8]| mean_luma(rgba, (0.396, 0.574), (0.437, 0.611));
+    let beside = |rgba: &[u8]| {
+        0.5 * (mean_luma(rgba, (0.292, 0.630), (0.333, 0.667))
+            + mean_luma(rgba, (0.625, 0.722), (0.667, 0.759)))
+    };
+    let share = |rgba: &[u8]| triangle(rgba) / beside(rgba).max(1.0);
+    let (plain, _) = run_on(&station, FidelityPreferences::default(), true, true);
+    let off = share(&plain);
+    for spec in ["Lighting=1", "Lighting=1,GlobalIllumination=1", EVERY_BOX] {
+        let (px, reshaded) = run_on(&station, fidelity(spec), true, true);
+        assert!(
+            reshaded,
+            "hillside with {spec}: the frame was not re-shaded"
+        );
+        let on = share(&px);
+        eprintln!(
+            "hillside {spec}: the triangle {:.1} against {:.1} beside it ({on:.3}); off {off:.3}",
+            triangle(&px),
+            beside(&px)
+        );
+        assert!(
+            on <= off * 1.05,
+            "hillside with {spec}: the triangle is {on:.3} of the ground beside it against \
+             {off:.3} in the ordinary frame"
+        );
+    }
 }

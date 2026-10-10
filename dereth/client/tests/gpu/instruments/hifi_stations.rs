@@ -88,6 +88,10 @@ pub(crate) enum Place {
         dist: f32,
         eye: f32,
     },
+    /// A free camera where the Horizon interface's orbit camera stands, at its own distance and
+    /// tilt, behind a player whose feet are at block-local `feet` in `block` and who faces `yaw`
+    /// radians from north. No body is drawn.
+    Orbit { block: u16, feet: Vec3, yaw: f32 },
 }
 
 /// One station.
@@ -114,7 +118,8 @@ impl Station {
             Place::Free { block, .. }
             | Place::Ground { block, .. }
             | Place::Look { block, .. }
-            | Place::Facing { block, .. } => block,
+            | Place::Facing { block, .. }
+            | Place::Orbit { block, .. } => block,
             #[allow(clippy::cast_possible_truncation)] // LINT-OK: the high half of a cell id
             Place::Body { cell, .. } => (cell >> 16) as u16,
         }
@@ -916,6 +921,22 @@ pub(crate) fn close_stations(store: &RetailDatStore) -> Vec<Station> {
     ]);
     out.extend(walkers);
     out.push(Station {
+        name: "hillside",
+        why:
+            "the hillside south of Holtburg in the evening, looking down it north-east toward the \
+              town as the Horizon interface's orbit camera does: beside the player a steep \
+              triangle of the landscape turned away from the low sun",
+        place: Place::Orbit {
+            block: HOLTBURG,
+            feet: Vec3::new(116.109_28, 64.769_8, 84.222_62),
+            // The heading of a body turned 2 * atan2(-0.321393, 0.946946) about the vertical.
+            yaw: -0.654_4,
+        },
+        clock: Clock::Sunny(0.849),
+        weather: false,
+        land_radius: 3,
+    });
+    out.push(Station {
         name: "dungeon",
         why: "a body standing in a dungeon's corridor: a frame wholly underground",
         place: Place::Body {
@@ -1246,6 +1267,17 @@ impl Shot {
     /// Load `station` on `gpu`, with the degrade governor off so the frame does not follow the
     /// frame rate.
     pub(crate) fn open(store: &Arc<RetailDatStore>, gpu: &mut Gpu, station: &Station) -> Self {
+        Self::open_blending(store, gpu, station, false)
+    }
+
+    /// [`Self::open`], with the landscape's layers blended as it is drawn when `splat` (the
+    /// client's own default), or from the composites built for its cells (the scene's).
+    pub(crate) fn open_blending(
+        store: &Arc<RetailDatStore>,
+        gpu: &mut Gpu,
+        station: &Station,
+        splat: bool,
+    ) -> Self {
         let body = matches!(
             station.place,
             Place::Body { .. } | Place::Ground { .. } | Place::Facing { .. }
@@ -1269,6 +1301,7 @@ impl Shot {
             ..SceneConfig::default()
         };
         cfg.render.automatic_degrades = false;
+        cfg.terrain_splat = splat;
         let mut scene = WorldScene::load(store, gpu, cfg).expect("the station's scene loads");
         match station.place {
             Place::Free {
@@ -1350,6 +1383,20 @@ impl Shot {
                 let (dx, dy, dz) = (at[0] - x, at[1] - y, target - z);
                 scene.camera.yaw = (-dx).atan2(dy);
                 scene.camera.pitch = dz.atan2((dx * dx + dy * dy).sqrt());
+                scene.set_weather_enabled(station.weather);
+            }
+            Place::Orbit { feet, yaw, .. } => {
+                use dereth_client_runtime::camera::FreeCamera;
+                use dereth_client_runtime::orbit::{OrbitCamera, DEFAULT_DISTANCE, DEFAULT_PITCH};
+                let pivot = OrbitCamera::pivot(feet);
+                let look = FreeCamera::new(Vec3::ZERO, yaw, DEFAULT_PITCH).forward();
+                scene.camera.position = Vec3::new(
+                    pivot.x - look.x * DEFAULT_DISTANCE,
+                    pivot.y - look.y * DEFAULT_DISTANCE,
+                    pivot.z - look.z * DEFAULT_DISTANCE,
+                );
+                scene.camera.yaw = yaw;
+                scene.camera.pitch = DEFAULT_PITCH;
                 scene.set_weather_enabled(station.weather);
             }
             Place::Body { cell, origin, yaw } => {

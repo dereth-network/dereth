@@ -90,6 +90,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "hifi.lighting.a-slope-turned-from-the-low-sun-does-not-light-up",
+        says: "On the hillside above Holtburg in the evening, with the landscape blended by the \
+               splat, the steep triangle beside the player that faces away from the low sun is \
+               drawn by the high-fidelity lighting, the bounced light and every box no brighter \
+               against the ground either side of it than the ordinary frame draws it.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-HILLSIDE-TRIANGLE"),
+        station: "dereth-client::gpu::rendering::hifi_lighting::on_the_evening_hillside_the_triangle_turned_from_the_sun_does_not_light_up",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "hifi.lighting.at-dusk-a-dark-canopy-does-not-glow",
         says: "At dusk, with the high-fidelity lighting alone or every box ticked, the trees the \
                authored light draws as dark shapes against the sky stay dark: no more than a \
@@ -356,6 +368,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "hifi.reshade.the-landscape-normal-pass-takes-the-composite-and-the-splat",
+        says: "The landscape-normal pass takes a pixel left with the class of the landscape drawn \
+               from its composite or blended by the splat, and leaves every lit class with its \
+               own normal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-HIFI-GROUND-CLASSES"),
+        station: "dereth-render-hifi::cpu::reshade::landscape_normals::the_landscape_normal_pass_takes_the_composite_and_the_splat_and_nothing_lit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "hifi.reshade.the-landscape-takes-the-fields-smooth-normals",
         says: "In the re-shaded world, the drawn ground is found on the landscape field from the \
                depth and given the field's smooth normal and the landscape class: most of the \
@@ -376,6 +398,17 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-RESHADE-PARITY"),
         station: "dereth-client::gpu::rendering::hifi_reshade::the_parity_view_matches_the_ordinary_frame_at_every_outdoor_station",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "hifi.reshade.the-splat-landscape-takes-the-fields-smooth-normals",
+        says: "In the re-shaded world, the landscape blended by the splat is given the field's \
+               smooth normal as the composite landscape is: the normals views of the two agree \
+               but in a few pixels at the town, the vista and the evening hillside.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-RESHADE-SPLAT-NORMALS"),
+        station: "dereth-client::gpu::rendering::hifi_reshade::the_splat_landscape_takes_the_smooth_normals_the_composite_landscape_does",
         tier: Tier::Gpu,
     },
     behaviour! {

@@ -34,6 +34,7 @@ use dereth_render::wgpu::sidecar::{
 
 use crate::derive::cache::PipelineCache;
 use crate::derive::pipeline::{HDR_FORMAT, NORMAL_FORMAT};
+use crate::derive::reshade::MaterialClass;
 use crate::derive::{DerivedKey, Variant};
 use crate::resources::{Resource, ResourceName, Resources, TextureSpec};
 use crate::shared::fullscreen::COLOUR_WGSL;
@@ -436,6 +437,19 @@ struct Ground {{
 @group(0) @binding(6) var prior_normals: texture_2d<f32>;
 {field}
 
+// Whether a pixel the world left with material class `kind` may be the drawn landscape: drawn
+// unlit from its composite, or blended by the splat. Anything lit (a building's floor, a wall's
+// foot, a rock at ground height) keeps its own class and normal.
+fn drawn_as_landscape(kind: f32) -> bool {{
+    if (kind < {unlit_below:.1}) {{
+        return true;
+    }}
+    if (kind > {terrain_above:.1}) {{
+        return kind < {terrain_below:.1};
+    }}
+    return false;
+}}
+
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
     let x = f32((i << 1u) & 2u);
@@ -455,10 +469,10 @@ fn fs_ground(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
     let w = ground.clip_to_render * ndc;
     let world = w.xyz / w.w;
     let far = length(world - ground.eye.xyz);
-    // Only what was drawn as landscape (unlit, from its composite) is landscape: a building's
-    // floor, a wall's foot or a rock at ground height keeps its own class and normal.
+    // Only what was drawn as landscape is landscape. The splat's landscape arrives with each
+    // triangle's flat normal, though its colour holds the light of the smooth one.
     let prior = textureLoad(prior_normals, vec2<i32>(p.xy), 0);
-    if (prior.w > 0.5) {{
+    if (!drawn_as_landscape(prior.w)) {{
         discard;
     }}
     let rise = world.z - plane_height(world.xy);
@@ -466,7 +480,7 @@ fn fs_ground(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
     if (abs(rise) > tolerance) {{
         // Where blocks drawn at different detail meet, the strip that closes the gap between
         // them lies off the field's surface by up to a metre or two far out: a surface drawn
-        // unlit and facing up that close to it is still the ground.
+        // as landscape and facing up that close to it is still the ground.
         let up = (transpose(ground.render_to_view) * vec4<f32>(prior.xyz, 0.0)).z;
         let seam = 0.5 + far * 0.01;
         if (abs(rise) > seam || dot(prior.xyz, prior.xyz) < 0.25 || up < 0.5) {{
@@ -481,7 +495,10 @@ fn fs_ground(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
 }}
 ",
         field = terrain_field::wgsl(),
-        terrain = crate::derive::reshade::MaterialClass::Terrain.encoded(),
+        terrain = MaterialClass::Terrain.encoded(),
+        unlit_below = MaterialClass::Unlit.encoded() + 0.5,
+        terrain_above = MaterialClass::Terrain.encoded() - 0.5,
+        terrain_below = MaterialClass::Terrain.encoded() + 0.5,
     )
 }
 

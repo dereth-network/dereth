@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Horizon's Better Lighting no longer lights sloped ground face by face, which showed as lime triangles under Global Illumination.
 - Horizon's Sky and Atmosphere effect no longer hazes over the land seen through a building's windows and doors.
 - Horizon's camera stops directly behind you after a turn
 

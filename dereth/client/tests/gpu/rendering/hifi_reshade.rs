@@ -66,8 +66,19 @@ fn run(
     prefs: FidelityPreferences,
     settle: bool,
 ) -> (Vec<u8>, Option<dereth_render::wgpu::sidecar::SidecarReport>) {
+    run_blending(gpu, station, prefs, settle, false)
+}
+
+/// [`run`], with the landscape blended by the splat when `splat`.
+fn run_blending(
+    gpu: &mut Gpu,
+    station: &Station,
+    prefs: FidelityPreferences,
+    settle: bool,
+    splat: bool,
+) -> (Vec<u8>, Option<dereth_render::wgpu::sidecar::SidecarReport>) {
     let store = crate::common::dats();
-    let mut shot = Shot::open(&store, gpu, station);
+    let mut shot = Shot::open_blending(&store, gpu, station, splat);
     set(&mut shot, gpu, prefs);
     for _ in 0..STEPS {
         shot.step(gpu);
@@ -394,6 +405,48 @@ fn the_ground_in_view_takes_the_landscape_fields_normal_and_class() {
         );
         if share < 0.5 {
             failures.push(format!("{}: {:.1}%", station.name, share * 100.0));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+/// Behaviour: hifi.reshade.the-splat-landscape-takes-the-fields-smooth-normals
+/// At the town, the vista and the evening hillside, the normals view with the landscape blended
+/// by the splat (the client's own way) is the normals view with it drawn from its composites,
+/// but in a few pixels: the splat's landscape is given the field's smooth normal as the
+/// composite's is, not each triangle's flat one.
+#[test]
+fn the_splat_landscape_takes_the_smooth_normals_the_composite_landscape_does() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let mut gpu = device();
+    let mut failures = Vec::new();
+    for station in hifi_stations::stations(&store)
+        .into_iter()
+        .chain(hifi_stations::close_stations(&store))
+        .filter(|s| matches!(s.name, "holtburg" | "vista" | "hillside"))
+    {
+        let mut views = Vec::new();
+        for splat in [false, true] {
+            let (normals, report) =
+                run_blending(&mut gpu, &station, fidelity("Debug=3"), true, splat);
+            let report = report.expect("the presentation was installed");
+            assert_eq!(
+                note(&report, "re-shaded"),
+                1,
+                "{} (splat {splat}): {report:?}",
+                station.name
+            );
+            views.push(normals);
+        }
+        let (mean, apart) = difference(&views[0], &views[1], 8);
+        eprintln!(
+            "{}: the normals differ by {mean:.3} levels on average, {:.3}% past 8 levels",
+            station.name,
+            apart * 100.0
+        );
+        if apart > 0.01 {
+            failures.push(format!("{}: {:.3}%", station.name, apart * 100.0));
         }
     }
     assert!(failures.is_empty(), "{failures:?}");
