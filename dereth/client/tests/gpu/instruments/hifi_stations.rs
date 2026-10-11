@@ -1017,6 +1017,20 @@ pub(crate) fn close_stations(store: &RetailDatStore) -> Vec<Station> {
         land_radius: 3,
     });
     out.push(Station {
+        name: "chimney-night",
+        why: "a house's chimney on the block east of Holtburg at midnight in the rain, seen as \
+              the Horizon interface's orbit camera sees it: the smoke rises in front of a tree",
+        place: Place::Orbit {
+            block: 0xADB2,
+            feet: Vec3::new(1.037_519, 112.863_31, 30.005_091),
+            // The heading of a body turned 2 * atan2(-0.999646, -0.026617) about the vertical.
+            yaw: -3.194_84,
+        },
+        clock: Clock::Rainy(0.92),
+        weather: true,
+        land_radius: 3,
+    });
+    out.push(Station {
         name: "dungeon",
         why: "a body standing in a dungeon's corridor: a frame wholly underground",
         place: Place::Body {
@@ -1373,7 +1387,9 @@ impl Shot {
         let mut cfg = SceneConfig {
             landblock: station.landblock(),
             character: body,
-            particles: station.weather,
+            // `DERETH_HIFI_PARTICLES=1`: particles drawn at every station.
+            particles: station.weather
+                || std::env::var("DERETH_HIFI_PARTICLES").is_ok_and(|v| v.trim() == "1"),
             land_radius: station.land_radius,
             time_of_day: match clock {
                 Clock::Rainy(f) => Some(f),
@@ -1604,6 +1620,64 @@ impl Shot {
         }
         self.scene.stream(&self.store, gpu).expect("stream");
         self.draw(gpu);
+    }
+
+    /// Create an object of `setup` standing on the ground `ahead` metres in front of the camera,
+    /// as the server would create it, from the next step on.
+    pub(crate) fn create_ahead(&mut self, station: &Station, setup: u32, ahead: f32) {
+        use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
+        let region =
+            dereth_world_data::landblock::load_region(&self.store).expect("the region decodes");
+        let land =
+            dereth_world_data::land_source::DatLandSource::new(Arc::clone(&self.store), &region)
+                .expect("the land source opens");
+        let block = station.landblock();
+        let eye = self.scene.camera.position;
+        let yaw = self.scene.camera.yaw;
+        let (x, y) = (
+            (eye.x - math::sinf(yaw) * ahead).clamp(0.5, 191.5),
+            (eye.y + math::cosf(yaw) * ahead).clamp(0.5, 191.5),
+        );
+        let ground = land.ground_height(LandblockId(block), x, y).unwrap_or(0.0);
+        // Turned to face the camera.
+        let r = yaw + std::f32::consts::PI;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a block-local position, 0..192, to its outdoor cell's index
+        let cell = (u32::from(block) << 16) | ((x / 24.0) as u32 * 8 + (y / 24.0) as u32 + 1);
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id: dereth_primitives::ObjectId(0x8300_0070),
+            objdesc: ObjDesc::default(),
+            physicsdesc: PhysicsDesc {
+                bitfield: flags::POSITION | flags::SETUP,
+                setup_id: Some(setup),
+                state: 0,
+                position: Some(dereth_protocol::types::PositionWire {
+                    objcell_id: cell,
+                    frame: dereth_protocol::types::Frame {
+                        origin: Vec3::new(x, y, ground).into(),
+                        orientation: Quat::new(math::cosf(r * 0.5), 0.0, 0.0, math::sinf(r * 0.5))
+                            .into(),
+                    },
+                }),
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    instance: 1,
+                    ..dereth_protocol::types::PhysicsTimestamps::default()
+                },
+                ..PhysicsDesc::default()
+            },
+            wdesc: PublicWeenieDesc::default(),
+        };
+        let body =
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload))
+                .expect("encode");
+        self.stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+                body,
+            },
+            LocalTime(self.now),
+        );
+        self.stream.world.update_visible_object_list();
     }
 
     /// Hold the camera at `position`, turned `yaw` and pitched `pitch` (radians), over the chase

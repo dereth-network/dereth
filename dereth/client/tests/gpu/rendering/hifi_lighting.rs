@@ -1,7 +1,8 @@
 //! The high-fidelity lighting where it once looked wrong: at dusk a canopy the authored light
 //! draws dark does not glow; with every box ticked the occlusion is still drawn indoors and
-//! underground, where it is the only effect that draws; and at night the light that follows the
-//! player pools no light on the ground round the body.
+//! underground, where it is the only effect that draws; at night the light that follows the
+//! player pools no light on the ground round the body; and chimney smoke in front of a tree at
+//! night is not lit as the tree.
 //!
 //! Each frame is compared with the same station loaded again on a device of its own and stepped
 //! the same number of frames with the presentation off.
@@ -78,6 +79,17 @@ fn run_on(
     viewer_light: bool,
     splat: bool,
 ) -> (Vec<u8>, bool) {
+    run_for(station, prefs, viewer_light, splat, STEPS)
+}
+
+/// [`run_on`], stepped `steps` frames.
+fn run_for(
+    station: &Station,
+    prefs: FidelityPreferences,
+    viewer_light: bool,
+    splat: bool,
+    steps: usize,
+) -> (Vec<u8>, bool) {
     let mut device = device();
     let gpu = &mut device;
     let store = crate::common::dats();
@@ -89,7 +101,7 @@ fn run_on(
         .expect("the preferences poll");
     // Every frame waits for the presentation's background work, so the frame is re-shaded
     // as soon as it can be, as it is a moment after a box is ticked.
-    for _ in 0..STEPS {
+    for _ in 0..steps {
         shot.step(gpu);
         assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
     }
@@ -288,6 +300,58 @@ fn on_the_evening_hillside_the_triangle_turned_from_the_sun_does_not_light_up() 
             on <= off * 1.05,
             "hillside with {spec}: the triangle is {on:.3} of the ground beside it against \
              {off:.3} in the ordinary frame"
+        );
+    }
+}
+
+/// How far, in levels, the green of the pixels round the chimney's top at the chimney station
+/// stands over their red and blue, on average: the smoke rising there, and the tree behind it.
+fn smoke_green(rgba: &[u8]) -> f32 {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    // LINT-OK: fractions of the frame's size, inside it
+    let at = |f: f32, n: u32| (f * n as f32) as usize;
+    let (mut sum, mut n) = (0.0f64, 0u32);
+    for y in at(0.09, H)..at(0.18, H) {
+        for x in at(0.30, W)..at(0.34, W) {
+            let p = &rgba[(y * W as usize + x) * 4..];
+            let (r, g, b) = (f64::from(p[0]), f64::from(p[1]), f64::from(p[2]));
+            sum += (g - r.max(b)).max(0.0);
+            n += 1;
+        }
+    }
+    #[allow(clippy::cast_possible_truncation)] // LINT-OK: a mean of bytes
+    let mean = (sum / f64::from(n.max(1))) as f32;
+    mean
+}
+
+/// Behaviour: hifi.lighting.translucent-draws-are-not-lit-as-the-surface-behind
+/// At midnight in the rain, with a house's chimney smoke rising in front of a tree, the better
+/// lighting alone and every box ticked draw the smoke and the tree round the chimney's top no
+/// more than three levels greener than the ordinary frame draws them: the smoke is drawn over the
+/// lit tree, not lit as the tree, and the tree behind it does not glow.
+#[test]
+fn at_night_chimney_smoke_in_front_of_a_tree_is_not_lit_as_the_tree() {
+    let _gpu = crate::common::gpu_lock();
+    let station = station("chimney-night");
+    // Long enough for the smoke to rise past the chimney's top in front of the tree.
+    let steps = 200;
+    let off = smoke_green(&run_for(&station, FidelityPreferences::default(), true, false, steps).0);
+    for spec in ["Lighting=1", EVERY_BOX] {
+        let (px, reshaded) = run_for(&station, fidelity(spec), true, false, steps);
+        assert!(
+            reshaded,
+            "chimney-night with {spec}: the frame was not re-shaded"
+        );
+        let on = smoke_green(&px);
+        eprintln!("chimney-night {spec}: green {on:.2} levels over the smoke against {off:.2} off");
+        assert!(
+            on <= off + 3.0,
+            "chimney-night with {spec}: the smoke and the tree behind it are {on:.2} levels \
+             green against {off:.2} off"
         );
     }
 }

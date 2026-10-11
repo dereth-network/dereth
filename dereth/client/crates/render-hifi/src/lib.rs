@@ -49,7 +49,7 @@ use composite::{CompositeMode, Compositor};
 use derive::cache::{catalogue_keys, BuildContext, PipelineCache};
 use derive::{DerivedKey, Variant};
 use graph::{Chain, Slot};
-use reshade::{ReshadeFilter, ReshadePlan, ReshadeTargets, Reshader};
+use reshade::{Layer, ReshadeFilter, ReshadePlan, ReshadeTargets, Reshader};
 pub use snapshot::HifiFrame;
 use timing::GpuTimer;
 
@@ -282,6 +282,8 @@ pub struct HifiRenderer {
     readiness: reshade::Readiness,
     /// How many draws this frame's plan replays as recorded before the re-shade.
     recorded_draws: (u64, u64),
+    /// How many translucent draws of the opaque span this frame's plan draws over the lit world.
+    translucent_draws: u64,
     reshader: Reshader,
 }
 
@@ -305,6 +307,7 @@ impl HifiRenderer {
             plan: None,
             readiness: reshade::Readiness::default(),
             recorded_draws: (0, 0),
+            translucent_draws: 0,
             reshader: Reshader::default(),
         }
     }
@@ -450,6 +453,12 @@ impl HifiRenderer {
                     .count() as u64
             };
             self.recorded_draws = (count(plan.recorded_before()), count(plan.rest.clone()));
+            self.translucent_draws = cx
+                .tables()
+                .draws
+                .iter()
+                .filter(|d| plan.translucent.contains(&d.cmd) && reshade::translucent(d))
+                .count() as u64;
             self.plan = Some(plan);
         }
         Ok(())
@@ -596,10 +605,12 @@ impl HifiRenderer {
                                     None => timer.writes("world re-shade"),
                                 },
                             );
+                            // The translucent draws wait for the alpha slot, over the lit world.
+                            let mut opaque = reshade::Layered::new(Layer::Opaque, &mut chain);
                             cx.replay(
                                 plan.opaque.start..split.unwrap_or(plan.opaque.end),
                                 &mut pass,
-                                &mut chain,
+                                &mut opaque,
                             );
                             drop(pass);
                             if let Some(at) = split {
@@ -617,7 +628,8 @@ impl HifiRenderer {
                                     "world re-shade",
                                     timer.span_end(),
                                 );
-                                cx.replay(at..plan.opaque.end, &mut pass, &mut chain);
+                                let mut opaque = reshade::Layered::new(Layer::Opaque, &mut chain);
+                                cx.replay(at..plan.opaque.end, &mut pass, &mut opaque);
                             }
                             if let Some(last) = last_stamp {
                                 let u = match split {
@@ -667,6 +679,11 @@ impl HifiRenderer {
                                 "alpha re-shade",
                                 timer.writes("alpha re-shade"),
                             );
+                            if !plan.translucent.is_empty() {
+                                let mut held =
+                                    reshade::Layered::new(Layer::Translucent, &mut chain);
+                                cx.replay(plan.translucent.clone(), &mut pass, &mut held);
+                            }
                             cx.replay(plan.alpha.clone(), &mut pass, &mut chain);
                             drop(pass);
                             if plan.is_split() {
@@ -976,6 +993,7 @@ impl FrameSidecar for HifiRenderer {
         }
         self.readiness = reshade::Readiness::default();
         self.recorded_draws = (0, 0);
+        self.translucent_draws = 0;
         if CompositeMode::for_settings(&self.settings) == CompositeMode::Reshade {
             if let Err(e) = self.prepare_reshade(cx) {
                 return Err(self.fail(&e));
@@ -1043,6 +1061,10 @@ impl FrameSidecar for HifiRenderer {
         report.notes.push((
             "drawn again for the unstamped depth",
             self.compositor.redrawn(),
+        ));
+        report.notes.push((
+            "translucent draws drawn over the lit world",
+            self.translucent_draws,
         ));
         report
             .notes

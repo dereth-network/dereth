@@ -34,6 +34,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's names stay whole twice as far off outdoors (out to 36 meters, gone at 60) and further indoors (out to 20 meters, gone at 25).
 - Dragging a pack along Horizon's pack column with the mouse moves it to that place among your packs.
 - Horizon's Create Spell window shows the whole frame of every component slot, the first column and row included.
+- With Horizon's better lighting, smoke, portals and other see-through effects no longer glow green or light up the trees behind them at night.
 
 ## 0.4.1 (2026-10-11)
 

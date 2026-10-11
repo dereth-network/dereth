@@ -117,6 +117,9 @@ pub enum SkipRule {
     CoveredByFeed,
     /// A draw a pass replaces with draws of its own at the same point.
     ReplacedByPass,
+    /// A draw another replay of the same commands draws, as a translucent draw held back until
+    /// the work over the opaque world is done: it is counted in the census where it is drawn.
+    OtherReplay,
 }
 
 /// What the world replay does with one recorded draw.
@@ -165,7 +168,8 @@ impl Census {
         }
     }
 
-    /// Count one action.
+    /// Count one action. A draw left to another replay is counted by that one, so every draw
+    /// is counted once however many replays its commands go through.
     pub fn count(&mut self, action: &DrawAction<'_>) {
         match action {
             DrawAction::Legacy => self.legacy += 1,
@@ -174,6 +178,7 @@ impl Census {
             DrawAction::Skip(SkipRule::SkyDome) => self.skipped_sky_dome += 1,
             DrawAction::Skip(SkipRule::CoveredByFeed) => self.skipped_covered_by_feed += 1,
             DrawAction::Skip(SkipRule::ReplacedByPass) => self.skipped_replaced_by_pass += 1,
+            DrawAction::Skip(SkipRule::OtherReplay) => {}
         }
     }
 

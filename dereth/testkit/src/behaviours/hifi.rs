@@ -147,6 +147,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "hifi.lighting.translucent-draws-are-not-lit-as-the-surface-behind",
+        says: "At midnight in the rain, with a chimney's smoke rising in front of a tree, the                high-fidelity lighting alone and every box ticked draw the smoke over the lit                tree with the light it was drawn with: neither the smoke nor the tree behind it                turns green.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-TRANSLUCENT-OVER-LIGHT"),
+        station: "dereth-client::gpu::rendering::hifi_lighting::at_night_chimney_smoke_in_front_of_a_tree_is_not_lit_as_the_tree",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "hifi.off.a-failure-falls-back-to-identical-pixels-and-uninstalls",
         says: "A high-fidelity presentation that fails, by its own error or by a step the \
                device refuses, leaves that frame exactly the ordinary frame and is removed, and \

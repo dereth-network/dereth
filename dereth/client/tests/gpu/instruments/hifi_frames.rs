@@ -13,6 +13,9 @@
 //! - `DERETH_HIFI_TIMING`: `1` times each station at 3840x2160 as well, or at
 //!   `DERETH_HIFI_TIMING_SIZE` (`WxH`).
 //! - `DERETH_HIFI_BASELINE_DIR`: a capture of another build to compare the off frames with.
+//! - `DERETH_HIFI_OBJECT`: `<setup hex>,<metres>`, an object of that setup created on the ground
+//!   that far in front of the camera at every station (a portal's swirl, say).
+//! - `DERETH_HIFI_PARTICLES`: `1` draws particles at every station, not only the rainy ones.
 //!
 //! The device is the one `DERETH_TEST_RENDERER` names, a fresh one for every run of a station;
 //! the presentation draws on `wgpu` alone.
@@ -352,6 +355,15 @@ fn run(
     #[cfg(not(feature = "hifi"))]
     let _ = feature;
     shot.poll(gpu);
+    // `DERETH_HIFI_OBJECT=<setup hex>,<metres>`: an object of that setup created on the ground
+    // that far in front of the camera, facing it.
+    if let Some((setup, ahead)) = env("DERETH_HIFI_OBJECT").and_then(|v| {
+        let (setup, ahead) = v.split_once(',')?;
+        let setup = u32::from_str_radix(setup.trim().trim_start_matches("0x"), 16).ok()?;
+        Some((setup, ahead.trim().parse().ok()?))
+    }) {
+        shot.create_ahead(station, setup, ahead);
+    }
     gpu.set_frame_digest(true);
     let warm = env("DERETH_HIFI_WARM")
         .and_then(|w| w.parse().ok())

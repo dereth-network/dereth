@@ -15,6 +15,18 @@
 //! the world, is replayed with its own pipelines and lifted into linear light, and the world is
 //! re-shaded over it. (The weather layer, drawn after the landscape, is re-shaded.)
 //!
+//! **Translucent draws are drawn over the lit world.** The scene draws most of its translucent
+//! draws -- smoke and other particles, glass, the blended parts of objects and scenery -- with its
+//! objects, before the world's own flush of held-back draws; blended over the opaque world, a
+//! pixel of smoke in front of a tree would be lit again as the tree. So the re-shaded replay of
+//! the world leaves them out, and they are replayed after the screen-space work over the opaque
+//! world (the light per pixel, occlusion, bounced light), in their recorded order, before the
+//! held-back ones: that work sees only the opaque surfaces, and the translucent draws keep the
+//! light they were drawn with. A translucent draw here blends, is not cut out against its
+//! texture, writes no depth and is tested against it; a draw that passes the depth test whatever
+//! is there (the sky's layers) keeps its place, as only the order puts it under what is drawn
+//! after it.
+//!
 //! **A frame is re-shaded whole or not at all.** Until every draw of the part to re-shade has its
 //! derived pipeline, the frame is drawn exactly as the ordinary frame is (the overlay replay), and
 //! the missing pipelines are built off the frame's thread meanwhile.
@@ -29,8 +41,9 @@
 use std::ops::Range;
 
 use dereth_render::wgpu::sidecar::{
-    Census, DrawAction, DrawNote, Mark, ReplayFilter, SideTables, SidecarContext,
+    Census, DrawAction, DrawNote, Mark, ReplayFilter, SideTables, SidecarContext, SkipRule,
 };
+use dereth_render::ZFunc;
 
 use crate::derive::cache::PipelineCache;
 use crate::derive::pipeline::{HDR_FORMAT, NORMAL_FORMAT};
@@ -49,9 +62,14 @@ pub struct ReshadePlan {
     /// The sky's first pass, where it opens the world: replayed with the recorded pipelines too,
     /// then lifted into linear light. Empty when the world does not open with it.
     pub sky: Range<u32>,
-    /// The world up to the flush of its translucent draws: re-shaded.
+    /// The world up to the flush of its held-back translucent draws: re-shaded, but for the
+    /// translucent draws in it (see [`translucent`]).
     pub opaque: Range<u32>,
-    /// The translucent draws, up to the cut: re-shaded, after the opaque screen-space work.
+    /// The part of `opaque` from its first translucent draw on, empty when it has none: replayed
+    /// again after the opaque screen-space work, drawing those translucent draws alone.
+    pub translucent: Range<u32>,
+    /// The held-back translucent draws, up to the cut: re-shaded, after the opaque screen-space
+    /// work and the translucent draws of `opaque`.
     pub alpha: Range<u32>,
     /// From the cut to the world's end: replayed with the recorded pipelines over the resolved
     /// picture. Empty unless the frame steps indoors.
@@ -119,10 +137,17 @@ impl ReshadePlan {
         } else {
             world.start
         };
+        let opaque = sky_end..alpha;
+        let translucent = tables
+            .draws
+            .iter()
+            .find(|d| opaque.contains(&d.cmd) && translucent(d))
+            .map_or(opaque.end..opaque.end, |d| d.cmd..opaque.end);
         Some(Self {
             pre: 0..world.start,
             sky: world.start..sky_end,
-            opaque: sky_end..alpha,
+            opaque,
+            translucent,
             alpha: alpha..cut,
             rest: cut..world.end,
             interiors: interiors.into_iter().filter(|r| r.start < cut).collect(),
@@ -146,6 +171,65 @@ impl ReshadePlan {
     #[must_use]
     pub fn recorded_before(&self) -> Range<u32> {
         self.pre.start..self.sky.end
+    }
+}
+
+/// Whether the draw `note` describes is translucent over what is behind it: it blends, is not cut
+/// out against its texture, writes no depth and is tested against the depth. Such a draw in the
+/// opaque span is drawn after the screen-space work over the opaque world. A draw that passes the
+/// depth test whatever is there keeps its place: only the order puts it under what is drawn after
+/// it.
+#[must_use]
+pub fn translucent(note: &DrawNote) -> bool {
+    let k = &note.key;
+    !note.splat && k.alpha_blend && !k.alpha_test && !k.z_write && k.z_func != ZFunc::Always
+}
+
+/// Which of the opaque span's draws a replay of it draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Layer {
+    /// Every draw but the translucent ones.
+    Opaque,
+    /// The translucent draws alone.
+    Translucent,
+}
+
+/// A replay of one layer of the opaque span: the draws of the other layer are left to the other
+/// replay (and counted there), and every other question goes to `inner`.
+pub struct Layered<'f> {
+    layer: Layer,
+    inner: &'f mut dyn ReplayFilter,
+}
+
+impl std::fmt::Debug for Layered<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Layered({:?})", self.layer)
+    }
+}
+
+impl<'f> Layered<'f> {
+    /// The replay of `layer`, asking `inner` about its own draws.
+    pub fn new(layer: Layer, inner: &'f mut dyn ReplayFilter) -> Self {
+        Self { layer, inner }
+    }
+}
+
+impl ReplayFilter for Layered<'_> {
+    fn draw(&mut self, cmd: u32, note: Option<&DrawNote>) -> DrawAction<'_> {
+        let held = note.is_some_and(translucent);
+        if held == (self.layer == Layer::Translucent) {
+            self.inner.draw(cmd, note)
+        } else {
+            DrawAction::Skip(SkipRule::OtherReplay)
+        }
+    }
+
+    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) -> bool {
+        self.inner.mark(mark, pass)
+    }
+
+    fn frame(&mut self, recorded: u32) -> Option<u32> {
+        self.inner.frame(recorded)
     }
 }
 

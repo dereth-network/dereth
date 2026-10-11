@@ -1,11 +1,15 @@
 //! How a frame is re-shaded: which commands are re-shaded, which are replayed as recorded after
 //! an indoor step, and that every recorded draw of the world has an action.
 
-use dereth_render::{PipelineKey, VertexFormat};
+use dereth_render::{PipelineKey, VertexFormat, ZFunc};
 use dereth_render_hifi::derive::cache::{catalogue_keys, PipelineCache};
 use dereth_render_hifi::derive::Variant;
-use dereth_render_hifi::reshade::{classify, derived_key, readiness, DrawClass, ReshadePlan};
-use dereth_render_hifi::{DrawNote, Mark, SideTables};
+use dereth_render_hifi::reshade::{
+    classify, derived_key, readiness, translucent, DrawClass, Layer, Layered, ReshadePlan,
+};
+use dereth_render_hifi::{
+    Census, DrawAction, DrawNote, LegacyReplay, Mark, ReplayFilter, SideTables,
+};
 
 fn key(vertex_format: VertexFormat) -> PipelineKey {
     PipelineKey {
@@ -178,4 +182,97 @@ fn the_catalogue_keys_cover_every_vertex_format_and_asking_twice_asks_once() {
     cache.ask(k);
     assert_eq!(cache.waiting(), 1);
     assert!(!cache.is_ready(&k) && !cache.has_failed(&k));
+}
+
+/// A draw at `cmd` drawn with `key`.
+fn note(cmd: u32, key: PipelineKey) -> DrawNote {
+    DrawNote {
+        cmd,
+        key,
+        splat: false,
+        frame: 0,
+    }
+}
+
+/// Behaviour: hifi.reshade.a-frame-is-re-shaded-up-to-its-indoor-step
+/// The translucent draws the world draws before its flush of held-back draws (smoke, glass, the
+/// blended parts of objects) are left out of the replay of the opaque world and drawn by a second
+/// replay of it after the work over the opaque world, in their recorded order; a draw that blends
+/// but is cut out against its texture, writes depth, or passes the depth test whatever is there
+/// stays where it was drawn, and every draw is counted once across the two replays.
+#[test]
+fn translucent_draws_of_the_opaque_world_are_drawn_after_it_and_counted_once() {
+    let opaque = catalogue_keys()[0];
+    let smoke = PipelineKey {
+        alpha_blend: true,
+        alpha_test: false,
+        z_write: false,
+        z_func: ZFunc::Less,
+        ..opaque
+    };
+    let leaves = PipelineKey {
+        alpha_test: true,
+        z_write: true,
+        ..smoke
+    };
+    let detail = PipelineKey {
+        z_write: true,
+        z_func: ZFunc::LessEqual,
+        ..smoke
+    };
+    let sky_layer = PipelineKey {
+        z_func: ZFunc::Always,
+        ..smoke
+    };
+    assert!(translucent(&note(0, smoke)));
+    for key in [opaque, leaves, detail, sky_layer] {
+        assert!(!translucent(&note(0, key)), "{key:?}");
+    }
+    assert!(!translucent(&DrawNote {
+        splat: true,
+        ..note(0, smoke)
+    }));
+
+    // Smoke at 12 and 20 among the opaque world's draws, and one held back past the flush at 30.
+    let mut t = tables(40, 30, &[]);
+    for d in &mut t.draws {
+        d.splat = false;
+        d.key = match d.cmd {
+            12 | 20 | 33 => smoke,
+            8 => leaves,
+            9 => detail,
+            10 => sky_layer,
+            _ => opaque,
+        };
+    }
+    let plan = ReshadePlan::new(&t).expect("a world");
+    assert_eq!(plan.opaque, 4..30);
+    assert_eq!(plan.translucent, 12..30);
+    assert_eq!(plan.alpha, 30..40);
+
+    let drawn = |layer: Layer, range: std::ops::Range<u32>, census: &mut Census| {
+        let mut inner = LegacyReplay;
+        let mut f = Layered::new(layer, &mut inner);
+        let mut out = Vec::new();
+        for cmd in range {
+            let action = f.draw(cmd, t.draw_note(cmd));
+            census.count(&action);
+            if matches!(action, DrawAction::Legacy) {
+                out.push(cmd);
+            }
+        }
+        out
+    };
+    let mut census = Census::default();
+    let first = drawn(Layer::Opaque, plan.opaque.clone(), &mut census);
+    let second = drawn(Layer::Translucent, plan.translucent.clone(), &mut census);
+    assert!(!first.contains(&12) && !first.contains(&20));
+    assert!(first.contains(&8) && first.contains(&9) && first.contains(&10));
+    assert_eq!(second, [12, 20]);
+    assert_eq!(census.total() as usize, plan.opaque.len());
+    assert_eq!(census.legacy as usize, plan.opaque.len());
+
+    // An opaque world with no translucent draw has nothing to draw after it.
+    let none = ReshadePlan::new(&tables(40, 30, &[])).expect("a world");
+    assert!(none.translucent.is_empty());
 }
