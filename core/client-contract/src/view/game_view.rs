@@ -1206,6 +1206,16 @@ pub trait GameView: std::fmt::Debug {
         None
     }
 
+    /// The seconds left on the cooldown an item carries, for as long as the player's registry
+    /// holds it: until the server removes it, which is when the item can be used again. Past
+    /// the cooldown's length by `now` and not yet removed, it is zero or less.
+    ///
+    /// The cooldown id is the item's own, as for [`Self::cooldown_remaining`]. `None` when the
+    /// registry holds no such cooldown.
+    fn cooldown_held(&self, _cooldown_id: u32, _now: f64) -> Option<f64> {
+        None
+    }
+
     /// The `COMBAT_MODE` the toolbar's stance icon shows.
     ///
     /// The default is `NONCOMBAT_COMBAT_MODE`, which is what a character enters the world in and

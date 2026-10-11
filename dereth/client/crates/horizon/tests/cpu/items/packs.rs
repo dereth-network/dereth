@@ -387,6 +387,18 @@ fn an_item_cooling_down_shows_the_sweep_on_its_tile() {
 }
 
 #[test]
+fn an_item_whose_cooldown_the_game_still_holds_after_its_time_keeps_the_sweep() {
+    let mut state = carrying(0);
+    state.pack[0].cooldown = Some((0.0, 10.0));
+    let h = open(&state, &[WindowId::Inventory]);
+    let tile = zones(
+        &h,
+        |t| matches!(t, DropTarget::ItemListSlot { container, index: 0, .. } if *container == ME),
+    )[0];
+    assert!(drawn_in(&h, tile, 0x9000_0000));
+}
+
+#[test]
 fn a_stack_on_the_ground_is_split_on_the_inventory_s_slider() {
     let mut state = carrying(0);
     selecting(

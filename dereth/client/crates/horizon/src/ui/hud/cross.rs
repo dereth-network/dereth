@@ -695,6 +695,12 @@ impl Hud {
                 let dimmed = active.is_some() && !lit;
                 let clicked =
                     draw_slot(p, ctx, r, icon.as_ref(), bind, missile(state), lit, dimmed);
+                // An item cooling down, swept as the hotbar sweeps it.
+                if let Some(CrossBind::Item(id)) = bind {
+                    if let Some((left, length)) = find_item(state, id).and_then(|it| it.cooldown) {
+                        super::recast_sweep(p, r, left, length);
+                    }
+                }
                 // An item armed to be used on something glows until it is.
                 if matches!(bind, Some(CrossBind::Item(id)) if state.armed == Some(id)) {
                     let a = 0.6 + 0.4 * crate::ui::wave(ctx.time, 4.0);

@@ -1270,12 +1270,13 @@ impl Hud {
                     p.outline(r, 2.0 * k, 0xFFF0_C860);
                 }
                 // The time left counted down every frame from what the game last said; a new
-                // figure from the game that disagrees by more than a moment replaces it.
+                // figure from the game that disagrees by more than a moment replaces it. It is
+                // shown for as long as the game holds the cooldown.
                 let cooldown = match cooldown {
                     Some((left, length)) if bar == 1 => {
                         let seen = self.cooldowns.entry(i).or_insert((left, ctx.time));
                         let now = run_down(seen, left, ctx.time);
-                        (now > 0.0).then_some((now, length))
+                        Some((now.max(0.0), length))
                     }
                     other => {
                         if bar == 1 {
@@ -2337,8 +2338,21 @@ pub(crate) fn run_down(seen: &mut (f64, f64), left: f64, now: f64) -> f64 {
     seen.0 - (now - seen.1)
 }
 
+/// What a slot cooling down reads: the seconds left rounded up, or the minutes rounded up from a
+/// minute on, and never less than 1, since a cooldown is shown only until the item can be used.
+#[must_use]
+pub fn cooldown_label(left: f64) -> String {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let secs = (left.ceil() as u64).max(1);
+    if secs >= 60 {
+        format!("{}m", secs.div_ceil(60))
+    } else {
+        secs.to_string()
+    }
+}
+
 /// The recast sweep over a slot: a dark wedge over the part of the cooldown still to run, and
-/// the whole seconds left in the bar-number font.
+/// the time left in the bar-number font.
 pub(crate) fn recast_sweep(p: &mut Painter<'_>, r: Rect, left: f64, length: f64) {
     let k = r.w / 44.0;
     if p.art.has_piece("slot.empty") {
@@ -2353,18 +2367,11 @@ pub(crate) fn recast_sweep(p: &mut Painter<'_>, r: Rect, left: f64, length: f64)
         p.fill(r, 0x9000_0000);
     }
     let style = TextStyle::new(Family::Numerals, 18.0, 0xFFFF_FFFF).edge(0xFF00_0000);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let secs = left.ceil() as u64;
-    let text = if secs >= 60 {
-        format!("{}m", secs.div_ceil(60))
-    } else {
-        secs.to_string()
-    };
     p.text_in(
         &style,
         Rect::new(r.x, r.y + 6.0 * k, r.w, r.h - 6.0 * k),
         Align::Centre,
-        &text,
+        &cooldown_label(left),
     );
 }
 
@@ -2618,6 +2625,21 @@ mod tests {
         assert_eq!(time_left(61.0), "2m");
         assert_eq!(time_left(3600.0), "60m");
         assert_eq!(time_left(3601.0), "2h");
+    }
+
+    /// Behaviour: none (the HUD's number formatting)
+    #[test]
+    fn a_cooldown_reads_its_time_rounded_up_and_never_less_than_one() {
+        assert_eq!(cooldown_label(12.0), "12");
+        assert_eq!(cooldown_label(11.2), "12");
+        assert_eq!(cooldown_label(0.4), "1");
+        assert_eq!(
+            cooldown_label(0.0),
+            "1",
+            "run out by this clock, not yet ended by the game"
+        );
+        assert_eq!(cooldown_label(59.5), "1m");
+        assert_eq!(cooldown_label(61.0), "2m");
     }
 
     /// Behaviour: none (experimental Horizon interface)

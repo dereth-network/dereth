@@ -794,13 +794,12 @@ impl Windows {
         let icon: Option<Sprite> = item.and_then(|i| p.art.ac_item(i));
         let clicked = kit::icon_slot(p, ctx, r, icon.as_ref(), WHITE);
         if let Some(i) = item {
-            // The item's cooldown, swept over its tile as the hotbar sweeps it.
+            // The item's cooldown, swept over its tile as the hotbar sweeps it, for as long as
+            // the game holds it.
             if let Some((left, length)) = i.cooldown {
                 let seen = self.item_cooldowns.entry(i.id).or_insert((left, ctx.time));
-                let left = crate::ui::hud::run_down(seen, left, ctx.time);
-                if left > 0.0 {
-                    crate::ui::hud::recast_sweep(p, Rect::new(r.x, r.y, r.w, r.w), left, length);
-                }
+                let left = crate::ui::hud::run_down(seen, left, ctx.time).max(0.0);
+                crate::ui::hud::recast_sweep(p, Rect::new(r.x, r.y, r.w, r.w), left, length);
             } else {
                 self.item_cooldowns.remove(&i.id);
             }

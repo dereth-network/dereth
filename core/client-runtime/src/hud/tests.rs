@@ -725,3 +725,60 @@ fn an_appraised_attuned_item_reads_as_attuned_live_and_in_a_snapshot() {
     );
     assert!(GameSnapshot::from_view(&view).item_attuned(bound));
 }
+
+/// Behaviour: none (what an interface reads to know the server has ended an item's cooldown)
+#[test]
+fn an_item_s_cooldown_is_held_from_the_player_s_registry_until_the_server_removes_it() {
+    use dereth_client_model::{Weenie, World};
+    use dereth_protocol::types::qualities::StatMod;
+    use dereth_rules::enchant::{ench_type, Enchantment};
+    let player = ObjectId(1);
+    let mut world = World::new();
+    world.player = Some(player);
+    let mut qualities = dereth_client_model::Qualities::new();
+    // Cooldown 7, thirty seconds long, arrived at t = 100.
+    assert!(qualities.enchantments.update_enchantment(Enchantment {
+        id: 0x0001_8007,
+        spell_category: 0x8000,
+        power_level: 0,
+        start_time: 100.0,
+        duration: 30.0,
+        caster: ObjectId(9),
+        degrade_modifier: 0.0,
+        degrade_limit: -666.0,
+        last_time_degraded: 100.0,
+        smod: StatMod {
+            kind: ench_type::COOLDOWN,
+            key: 0,
+            value: 0.0,
+        },
+        spell_set_id: None,
+    }));
+    let mut row = Weenie::new(player);
+    row.qualities = Some(qualities);
+    world.tables.weenies.insert(player, row);
+    let mut hud = Hud::new();
+    hud.player_desc_received = true;
+    let view = HudView {
+        hud: &hud,
+        world: &world,
+    };
+    assert_eq!(view.cooldown_held(7, 110.0), Some(20.0));
+    assert_eq!(
+        view.cooldown_remaining(7, 131.0),
+        None,
+        "run out by this clock"
+    );
+    assert_eq!(view.cooldown_held(7, 131.0), Some(-1.0), "but still held");
+    assert_eq!(view.cooldown_held(8, 110.0), None, "another cooldown");
+    world
+        .player_qualities_mut()
+        .unwrap()
+        .enchantments
+        .remove_enchantment(0x0001_8007);
+    let view = HudView {
+        hud: &hud,
+        world: &world,
+    };
+    assert_eq!(view.cooldown_held(7, 131.0), None, "removed by the server");
+}

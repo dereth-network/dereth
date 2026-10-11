@@ -631,6 +631,21 @@ impl EnchantmentRegistry {
         (r > 0.0).then_some(r)
     }
 
+    /// The seconds left on `key`'s cooldown for as long as the registry holds it, which is until
+    /// the server removes it: zero or less once its time has run out by this clock and the
+    /// server has not yet ended it. `None` when the registry holds no such cooldown.
+    ///
+    /// The server decides when the item can be used again, and says so by removing the
+    /// cooldown; its clock need not end the cooldown when this one does.
+    #[must_use]
+    pub fn cooldown_held(&self, cooldown_key: u32, now: LocalTime) -> Option<f64> {
+        let key = cooldown_key & 0xFFFF;
+        self.cooldown_list
+            .iter()
+            .find(|e| u32::from(e.spell_id()) == key)
+            .map(|e| e.remaining(now))
+    }
+
     /// Behavior: the union of the mult and add lists, in that order.
     #[must_use]
     pub fn enchantments_in_effect(&self) -> Vec<Enchantment> {
@@ -1404,5 +1419,27 @@ mod tests {
             "the permanent one replaced the timed one"
         );
         assert_eq!(reg.add_list[0].smod.value, 7.0);
+    }
+
+    /// An item's cooldown is held from its arrival to its removal: by this clock it can run out
+    /// first, and the seconds left then go to zero and below while the registry still holds it.
+    #[test]
+    fn a_cooldown_is_held_until_it_is_removed_even_after_its_time_runs_out() {
+        let mut cooldown = ench(1, 1, 100.0, ench_type::COOLDOWN, 0, 0.0);
+        cooldown.id = 0x0001_8007;
+        cooldown.duration = 30.0;
+        let mut reg = EnchantmentRegistry::default();
+        assert!(reg.update_enchantment(cooldown));
+        assert_eq!(reg.cooldown_list.len(), 1, "it is filed as a cooldown");
+        assert_eq!(reg.cooldown_held(0x8007, LocalTime(110.0)), Some(20.0));
+        assert_eq!(reg.cooldown_remaining(0x8007, LocalTime(131.0)), None);
+        assert_eq!(
+            reg.cooldown_held(0x8007, LocalTime(131.0)),
+            Some(-1.0),
+            "run out by this clock, still held"
+        );
+        assert_eq!(reg.cooldown_held(0x8008, LocalTime(110.0)), None);
+        assert!(reg.remove_enchantment(0x0001_8007));
+        assert_eq!(reg.cooldown_held(0x8007, LocalTime(131.0)), None);
     }
 }

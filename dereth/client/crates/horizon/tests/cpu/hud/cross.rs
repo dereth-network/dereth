@@ -213,3 +213,31 @@ fn a_use_armed_from_a_slot_goes_on_the_next_slot_used_the_character_s_own_includ
         )]
     );
 }
+
+#[test]
+fn an_item_cooling_down_on_a_cross_slot_shows_the_sweep() {
+    let mut state = player();
+    let mut h = pad_mode(&state);
+    h.ui.hud.cross.assign(3, Some(CrossBind::Item(SWORD)));
+    let slot = |h: &crate::Harness| {
+        h.ui.hud
+            .cross
+            .drawn
+            .iter()
+            .find(|(_, s)| *s == 3)
+            .map(|(r, _)| *r)
+            .expect("the slot is drawn")
+    };
+    let dark = |h: &crate::Harness, r: dereth_horizon::draw::Rect| {
+        h.list
+            .quads
+            .iter()
+            .any(|q| q.colour == 0x9000_0000 && r.contains(q.dst.x + 1.0, q.dst.y + 1.0))
+    };
+    h.frame(&state);
+    assert!(!dark(&h, slot(&h)), "not cooling down");
+    state.pack[0].cooldown = Some((4.0, 10.0));
+    h.frame(&state);
+    // With no art, the sweep is a dark wash over the slot.
+    assert!(dark(&h, slot(&h)), "cooling down");
+}

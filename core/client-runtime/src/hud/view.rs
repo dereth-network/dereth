@@ -712,6 +712,14 @@ impl GameView for HudView<'_> {
             .cooldown_remaining(cooldown_id + 0x8000, dereth_primitives::LocalTime(now))
     }
 
+    /// The same cooldown read until the server removes it, through
+    /// `dereth_rules::enchant::EnchantmentRegistry::cooldown_held`.
+    fn cooldown_held(&self, cooldown_id: u32, now: f64) -> Option<f64> {
+        self.player_desc()?
+            .enchantments
+            .cooldown_held(cooldown_id + 0x8000, dereth_primitives::LocalTime(now))
+    }
+
     /// The plural-name query with flag 0 returns the stored `_plural_name`,
     /// with the material prefix, applied to singular and plural names alike.
     ///

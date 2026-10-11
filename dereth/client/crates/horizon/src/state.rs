@@ -323,10 +323,7 @@ pub fn snapshot<S: Shell>(
                 object: Some(id),
                 spell: None,
                 ac_icon: v.icon(id).map(|d| d.0),
-                cooldown: v.slot_decoration(id).and_then(|d| {
-                    let left = v.cooldown_remaining(d.cooldown_id, v.now())?;
-                    (d.cooldown_id != 0 && left > 0.0).then_some((left, d.cooldown_duration))
-                }),
+                cooldown: v.slot_decoration(id).and_then(|d| item_cooldown(&v, &d)),
                 look: Some(item_of(&v, id)),
             });
         }
@@ -982,12 +979,24 @@ pub fn item_of(
         attuned: view.item_attuned(id),
         wcid: view.item_wcid(id),
         container: deco.as_ref().is_some_and(|d| d.is_container),
-        cooldown: deco.as_ref().and_then(|d| {
-            let left = view.cooldown_remaining(d.cooldown_id, view.now())?;
-            (d.cooldown_id != 0 && left > 0.0).then_some((left, d.cooldown_duration))
-        }),
+        cooldown: deco.as_ref().and_then(|d| item_cooldown(view, d)),
         decoration: deco,
     }
+}
+
+/// An item's cooldown, as its tile and its slots show it: the seconds left and its whole length,
+/// for as long as the game holds it. The game ends a cooldown when the server says the item can
+/// be used again, which can be a little after its time has run out by this clock; until then it
+/// is shown with no time left rather than not at all.
+fn item_cooldown(
+    view: &(impl dereth_client_contract::view::GameView + ?Sized),
+    d: &dereth_client_contract::view::SlotDecoration,
+) -> Option<(f64, f64)> {
+    if d.cooldown_id == 0 {
+        return None;
+    }
+    let left = view.cooldown_held(d.cooldown_id, view.now())?;
+    Some((left.max(0.0), d.cooldown_duration))
 }
 
 /// The time on the player's own clock, "8:43 PM": now, moved by the zone's offset from UTC.
@@ -1174,5 +1183,36 @@ mod tests {
         let both = skill_of(&entry(200, 196, -10), adv);
         assert_eq!(both.modifiers.colour(), 1, "a +6 buff under a -10 vitae");
         assert_eq!(both.modifiers.lines(), ["200 (+6)", "Vitae: -10"]);
+    }
+
+    #[test]
+    fn an_item_stays_on_cooldown_until_the_game_ends_the_cooldown_even_past_its_time() {
+        use dereth_client_contract::view::{GameView, SlotDecoration};
+        /// A game holding one cooldown, `left` seconds from running out by its clock (none
+        /// held when `None`).
+        #[derive(Debug)]
+        struct Held(Option<f64>);
+        impl GameView for Held {
+            fn cooldown_held(&self, cooldown_id: u32, _now: f64) -> Option<f64> {
+                self.0.filter(|_| cooldown_id == 7)
+            }
+        }
+        let d = SlotDecoration {
+            cooldown_id: 7,
+            cooldown_duration: 30.0,
+            ..SlotDecoration::default()
+        };
+        assert_eq!(item_cooldown(&Held(Some(12.5)), &d), Some((12.5, 30.0)));
+        assert_eq!(
+            item_cooldown(&Held(Some(-0.8)), &d),
+            Some((0.0, 30.0)),
+            "its time run out by this clock, the game still holding it"
+        );
+        assert_eq!(item_cooldown(&Held(None), &d), None, "ended by the game");
+        let none = SlotDecoration {
+            cooldown_id: 0,
+            ..d
+        };
+        assert_eq!(item_cooldown(&Held(Some(5.0)), &none), None, "no cooldown");
     }
 }

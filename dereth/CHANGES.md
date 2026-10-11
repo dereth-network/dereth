@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Horizon's skills show their value with your spells in it, green when raised and red when lowered, as attributes already did; hovering a skill, attribute or vital shows its base and what magic adds, as "200 (+35)".
+- Horizon shows an item's cooldown until the server lets it be used again, never ending a second or so early, and shows cooldowns on the gamepad's cross hotbars too.
 
 ## 0.4.1 (2026-10-11)
 

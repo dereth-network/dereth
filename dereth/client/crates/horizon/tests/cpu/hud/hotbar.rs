@@ -44,6 +44,33 @@ fn centre(r: Rect) -> (f32, f32) {
     (r.x + r.w / 2.0, r.y + r.h / 2.0)
 }
 
+/// Whether a quad of `colour` was drawn inside `r` this frame.
+fn drawn_in(h: &Harness, r: Rect, colour: u32) -> bool {
+    h.list.quads.iter().any(|q| {
+        q.colour == colour
+            && q.dst.x >= r.x - 0.5
+            && q.dst.y >= r.y - 0.5
+            && q.dst.right() <= r.right() + 0.5
+            && q.dst.bottom() <= r.bottom() + 0.5
+    })
+}
+
+#[test]
+fn a_shortcut_keeps_its_cooldown_sweep_until_the_game_ends_the_cooldown() {
+    let mut state = player_with_a_shortcut_in_slot(2);
+    // Its time run out by this clock, and the game still holding the cooldown.
+    state.shortcuts[0].cooldown = Some((0.0, 30.0));
+    let mut h = Harness::new(Default::default());
+    h.frame(&state);
+    h.frame(&state);
+    let slot = slot_rect(&h, 2);
+    // With no art, the sweep is a dark wash over the slot.
+    assert!(drawn_in(&h, slot, 0x9000_0000), "still cooling down");
+    state.shortcuts[0].cooldown = None;
+    h.frame(&state);
+    assert!(!drawn_in(&h, slot, 0x9000_0000), "ended by the game");
+}
+
 #[test]
 fn a_click_on_a_shortcut_selects_the_item_and_a_double_click_uses_it() {
     let state = player_with_a_shortcut_in_slot(2);
