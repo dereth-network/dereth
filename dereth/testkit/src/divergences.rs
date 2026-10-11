@@ -6,8 +6,12 @@
 //! down. A place where this client reproduces an odd retail behaviour on purpose is not a
 //! divergence, because it matches retail.
 //!
-//! Each [`Divergence`] has a stable `CD-###` id, and the behaviour rows that assert it name that
-//! id in their `divergence` field. The link is required in both directions: a row whose `since` is
+//! Each [`Divergence`] has a stable id, and the behaviour rows that assert it name that id in
+//! their `divergence` field. The first ones are numbered, `CD-001` to `CD-043`
+//! ([`LAST_NUMBERED`]); every later one is named, `CD-` and a short lowercase name joined by
+//! hyphens (`CD-camera-follows-slope`), so changes made on separate branches never compete for
+//! the next number. Named entries follow the numbered ones in alphabetical order, so two
+//! branches that each add one insert them at different places. The link is required in both directions: a row whose `since` is
 //! "this client" -- a claim read off this client's own rule rather than off retail -- must name a
 //! divergence, and a divergence that no row names is a claim nothing asserts. A row stamped
 //! "tooling" is a developer affordance, such as running with no server: it is recorded and
@@ -28,8 +32,9 @@ use crate::behaviours::{self, Behaviour};
 /// One deliberate difference from the retail client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Divergence {
-    /// `CD-` and three digits. Stable: an id is never reused, and a divergence that is withdrawn
-    /// keeps its number out of circulation.
+    /// `CD-` and three digits up to [`LAST_NUMBERED`], or `CD-` and a lowercase name joined by
+    /// hyphens for every later one. Stable: an id is never reused, and a divergence that is
+    /// withdrawn keeps its id out of circulation.
     pub id: &'static str,
     /// A short name for the divergence, in words a player would recognise.
     pub title: &'static str,
@@ -42,6 +47,24 @@ pub struct Divergence {
 /// The ids of divergences that were withdrawn because the client turned out to behave as retail
 /// does. Each keeps its number out of circulation, so the register skips it.
 pub static WITHDRAWN: &[&str] = &["CD-020"];
+
+/// The last numbered divergence. Every divergence after it is named, never numbered.
+pub const LAST_NUMBERED: u32 = 43;
+
+/// Whether `id` is a named divergence's id: `CD-` and lowercase letters and digits in words
+/// joined by single hyphens, beginning with a letter.
+#[must_use]
+pub fn is_named_id(id: &str) -> bool {
+    id.strip_prefix("CD-").is_some_and(|name| {
+        name.starts_with(|c: char| c.is_ascii_lowercase())
+            && name.split('-').all(|word| {
+                !word.is_empty()
+                    && word
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            })
+    })
+}
 
 /// Every divergence, in id order.
 pub static DIVERGENCES: &[Divergence] = &[
@@ -446,7 +469,7 @@ pub fn render() -> String {
          places where it deliberately behaves differently. Each row is a choice: the retail \
          behaviour is known, and this client does something else on purpose. Defects and \
          features not yet built are not listed, and neither is anything this client reproduces \
-         from retail on purpose, however odd. The code names a row by its id (`CD-001`). The \
+         from retail on purpose, however odd. The code names a row by its id: a number for the          first ones (`CD-001`), a short name for every later one (`CD-camera-follows-slope`). The \
          server's own list, against ACE, is \
          [`empyrean/DIVERGENCES.md`](../empyrean/DIVERGENCES.md)."
             .to_owned(),
@@ -534,26 +557,69 @@ mod tests {
     }
 
     /// **A divergence nothing asserts is a claim with no test**, so every one is named by at least
-    /// one row, and the ids are `CD-` and three digits, unique and in order with no gap but the
-    /// withdrawn numbers.
+    /// one row. The ids are unique: the numbered ones first, in order from `CD-001` to
+    /// [`LAST_NUMBERED`] with no gap but the withdrawn numbers, then the named ones in
+    /// alphabetical order.
     #[test]
-    fn every_divergence_is_numbered_in_order_and_named_by_a_row() {
+    fn every_divergence_is_numbered_or_named_in_order_and_named_by_a_row() {
         let mut seen = BTreeSet::new();
-        let mut expected = (1..)
+        let numbered: Vec<String> = (1..=LAST_NUMBERED)
             .map(|n| format!("CD-{n:03}"))
-            .filter(|id| !WITHDRAWN.contains(&id.as_str()));
-        for d in DIVERGENCES {
-            assert_eq!(
-                Some(d.id.to_owned()),
-                expected.next(),
-                "the register is not numbered in order from CD-001, less the withdrawn numbers"
+            .filter(|id| !WITHDRAWN.contains(&id.as_str()))
+            .collect();
+        let (first, named) = DIVERGENCES.split_at(numbered.len().min(DIVERGENCES.len()));
+        assert_eq!(
+            first.iter().map(|d| d.id).collect::<Vec<_>>(),
+            numbered,
+            "the numbered divergences run in order from CD-001 to the last numbered, less the              withdrawn numbers"
+        );
+        for pair in named.windows(2) {
+            assert!(
+                pair[0].id < pair[1].id,
+                "the named divergences stand in alphabetical order: {} before {}",
+                pair[0].id,
+                pair[1].id
             );
+        }
+        for d in named {
+            assert!(
+                is_named_id(d.id),
+                "{} is neither numbered (up to the last numbered) nor a name: `CD-` and lowercase                  words joined by hyphens",
+                d.id
+            );
+        }
+        for d in DIVERGENCES {
             assert!(seen.insert(d.id), "{} is listed twice", d.id);
             assert!(
                 rows_of(d.id).next().is_some(),
                 "{} is named by no behaviour row, so nothing asserts it",
                 d.id
             );
+        }
+    }
+
+    /// A named id is `CD-` and lowercase words of letters and digits joined by single hyphens,
+    /// beginning with a letter; a number is not a name.
+    #[test]
+    fn a_named_id_is_lowercase_words_joined_by_hyphens() {
+        for id in [
+            "CD-camera-follows-slope",
+            "CD-hifi-in-dungeons",
+            "CD-x2-zoom",
+        ] {
+            assert!(is_named_id(id), "{id}");
+        }
+        for id in [
+            "CD-044",
+            "CD-Camera-slope",
+            "CD-camera--slope",
+            "CD-camera-",
+            "CD-",
+            "camera-slope",
+            "CD-camera_slope",
+            "CD-2x-zoom",
+        ] {
+            assert!(!is_named_id(id), "{id}");
         }
     }
 

@@ -1,6 +1,6 @@
 # Deliberate divergences from the retail client
 
-The Dereth client rebuilds the retail Asheron's Call client, and this is the list of places where it deliberately behaves differently. Each row is a choice: the retail behaviour is known, and this client does something else on purpose. Defects and features not yet built are not listed, and neither is anything this client reproduces from retail on purpose, however odd. The code names a row by its id (`CD-001`). The server's own list, against ACE, is [`empyrean/DIVERGENCES.md`](../empyrean/DIVERGENCES.md).
+The Dereth client rebuilds the retail Asheron's Call client, and this is the list of places where it deliberately behaves differently. Each row is a choice: the retail behaviour is known, and this client does something else on purpose. Defects and features not yet built are not listed, and neither is anything this client reproduces from retail on purpose, however odd. The code names a row by its id: a number for the          first ones (`CD-001`), a short name for every later one (`CD-camera-follows-slope`). The server's own list, against ACE, is [`empyrean/DIVERGENCES.md`](../empyrean/DIVERGENCES.md).
 
 Each row names the behaviour-registry rows that describe it and the test that asserts each one, as a test path whose last parts can be passed to `cargo test` as a filter.
 
