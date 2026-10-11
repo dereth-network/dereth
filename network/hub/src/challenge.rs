@@ -278,7 +278,10 @@ mod tests {
             Some(Refused::Busy),
             "one at a time for a world"
         );
-        assert!(!w.answer("coldeve", &key(1), &[0; NONCE_LEN]), "a nonce never sent");
+        assert!(
+            !w.answer("coldeve", &key(1), &[0; NONCE_LEN]),
+            "a nonce never sent"
+        );
         assert!(!w.answer("coldeve", &key(2), &b.nonce), "another key");
         assert!(!w.answer("frost", &key(1), &b.nonce), "another world");
         assert_eq!(
@@ -317,7 +320,10 @@ mod tests {
     fn no_more_challenges_wait_than_the_hub_allows() {
         let w = Waiting::default();
         let tickets: Vec<Ticket<'_>> = (0..MAX_WAITING)
-            .map(|i| w.open(&format!("w{i}"), key(0), Vec::new()).expect("opened"))
+            .map(|i| {
+                w.open(&format!("w{i}"), key(0), Vec::new())
+                    .expect("opened")
+            })
             .collect();
         assert_eq!(
             w.open("one-more", key(0), Vec::new()).err(),

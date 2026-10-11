@@ -165,7 +165,10 @@ fn a_world_verifies_in_game_by_answering_a_real_hubs_challenge_from_another_addr
         .cloned()
         .expect("verified");
     assert_eq!(
-        (verified["details"]["method"].clone(), verified["details"]["address"].clone()),
+        (
+            verified["details"]["method"].clone(),
+            verified["details"]["address"].clone()
+        ),
         (json!("game"), json!("127.0.0.1"))
     );
     running.shutdown();
@@ -211,7 +214,10 @@ fn a_hub_challenge_is_answered_only_while_dn_verify_waits_once_for_each_nonce() 
     );
     heard(&mut net, "aa", &challenge("aa", 40));
     net.advance(0.1);
-    assert!(answers(&mut net, "aa").is_empty(), "the verification is over");
+    assert!(
+        answers(&mut net, "aa").is_empty(),
+        "the verification is over"
+    );
 
     // So is one heard a minute after `/dn verify` was typed, however long the hub takes.
     net.say("aa", "Boss", &format!("@dn verify dnv_{}", "Q".repeat(32)));

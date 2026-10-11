@@ -99,9 +99,7 @@ impl Challenge {
     /// that cannot be carried.
     #[must_use]
     pub fn parse(datagram: &[u8]) -> Option<Self> {
-        if !is_challenge(datagram)
-            || datagram[HEADER_LEN] != KIND
-            || datagram[HEADER_LEN + 1] == 0
+        if !is_challenge(datagram) || datagram[HEADER_LEN] != KIND || datagram[HEADER_LEN + 1] == 0
         {
             return None;
         }
@@ -131,7 +129,11 @@ pub fn parse_nonce_hex(text: &str) -> Option<[u8; NONCE_LEN]> {
     if b.len() != NONCE_LEN * 2 {
         return None;
     }
-    let digit = |c: u8| char::from(c).to_digit(16).and_then(|d| u8::try_from(d).ok());
+    let digit = |c: u8| {
+        char::from(c)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
     let mut out = [0u8; NONCE_LEN];
     for (o, [high, low]) in out.iter_mut().zip(b.as_chunks::<2>().0) {
         *o = (digit(*high)? << 4) | digit(*low)?;
@@ -221,7 +223,13 @@ mod tests {
         assert_eq!(hex, "00112233445566778899aabbccddeeff");
         assert_eq!(parse_nonce_hex(&hex), Some(nonce));
         assert_eq!(parse_nonce_hex(&hex.to_ascii_uppercase()), Some(nonce));
-        for bad in ["", "00", &format!("{hex}0"), &hex.replace('a', "g"), "+0112233445566778899aabbccddeef"] {
+        for bad in [
+            "",
+            "00",
+            &format!("{hex}0"),
+            &hex.replace('a', "g"),
+            "+0112233445566778899aabbccddeef",
+        ] {
             assert_eq!(parse_nonce_hex(bad), None, "{bad:?}");
         }
     }

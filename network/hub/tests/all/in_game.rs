@@ -103,7 +103,11 @@ fn a_challenge_nobody_answers_is_no_answer_naming_the_host_its_addresses_and_the
     let port = game_port();
     let (key, token) = register(&f, &ann, "quiet", "game.example");
     let (a, heard) = verify_answering(&f, "quiet", &key, &token, &[], &silent());
-    assert_eq!((a.status, a.reason()), (422, "no_answer".to_owned()), "{a:?}");
+    assert_eq!(
+        (a.status, a.reason()),
+        (422, "no_answer".to_owned()),
+        "{a:?}"
+    );
     assert_eq!(
         a.json()["error"]["message"],
         format!(

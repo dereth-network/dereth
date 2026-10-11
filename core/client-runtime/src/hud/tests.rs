@@ -829,3 +829,153 @@ fn a_creature_type_is_named_with_a_space_where_the_dat_spells_an_underscore() {
     );
     assert_eq!(a.gender_heritage_display.as_deref(), Some("Fire Elemental"));
 }
+
+/// A tell from `sender` under `name`, addressed to the player `me`.
+fn a_tell_to(me: ObjectId, sender: u32, name: &str, message: &str) -> SessionEvent {
+    ui_event(&dereth_protocol::comms::CommunicationHearDirectSpeech {
+        message: message.into(),
+        sender_name: name.into(),
+        sender_id: ObjectId(sender),
+        target_id: me,
+        text_type: dereth_client_model::chat::text_type::SPEECH_DIRECT,
+        secret_flags: 0,
+    })
+}
+
+/// A HUD with a player in the world, which every tell needs to be drawn at all.
+fn a_hud_with_a_player(me: ObjectId) -> (Hud, dereth_client_model::World) {
+    let mut h = Hud::new();
+    let mut w = dereth_client_model::World::new();
+    let _ = h.apply_events(&[SessionEvent::PlayerCreated(me)], &mut w);
+    h.player_body = true;
+    (h, w)
+}
+
+/// The stand-in id a world gives a network channel in these tests.
+const CHANNEL_ID: u32 = 0x6000_0007;
+
+/// A Dereth Network channel's tell is drawn as a channel line in the channel color, the speaker
+/// named and clickable, and a reply still goes to the channel by its id.
+/// Behaviour: chat.network.a-channels-tell-is-drawn-as-a-channel-line
+#[test]
+fn a_network_channels_tell_is_drawn_as_a_channel_line_and_a_reply_goes_to_the_channel() {
+    let me = ObjectId(0x5000_0001);
+    let (mut h, mut w) = a_hud_with_a_player(me);
+    let got = h.apply_events(
+        &[a_tell_to(
+            me,
+            CHANNEL_ID,
+            "group@channel",
+            "Person@world: bro",
+        )],
+        &mut w,
+    );
+    assert_eq!(got.len(), 1);
+    assert_eq!(
+        got[0].body,
+        "[group] <Tell:IIDString:0:Person@world>Person@world<\\Tell> says, \"bro\""
+    );
+    assert_eq!(
+        u32::from(got[0].ty),
+        dereth_client_model::chat::text_type::CHANNEL
+    );
+    assert_eq!(w.chat.last_teller, Some(ObjectId(CHANNEL_ID)));
+    assert_eq!(
+        w.chat.reply_targets().last_teller.as_deref(),
+        Some("group@channel")
+    );
+    assert_eq!(
+        w.chat.do_reply("hi all"),
+        dereth_client_model::chat::TellOutcome::ById {
+            message: "hi all".into(),
+            target: ObjectId(CHANNEL_ID),
+        },
+        "@reply tells the channel by its id"
+    );
+}
+
+/// An ordinary tell, a stand-in sender whose name is not a channel's, and a channel's name from a
+/// sender without a stand-in id all stay tells, word for word.
+/// Behaviour: chat.network.a-channels-tell-is-drawn-as-a-channel-line
+#[test]
+fn only_a_stand_in_sender_named_as_a_channel_is_drawn_as_a_channel_line() {
+    let me = ObjectId(0x5000_0001);
+    for (sender, name, text) in [
+        (0x5000_0002, "Alba", "hello"),
+        (CHANNEL_ID, "Bob@coldeve", "Person@world: bro"),
+        (0x5000_0002, "group@channel", "Person@world: bro"),
+        (0x7000_0000, "group@channel", "Person@world: bro"),
+    ] {
+        let (mut h, mut w) = a_hud_with_a_player(me);
+        let got = h.apply_events(&[a_tell_to(me, sender, name, text)], &mut w);
+        assert_eq!(got.len(), 1, "{name}");
+        assert!(
+            got[0].body.contains(name) && got[0].body.ends_with(&format!(" tells you, \"{text}\"")),
+            "{name} from {sender:#x}: {}",
+            got[0].body
+        );
+        assert_eq!(
+            u32::from(got[0].ty),
+            dereth_client_model::chat::text_type::SPEECH_DIRECT,
+            "{name}"
+        );
+    }
+}
+
+/// The world's echo of a line told to a network channel is drawn as the player's own channel
+/// line; an echo of a tell to a character is left as it came.
+/// Behaviour: chat.network.a-channels-tell-is-drawn-as-a-channel-line
+#[test]
+fn the_echo_of_a_line_told_to_a_network_channel_reads_as_the_players_own_channel_line() {
+    let echo = |text: &str| {
+        ui_event(&dereth_protocol::comms::CommunicationTextboxString {
+            text: text.into(),
+            text_type: dereth_client_model::chat::text_type::SPEECH_DIRECT_SEND,
+        })
+    };
+    let mut h = Hud::new();
+    let mut w = dereth_client_model::World::new();
+    let got = h.apply_events(
+        &[
+            echo("You tell group@channel, \"bro\""),
+            echo("You tell Alba, \"hello\""),
+        ],
+        &mut w,
+    );
+    let drawn: Vec<(u32, &str)> = got
+        .iter()
+        .map(|m| (u32::from(m.ty), m.body.as_str()))
+        .collect();
+    assert_eq!(
+        drawn,
+        vec![
+            (
+                dereth_client_model::chat::text_type::CHANNEL_SEND,
+                "[group] You say, \"bro\""
+            ),
+            (
+                dereth_client_model::chat::text_type::SPEECH_DIRECT_SEND,
+                "You tell Alba, \"hello\""
+            ),
+        ]
+    );
+}
+
+/// The channel line's own composition: a text without the speaker's address is drawn whole, and
+/// the channel's suffix is read in any case.
+/// Behaviour: chat.network.a-channels-tell-is-drawn-as-a-channel-line
+#[test]
+fn a_channel_line_without_a_speaker_is_drawn_whole() {
+    use dereth_client_model::chat::composition::{
+        network_channel, network_channel_echo, network_channel_line,
+    };
+    assert_eq!(
+        network_channel_line("group", "no speaker here"),
+        "[group] no speaker here"
+    );
+    assert_eq!(network_channel(CHANNEL_ID, "Group@Channel"), Some("Group"));
+    assert_eq!(network_channel(CHANNEL_ID, "@channel"), None);
+    assert_eq!(network_channel(0x6000_0000, "group@channel"), None);
+    assert_eq!(network_channel(0x6FFF_FFFF, "group@channel"), Some("group"));
+    assert_eq!(network_channel_echo("You tell a@b@channel, \"x\""), None);
+}

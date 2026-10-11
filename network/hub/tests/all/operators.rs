@@ -16,8 +16,8 @@ use std::time::{Duration, Instant, SystemTime};
 use dereth_network_conformance::hub::Link;
 use dereth_network_hub::discord::{any_address, Discord};
 use dereth_network_hub::registry::{Registration, Registry};
-use dereth_network_protocol::challenge::{nonce_hex, Challenge};
 use dereth_network_hub::server::{start_with, HubConfig, Running};
+use dereth_network_protocol::challenge::{nonce_hex, Challenge};
 use serde_json::{json, Value};
 
 pub(super) const SITE: &str = "https://site.test";
@@ -615,8 +615,7 @@ pub(super) fn verify_answering(
         "POST",
         &format!("/v1/servers/{slug}/verify"),
         &headers,
-        &json!({ "token": token, "by": answering.by.as_deref().unwrap_or("Asheron") })
-            .to_string(),
+        &json!({ "token": token, "by": answering.by.as_deref().unwrap_or("Asheron") }).to_string(),
     );
     stop.store(true, Ordering::SeqCst);
     let heard = listener.join().expect("the stand-in world");
@@ -1153,7 +1152,10 @@ fn a_world_calling_from_another_address_than_its_endpoint_is_verified() {
         .cloned()
         .expect("a verified event");
     assert_eq!(
-        (verified["details"]["method"].clone(), verified["details"]["address"].clone()),
+        (
+            verified["details"]["method"].clone(),
+            verified["details"]["address"].clone()
+        ),
         (json!("game"), json!("127.0.0.1")),
         "verified at the address it answered at, not either it called from"
     );

@@ -1349,8 +1349,7 @@ fn an_observed_world_verified_in_game_keeps_the_address_it_answered_at() {
     let f = hub();
     let ann = sign_in(&f, "2301");
     let mut w = world("seen", "127.0.0.1");
-    w["endpoint"] =
-        json!({ "mode": "observed", "port": super::operators::game_port(), "addressFamily": "ipv4" });
+    w["endpoint"] = json!({ "mode": "observed", "port": super::operators::game_port(), "addressFamily": "ipv4" });
     let a = op(&f, &ann, "POST", "/v1/operator/worlds", &w);
     assert_eq!(a.status, 201, "{a:?}");
     let key = a.json()["key"].as_str().expect("a key").to_owned();

@@ -574,10 +574,26 @@ impl Hud {
                                 m.text
                             );
                         }
+                        // The world's echo of a line the player told a Dereth Network channel is
+                        // drawn as the player's own channel line.
+                        let echo = (m.text_type
+                            == dereth_client_model::chat::text_type::SPEECH_DIRECT_SEND)
+                            .then(|| {
+                                dereth_client_model::chat::composition::network_channel_echo(
+                                    &m.text,
+                                )
+                            })
+                            .flatten();
+                        let (ty, body) = match echo {
+                            Some(line) => {
+                                (dereth_client_model::chat::text_type::CHANNEL_SEND, line)
+                            }
+                            None => (m.text_type, m.text),
+                        };
                         chat.push(ChatMessage {
                             feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
-                            ty: u8::try_from(m.text_type).unwrap_or(0),
-                            body: m.text,
+                            ty: u8::try_from(ty).unwrap_or(0),
+                            body,
                             prefix: None,
                             window: 0,
                         });
@@ -1095,7 +1111,26 @@ impl Hud {
                             &m.message,
                         ) {
                             Some(line) => {
-                                chat.push(speech(m.text_type, line));
+                                // A Dereth Network channel's line arrives as a tell from the
+                                // channel; it is drawn as a channel line, and the reply target
+                                // set above stays the channel.
+                                let channel = (!self_tell)
+                                    .then(|| {
+                                        dereth_client_model::chat::composition::network_channel(
+                                            m.sender_id.0,
+                                            &name,
+                                        )
+                                    })
+                                    .flatten();
+                                chat.push(match channel {
+                                    Some(channel) => speech(
+                                        dereth_client_model::chat::text_type::CHANNEL,
+                                        dereth_client_model::chat::composition::network_channel_line(
+                                            channel, &m.message,
+                                        ),
+                                    ),
+                                    None => speech(m.text_type, line),
+                                });
                                 self.stats.speech_lines_composed += 1;
                             }
                             None => self.stats.speech_lines_not_addressed_to_us += 1,

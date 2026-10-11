@@ -929,8 +929,7 @@ mod tests {
             let nonce = loop {
                 assert!(Instant::now() < until, "no challenge came");
                 if let Ok((n, _)) = socket.recv_from(&mut buf) {
-                    if let Some(c) =
-                        dereth_network_protocol::challenge::Challenge::parse(&buf[..n])
+                    if let Some(c) = dereth_network_protocol::challenge::Challenge::parse(&buf[..n])
                     {
                         break c.nonce;
                     }

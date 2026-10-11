@@ -36,7 +36,9 @@ fn a_hub_challenge_on_the_game_port_is_kept_for_the_world_and_never_answered() {
     );
     assert!(out.is_empty(), "nothing goes back");
     assert_eq!(
-        net.hub_challenges.as_ref().map(|k| k.iter().cloned().collect::<Vec<_>>()),
+        net.hub_challenges
+            .as_ref()
+            .map(|k| k.iter().cloned().collect::<Vec<_>>()),
         Some(vec![c])
     );
     assert_eq!(net.get_session_count(), 0, "no session");

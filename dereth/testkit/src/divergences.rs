@@ -443,6 +443,18 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A player can look at the world in the rain, the snow or the sun without waiting for \
               the day.",
     },
+    Divergence {
+        id: "CD-network-channel-lines",
+        title: "Dereth Network channel lines are drawn as channel lines",
+        change: "A Dereth Network channel reaches every client as a tell from the channel, since \
+                 a tell is all the final client can draw. This client draws it as a channel \
+                 line instead, in the channel color, with the channel's name in brackets and the \
+                 speaker saying the line, and draws the world's echo of a line the player told a \
+                 channel as the player's own channel line. Nothing sent or received changes, a \
+                 reply still goes to the channel, and every other tell is drawn as before.",
+        why: "A channel's conversation reads as a conversation among its members rather than as \
+              the channel telling the player what each of them said.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

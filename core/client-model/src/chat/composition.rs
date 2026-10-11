@@ -197,6 +197,66 @@ pub fn garbled_line(name: &str, random_text: &str) -> String {
 }
 
 // =================================================================================================
+// Dereth Network channel lines.
+//
+// A network channel reaches every client as a tell, since a tell is all the final client can
+// draw: the sender is the channel's address, `name@channel`, under a network stand-in id, and the
+// text is `Speaker@world: line`. The world echoes a line the player tells a channel as
+// `You tell name@channel, "line"`. This client draws both as channel lines instead. Nothing on
+// the wire changes.
+
+/// The ids a world gives the network's remote correspondents. No object of a world has one, so a
+/// sender with one of these ids is the network speaking.
+pub const NETWORK_STAND_IN_IDS: std::ops::RangeInclusive<u32> = 0x6000_0001..=0x6FFF_FFFF;
+
+/// The world half of a network channel's address.
+const NETWORK_CHANNEL_SUFFIX: &str = "@channel";
+
+/// The channel half of `address` when it is a channel's address (`name@channel`, any case).
+fn channel_of(address: &str) -> Option<&str> {
+    let split = address.len().checked_sub(NETWORK_CHANNEL_SUFFIX.len())?;
+    let (name, suffix) = (address.get(..split)?, address.get(split..)?);
+    (suffix.eq_ignore_ascii_case(NETWORK_CHANNEL_SUFFIX) && !name.is_empty() && !name.contains('@'))
+        .then_some(name)
+}
+
+/// The channel a tell comes from, when it is a network channel's line: its sender has a network
+/// stand-in id **and** its name is a channel's address. A character's name never holds an `@` and
+/// no object has a stand-in id, so neither half alone can make an ordinary tell read as one.
+#[must_use]
+pub fn network_channel(sender_id: u32, sender_name: &str) -> Option<&str> {
+    if NETWORK_STAND_IN_IDS.contains(&sender_id) {
+        channel_of(sender_name)
+    } else {
+        None
+    }
+}
+
+/// A network channel's tell drawn as a channel line, in the fellowship line's style:
+/// `[name] Speaker@world says, "line"`, the speaker's name a clickable run that tells them by
+/// name. A text without the `Speaker@world: ` head is drawn whole after the channel's name.
+#[must_use]
+pub fn network_channel_line(channel: &str, message: &str) -> String {
+    match message.split_once(": ") {
+        Some((speaker, line)) if speaker.contains('@') => {
+            format!("[{channel}] {} says, \"{line}\"", tell_run(0, speaker))
+        }
+        _ => format!("[{channel}] {message}"),
+    }
+}
+
+/// The world's echo of a line the player told a network channel, `You tell name@channel, "line"`,
+/// drawn as the player's own channel line: `[name] You say, "line"`. `None` for any other text.
+#[must_use]
+pub fn network_channel_echo(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("You tell ")?;
+    let (address, quoted) = rest.split_once(", \"")?;
+    let line = quoted.trim_end_matches(['\n', '\r']).strip_suffix('"')?;
+    let channel = channel_of(address)?;
+    Some(format!("[{channel}] You say, \"{line}\""))
+}
+
+// =================================================================================================
 // The twenty phrases, transcribed from the retail client.
 //
 // The Olthoi and human phrase picks each roll once over the inclusive range

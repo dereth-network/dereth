@@ -480,9 +480,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
         }
         "verify" => {
             let slug = arg(0)?;
-            let approval = open()?
-                .vouch(&slug, &arg(1)?)
-                .map_err(|e| e.message)?;
+            let approval = open()?.vouch(&slug, &arg(1)?).map_err(|e| e.message)?;
             match approval {
                 Some(a) => println!(
                     "{slug}: verified by the hub's operator; approval onto the network: {}",
@@ -650,7 +648,8 @@ mod tests {
     #[test]
     fn verify_on_the_command_line_vouches_for_a_world() {
         assert!(USAGE.contains("verify <slug>"));
-        let dir = std::env::temp_dir().join(format!("dereth-hub-cli-verify-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("dereth-hub-cli-verify-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder");
         let db = dir.join("hub.sqlite").to_str().expect("a path").to_owned();

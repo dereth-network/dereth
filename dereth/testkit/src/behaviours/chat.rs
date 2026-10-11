@@ -654,6 +654,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.network.a-channels-tell-is-drawn-as-a-channel-line",
+        says: "A Dereth Network channel's line, which reaches the client as a tell from the \
+               channel, is drawn as a channel line in the channel color: the channel's name in \
+               brackets, then the speaker says the line, the speaker's name clickable. Only a \
+               sender with a network stand-in id whose name is a channel's address is read so; \
+               any other tell is drawn as a tell. A reply still goes to the channel, and the \
+               world's echo of a line told to a channel reads as the player's own channel line.",
+        since: THIS_CLIENT,
+        divergence: "CD-network-channel-lines",
+        evidence: Evidence::Private("AC-EVID-NETWORK-CHANNEL-LINES"),
+        station: "dereth-client-runtime::lib::hud::tests::a_network_channels_tell_is_drawn_as_a_channel_line_and_a_reply_goes_to_the_channel",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.pose.a-key-bound-to-a-pose-moves-the-body-and-one-that-is-not-is-bound-to-nothing",
         says: "A key the shipped keymap binds to lying down really lies the body down when it is \
                pressed, issuing the motion for it. A key the shipped keymap binds to no pose at all \
