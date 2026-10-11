@@ -2,7 +2,7 @@
 name = "dereth-web"
 description = "The Dereth client in a web browser: the client application in a Web Worker, reading the player's data files on the player's own machine and reaching the server over a WebSocket, directly or through a relay on the player's machine."
 # Dereth's version: the client's and the launcher's, which `cargo xtask release dereth` moves.
-version = "0.4.0"
+version = "0.4.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -288,7 +288,12 @@ impl Client {
         self.shell.queue_window_event(event);
         self.app.probe_mut().host_state_mut().in_world = true;
         {
-            let ui = self.shell.classic.ui.as_mut().expect("the classic interface");
+            let ui = self
+                .shell
+                .classic
+                .ui
+                .as_mut()
+                .expect("the classic interface");
             let cx = self.app.ui_context();
             let view = cx.hud().view(cx.objects());
             let context = dereth_classic_ui::panels::Context {
@@ -813,7 +818,6 @@ fn a_right_button_look_in_the_classic_interface_examines_nothing_when_let_go() {
     c.finish();
 }
 
-
 /// Behaviour: camera.mouse-look.a-drag-is-never-the-first-click-of-a-double-click
 ///
 /// A click at once after a drag, where the drag's held pointer is shown again, is a click and not
@@ -849,6 +853,10 @@ fn a_click_at_once_after_a_drag_is_a_click_and_not_a_double_click() {
     assert_eq!(uses(&c), before, "a click after the drag uses nothing");
     c.button(MouseButton::Left, true);
     c.button(MouseButton::Left, false);
-    assert_eq!(uses(&c), before + 1, "a second click at once is a double-click");
+    assert_eq!(
+        uses(&c),
+        before + 1,
+        "a second click at once is a double-click"
+    );
     c.finish();
 }

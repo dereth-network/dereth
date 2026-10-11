@@ -1071,12 +1071,13 @@ mod tests {
         );
         let mut list = dereth_horizon::draw::DrawList::default();
         let mut input = dereth_horizon::ui::input::InputFrame::default();
-        let mut frame = |ui: &mut dereth_horizon::ui::HorizonUi,
-                         input: &mut dereth_horizon::ui::input::InputFrame| {
-            let out = ui.frame(&mut list, (1920.0, 1080.0), 1.0 / 60.0, &state, input);
-            input.next_frame();
-            out.requests
-        };
+        let mut frame =
+            |ui: &mut dereth_horizon::ui::HorizonUi,
+             input: &mut dereth_horizon::ui::input::InputFrame| {
+                let out = ui.frame(&mut list, (1920.0, 1080.0), 1.0 / 60.0, &state, input);
+                input.next_frame();
+                out.requests
+            };
         frame(&mut ui, &mut input);
         ui.windows.open(WindowId::Options, 0.0);
         ui.windows.options_page.tab = tab::CLIENT;

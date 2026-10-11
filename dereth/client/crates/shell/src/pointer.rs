@@ -421,7 +421,10 @@ mod tests {
         button: MouseButton,
         pressed: bool,
     ) -> Option<(MouseButton, bool)> {
-        assert_eq!(h.gate(&HostEvent::MouseInput { button, pressed }), Gate::Route);
+        assert_eq!(
+            h.gate(&HostEvent::MouseInput { button, pressed }),
+            Gate::Route
+        );
         h.take_release()
     }
 
@@ -450,9 +453,17 @@ mod tests {
         right(&mut h, true);
         moved(&mut h, 104.0, 50.0);
         moved(&mut h, 100.0, 50.0);
-        assert_eq!(right(&mut h, false), Some(true), "four is a drag, brought back");
+        assert_eq!(
+            right(&mut h, false),
+            Some(true),
+            "four is a drag, brought back"
+        );
         right(&mut h, true);
-        assert_eq!(right(&mut h, false), Some(false), "the next press starts afresh");
+        assert_eq!(
+            right(&mut h, false),
+            Some(false),
+            "the next press starts afresh"
+        );
     }
 
     /// Behaviour: ui.pointer.turning-the-camera-with-the-right-button-is-not-an-appraisal
