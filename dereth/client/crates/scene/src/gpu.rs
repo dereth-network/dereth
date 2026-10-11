@@ -771,7 +771,7 @@ mod imp {
             })
         }
 
-        /// Where the top of an object's body as drawn stands on screen; see
+        /// Where the point a name over an object stands on is on screen; see
         /// `SceneDraw::target_top`. Nothing during a hidden world.
         pub fn target_top(
             &self,

@@ -1,19 +1,22 @@
-//! The top of a body as it is drawn this frame: the highest point of the meshes its parts draw,
-//! where the parts stand. It is where an interface puts a name over a person or a creature.
+//! Where a name over a person or a creature stands: over its origin, at a height that does not
+//! follow its animation, so a body that moves in place (a portal's swirl, a golem's sway) does not
+//! carry its name up and down with it.
 //!
-//! A setup's own measures are not that top. Its height and its selection sphere are what physics
-//! and the selection marker read, and a body's meshes can stand well over or under both: a lugian's
-//! head stands half a metre over its setup's height and its selection sphere, and a cow's selection
-//! sphere reaches a metre over its back. The meshes are what the player sees, so the top is
-//! measured on them, posed as they are drawn and scaled as the object is.
+//! That height is the body's collision height (its setup's height, scaled as the body is), or the
+//! top of its meshes in its rest pose where that stands higher. A setup's height is not always
+//! over the head: a lugian's head stands half a metre over it, which the rest pose's top finds,
+//! and a body with no collision height is measured on its rest pose alone. The meshes are measured
+//! as they are drawn: each part's own graphics object and scale, placed by the setup's resting
+//! placement and scaled as the object is.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use dereth_animation::parts::PhysicsPart;
+use dereth_animation::parts::{PartArray, PhysicsPart};
 use dereth_assets::{Decode, GfxObj};
 use dereth_dat::{DbType, RetailDatStore};
-use dereth_primitives::{DataId, Vec3};
+use dereth_primitives::frame::V3;
+use dereth_primitives::{DataId, Frame, Vec3};
 
 /// The points each graphics object's drawn polygons are made of, read from the files the first
 /// time a part draws the object and kept: the same few dozen objects make every body in view.
@@ -67,24 +70,69 @@ pub fn top_of_parts(
     parts: &[PhysicsPart],
     points: impl Fn(DataId) -> Option<Arc<[Vec3]>>,
 ) -> Option<f32> {
+    top_of_posed(parts.iter().map(|p| (p, p.pos)), points)
+}
+
+/// The height over its origin of the highest point `parts` draw in their rest pose: each part
+/// placed by its setup's resting placement (its default one where it has no resting one), the
+/// placement scaled as the body is, and each part drawing its own graphics object at its own
+/// scale. `None` for a body whose setup has no placement, or whose parts draw nothing `points`
+/// knows.
+pub fn rest_top(parts: &PartArray, points: impl Fn(DataId) -> Option<Arc<[Vec3]>>) -> Option<f32> {
+    let setup = parts.setup.as_ref()?;
+    let rest = setup
+        .placement_frames
+        .get(&RESTING_PLACEMENT)
+        .or_else(|| setup.placement_frames.get(&0))?;
+    let posed = parts.parts.iter().zip(&rest.frames).map(|(part, f)| {
+        (
+            part,
+            Frame::new(f.origin.mul_componentwise(parts.scale), f.rotation),
+        )
+    });
+    top_of_posed(posed, points)
+}
+
+/// The height over its origin a name over `parts` stands at: its collision height, or the top of
+/// its rest pose ([`rest_top`]) where that stands higher. Neither moves while the body animates.
+/// `None` for a body with neither.
+pub fn name_height(
+    parts: &PartArray,
+    points: impl Fn(DataId) -> Option<Arc<[Vec3]>>,
+) -> Option<f32> {
+    let collision = Some(parts.height()).filter(|h| *h > 0.0);
+    match (collision, rest_top(parts, points)) {
+        (Some(c), Some(r)) => Some(c.max(r)),
+        (c, r) => c.or(r),
+    }
+}
+
+/// The placement a setup rests in, the one a body is built in.
+const RESTING_PLACEMENT: u32 = 0x65;
+
+/// [`top_of_parts`], each part placed at the frame it is paired with.
+fn top_of_posed<'a>(
+    parts: impl IntoIterator<Item = (&'a PhysicsPart, Frame)>,
+    points: impl Fn(DataId) -> Option<Arc<[Vec3]>>,
+) -> Option<f32> {
     let mut top: Option<f32> = None;
-    for part in parts {
+    for (part, at) in parts {
         if part.no_draw() || part.gfxobj_id.0 == 0 {
             continue;
         }
         let Some(points) = points(part.gfxobj_id) else {
             continue;
         };
-        // The world height of a point in the part's own space is the part's height plus the
-        // rotated, scaled point's: the rotation's third row against the scaled point.
-        let m = dereth_primitives::frame::l2g(part.pos.rotation).0;
+        // The height of a point in the part's own space is the part's height plus the rotated,
+        // scaled point's: the rotation's third row against the scaled point.
+        let m = dereth_primitives::frame::l2g(at.rotation).0;
         let s = part.gfxobj_scale;
         let (zx, zy, zz) = (m[2] * s.x, m[5] * s.y, m[8] * s.z);
         let highest = points
             .iter()
             .map(|p| zx * p.x + zy * p.y + zz * p.z)
             .fold(f32::MIN, f32::max);
-        let z = part.pos.origin.z + highest;
+        let z = at.origin.z + highest;
         top = Some(top.map_or(z, |t| t.max(z)));
     }
     top
@@ -362,6 +410,13 @@ mod tests {
     const BIG_LUGIAN: ObjectId = ObjectId(0x8300_0502);
     const LUGIAN_AT_ONE: ObjectId = ObjectId(0x8300_0503);
     const A_COW: ObjectId = ObjectId(0x8300_0504);
+    const A_PORTAL: ObjectId = ObjectId(0x8300_0505);
+    const A_MUD_GOLEM: ObjectId = ObjectId(0x8300_0506);
+
+    /// A town portal's swirl and its motions.
+    const PORTAL: (u32, u32) = (0x0200_01B3, 0x0900_0003);
+    /// A mud golem and its motions; the world makes it a tenth larger.
+    const MUD_GOLEM: (u32, u32) = (0x0200_07CA, 0x0900_0081);
 
     fn body(
         id: ObjectId,
@@ -379,12 +434,18 @@ mod tests {
         }
     }
 
+    /// Where `id`'s name stands, and its feet.
+    fn name_and_feet(h: &Holtburg, id: ObjectId) -> (Vec3, f32) {
+        let top = h.ws.name_top(id).expect("drawn");
+        (top, h.ws.objects[&id].frame.origin.z)
+    }
+
     #[test]
     #[cfg_attr(
         not(feature = "retail-dats"),
         ignore = "reads the retail dats: --features retail-dats"
     )]
-    fn a_bodys_top_is_the_highest_point_its_parts_draw_scaled_as_the_body_is() {
+    fn a_name_stands_at_the_collision_height_or_over_the_head_at_rest_scaled_as_the_body_is() {
         let mut h = Holtburg::new(60.0, false);
         h.make(&[
             body(MAN, HUMAN, None, (-3.0, 6.0)),
@@ -392,54 +453,55 @@ mod tests {
             body(BIG_LUGIAN, LUGIAN, Some(1.3), (3.0, 6.0)),
             body(A_COW, COW, None, (7.0, 6.0)),
         ]);
-        let height = |h: &Holtburg, id| {
-            let top = h.ws.drawn_top(id).expect("drawn");
-            let feet = h.ws.objects[&id].frame.origin.z;
-            (top, feet)
-        };
         for id in [MAN, LUGIAN_AT_ONE, BIG_LUGIAN, A_COW] {
-            let (top, _) = height(&h, id);
+            let (top, _) = name_and_feet(&h, id);
             let drawn = h.ws.objects[&id].frame.origin;
             assert_eq!(
                 (top.x, top.y),
                 (drawn.x, drawn.y),
                 "{id:?}: over its origin"
             );
-            let highest = h.highest_drawn_point(id);
-            assert!(
-                (top.z - highest).abs() < 1e-3,
-                "{id:?}: the top {} against the highest drawn point {highest}",
-                top.z
-            );
         }
-        // A lugian's head stands well over its setup's height and its selection sphere, the
-        // larger one's by as much more as it is larger.
+        // A person's head is at his collision height, and his name stands there.
+        let (man, man_feet) = name_and_feet(&h, MAN);
+        let (_, man_height) = h.setup_measures(MAN);
+        assert!(
+            (man.z - man_height).abs() < 1e-3,
+            "the man's name at {} over feet at {man_feet}, his height at {man_height}",
+            man.z
+        );
+        // A lugian's head stands half a metre over its collision height and its selection
+        // sphere: its name stands at its head as it rests, within a hand of it as it is drawn,
+        // the larger one's by as much more as it is larger.
         for id in [LUGIAN_AT_ONE, BIG_LUGIAN] {
-            let (top, _) = height(&h, id);
+            let (top, _) = name_and_feet(&h, id);
             let (sphere, setup) = h.setup_measures(id);
+            let head = h.highest_drawn_point(id);
             assert!(
-                top.z > sphere + 0.4 && top.z > setup + 0.4,
-                "{id:?}: its top {} against its selection sphere's {sphere} and its height {setup}",
+                top.z > sphere + 0.4 && top.z > setup + 0.4 && top.z > head - 0.1,
+                "{id:?}: its name at {} against its selection sphere's top {sphere}, its height \
+                 {setup} and its head {head}",
                 top.z
             );
         }
-        let (small, small_feet) = height(&h, LUGIAN_AT_ONE);
-        let (big, big_feet) = height(&h, BIG_LUGIAN);
+        let (small, small_feet) = name_and_feet(&h, LUGIAN_AT_ONE);
+        let (big, big_feet) = name_and_feet(&h, BIG_LUGIAN);
         let ratio = (big.z - big_feet) / (small.z - small_feet);
         assert!(
             (ratio - 1.3).abs() < 0.03,
-            "the lugian made larger stands {ratio} times as tall"
+            "the lugian made larger has its name {ratio} times as high"
         );
         assert!(
             big.z - big_feet > 3.0,
-            "a lugian made larger stands over three metres"
+            "a lugian made larger has its name over three metres up"
         );
-        // A cow's selection sphere reaches far over its back.
-        let (cow, _) = height(&h, A_COW);
-        let (sphere, _) = h.setup_measures(A_COW);
+        // A cow's collision height stands over its back, and under its selection sphere's top.
+        let (cow, _) = name_and_feet(&h, A_COW);
+        let (sphere, height) = h.setup_measures(A_COW);
         assert!(
-            cow.z < sphere - 0.5,
-            "the cow's top {} against its selection sphere's {sphere}",
+            (cow.z - height).abs() < 1e-3 && cow.z < sphere - 0.4,
+            "the cow's name at {} against its height {height} and its selection sphere's top \
+             {sphere}",
             cow.z
         );
     }
@@ -449,30 +511,75 @@ mod tests {
         not(feature = "retail-dats"),
         ignore = "reads the retail dats: --features retail-dats"
     )]
-    fn drawn_between_ticks_or_not_a_running_bodys_top_stands_over_where_it_is_drawn() {
+    fn a_name_stands_still_over_a_body_that_moves_in_place() {
+        let mut h = Holtburg::new(60.0, false);
+        h.make(&[
+            body(A_PORTAL, PORTAL, None, (-3.0, 8.0)),
+            body(A_MUD_GOLEM, MUD_GOLEM, Some(1.1), (3.0, 8.0)),
+        ]);
+        for (id, moves) in [(A_PORTAL, 0.4), (A_MUD_GOLEM, 0.03)] {
+            let (first, feet) = name_and_feet(&h, id);
+            let (mut low, mut high) = (f32::MAX, f32::MIN);
+            for n in 0..240 {
+                h.frame();
+                let (name, now_feet) = name_and_feet(&h, id);
+                assert!(
+                    ((name.z - now_feet) - (first.z - feet)).abs() < 1e-4,
+                    "{id:?}, frame {n}: the name at {} over feet at {now_feet}, first {} over \
+                     {feet}",
+                    name.z,
+                    first.z
+                );
+                let top = h.highest_drawn_point(id) - now_feet;
+                low = low.min(top);
+                high = high.max(top);
+            }
+            // The premise: the body's top rises and falls as it is drawn.
+            assert!(
+                high - low > moves,
+                "{id:?}: its top moves between {low} and {high}"
+            );
+        }
+        // The golem's name stands over its head as it sways.
+        let (golem, feet) = name_and_feet(&h, A_MUD_GOLEM);
+        let head = h.highest_drawn_point(A_MUD_GOLEM);
+        assert!(
+            golem.z > head - 0.08 && golem.z - feet > 2.8,
+            "the golem's name at {} over feet at {feet}, its head at {head}",
+            golem.z
+        );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn drawn_between_ticks_or_not_a_running_bodys_name_stands_over_where_it_is_drawn() {
         for smooth in [false, true] {
             let mut h = Holtburg::new(60.0, smooth);
             h.make(&[Body {
                 run: true,
                 ..body(MAN, HUMAN, None, (3.0, 2.0))
             }]);
+            let (first, first_feet) = name_and_feet(&h, MAN);
             let mut off_physics = 0;
             for n in 0..60 {
                 h.frame();
                 let o = &h.ws.objects[&MAN];
                 let drawn = o.frame.origin;
-                let top = h.ws.drawn_top(MAN).expect("drawn");
+                let (top, feet) = name_and_feet(&h, MAN);
                 assert_eq!(
                     (top.x, top.y),
                     (drawn.x, drawn.y),
                     "smooth {smooth}, frame {n}: over where it is drawn"
                 );
-                let highest = h.highest_drawn_point(MAN);
                 assert!(
-                    (top.z - highest).abs() < 1e-3,
-                    "smooth {smooth}, frame {n}: the top {} against the highest drawn point \
-                     {highest}",
-                    top.z
+                    ((top.z - feet) - (first.z - first_feet)).abs() < 1e-4,
+                    "smooth {smooth}, frame {n}: the name {} over feet at {feet}, at first {} \
+                     over {first_feet}",
+                    top.z,
+                    first.z
                 );
                 let physics = crate::world_step::render_frame_of(
                     &h.ws,

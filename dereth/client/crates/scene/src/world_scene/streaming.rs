@@ -1904,10 +1904,9 @@ impl SceneDraw {
         ))
     }
 
-    /// Where the top of `id`'s body as drawn this frame stands on screen, in pixels: the point
-    /// over its drawn origin at the height of the highest point its parts draw
-    /// ([`WorldState::drawn_top`]), seen from where the camera is this frame. The point a name
-    /// over the body stands on. `None` behind the camera or for an object not drawn.
+    /// Where the point a name over `id` stands on is on screen, in pixels: over its drawn origin
+    /// at a height that does not follow its animation ([`WorldState::name_top`]), seen from where
+    /// the camera is this frame. `None` behind the camera or for an object not drawn.
     #[must_use]
     pub fn target_top(
         &self,
@@ -1915,7 +1914,7 @@ impl SceneDraw {
         id: ObjectId,
         viewport: (u32, u32),
     ) -> Option<(f32, f32)> {
-        self.screen_point(ws, viewport, ws.drawn_top(id)?)
+        self.screen_point(ws, viewport, ws.name_top(id)?)
     }
 
     /// Where the render-space point `p` stands on screen, in pixels; `None` behind the camera.

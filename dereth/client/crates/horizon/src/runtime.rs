@@ -175,8 +175,7 @@ pub struct HorizonFrontEnd {
     /// Where each object's own origin stands on screen, raised to its middle: the point names
     /// and the selection marker centre on, which does not swing as the object turns.
     pub origins: std::collections::BTreeMap<ObjectId, (i32, i32)>,
-    /// Where the top of each object's body as drawn stands on screen: the point its name stands
-    /// on.
+    /// Where the point over each object's body that its name stands on is on screen.
     pub tops: crate::state::Tops,
     /// The objects the shell is asked to project for the next frame.
     pub wanted_projections: Vec<ObjectId>,

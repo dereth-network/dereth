@@ -132,7 +132,7 @@ pub struct DrawList {
 /// Which point of an object in the world some quads stand on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Anchor {
-    /// The top of its body as drawn: a name over it.
+    /// The point over its body a name stands on.
     Top,
     /// Its origin, raised to the middle of its selection sphere: a ring round it.
     Origin,

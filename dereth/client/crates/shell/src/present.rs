@@ -69,8 +69,8 @@ pub trait ClientPresentation: Presentation {
         None
     }
 
-    /// Where the top of a tracked object's body, as the world is drawn this frame, stands on
-    /// screen: the point a name over it stands on.
+    /// Where the point a name over a tracked object stands on is on screen, as the world is drawn
+    /// this frame.
     fn target_top(&self, _id: ObjectId, _world: Option<&WorldState>) -> Option<(f32, f32)> {
         None
     }

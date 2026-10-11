@@ -704,12 +704,13 @@ pub type Projections = std::collections::BTreeMap<
     dereth_client_contract::target::Projection,
 >;
 
-/// Where the top of each object's body as drawn stands on screen, as the shell projected it.
+/// Where the point over each object's body that its name stands on is on screen, as the shell
+/// projected it.
 pub type Tops = std::collections::BTreeMap<dereth_primitives::ObjectId, (f32, f32)>;
 
 /// The names over the people and creatures near the player: each blip within range whose box is
-/// on screen, standing on the top of its body as drawn (`tops`); on the top of its box where that
-/// is not known.
+/// on screen, standing on the point over its body that `tops` gives; on the top of its box where
+/// that is not known.
 pub fn nameplates(
     v: &impl GameView,
     state: &GameState,
@@ -740,7 +741,7 @@ pub fn nameplates(
             else {
                 return None;
             };
-            // On the top of the body as drawn, over its own origin. Where that is not known, the
+            // On the point over the body, over its own origin. Where that is not known, the
             // box's top, centred on the origin where that is known (the box swings with what it
             // holds and how it stands).
             #[allow(clippy::cast_precision_loss)]

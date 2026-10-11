@@ -123,7 +123,7 @@ pub struct Nameplate {
     /// What it names.
     pub id: ObjectId,
     pub name: String,
-    /// The top of its body as drawn, over its origin, in screen pixels: the name stands on it.
+    /// The point over its body, over its origin, in screen pixels: the name stands on it.
     pub x: f32,
     pub y: f32,
     pub kind: BlipKind,

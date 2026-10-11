@@ -20,6 +20,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - An item dragged in Horizon follows the pointer as its own picture, without the dark slot that was drawn behind it.
 - Turning on the spot near the edge of a landblock no longer makes the distant landscape flicker and change shape: the landscape follows your character, not the camera.
 - Examining a creature: Horizon heads the window with its name and gives its kind beside its level, the modern and classic interfaces spell its kind as the game does (Fire Elemental, not Fire_Elemental), and on a world running the February 2005 files the modern interface frames its model whole instead of looking out from its feet.
+- Horizon's names stand still over portals and creatures that move in place, rather than rising and falling with their animation.
 
 ## 0.4.1 (2026-10-11)
 

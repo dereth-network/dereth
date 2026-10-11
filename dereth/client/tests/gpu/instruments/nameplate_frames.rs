@@ -7,8 +7,8 @@
 //! far away while the camera turns the other way. Each is written to `DERETH_TEST_NAMEPLATE_DUMP`
 //! (default: `nameplates/` in cargo's scratch folder for integration tests): the row as one PNG,
 //! the runner as every frame's PNG and one strip of them, and `names.tsv`, a row a frame: where the
-//! runner's name stands, and where the top of his body is drawn on that frame. They assert
-//! nothing; the claims are the interface's and the drawn world's own tests.
+//! runner's name stands, and where the point over his body it stands on is on that frame. They
+//! assert nothing; the claims are the interface's and the drawn world's own tests.
 
 #![cfg(gpu)]
 
@@ -179,7 +179,7 @@ fn create(stream: &mut ObjectStream, s: &Subject, at: Position, now: f64) {
 }
 
 /// Where the interface places `s`'s name from the world as it stands, as the shell gives it the
-/// world: on the top of its body as drawn, among the objects whose box is on screen.
+/// world: on the point over its body a name stands on, among the objects whose box is on screen.
 fn anchor(scene: &WorldScene, id: ObjectId) -> Option<(f32, f32, dereth_horizon::draw::Rect)> {
     use dereth_client_contract::target::Projection;
     let Projection::OnScreen((x0, y0, x1, y1)) = scene.target_projection(id, (W, H))? else {
@@ -476,7 +476,7 @@ fn row(store: &Arc<RetailDatStore>) -> Vec<u8> {
 }
 
 /// One frame of the runner, the middle of the picture, with where his name stands and where the
-/// top of his body is drawn on it.
+/// point over his body it stands on is on it.
 type RunnerFrame = (Vec<u8>, (f32, f32), Option<(f32, f32)>);
 
 /// The runner's frames with his name over him, and for each where the name is placed and where
