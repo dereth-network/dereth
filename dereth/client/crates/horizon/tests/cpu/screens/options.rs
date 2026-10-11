@@ -627,6 +627,35 @@ fn the_controls_page_sets_the_movement_scheme_and_the_turning_directions() {
 }
 
 #[test]
+fn the_controls_page_turns_the_profile_s_align_camera_to_slope_off_and_on_again() {
+    use dereth_client_contract::options::names::CAMERA_ALIGN_TO_SLOPE;
+    store::init();
+    let state = in_world();
+    let mut h = options_on("Controls", &state);
+    assert_eq!(
+        store::inq_value(CAMERA_ALIGN_TO_SLOPE),
+        Some(PrefValue::Bool(true)),
+        "on until unticked"
+    );
+    for on in [false, true] {
+        let r = control(&h, "Align Camera to Slope");
+        let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
+        assert_eq!(
+            out.requests,
+            [UiRequest::SetPreference(
+                CAMERA_ALIGN_TO_SLOPE,
+                PrefValue::Bool(on)
+            )]
+        );
+        assert!(out.settings.is_empty(), "{:?}", out.settings);
+        assert_eq!(
+            store::inq_value(CAMERA_ALIGN_TO_SLOPE),
+            Some(PrefValue::Bool(on))
+        );
+    }
+}
+
+#[test]
 fn the_controls_page_switches_gamepad_mode_on_and_sets_its_dead_zone_and_camera_speed() {
     let state = in_world();
     let mut h = options_on("Controls", &state);

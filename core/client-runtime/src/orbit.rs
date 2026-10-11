@@ -5,8 +5,10 @@
 //! It is a camera of its own, beside the game's: its state is kept apart, so an interface that
 //! puts it down leaves the game's camera where that one was. Where it stands is still found by the
 //! game's own swept viewer sphere, so it stops at walls and floors as the game's camera does.
+//! With Align Camera to Slope on it leans with the ground the player runs over, as the game's
+//! camera does.
 
-use dereth_primitives::{Frame, Vec3};
+use dereth_primitives::{Frame, Quat, Vec3};
 
 use crate::camera::FreeCamera;
 
@@ -196,6 +198,10 @@ pub struct OrbitCamera {
     /// What is shown: the turn, tilt and distance easing toward the ones set, and the point it
     /// looks at easing toward the player. `None` until the first frame is shown.
     shown: Option<Shown>,
+    /// How it is shown leaning with the ground, easing toward the lean of the ground: the way
+    /// ahead of the player laid into it, in the player's own frame (`x` right, `y` ahead, `z` up),
+    /// so `(0, 1, 0)` is level. `None` until the first frame is shown.
+    slope: Option<Vec3>,
 }
 
 /// The orbit camera as it is shown this frame.
@@ -224,8 +230,35 @@ impl Default for OrbitCamera {
             zoom_hold: 0.0,
             zoom_held_for: 0.0,
             shown: None,
+            slope: None,
         }
     }
+}
+
+/// The way ahead of the player in their own frame, on level ground.
+pub const LEVEL: Vec3 = Vec3::new(0.0, 1.0, 0.0);
+
+/// How quickly the camera comes to lean with the ground and back, as an ease rate: the game
+/// camera's own, ten times its default stiffness of 0.45 a second.
+pub const SLOPE_EASE: f32 = 4.5;
+
+/// How far to either side of the line behind the player, in metres, the camera may stand and
+/// still lean with the ground, as the game's camera leans only from behind.
+pub const SLOPE_SIDE: f32 = 1.0;
+
+/// Whether a camera standing `away` from the point it looks at past a player facing `heading`
+/// (degrees clockwise from north) leans with the ground: behind the player, and no more than
+/// [`SLOPE_SIDE`] to either side of the line behind them.
+#[must_use]
+pub fn leans_from(away: Vec3, heading: f32) -> bool {
+    let h = heading.to_radians();
+    let (s, c) = (
+        dereth_primitives::num::math::sinf(h),
+        dereth_primitives::num::math::cosf(h),
+    );
+    let ahead = away.x * s + away.y * c;
+    let across = away.x * c - away.y * s;
+    ahead <= 0.0 && across.abs() <= SLOPE_SIDE
 }
 
 /// How fast the orbit camera is let back out once what was in its way is gone: the share of the
@@ -427,6 +460,7 @@ impl OrbitCamera {
     pub fn place_anew(&mut self) {
         self.placed = false;
         self.shown = None;
+        self.slope = None;
         self.let_go_of_player();
     }
 
@@ -487,6 +521,49 @@ impl OrbitCamera {
     #[must_use]
     pub fn shown_pivot(&self, pivot: Vec3) -> Vec3 {
         self.shown.map_or(pivot, |s| s.pivot)
+    }
+
+    /// Ease how it is shown leaning `dt` seconds toward `ahead`, the way ahead of the player laid
+    /// into the ground, in their own frame ([`LEVEL`] on level ground or when it is not to lean);
+    /// the first frame is taken at once.
+    pub fn ease_slope(&mut self, ahead: Vec3, dt: f32) {
+        use dereth_primitives::frame::V3 as _;
+        let Some(s) = &mut self.slope else {
+            self.slope = Some(ahead);
+            return;
+        };
+        let mut v = s.add(ahead.sub(*s).mul(ease_share(SLOPE_EASE, dt)));
+        if v.normalize_check_small() {
+            v = ahead;
+        }
+        *s = v;
+    }
+
+    /// `eye`, which stands off `pivot` and looks at it, leaned with the ground as it is shown: its
+    /// place about `pivot` turned, in the frame of a player facing `heading` (degrees clockwise
+    /// from north), as the way ahead is turned from level to the lean, and aimed back at `pivot`
+    /// without a roll. Level, it is `eye` as it was.
+    #[must_use]
+    pub fn leaned_eye(&self, eye: Frame, pivot: Vec3, heading: f32) -> Frame {
+        use dereth_primitives::frame::{
+            globaltolocalvec, l2g, localtoglobalvec, set_heading, set_vector_heading, V3 as _,
+        };
+        let Some(ahead) = self.slope else {
+            return eye;
+        };
+        if ahead.x.abs() < 1e-6 && ahead.z.abs() < 1e-6 {
+            return eye;
+        }
+        let mut facing = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        set_heading(&mut facing, heading);
+        let facing = l2g(facing.rotation);
+        let mut lean = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        set_vector_heading(&mut lean, ahead);
+        let away = globaltolocalvec(facing, eye.origin.sub(pivot));
+        let away = localtoglobalvec(facing, localtoglobalvec(l2g(lean.rotation), away));
+        let mut out = Frame::new(pivot.add(away), eye.rotation);
+        set_vector_heading(&mut out, away.mul(-1.0));
+        out
     }
 
     /// The way it looks as it is shown, in degrees clockwise from north: turned round while the
@@ -1408,6 +1485,88 @@ mod tests {
             "directly behind them: {} against {}",
             c.camera.orbit.yaw,
             yaw_of_heading(heading)
+        );
+    }
+
+    /// How a player running up a hillside south of Holtburg sees it: the orbit camera's tilt
+    /// standing at the foot of the slope, its tilt at the end of the run, the rise of the ground
+    /// under the player along the way they face at that moment (all in degrees), and its tilt
+    /// four seconds after they let go of the run there. `align` is `Camera.AlignToSlope`.
+    fn uphill_run(align: bool) -> (f32, f32, f32, f32) {
+        use dereth_physics::math::V3 as _;
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        // A slope rising northward at about 22 degrees, level across.
+        let mut c = crate::character::Character::new(&store, &region, 0xA9B2, (108.0, 24.0))
+            .expect("a body");
+        c.camera.orbit_active = true;
+        c.camera.set_align_to_slope_preference(align);
+        // Not due north: the game's camera leans only for a body moving off the world's axes.
+        c.face_heading(10.0);
+        let mut t = 10.0;
+        let mut frames = |c: &mut crate::character::Character, n: u32| {
+            for _ in 0..n {
+                t += 1.0 / 60.0;
+                c.update(dereth_primitives::LocalTime(t));
+                c.update_camera(
+                    crate::camera::CameraInput::default(),
+                    dereth_primitives::LocalTime(t),
+                    1.0 / 60.0,
+                );
+            }
+        };
+        let tilt = |c: &crate::character::Character| {
+            FreeCamera::from_frame(&c.camera.viewer.frame)
+                .pitch
+                .to_degrees()
+        };
+        frames(&mut c, 60);
+        let standing = tilt(&c);
+        c.input.forward = true;
+        c.input.run = true;
+        frames(&mut c, 90);
+        let running = tilt(&c);
+        let rise = {
+            let o = c.world.get(c.handle).expect("the body");
+            let n = o.contact_plane.normal;
+            assert!(o.transient_state.in_contact(), "on the ground");
+            let ahead = dereth_physics::math::get_vector_heading(&o.position.frame);
+            let mut laid = ahead.sub(n.mul(ahead.dot(n)));
+            assert!(!laid.normalize_check_small());
+            dereth_primitives::num::math::asinf(laid.z).to_degrees()
+        };
+        c.input.forward = false;
+        c.input.run = false;
+        // The body slows to a stop over a second.
+        frames(&mut c, 240);
+        (standing, running, rise, tilt(&c))
+    }
+
+    /// With Align Camera to Slope on, the camera behind a player running up a hill leans with the
+    /// ground as the game's camera does: it looks up the slope by the ground's rise along the way
+    /// they run, and comes back level once they stop. Off, it looks as it does on level ground.
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn running_up_a_hill_it_leans_with_the_ground_when_align_to_slope_is_on() {
+        let level = DEFAULT_PITCH.to_degrees();
+        let (standing, running, rise, stopped) = uphill_run(true);
+        assert!(rise > 15.0, "a steep hill: {rise}");
+        assert!(
+            (standing - level).abs() < 0.01,
+            "standing, level: {standing}"
+        );
+        assert!(
+            (running - (level + rise)).abs() < 1.0,
+            "running, leaned up the slope by its rise of {rise}: {running}"
+        );
+        assert!(
+            (stopped - level).abs() < 0.5,
+            "stopped, level again: {stopped}"
+        );
+        let (_, running, _, _) = uphill_run(false);
+        assert!(
+            (running - level).abs() < 0.01,
+            "with the option off it does not lean: {running}"
         );
     }
 

@@ -15,8 +15,10 @@
 //!   off. Before them, wherever there are renderers to choose from (not in the browser), the
 //!   renderer the next start comes up on, with the one in use now under it.
 //! * **Controls**: how the movement keys move the character, which way the pointer turns the
-//!   camera, its speeds and limits and how quickly it comes round behind the character, and the
-//!   pad: whether it is read, its sticks' dead zone and its camera speed.
+//!   camera, its speeds and limits, how quickly it comes round behind the character and whether
+//!   it leans with the ground (the profile's Align Camera to Slope, which the other interfaces'
+//!   cameras follow too), and the pad: whether it is read, its sticks' dead zone and its camera
+//!   speed.
 //! * **Key Bindings**: every bindable action, rebound by pressing the new key.
 //!
 //! Every sheet row, its caption and where its value is kept is the sheet's; every value shown is
@@ -1139,8 +1141,19 @@ Press Escape to leave it as it is.",
                 );
             }
         }
-        // The minimap: north up (the arrow showing the character's facing), or turning with them.
+        // Whether the camera leans with the ground: the profile's own setting, which the other
+        // interfaces' cameras follow too.
         let (l, c) = row(10.0);
+        self.mark(ALIGN_TO_SLOPE, c);
+        p.text_in(&label, l, Align::Left, ALIGN_TO_SLOPE);
+        let slope = dereth_client_contract::options::names::CAMERA_ALIGN_TO_SLOPE;
+        if let Some(PrefValue::Bool(on)) = store::inq_value(slope) {
+            if let Some(on) = kit::checkbox(p, ctx, c, on) {
+                set_preference(slope, PrefValue::Bool(on), out);
+            }
+        }
+        // The minimap: north up (the arrow showing the character's facing), or turning with them.
+        let (l, c) = row(11.0);
         self.mark("Lock Minimap North", c);
         p.text_in(&label, l, Align::Left, "Lock Minimap North");
         if let Some(v) = kit::checkbox(p, ctx, c, !self.options_page.minimap_rotates) {
@@ -1150,17 +1163,17 @@ Press Escape to leave it as it is.",
         // The pad, under a heading of its own.
         let heading =
             TextStyle::new(Family::Heading, 18.4, ctx.colours.heading()).edge(ctx.colours.edge());
-        let (l, _) = row(11.2);
+        let (l, _) = row(12.2);
         p.text_in(&heading, l, Align::Left, "Gamepad (Experimental)");
         let pad = self.options_page.pad;
-        let (l, c) = row(12.2);
+        let (l, c) = row(13.2);
         self.mark("Gamepad Mode", c);
         p.text_in(&label, l, Align::Left, "Gamepad Mode");
         if let Some(v) = kit::checkbox(p, ctx, c, pad.enabled) {
             out.settings.push(("gamepad".into(), v.to_string()));
         }
         {
-            let (l, c) = row(13.2);
+            let (l, c) = row(14.2);
             self.mark("Movement in Gamepad Mode", c);
             p.text_in(&label, l, Align::Left, "Movement in Gamepad Mode");
             let schemes = [MovementMode::Camera, MovementMode::Character];
@@ -1191,7 +1204,7 @@ Press Escape to leave it as it is.",
         .enumerate()
         {
             #[allow(clippy::cast_precision_loss)]
-            let (l, c) = row(14.2 + i as f32);
+            let (l, c) = row(15.2 + i as f32);
             self.mark(caption, c);
             p.text_in(&label, l, Align::Left, caption);
             if let Some(v) = kit::slider(p, ctx, c, value, lo, hi) {
@@ -1318,8 +1331,13 @@ const HIDDEN_ROWS: [&str; 10] = [
     "Advanced Combat Interface",
 ];
 
-/// The game camera's heading; this interface has its own camera, with its own settings.
+/// The game camera's heading; this interface has its own camera, with its own settings. The one
+/// setting under it this camera follows, [`ALIGN_TO_SLOPE`], is on the Controls page.
 const HIDDEN_HEADINGS: [&str; 1] = ["Camera and Mouse"];
+
+/// The caption of the Controls page's box for the profile's Align Camera to Slope, as the game
+/// camera's own heading captions it.
+const ALIGN_TO_SLOPE: &str = "Align Camera to Slope";
 
 /// Whether this interface leaves `row` off its pages: a row of [`HIDDEN_ROWS`], or a chat window's
 /// opacity, which its chat does not draw with.
@@ -1462,5 +1480,9 @@ mod hidden_tests {
                 "{title}"
             );
         }
+        // The one camera setting brought onto the Controls page keeps the sheet's caption.
+        let slope = dereth_client_contract::options::names::CAMERA_ALIGN_TO_SLOPE;
+        assert!(sheet::rows_for(PageId::Client, Interface::Horizon)
+            .any(|r| r.value == Value::Check(slope) && r.caption == ALIGN_TO_SLOPE));
     }
 }

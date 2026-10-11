@@ -335,8 +335,7 @@ pub struct CameraManager {
     pub scale: f32,
     pub last_update_time: f64,
     /// A rolling window of the pivot object's velocity.
-    old_velocities: [Vec3; 5],
-    old_velocity_num: u32,
+    velocities: VelocityWindow,
     /// When false the camera update returns the input position unchanged.
     pub enabled: bool,
 }
@@ -364,8 +363,7 @@ impl Default for CameraManager {
             movement_speed: 1.0,
             scale: 1.0,
             last_update_time: 0.0,
-            old_velocities: [Vec3::ZERO; 5],
-            old_velocity_num: 0,
+            velocities: VelocityWindow::default(),
             enabled: true,
         }
     }
@@ -580,61 +578,14 @@ impl CameraManager {
         pivot: &PivotState,
         pivot_forward: &dyn Fn(Vec3) -> Vec3,
     ) -> Vec3 {
-        let fallback = |this: &Self| {
-            if this.target_status & target::LOOK_IN_DIRECTION != 0 {
-                pivot_forward(this.direction)
+        let vavg = self.velocities.push(pivot.velocity);
+        let Some(proj) = slope_aligned_forward(pivot, vavg, pivot_forward) else {
+            return if self.target_status & target::LOOK_IN_DIRECTION != 0 {
+                pivot_forward(self.direction)
             } else {
                 Vec3::ZERO
-            }
+            };
         };
-
-        let v = pivot.velocity;
-        // The window shifts down by one and the new sample lands in slot 4; the sum is the four
-        // survivors plus the new one, and `old_velocity_num` saturates at five.
-        let sum = self.old_velocities[1]
-            .add(self.old_velocities[2])
-            .add(self.old_velocities[3])
-            .add(self.old_velocities[4])
-            .add(v);
-        self.old_velocities[0] = self.old_velocities[1];
-        self.old_velocities[1] = self.old_velocities[2];
-        self.old_velocities[2] = self.old_velocities[3];
-        self.old_velocities[3] = self.old_velocities[4];
-        self.old_velocities[4] = v;
-        if self.old_velocity_num < 5 {
-            self.old_velocity_num += 1;
-        }
-        #[allow(clippy::cast_precision_loss)] // 1..=5
-        let inv = 1.0 / self.old_velocity_num as f32;
-        let mut vavg = sum.mul(inv);
-
-        if vavg.normalize_check_small() || vavg.x.abs() < 0.0002 || vavg.y.abs() < 0.0002 {
-            return fallback(self);
-        }
-        let up = if pivot.in_contact {
-            pivot.contact_normal
-        } else {
-            vavg.z *= 0.1;
-            if vavg.normalize_check_small() {
-                Vec3::new(0.0, 0.0, 1.0)
-            } else {
-                let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
-                pmath::set_vector_heading(&mut f, vavg);
-                // Row **2** of the aimed frame — its local Z axis, i.e. the up perpendicular
-                // to the flattened velocity.
-                //
-                // Not row 1 (entries 3..5): the value read is a `Frame`, not a `Position` whose
-                // frame sits two floats in, so the read lands on entries 6..8, which form a row and
-                // are the only ones that make the branch mean anything.
-                let m = pmath::l2g(f.rotation).0;
-                Vec3::new(m[6], m[7], m[8])
-            }
-        };
-        let fwd = pivot_forward(Vec3::new(0.0, 1.0, 0.0));
-        let mut proj = fwd.sub(up.mul(fwd.dot(up)));
-        if proj.normalize_check_small() {
-            return fallback(self);
-        }
         if self.target_status & target::LOOK_IN_DIRECTION == 0 {
             return proj;
         }
@@ -642,6 +593,88 @@ impl CameraManager {
         pmath::set_vector_heading(&mut f, proj);
         pmath::localtoglobalvec(pmath::l2g(f.rotation), self.direction)
     }
+}
+
+/// The pivot's velocity over its last five samples, one a camera update, which the slope
+/// alignment averages.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct VelocityWindow {
+    old: [Vec3; 5],
+    num: u32,
+    mean: Vec3,
+}
+
+impl VelocityWindow {
+    /// Take this update's velocity `v` and answer the mean of the window, `v` included.
+    pub fn push(&mut self, v: Vec3) -> Vec3 {
+        // The window shifts down by one and the new sample lands in slot 4; the sum is the four
+        // survivors plus the new one, and the count saturates at five.
+        let sum = self.old[1]
+            .add(self.old[2])
+            .add(self.old[3])
+            .add(self.old[4])
+            .add(v);
+        self.old[0] = self.old[1];
+        self.old[1] = self.old[2];
+        self.old[2] = self.old[3];
+        self.old[3] = self.old[4];
+        self.old[4] = v;
+        if self.num < 5 {
+            self.num += 1;
+        }
+        #[allow(clippy::cast_precision_loss)] // 1..=5
+        let inv = 1.0 / self.num as f32;
+        self.mean = sum.mul(inv);
+        self.mean
+    }
+
+    /// The mean the last [`Self::push`] answered; zero before the first.
+    #[must_use]
+    pub const fn mean(&self) -> Vec3 {
+        self.mean
+    }
+}
+
+/// The way the camera aims when it is aligned to the slope, from the pivot's state and its mean
+/// velocity `vavg`: the pivot's forward (`pivot_forward` of `+y`) laid into the ground it stands
+/// on, or, off the ground, into the plane across its flattened motion. `None` when the camera
+/// takes the pivot's own forward instead: the pivot is not moving, or is moving within a hair of
+/// a world axis, or its forward stands square to that plane.
+#[must_use]
+pub fn slope_aligned_forward(
+    pivot: &PivotState,
+    vavg: Vec3,
+    pivot_forward: &dyn Fn(Vec3) -> Vec3,
+) -> Option<Vec3> {
+    let mut vavg = vavg;
+    if vavg.normalize_check_small() || vavg.x.abs() < 0.0002 || vavg.y.abs() < 0.0002 {
+        return None;
+    }
+    let up = if pivot.in_contact {
+        pivot.contact_normal
+    } else {
+        vavg.z *= 0.1;
+        if vavg.normalize_check_small() {
+            Vec3::new(0.0, 0.0, 1.0)
+        } else {
+            let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+            pmath::set_vector_heading(&mut f, vavg);
+            // Row **2** of the aimed frame — its local Z axis, i.e. the up perpendicular
+            // to the flattened velocity.
+            //
+            // Not row 1 (entries 3..5): the value read is a `Frame`, not a `Position` whose
+            // frame sits two floats in, so the read lands on entries 6..8, which form a row and
+            // are the only ones that make the branch mean anything.
+            let m = pmath::l2g(f.rotation).0;
+            Vec3::new(m[6], m[7], m[8])
+        }
+    };
+    let fwd = pivot_forward(Vec3::new(0.0, 1.0, 0.0));
+    let mut proj = fwd.sub(up.mul(fwd.dot(up)));
+    if proj.normalize_check_small() {
+        return None;
+    }
+    Some(proj)
 }
 
 /// `ft = (stiffness > 0.9998) ? 1.0 : min(1.0, stiffness * dt * 10.0)`, plus whether it snapped.
@@ -1833,6 +1866,9 @@ pub struct CameraControl {
     /// The way the body was drawn facing last frame, and the way physics had it facing, while
     /// the orbit camera is in use.
     orbit_last_heading: Option<(f32, f32)>,
+    /// The body's velocity over its last few ticks, which the orbit camera's lean with the ground
+    /// reads as the game camera's does.
+    orbit_velocities: VelocityWindow,
 }
 
 /// Counters for the log line and for the tests. Rebuild-only.
@@ -1891,6 +1927,7 @@ impl CameraControl {
             orbit_turns_with_player: false,
             orbit_mouse_turn: None,
             orbit_last_heading: None,
+            orbit_velocities: VelocityWindow::default(),
         }
     }
 
@@ -1990,6 +2027,7 @@ impl CameraControl {
         self.orbit.place_anew();
         self.orbit_last_heading = None;
         self.orbit_shortfall = 0.0;
+        self.orbit_velocities = VelocityWindow::default();
     }
 
     /// Whether [`Self::attach`] has ever run.
@@ -2182,7 +2220,7 @@ impl CameraControl {
     ) {
         self.frame_rate.push(dt);
         if self.orbit_active {
-            self.update_orbit(world, player_handle, input, dt);
+            self.update_orbit(world, player_handle, input, dt, player_physics_updated);
             return;
         }
         self.orbit_last_heading = None;
@@ -2244,19 +2282,24 @@ impl CameraControl {
     }
 
     /// One frame of the orbit camera: placed behind the player the first time, turned by the look
-    /// keys held, set at its distance looking at the player, and brought in by the same swept
-    /// sphere the game's camera uses, so it stops at walls and floors. The game camera's own state
-    /// is not touched.
+    /// keys held, set at its distance looking at the player, leaned with the ground as the game's
+    /// camera leans, and brought in by the same swept sphere the game's camera uses, so it stops
+    /// at walls and floors. The game camera's own state is not touched.
     fn update_orbit(
         &mut self,
         world: &mut dereth_physics::PhysicsWorld,
         player_handle: dereth_physics::PhysHandle,
         input: CameraInput,
         dt: f64,
+        player_physics_updated: bool,
     ) {
         let Some(pivot) = pivot_state(world, player_handle) else {
             return;
         };
+        // The body's velocity is sampled once a tick, as the game camera samples it.
+        if player_physics_updated || !self.attached {
+            self.orbit_velocities.push(pivot.velocity);
+        }
         let physics = pmath::get_heading(&pivot.position.frame);
         self.player_heading = Some(physics);
         // The way the body is drawn facing, which between ticks is not quite the way physics has
@@ -2328,7 +2371,9 @@ impl CameraControl {
         );
         let at = self.orbit.raised_pivot(feet);
         self.orbit.ease(at, dt);
-        let eye = self.orbit.shown_eye(at);
+        let lean = self.orbit_lean(&pivot, heading, at);
+        self.orbit.ease_slope(lean, dt);
+        let eye = self.orbit.leaned_eye(self.orbit.shown_eye(at), at, heading);
         self.sought = Position::new(pivot.position.cell, eye);
         // The eye is swept out from the body where it is drawn, not where physics last put it:
         // where a sweep against a slope or a wall stops would otherwise step with the ticks.
@@ -2371,6 +2416,23 @@ impl CameraControl {
         // The sweep brings the eye in along its line to the player; it still looks the same way.
         self.viewer.frame.rotation = eye.rotation;
         self.update_translucency(&pivot);
+    }
+
+    /// The lean the orbit camera eases toward this frame, as the way ahead of a player facing
+    /// `heading` in their own frame: with `Camera.AlignToSlope` on and the camera behind them
+    /// (looking at `at`), their forward laid into the ground as the game's camera lays it while
+    /// they move; [`crate::orbit::LEVEL`] otherwise.
+    fn orbit_lean(&self, pivot: &PivotState, heading: f32, at: Vec3) -> Vec3 {
+        let away = self.orbit.eye(at).origin.sub(at);
+        if !self.manager.align_camera_to_slope || !crate::orbit::leans_from(away, heading) {
+            return crate::orbit::LEVEL;
+        }
+        let rot = pmath::l2g(pivot.position.frame.rotation);
+        let forward = |v: Vec3| pmath::localtoglobalvec(rot, v);
+        slope_aligned_forward(pivot, self.orbit_velocities.mean(), &forward)
+            .map_or(crate::orbit::LEVEL, |ahead| {
+                pmath::globaltolocalvec(rot, ahead)
+            })
     }
 
     /// Update body translucency: the body fades out as the camera closes on it and is fully
