@@ -829,6 +829,7 @@ pub fn examined(
         level: ex::level_value(p.level),
         rows: Vec::new(),
         misc: Vec::new(),
+        kind: None,
         heritage: None,
         profession: None,
         pk: None,
@@ -895,8 +896,8 @@ pub fn examined(
                 if p.allegiance_rank.unwrap_or(0) >= 1 {
                     e.allegiance = p.allegiance_name.clone();
                 }
-            } else if let Some(d) = p.creature_display_name.clone() {
-                e.title = d;
+            } else {
+                e.kind = p.creature_display_name.clone();
             }
         }
     }

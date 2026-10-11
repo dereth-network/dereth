@@ -782,3 +782,50 @@ fn an_item_s_cooldown_is_held_from_the_player_s_registry_until_the_server_remove
     };
     assert_eq!(view.cooldown_held(7, 131.0), None, "removed by the server");
 }
+
+/// Behaviour: examine.creature.the-pane-names-the-kind-the-level-six-attributes-and-three-vitals
+///
+/// Oracle: the retail creature-type names. The dat spells a fire elemental `Fire_Elemental`; the
+/// creature pane, the slayer line and the heritage line all read it `Fire Elemental`.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_creature_type_is_named_with_a_space_where_the_dat_spells_an_underscore() {
+    use dereth_client_model::{Weenie, World};
+    use dereth_protocol::{archive::PackedHash, types::appraisal::AppraisalProfile};
+    const FIRE_ELEMENTAL: i32 = 38;
+    let store = dereth_dat::testing::open_store_or_fail();
+    let id = ObjectId(7);
+    let mut world = World::new();
+    world.tables.weenies.insert(id, Weenie::new(id));
+    let mut hud = Hud::new();
+    hud.load_tables(&store, &world);
+    let spelled = hud
+        .creature_type_names
+        .as_ref()
+        .and_then(|m| m.id_to_string.iter().find(|(k, _)| *k == 38))
+        .map(|(_, v)| v.clone());
+    assert_eq!(spelled.as_deref(), Some("Fire_Elemental"), "the premise");
+    let mut profile = AppraisalProfile {
+        creature_profile: Some(Default::default()),
+        ..AppraisalProfile::default()
+    };
+    profile.tables.ints = Some(PackedHash {
+        table_size: 8,
+        entries: vec![(2, FIRE_ELEMENTAL), (0xA6, FIRE_ELEMENTAL)],
+    });
+    world.appraisal.set(id, profile);
+    let view = HudView {
+        hud: &hud,
+        world: &world,
+    };
+    let a = view.appraisal(id).expect("an appraisal");
+    assert_eq!(a.creature_display_name.as_deref(), Some("Fire Elemental"));
+    assert_eq!(
+        a.special.slayer,
+        Some((FIRE_ELEMENTAL, "Fire Elemental".into()))
+    );
+    assert_eq!(a.gender_heritage_display.as_deref(), Some("Fire Elemental"));
+}

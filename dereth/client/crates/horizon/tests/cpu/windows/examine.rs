@@ -144,3 +144,30 @@ fn an_inscription_takes_several_lines_as_typed_and_is_sent_when_the_box_lets_go(
         "{again:?}"
     );
 }
+
+#[test]
+fn a_creature_is_examined_under_its_own_name_with_its_kind_beside_its_level() {
+    use dereth_client_contract::snapshot::{GameSnapshot, ObjectSnapshot};
+    use dereth_client_contract::view::AppraisalView;
+    use dereth_horizon::ui::game::ExaminePane;
+    let golem = ObjectId(0x8000_09D9);
+    let mut view = GameSnapshot::default();
+    view.objects.insert(
+        golem,
+        ObjectSnapshot {
+            name: Some("Sparring Golem".into()),
+            appraisal: Some(AppraisalView {
+                creature: true,
+                level: Some(1),
+                creature_display_name: Some("Golem".into()),
+                ..AppraisalView::default()
+            }),
+            ..ObjectSnapshot::default()
+        },
+    );
+    let e = dereth_horizon::state::examined(&view, golem).expect("an appraisal");
+    assert_eq!(e.pane, ExaminePane::Creature);
+    assert_eq!(e.title, "Sparring Golem");
+    assert_eq!(e.kind.as_deref(), Some("Golem"));
+    assert_eq!(e.level, "1");
+}

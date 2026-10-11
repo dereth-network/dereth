@@ -186,6 +186,9 @@ pub struct Examined {
     /// The extra rows under them (a player's allegiance, armour, ratings; a creature's
     /// ratings): label, value, colour.
     pub misc: Vec<(String, String, u8)>,
+    /// What kind of creature a creature is, as the game names it (`Fire Elemental`), shown
+    /// beside its level under its name.
+    pub kind: Option<String>,
     /// A player's heritage, profession, PK status and allegiance.
     pub heritage: Option<String>,
     pub profession: Option<String>,

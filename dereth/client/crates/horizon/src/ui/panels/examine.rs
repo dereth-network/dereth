@@ -119,12 +119,15 @@ impl Windows {
             p.text(&title, tx, ty, l);
             ty += p.line_height(&title);
         }
-        let kind = match e.pane {
+        let level = match e.pane {
             ExaminePane::Item => String::new(),
-            ExaminePane::Creature | ExaminePane::Character => format!("Level {}", e.level),
+            ExaminePane::Creature | ExaminePane::Character => match &e.kind {
+                Some(kind) => format!("Level {} {kind}", e.level),
+                None => format!("Level {}", e.level),
+            },
         };
-        if !kind.is_empty() {
-            p.text(&sub, tx, ty, &kind);
+        if !level.is_empty() {
+            p.text(&sub, tx, ty, &level);
         }
         let rule_y = head.bottom() + 6.0 * k;
         p.fill(

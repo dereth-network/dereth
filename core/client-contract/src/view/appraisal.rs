@@ -44,7 +44,8 @@ pub struct AppraisalView {
     /// `InqInt(0x19)` — the creature pane's level text. `< 1` is `"???"`.
     pub level: Option<i32>,
     /// The creature-type label, resolved from integer quality 2 through enumeration table
-    /// `0x2200000E` and displayed in the creature pane's first line (`0x1000014E`).
+    /// `0x2200000E` with its underscores read as spaces (`Fire Elemental`), and displayed in the
+    /// creature pane's first line (`0x1000014E`).
     pub creature_display_name: Option<String>,
     /// The six primary attributes for ids `1..=6`, in **attribute-id** order
     /// (`Strength Endurance Quickness Coordination Focus Self`); the pane's *drawn* order swaps

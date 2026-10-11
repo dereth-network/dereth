@@ -2022,23 +2022,10 @@ impl GameView for HudView<'_> {
             vitals[(k - 1) as usize] = am::creature_vital(p, k);
             vital_enchanted[(k - 1) as usize] = am::creature_vital_enchanted(p, k);
         }
-        // Creature display name -- `EnumMapper 0x2200000E` on
-        // int quality `2`, and only for a creature: the item pane has no such line.
-        let creature_display_name = p.creature_profile.and_then(|_| {
-            let t = u32::try_from(am::inq::int(p, am::property::CREATURE_TYPE)?).ok()?;
-            self.hud
-                .creature_type_names
-                .as_ref()?
-                .id_to_string
-                .iter()
-                .find(|(k, _)| *k == t)
-                .map(|(_, v)| v.clone())
-        });
-        // The examination view's eighteen quality queries,
-        // in its own order. The slayer's display name is the **same**
-        // mapper `creature_display_name`
-        // above uses, on int quality `0xA6` instead of int quality `2`.
-        use am::property::special as sp;
+        // A creature type's display name: its `EnumMapper 0x2200000E` name with every underscore
+        // read as a space, so the mapper's `Fire_Elemental` reads `Fire Elemental`. The creature
+        // pane, the slayer line, the wield requirement and the heritage line all name a type
+        // this way.
         let creature_name = |t: i32| {
             let t = u32::try_from(t).ok()?;
             self.hud
@@ -2047,8 +2034,18 @@ impl GameView for HudView<'_> {
                 .id_to_string
                 .iter()
                 .find(|(k, _)| *k == t)
-                .map(|(_, v)| v.clone())
+                .map(|(_, v)| v.replace('_', " "))
         };
+        // Creature display name -- the type named on int quality `2`, and only for a creature:
+        // the item pane has no such line.
+        let creature_display_name = p
+            .creature_profile
+            .and_then(|_| creature_name(am::inq::int(p, am::property::CREATURE_TYPE)?));
+        // The examination view's eighteen quality queries,
+        // in its own order. The slayer's display name is the **same**
+        // name `creature_display_name`
+        // above uses, on int quality `0xA6` instead of int quality `2`.
+        use am::property::special as sp;
         // Retail starts the mask from int property `0xB3` (0 when absent) and ORs in four more,
         // each only when present. `None` when not one of the five was present, which is the state
         // retail cannot distinguish from zero but this build can.

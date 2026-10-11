@@ -133,6 +133,60 @@ pub fn step_preview_body(
     let _ = body.take_effects();
 }
 
+/// The bounding box of a preview body's parts, which the identify portrait's camera is placed
+/// from.
+///
+/// For every present part, the client takes the part's graphics-object bounding box, scales both
+/// corners by the part's scale, transforms it by the part's position, and unions it into the
+/// result.
+///
+/// Three details that are easy to miss:
+///
+/// * The graphics-object lookup dereferences the array base, so the box is always degrade
+///   **level 0**'s, never the level currently being drawn.
+/// * The function does not initialize `out`; the caller seeds both corners at the origin, so the
+///   result always contains the object's origin, and a part array that loads nothing yields the
+///   zero box rather than an inverted one. That seed is reproduced here.
+/// * Each graphics object is read in the layout of the files it comes from: a world on the
+///   February 2005 files has every mesh in the older layout, and a mesh that fails to read adds
+///   nothing, which would leave the zero box and the camera standing at the body's feet.
+///
+/// `gfx_bound_box` itself is min/max over the `GfxObj`'s **vertex array**
+/// ([`dereth_world_data::setup::gfx_bound_box`]).
+#[must_use]
+pub fn parts_bounding_box(
+    parts: &PartArray,
+    store: &dereth_dat::RetailDatStore,
+) -> dereth_physics::geom::BBox {
+    use dereth_assets::Decode;
+    use dereth_physics::BBoxExt;
+    let mut out = dereth_physics::geom::BBox::default();
+    for part in &parts.parts {
+        // Use the graphics-object array base, `gfxobj[0]`, not `part.gfxobj_id`: on the player
+        // body that is a different, smaller mesh for 16 of 34 parts, and the identify portrait's
+        // camera is placed from this box.
+        let Some(id) = part.gfxobj_at(0) else {
+            continue;
+        };
+        let Ok(bytes) = store.read_typed(dereth_dat::DbType::GfxObj, id) else {
+            continue;
+        };
+        let Ok(g) = dereth_assets::GfxObj::decode_payload_in(store.era_of(id), id, &bytes) else {
+            continue;
+        };
+        let b = dereth_world_data::setup::gfx_bound_box(&g);
+        let s = part.gfxobj_scale;
+        let local = dereth_physics::geom::BBox::new(
+            dereth_primitives::Vec3::new(b.min.x * s.x, b.min.y * s.y, b.min.z * s.z),
+            dereth_primitives::Vec3::new(b.max.x * s.x, b.max.y * s.y, b.max.z * s.z),
+        );
+        local
+            .convert_to_global(&part.pos)
+            .build_bounding_box(&mut out);
+    }
+    out
+}
+
 // =================================================================================================
 // The character-generation update tail that dresses the preview model
 // =================================================================================================
@@ -727,7 +781,6 @@ mod imp {
     use dereth_animation::parts::PartArray;
     use dereth_animation::seq::Sequence;
     use dereth_dat::RetailDatStore;
-    use dereth_physics::BBoxExt;
     use dereth_primitives::{DataId, Frame, Quat, Vec3};
     use dereth_render::camera::{compute_aspect_for_viewport, view_distance_override, Viewport};
     use dereth_render::device::{Gpu, PerFrameConstants};
@@ -821,50 +874,10 @@ mod imp {
                 .count()
         }
 
-        /// Compute the object's bounding box when its part array exists.
-        ///
-        /// For every present part, the client takes the part's graphics-object bounding box,
-        /// scales both corners by the part's scale, transforms it by the part's position, and
-        /// unions it into the result.
-        ///
-        /// Two details that are easy to miss:
-        ///
-        /// * The graphics-object lookup dereferences the array base, so the box is always
-        ///   degrade **level 0**'s, never the level currently being drawn.
-        /// * The function does not initialize `out`; the caller seeds both corners at the origin,
-        ///   so the result always contains the object's origin, and a part array that loads nothing yields the zero box
-        ///   rather than an inverted one. That seed is reproduced here.
-        ///
-        /// `gfx_bound_box` itself is min/max over the `GfxObj`'s **vertex array**
-        /// ([`dereth_world_data::setup::gfx_bound_box`]).
+        /// The object's bounding box: [`super::parts_bounding_box`] of its part array.
         #[must_use]
         pub fn bounding_box(&self, store: &RetailDatStore) -> dereth_physics::geom::BBox {
-            use dereth_assets::Decode;
-            let mut out = dereth_physics::geom::BBox::default();
-            for part in &self.body.part_array.parts {
-                // Use the graphics-object array base, `gfxobj[0]`, not `part.gfxobj_id`: on the
-                // player body that is a different, smaller mesh for 16 of 34 parts, and the
-                // identify portrait's camera is placed from this box.
-                let Some(id) = part.gfxobj_at(0) else {
-                    continue;
-                };
-                let Ok(bytes) = store.read_typed(dereth_dat::DbType::GfxObj, id) else {
-                    continue;
-                };
-                let Ok(g) = dereth_assets::GfxObj::decode_payload(id, &bytes) else {
-                    continue;
-                };
-                let b = dereth_world_data::setup::gfx_bound_box(&g);
-                let s = part.gfxobj_scale;
-                let local = dereth_physics::geom::BBox::new(
-                    Vec3::new(b.min.x * s.x, b.min.y * s.y, b.min.z * s.z),
-                    Vec3::new(b.max.x * s.x, b.max.y * s.y, b.max.z * s.z),
-                );
-                local
-                    .convert_to_global(&part.pos)
-                    .build_bounding_box(&mut out);
-            }
-            out
+            super::parts_bounding_box(&self.body.part_array, store)
         }
 
         /// Total triangles, so a test can say the space drew *something* without a frame capture.
@@ -1601,5 +1614,43 @@ mod body_tests {
         assert!(live > 0, "and they are giving off particles");
         // The human body names no default script and gives off nothing.
         assert_eq!(emitters_after_two_seconds(0x0200_0001), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod bounding_box_tests {
+    //! Behaviour: none (a world on the February 2005 files is this client's own; retail read one
+    //! era's files)
+    use super::{parts_bounding_box, preview_body, step_preview_body};
+    use dereth_animation::data::AnimAssets;
+    use dereth_primitives::{DataId, Frame};
+    use std::sync::Arc;
+
+    /// How tall the box the identify portrait's camera is placed from stands, for a body of
+    /// `setup` read from `store`.
+    fn box_height(store: dereth_dat::RetailDatStore, setup: u32) -> f32 {
+        let store = Arc::new(store);
+        let assets: Arc<dyn AnimAssets> = Arc::new(
+            dereth_world_data::anim_assets::DatAnimAssets::new(Arc::clone(&store)),
+        );
+        let data = assets.setup(DataId(setup)).expect("the setup");
+        let mut body = preview_body(Arc::clone(&assets), data).expect("the body");
+        step_preview_body(&mut body, &Frame::default(), 0.0, 0.0);
+        let b = parts_bounding_box(&body.part_array, &store);
+        b.max.z - b.min.z
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn the_portraits_box_is_the_bodys_meshes_on_the_february_2005_files_as_on_the_last_ones() {
+        const HUMAN: u32 = 0x0200_0001;
+        let last = box_height(dereth_dat::testing::open_store_or_fail(), HUMAN);
+        let first = box_height(dereth_dat::testing::open_classic_store_or_fail(), HUMAN);
+        for (files, height) in [("last", last), ("February 2005", first)] {
+            assert!(
+                (1.5..2.2).contains(&height),
+                "a person's box on the {files} files stands {height} m tall"
+            );
+        }
     }
 }
