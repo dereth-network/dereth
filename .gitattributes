@@ -36,3 +36,6 @@ fixtures/** -text
 *.exe binary
 *.dll binary
 *.pdb binary
+
+# The change log: branches that each add a line keep both, rather than conflicting.
+dereth/CHANGES.md merge=union
