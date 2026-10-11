@@ -33,6 +33,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's experimental Weather needs Better Lighting, its box greyed until that is ticked, and its snow falls without lying on roofs or the land.
 - Horizon's names stay whole twice as far off outdoors (out to 36 meters, gone at 60) and further indoors (out to 20 meters, gone at 25).
 - Dragging a pack along Horizon's pack column with the mouse moves it to that place among your packs.
+- Horizon's Create Spell window shows the whole frame of every component slot, the first column and row included.
 
 ## 0.4.1 (2026-10-11)
 

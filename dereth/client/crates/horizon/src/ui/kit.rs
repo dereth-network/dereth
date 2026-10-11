@@ -704,6 +704,10 @@ pub fn icon_rect(r: Rect) -> Rect {
     Rect::new(r.x + 2.0 * k, r.y + 3.0 * k, 40.0 * k, 40.0 * k)
 }
 
+/// How far, in layout units, a slot's frame may stand outside the slot it frames: a grid that
+/// cuts what scrolls out of sight keeps its slots this far inside its edge.
+pub const SLOT_FRAME_ROOM: f32 = 4.0;
+
 /// An icon frame with an icon in it: the hotbar and inventory slot.
 pub fn icon_slot(
     p: &mut Painter<'_>,

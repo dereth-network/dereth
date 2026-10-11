@@ -662,32 +662,40 @@ impl Windows {
             "Components",
         );
         // Whole slots across and down, and room for the scrollbar: no part slot of empty ground.
+        // The slots' frames stand a little outside them, so the slots stand that far inside the
+        // ground, and the ground's edge, which cuts what scrolls out of sight, leaves them whole.
         let bar = kit::scrollbar_width(p).map_or(10.0, |w| w + 4.0) * k;
+        let edge = kit::SLOT_FRAME_ROOM * k;
         let room = Rect::new(
             body.x + 8.0 * k,
             formula.bottom() + 36.0 * k,
             body.w - 16.0 * k,
             body.bottom() - formula.bottom() - 88.0 * k,
         );
-        let columns = ((room.w - bar) / slot).floor().max(1.0);
-        let rows_shown = (room.h / slot).floor().max(1.0);
-        let area = Rect::new(room.x, room.y, columns * slot + bar, rows_shown * slot);
+        let columns = ((room.w - bar - 2.0 * edge) / slot).floor().max(1.0);
+        let rows_shown = ((room.h - 2.0 * edge) / slot).floor().max(1.0);
+        let area = Rect::new(
+            room.x,
+            room.y,
+            columns * slot + 2.0 * edge + bar,
+            rows_shown * slot + 2.0 * edge,
+        );
         p.fill(area, 0x6010_0C08);
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let per_row = columns as usize;
         #[allow(clippy::cast_precision_loss)]
-        let content = slot * carried.len().div_ceil(per_row) as f32;
+        let content = slot * carried.len().div_ceil(per_row) as f32 + 2.0 * edge;
         let offset = kit::scroll(p, ctx, area, content, &mut self.world.research_scroll);
         p.list.push_clip(area);
         // Empty slots fill what the carried components leave of the visible rows.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let visible_rows = (area.h / slot).ceil() as usize;
+        let visible_rows = rows_shown as usize;
         let rows = carried.len().div_ceil(per_row).max(visible_rows);
         for i in carried.len()..rows * per_row {
             #[allow(clippy::cast_precision_loss)]
             let r = Rect::new(
-                area.x + (i % per_row) as f32 * slot,
-                area.y + (i / per_row) as f32 * slot - offset,
+                area.x + edge + (i % per_row) as f32 * slot,
+                area.y + edge + (i / per_row) as f32 * slot - offset,
                 slot - 2.0 * k,
                 slot - 2.0 * k,
             );
@@ -698,8 +706,8 @@ impl Windows {
         for (i, row) in carried.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let r = Rect::new(
-                area.x + (i % per_row) as f32 * slot,
-                area.y + (i / per_row) as f32 * slot - offset,
+                area.x + edge + (i % per_row) as f32 * slot,
+                area.y + edge + (i / per_row) as f32 * slot - offset,
                 slot - 2.0 * k,
                 slot - 2.0 * k,
             );

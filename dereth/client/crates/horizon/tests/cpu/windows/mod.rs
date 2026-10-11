@@ -7,5 +7,6 @@ mod examine;
 mod info;
 mod notebook;
 mod settings;
+mod slot_frames;
 mod spellbook;
 mod world;
