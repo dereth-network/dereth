@@ -1,0 +1,33 @@
+{
+  "about": "The text rules (docs/network/04-text-rules.md). Every `lines` input must come out as its output, and come out of the rules again unchanged; every `names` input as its output (again unchanged), or refused. An `input_parts` or `output_parts` list stands for its pieces joined, each repeated its number of times.",
+  "lines": [
+    { "input": "plain", "output": "plain" },
+    { "input": "one\r\ntwo\tthree", "output": "one  two three" },
+    { "input": "a\u0000b\u0007c\u009bd", "output": "abcd" },
+    { "input": "hi <Tell:IIDString:0:Admin>Admin<\\Tell> there", "output": "hi Admin there" },
+    { "input": "<TELL:x:0:y>y<\\TELL>", "output": "y" },
+    { "input": "<tell:unclosed", "output": "tell:unclosed" },
+    { "input": "<te\nll:x>", "output": "<te ll:x>" },
+    { "input": "\uff1ctell:x\uff1ey", "output": "y" },
+    { "input": "<<tell:x>tell:y>z", "output": "z" },
+    { "input": "a < b > c", "output": "a < b > c" },
+    { "input": "caf\u00e9 \u20ac5", "output": "caf\u00e9 \u20ac5" },
+    { "input": "\u0101\u0142", "output": "al" },
+    { "input": "ok \ud83d\ude00!", "output": "ok ?!" },
+    { "input": "\u4e2d\u6587", "output": "??" },
+    { "input": "  padded  ", "output": "padded" },
+    { "input": "LONG", "output": "CUT", "note": "LONG is 300 x characters; CUT is the first 255 of them" },
+    { "input_parts": [["x", 254], [" more", 1]], "output_parts": [["x", 254]], "note": "the cut lands just after a space, which goes too" }
+  ],
+  "names": [
+    { "input": "Ann@frost", "output": "Ann@frost" },
+    { "input": "++Admin@coldeve", "output": "Admin@coldeve" },
+    { "input": "+ +Bob", "output": "Bob" },
+    { "input": "Bob^", "refused": true },
+    { "input": "Bob&", "refused": true },
+    { "input": "Bo&b", "refused": true },
+    { "input": "^Bob", "refused": true },
+    { "input": "+", "refused": true }
+  ],
+  "max_line_chars": 255
+}

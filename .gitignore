@@ -8,3 +8,7 @@ world.pack*
 shard.db*
 auth.db*
 empyrean.toml
+
+# The ACE mod's .NET build output
+network/ace-mod/**/bin/
+network/ace-mod/**/obj/

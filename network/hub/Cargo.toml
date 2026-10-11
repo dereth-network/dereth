@@ -1,0 +1,51 @@
+[package]
+name = "dereth-network-hub"
+description = "The Dereth Network's hub: the world registry and the links between worlds, routing tells, presence, rooms and channels."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98"
+license = "AGPL-3.0-only"
+publish = false
+# A stray tests/*.rs cannot become a test target silently.
+autotests = false
+
+# Everything under network/ names its own versions rather than the workspace's, so that the folder
+# can become a repository of its own unchanged.
+[dependencies]
+dereth-network-protocol = { path = "../protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The registry: one SQLite file, compiled in.
+rusqlite = { version = "0.31", features = ["bundled"] }
+# Keys: `drth_` and 32 random bytes in base64url, kept as their SHA-256.
+getrandom = "0.4"
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+sha2 = "0.10"
+# The listener: request heads, and the links' WebSocket framing (blocking, a thread per link).
+httparse = "1"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+# The hub's own outbound requests (a world's verification page, Discord's sign-in): TLS through
+# rustls on its ring provider, with the web's root certificates.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+# Ctrl-C stops `serve` cleanly.
+ctrlc = { version = "3.5", features = ["termination"] }
+
+[dev-dependencies]
+# The hub runs the conformance suite's hub checks against itself.
+dereth-network-conformance = { path = "../conformance" }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"
+
+[[bin]]
+name = "dereth-network-hub"
+path = "src/main.rs"
+
+[[test]]
+name = "all"
+path = "tests/all/main.rs"

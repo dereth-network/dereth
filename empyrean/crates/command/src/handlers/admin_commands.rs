@@ -6128,6 +6128,19 @@ pub fn handle_rename(w: &mut World, session: Option<SessionId>, parameters: &[St
 
     new_name = upper_first(&new_name);
 
+    // Not ACE (V451): with the Dereth Network on, a name holding `@` would read as another
+    // world's address.
+    if empyrean_world::federation::enabled(w) && empyrean_world::federation::looks_remote(&new_name)
+    {
+        write_output_info(
+            w,
+            session,
+            "Error, cannot rename. A name may not hold @ while this world is on the Dereth Network.",
+            ChatMessageType::Broadcast,
+        );
+        return;
+    }
+
     let online_player = player_manager::get_online_player_by_name(w, &old_name);
     let offline_player = player_manager::get_offline_player_by_name(w, &old_name).map(|o| o.guid);
     if let Some(online_player) = online_player {

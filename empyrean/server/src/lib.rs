@@ -4,7 +4,8 @@
 //! **Depends on** the server crates it starts: `empyrean-common`, `empyrean-entity`,
 //! `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`, `empyrean-world` and
 //! `empyrean-command`, the shared `dereth-dat` for its search of the dat folder, and the shared
-//! `dereth-transport` for the WebSocket frame; the updater adds an HTTP client (`ureq`, over
+//! `dereth-transport` for the WebSocket frame, and the Dereth Network's protocol
+//! (`dereth-network-protocol`) for its link to the hub; the updater adds an HTTP client (`ureq`, over
 //! rustls) and the archive readers (`zip`, `flate2`). **Used by** nothing: it is the `empyrean-server`
 //! binary, and this library half holds what the binary uses that its integration tests also reach.
 //!
@@ -14,14 +15,16 @@
 //!
 //! [`config_file`] finds and loads `empyrean.toml`, [`dat_directory`] and [`world_pack`] locate the
 //! data files and the content pack, [`database_manager`] opens the stores, [`guid_manager_boot`]
-//! seeds the object-id allocator, [`status_endpoint`] serves the status query, and [`websocket`]
-//! is the WebSocket endpoint, beside the UDP listeners. [`update`] finds, checks and installs new
+//! seeds the object-id allocator, [`status_endpoint`] serves the status query, [`websocket`] is the
+//! WebSocket endpoint, beside the UDP listeners, and [`federation_link`] is the Dereth Network's link
+//! to its hub. [`update`] finds, checks and installs new
 //! releases (`server.update`, `empyrean-server update`). The ported `Program.*` modules stay in
 //! the binary.
 
 pub mod config_file;
 pub mod dat_directory;
 pub mod database_manager;
+pub mod federation_link;
 pub mod guid_manager_boot;
 pub mod status_endpoint;
 pub mod update;

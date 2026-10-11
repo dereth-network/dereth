@@ -34,6 +34,9 @@ empyrean-dat.workspace = true
 empyrean-net.workspace = true
 log.workspace = true
 zlib-rs.workspace = true
+# Not ACE: the Dereth Network's protocol (`src/federation/`), and the saved form of its records.
+dereth-network-protocol.workspace = true
+serde = { workspace = true, features = ["rc"] }
 
 [dev-dependencies]
 dereth-client-net = { workspace = true, features = ["test-support"] }

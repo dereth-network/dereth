@@ -1044,6 +1044,32 @@ fn an_infiltration_world_answers_a_later_heritage_pending_with_a_popup() {
     assert_eq!(sent.codes(), [Cgvr::Ok]);
 }
 
+/// Divergence: V451
+#[test]
+fn a_name_holding_the_network_separator_is_banned_only_while_the_network_is_on() {
+    let mut w = world();
+    let sent = send(&mut w, &request("Ann@aa", 1, ABILITIES, standard_sacs()));
+    assert_eq!(
+        sent.codes(),
+        [Cgvr::Ok],
+        "with the network off, as ACE: no character is checked"
+    );
+    let mut w = world();
+    empyrean_world::federation::configure(
+        &mut w,
+        empyrean_world::federation::FederationSettings {
+            enabled: true,
+            slug: "aa".into(),
+            global_room: None,
+            min_character_age_secs: 0,
+        },
+        empyrean_world::federation::NetworkStore::default(),
+    );
+    let sent = send(&mut w, &request("Ann@aa", 1, ABILITIES, standard_sacs()));
+    assert_eq!(sent.codes(), [Cgvr::NameBanned]);
+    assert!(characters(&w).is_empty());
+}
+
 #[test]
 fn a_creature_name_is_banned() {
     let mut w = world();

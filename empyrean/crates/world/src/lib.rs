@@ -4,7 +4,8 @@
 //! **Depends on** every server crate below it (`empyrean-common`, `empyrean-entity`,
 //! `empyrean-tables`, `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`) and the
 //! shared engines and rules (`dereth-primitives`, `dereth-protocol`, `dereth-assets`,
-//! `dereth-physics`, `dereth-animation`, `dereth-world-data`, `dereth-rules`); its tests
+//! `dereth-physics`, `dereth-animation`, `dereth-world-data`, `dereth-rules`), and the Dereth
+//! Network's protocol (`dereth-network-protocol`, for [`federation`]); its tests
 //! cross-check the port against the client's rules (`dereth-client-model`). **Used by** the
 //! commands (`empyrean-command`), the server (`empyrean-server`) and the test kit
 //! (`empyrean-testkit`).
@@ -15,11 +16,13 @@
 //!
 //! [`World`] owns all mutable world state, where ACE's static managers live; [`ObjectStore`] is the
 //! single owner of every live object; [`dispatch`] is the generated virtual-method dispatch over
-//! ACE's `WorldObject` class tree; and [`sessions`] is the game half of ACE's `Session`. The ported
-//! folders keep ACE's layout: [`entity`], [`factories`], [`managers`], [`network`], [`physics`] and
+//! ACE's `WorldObject` class tree; [`sessions`] is the game half of ACE's `Session`; and
+//! [`federation`] is the Dereth Network's world half (not ACE). The ported folders keep ACE's
+//! layout: [`entity`], [`factories`], [`managers`], [`network`], [`physics`] and
 //! [`world_objects`].
 
 pub mod dispatch;
+pub mod federation;
 pub mod object_store;
 pub mod sessions;
 pub mod world;

@@ -20,7 +20,9 @@ impl ServerNet {
     ///
     /// DIVERGE: a status-ping datagram on `P` is answered (or dropped) by [`ServerNet::status_ping`]
     /// before it reaches the packet reader, and never touches a session (V442). With the ping off
-    /// it is dropped, as ACE's packet reader drops it for its impossible size.
+    /// it is dropped, as ACE's packet reader drops it for its impossible size. A Dereth Network
+    /// hub's challenge on `P` is kept for the world in [`ServerNet::hub_challenges`] (V451), and
+    /// dropped the same way when the network is off; it is never answered over UDP.
     pub fn on_datagram(
         &mut self,
         local_port_kind: PortKind,
@@ -35,6 +37,12 @@ impl ServerNet {
         if dereth_transport::status_ping::is_status_ping(bytes) {
             if local_port_kind == PortKind::C2S {
                 self.answer_status_ping(from, bytes, now);
+            }
+            return;
+        }
+        if dereth_network_protocol::challenge::is_challenge(bytes) {
+            if local_port_kind == PortKind::C2S {
+                self.keep_hub_challenge(bytes);
             }
             return;
         }

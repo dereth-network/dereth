@@ -1,0 +1,169 @@
+name: Release the Dereth Network ACE mod
+
+# Builds, checks and drafts a release of Dereth.Network, the ACE mod that puts an ACE world on the
+# Dereth Network. A pushed `network-ace-v<version>` tag builds the mod against a pinned ACE release,
+# runs its whole harness (the conformance vectors, its units, a real hub on loopback, and every ACE
+# method it patches resolved and applied with ACE's own Harmony), and creates a DRAFT GitHub release
+# holding `Dereth.Network-<version>.zip` and `SHA256SUMS`, which a maintainer reviews and publishes
+# by hand. Running it by hand (workflow_dispatch) is a dry run: the same build and checks, the
+# release files kept as a workflow artifact for 7 days, nothing published.
+#
+# The version is the mod's Meta.json `Version` and its project's `<Version>`, which must agree and
+# which the tag must name (network/RELEASING.md).
+
+on:
+  push:
+    tags: ['network-ace-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-network-ace-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The ACE release the mod is built and checked against, pinned by its digest. The mod is
+  # compiled against ACE's assemblies and copies none of them.
+  ACE_VERSION: v1.78.4816
+  ACE_SHA256: fc79656f767dbfa12f8edd9d690ac787792182ca34fbb8eb2dbbdea2c60110a6
+
+jobs:
+  build:
+    name: build and check
+    # Windows, where the harness also checks the text rules against Windows' own conversion.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: The tag names the mod's version, on main
+        id: version
+        run: |
+          meta=$(sed -n 's/.*"Version": *"\([^"]*\)".*/\1/p' network/ace-mod/Dereth.Network/Meta.json)
+          project=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' network/ace-mod/Dereth.Network/Dereth.Network.csproj)
+          test -n "$meta"
+          if [ "$meta" != "$project" ]; then
+            echo "::error::Meta.json says $meta and Dereth.Network.csproj says $project"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "network-ace-v$meta" ]; then
+              echo "::error::$GITHUB_REF_NAME does not name the mod's version $meta"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          fi
+          echo "version=$meta" >> "$GITHUB_OUTPUT"
+          echo "Dereth.Network $meta"
+      - name: Install the workspace Rust version
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: The hub the harness links its worlds through
+        run: |
+          cargo fetch --locked
+          cargo build --locked --profile test-release -p dereth-network-hub --bins
+      - name: ACE's assemblies (the pinned release)
+        run: |
+          mkdir -p target/ace-server
+          curl -fsSL -o target/ace.zip "https://github.com/ACEmulator/ACE/releases/download/$ACE_VERSION/ACE.Server-$ACE_VERSION.zip"
+          echo "$ACE_SHA256  target/ace.zip" | sha256sum -c -
+          7z x -y -otarget/ace-server target/ace.zip > /dev/null
+          test -f target/ace-server/ACE.Server.dll
+      - name: Build the mod, and check it with its harness and against ACE's Harmony
+        working-directory: network/ace-mod
+        run: |
+          ace=../../target/ace-server
+          dotnet build Dereth.Network/Dereth.Network.csproj -c Release -p:AceDirectory="$ace" -p:ContinuousIntegrationBuild=true
+          dotnet build tests/Harness.csproj -c Release
+          dotnet build tests/PatchApply/PatchApply.csproj -c Release -p:AceDirectory="$ace"
+          mod=../../target/ace-mod/bin/Dereth.Network/release/Dereth.Network.dll
+          dotnet ../../target/ace-mod/bin/Harness/release/Dereth.Network.Harness.dll \
+            --vectors ../conformance/vectors --hub ../../target/test-release/dereth-network-hub.exe \
+            --ace "$ace" --mod "$mod"
+          dotnet ../../target/ace-mod/bin/PatchApply/release/Dereth.Network.PatchApply.dll --ace "$ace" --mod "$mod"
+      - name: Stage, archive and checksum
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # The folder ACE's mod loader looks for keeps its name: Dereth.Network.
+          mkdir -p stage/Dereth.Network dist
+          cp target/ace-mod/bin/Dereth.Network/release/* stage/Dereth.Network/
+          cp network/ace-mod/README.md stage/Dereth.Network/README.md
+          ls -l stage/Dereth.Network
+          for f in Dereth.Network.dll Meta.json Settings.json.example LICENSE; do
+            test -f "stage/Dereth.Network/$f"
+          done
+          (cd stage && 7z a -tzip "../dist/Dereth.Network-$VERSION.zip" Dereth.Network > /dev/null)
+          (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          prev=$(git describe --tags --abbrev=0 --match 'network-ace-v*' "$GITHUB_SHA^" 2>/dev/null || true)
+          {
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s' ${prev:+"$prev.."}"$GITHUB_SHA" -- \
+              network/ace-mod network/conformance/vectors docs/network
+          } > dist/release-notes.md
+          cat dist/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-network-ace-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-network-ace-${{ needs.build.outputs.version }}
+          path: dist
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          mv release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
+          Dereth.Network $VERSION, the ACE mod that puts an ACE world on the Dereth Network: cross-world tells, friends, the Global room and channels, for players on the unmodified retail client. Built and checked against ACE $ACE_VERSION; it needs an ACE server with mod support on .NET 10. README.md in the archive is the guide: unzip the \`Dereth.Network\` folder into ACE's mods folder.
+
+          The source of this release is https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA, and GitHub's source archives of the tag below.
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          PRE=""
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+            --title "Dereth Network ACE mod $VERSION" --notes-file ../notes.md \
+            "Dereth.Network-$VERSION.zip#Dereth.Network for ACE (mod folder)" \
+            "SHA256SUMS#Checksums (SHA-256)"

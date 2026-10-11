@@ -50,6 +50,10 @@ sha2.workspace = true
 getrandom.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Not ACE: the Dereth Network's link (`src/federation_link.rs`): its protocol, and the web's root
+# certificates for a `wss://` hub (the same set `ureq` already builds in).
+dereth-network-protocol.workspace = true
+webpki-roots = "1"
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }
@@ -59,6 +63,8 @@ empyrean-net = { workspace = true, features = ["testing"] }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
 # The updater tests build synthetic databases for an installation.
 rusqlite.workspace = true
+# `/dn verify` is checked against a real hub on loopback.
+dereth-network-hub.workspace = true
 
 [[test]]
 name = "all"

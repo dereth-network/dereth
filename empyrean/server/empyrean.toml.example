@@ -401,6 +401,47 @@ asks_per_minute = 4
 replies_per_second = 50
 
 # ----------------------------------------------------------------------------------------------
+[federation]
+# The Dereth Network: a link to the hub that connects this world to other worlds, so its
+# players can tell, befriend and talk with characters there (`@tell Name@world, ...`),
+# with any client. Off unless enabled; the world must also be registered at the hub with
+# its federation flag on.
+
+# default: false (Empyrean only)
+# Link to the hub and turn the network on for this world's players.
+enabled = false
+
+# default: "wss://hub.dereth.network" (Empyrean only)
+# The hub's address: wss://host[:port], or ws:// on loopback only.
+hub_url = "wss://hub.dereth.network"
+
+# default: "" (Empyrean only)
+# The world's slug in the hub's registry (2-12 lowercase letters, digits and hyphens):
+# the world half of its characters' addresses.
+slug = ""
+
+# default: "network.key" (Empyrean only)
+# The file that holds the world's registry key (drth_...), relative to this file's
+# folder. The key is never written in this file; keep that one readable by the server
+# only.
+key_file = "network.key"
+
+# default: "roleplay" (Empyrean only)
+# The chat room that carries the network's Global room: "general", "trade", "lfg" or
+# "roleplay", or empty for none. Its lines from other worlds reach everyone who listens
+# to that room here.
+global_room = "roleplay"
+
+# default: "network.json" (Empyrean only)
+# Where the network's records are kept (stand-in ids, characters' settings, remote
+# friends and squelches, blocks), relative to this file's folder.
+store_path = "network.json"
+
+# default: 0 (Empyrean only)
+# Seconds a character must have played before it sends to the network: tells, room lines, channels.
+min_character_age_seconds = 0
+
+# ----------------------------------------------------------------------------------------------
 [era]
 # The era the world plays. Every era speaks the end-of-retail client protocol; the era
 # selects the world's rules (start positions, level cap, what the character list tells

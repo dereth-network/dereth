@@ -124,6 +124,19 @@ fn character_create_ex(
         return Ok(());
     }
 
+    // Not ACE (V451): with the Dereth Network on, a name holding `@` would read as another
+    // world's address, so it is banned (the retail client cannot type one).
+    if crate::federation::enabled(w) && dereth_network_protocol::address::looks_remote(&name) {
+        send_character_create_response(
+            w,
+            session,
+            Response::NameBanned,
+            empyrean_entity::ObjectGuid::default(),
+            "",
+        );
+        return Ok(());
+    }
+
     // A dat set from before Throne of Destiny has no taboo table: nothing is banned by it.
     if let (true, Some(table)) = (
         player_factory::property_manager_get_bool(w, "taboo_table"),

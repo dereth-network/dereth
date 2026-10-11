@@ -1,4 +1,4 @@
-// Driver for tests/fixtures/ace_common.tsv (empyrean-common, unit 0.3).
+// Driver for tests/fixtures/ace_common.tsv (empyrean-common).
 // Compiled together with ACE's own ACE.Common sources (Cryptography/ISAAC.cs, CryptoSystem.cs,
 // Hash32.cs without the Span overload, DerethDateTime.cs with the UtcNow properties replaced by
 // EmuAt/GdleAt(DateTime), Extensions/*.cs, Time.cs) and ace_oracle_shims.cs, then run on the

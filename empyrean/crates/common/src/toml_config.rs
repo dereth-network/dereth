@@ -524,6 +524,72 @@ pub const SECTIONS: &[Section] = &[
         ],
     },
     Section {
+        toml: &["federation"],
+        ace: &["Federation"],
+        array: false,
+        help: "The Dereth Network: a link to the hub that connects this world to other worlds, so its\n\
+               players can tell, befriend and talk with characters there (`@tell Name@world, ...`),\n\
+               with any client. Off unless enabled; the world must also be registered at the hub with\n\
+               its federation flag on.",
+        keys: &[
+            Key {
+                unset: "false",
+                ..e("enabled", "Enabled", "Link to the hub and turn the network on for this world's players.")
+            },
+            Key {
+                unset: "\"wss://hub.dereth.network\"",
+                ..e(
+                    "hub_url",
+                    "HubUrl",
+                    "The hub's address: wss://host[:port], or ws:// on loopback only.",
+                )
+            },
+            e(
+                "slug",
+                "Slug",
+                "The world's slug in the hub's registry (2-12 lowercase letters, digits and hyphens):\n\
+                 the world half of its characters' addresses.",
+            ),
+            Key {
+                unset: "\"network.key\"",
+                ..e(
+                    "key_file",
+                    "KeyFile",
+                    "The file that holds the world's registry key (drth_...), relative to this file's\n\
+                     folder. The key is never written in this file; keep that one readable by the server\n\
+                     only.",
+                )
+            },
+            Key {
+                unset: "\"roleplay\"",
+                ..e(
+                    "global_room",
+                    "GlobalRoom",
+                    "The chat room that carries the network's Global room: \"general\", \"trade\", \"lfg\" or\n\
+                     \"roleplay\", or empty for none. Its lines from other worlds reach everyone who listens\n\
+                     to that room here.",
+                )
+            },
+            Key {
+                unset: "\"network.json\"",
+                ..e(
+                    "store_path",
+                    "StorePath",
+                    "Where the network's records are kept (stand-in ids, characters' settings, remote\n\
+                     friends and squelches, blocks), relative to this file's folder.",
+                )
+            },
+            Key {
+                unset: "0",
+                ..e(
+                    "min_character_age_seconds",
+                    "MinCharacterAgeSeconds",
+                    "Seconds a character must have played before it sends to the network: tells, room lines, channels.",
+                )
+            },
+        ],
+    },
+    Section {
         toml: &["era"],
         ace: &["Era"],
         array: false,
@@ -710,6 +776,23 @@ pub struct Renamed {
 /// The keys renamed in this release, read under their old names with a warning.
 pub const RENAMED: &[Renamed] = &[];
 
+/// A key renamed before any release read it under its old name. The old name is refused: a file
+/// that still has it does not load, and the error names the new key, so a setting is never
+/// silently dropped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Refused {
+    /// Its dotted TOML path under the old name.
+    pub old: &'static str,
+    /// Its dotted TOML path now.
+    pub new: &'static str,
+}
+
+/// The keys refused under an old name.
+pub const REFUSED: &[Refused] = &[Refused {
+    old: "federation.events_room",
+    new: "federation.global_room",
+}];
+
 /// A renamed key a file used under its old name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Deprecated {
@@ -767,6 +850,7 @@ struct Report<'a> {
     ignored: Vec<Ignored>,
     renames: &'a [Renamed],
     moved: Vec<(Renamed, Value)>,
+    refused: Option<Refused>,
 }
 
 impl Report<'_> {
@@ -796,6 +880,10 @@ fn to_ace_table(table: Table, path: &[&str], report: &mut Report<'_>) -> Table {
         }
         if let Some(removed) = removed_by_toml(&here) {
             report.ignore(here, removed.why);
+            continue;
+        }
+        if let Some(refused) = REFUSED.iter().find(|r| r.old == here) {
+            report.refused.get_or_insert(*refused);
             continue;
         }
         if path.is_empty() && key == RENAMED_MYSQL {
@@ -891,7 +979,7 @@ fn put_unless_present(table: &mut Table, path: &[&str], value: Value) -> bool {
 /// Parses `empyrean.toml`.
 ///
 /// # Errors
-/// When the text is not TOML, or a value does not fit its setting.
+/// When the text is not TOML, a value does not fit its setting, or a key is one of [`REFUSED`].
 pub fn from_toml_str(text: &str) -> Result<Parsed, ConfigError> {
     from_toml_str_with_renames(text, RENAMED)
 }
@@ -910,6 +998,12 @@ pub fn from_toml_str_with_renames(text: &str, renames: &[Renamed]) -> Result<Par
         ..Report::default()
     };
     let mut ace = to_ace_table(table, &[], &mut report);
+    if let Some(refused) = report.refused {
+        return Err(ConfigError::Refused {
+            key: refused.old.to_owned(),
+            now: refused.new.to_owned(),
+        });
+    }
     let mut deprecated = Vec::new();
     for (renamed, value) in std::mem::take(&mut report.moved) {
         match ace_path_of(renamed.new) {

@@ -108,6 +108,8 @@ pub struct World {
     /// Not ACE: the rules of the era the world plays (`[era] profile`). `World::new` reads the
     /// configuration's era (end of retail before one is loaded); a test sets its own.
     pub era: &'static empyrean_common::era::EraRules,
+    /// Not ACE: the Dereth Network's world half (off until the host configures it).
+    pub federation: crate::federation::FederationState,
 }
 
 /// `DatabaseManager.Authentication` and `DatabaseManager.AutoPromoteNextAccountToAdmin`.
@@ -203,6 +205,7 @@ impl World {
             shard: ShardHandle::synchronous(Box::new(MemShard::new()), Arc::clone(&clock)),
             auth: AuthHandle::new(Box::new(MemAuth::new(AccountDefaults::default(), clock))),
             era: empyrean_common::era::current(),
+            federation: crate::federation::FederationState::default(),
         }
     }
 }

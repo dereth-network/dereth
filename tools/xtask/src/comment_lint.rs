@@ -1,7 +1,8 @@
 //! `cargo xtask comment-lint`: comments and messages describe behaviour.
 //!
 //! Source comments, string literals (log lines, panic and `expect` messages, error text) and TOML
-//! comments must say what the code does. They must not carry the scaffolding the code was built
+//! comments must say what the code does, in the workspace's Rust and in the C# of the network's
+//! server mod alike. They must not carry the scaffolding the code was built
 //! with: work-item labels (`unit O-41`, `R6.5b`, `RR-12`, `track G`, `plan 3`), pointers into
 //! private working documents (`knowledge/`, `evidence/`, `SHARED-PROPOSALS`, `OPEN_QUESTIONS`),
 //! records of who decided what (`owner decision`), or words about how the reference behaviour was
@@ -353,6 +354,112 @@ pub fn rust_segments(src: &str) -> (Vec<Segment>, Vec<TestDecl>) {
 }
 
 /// The comments in a TOML file, one per line.
+/// Split C# source into comment and string-literal segments: `//` and `/* */` comments, and
+/// regular, verbatim (`@"..."`), interpolated and raw (`"""..."""`) strings, one segment a
+/// physical line. A character literal is skipped.
+#[must_use]
+pub fn csharp_segments(src: &str) -> Vec<Segment> {
+    let c: Vec<char> = src.chars().collect();
+    let n = c.len();
+    let mut out = Vec::new();
+    let mut line = 1usize;
+    let mut i = 0usize;
+    let starts =
+        |i: usize, s: &str| -> bool { (i..).zip(s.chars()).all(|(k, ch)| k < n && c[k] == ch) };
+    // Pushes `text` (which may span lines) as one segment a line, from `first`.
+    let push = |out: &mut Vec<Segment>, first: usize, text: &str, kind: Kind| {
+        let whole = kind == Kind::Str && !text.contains('\n');
+        for (k, l) in text.split('\n').enumerate() {
+            out.push(Segment {
+                line: first + k,
+                kind,
+                text: l.to_owned(),
+                test: false,
+                whole_literal: whole,
+            });
+        }
+    };
+    while i < n {
+        let ch = c[i];
+        if ch == '\n' {
+            line += 1;
+            i += 1;
+        } else if starts(i, "//") {
+            let end = (i..n).find(|&k| c[k] == '\n').unwrap_or(n);
+            push(
+                &mut out,
+                line,
+                &c[i..end].iter().collect::<String>(),
+                Kind::Comment,
+            );
+            i = end;
+        } else if starts(i, "/*") {
+            let end = (i + 2..n).find(|&k| starts(k, "*/")).map_or(n, |k| k + 2);
+            let text: String = c[i..end].iter().collect();
+            push(&mut out, line, &text, Kind::Comment);
+            line += text.matches('\n').count();
+            i = end;
+        } else if ch == '\'' {
+            // A character literal: `'x'`, `'\''`.
+            let mut k = i + 1;
+            while k < n && c[k] != '\'' && c[k] != '\n' {
+                k += if c[k] == '\\' { 2 } else { 1 };
+            }
+            i = (k + 1).min(n);
+        } else if ch == '"'
+            || ((ch == '@' || ch == '$')
+                && (starts(i + 1, "\"") || starts(i + 1, "@\"") || starts(i + 1, "$\"")))
+        {
+            // The literal's prefix, then its opening quotes.
+            let mut k = i;
+            let mut verbatim = false;
+            while k < n && (c[k] == '@' || c[k] == '$') {
+                verbatim |= c[k] == '@';
+                k += 1;
+            }
+            let quotes = (k..n).take_while(|&q| c[q] == '"').count();
+            let body_start;
+            let end;
+            if quotes >= 3 {
+                let close: String = std::iter::repeat_n('"', quotes).collect();
+                body_start = k + quotes;
+                let close_at = (body_start..n).find(|&q| starts(q, &close)).unwrap_or(n);
+                end = (close_at + quotes).min(n);
+                let text: String = c[body_start..close_at.min(n)].iter().collect();
+                push(&mut out, line, &text, Kind::Str);
+            } else {
+                body_start = k + 1;
+                let mut q = body_start;
+                while q < n {
+                    // A doubled quote in a verbatim string, or an escape in another, is two
+                    // characters of the body.
+                    let pair = if verbatim {
+                        c[q] == '"' && q + 1 < n && c[q + 1] == '"'
+                    } else {
+                        c[q] == '\\'
+                    };
+                    if pair {
+                        q += 2;
+                    } else if c[q] == '"' || (!verbatim && c[q] == '\n') {
+                        break;
+                    } else {
+                        q += 1;
+                    }
+                }
+                let q = q.min(n);
+                let text: String = c[body_start.min(q)..q].iter().collect();
+                push(&mut out, line, &text, Kind::Str);
+                end = (q + 1).min(n);
+            }
+            line += c[i..end].iter().filter(|&&x| x == '\n').count();
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 pub fn toml_segments(src: &str) -> Vec<Segment> {
     let mut out = Vec::new();
     for (k, l) in src.lines().enumerate() {
@@ -794,7 +901,10 @@ pub fn scan_workspace(
 ) -> (Vec<Finding>, usize) {
     let mut files: Vec<PathBuf> = crate::util::source_files(root, &[])
         .into_iter()
-        .filter(|p| p.extension().is_some_and(|x| x == "rs" || x == "toml"))
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|x| x == "rs" || x == "toml" || x == "cs")
+        })
         .collect();
     files.sort();
     let rel = |p: &Path| normalise(p.strip_prefix(root).unwrap_or(p));
@@ -809,6 +919,8 @@ pub fn scan_workspace(
         let r = rel(p);
         if r.ends_with(".toml") {
             parsed.push((r, toml_segments(&text), Vec::new()));
+        } else if r.ends_with(".cs") {
+            parsed.push((r, csharp_segments(&text), Vec::new()));
         } else {
             let (segs, decls) = rust_segments(&text);
             for t in resolve_decls(p, &decls) {
@@ -967,6 +1079,39 @@ mod tests {
 
     fn flagged(text: &str) -> bool {
         !scan_text(text, false).is_empty()
+    }
+
+    #[test]
+    fn csharp_comments_and_strings_are_scanned_and_code_is_not() {
+        let src = "// line one\nvar a = \"text two\"; var b = @\"verbatim \"\"three\"\"\";\n\
+                   var ch = '\"'; /* block\nfour */ var r = \"\"\"\nraw five\n\"\"\";\n\
+                   var i = $\"x {y} six\"; var ghidra_free = 1;";
+        let segs = csharp_segments(src);
+        let texts: Vec<(usize, Kind, &str)> = segs
+            .iter()
+            .map(|s| (s.line, s.kind, s.text.trim()))
+            .collect();
+        assert!(
+            texts.contains(&(1, Kind::Comment, "// line one")),
+            "{texts:?}"
+        );
+        assert!(texts.contains(&(2, Kind::Str, "text two")), "{texts:?}");
+        assert!(
+            texts.contains(&(2, Kind::Str, "verbatim \"\"three\"\"")),
+            "{texts:?}"
+        );
+        assert!(texts.contains(&(4, Kind::Comment, "four */")), "{texts:?}");
+        assert!(texts.contains(&(5, Kind::Str, "raw five")), "{texts:?}");
+        assert!(texts.contains(&(7, Kind::Str, "x {y} six")), "{texts:?}");
+        assert!(
+            !segs.iter().any(|s| s.text.contains("ghidra_free")),
+            "code is not scanned"
+        );
+        assert!(segs
+            .iter()
+            .any(|s| s.kind == Kind::Comment && s.text.contains("block")));
+        let planted = csharp_segments("// found while reading the decompile\nvar x = 1;");
+        assert!(planted.iter().any(|s| flagged(&s.text)));
     }
 
     #[test]

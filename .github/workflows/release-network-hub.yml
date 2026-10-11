@@ -1,0 +1,370 @@
+name: Release the Dereth Network hub
+
+# Builds, checks and drafts a release of the Dereth Network's hub. A pushed `network-hub-v<version>`
+# tag builds the binary for every target and the container image for Linux, and creates a DRAFT
+# GitHub release, which a maintainer reviews and publishes by hand. Publishing it pushes the image
+# that was checked with it to the GitHub container registry (`ghcr.io/<repository>/network-hub`).
+# Running it by hand (workflow_dispatch) is a dry run: the same builds and checks, the release files
+# kept as a workflow artifact for 7 days, nothing published.
+#
+# The network (network/) is self-contained, so this uses no workspace tool: the version is
+# network/hub/Cargo.toml's, which the tag must name (network/RELEASING.md). The CI workflow runs
+# the hub's tests and the ACE mod's harness on every push.
+
+on:
+  push:
+    tags: ['network-hub-v*']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-network-hub-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The build tools, pinned.
+  CARGO_ABOUT_VERSION: 0.9.2
+  CARGO_ZIGBUILD_VERSION: 0.23.3
+  ZIGLANG_VERSION: 0.15.2
+
+jobs:
+  version:
+    name: version and notes
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: The tag names network/hub/Cargo.toml's version, on main
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^version *= *"\([^"]*\)".*/\1/p' network/hub/Cargo.toml | head -n 1)
+          test -n "$version"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "$GITHUB_REF_NAME" != "network-hub-v$version" ]; then
+              echo "::error::$GITHUB_REF_NAME does not name network/hub/Cargo.toml's version $version"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Dereth Network hub $version"
+      - name: The release notes, from the commits since the previous release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'network-hub-v*' "$GITHUB_SHA^" 2>/dev/null || true)
+          mkdir -p target
+          {
+            echo "## Changes"
+            echo
+            git log --no-merges --format='- %s' ${prev:+"$prev.."}"$GITHUB_SHA" -- \
+              network/hub network/protocol docs/network/02-link-protocol.md docs/network/05-hub.md
+          } > target/release-notes.md
+          cat target/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-network-hub
+          path: target/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `tests`: the hub's tests run natively, once per operating system and architecture.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, tests: true }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, tests: true }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, tests: true }
+          - { target: aarch64-apple-darwin, os: macos-latest, tests: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, tests: false }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the workspace Rust version and the target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target "$TARGET"
+          rustup override set "$toolchain"
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
+      - name: Install zig and cargo-zigbuild (Linux targets, linked against glibc 2.28)
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m pip install --user "ziglang==$ZIGLANG_VERSION"
+          cargo install --locked "cargo-zigbuild@$CARGO_ZIGBUILD_VERSION"
+      - name: The hub's tests, natively
+        if: matrix.tests
+        run: cargo test --locked --profile test-release -p dereth-network-protocol -p dereth-network-hub
+      - name: Build
+        run: |
+          case "$TARGET" in
+            *-linux-gnu) cargo zigbuild --locked --release -p dereth-network-hub --target "$TARGET.2.28" ;;
+            *) cargo build --locked --release -p dereth-network-hub --target "$TARGET" ;;
+          esac
+      - name: Stage and archive
+        run: |
+          exe=""; case "$TARGET" in *windows*) exe=".exe" ;; esac
+          name="dereth-network-hub-$VERSION-$TARGET"
+          mkdir -p "stage/$name" dist
+          cp "target/$TARGET/release/dereth-network-hub$exe" "stage/$name/"
+          cp network/hub/LICENSE "stage/$name/LICENSE"
+          cp network/protocol/LICENSE "stage/$name/LICENSE-protocol"
+          cp network/README.md "stage/$name/README.md"
+          cp network/hub/DEPLOY.md "stage/$name/DEPLOY.md"
+          cargo about generate --locked --fail -m network/hub/Cargo.toml -c network/hub/about.toml \
+            --target "$TARGET" -o "stage/$name/THIRD-PARTY-LICENSES.html" network/hub/about.hbs
+          case "$TARGET" in
+            *windows*) (cd stage && 7z a -tzip "../dist/$name.zip" "$name" > /dev/null) ;;
+            *) tar -C stage -czf "dist/$name.tar.gz" "$name" ;;
+          esac
+          ls -l dist
+      - name: Smoke-run the packaged binary
+        run: |
+          name="dereth-network-hub-$VERSION-$TARGET"
+          exe=""; case "$TARGET" in *windows*) exe=".exe" ;; esac
+          bin="stage/$name/dereth-network-hub$exe"
+          run() { "$@"; }
+          case "$TARGET" in
+            x86_64-apple-darwin)
+              if arch -x86_64 /usr/bin/true 2> /dev/null; then
+                run() { arch -x86_64 "$@"; }
+              else
+                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
+                exit 0
+              fi ;;
+          esac
+          run "$bin" --version | tee version.txt
+          grep -qx "dereth-network-hub $VERSION" version.txt
+          # It serves: a registry of its own, the health route, then it stops by itself.
+          run "$bin" --db "$RUNNER_TEMP/smoke.sqlite" serve --listen 127.0.0.1:18650 --run-for 5 &
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:18650/healthz && break
+            sleep 0.25
+          done
+          curl -fsS http://127.0.0.1:18650/v1/config | grep -q '"authEnabled":false'
+          wait
+          # Linux: the glibc 2.28 floor, and a current distribution.
+          case "$TARGET" in
+            *-linux-gnu)
+              for image in almalinux:8 ubuntu:24.04; do
+                docker run --rm -v "$PWD/stage/$name:/pkg:ro" "$image" /pkg/dereth-network-hub --version
+              done ;;
+          esac
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: network-hub-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  image:
+    name: container image
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: network-hub-*-linux-gnu
+          path: archives
+          merge-multiple: true
+      - name: The image, for linux/amd64 and linux/arm64, from the release's own binaries
+        run: |
+          mkdir -p ctx/bin/amd64 ctx/bin/arm64 ctx/data dist
+          for pair in amd64:x86_64 arm64:aarch64; do
+            arch="${pair%%:*}"; triple="${pair#*:}-unknown-linux-gnu"
+            tar -xzf "archives/dereth-network-hub-$VERSION-$triple.tar.gz" -C ctx
+            mv "ctx/dereth-network-hub-$VERSION-$triple/dereth-network-hub" "ctx/bin/$arch/"
+            rm -r "ctx/dereth-network-hub-$VERSION-$triple"
+          done
+          docker buildx create --name hub --driver docker-container --use
+          labels=(
+            --label "org.opencontainers.image.version=$VERSION"
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+            --label "org.opencontainers.image.revision=$GITHUB_SHA"
+          )
+          docker buildx build --platform linux/amd64,linux/arm64 -f network/hub/Dockerfile "${labels[@]}" \
+            --output "type=oci,dest=dist/dereth-network-hub-$VERSION-image.oci.tar" ctx
+          # The amd64 image, loaded here, runs and serves.
+          docker buildx build --platform linux/amd64 -f network/hub/Dockerfile "${labels[@]}" \
+            --load -t dereth-network-hub:smoke ctx
+          docker run --rm dereth-network-hub:smoke --version | grep -qx "dereth-network-hub $VERSION"
+          # The image's own command trusts no proxy, so it will not start until it is told one.
+          if docker run --rm dereth-network-hub:smoke; then exit 1; fi
+          docker run -d --name hub-smoke -p 127.0.0.1:18650:8650 dereth-network-hub:smoke \
+            serve --listen 0.0.0.0:8650 --insecure-listen
+          for _ in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:18650/healthz && break
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:18650/v1/status > /dev/null
+          docker rm -f hub-smoke
+          ls -l dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: network-hub-image
+          path: dist/*.oci.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  gather:
+    name: gather the release
+    needs: [version, package, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: network-hub-*
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-network-hub-${{ needs.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag' && github.event_name == 'push'
+    needs: [version, gather]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-network-hub-${{ needs.version.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes-network-hub
+          path: notes
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/network-hub"
+          cp ../notes/release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
+          The Dereth Network's hub $VERSION: the world registry, the operator API and the router for the worlds' links. For Linux (glibc 2.28 or newer, x86-64 and arm64), Windows and macOS (Apple silicon and Intel); DEPLOY.md in each archive is the guide to running a public hub.
+
+          **The container image** is attached as an OCI archive and, once this release is published, is \`$image:$VERSION\`.
+
+          The source of this release is https://github.com/$GITHUB_REPOSITORY/tree/$GITHUB_SHA, and GitHub's source archives of the tag below.
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              "dereth-network-hub-$VERSION-image.oci.tar") label="Container image · linux/amd64 and linux/arm64 (OCI archive)" ;;
+              "dereth-network-hub-$VERSION-"*)
+                case "${f#"dereth-network-hub-$VERSION-"}" in
+                  x86_64-unknown-linux-gnu.tar.gz) label="Hub · Linux x86-64 (glibc 2.28+)" ;;
+                  aarch64-unknown-linux-gnu.tar.gz) label="Hub · Linux arm64 (glibc 2.28+)" ;;
+                  x86_64-pc-windows-msvc.zip) label="Hub · Windows x64" ;;
+                  aarch64-apple-darwin.tar.gz) label="Hub · macOS Apple silicon" ;;
+                  x86_64-apple-darwin.tar.gz) label="Hub · macOS Intel" ;;
+                esac ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
+          PRE=""
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+            --title "Dereth Network hub $VERSION" --notes-file ../notes.md \
+            "${assets[@]}"
+
+  publish-image:
+    name: publish the container image
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'network-hub-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Push the release's own image, as checked, to the container registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          version="${TAG#network-hub-v}"
+          archive="dereth-network-hub-$version-image.oci.tar"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$archive" --pattern SHA256SUMS --dir release
+          cd release
+          sha256sum -c SHA256SUMS --ignore-missing
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/network-hub"
+          printf '%s' "$GH_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          skopeo copy --all "oci-archive:$archive" "docker://$image:$version"
+          if [ "$PRERELEASE" != true ]; then
+            skopeo copy --all "oci-archive:$archive" "docker://$image:latest"
+          fi
+          echo "pushed $image:$version" >> "$GITHUB_STEP_SUMMARY"

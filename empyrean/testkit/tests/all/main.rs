@@ -4,6 +4,7 @@ mod combat;
 mod commands;
 mod crafting;
 mod emotes;
+mod federation;
 mod games;
 mod harness;
 mod housing;

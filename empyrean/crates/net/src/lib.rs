@@ -2,7 +2,8 @@
 //! wire layer, with UDP and in-memory drivers.
 //!
 //! **Depends on** `empyrean-common`, the shared `dereth-primitives`, `dereth-transport` and
-//! `dereth-protocol`, and, behind a feature, the client's session (`dereth-client-net`) for the
+//! `dereth-protocol`, the Dereth Network's `dereth-network-protocol` (for the hub's challenge, read
+//! on the game port), and, behind a feature, the client's session (`dereth-client-net`) for the
 //! test bot. **Used by** the gameplay crate (`empyrean-world`), the commands (`empyrean-command`),
 //! the server (`empyrean-server`) and the test kit (`empyrean-testkit`).
 //!

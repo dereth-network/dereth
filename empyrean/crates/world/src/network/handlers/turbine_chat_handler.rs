@@ -566,6 +566,9 @@ pub fn turbine_chat_received(
             }
 
             enqueue_send(w, session, response(context_id, adjusted_chat_type));
+            // Not ACE (V449): the room that carries the Dereth Network's Global room passes an
+            // opted-in speaker's line on to the other worlds.
+            crate::federation::room_said(w, player, adjusted_channel_id, &text);
         }
 
         log_turbine_chat(

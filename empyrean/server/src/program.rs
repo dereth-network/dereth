@@ -174,6 +174,18 @@ pub fn main(options: &Options) -> ExitCode {
     apply_log_level(&config.server.log_level);
     log_paths(&config, &paths);
 
+    // Not ACE (V451): `[federation]` is read before anything starts. A world told to join the
+    // Dereth Network with a setting it cannot serve does not start, as for any other setting
+    // that does not fit, rather than run with the network silently off.
+    let federation_prepared =
+        match empyrean_server::federation_link::prepare(&config.federation, |p| paths.resolve(p)) {
+            Ok(prepared) => prepared,
+            Err(e) => {
+                log::error!("Dereth Network: {e}. Empyrean will now abort startup.");
+                return ExitCode::FAILURE;
+            }
+        };
+
     // ACE: ModManager.Initialize
     // Not ported: ACE loads compiled C# mods from a folder; Empyrean has no mod loader, so there
     // is nothing to initialize (and no "Initializing ModManager..." line).
@@ -393,6 +405,36 @@ pub fn main(options: &Options) -> ExitCode {
     log::info!("Initializing PlayerManager...");
     on_world(&startup, player_manager::initialize);
 
+    // Not ACE (V451): the Dereth Network, when `[federation]` turns it on; its settings were
+    // read above. A link that cannot be started stops the start-up too.
+    let federation = match federation_prepared {
+        Some(prepared) => {
+            match empyrean_server::federation_link::FederationLink::start(&prepared) {
+                Ok(link) => {
+                    log::info!(
+                        "Dereth Network: on as {:?}; the hub is {}",
+                        prepared.settings.slug,
+                        prepared.url.link(&prepared.settings.slug)
+                    );
+                    let (settings, store) = (prepared.settings, prepared.store);
+                    on_world(&startup, move |w| {
+                        empyrean_world::federation::configure(w, settings, store);
+                    });
+                    Some(Box::new(link))
+                }
+                Err(e) => {
+                    log::error!(
+                        "Dereth Network: not started: {e}. Empyrean will now abort startup."
+                    );
+                    drop(startup);
+                    let _ = world_thread.join();
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        None => None,
+    };
+
     log::info!("Initializing HouseManager...");
     on_world(
         &startup,
@@ -423,7 +465,10 @@ pub fn main(options: &Options) -> ExitCode {
     on_world(&startup, event_manager::initialize);
 
     let (commands, command_rx) = mpsc::channel::<WorldCommand>();
-    if startup.send(Startup::Go(driver, command_rx)).is_err() {
+    if startup
+        .send(Startup::Go(driver, command_rx, federation))
+        .is_err()
+    {
         log::error!("The world thread ended during start-up");
         return ExitCode::FAILURE;
     }
@@ -941,7 +986,11 @@ enum Startup {
     /// Run one step on the world, then signal.
     Run(WorldCommand, Sender<()>),
     /// Start the loop (`WorldManager.Initialize` starting the world thread).
-    Go(UdpWire, Receiver<WorldCommand>),
+    Go(
+        UdpWire,
+        Receiver<WorldCommand>,
+        Option<Box<empyrean_server::federation_link::FederationLink>>,
+    ),
 }
 
 /// Runs `f` on the world thread during start-up and waits for it.
@@ -973,8 +1022,8 @@ fn world_thread_main(mut world: World, clock: &dyn Clock, startup: &Receiver<Sta
                 step(&mut world);
                 let _ = done.send(());
             }
-            Ok(Startup::Go(wire, commands)) => {
-                return run_world_thread(world, wire, clock, commands)
+            Ok(Startup::Go(wire, commands, federation)) => {
+                return run_world_thread(world, wire, clock, commands, federation)
             }
             Err(_) => return false,
         }
@@ -988,11 +1037,19 @@ fn run_world_thread(
     mut wire: UdpWire,
     clock: &dyn Clock,
     commands: Receiver<WorldCommand>,
+    federation: Option<Box<empyrean_server::federation_link::FederationLink>>,
 ) -> bool {
     ThreadSafeRandom::seed_from_entropy();
 
-    let mut host = ServerHost { commands };
+    let mut host = ServerHost {
+        commands,
+        federation,
+    };
     world_manager::world_thread(&mut world, &mut wire, clock, &mut host);
+    // Not ACE (V451): the network's records are saved and its link closed.
+    if let Some(link) = host.federation.take() {
+        link.shutdown(&mut world);
+    }
 
     // The shutdown thread's last waits (the world has stopped; the database queue).
     while world.server_manager.shutdown_stage().is_some()
@@ -1062,6 +1119,8 @@ impl NetDriver for UdpWire {
 #[derive(Debug)]
 struct ServerHost {
     commands: Receiver<WorldCommand>,
+    /// Not ACE: the Dereth Network's link (`[federation]`), pumped between iterations.
+    federation: Option<Box<empyrean_server::federation_link::FederationLink>>,
 }
 
 impl WorldHost for ServerHost {
@@ -1072,6 +1131,9 @@ impl WorldHost for ServerHost {
     fn between_iterations(&mut self, w: &mut World) {
         while let Ok(command) = self.commands.try_recv() {
             world_manager::enqueue_action(w, Action::delegate(command));
+        }
+        if let Some(link) = &mut self.federation {
+            link.pump(w);
         }
         server_manager::shutdown_server(w);
     }

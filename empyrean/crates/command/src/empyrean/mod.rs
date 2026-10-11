@@ -13,6 +13,8 @@
 //!   points the player at the project's issue tracker instead of building a URL for ACE's.
 //! - [`source`]: `source`, a new name: where the server's source code is and its licence (the AGPL
 //!   source offer; ACE makes none).
+//! - [`dn`]: `dn`, `derethnetwork` and `dng`, new names: the Dereth Network's command, and its
+//!   short form for a line in the Global room.
 //!
 //! [`command_handlers`] is added to the table after every ported file, so a row here with an ACE
 //! command's name replaces ACE's row in its slot, and a new name is added at the end.
@@ -20,6 +22,7 @@
 //! A future Empyrean-only command goes in a file here and in [`command_handlers`]; where its
 //! behaviour is ACE's, it forwards to the ported handler rather than copying it.
 
+pub mod dn;
 pub mod help_commands;
 pub mod report_bug;
 pub mod source;
@@ -32,5 +35,6 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
     let mut all = help_commands::command_handlers();
     all.extend(report_bug::command_handlers());
     all.extend(source::command_handlers());
+    all.extend(dn::command_handlers());
     all
 }

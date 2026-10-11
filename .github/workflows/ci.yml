@@ -61,6 +61,75 @@ jobs:
           CARGO_NET_OFFLINE: 'true'
         run: cargo xtask ci tier0
 
+  # The Dereth Network (network/): its crates' tests and the conformance vectors through the suite's
+  # own binary, then the ACE mod built with .NET 10 against a pinned ACE release and checked by its
+  # harness (the vectors, its units, the link client and the world half against this commit's hub on
+  # loopback, every ACE method it patches resolved and bound) and by applying every patch with ACE's
+  # own Harmony. Windows also checks the mod's text rules against Windows' own conversion.
+  network:
+    name: network (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The ACE release the mod is built and checked against, pinned by its digest (the release
+      # workflow's).
+      ACE_VERSION: v1.78.4816
+      ACE_SHA256: fc79656f767dbfa12f8edd9d690ac787792182ca34fbb8eb2dbbdea2c60110a6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install the workspace Rust version
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: The network's crates, and the conformance vectors through the suite's binary
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          cargo test --locked --profile test-release -p dereth-network-protocol -p dereth-network-hub -p dereth-network-conformance
+          cargo build --locked --profile test-release -p dereth-network-hub -p dereth-network-conformance --bins
+          target/test-release/dereth-network-conformance vectors
+      - name: ACE's assemblies (the pinned release)
+        run: |
+          mkdir -p target/ace-server
+          curl -fsSL -o target/ace.zip "https://github.com/ACEmulator/ACE/releases/download/$ACE_VERSION/ACE.Server-$ACE_VERSION.zip"
+          echo "$ACE_SHA256  target/ace.zip" | sha256sum -c -
+          case "$RUNNER_OS" in
+            Windows) 7z x -y -otarget/ace-server target/ace.zip > /dev/null ;;
+            *) unzip -q target/ace.zip -d target/ace-server ;;
+          esac
+          test -f target/ace-server/ACE.Server.dll
+      - name: The ACE mod, its harness, and every patch applied
+        working-directory: network/ace-mod
+        run: |
+          ace=../../target/ace-server
+          exe=""; skip=()
+          # Windows' own best-fit conversion is checked on Windows only.
+          case "$RUNNER_OS" in Windows) exe=".exe" ;; *) skip=(--skip units) ;; esac
+          dotnet build Dereth.Network/Dereth.Network.csproj -c Release -p:AceDirectory="$ace"
+          dotnet build tests/Harness.csproj -c Release
+          dotnet build tests/PatchApply/PatchApply.csproj -c Release -p:AceDirectory="$ace"
+          mod=../../target/ace-mod/bin/Dereth.Network/release/Dereth.Network.dll
+          dotnet ../../target/ace-mod/bin/Harness/release/Dereth.Network.Harness.dll \
+            --vectors ../conformance/vectors --hub "../../target/test-release/dereth-network-hub$exe" \
+            --ace "$ace" --mod "$mod" "${skip[@]}"
+          dotnet ../../target/ace-mod/bin/PatchApply/release/Dereth.Network.PatchApply.dll --ace "$ace" --mod "$mod"
+
   # The web client's WebAssembly build. Tier 0 builds and tests its platform-neutral half on every
   # platform; this builds the half only a browser runs, lints it, and makes the release bundle the
   # release workflow makes, with its deny scan and manifest. No game data: the bundle never holds

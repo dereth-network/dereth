@@ -1,4 +1,4 @@
-// Oracle for tests/fixtures/dotnet_misc.tsv (empyrean-common, unit 0.3). Not ACE code.
+// Oracle for tests/fixtures/dotnet_misc.tsv (empyrean-common). Not ACE code.
 // Build and run as dotnet_oracle.cs; the output is committed unchanged (.NET 8.0.22).
 using System;
 using System.Globalization;

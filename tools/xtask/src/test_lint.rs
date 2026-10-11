@@ -8,8 +8,9 @@
 //!   row's `station` names a live test or scenario (a row marked `private_oracle` names one the
 //!   workspace does not carry; see [`check_stations`]), a client crate's integration test module
 //!   anchors at least one of its tests to a behaviour (or says `//! Behaviour: none` when it
-//!   makes no behaviour claim), and a server test module carries an `ACE:`, `Vectors:` or
-//!   `Divergence:` anchor;
+//!   makes no behaviour claim), a server test module carries an `ACE:`, `Vectors:` or
+//!   `Divergence:` anchor, and every test of a network crate names the page of the network's
+//!   specification it proves (`/// Spec: <page>: <claim>`, [`NETWORK_SPEC_PAGES`]);
 //! * **comments**: the rules of `comment-lint`, applied to test code (the part that lint leaves
 //!   out), plus one for `cargo test --test <name>` commands whose target no longer exists;
 //! * **ignores**: an `#[ignore]` says why.
@@ -55,6 +56,41 @@ const BEHAVIOUR_CRATES: &[&str] = &[
     "dereth-ui",
     "dereth-ui-screens",
 ];
+
+/// The words a network test's `/// Spec: <page>: <claim>` line may name, and the page of the
+/// network's specification each stands for.
+pub const NETWORK_SPEC_PAGES: &[(&str, &str)] = &[
+    ("addresses", "docs/network/01-addresses-and-settings.md"),
+    ("settings", "docs/network/01-addresses-and-settings.md"),
+    ("stand-in ids", "docs/network/01-addresses-and-settings.md"),
+    ("federation", "docs/network/01-addresses-and-settings.md"),
+    ("link protocol", "docs/network/02-link-protocol.md"),
+    ("link messages", "docs/network/02-link-protocol.md"),
+    ("rate limits", "docs/network/02-link-protocol.md"),
+    ("world behaviour", "docs/network/03-world-behaviour.md"),
+    ("text rules", "docs/network/04-text-rules.md"),
+    ("hub", "docs/network/05-hub.md"),
+    ("registry", "docs/network/05-hub.md"),
+    ("conformance", "docs/network/06-conformance.md"),
+];
+
+/// The prefix of the network's crates.
+const NETWORK_PREFIX: &str = "dereth-network-";
+
+/// Whether a network test's docs name a page of the network's specification that exists.
+fn names_a_spec_page(ws: &Path, docs: &[String]) -> bool {
+    docs.iter().any(|d| {
+        d.trim()
+            .strip_prefix("Spec:")
+            .and_then(|rest| rest.trim().split_once(':'))
+            .and_then(|(page, claim)| {
+                (!claim.trim().is_empty())
+                    .then(|| NETWORK_SPEC_PAGES.iter().find(|(w, _)| *w == page.trim()))
+                    .flatten()
+            })
+            .is_some_and(|(_, file)| ws.join(file).is_file())
+    })
+}
 
 /// The crate whose scenario files are named for the registry's subjects.
 const SCENARIO_PACKAGE: &str = "dereth-testkit";
@@ -410,6 +446,17 @@ pub fn scan(ws: &Path) -> Result<Vec<Finding>, String> {
         .chain(scenarios(&inv))
         .collect();
     out.extend(check_stations(&rows, &live));
+    // Anchors: every network test names the page of the specification it proves.
+    for t in &inv.tests {
+        if t.package.starts_with(NETWORK_PREFIX) && !names_a_spec_page(ws, &t.docs) {
+            out.insert(Finding {
+                path: t.file.clone(),
+                rule: "no network spec anchor".into(),
+                line: t.line,
+                what: t.name.clone(),
+            });
+        }
+    }
     // Anchors: per module file of an integration test.
     let mut by_file: BTreeMap<&str, Vec<&testsrc::TestFn>> = BTreeMap::new();
     for t in &inv.tests {

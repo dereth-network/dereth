@@ -28,6 +28,8 @@ log.workspace = true
 # The status ping's stateless tokens.
 hmac.workspace = true
 sha2.workspace = true
+# The Dereth Network hub's challenge, read on the game port for the world to answer.
+dereth-network-protocol.workspace = true
 
 [dev-dependencies]
 # Self dev-dependency: turns on `testing` for tests/all without making it a default feature.

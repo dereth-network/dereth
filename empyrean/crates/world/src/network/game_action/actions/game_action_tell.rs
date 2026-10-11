@@ -36,6 +36,17 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
     }
 
     let target = target.trim();
+    // Not ACE (V447): a name holding `@` is an address on the Dereth Network, which takes the
+    // tell; this world's own address for a local character is that character's name.
+    let local;
+    let target = match crate::federation::tell_by_name(w, player, target, &text) {
+        crate::federation::Routed::Handled => return Ok(()),
+        crate::federation::Routed::Local(name) => {
+            local = name;
+            local.as_str()
+        }
+        crate::federation::Routed::NotMine => target,
+    };
     let target_player = player_manager::get_online_player_by_name(w, target);
 
     let Some(target_player) = target_player else {

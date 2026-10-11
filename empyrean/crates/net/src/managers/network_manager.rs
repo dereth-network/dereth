@@ -81,7 +81,14 @@ pub struct ServerNet {
     /// Not ACE: the status ping (`[status]`), answered before any session exists. `None`: not
     /// set up, and dropped as with the ping off.
     pub status_ping: Option<StatusPing>,
+    /// Not ACE: the Dereth Network hub's challenges read on `P`, oldest first, for the world's
+    /// network half to answer over HTTPS (at most [`HUB_CHALLENGES_KEPT`]; the rest are dropped
+    /// until it takes them). `None`: the network is off, and a challenge is dropped.
+    pub hub_challenges: Option<VecDeque<dereth_network_protocol::challenge::Challenge>>,
 }
+
+/// The most hub challenges kept for the world between two of its turns.
+pub const HUB_CHALLENGES_KEPT: usize = 16;
 
 /// Splits borrows so a session and the manager's sinks can be used together.
 macro_rules! io {
@@ -115,6 +122,7 @@ impl ServerNet {
             shutdown_time: None,
             messages,
             status_ping: None,
+            hub_challenges: None,
         }
     }
 
@@ -131,6 +139,20 @@ impl ServerNet {
                 bytes: reply,
                 session: None,
             });
+        }
+    }
+
+    /// Not ACE: a datagram shaped as the hub's challenge, kept for the world when the network is
+    /// on and the datagram reads; nothing goes back.
+    pub fn keep_hub_challenge(&mut self, bytes: &[u8]) {
+        let Some(kept) = self.hub_challenges.as_mut() else {
+            return;
+        };
+        if kept.len() >= HUB_CHALLENGES_KEPT {
+            return;
+        }
+        if let Some(c) = dereth_network_protocol::challenge::Challenge::parse(bytes) {
+            kept.push_back(c);
         }
     }
 

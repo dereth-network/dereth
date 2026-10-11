@@ -52,6 +52,10 @@ dereth-client-net = { workspace = true, features = ["test-support"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 # The chat command scenarios drive empyrean-command through a TestServer.
 empyrean-command.workspace = true
+# The Dereth Network scenarios link several TestServers through the hub's own routing.
+dereth-network-hub.workspace = true
+dereth-network-conformance.workspace = true
+dereth-network-protocol.workspace = true
 
 # The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
 # `module_inception` allowed: ACE folders often contain a file of the same name, e.g.

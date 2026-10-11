@@ -83,6 +83,14 @@ members = [
     "empyrean/server",
     "empyrean/import",
     "empyrean/testkit",
+    # network/: the Dereth Network, the link between worlds: its protocol (MIT), its hub
+    # (AGPL-3.0-only, `network/hub/LICENSE`) and its conformance suite (MIT). Self-contained so that
+    # it can become a repository of its own: its crates name their own dependency versions, and
+    # nothing under it depends on a crate outside it. Empyrean's network module depends on the
+    # protocol (`cargo xtask separation`).
+    "network/protocol",
+    "network/hub",
+    "network/conformance",
 ]
 
 [workspace.package]
@@ -152,6 +160,9 @@ empyrean-store = { path = "empyrean/crates/store" }
 empyrean-tables = { path = "empyrean/crates/tables" }
 empyrean-testkit = { path = "empyrean/testkit" }
 empyrean-world = { path = "empyrean/crates/world" }
+dereth-network-protocol = { path = "network/protocol" }
+dereth-network-hub = { path = "network/hub" }
+dereth-network-conformance = { path = "network/conformance" }
 xtask = { path = "tools/xtask" }
 
 thiserror = "2"

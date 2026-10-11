@@ -11,7 +11,15 @@ use empyrean_entity::enums::AccessLevel;
 pub const REPLACED: [&str; 1] = ["reportbug"];
 
 /// Commands only Empyrean has.
-pub const EMPYREAN_NAMES: [&str; 4] = ["emphelp", "empcommands", "empversion", "source"];
+pub const EMPYREAN_NAMES: [&str; 7] = [
+    "emphelp",
+    "empcommands",
+    "empversion",
+    "source",
+    "dn",
+    "derethnetwork",
+    "dng",
+];
 
 /// ACE's names for Empyrean's commands: ACE's rows, listed as "Same as @<ours> (ACE's name).".
 pub const ALIASES: [&str; 3] = ["acehelp", "acecommands", "aceversion"];
@@ -223,4 +231,27 @@ fn reportbug_points_at_the_issue_tracker() {
         "{msg}"
     );
     assert!(!msg.contains('?'), "no query parameters: {msg}");
+}
+
+/// Divergence: V451
+#[test]
+fn the_network_commands_are_rows_of_their_own_after_aces() {
+    command_manager::initialize(None);
+    let all = table();
+    let last_ace = all
+        .iter()
+        .rposition(|i| !EMPYREAN_NAMES.contains(&i.attribute.command.as_str()))
+        .unwrap();
+    for (name, access) in [
+        ("dn", AccessLevel::Player),
+        ("derethnetwork", AccessLevel::Player),
+        ("dng", AccessLevel::Player),
+    ] {
+        let at = all
+            .iter()
+            .position(|i| i.attribute.command == name)
+            .unwrap_or_else(|| panic!("{name} is registered"));
+        assert!(at > last_ace, "{name} comes after ACE's rows");
+        assert_eq!(all[at].attribute.access, access, "{name}'s access level");
+    }
 }

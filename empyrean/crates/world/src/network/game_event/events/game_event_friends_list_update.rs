@@ -37,6 +37,9 @@ pub fn game_event_friends_list_update(w: &mut World, session: SessionId) -> Game
         session_data(w, session),
         4096,
     );
+    // Not ACE (V448): the friends on other worlds follow the local ones, under their stand-in ids.
+    let player = crate::network::game_event::game_event_message::session_player(w, session);
+    let remote = crate::federation::friend_rows(w, player);
     write_event_body(
         w,
         session,
@@ -45,6 +48,7 @@ pub fn game_event_friends_list_update(w: &mut World, session: SessionId) -> Game
         None,
         false,
         false,
+        &remote,
     );
     msg
 }
@@ -74,14 +78,47 @@ pub fn game_event_friends_list_update_one(
         Some(friend_id),
         override_online_status,
         online_status_val,
+        &[],
     );
+    msg
+}
+
+/// Not ACE (V448): an update of rows given whole (id, name, online), for friends who are not
+/// characters of this world.
+#[must_use]
+pub fn game_event_friends_list_update_rows(
+    session: &mut crate::sessions::SessionData,
+    update_type: FriendsUpdateTypeFlag,
+    rows: &[(u32, &str, bool)],
+) -> GameMessage {
+    let mut msg = game_event_message(
+        GameEventType::FriendsListUpdate,
+        GameMessageGroup::UIQueue,
+        session,
+    );
+    let body = SocialFriendsUpdate {
+        friends: rows
+            .iter()
+            .map(|&(id, name, online)| FriendData {
+                id: ObjectId(id),
+                online: i32::from(online),
+                appear_offline: 0,
+                name: ace_str(name),
+                friends_list: Vec::new(),
+                friend_of_list: Vec::new(),
+            })
+            .collect(),
+        update_type: update_type.0.cast_unsigned(),
+    };
+    let names: Vec<&str> = rows.iter().map(|&(_, n, _)| n).collect();
+    msg.write_proto_strings(&body, &names);
     msg
 }
 
 // ACE: GameEventFriendsListUpdate.WriteEventBody
 /// The friend list (the character's whole list, or the one friend), each with its online state
 /// and name, then the update type.
-#[allow(clippy::ptr_arg)]
+#[allow(clippy::ptr_arg, clippy::too_many_arguments)]
 fn write_event_body(
     w: &World,
     session: SessionId,
@@ -90,6 +127,7 @@ fn write_event_body(
     friend_id: Option<u32>,
     override_online_status: bool,
     online_status_val: bool,
+    remote: &[(u32, String, bool)],
 ) {
     use crate::managers::player_manager;
 
@@ -138,6 +176,17 @@ fn write_event_body(
             friend_of_list: Vec::new(), // TODO playersFriend.Character.CharacterPropertiesFriendList.Count
         });
         names.push(friend_name);
+    }
+    for (id, name, online) in remote {
+        friends.push(FriendData {
+            id: ObjectId(*id),
+            online: i32::from(*online),
+            appear_offline: 0,
+            name: ace_str(name.as_str()),
+            friends_list: Vec::new(),
+            friend_of_list: Vec::new(),
+        });
+        names.push(name.clone());
     }
 
     let body = SocialFriendsUpdate {

@@ -45,6 +45,7 @@ pub mod dereth_date_time;
 pub mod dotnet;
 pub mod era;
 pub mod extensions;
+pub mod federation_configuration;
 pub mod game_configuration;
 pub mod json;
 pub mod master_configuration;

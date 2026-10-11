@@ -123,6 +123,21 @@ What the client sends and expects above a reassembled message; start with [netwo
 | [networking/messages/11-game-actions.md](networking/messages/11-game-actions.md) — How the client frames everything it sends | wire format |
 | [networking/messages/12-admin-and-misc.md](networking/messages/12-admin-and-misc.md) — Progression, personal queries, administration, data patching | wire format |
 
+### The Dereth Network
+
+The protocol that links worlds for cross-world tells, friends and rooms is specified in
+[network/](network/README.md), under its own licence (CC BY 4.0) so that every implementer may
+copy it.
+
+| Page | Provenance |
+|---|---|
+| [network/01-addresses-and-settings.md](network/01-addresses-and-settings.md) — `Name@world`, a character's settings, the federation flag, stand-in ids | network specification |
+| [network/02-link-protocol.md](network/02-link-protocol.md) — The world-to-hub link and every message | network specification |
+| [network/03-world-behaviour.md](network/03-world-behaviour.md) — What a world shows a retail player | network specification |
+| [network/04-text-rules.md](network/04-text-rules.md) — What every receiving world does to a remote line | network specification |
+| [network/05-hub.md](network/05-hub.md) — The hub: the registry and the router | network specification |
+| [network/06-conformance.md](network/06-conformance.md) — The checks every world and hub run | network specification |
+
 ## The rule behind all of it
 
 A claim is worth writing down when someone could act on it and be wrong without it. Everything else

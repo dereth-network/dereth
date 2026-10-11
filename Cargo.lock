@@ -1198,6 +1198,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-network-conformance"
+version = "0.1.0"
+dependencies = [
+ "dereth-network-protocol",
+ "serde_json",
+ "tungstenite",
+]
+
+[[package]]
+name = "dereth-network-hub"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "ctrlc",
+ "dereth-network-conformance",
+ "dereth-network-protocol",
+ "getrandom 0.4.3",
+ "httparse",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tungstenite",
+ "webpki-roots",
+]
+
+[[package]]
+name = "dereth-network-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dereth-pack"
 version = "0.0.0"
 dependencies = [
@@ -1716,6 +1752,7 @@ name = "empyrean-net"
 version = "0.2.2"
 dependencies = [
  "dereth-client-net",
+ "dereth-network-protocol",
  "dereth-primitives",
  "dereth-protocol",
  "dereth-transport",
@@ -1732,6 +1769,8 @@ version = "0.2.2"
 dependencies = [
  "ctrlc",
  "dereth-dat",
+ "dereth-network-hub",
+ "dereth-network-protocol",
  "dereth-transport",
  "embed-resource",
  "empyrean-command",
@@ -1754,6 +1793,7 @@ dependencies = [
  "tracing",
  "tungstenite",
  "ureq",
+ "webpki-roots",
  "zip",
 ]
 
@@ -1787,6 +1827,9 @@ dependencies = [
  "dereth-assets",
  "dereth-client-net",
  "dereth-dat",
+ "dereth-network-conformance",
+ "dereth-network-hub",
+ "dereth-network-protocol",
  "dereth-physics",
  "dereth-primitives",
  "dereth-protocol",
@@ -1811,6 +1854,7 @@ dependencies = [
  "dereth-client-model",
  "dereth-client-net",
  "dereth-dat",
+ "dereth-network-protocol",
  "dereth-physics",
  "dereth-primitives",
  "dereth-protocol",
@@ -1825,6 +1869,7 @@ dependencies = [
  "empyrean-tables",
  "empyrean-testkit",
  "log",
+ "serde",
  "serde_json",
  "zlib-rs",
 ]

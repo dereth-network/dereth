@@ -1,0 +1,25 @@
+{
+  "about": "The challenge datagram the hub sends a world's game port when its operator verifies it in game (docs/network/05-hub.md section 2.5). Each datagram is hex. Every `ok` datagram must read as its slug and nonce (32 hex digits), and writing that slug and nonce must give the datagram again, byte for byte. Every `later` datagram is a later version's: it must read as its slug and nonce, ignoring what follows them. Every `refused` datagram must not read as a challenge.",
+  "ok": [
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff07636f6c64657665", "slug": "coldeve", "nonce": "00112233445566778899aabbccddeeff" },
+    { "datagram": "444e5643000000000000000000000000ffff00000101ffffffffffffffffffffffffffffffff0161", "slug": "a", "nonce": "ffffffffffffffffffffffffffffffff" },
+    { "datagram": "444e5643000000000000000000000000ffff000001010f1e2d3c4b5a69788796a5b4c3d2e1f0286162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738392d78797a", "slug": "abcdefghijklmnopqrstuvwxyz0123456789-xyz", "nonce": "0f1e2d3c4b5a69788796a5b4c3d2e1f0" }
+  ],
+  "later": [
+    { "datagram": "444e5643000000000000000000000000ffff0000010200112233445566778899aabbccddeeff07636f6c646576650102030405", "slug": "coldeve", "nonce": "00112233445566778899aabbccddeeff" }
+  ],
+  "refused": [
+    { "datagram": "41435350000000000000000000000000ffff0000010100112233445566778899aabbccddeeff07636f6c64657665", "why": "the status ping's magic" },
+    { "datagram": "444e5643000000000000000000000000ffff0000020100112233445566778899aabbccddeeff07636f6c64657665", "why": "another kind" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010000112233445566778899aabbccddeeff07636f6c64657665", "why": "version 0" },
+    { "datagram": "444e564300000000000000000000000020000000010100112233445566778899aabbccddeeff07636f6c64657665", "why": "a size a packet could have" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff07636f6c646576", "why": "cut in its slug" },
+    { "datagram": "444e5643000000000000000000000000ffff000001010011223344556677", "why": "cut in its nonce" },
+    { "datagram": "444e5643000000000000000000000000ffff000001", "why": "cut in its header" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff07436f6c64657665", "why": "an upper-case slug" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff00", "why": "an empty slug" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff296162636465666768696a6b6c6d6e6f707172737475767778797a303132333435363738392d78797a61", "why": "a slug longer than 40" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff08636f6c64c3a97665", "why": "a slug outside ASCII" },
+    { "datagram": "444e5643000000000000000000000000ffff0000010100112233445566778899aabbccddeeff08636f6c6420657665", "why": "a space in the slug" }
+  ]
+}

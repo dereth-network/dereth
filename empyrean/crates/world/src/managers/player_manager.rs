@@ -481,6 +481,8 @@ pub fn switch_player_from_offline_to_online(w: &mut World, player: ObjectGuid) -
 
     let appear_offline = player_get_appear_offline(w, player);
     player_send_friend_status_updates(w, player, false, !appear_offline);
+    // Not ACE (V448): watchers on other worlds are told, and the character watches its friends there.
+    crate::federation::on_login(w, player);
 
     true
 }
@@ -538,6 +540,8 @@ pub fn switch_player_from_online_to_offline(w: &mut World, player: ObjectGuid) -
 
     let appear_offline = player_get_appear_offline(w, player);
     player_send_friend_status_updates(w, player, !appear_offline, false);
+    // Not ACE (V448): watchers on other worlds see the character go offline.
+    crate::federation::on_logout(w, player);
     player_handle_allegiance_on_logout(w, player);
 
     true

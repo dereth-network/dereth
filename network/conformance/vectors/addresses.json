@@ -1,0 +1,41 @@
+{
+  "about": "Address parsing (docs/network/01-addresses-and-settings.md). `ok` vectors give the parsed halves and the identity key; the rest must be refused.",
+  "ok": [
+    { "input": "Bob@coldeve", "name": "Bob", "world": "coldeve", "key": "bob@coldeve", "channel": false },
+    { "input": "Bob@Coldeve", "name": "Bob", "world": "coldeve", "key": "bob@coldeve", "channel": false },
+    { "input": " +Bob @ coldeve ", "name": "Bob", "world": "coldeve", "key": "bob@coldeve", "channel": false },
+    { "input": "Sir Bartholomew Whitmore@coldeve", "name": "Sir Bartholomew Whitmore", "world": "coldeve", "key": "sir bartholomew whitmore@coldeve", "channel": false },
+    { "input": "O'Neil@frost-fire", "name": "O'Neil", "world": "frost-fire", "key": "o'neil@frost-fire", "channel": false },
+    { "input": "Mary-Jane@aa", "name": "Mary-Jane", "world": "aa", "key": "mary-jane@aa", "channel": false },
+    { "input": "\u00cblwen@leafy", "name": "\u00cblwen", "world": "leafy", "key": "\u00eblwen@leafy", "channel": false },
+    { "input": "OldGuard@channel", "name": "oldguard", "world": "channel", "key": "oldguard@channel", "channel": true },
+    { "input": "old-guard2@CHANNEL", "name": "old-guard2", "world": "channel", "key": "old-guard2@channel", "channel": true },
+    { "input": "Abcdefghijklmnopqrstuvwxyzabcdef@coldeve", "name": "Abcdefghijklmnopqrstuvwxyzabcdef", "world": "coldeve", "key": "abcdefghijklmnopqrstuvwxyzabcdef@coldeve", "channel": false, "note": "a name of 32 characters, the most" },
+    { "input": "Bob@abcdefghijkl", "name": "Bob", "world": "abcdefghijkl", "key": "bob@abcdefghijkl", "channel": false, "note": "a slug of 12 characters, the most" }
+  ],
+  "refused": [
+    "Bob",
+    "Bob@",
+    "@coldeve",
+    "Bob@cold@eve",
+    "Bob@c",
+    "Bob@abcdefghijklm",
+    "Bob@cold_eve",
+    "Bob@-coldeve",
+    "Bob@cold--eve",
+    "Bob^@coldeve",
+    "Bob&@coldeve",
+    "Bo^b@coldeve",
+    "Bo,b@coldeve",
+    "<Bob>@coldeve",
+    "St. Ann@coldeve",
+    "Bob  Smith@coldeve",
+    "a234567890123456789012345678901234@coldeve",
+    "Abcdefghijklmnopqrstuvwxyzabcdefg@coldeve",
+    "Ōlwen@leafy",
+    "Old Guard@channel",
+    "x@channel",
+    "Bob\u0007@coldeve"
+  ],
+  "reserved_slugs": ["darktide", "frostfell", "harvestgain", "leafcull", "morningthaw", "solclaim", "thistledown", "verdantine", "wintersebb", "channel", "discord", "hub", "net", "network", "local", "localhost", "world", "all", "any"]
+}

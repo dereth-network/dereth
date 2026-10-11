@@ -1,0 +1,107 @@
+# The conformance suite
+
+Provenance: **network specification**.
+
+Implemented in `network/conformance/` (`dereth-network-conformance`, MIT). A world or hub that
+fails a check is not conformant. Passing every check is necessary, not sufficient: the checks hold
+an implementation to the rules most easily got wrong, not to every rule of the other pages, which
+stay the definition.
+
+## 1. The vectors
+
+Four JSON files in `network/conformance/vectors/`, readable from any language:
+
+| file | pins |
+|---|---|
+| `addresses.json` | addresses that parse (with their halves and identity key), addresses that must be refused, and the reserved slugs |
+| `text.json` | lines in and out of the text rules (one, `LONG`, stands for 300 `x` and expects the first 255; `input_parts` and `output_parts` stand for their pieces joined, each repeated), names in and out or refused; each output must pass the rules again unchanged |
+| `messages.json` | a frame of every message type that must read, whose writing must hold every field of the frame with the same value and read back unchanged, with the values some fields must read as (`expect`, by each field's meaning); frames of unknown types that must be skipped; and malformed frames that must be refused. `${c*N}` in a frame stands for the character c written N times. |
+| `challenge.json` | challenge datagrams ([05](05-hub.md) section 2.5), in hex: those that must read as their slug and nonce and be written again byte for byte from them, a later version's that must read ignoring what it appends, and those that must not read as a challenge (the status ping's magic, another kind, version 0, a size a packet could have, a datagram cut short, a slug that cannot be carried) |
+
+`dereth-network-conformance vectors` runs them against this repository's protocol crate.
+
+## 2. The hub checks
+
+`dereth-network-conformance hub --url ws://host:port --world <slug>=<key> --world <slug>=<key> [--world ...] [--off <slug>=<key>] [--slow]`
+plays two or three worlds against a running hub, each check over links of its own, with names of
+its own:
+
+| check | what it holds the hub to |
+|---|---|
+| `link.a_wrong_key_is_refused_401` | a key that is not the world's is refused before the upgrade |
+| `link.a_world_whose_flag_is_not_on_is_refused_403` | a world not `on` may not link (with `--off`) |
+| `link.hello_is_welcomed_with_the_worlds_own_slug` | `welcome` answers `hello`, naming the world |
+| `link.anything_before_hello_is_refused` | `error {order}`, then the link is closed |
+| `link.another_protocol_version_is_refused` | `error {protocol}`, then closed |
+| `link.an_unknown_type_is_skipped` | the link carries on |
+| `link.a_second_link_replaces_the_first` | the first is closed, the second stays |
+| `link.a_binary_or_oversized_frame_closes_the_link` | either closes it |
+| `identity.a_world_cannot_watch_say_or_ask_as_another_worlds_character` | `error {identity}` for a spoofed `watch.owner`, `room.say.from` and `channel.by`, and nothing forwarded |
+| `world.a_link_up_and_down_is_announced` | `world {online}` both ways |
+| `tell.is_routed_and_answered_under_the_senders_id` | the target gets the tell under an id of the hub's own, not the sender's; the sender the answer under its own |
+| `tell.a_world_cannot_send_as_another_worlds_character` | `error {identity}`, nothing forwarded |
+| `tell.to_a_world_not_on_the_network_is_not_on_network` | an unknown world, and an `off` one |
+| `tell.a_resent_id_is_delivered_once` | duplicates are dropped |
+| `tell.held_for_a_world_that_reconnects` | the one-minute hold |
+| `limits.a_characters_tells_are_rate_limited` | the per-character limit, at its burst as `welcome.limits` gives it |
+| `presence.watches_and_presence_go_between_the_named_worlds` | and a world cannot speak for another's characters |
+| `room.a_line_reaches_the_other_worlds_carrying_the_room` | and not back to the world that said it, and (with a third world) not those that do not carry it, which may not say anything there |
+| `channel.joined_by_invitation_and_its_lines_reach_the_other_members` | the channel lifecycle and its lines; a non-member can neither invite nor tell the channel; the last leave ends it |
+| `tell.an_unanswered_tell_is_answered_unavailable` | the hub answers within its timer (with `--slow`: about 30 seconds) |
+| `tell.a_held_tell_lapses_unavailable` | a tell held for a world that never returns is answered `unavailable` after the hold (with `--slow`: about a minute) |
+| `person.a_world_cannot_ask_for_another_worlds_character` | `error {identity}` for a `person` or `person.watch` naming another world's character, and no answer |
+| `person.a_character_nobody_linked_has_no_person` | its view is unlinked, hidden and empty; `characters` names none; `befriend`, `carry` and `alts` are `not_linked` |
+| `person.a_link_code_is_well_formed_or_refused_unavailable` | `ok` with a well-formed code that lapses within ten minutes and a page to enter it on, or `unavailable` from a hub without sign-in |
+
+## 3. The world checks
+
+The suite plays the hub against a world through `world::WorldUnderTest`, a Rust trait: carry
+frames each way, let the world's time pass, and act as and look at two of its characters online. A
+Rust implementation writes that adapter in its own tests. **For now the world checks run only for
+a world that can be driven from Rust**; a world in another language (the ACE mod, in C#) is held to
+the vectors and to its own checks of the same behaviour, against a real hub. The checks:
+
+| check | what it holds the world to |
+|---|---|
+| `link.hello_comes_first_then_the_room_and_the_watches` | `hello` first and alone; after `welcome`, `room.join` (for a world that carries the room) and a watch for each remote friend; on a new link, both again after its `welcome` |
+| `tell.to_a_character_it_does_not_have_is_offline` | `offline` |
+| `tell.to_a_character_off_the_network_is_offline_and_unseen` | `offline`, nothing shown |
+| `tell.a_reachable_character_is_shown_it_from_a_stand_in_id` | shown under the sender's address and a stand-in id, the same id for the same identity; `delivered` |
+| `tell.an_opted_in_character_is_reachable_by_anyone` | `/dn on` makes a character reachable by anyone: a stranger's tell is shown and `delivered` |
+| `tell.a_stranger_cannot_reach_a_mutual_friends_only_character` | Reachable `friends` keeps out a stranger: `offline` |
+| `tell.a_stranger_told_first_may_answer_in_the_reply_window` | the reply window, whatever Reachable says |
+| `tell.the_sender_is_shown_each_outcome_as_a_local_tell_would_show_it` | `afk` (the line written around the away text), `unavailable`, `not_on_network`, `rate_limited` |
+| `text.a_remote_line_is_shown_only_after_the_text_rules` | markup out, Windows-1252 in, line breaks to spaces |
+| `tell.a_local_sender_sees_the_echo_only_once_the_hub_answers` | the tell goes as the character's address; the echo waits for `delivered` |
+| `tell.an_offline_answer_is_character_not_available` | the native error |
+| `tell.a_reply_by_id_goes_to_the_stand_in_ids_identity` | the by-id reply path |
+| `squelch.a_squelched_sender_is_answered_squelched_and_unseen` | remote squelch |
+| `presence.a_watch_is_answered_by_the_characters_settings` | offline until mutual, online once |
+| `presence.a_friend_shows_as_its_home_world_says` | a status row under the stand-in id |
+| `presence.a_character_visible_to_nobody_shows_offline_to_a_mutual_friend` | Visible `nobody` |
+| `room.a_line_from_another_world_is_shown_to_listeners` | the Global room's slot |
+| `room.a_line_from_another_world_passes_the_text_rules` | markup out, line breaks to spaces |
+| `link.a_tell_queued_while_down_goes_after_the_next_welcome` | the queue, and `hello` before it |
+| `person.a_character_on_the_network_asks_for_its_person_view` | `person.watch` for its own address once it is on the network |
+| `person.a_link_code_is_asked_for_the_character_and_shown` | `/dn link` asks for the character's own address, and shows the code and the page |
+| `person.a_link_holds_only_for_the_character_that_asked_for_its_code` | a view saying a character that never asked for a code is linked lists nothing, and the world sends `unlink` for it |
+| `person.a_person_friends_characters_are_listed_and_watched` | for a character that asked for a code, each character a view names becomes a friends row and is watched; the character itself and this world's characters are not listed |
+| `person.a_character_listed_through_a_person_friend_is_a_mutual_friend` | a watch from it is answered online for a character whose Visible is `friends` |
+| `person.a_listed_character_comes_online_as_its_person` | *Bob@remote is online as Alt@remote.* |
+| `person.a_linked_characters_friend_is_asked_of_the_hub` | an unlinked character's `@friends add` asks the hub nothing; a linked one's is `befriend` |
+| `person.linking_carries_the_characters_friends_to_its_person` | the first linked view brings `carry` with the friends the world kept; a later view listing one as a handle neither adds nor removes its row |
+| `person.friends_handed_back_on_unlinking_are_the_characters_own` | an unlinked view naming a friend keeps its row, and a later empty view does not remove it |
+| `person.a_character_the_view_no_longer_names_is_removed` | a row of type 2, and its watch stops |
+
+## 4. Who runs what
+
+- **The hub** (`network/hub`) runs the hub checks against itself, over real WebSockets on
+  loopback, in its own tests, and the person layer's site routes and privacy rules with a stand-in
+  for Discord.
+- **Empyrean** runs the world checks against its network half in process
+  (`empyrean/testkit/tests/all/federation/conformance.rs`).
+- **The ACE mod** (`network/ace-mod`) runs the four vector files against its own C# code, and
+  its world half, which has no ACE dependency, against a real hub over loopback with two in-memory
+  worlds, with its own checks of what the world checks hold a world to; a separate check resolves
+  and applies every one of its patches against ACE's own assemblies. Only the patched calls inside
+  a running ACE world need a live ACE world, which the mod's README describes.

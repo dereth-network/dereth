@@ -1,12 +1,12 @@
-// Oracle for tests/fixtures/dotnet_format.tsv (empyrean-common, unit 0.3). Not ACE code.
+// Oracle for tests/fixtures/dotnet_format.tsv (empyrean-common). Not ACE code.
 //
 // Build with the .NET Framework compiler (C# 5) and run on the .NET (Core) runtime:
 //   csc.exe -nologo -out:o.dll -target:exe dotnet_oracle.cs
 //   (o.runtimeconfig.json: {"runtimeOptions":{"tfm":"net8.0","framework":{"name":"Microsoft.NETCore.App","version":"8.0.0"}}})
 //   dotnet o.dll > oracle.tsv
-// The committed TSV was produced on .NET 8.0.22 and post-processed: F99 lines kept for the first
-// 25 values only, and the `round` lines folded into one line per input (columns in the
-// `#round-columns` header, results as double bit patterns).
+// The committed TSV was produced on .NET 8.0.22 and post-processed: the lines of the 99-decimal
+// fixed-point format kept for the first 25 values only, and the `round` lines folded into one
+// line per input (columns in the `#round-columns` header, results as double bit patterns).
 using System;
 using System.Globalization;
 using System.Collections.Generic;

@@ -223,6 +223,10 @@ fn current_culture_ignore_case_eq(a: &str, b: &str) -> bool {
 // ACE: Player.HandleActionAddFriend
 /// Adds a friend and updates the database.
 pub fn handle_action_add_friend(w: &mut World, this: ObjectGuid, friend_name: &str) {
+    // Not ACE (V448): a name holding `@` is a friend on another world, kept by the Dereth Network.
+    if crate::federation::add_friend(w, this, friend_name) {
+        return;
+    }
     let session = session(w, this);
     let name = crate::dispatch::name::name(w, this).unwrap_or_default();
     if current_culture_ignore_case_eq(friend_name, &name) {
@@ -290,6 +294,10 @@ pub fn handle_action_add_friend(w: &mut World, this: ObjectGuid, friend_name: &s
 // ACE: Player.HandleActionRemoveFriend
 /// Remove a single friend and update the database.
 pub fn handle_action_remove_friend(w: &mut World, this: ObjectGuid, friend_guid: u32) {
+    // Not ACE (V448): a stand-in id is a friend on another world, kept by the Dereth Network.
+    if crate::federation::remove_friend(w, this, friend_guid) {
+        return;
+    }
     let session = session(w, this);
     let Some(friend_to_remove) = character_mut(w, this).try_remove_friend(friend_guid) else {
         crate::network::chat_packet::send_server_message(
@@ -341,6 +349,8 @@ pub fn handle_action_remove_friend(w: &mut World, this: ObjectGuid, friend_guid:
 // ACE: Player.HandleActionRemoveAllFriends
 /// Delete all friends and update the database.
 pub fn handle_action_remove_all_friends(w: &mut World, this: ObjectGuid) {
+    // Not ACE (V448): the friends on other worlds go too.
+    crate::federation::remove_all_friends(w, this);
     // Remove all from DB
     if character_mut(w, this).clear_all_friends() {
         //ChatPacket.SendServerMessage(Session, "Your friends list has been cleared.", ChatMessageType.Broadcast);
@@ -367,6 +377,10 @@ pub fn set_appear_offline(w: &mut World, this: ObjectGuid, appear_offline: bool)
         !previous_appear_offline,
         !now_appear_offline,
     );
+    // Not ACE (V448): remote watchers see the change too.
+    if previous_appear_offline != now_appear_offline {
+        crate::federation::settings_changed(w, this);
+    }
 }
 
 // =====================================

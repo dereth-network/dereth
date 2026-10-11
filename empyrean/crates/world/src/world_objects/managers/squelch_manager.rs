@@ -201,6 +201,12 @@ pub fn handle_action_modify_character_squelch(
         return;
     }
 
+    // Not ACE (V450): a name holding `@`, or a stand-in id, is a character (or channel) on another
+    // world; the Dereth Network keeps that squelch.
+    if crate::federation::squelch(w, this, squelch, player_guid, player_name) {
+        return;
+    }
+
     let player = if player_guid != 0 {
         let (found, _) = player_manager::find_by_guid(w, player_guid);
 

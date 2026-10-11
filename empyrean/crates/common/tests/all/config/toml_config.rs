@@ -104,6 +104,14 @@ fn every_kept_key_parses() {
         hellos_per_minute = 2
         asks_per_minute = 3
         replies_per_second = 9
+        [federation]
+        enabled = true
+        hub_url = "wss://hub.example.org"
+        slug = "kept"
+        key_file = "keys/kept.key"
+        global_room = "roleplay"
+        store_path = "net/network.json"
+        min_character_age_seconds = 600
         "#,
     );
     assert!(
@@ -130,6 +138,24 @@ fn every_kept_key_parses() {
     assert!(
         MasterConfiguration::default().status.udp_ping,
         "the status ping is on unless turned off"
+    );
+    let f = &c.federation;
+    assert!(f.enabled);
+    assert_eq!(
+        (f.hub_url.as_str(), f.slug.as_str(), f.key_file.as_str()),
+        ("wss://hub.example.org", "kept", "keys/kept.key")
+    );
+    assert_eq!(
+        (
+            f.global_room.as_str(),
+            f.store_path.as_str(),
+            f.min_character_age_seconds
+        ),
+        ("roleplay", "net/network.json", 600)
+    );
+    assert!(
+        !MasterConfiguration::default().federation.enabled,
+        "the network is off unless turned on"
     );
     let s = &c.server;
     assert_eq!(s.world_name, "Kept World");
@@ -662,6 +688,34 @@ fn every_rename_names_a_setting_and_lasts_one_release() {
         assert!(
             parsed.map_or(true, |p| p.unknown_keys.is_empty()),
             "`{}` names no setting",
+            r.new
+        );
+    }
+}
+
+/// Divergence: V451
+/// The Global room's old setting name is not an unknown key passed over with a warning: the file
+/// does not load, and the error names the setting's new name.
+#[test]
+fn the_global_rooms_old_setting_name_is_an_error_naming_the_new_one() {
+    let err =
+        toml_config::from_toml_str("[federation]\nenabled = true\nevents_room = \"roleplay\"\n")
+            .expect_err("the old name is refused");
+    assert!(matches!(err, ConfigError::Refused { .. }), "{err:?}");
+    let text = err.to_string();
+    assert!(
+        text.contains("`federation.events_room`") && text.contains("`federation.global_room`"),
+        "{text}"
+    );
+    let parsed = toml_config::from_toml_str("[federation]\nglobal_room = \"roleplay\"\n")
+        .expect("the new name");
+    assert_eq!(parsed.config.federation.global_room, "roleplay");
+    for r in toml_config::REFUSED {
+        let (section, key) = r.new.rsplit_once('.').unwrap_or(("", r.new));
+        let parsed = toml_config::from_toml_str(&format!("[{section}]\n{key} = \"\"\n"));
+        assert!(
+            parsed.is_ok_and(|p| p.unknown_keys.is_empty()),
+            "`{}` names a setting",
             r.new
         );
     }

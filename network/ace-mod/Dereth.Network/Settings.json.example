@@ -1,0 +1,9 @@
+{
+  "HubUrl": "wss://hub.dereth.network",
+  "AllowLocalWs": false,
+  "Slug": "your-world",
+  "KeyEnvironmentVariable": "DERETH_NETWORK_KEY",
+  "GlobalRoom": "Roleplay",
+  "MinCharacterAgeSeconds": 0,
+  "StorePath": "Dereth.Network.store.json"
+}

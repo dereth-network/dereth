@@ -32,6 +32,9 @@ pub enum ConfigError {
     /// Not ACE: the configuration found is ACE's `Config.js`, which the server does not read; it
     /// is converted once with `empyrean-server --write-config --from <Config.js>`.
     ConfigJs(PathBuf),
+    /// Not ACE: `empyrean.toml` has a key under a name it no longer has
+    /// ([`crate::toml_config::REFUSED`]): `key` is the old name, `now` the setting's name.
+    Refused { key: String, now: String },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -47,6 +50,10 @@ impl std::fmt::Display for ConfigError {
                 path.display(),
                 path.display()
             ),
+            Self::Refused { key, now } => write!(
+                f,
+                "unknown key `{key}`: it is now `{now}`; rename it (the old name is not read)"
+            ),
         }
     }
 }
@@ -54,7 +61,7 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Missing(_) | Self::ConfigJs(_) => None,
+            Self::Missing(_) | Self::ConfigJs(_) | Self::Refused { .. } => None,
             Self::Io(e) => Some(e),
             Self::Json(e) => Some(e),
             Self::Toml(e) => Some(e),

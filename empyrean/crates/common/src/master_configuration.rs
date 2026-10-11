@@ -9,6 +9,7 @@ use crate::dat_overlay_configuration::DatOverlayConfiguration;
 use crate::database_configuration::DatabaseConfiguration;
 use crate::ddd_configuration::DDDConfiguration;
 use crate::era::EraConfiguration;
+use crate::federation_configuration::FederationConfiguration;
 use crate::game_configuration::GameConfiguration;
 use crate::offline_configuration::OfflineConfiguration;
 use crate::status_configuration::StatusConfiguration;
@@ -52,4 +53,9 @@ pub struct MasterConfiguration {
     /// DIVERGE: an extra section; ACE answers nothing about a world without a login (V442).
     #[serde(rename = "Status")]
     pub status: StatusConfiguration,
+
+    /// Not ACE: the Dereth Network, this world's link to other worlds (`[federation]`).
+    /// DIVERGE: an extra section; ACE has no network of worlds (V451).
+    #[serde(rename = "Federation")]
+    pub federation: FederationConfiguration,
 }

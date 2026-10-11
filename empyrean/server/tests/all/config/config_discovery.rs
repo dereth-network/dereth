@@ -487,6 +487,61 @@ fn an_unknown_config_key_is_a_warning_and_start_up_goes_on() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Divergence: V451
+/// A world told to join the Dereth Network with a `[federation]` setting it cannot serve does not
+/// start, as for any other setting that does not fit: the error names the setting, and nothing
+/// past the configuration runs. The Global room's old setting name stops it the same way, naming
+/// the new one.
+#[test]
+fn a_federation_setting_that_cannot_be_served_stops_start_up() {
+    let dir = scratch("config-federation");
+    std::fs::write(
+        dir.join("network.key"),
+        format!("drth_{}\n", "A".repeat(43)),
+    )
+    .unwrap();
+    let write = |federation: &str| {
+        std::fs::write(
+            dir.join("empyrean.toml"),
+            format!(
+                "[server]\ndat_files_directory = '{}'\n[federation]\n{federation}",
+                dir.join("no-dats").display()
+            ),
+        )
+        .unwrap();
+    };
+    for (federation, says) in [
+        (
+            "enabled = true\nslug = \"aa\"\nglobal_room = \"lobby\"\n",
+            "federation.global_room \"lobby\"",
+        ),
+        (
+            "enabled = true\nslug = \"aa\"\nevents_room = \"roleplay\"\n",
+            "`federation.events_room`: it is now `federation.global_room`",
+        ),
+        ("enabled = true\nslug = \"A\"\n", "federation.slug \"A\""),
+    ] {
+        write(federation);
+        let out = run_in(&dir, &["--run-for", "1"], &[]);
+        let log = stderr(&out);
+        assert!(!out.status.success(), "{federation}: {log}");
+        assert!(
+            log.lines()
+                .any(|l| l.contains(" ERROR ") && l.contains(says)),
+            "{federation}: {log}"
+        );
+        assert!(
+            !log.contains("Initializing DatManager"),
+            "{federation}: nothing past the configuration runs: {log}"
+        );
+    }
+    // A setting it can serve goes on to the next step.
+    write("enabled = true\nslug = \"aa\"\nglobal_room = \"roleplay\"\n");
+    let log = stderr(&run_in(&dir, &["--run-for", "1"], &[]));
+    assert!(log.contains("DatManager initialization failed"), "{log}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Relative paths resolve beside the config file not the working directory.
 #[test]
 fn relative_paths_resolve_beside_the_config_file_not_the_working_directory() {

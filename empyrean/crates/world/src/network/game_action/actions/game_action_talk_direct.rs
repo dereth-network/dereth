@@ -29,6 +29,17 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
 
     let player = session_player(w, session);
 
+    // Not ACE (V447): a reply by id to a remote sender names its stand-in id, which no object
+    // has; the Dereth Network takes it (after the gag check a tell to a player gets).
+    if dereth_network_protocol::standin::is_stand_in(target_guid) && crate::federation::enabled(w) {
+        if w.objects.get(player).is_some_and(WorldObject::is_gagged) {
+            player::send_gag_error(w, player);
+        } else {
+            crate::federation::tell_by_id(w, player, target_guid, &text);
+        }
+        return Ok(());
+    }
+
     // `session.Player.CurrentLandblock?.GetObject(targetGuid) as Creature`
     let creature = w
         .objects

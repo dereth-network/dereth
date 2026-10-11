@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Dereth.Network</AssemblyName>
+    <RootNamespace>Dereth.Network</RootNamespace>
+    <Version>0.1.0</Version>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="ACE.Server"><HintPath>$(AceDirectory)/ACE.Server.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Common"><HintPath>$(AceDirectory)/ACE.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Entity"><HintPath>$(AceDirectory)/ACE.Entity.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Database"><HintPath>$(AceDirectory)/ACE.Database.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(AceDirectory)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="log4net"><HintPath>$(AceDirectory)/log4net.dll</HintPath><Private>false</Private></Reference>
+    <None Update="Meta.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Settings.json.example" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CheckAceDirectory" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(AceDirectory)/ACE.Server.dll')" Text="Set -p:AceDirectory to the folder that holds your server's ACE.Server.dll." />
+  </Target>
+</Project>
