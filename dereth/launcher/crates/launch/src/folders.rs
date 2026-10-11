@@ -12,8 +12,9 @@
 //!
 //! The client keeps its own files beside these, in `Dereth/client` (`dereth/client` on Linux).
 //! The launcher writes only inside its own `launcher` folders: anything else in `Dereth` (or
-//! `dereth`) is the client's. `DERETH_STATE_DIR` puts both of the launcher's folders in the one
-//! directory it names.
+//! `dereth`) is the client's, except the one line of the client's preferences that names the
+//! interface it starts in, which the launcher asks for once ([`crate::interface`]).
+//! `DERETH_STATE_DIR` puts both of the launcher's folders in the one directory it names.
 //!
 //! Resolution ([`resolve`]) is a pure function of the system and its environment variables, so
 //! each system's answer is tested on every system.

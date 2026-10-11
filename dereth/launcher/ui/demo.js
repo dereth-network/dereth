@@ -106,6 +106,13 @@
     world_eras: { leafcull: { era: "eor", features: { trade: false } } },
   };
   const vault = new Set(["eulmore/player", "achard/player2"]);
+  // The interface the Dereth client starts in; `#interface` shows the first start, with none saved.
+  let chosenInterface = location.hash === "#interface" ? null : "Horizon";
+  const interfaceOffers = [
+    { name: "Horizon", line: "Dereth's own interface, with hotbars, a minimap and nameplates." },
+    { name: "Modern", line: "The interface the game had from its 2005 redesign to the end of retail." },
+    { name: "Classic", line: "The interface the game had before its 2005 redesign; it needs Classic data files." },
+  ];
   let message = null;
   let job = null;
 
@@ -140,6 +147,7 @@
       state: structuredClone(state), dereth, running: [], job, message,
       vault_name: "Windows Credential Manager", platform, library_dir: "C:\\Users\\you\\AppData\\Local\\Dereth\\launcher\\library",
       update: { kind: "none" }, version: "0.1.0", shortcut: platform !== "macos",
+      interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
     }),
     refresh: () => {},
     set_world_era: ({ slug, era }) => {
@@ -225,6 +233,11 @@
     },
     probe_world: () => {},
     remove_custom_world: ({ slug }) => { state.custom_worlds = state.custom_worlds.filter((c) => c.slug !== slug); },
+    set_interface: ({ name }) => {
+      const offer = interfaceOffers.find((o) => o.name.toLowerCase() === String(name).toLowerCase());
+      if (!offer) throw `${name} is not an interface the Dereth client has.`;
+      chosenInterface = offer.name;
+    },
     dismiss_message: () => { message = null; },
     open_url: ({ url }) => { window.open(url, "_blank"); },
     create_desktop_shortcut: () => "C:\\Users\\you\\Desktop\\Dereth.lnk",

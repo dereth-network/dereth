@@ -67,6 +67,25 @@ boxes, which the player may change when the world does not say them. Its PLAY op
 page, whose `<` comes back. A server added by hand is given its name, host, port, emulator, rules
 and era.
 
+## The interface
+
+The first time the launcher starts, while the Dereth client's preferences name no interface, it
+asks which one to play in: **Horizon** (first, and chosen to begin with), **Modern** or
+**Classic**, each with a picture of the screen and a line saying what it is. The answer goes into
+the client's preferences file the way the client writes it, `Interface=<name>` under `[UI]`, every
+other line kept, and the client starts in it. Once the file names an interface the launcher never
+asks again. The file is the one the client reads when the launcher starts it: in the folder
+`DERETH_SETTINGS_DIR` names, else the `UserPreferences.ini` beside the client (a portable
+install), else in the client's settings folder (`%APPDATA%\Dereth\client` on Windows,
+`~/Library/Application Support/Dereth/client` on macOS, `$XDG_CONFIG_HOME/dereth/client` on
+Linux).
+
+The client's own options change the interface, as before. The Library's Dereth client section
+shows it and changes it too, except while a Dereth client the launcher started is running, which
+saves its own when it closes. A client started without the launcher still starts a new player in
+Horizon. On Windows the client's first run still copies the original game's settings in, with the
+interface chosen here kept in them.
+
 ## Where things are
 
 | what | where |
@@ -77,10 +96,12 @@ and era.
 | passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (the Secret Service: GNOME Keyring, KWallet): one entry per account per world, named `dereth:world/<slug>/<account>` |
 | the world list | the community's list, `Servers.xml` in [acresources/serverslist](https://github.com/acresources/serverslist) (`DERETH_SERVERS_LIST` overrides), fetched at most once a day (the refresh button fetches it again) and kept in the data folder as `world-list.json`; and the servers the player added, which are kept in the state |
 | a world's era and systems | its Empyrean status document or status ping when it says them; otherwise the player's choice on the world's row, kept per world in the state |
+| the interface the Dereth client starts in | the client's own preferences file, `UserPreferences.ini` (above, "The interface") |
 | whether a world is up | its Empyrean status document when it has one; else, for a world that may run Empyrean, the status ping on its game port (`docs/networking/06-status-ping.md`), which also says how many are on, its era and systems, the server's version and its name, asked again every minute once answered; otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on |
 
 Nothing is kept beside the launcher, and the launcher writes nothing outside its own `launcher`
-folders: the rest of `Dereth` (`dereth` on Linux) is the client's. Nothing is carried over from
+folders but the interface in the client's preferences: the rest of `Dereth` (`dereth` on Linux) is
+the client's. Nothing is carried over from
 where launchers before these folders kept their state.
 
 The launcher has no settings screen: this table is where its folders are. Under the rail, the
@@ -168,7 +189,8 @@ cd ui && python3 -m http.server 8765 --bind 127.0.0.1    # then open http://127.
 ```
 
 `#worlds`, `#worlds=add`, `#worlds=harvestgain` (that row open), `#world=eulmore`, `#library`, `#library=add`, `#accounts`,
-`#first-run`, `#first-run=guide` and `#first-run=found` open a screen directly. The window opens
+`#first-run`, `#first-run=guide`, `#first-run=found` and `#interface` (the first start's
+question) open a screen directly. The window opens
 at, and cannot be made smaller than, 1100 x 700.
 
 ## The look

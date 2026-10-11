@@ -3,7 +3,9 @@
 The client's third interface, beside the modern and the classic one: character select and
 character creation, the in-game HUD and its windows, drawn from its own art.
 A new player starts in it (one whose settings name no interface, the original game's included);
-it is chosen in Options (Interface) and switched to and from live, as the classic interface is.
+the launcher asks which interface to play in before the client first starts, with Horizon chosen
+to begin with. It is chosen in Options (Interface) and switched to and from live, as the classic
+interface is.
 Unlike the other two, it draws the screens before the world at the player's own window size.
 
 The game underneath is the client's: the same runtime, network session, object model, physics,

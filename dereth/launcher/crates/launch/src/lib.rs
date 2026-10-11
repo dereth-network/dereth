@@ -2,8 +2,9 @@
 //!
 //! **Depends on** the transport crate (`dereth-transport`), for the server-tracker login that asks
 //! a server whether it is up, the primitives crate (`dereth-primitives`), for the client's era
-//! table, and the data-file crate (`dereth-dat`), for a dat's identity and iterations in either
-//! layout. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
+//! table, the data-file crate (`dereth-dat`), for a dat's identity and iterations in either
+//! layout, and the client's contract (`dereth-client-contract`), for the client's preferences file
+//! and the interface it names. **Used by** the launcher's window, the Tauri app in `dereth/launcher` (a
 //! workspace of its own), and the web client's front page (`dereth-web`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
@@ -31,6 +32,7 @@
 //! | [`copy`] | a private dat set, copied from the shared one |
 //! | [`state`] | `launcher-state.json`: the retail client, sets, accounts, favourites, per-world choices |
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
+//! | [`interface`] | the interface the Dereth client starts in, asked for once and written where the client reads it |
 //! | [`releases`] | which of the repository's GitHub releases the launcher updates from |
 //! | [`swap`] | putting a downloaded release in place of the running one, where no installer does |
 //! | [`desktop`] | the Linux desktop entries that give the launcher's window and the client's their icon |
@@ -54,6 +56,7 @@ pub mod desktop;
 pub mod eras;
 pub mod folders;
 pub mod install;
+pub mod interface;
 pub mod known;
 pub mod launch;
 pub mod library;

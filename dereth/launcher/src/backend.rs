@@ -19,6 +19,7 @@ use dereth_launch::datset::{scan_dir, DatOrigin, DatSet, SetKind};
 use dereth_launch::eras::{self, EraInfo, FeatureInfo};
 use dereth_launch::folders::Folders;
 use dereth_launch::install::{ClientKind, Installation};
+use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
 use dereth_launch::serverlist::{self, ListCache};
@@ -218,6 +219,21 @@ pub struct Snapshot {
     pub vault_name: &'static str,
     pub platform: &'static str,
     pub library_dir: String,
+    /// The interface the Dereth client starts in. `None` when the client keeps no preferences
+    /// here (the system names no home), when there is nothing to ask.
+    pub interface: Option<InterfaceView>,
+}
+
+/// The interface the Dereth client starts in, and the question the launcher asks for it.
+#[derive(Debug, Clone, Serialize)]
+pub struct InterfaceView {
+    /// The interface the client's preferences name; `None` while they name none, and the page
+    /// asks.
+    pub chosen: Option<&'static str>,
+    /// The interfaces offered, in order: the first is chosen when the question opens.
+    pub offers: Vec<Offer>,
+    /// The client's preferences file, where the answer is written.
+    pub file: String,
 }
 
 /// A world page's options.
@@ -328,6 +344,9 @@ pub struct Backend {
     message: Option<Message>,
     vault: Box<dyn Vault + Send>,
     vault_name: &'static str,
+    /// The preferences file the Dereth client reads when the launcher starts it, which names the
+    /// interface it starts in ([`interface::preferences_file`]).
+    client_preferences: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for Backend {
@@ -349,7 +368,7 @@ pub fn lock(b: &Shared) -> MutexGuard<'_, Backend> {
 impl Backend {
     /// Load the state from the settings folder and the last copy of the world list from the data
     /// folder, read the Dereth client at `dereth_exe`, and start. `servers_list` is the list's
-    /// address.
+    /// address, and `client_preferences` the preferences file the Dereth client reads.
     ///
     /// A first run whose Dereth client has a full end-of-retail set beside it (a developer's
     /// checkout, say) takes that set as the shared one, so there is something to play with at once.
@@ -359,6 +378,7 @@ impl Backend {
         dereth_exe: Option<PathBuf>,
         vault: Box<dyn Vault + Send>,
         vault_name: &'static str,
+        client_preferences: Option<PathBuf>,
     ) -> Self {
         let (mut state, _) = LauncherState::load(&folders.config);
         // Files change outside the launcher (a patch, a copy, a deleted folder); each set's four
@@ -409,6 +429,7 @@ impl Backend {
             message: None,
             vault,
             vault_name,
+            client_preferences,
         }
     }
 
@@ -477,7 +498,40 @@ impl Backend {
             vault_name: self.vault_name,
             platform: std::env::consts::OS,
             library_dir: self.library_dir().display().to_string(),
+            interface: self.interface_view(),
         }
+    }
+
+    // ----- the interface -------------------------------------------------------------------------
+
+    /// The interface the Dereth client starts in, read from its preferences each time, so a choice
+    /// made in the client's own options shows here too.
+    fn interface_view(&self) -> Option<InterfaceView> {
+        let file = self.client_preferences.as_deref()?;
+        Some(InterfaceView {
+            chosen: interface::saved(file).map(interface::Interface::label),
+            offers: interface::offers(),
+            file: file.display().to_string(),
+        })
+    }
+
+    /// Start the Dereth client in the interface named `name` from now on: the answer to the
+    /// first-start question, or a change from the Library. Refused while a Dereth client the
+    /// launcher started is running, because it saves its own interface when it closes.
+    pub fn set_interface(&mut self, name: &str) -> Result<(), String> {
+        let choice = interface::by_name(name)
+            .ok_or_else(|| format!("{name} is not an interface the Dereth client has."))?;
+        let file = self
+            .client_preferences
+            .clone()
+            .ok_or("The Dereth client keeps no settings on this computer.")?;
+        if self.running.iter().any(|r| r.kind == ClientKind::Dereth) {
+            return Err(
+                "Close the Dereth client first: it saves its own interface when it closes.".into(),
+            );
+        }
+        interface::save(&file, choice)
+            .map_err(|e| format!("Could not save the interface to {}: {e}", file.display()))
     }
 
     fn world(&self, slug: &str) -> Option<World> {
@@ -1264,6 +1318,7 @@ mod tests {
             Some(exe),
             Box::new(MemoryVault::default()),
             "memory",
+            Some(dir.join("settings").join("UserPreferences.ini")),
         );
         let mut w = World::new("eulmore", "Eulmore");
         w.emulator = Emulator::Empyrean;
@@ -1651,6 +1706,7 @@ mod tests {
             None,
             Box::new(MemoryVault::default()),
             "memory",
+            None,
         );
         let s = b.snapshot();
         assert_eq!(s.worlds.len(), 1);
@@ -1693,6 +1749,67 @@ mod tests {
         );
         let (saved, _) = LauncherState::load(&dir.join("state"));
         assert_eq!(saved.recent.len(), 1, "and the history on disk with it");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The first start asks which interface the Dereth client plays in, until the answer is in the
+    /// client's preferences; the launcher started again does not ask, and a file that already names
+    /// one (the client's own choice) is never asked about.
+    #[test]
+    fn the_launcher_asks_for_the_interface_until_one_is_saved_in_the_clients_preferences() {
+        let (mut b, dir) = backend("interface");
+        let file = dir.join("settings").join("UserPreferences.ini");
+        let view = b
+            .snapshot()
+            .interface
+            .expect("the client keeps preferences");
+        assert_eq!(view.chosen, None, "nothing saved: the page asks");
+        assert_eq!(
+            view.offers.iter().map(|o| o.name).collect::<Vec<_>>(),
+            ["Horizon", "Modern", "Classic"]
+        );
+        assert_eq!(view.file, file.display().to_string());
+        let json = serde_json::to_string(&b.snapshot()).unwrap();
+        assert!(json.contains("\"interface\":{\"chosen\":null"), "{json}");
+
+        assert!(b.set_interface("Retail").is_err());
+        assert!(!file.exists(), "a refused answer writes nothing");
+        b.set_interface("classic").unwrap();
+        assert_eq!(b.snapshot().interface.unwrap().chosen, Some("Classic"));
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "[UI]\r\nInterface=Classic\r\n",
+            "in the client's file, as the client writes it"
+        );
+
+        let again = Backend::new(
+            Folders::single(dir.join("state")),
+            String::new(),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            Some(file.clone()),
+        );
+        assert_eq!(again.snapshot().interface.unwrap().chosen, Some("Classic"));
+
+        // The client's own choice, saved in its options, shows the same way.
+        std::fs::write(
+            &file,
+            "[Display]\r\nFullScreen=True\r\n[UI]\r\nInterface=Modern\r\n",
+        )
+        .unwrap();
+        assert_eq!(b.snapshot().interface.unwrap().chosen, Some("Modern"));
+
+        // With no preferences at all, nothing is asked.
+        let none = Backend::new(
+            Folders::single(dir.join("state")),
+            String::new(),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            None,
+        );
+        assert!(none.snapshot().interface.is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 

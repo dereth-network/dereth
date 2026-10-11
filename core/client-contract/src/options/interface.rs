@@ -164,6 +164,26 @@ pub fn named_in(ini: &crate::persist::preferences::UserPreferences) -> Option<In
         .map(Interface::from_value)
 }
 
+/// Name `interface` in the preferences file `ini` as the client's own save writes the option: its
+/// word under `[UI]`, every other line kept where it is. A file that names the interface on more
+/// than one line has each of them say it, so [`named_in`] reads it back whichever line it takes.
+/// What another program (the launcher) writes for the client to start in.
+pub fn write_in(ini: &mut crate::persist::preferences::UserPreferences, interface: Interface) {
+    let word = interface.label();
+    let mut named = false;
+    for (key, value) in &mut ini.entries {
+        if key.trim().eq_ignore_ascii_case(INTERFACE) {
+            word.clone_into(value);
+            named = true;
+        }
+    }
+    if !named {
+        if let Some((section, key)) = INTERFACE.rsplit_once('.') {
+            ini.write_profile_string(section, key, word);
+        }
+    }
+}
+
 /// Start a player whose preferences (`ini`; `None` when there is no file) name no interface in
 /// `first`, after the file is loaded; a player whose preferences name one keeps it. True when
 /// `first` was given.
@@ -272,5 +292,45 @@ mod tests {
             (false, Interface::Modern),
             "the last line, as the load takes it"
         );
+    }
+
+    #[test]
+    fn an_interface_written_into_a_file_is_the_one_the_client_starts_in_and_the_rest_is_kept() {
+        use crate::{options::store, persist::preferences::UserPreferences};
+        let written = |text: &str, choice: Interface| {
+            let mut ini = UserPreferences::parse(text).unwrap();
+            write_in(&mut ini, choice);
+            ini.to_text()
+        };
+        let starts_in = |text: &str| {
+            store::init();
+            let ini = UserPreferences::parse(text).unwrap();
+            store::load(&ini);
+            let started = start_new_player(Some(&ini), NEW_PLAYER);
+            (started, Interface::chosen())
+        };
+        for choice in Interface::ALL {
+            let fresh = written("", choice);
+            assert_eq!(fresh, format!("[UI]\nInterface={}\n", choice.label()));
+            assert_eq!(starts_in(&fresh), (false, choice), "{fresh}");
+        }
+        // The original game's file: its own lines and line ends kept, the interface added to its
+        // own `[UI]` section.
+        let original = "[Display]\r\nFullScreen=True\r\n[UI]\r\nChatFontSize=12\r\n[Net]\r\nUserName=keep-me\r\n";
+        assert_eq!(
+            written(original, Interface::Classic),
+            "[Display]\r\nFullScreen=True\r\n[UI]\r\nChatFontSize=12\r\nInterface=Classic\r\n[Net]\r\nUserName=keep-me\r\n"
+        );
+        assert_eq!(
+            starts_in(&written(original, Interface::Modern)),
+            (false, Interface::Modern)
+        );
+        // A word this client does not read, and a second line after it, both take the choice.
+        let twice = written(
+            "[UI]\nInterface=Retail\nInterface=Bogus\n",
+            Interface::Modern,
+        );
+        assert_eq!(twice, "[UI]\nInterface=Modern\nInterface=Modern\n");
+        assert_eq!(starts_in(&twice), (false, Interface::Modern));
     }
 }

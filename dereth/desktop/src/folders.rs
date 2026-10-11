@@ -52,8 +52,11 @@
 //! On Windows the first run **copies** the original game's `Documents\Asheron's Call` in
 //! ([`copy_settings_dir`]) when the client's directory still holds nothing: a retail installation
 //! is still using that directory, so it is left exactly as it was. Its key maps come in as the
-//! modern interface's (`<name>-modern.keymap`). A run given its folder by [`SETTINGS_DIR_ENV`]
-//! copies nothing in ([`import_source`]): that folder is the run's own.
+//! modern interface's (`<name>-modern.keymap`). The interface the player chose in the launcher
+//! before the client's first run is kept: the launcher's file, which names only that, does not
+//! count as settings, and the original's preferences come in with the choice in them. A run given
+//! its folder by [`SETTINGS_DIR_ENV`] copies nothing in ([`import_source`]): that folder is the
+//! run's own.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -235,13 +238,58 @@ pub fn default_preferences_file(dir_name: &str) -> Option<PathBuf> {
 }
 
 /// Whether `dir` already holds settings: anything but the crash logs, which are written before the
-/// first-run copy runs and so do not mean it has run.
+/// first-run copy runs and so do not mean it has run, and a preferences file naming the interface
+/// and nothing else, which the launcher writes when the player chooses one before the client has
+/// ever run ([`interface_chosen_alone`]).
 fn holds_settings(dir: &Path) -> bool {
     std::fs::read_dir(dir).map_or(dir.exists(), |entries| {
-        entries
-            .flatten()
-            .any(|e| e.file_name() != CRASH_LOG_DIR_NAME)
+        entries.flatten().any(|e| {
+            let name = e.file_name();
+            name != CRASH_LOG_DIR_NAME
+                && !(name == PREFERENCES_FILE_NAME && interface_chosen_alone(&e.path()).is_some())
+        })
     })
+}
+
+/// The interface the preferences file at `path` names, when that is all it says: the launcher's
+/// answer to its first-start question, written before the client's first run. `None` for a file
+/// that says anything else, names no interface, or cannot be read.
+fn interface_chosen_alone(
+    path: &Path,
+) -> Option<dereth_client_contract::options::interface::Interface> {
+    use dereth_client_contract::options::interface::{named_in, INTERFACE};
+    let text = std::fs::read_to_string(path).ok()?;
+    let ini = dereth_client_contract::persist::preferences::UserPreferences::parse(&text).ok()?;
+    let alone = ini
+        .entries
+        .iter()
+        .all(|(key, _)| key.trim().eq_ignore_ascii_case(INTERFACE));
+    if alone {
+        named_in(&ini)
+    } else {
+        None
+    }
+}
+
+/// Put the interface the player chose in the launcher (`chosen`) into the original game's
+/// preferences, as the client's own preferences file in `to`: the original's lines, with the
+/// interface under `[UI]`. Returns 1 when it did; 0, leaving the launcher's file as it is, when
+/// `from` has no preferences file this client can read.
+fn carry_interface(
+    from: &Path,
+    to: &Path,
+    chosen: dereth_client_contract::options::interface::Interface,
+) -> std::io::Result<u32> {
+    use dereth_client_contract::persist::preferences::UserPreferences;
+    let Some(mut ini) = std::fs::read_to_string(from.join(PREFERENCES_FILE_NAME))
+        .ok()
+        .and_then(|text| UserPreferences::parse(&text).ok())
+    else {
+        return Ok(0);
+    };
+    dereth_client_contract::options::interface::write_in(&mut ini, chosen);
+    std::fs::write(to.join(PREFERENCES_FILE_NAME), ini.to_text())?;
+    Ok(1)
 }
 
 /// **The first-run copy of the original game's settings**, `from` being [`retail_settings_dir`]
@@ -260,6 +308,11 @@ fn holds_settings(dir: &Path) -> bool {
 /// cannot re-enter, and a player who already has this client's files keeps them. Subdirectories
 /// are carried too, and an entry already present in `to` is left alone.
 ///
+/// One file in `to` does not count as settings: a preferences file that names the interface and
+/// nothing else, which the launcher writes when the player chooses an interface before the
+/// client's first run. The copy runs over it, and the original's preferences come in with that
+/// interface in them ([`carry_interface`]), so the player keeps both.
+///
 /// `Ok(0)` covers every reason not to act -- `to` already holding settings, `from` not there, or
 /// not a directory. A copy that fails part-way leaves what it managed and reports the error; the
 /// caller tolerates it, because a client that could not carry settings over must still run.
@@ -270,8 +323,13 @@ pub fn copy_settings_dir(from: &Path, to: &Path) -> std::io::Result<u32> {
     if holds_settings(to) || !from.is_dir() {
         return Ok(0);
     }
+    let chosen = interface_chosen_alone(&to.join(PREFERENCES_FILE_NAME));
     std::fs::create_dir_all(to)?;
-    copy_dir_contents(from, to, true)
+    let copied = copy_dir_contents(from, to, true)?;
+    match chosen {
+        Some(chosen) => Ok(copied + carry_interface(from, to, chosen)?),
+        None => Ok(copied),
+    }
 }
 
 /// The name a file of the original's folder takes in this client's: a key map at the top as the
@@ -657,6 +715,80 @@ mod tests {
             std::fs::read(to.join("UserPreferences.ini")).expect("still there"),
             b"[Net]\r\nUserName=mine\r\n"
         );
+    }
+
+    /// The interface the player chose in the launcher before the client ever ran survives the
+    /// first-run copy: the launcher's file, which names only the interface, does not stop the
+    /// copy, and the original game's preferences come in with the choice in them. Once copied,
+    /// the folder holds settings and nothing is copied again.
+    ///
+    /// Behaviour: none (the launcher's first-start interface question)
+    #[test]
+    fn the_first_run_copy_keeps_the_interface_chosen_in_the_launcher() {
+        use dereth_client_contract::options::interface::{named_in, Interface};
+        use dereth_client_contract::persist::preferences::UserPreferences;
+        let named = |path: &Path| {
+            let text = std::fs::read_to_string(path).expect("a preferences file");
+            named_in(&UserPreferences::parse(&text).expect("parses"))
+        };
+        let scratch = Scratch::new("launcher-choice");
+        let (from, to) = (scratch.0.join("Asheron's Call"), scratch.0.join("client"));
+        put(
+            &to.join(CRASH_LOG_DIR_NAME).join("dereth-client-2.log"),
+            b"new",
+        );
+        put(
+            &to.join(PREFERENCES_FILE_NAME),
+            b"[UI]\r\nInterface=Classic\r\n",
+        );
+        let original = b"[Display]\r\nFullScreen=True\r\n[Net]\r\nUserName=keep-me\r\n";
+        put(&from.join(PREFERENCES_FILE_NAME), original);
+        put(&from.join("acclient.keymap"), b"keymap");
+
+        assert_eq!(copy_settings_dir(&from, &to).expect("the copy runs"), 2);
+        assert!(to.join("acclient-modern.keymap").is_file());
+        assert_eq!(
+            std::fs::read_to_string(to.join(PREFERENCES_FILE_NAME)).expect("copied"),
+            "[Display]\r\nFullScreen=True\r\n[Net]\r\nUserName=keep-me\r\n[UI]\r\nInterface=Classic\r\n"
+        );
+        assert_eq!(
+            named(&to.join(PREFERENCES_FILE_NAME)),
+            Some(Interface::Classic)
+        );
+        assert_eq!(
+            std::fs::read(from.join(PREFERENCES_FILE_NAME)).expect("still there"),
+            original,
+            "the original's file is left as it was"
+        );
+        assert_eq!(
+            copy_settings_dir(&from, &to).expect("refused, not failed"),
+            0,
+            "the folder holds settings now"
+        );
+
+        // An original folder without a preferences file leaves the launcher's as it is.
+        let scratch = Scratch::new("launcher-choice-alone");
+        let (from, to) = (scratch.0.join("Asheron's Call"), scratch.0.join("client"));
+        put(
+            &to.join(PREFERENCES_FILE_NAME),
+            b"[UI]\r\nInterface=Modern\r\n",
+        );
+        put(&from.join("acclient.keymap"), b"keymap");
+        assert_eq!(copy_settings_dir(&from, &to).expect("the copy runs"), 1);
+        assert_eq!(
+            std::fs::read(to.join(PREFERENCES_FILE_NAME)).expect("kept"),
+            b"[UI]\r\nInterface=Modern\r\n"
+        );
+
+        // A preferences file that says anything besides the interface is the player's settings.
+        let scratch = Scratch::new("launcher-choice-more");
+        let (from, to) = (scratch.0.join("Asheron's Call"), scratch.0.join("client"));
+        put(
+            &to.join(PREFERENCES_FILE_NAME),
+            b"[UI]\r\nInterface=Modern\r\n[Display]\r\nFullScreen=False\r\n",
+        );
+        put(&from.join(PREFERENCES_FILE_NAME), original);
+        assert_eq!(copy_settings_dir(&from, &to).expect("refused"), 0);
     }
 
     /// The first run's copy is what the run starts from: the original game's `FullScreen=True`

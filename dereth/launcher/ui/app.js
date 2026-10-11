@@ -17,7 +17,7 @@ const GUIDE = "https://www.accpp.net/manual-installation";
 const NOTICE_MS = 7000;
 
 const ui = {
-  screen: "home",          // home | worlds | world | library | accounts | first-run
+  screen: "home",          // home | worlds | world | library | accounts | first-run | interface
   snap: null,
   homeSel: 0,
   search: "",
@@ -27,6 +27,10 @@ const ui = {
   addServer: null,         // the Worlds list's "add a server" form, while it is open: { name, host, port, ruleset, era, error }
   world: null,             // the world page: { view, form, notice }
   firstRun: { step: "ask", find: null, dismissed: false },
+  // The interface question: the interface picked so far (null: the one already saved, else the
+  // first offered), whether it was opened from the Library, and whether the first start's question
+  // was set aside after its answer could not be saved.
+  iface: { pick: null, fromLibrary: false, dismissed: false },
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
 };
 
@@ -133,6 +137,13 @@ async function pull() {
   }
   const json = JSON.stringify(snap);
   ui.snap = snap;
+  // The first start asks which interface the Dereth client plays in, before anything else, while
+  // the client's preferences name none.
+  if ((ui.screen === "home" || ui.screen === "first-run") && interfaceAsked()) {
+    ui.screen = "interface";
+    ui.iface = { ...ui.iface, pick: null, fromLibrary: false };
+    lastSnap = "";
+  }
   if (ui.screen === "home" && snap.state.dat_sets.length === 0 && !ui.firstRun.dismissed) {
     ui.screen = "first-run";
     lastSnap = "";
@@ -203,7 +214,7 @@ function render() {
   }
   expireMessage(ui.snap.message);
   const main = document.getElementById("main");
-  const screens = { home, worlds, world: worldPage, library, accounts, "first-run": firstRun };
+  const screens = { home, worlds, world: worldPage, library, accounts, "first-run": firstRun, interface: interfacePage };
   // A redraw of the same screen keeps where its lists were scrolled to: opening a row, or a status
   // update arriving, leaves the list where the player had it.
   const sameScreen = main.dataset.screen === ui.screen;
@@ -226,7 +237,7 @@ function render() {
 }
 
 function rail() {
-  const lit = { world: "worlds", "first-run": "home" }[ui.screen] ?? ui.screen;
+  const lit = { world: "worlds", "first-run": "home", interface: ui.iface.fromLibrary ? "library" : "home" }[ui.screen] ?? ui.screen;
   const item = (id, label) => `<button class="${lit === id ? "lit" : ""}" data-go="${id}">${label}</button>`;
   return [
     item("home", "HOME"),
@@ -718,9 +729,10 @@ function library() {
         <div class="btns"><button class="btn" data-act="choose-retail">Choose folder</button></div></div>`;
   }
   const d = ui.snap.dereth;
-  const dereth = d
+  const dereth = (d
     ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
-    : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`;
+    : `<div class="row static"><div class="grow"><div class="sub warn">The Dereth client was not found beside the launcher.</div></div></div>`)
+    + interfaceRow();
   const setRow = (d) => {
     const size = d.files.reduce((n, f) => n + f.size, 0);
     const pairBroken = d.kind === "classic" && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
@@ -831,10 +843,140 @@ function firstRun() {
   return `<div class="column wide"><section class="panel">${body}</section></div>`;
 }
 
+// ----- the interface ------------------------------------------------------------------------------
+
+// Whether the first start's question is open: the Dereth client keeps preferences here, they name
+// no interface yet, and the question was not set aside this session.
+function interfaceAsked() {
+  const i = ui.snap?.interface;
+  return !!i && !i.chosen && !ui.iface.dismissed;
+}
+
+// Whether a Dereth client the launcher started is running: it saves its own interface when it
+// closes, so the launcher does not change it under it.
+const derethRunning = () => ui.snap.running.some((r) => r.kind === "dereth");
+
+// A picture of each interface: the screen in miniature on a 64 by 40 grid, drawn as pixel art like
+// the rest of the chrome, with each part where that interface puts it over the world.
+const px = (x, y, w, h, fill) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`;
+const PIC = {
+  gold: "#b58a3c", bright: "#e9c77a", dark: "#6b4e22", ink: "#0c0a10", stone: "#211c29", glass: "rgba(12,10,16,0.74)",
+  bronze: "#3a2f22", parchment: "#7d6a48", line: "#a99f8b", health: "#d8584a", stamina: "#e3b344", mana: "#4f7fd0", friend: "#5fcf55",
+};
+// A round dial (a radar or a minimap) centred on (cx, cy): a gold ring around a dark face, the
+// player a bright dot in the middle.
+function dial(cx, cy, face) {
+  const rows = [[-5, 2], [-4, 4], [-3, 5], [-2, 5], [-1, 5], [0, 5], [1, 5], [2, 5], [3, 5], [4, 4], [5, 2]];
+  const disc = (inset, fill) => rows.filter(([dy]) => Math.abs(dy) <= 5 - inset)
+    .map(([dy, half]) => px(cx - Math.max(0, half - inset), cy + dy, Math.max(0, half - inset) * 2 + 1, 1, fill)).join("");
+  return disc(0, PIC.gold) + disc(1, face) + px(cx, cy, 1, 1, PIC.bright);
+}
+// A window: a gold line around a filled body.
+const pane = (x, y, w, h, fill) => px(x, y, w, h, PIC.gold) + px(x + 1, y + 1, w - 2, h - 2, fill);
+// Lines of text in a window.
+const textLines = (x, y, widths, fill, last = fill) => widths.map((w, i) => px(x, y + i * 2, w, 1, i === widths.length - 1 ? last : fill)).join("");
+// The world every picture stands over: sky, hills and ground, and the character in the middle.
+const WORLD = px(0, 0, 64, 14, "#2a3a52") + px(0, 14, 64, 10, "#38506a")
+  + px(0, 19, 15, 5, "#2f4a3a") + px(4, 17, 8, 2, "#2f4a3a") + px(40, 20, 24, 4, "#2f4a3a") + px(47, 18, 10, 2, "#2f4a3a")
+  + px(0, 24, 64, 8, "#3b5a34") + px(0, 32, 64, 8, "#2e4829") + px(31, 21, 2, 7, PIC.ink);
+const INTERFACE_PICTURES = {
+  // Horizon: the target bar at the top, the minimap at the top right, the party list at the left,
+  // the log window at the bottom left, the parameter bar over two hotbars of twelve and the EXP bar
+  // along the foot, the main menu at the bottom right, and nameplates over the creatures.
+  Horizon: px(22, 2, 20, 3, PIC.gold) + px(23, 3, 18, 1, PIC.health)
+    + px(45, 2, 2, 2, PIC.mana) + px(48, 2, 2, 2, PIC.friend)
+    + dial(57, 7, "#16222c")
+    + [8, 6, 7].map((w, i) => px(2, 10 + i * 4, 10, 3, PIC.glass) + px(3, 11 + i * 4, w, 1, PIC.friend)).join("")
+    + px(2, 27, 12, 11, PIC.glass) + px(2, 27, 12, 1, PIC.dark) + textLines(3, 30, [9, 6, 10, 5], PIC.line, PIC.bright)
+    + px(42, 23, 3, 3, PIC.ink) + px(40, 21, 7, 1, PIC.stamina)
+    + px(17, 29, 10, 1, PIC.health) + px(28, 29, 10, 1, PIC.mana) + px(39, 29, 10, 1, PIC.stamina)
+    + [31, 34].map((y) => Array.from({ length: 12 }, (_, i) => px(15 + i * 3, y, 2, 2, PIC.gold)).join("")).join("")
+    + px(15, 38, 35, 1, PIC.dark) + px(15, 38, 22, 1, PIC.bright)
+    + px(53, 35, 9, 3, PIC.ink) + [54, 56, 58, 60].map((x) => px(x, 36, 1, 1, PIC.bright)).join(""),
+  // Modern: windows over the whole world: the vitals at the top left, the radar at the top right,
+  // the chat at the bottom left, an open panel at the right and the toolbar under it.
+  Modern: pane(1, 1, 15, 9, PIC.stone) + px(3, 3, 11, 1, PIC.health) + px(3, 5, 9, 1, PIC.stamina) + px(3, 7, 10, 1, PIC.mana)
+    + dial(57, 7, "#1d4a25")
+    + pane(1, 27, 26, 12, PIC.stone) + textLines(3, 29, [20, 14, 18, 11], PIC.line, PIC.bright)
+    + pane(46, 14, 17, 19, PIC.stone)
+    + [17, 20, 23, 26, 29].map((y) => [48, 51, 54, 57].map((x) => px(x, y, 2, 2, PIC.dark)).join("")).join("")
+    + pane(40, 34, 23, 5, PIC.stone) + Array.from({ length: 7 }, (_, i) => px(42 + i * 3, 36, 2, 1, PIC.bright)).join(""),
+  // Classic: the world in a frame: the vitals along the top, the radar and the side panel in the
+  // column at the right, the chat under the world and the toolbar under the column.
+  Classic: px(0, 0, 64, 2, PIC.ink) + px(1, 0, 12, 2, PIC.health) + px(14, 0, 12, 2, PIC.stamina) + px(27, 0, 12, 2, PIC.mana)
+    + [55, 58, 61].map((x) => px(x, 0, 2, 2, PIC.gold)).join("")
+    + px(40, 2, 24, 32, PIC.bronze) + dial(51, 7, "#1d4a25")
+    + px(41, 14, 22, 19, PIC.parchment) + textLines(43, 16, [16, 12, 15, 9, 14, 11, 13, 8], PIC.ink)
+    + px(0, 33, 40, 7, PIC.ink) + textLines(2, 34, [30, 22, 26], PIC.line, PIC.bright)
+    + px(40, 34, 24, 6, PIC.bronze) + Array.from({ length: 7 }, (_, i) => px(42 + i * 3, 36, 2, 2, PIC.gold)).join(""),
+};
+function interfacePicture(name) {
+  return `<svg class="pic" viewBox="0 0 64 40" shape-rendering="crispEdges" aria-hidden="true">${WORLD}${INTERFACE_PICTURES[name] ?? ""}</svg>`;
+}
+
+// The interface picked on the question: the player's pick, else the one saved, else the first
+// offered (Horizon).
+function pickedInterface() {
+  const i = ui.snap.interface;
+  return ui.iface.pick ?? i?.chosen ?? i?.offers[0]?.name ?? null;
+}
+
+// The question: which interface the Dereth client plays in. On the first start it opens by itself;
+// from the Library it changes the one saved.
+function interfacePage() {
+  const i = ui.snap.interface;
+  if (!i) return home();
+  const pick = pickedInterface();
+  const fromLibrary = ui.iface.fromLibrary;
+  const cards = i.offers.map((o) => `<button class="iface ${o.name === pick ? "on" : ""}" data-iface="${esc(o.name)}" role="radio" aria-checked="${o.name === pick}">
+      ${interfacePicture(o.name)}<span class="iname">${esc(o.name.toUpperCase())}</span><span class="iline">${esc(o.line)}</span></button>`).join("");
+  const noClassic = pick === "Classic" && !ui.snap.state.dat_sets.some((d) => d.kind === "classic");
+  const back = fromLibrary ? `<button class="btn icon-btn back" data-act="iface-cancel" title="Back to the library">${CHEVRON_LEFT}</button>` : "";
+  return `<div class="column wide"><section class="panel">
+      <header>${back}<h1>${fromLibrary ? "INTERFACE" : "CHOOSE YOUR INTERFACE"}</h1></header>
+      <p style="font-size:21px">Which interface would you like to play Dereth in?</p>
+      <div class="ifaces" role="radiogroup" aria-label="Interface">${cards}</div>
+      ${noClassic ? `<p class="small warn">There are no Classic data files yet: add portal.dat and cell.dat in the Library before playing in the classic interface.</p>` : ""}
+      <p class="muted small">You can change it whenever you like in the game's options, or here in the Library.</p>
+      <div class="btns end" style="margin-top:12px">${fromLibrary ? `<button class="btn" data-act="iface-cancel">Cancel</button>` : ""}
+        <button class="btn" data-act="iface-save" ${fromLibrary && derethRunning() ? `disabled title="Close the Dereth client first"` : ""}>${fromLibrary ? "Save" : "Continue"}</button></div>
+    </section></div>`;
+}
+
+// The Library's line for the interface the Dereth client starts in, with the way to change it.
+function interfaceRow() {
+  const i = ui.snap.interface;
+  if (!i) return "";
+  const running = derethRunning();
+  const sub = running ? "Close the Dereth client to change it here; its own options change it while it runs."
+    : "The interface the Dereth client starts in. Its own options change it too.";
+  return `<div class="row static"><div class="grow"><div class="name">Interface: ${esc(i.chosen ?? "not chosen yet")}</div>
+      <div class="sub">${esc(sub)}</div></div>
+      <div class="btns"><button class="btn" data-act="iface-change" ${running ? "disabled" : ""}>Change</button></div></div>`;
+}
+
+// Save the interface picked, and go back where the question came from. On the first start, an
+// answer that could not be saved is not asked again until the launcher starts again.
+async function saveInterface() {
+  const name = pickedInterface();
+  const fromLibrary = ui.iface.fromLibrary;
+  try {
+    await api("set_interface", { name });
+  } catch (e) {
+    toast(String(e), true);
+    if (fromLibrary) return;
+    ui.iface.dismissed = true;
+  }
+  ui.iface = { ...ui.iface, pick: null, fromLibrary: false };
+  ui.screen = fromLibrary ? "library" : "home";
+  lastSnap = "";
+  await pull();
+}
+
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-stop]");
+  const t = ev.target.closest("[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -859,6 +1001,7 @@ document.addEventListener("click", async (ev) => {
   if (d.resetSet) { await act("reset_set", { id: d.resetSet }); return; }
   if (d.deleteSet) { await act("delete_set", { id: d.deleteSet }); return; }
   if (d.forgetAccount) { const a = ui.snap.state.accounts[Number(d.forgetAccount)]; await act("forget_account", { slug: a.world_slug, username: a.username }); return; }
+  if (d.iface) { ui.iface.pick = d.iface; render(); return; }
 
   switch (d.act) {
     case "dismiss": localToast = null; await act("dismiss_message"); break;
@@ -898,6 +1041,9 @@ document.addEventListener("click", async (ev) => {
       break;
     }
     case "fr-guide": ui.firstRun.step = "guide"; render(); break;
+    case "iface-change": ui.iface = { ...ui.iface, pick: null, fromLibrary: true }; ui.screen = "interface"; render(); break;
+    case "iface-cancel": ui.iface = { ...ui.iface, pick: null, fromLibrary: false }; ui.screen = "library"; render(); break;
+    case "iface-save": await saveInterface(); break;
     case "fr-skip": ui.firstRun.dismissed = true; ui.screen = "home"; render(); break;
     case "fr-choose": { const f = await act("pick_folder", { title: retailHere() ? "Choose your Asheron's Call folder" : "Choose the folder that holds the four .dat files" }); if (f) { ui.firstRun.find = f; ui.firstRun.step = "found"; render(); } break; }
     case "fr-continue": { const f = ui.firstRun.find; ui.firstRun = { ...ui.firstRun, step: "ask", find: null, dismissed: true }; ui.screen = "home"; await act("add_folder", { find: f }); break; }
@@ -988,6 +1134,7 @@ document.addEventListener("keydown", (ev) => {
 document.addEventListener("keydown", async (ev) => {
   if (ev.key === "Escape") {
     if (ui.screen === "world") { ui.screen = "worlds"; render(); }
+    if (ui.screen === "interface" && ui.iface.fromLibrary) { ui.iface = { ...ui.iface, pick: null, fromLibrary: false }; ui.screen = "library"; render(); }
   }
   if (ev.key === "Enter" && ui.addServer && ev.target.id?.startsWith("srv-")) { await addServer(); return; }
   if (ev.key === "Enter" && ui.screen === "world" && (ev.target.id === "password" || ev.target.id === "acct-name")) {
@@ -1046,7 +1193,8 @@ async function vista() {
 
 // In the browser demo, `#world=eulmore`, `#worlds`, `#worlds=add`, `#worlds=<slug>` (that row
 // open), `#library`, `#library=add`,
-// `#accounts`, `#first-run` and `#first-run=guide` open that screen directly, for looking at designs.
+// `#accounts`, `#first-run`, `#first-run=guide` and `#interface` (the first start's question) open that
+// screen directly, for looking at designs.
 async function demoJump() {
   const [what, arg] = location.hash.slice(1).split("=");
   if (!what) return;
@@ -1069,6 +1217,7 @@ async function demoJump() {
     ui.addFind = { purpose: "retail", find: f };
     ui.screen = "library";
   }
+  else if (what === "interface") ui.screen = "interface";
   else if (what === "first-run") { ui.screen = "first-run"; ui.firstRun.step = arg || "ask"; if (arg === "found") ui.firstRun.find = await api("pick_folder", {}); }
   else if (what === "notice") { await api("create_private_copy", { slug: "coldeve" }); toast("Launching Eulmore...", false); }
   else ui.screen = what;

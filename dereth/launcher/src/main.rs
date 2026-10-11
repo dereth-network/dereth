@@ -227,6 +227,12 @@ fn forget_all_passwords(b: State<'_, Shared>) {
     lock(&b).forget_all_passwords();
 }
 
+/// Start the Dereth client in this interface from now on: written into the client's preferences.
+#[tauri::command]
+fn set_interface(b: State<'_, Shared>, name: String) -> Cmd<()> {
+    lock(&b).set_interface(&name)
+}
+
 #[tauri::command]
 fn dismiss_message(b: State<'_, Shared>) {
     lock(&b).dismiss_message();
@@ -362,6 +368,13 @@ fn main() {
     let folders = find_folders(&here);
     let is_release = client_beside(&here).is_some();
     let client = find_client(&here);
+    // The preferences file the Dereth client reads when it is started from its own folder, which
+    // names the interface it starts in.
+    let client_preferences = dereth_launch::interface::preferences_file(
+        System::HOST,
+        &|name| std::env::var_os(name),
+        client.as_deref().and_then(Path::parent),
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -391,6 +404,7 @@ fn main() {
                 client.clone(),
                 vault,
                 name,
+                client_preferences.clone(),
             )));
             Backend::load_list(&shared);
             let ticker = shared.clone();
@@ -440,6 +454,7 @@ fn main() {
             add_custom_world,
             probe_world,
             remove_custom_world,
+            set_interface,
             dismiss_message,
             open_url,
             create_desktop_shortcut,
