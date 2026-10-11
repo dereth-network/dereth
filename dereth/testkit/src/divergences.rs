@@ -435,7 +435,7 @@ pub static DIVERGENCES: &[Divergence] = &[
         change: "/weather (or @weather) is a chat command of this client's own: alone it says the \
                  weather drawn and whether it is the day's own; clear, rain or snow draws the sky, \
                  its light and its fog as a clear or a rainy day in place of the one the calendar \
-                 gives, and with Horizon's Weather effect ticked its rain falls as rain or as snow \
+                 gives, and with Horizon's Weather effect on its rain falls as rain or as snow \
                  whatever the land (without the effect a snowy day is a rainy one, the game having \
                  no snow of its own); auto returns to the day's own. It changes only what this \
                  client draws, never the calendar, and is never sent to the server. The final \

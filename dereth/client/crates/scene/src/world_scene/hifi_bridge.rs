@@ -85,11 +85,11 @@ fn level_of(raw: u32, on: Level) -> Level {
 
 /// The presentation's settings for `prefs` on a device that traces rays when `rays` says so:
 /// each option as it is in effect (nothing outside the Horizon interface), less what cannot draw.
-/// The shadows, the bounced light and the lamps are drawn inside the better lighting and are off
-/// without it; the lamps are off without ray queries. (The ambient occlusion stands aside, frame
-/// by frame, only where the bounced light is drawn: the presentation decides that.) The stored
-/// values are untouched, so a prerequisite turned back on
-/// brings back what depends on it.
+/// The shadows, the bounced light, the lamps and the weather are drawn inside the better lighting
+/// and are off without it; the lamps are off without ray queries. (The ambient occlusion stands
+/// aside, frame by frame, only where the bounced light is drawn: the presentation decides that.)
+/// The stored values are untouched, so a prerequisite turned back on brings back what depends on
+/// it.
 pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings {
     let raw = |f| prefs.effective(f);
     // The better lighting's ticked box is its light alone: the shadows have a box of their own.
@@ -114,7 +114,7 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
             Level::Off
         },
         sky: level_of(raw(FidelityFeature::Sky), Level::High),
-        weather: level_of(raw(FidelityFeature::Weather), Level::High),
+        weather: inside(FidelityFeature::Weather),
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
 }
@@ -667,7 +667,10 @@ mod tests {
                 );
                 if !s.lighting.is_on() {
                     assert!(
-                        !s.shadows.is_on() && !s.global_illumination.is_on() && !s.lamps.is_on()
+                        !s.shadows.is_on()
+                            && !s.global_illumination.is_on()
+                            && !s.lamps.is_on()
+                            && !s.weather.is_on()
                     );
                 }
             }

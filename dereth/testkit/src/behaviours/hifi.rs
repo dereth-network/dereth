@@ -267,9 +267,9 @@ pub static ROWS: &[Behaviour] = &[
         id: "hifi.options.no-combination-of-the-boxes-draws-what-cannot-draw",
         says: "Of every combination of the seven boxes, on a device with ray tracing and without, \
                each box draws exactly when it is ticked and the options page does not grey it: \
-               the shadows, the bounced light and the lamps draw nothing without the better \
-               lighting, the lamps nothing without ray tracing, the ambient occlusion nothing \
-               while the bounced light covers it; nothing is re-shaded without the better \
+               the shadows, the bounced light, the lamps and the weather draw nothing without the \
+               better lighting, the lamps nothing without ray tracing, the ambient occlusion \
+               nothing while the bounced light covers it; nothing is re-shaded without the better \
                lighting; and a box whose prerequisite comes back draws again.",
         since: THIS_CLIENT,
         divergence: "CD-037",
@@ -767,30 +767,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "hifi.weather.snow-lies-white-on-the-roofs-and-evenly-on-snowy-land",
-        says: "In the town's street with snow asked for, the roofs take a cover of snow, white \
-               rather than grey-blue: over two pixels in a hundred of the frame's upper half \
-               lifted by more than sixty levels, their blue no more than four levels over their \
-               red; the grass takes none, its near ground moving by under eight levels. In a \
-               snowbound village on the game's rainy day the land painted as snow takes a light, \
-               even cover: brighter by over ten levels, and the spread of its brightness over \
-               squares of twenty-four pixels under six tenths of the painted ground's, with no \
-               drifts or patches.",
+        id: "hifi.weather.snow-falls-but-lies-nowhere",
+        says: "Snow falls and lies nowhere: in the town's street with snow asked for, the roofs \
+               are drawn as without the weather but for the falling flakes, under two pixels in \
+               a hundred of the frame's upper half lifted by more than sixty levels; in a \
+               snowbound village on the game's rainy day the land painted as snow is drawn as it \
+               is painted, the near ground's mean brightness moving by under three levels, the \
+               falling flakes included.",
         since: THIS_CLIENT,
         divergence: "CD-037",
-        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-SNOW"),
-        station: "dereth-client::gpu::rendering::hifi_weather::snow_lies_white_on_the_roofs_and_evenly_on_snowy_land",
-        tier: Tier::Gpu,
-    },
-    behaviour! {
-        id: "hifi.weather.snow-never-lies-on-open-water",
-        says: "At a snowy shore on the game's rainy day the snow falls and the open sea takes no \
-               cover: its mean brightness moves by under fifteen levels in 255, the falling flakes \
-               included.",
-        since: THIS_CLIENT,
-        divergence: "CD-037",
-        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-WATER"),
-        station: "dereth-client::gpu::rendering::hifi_weather::snow_never_lies_on_open_water",
+        evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-NO-COVER"),
+        station: "dereth-client::gpu::rendering::hifi_weather::snow_falls_but_lies_nowhere",
         tier: Tier::Gpu,
     },
     behaviour! {
@@ -822,7 +809,7 @@ pub static ROWS: &[Behaviour] = &[
                effect's rain falls in place of the game's own; with /weather snow over grass the \
                effect's snow falls, and with /weather rain over snowy land its rain; with \
                /weather clear on the game's rainy day nothing falls and the frame is drawn as \
-               the game draws it.",
+               the better lighting alone draws it.",
         since: THIS_CLIENT,
         divergence: "CD-043",
         evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-ASKED"),

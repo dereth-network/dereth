@@ -6,7 +6,9 @@
 //! room whose door or window shows it. Over land that is mostly snow and ice it falls as snow;
 //! the player may ask for rain or snow whatever the land. While it falls, one full-screen pass
 //! over the replayed world draws it into the picture, and the game's own falling-rain layer is
-//! left out of the replay, so only one precipitation is ever seen:
+//! left out of the replay, so only one precipitation is ever seen. It is drawn inside the better
+//! lighting, into its re-shaded light before the tone map; the ordinary picture takes it only on
+//! a frame that is not re-shaded:
 //!
 //! - **Wet ground.** Surfaces near the viewer are darkened and saturated the way soaked material
 //!   is; surfaces facing the sky take a sheen of the sky, and flat ground gathers puddles, from a
@@ -25,12 +27,8 @@
 //!   to nothing within a metre of the eye, and is hidden behind anything nearer than it.
 //! - **Splashes.** Short-lived crowns where the drops land on ground facing up.
 //! - **Snow.** Flakes instead of rain, fixed in the world as the drops are, each of its own size
-//!   in a small range and swaying as it falls, never drawn wider on screen than a set size. The
-//!   tops of solid things (roofs, rocks, platforms) take a cover of snow where they face the sky:
-//!   whole where they are level, thinning on a slope and gone where it is steep, a plain white lit
-//!   as the surface under it is lit, carrying a little of its relief. The land the game paints as
-//!   snow takes a lighter, even cover the same way; other land, open water, leaves and bodies take
-//!   none.
+//!   in a small range and swaying as it falls, never drawn wider on screen than a set size. Snow
+//!   lies nowhere: under it the ground is drawn as the world draws it.
 //! - **Shelter.** A roof or a porch keeps all of it off what stands under it: a depth of the
 //!   solid static geometry seen from straight above says where. From inside a room the weather
 //!   is drawn over what its openings show, with the depth that was drawn there before the room
@@ -58,11 +56,9 @@ const WEATHER_WGSL: &str = include_str!("weather.wgsl");
 /// A block's side, metres.
 const BLOCK: f32 = 192.0;
 /// The constant block's size, bytes.
-const CONSTANTS_SIZE: usize = 108 * 4;
+const CONSTANTS_SIZE: usize = 100 * 4;
 /// Where the flag for linear light in and out sits in the constants, in floats.
 const LINEAR_AT: usize = 51;
-/// Where the flag for a re-shaded picture sits, in floats.
-const RESHADED_AT: usize = 87;
 /// The period of the world-fixed noise, metres: the shader's noise takes the render-space
 /// position plus the render space's place in the world wrapped to this, and every noise lattice
 /// repeats over it, so the pattern stays put in the world when render space moves.
@@ -504,12 +500,7 @@ impl HifiPass for Weather {
         self.build_field(cx.frame);
         self.placement = cover::Placement::around(cx.frame.camera.eye);
         let srgb = cx.seam.surface_format().is_srgb();
-        self.build_constants(
-            cx.frame,
-            cx.settings.weather,
-            srgb,
-            cx.settings.lighting.is_on(),
-        );
+        self.build_constants(cx.frame, cx.settings.weather, srgb);
         Ok(())
     }
 
@@ -586,7 +577,6 @@ impl HifiPass for Weather {
         if hdr.is_some() {
             // Linear light in and out.
             constants[at(LINEAR_AT)].copy_from_slice(&1.0f32.to_le_bytes());
-            constants[at(RESHADED_AT)].copy_from_slice(&1.0f32.to_le_bytes());
         }
         for (i, v) in self.placement.constants(sheltered).iter().enumerate() {
             constants[at(72 + i)].copy_from_slice(&v.to_le_bytes());
@@ -705,7 +695,7 @@ impl Weather {
         self.fall
     }
 
-    fn build_constants(&mut self, frame: &HifiFrame, level: Level, srgb: bool, relit: bool) {
+    fn build_constants(&mut self, frame: &HifiFrame, level: Level, srgb: bool) {
         let mut f: Vec<f32> = Vec::with_capacity(CONSTANTS_SIZE / 4);
         let cam = &frame.camera;
         let clip_from_render = cam.projection * cam.view * HEIGHT_UP;
@@ -735,14 +725,7 @@ impl Weather {
         let pixel = cam.fov_y / (cam.viewport[3].max(1) as f32);
         f.extend_from_slice(&[quality, self.fall.snow(), self.fall.amount(), pixel]);
         let (fog_min, fog_max) = sky.fog.map_or((60.0, 400.0), |fg| (fg.min, fg.max));
-        // The exposure the re-shaded world's linear light is shown at, when it is: a snow cover
-        // there is lifted toward the white it shows as.
-        let exposure = if relit {
-            crate::passes::lighting::exposure(frame, 2.6, 0.85)
-        } else {
-            1.0
-        };
-        f.extend_from_slice(&[fog_min, fog_max, exposure, 0.0]);
+        f.extend_from_slice(&[fog_min, fog_max, 0.0, 0.0]);
         // Where render space sits in the world, wrapped to the noise's period: the world is
         // render space minus the shift, and the shift is a whole number of blocks.
         let wrap = |v: f32| (-v).rem_euclid(NOISE_PERIOD);
@@ -759,14 +742,6 @@ impl Weather {
         f.extend_from_slice(&[self.overrides.debug, 0.0, 0.0, 0.0]);
         // The overhead map, filled in as it is drawn.
         f.extend_from_slice(&[0.0; 8]);
-        // The light a snow cover takes, as the frame lights the world: the sun's and the sky's,
-        // in the picture's own terms. The picture is the ordinary frame's (the sun and ambient
-        // as the vertex light takes them) or, when re-shaded, the linear light before exposure.
-        let (sun, amb) = crate::passes::lighting::legacy_light(frame);
-        let sun_up = crate::passes::lighting::sun_up(frame);
-        let sun = if sun_up { sun } else { [0.0; 3] };
-        f.extend_from_slice(&[sun[0], sun[1], sun[2], 0.0]);
-        f.extend_from_slice(&[amb[0], amb[1], amb[2], 0.0]);
         // How far the drops and flakes have fallen and drifted, and how fast.
         let d = self.drift;
         #[allow(clippy::cast_possible_truncation)] // within the lattices' period

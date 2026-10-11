@@ -1,11 +1,11 @@
 //! The weather of the high-fidelity presentation: it falls on the game's own rainy days, as rain
 //! or over snowy land as snow, and the game's falling-rain layer gives way to it; on a dry day it
 //! draws nothing; it leaves the sky and the far land unveiled; a roof keeps all of it off what
-//! stands under it; far puddles never turn into white sheets; snow lies white on the roofs and
-//! evenly on the land painted as snow, never on grass; and it never lies on open water.
+//! stands under it; far puddles never turn into white sheets; and snow falls but lies nowhere.
 //!
-//! Each frame is compared with the same station loaded again and stepped the same number of
-//! frames with the presentation off, because the clouds move with every frame drawn.
+//! The weather is drawn inside the better lighting, so each frame is compared with the same
+//! station loaded again with the better lighting alone and stepped the same number of frames,
+//! because the clouds move with every frame drawn.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware `wgpu` device.
 
@@ -56,6 +56,16 @@ fn device() -> Gpu {
 
 fn fidelity(spec: &str) -> FidelityPreferences {
     FidelityPreferences::parse_switch(spec).expect("a fidelity spec")
+}
+
+/// The better lighting alone: what the weather is compared with.
+fn lit() -> FidelityPreferences {
+    fidelity("Lighting=1")
+}
+
+/// The weather's box ticked, with the better lighting it is drawn inside.
+fn weather() -> FidelityPreferences {
+    fidelity("Lighting=1,Weather=1")
 }
 
 fn station(name: &str) -> Station {
@@ -176,7 +186,7 @@ fn depth_view(station: &Station) -> Vec<u8> {
 fn on_a_rainy_day_it_falls_and_the_games_falling_rain_gives_way() {
     let _gpu = crate::common::gpu_lock();
     for name in ["rain-street", "snow-field"] {
-        let on = run(&station(name), fidelity("Weather=1"));
+        let on = run(&station(name), weather());
         let report = on.report.expect("installed");
         eprintln!(
             "{name}: {:?} {:?} {:?}",
@@ -190,12 +200,13 @@ fn on_a_rainy_day_it_falls_and_the_games_falling_rain_gives_way() {
         );
     }
     let dry = station("holtburg");
-    let off = run(&dry, FidelityPreferences::default());
-    let on = run(&dry, fidelity("Weather=1"));
+    let off = run(&dry, lit());
+    let on = run(&dry, weather());
     let report = on.report.expect("installed");
     assert!(
-        !report.composited,
-        "a dry day was drawn through the presentation"
+        !report.passes.contains(&"weather"),
+        "the weather was drawn on a dry day: {:?}",
+        report.passes
     );
     assert_eq!(report.census.skipped_replaced_by_pass, 0);
     let changed = moved(&off.rgba, &on.rgba);
@@ -213,8 +224,8 @@ fn the_rain_leaves_the_sky_and_the_far_land_unveiled() {
     for name in ["rain", "rain-street", "rain-forest", "rain-coast"] {
         let at = station(name);
         let depth = depth_view(&at);
-        let off = run(&at, FidelityPreferences::default());
-        let on = run(&at, fidelity("Weather=1"));
+        let off = run(&at, lit());
+        let on = run(&at, weather());
         // The sky (no depth) and the land drawn far off (the depth view's darkest land).
         let (mut shift, mut n) = (0.0f64, 0u32);
         for i in (0..(W * H) as usize).map(|p| p * 4) {
@@ -240,20 +251,8 @@ fn the_rain_leaves_the_sky_and_the_far_land_unveiled() {
 fn a_roof_keeps_the_weather_off_what_stands_under_it() {
     let _gpu = crate::common::gpu_lock();
     let porch = station("rain-porch");
-    let dry = run_frames(
-        &porch,
-        FidelityPreferences::default(),
-        false,
-        Weather::Auto,
-        ROOF_FRAMES,
-    );
-    let on = run_frames(
-        &porch,
-        fidelity("Weather=1"),
-        true,
-        Weather::Auto,
-        ROOF_FRAMES,
-    );
+    let dry = run_frames(&porch, lit(), false, Weather::Auto, ROOF_FRAMES);
+    let on = run_frames(&porch, weather(), true, Weather::Auto, ROOF_FRAMES);
     assert!(
         on.report.expect("installed").passes.contains(&"weather"),
         "the weather is not falling at the porch"
@@ -298,10 +297,10 @@ fn a_roof_keeps_the_weather_off_what_stands_under_it() {
 
 /// Behaviour: hifi.weather.from-a-room-the-weather-is-drawn-over-what-its-openings-show
 /// Standing in a house's doorway on the game's rainy day with the camera in the room, the ground
-/// the open door shows is drawn wet: darker than the game draws it, as it is from outdoors. The
-/// room's floor under the roof takes no wet darkening and no drop. So it is whether the frame
-/// stamps the depth of the room's openings after it steps indoors, as the client does, or leaves
-/// them cleared, as it does with the stamps turned off.
+/// the open door shows is drawn wet: darker than the better lighting alone draws it, as it is from
+/// outdoors. The room's floor under the roof takes no wet darkening and no drop. So it is whether
+/// the frame stamps the depth of the room's openings after it steps indoors, as the client does,
+/// or leaves them cleared, as it does with the stamps turned off.
 #[test]
 fn from_a_doorway_the_ground_outside_stays_wet_and_the_room_dry() {
     let _gpu = crate::common::gpu_lock();
@@ -312,8 +311,8 @@ fn from_a_doorway_the_ground_outside_stays_wet_and_the_room_dry() {
     };
     for stamped in [true, false] {
         let stamps = move |shot: &mut Shot| shot.scene.draw.cfg.portal_depth_stamp = stamped;
-        let off = run_shot(&doorway, FidelityPreferences::default(), 1, &stamps);
-        let on = run_shot(&doorway, fidelity("Weather=1"), 1, &stamps);
+        let off = run_shot(&doorway, lit(), 1, &stamps);
+        let on = run_shot(&doorway, weather(), 1, &stamps);
         let report = on.report.expect("installed");
         let what = if stamped {
             "with its openings stamped"
@@ -369,7 +368,7 @@ fn from_a_doorway_the_ground_outside_stays_wet_and_the_room_dry() {
 /// `@weather` drives both precipitations. Without the effect, rain asked for on the town's sunny
 /// day draws the game's rainy sky, weather layers and all. With it, rain and snow fall in the form
 /// asked for whatever the land, the game's falling layer giving way; clear asked for on the
-/// game's rainy day draws nothing of the effect's, and the frame is the game's own.
+/// game's rainy day draws nothing of the effect's, and the frame is the better lighting's alone.
 #[test]
 fn the_weather_asked_for_falls_in_the_form_asked_whatever_the_day_and_the_land() {
     let _gpu = crate::common::gpu_lock();
@@ -394,7 +393,7 @@ fn the_weather_asked_for_falls_in_the_form_asked_whatever_the_day_and_the_land()
         (&field, Weather::Auto, 1000),
         (&field, Weather::Rain, 0),
     ] {
-        let on = run_asked(at, fidelity("Weather=1"), true, asked);
+        let on = run_asked(at, weather(), true, asked);
         let report = on.report.expect("installed");
         eprintln!("{} with {asked:?}: {:?}", at.name, report.notes);
         assert!(report.passes.contains(&"weather"), "{} {asked:?}", at.name);
@@ -413,13 +412,8 @@ fn the_weather_asked_for_falls_in_the_form_asked_whatever_the_day_and_the_land()
     }
     let street = station("rain-street");
     let own = run(&street, FidelityPreferences::default());
-    let off = run_asked(
-        &street,
-        FidelityPreferences::default(),
-        true,
-        Weather::Clear,
-    );
-    let on = run_asked(&street, fidelity("Weather=1"), true, Weather::Clear);
+    let off = run_asked(&street, lit(), true, Weather::Clear);
+    let on = run_asked(&street, weather(), true, Weather::Clear);
     let report = on.report.expect("installed");
     assert!(
         off.sky_objects < own.sky_objects,
@@ -428,44 +422,14 @@ fn the_weather_asked_for_falls_in_the_form_asked_whatever_the_day_and_the_land()
         own.sky_objects
     );
     assert!(
-        !report.composited,
-        "a clear day was drawn through the presentation"
+        !report.passes.contains(&"weather"),
+        "the weather was drawn on a clear day: {:?}",
+        report.passes
     );
     assert_eq!(report.census.skipped_replaced_by_pass, 0);
     let changed = moved(&off.rgba, &on.rgba);
     eprintln!("rain-street, clear asked for: {changed} bytes differ");
     assert_eq!(changed, 0, "the weather drew on a clear day");
-}
-
-/// Behaviour: hifi.weather.snow-never-lies-on-open-water
-/// At a snowy shore on the game's rainy day the snow falls, and the open sea takes no cover: its
-/// mean brightness moves by under fifteen levels in 255, the falling flakes over it included. (A
-/// cover on the sea moves it by over a hundred.)
-#[test]
-fn snow_never_lies_on_open_water() {
-    let _gpu = crate::common::gpu_lock();
-    let shore = station("snow-shore");
-    let off = run(&shore, FidelityPreferences::default());
-    let on = run(&shore, fidelity("Weather=1"));
-    assert!(
-        on.report.expect("installed").passes.contains(&"weather"),
-        "the weather is not falling at the shore"
-    );
-    // The sea across the middle of the frame.
-    let mean_shift = |ys: std::ops::Range<u32>, xs: std::ops::Range<u32>| {
-        let (mut s, mut n) = (0.0f64, 0u32);
-        for y in ys {
-            for x in xs.clone() {
-                let i = ((y * W + x) * 4) as usize;
-                s += f64::from(luminance(&on.rgba, i) - luminance(&off.rgba, i));
-                n += 1;
-            }
-        }
-        s / f64::from(n.max(1))
-    };
-    let sea = mean_shift(H * 42 / 100..H * 52 / 100, W / 4..W * 95 / 100);
-    eprintln!("snow-shore: the sea moved {sea:.2}");
-    assert!(sea.abs() < 15.0, "the sea took a cover: {sea:.2}");
 }
 
 /// Behaviour: hifi.weather.far-puddles-never-turn-white
@@ -478,8 +442,8 @@ fn far_puddles_never_turn_white() {
     let _gpu = crate::common::gpu_lock();
     let street = station("rain-street");
     let depth = depth_view(&street);
-    let off = run(&street, FidelityPreferences::default());
-    let on = run(&street, fidelity("Weather=1"));
+    let off = run(&street, lit());
+    let on = run(&street, weather());
     let (mut far, mut lifted) = (0u32, 0u32);
     for y in H * 2 / 5..H {
         for x in 0..W {
@@ -501,101 +465,78 @@ fn far_puddles_never_turn_white() {
     );
 }
 
-/// The mean luminance of `rgba` over `keep`'s pixels in each square `side` pixels across of the
-/// lower part of the frame from row `from`, for the squares `keep` fills; and the spread (the
-/// standard deviation) of those means: how patchy the picture is there.
-fn patchiness(rgba: &[u8], from: u32, side: u32, keep: impl Fn(u32, u32) -> bool) -> (f64, f64) {
-    let mut means = Vec::new();
-    for by in (from..H - side + 1).step_by(side as usize) {
-        for bx in (0..W - side + 1).step_by(side as usize) {
-            let (mut s, mut n) = (0.0f64, 0u32);
-            for y in by..by + side {
-                for x in bx..bx + side {
-                    if keep(x, y) {
-                        s += f64::from(luminance(rgba, ((y * W + x) * 4) as usize));
-                        n += 1;
-                    }
-                }
-            }
-            if n == side * side {
-                means.push(s / f64::from(n));
+/// The mean luminance of `rgba` over the pixels of the frame's lower part from row `from` that
+/// `keep` names.
+fn mean_luminance(rgba: &[u8], from: u32, keep: impl Fn(u32, u32) -> bool) -> f64 {
+    let (mut s, mut n) = (0.0f64, 0u32);
+    for y in from..H {
+        for x in 0..W {
+            if keep(x, y) {
+                s += f64::from(luminance(rgba, ((y * W + x) * 4) as usize));
+                n += 1;
             }
         }
     }
-    #[allow(clippy::cast_precision_loss)] // a few hundred squares
-    let count = means.len().max(1) as f64;
-    let mean = means.iter().sum::<f64>() / count;
-    let spread = (means.iter().map(|m| (m - mean) * (m - mean)).sum::<f64>() / count).sqrt();
-    (mean, spread)
+    s / f64::from(n.max(1))
 }
 
-/// Behaviour: hifi.weather.snow-lies-white-on-the-roofs-and-evenly-on-snowy-land
-/// In the town's street with snow asked for, the roofs take a cover of snow: over two pixels in a
-/// hundred of the frame's upper half are lifted by more than sixty levels (the falling flakes alone
-/// lift under one), and what is lifted is white, its blue no more than four levels over its red
-/// on average, rather than a grey-blue sheet (one eight over). The grass takes none: the near
-/// ground's mean brightness moves by under eight levels, the falling flakes included. In the
-/// snowbound village on the game's rainy day the land the game paints as snow takes a light, even
-/// cover: its near ground is brighter by over ten levels and evener than the game paints it, the
-/// spread of its brightness over squares of twenty-four pixels falling to under six tenths of the
-/// painted ground's (a cover laid in drifts leaves it over nine tenths).
+/// Behaviour: hifi.weather.snow-falls-but-lies-nowhere
+/// Snow falls and lies nowhere. In the town's street with snow asked for, the roofs are drawn as
+/// the better lighting alone draws them but for the falling flakes: under two pixels in a hundred
+/// of the frame's upper half are lifted by more than sixty levels (the flakes alone lift under
+/// one, a cover on the roofs over four). In the snowbound village on the game's rainy day the land
+/// the game paints as snow is drawn as the better lighting alone draws it: the near ground's mean
+/// brightness moves by under three levels, the falling flakes included (a cover on it brightens
+/// it by over ten).
 #[test]
-fn snow_lies_white_on_the_roofs_and_evenly_on_snowy_land() {
+fn snow_falls_but_lies_nowhere() {
     let _gpu = crate::common::gpu_lock();
     let street = station("rain-street");
-    let depth = depth_view(&street);
-    let off = run_asked(&street, FidelityPreferences::default(), true, Weather::Snow);
-    let on = run_asked(&street, fidelity("Weather=1"), true, Weather::Snow);
-    let (mut lifted, mut blue) = (0u32, 0.0f64);
+    let off = run_asked(&street, lit(), true, Weather::Snow);
+    let on = run_asked(&street, weather(), true, Weather::Snow);
+    let report = on.report.expect("installed");
+    assert_eq!(
+        note(&report, "weather snow"),
+        1000,
+        "the snow is not falling"
+    );
+    let mut lifted = 0u32;
     for y in 0..H / 2 {
         for x in 0..W {
             let i = ((y * W + x) * 4) as usize;
             if luminance(&on.rgba, i) - luminance(&off.rgba, i) > 60.0 {
                 lifted += 1;
-                blue += f64::from(on.rgba[i + 2]) - f64::from(on.rgba[i]);
             }
         }
     }
-    let blue = blue / f64::from(lifted.max(1));
-    // The near ground, below the middle of the frame.
-    let near =
-        |depth: &[u8], x: u32, y: u32| y > H * 3 / 5 && depth[((y * W + x) * 4) as usize] > 60;
-    let (grass_off, _) = patchiness(&off.rgba, H * 3 / 5, 24, |x, y| near(&depth, x, y));
-    let (grass_on, _) = patchiness(&on.rgba, H * 3 / 5, 24, |x, y| near(&depth, x, y));
-    eprintln!(
-        "rain-street with snow: {lifted} pixels of the upper half lifted past sixty levels, their \
-         blue over their red {blue:.1} on average; the near grass {grass_off:.1} without and \
-         {grass_on:.1} with"
-    );
-    assert!(
-        lifted * 100 > 2 * (W * H / 2),
-        "the roofs took no snow: {lifted} pixels lifted"
-    );
-    assert!(blue < 4.0, "the snow on the roofs is blue: {blue:.1}");
-    assert!(
-        (grass_on - grass_off).abs() < 8.0,
-        "the grass took a cover: {grass_off:.1} to {grass_on:.1}"
-    );
     let village = station("snow-village");
     let depth = depth_view(&village);
-    let off = run(&village, FidelityPreferences::default());
-    let on = run(&village, fidelity("Weather=1"));
+    let off = run(&village, lit());
+    let on = run(&village, weather());
+    let report = on.report.expect("installed");
     assert!(
-        on.report.expect("installed").passes.contains(&"weather"),
+        report.passes.contains(&"weather"),
         "the weather is not falling in the village"
     );
-    let (mean_off, spread_off) = patchiness(&off.rgba, H * 3 / 5, 24, |x, y| near(&depth, x, y));
-    let (mean_on, spread_on) = patchiness(&on.rgba, H * 3 / 5, 24, |x, y| near(&depth, x, y));
+    assert_eq!(
+        note(&report, "weather snow"),
+        1000,
+        "the snow is not falling"
+    );
+    // The near ground, below the middle of the frame.
+    let near = |x: u32, y: u32| depth[((y * W + x) * 4) as usize] > 60;
+    let mean_off = mean_luminance(&off.rgba, H * 3 / 5, near);
+    let mean_on = mean_luminance(&on.rgba, H * 3 / 5, near);
     eprintln!(
-        "snow-village: the near ground {mean_off:.1} without, spread {spread_off:.2}; \
-         {mean_on:.1} with, spread {spread_on:.2}"
+        "rain-street with snow: {lifted} pixels of the upper half lifted past sixty levels; \
+         snow-village: the near ground {mean_off:.2} without, {mean_on:.2} with"
     );
     assert!(
-        mean_on > mean_off + 10.0,
-        "the snowy land took no cover: {mean_off:.1} to {mean_on:.1}"
+        lifted * 100 < 2 * (W * H / 2),
+        "the roofs took a cover: {lifted} pixels lifted"
     );
     assert!(
-        spread_on < spread_off * 0.6,
-        "the cover is patchy: its spread {spread_on:.2} against {spread_off:.2}"
+        (mean_on - mean_off).abs() < 3.0,
+        "the snowy land took a cover: {mean_off:.2} to {mean_on:.2}"
     );
 }

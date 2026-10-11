@@ -97,14 +97,19 @@ fn the_effects_boxes_end_the_client_page_greyed_until_what_they_need_is_ticked()
         );
         assert_eq!(store::inq_value(o.name), Some(PrefValue::Bool(false)));
     }
-    // With the better lighting off, the shadows' box is greyed: a click asks for nothing.
+    // With the better lighting off, the shadows' and the weather's boxes are greyed: a click asks
+    // for nothing.
     let asked = tick(&mut h, &state, caption(names::SHADOWS));
     assert_eq!(sets(&asked, names::SHADOWS), None, "{asked:?}");
-    // The lighting ticks, and then the shadows do.
+    let asked = tick(&mut h, &state, caption(names::WEATHER));
+    assert_eq!(sets(&asked, names::WEATHER), None, "{asked:?}");
+    // The lighting ticks, and then the shadows and the weather do.
     let asked = tick(&mut h, &state, caption(names::LIGHTING));
     assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
     let asked = tick(&mut h, &state, caption(names::SHADOWS));
     assert_eq!(sets(&asked, names::SHADOWS), Some(PrefValue::Bool(true)));
+    let asked = tick(&mut h, &state, caption(names::WEATHER));
+    assert_eq!(sets(&asked, names::WEATHER), Some(PrefValue::Bool(true)));
     // On a device without ray tracing the lamps stay greyed, the lighting ticked or not.
     let asked = tick(&mut h, &state, caption(names::LAMPS));
     assert_eq!(sets(&asked, names::LAMPS), None, "{asked:?}");

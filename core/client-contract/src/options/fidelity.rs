@@ -2,12 +2,12 @@
 //! the Horizon interface's Client page, under a heading of their own, each off until the player
 //! ticks it.
 //!
-//! Three of the effects are drawn inside the better lighting and draw nothing without it: the sun
-//! shadows, the bounced light and the lamps. The lamps also need a graphics device that traces
-//! rays. [`blocked`] says which of these holds for a box, and the presentation follows the same
-//! rules, so a box the page shows greyed draws nothing. (The bounced light darkens the creases
-//! itself, so the ambient occlusion stands aside in the outdoor frames it is drawn into; indoors
-//! and underground, where it draws nothing, the occlusion is drawn.)
+//! Four of the effects are drawn inside the better lighting and draw nothing without it: the sun
+//! shadows, the bounced light, the lamps and the weather. The lamps also need a graphics device
+//! that traces rays. [`blocked`] says which of these holds for a box, and the presentation follows
+//! the same rules, so a box the page shows greyed draws nothing. (The bounced light darkens the
+//! creases itself, so the ambient occlusion stands aside in the outdoor frames it is drawn into;
+//! indoors and underground, where it draws nothing, the occlusion is drawn.)
 //!
 //! In a build with the `hifi` feature the options are registered with the value store
 //! ([`register`]), so the page reads and writes them like any other option and the profile keeps
@@ -46,7 +46,8 @@ pub const OPTIONS: [FidelityOption; 7] = [
         name: fidelity::LIGHTING,
         caption: "Better Lighting (HDR Sun and Sky Light)",
         note: "Lights the outdoor world again per pixel, in high dynamic range, with bloom and \
-               exposure. The sun shadows, the bounced light and the lamps are drawn inside it.",
+               exposure. The sun shadows, the bounced light, the lamps and the weather are drawn \
+               inside it.",
         needs: Needs::Nothing,
     },
     FidelityOption {
@@ -88,8 +89,8 @@ pub const OPTIONS: [FidelityOption; 7] = [
         name: fidelity::WEATHER,
         caption: "Weather (Rain, Wet Ground, Puddles, Snow)",
         note: "On the game's rainy days: rain that roofs keep off, wet ground and puddles, and \
-               snow instead over snowy land. It replaces the game's own falling rain.",
-        needs: Needs::Nothing,
+               falling snow instead over snowy land. It replaces the game's own falling rain.",
+        needs: Needs::Lighting,
     },
 ];
 
@@ -364,7 +365,7 @@ mod tests {
         use fidelity::{
             AMBIENT_OCCLUSION, GLOBAL_ILLUMINATION, LAMPS, LIGHTING, SHADOWS, SKY, WEATHER,
         };
-        for name in [SHADOWS, GLOBAL_ILLUMINATION, LAMPS] {
+        for name in [SHADOWS, GLOBAL_ILLUMINATION, LAMPS, WEATHER] {
             assert_eq!(
                 blocked(name, with(&[]), Some(true)),
                 Some(Blocked::NeedsLighting)
@@ -387,8 +388,12 @@ mod tests {
             None
         );
         assert_eq!(blocked(SKY, with(&[]), Some(false)), None);
-        // The weather stands alone: it draws over the ordinary picture or the better light.
-        assert_eq!(blocked(WEATHER, with(&[]), Some(false)), None);
+        // The weather needs the better lighting alone: neither the sky nor ray tracing.
+        assert_eq!(
+            blocked(WEATHER, with(&[SKY]), Some(false)),
+            Some(Blocked::NeedsLighting)
+        );
+        assert_eq!(blocked(WEATHER, with(&[LIGHTING]), Some(false)), None);
         assert_eq!(blocked(LIGHTING, with(&[]), Some(false)), None);
     }
 

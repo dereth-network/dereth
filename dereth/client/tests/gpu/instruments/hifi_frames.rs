@@ -88,10 +88,9 @@ const FEATURES: &[(&str, &str)] = &[
     ("gi-indirect", "Lighting=3,GlobalIllumination=3,Debug=4"),
     // Outdoor lamps, lanterns, torches and braziers lit after dusk.
     ("lamps", "Lighting,Shadows,Lamps"),
-    // Rain, wet ground, puddles and snow on the game's rainy days, over the ordinary picture
-    // and inside the better lighting.
-    ("weather", "Weather"),
-    ("weather-lit", "Lighting,Weather"),
+    // Rain, wet ground, puddles and falling snow on the game's rainy days, inside the better
+    // lighting.
+    ("weather", "Lighting,Weather"),
 ];
 
 /// The diagnostic views written beside each feature's frames, as `<station>-<view>.png`.
@@ -824,7 +823,7 @@ const MOTION_SPOTS: &[(&str, u16, f32, f32, f32, &str)] = {
         ),
         // The hillside south of Holtburg, looking down it north-east toward the town.
         ("hillside", HOLTBURG, 116.11, 64.77, -0.6544, "auto"),
-        // Before the shop with snow asked for: snow on its roof and the cobbles.
+        // Before the shop with snow asked for: the flakes before its porch.
         (
             "shop-snow",
             HOLTBURG,
@@ -833,7 +832,7 @@ const MOTION_SPOTS: &[(&str, u16, f32, f32, f32, &str)] = {
             std::f32::consts::PI,
             "snow",
         ),
-        // The town's houses from the grass by the street, snow asked for: the roofs.
+        // The town's houses from the grass by the street, snow asked for.
         ("street-snow", HOLTBURG, 128.0, 120.0, 0.75, "snow"),
         // The snowbound village, where the land itself is snow, before a stone platform and
         // its houses.

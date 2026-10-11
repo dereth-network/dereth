@@ -1,6 +1,6 @@
-// Weather: wet ground, puddles, splashes and a snow cover drawn over the replayed world by a
-// full-screen pass, and the falling rain and snow drawn over that as particles fixed in the world;
-// all of it kept off whatever stands under a roof.
+// Weather: wet ground, puddles and splashes drawn over the replayed world by a full-screen pass,
+// and the falling rain and snow drawn over that as particles fixed in the world; all of it kept
+// off whatever stands under a roof.
 
 struct Weather {
     // Render space, height up, to clip space.
@@ -22,8 +22,7 @@ struct Weather {
     // x the quality; y how much of what falls is snow, 0 rain to 1 snow; z how much falls, 0 to
     // 1; w radians per pixel.
     params: vec4<f32>,
-    // x, y where the world fog begins and is full; z the exposure the re-shaded world's linear
-    // light is shown at; w unused.
+    // x, y where the world fog begins and is full; z, w unused.
     fogp: vec4<f32>,
     // x the period the time wraps over, seconds; y, z where render space's origin sits in the
     // world, wrapped to the noise's period; w that period, metres.
@@ -34,10 +33,6 @@ struct Weather {
     cover: vec4<f32>,
     // x the height its depth starts at; y the depth's span; z 1 when it holds anything.
     cover_span: vec4<f32>,
-    // The sun's light on a snow cover, as the frame lights the world.
-    snow_sun: vec4<f32>,
-    // The sky's light on it; w 1 when the picture is the re-shaded world's linear light.
-    snow_amb: vec4<f32>,
     // How far the rain (x) and the snow (y) have fallen, and how far the wind has carried both
     // east (z) and north (w), metres, each wrapped to the lattices' period.
     fall: vec4<f32>,
@@ -256,8 +251,8 @@ fn road_at(p: vec2<f32>, wp: vec2<f32>) -> f32 {
     return 1.0 - smoothstep(-1.0, 1.0, sd + wobble);
 }
 
-// How much of the ground at render-space `p` is of ground class `kind` (water 6, snow 5),
-// between the field's vertices.
+// How much of the ground at render-space `p` is of ground class `kind` (water is 6), between the
+// field's vertices.
 fn class_share(p: vec2<f32>, kind: u32) -> f32 {
     if (field.origin_size.z < 2.0) {
         return 0.0;
@@ -509,55 +504,6 @@ fn splashes(q: vec2<f32>, t: f32, footprint: f32) -> f32 {
     return clamp(s, 0.0, 1.0);
 }
 
-// --- the ground in the snow ------------------------------------------------------------------
-
-// The colour of a snow cover facing `n`, lit as the frame lights the surface it lies on, in the
-// picture's terms: a plain white that takes the light's brightness, not its colour, so it is white
-// under a warm or a cool light alike, and shades with the slope as the surface does.
-fn snow_colour(n: vec3<f32>) -> vec3<f32> {
-    let sun = max(dot(n, W.sun_dir.xyz), 0.0);
-    if (W.snow_amb.w > 0.5) {
-        // The re-shaded world's linear light, before exposure: the light per pixel's own gains.
-        let e = luminance(srgb_to_linear(W.snow_sun.rgb)) * 2.6 * sun
-            + luminance(srgb_to_linear(W.snow_amb.rgb)) * 0.85;
-        // Lifted a little by day toward the white the exposure shows, as on the ordinary frame.
-        let white = 1.0 / max(W.fogp.z, 0.1);
-        return vec3<f32>(0.85 * (e + max(white - e, 0.0) * 0.6 * W.sun_col.w));
-    }
-    // The ordinary frame: the vertex light's sum, clamped as it clamps it, lifted a little by day
-    // so fresh snow under the overcast reads as white rather than as grey.
-    let e = clamp(luminance(W.snow_amb.rgb + W.snow_sun.rgb * sun), 0.0, 1.0);
-    return srgb_to_linear(vec3<f32>(0.92 * (e + (1.0 - e) * 0.6 * W.sun_col.w)));
-}
-
-// Whether `p` lies on the highest solid surface over it, as the overhead map holds it: a roof, a
-// rock, a platform's top, rather than a body or anything that moves, which the map does not hold.
-// Of the four texels round `p`, the one whose height is nearest its own is taken, so a sloping
-// roof is found to its edges.
-fn static_top(p: vec3<f32>) -> f32 {
-    if (W.cover_span.z < 0.5) {
-        return 0.0;
-    }
-    let s = (p.xy - W.cover.xy) / W.cover.z;
-    if (abs(s.x) >= 0.999 || abs(s.y) >= 0.999) {
-        return 0.0;
-    }
-    let side = W.cover.w;
-    let uv = vec2<f32>(s.x * 0.5 + 0.5, 0.5 - s.y * 0.5) * side - vec2<f32>(0.5);
-    let base = vec2<i32>(floor(uv));
-    var nearest = 1.0e9;
-    for (var j = 0; j <= 1; j = j + 1) {
-        for (var i = 0; i <= 1; i = i + 1) {
-            let t = clamp(base + vec2<i32>(i, j), vec2<i32>(0), vec2<i32>(i32(side) - 1));
-            let d = textureLoad(shelter_depth, t, 0);
-            if (d < 1.0) {
-                nearest = min(nearest, abs(W.cover_span.x - d * W.cover_span.y - p.z));
-            }
-        }
-    }
-    return 1.0 - smoothstep(0.2, 0.45, nearest);
-}
-
 // What the weather needs to know about the surface drawn at a pixel.
 struct Ground {
     // The point, render space, and how far it is from the eye.
@@ -653,29 +599,6 @@ fn wet_ground(
     return vec4<f32>(c, puddle);
 }
 
-// The ground in the snow: a cover lying on the tops of solid things where they face the sky (a
-// roof, a rock, a platform), whole where they are level, thinning as they steepen and gone where
-// they are steep, lit as the surface under it is lit and carrying a little of its relief, so a
-// roof's courses show through. The land the game paints as snow takes a lighter cover the same
-// way, evenly, with no drifts or patches; other land takes none. Never on open water, leaves,
-// bodies or what moves, and never under a roof.
-fn snow_ground(c: vec3<f32>, g: Ground, px: vec2<i32>) -> vec3<f32> {
-    let snowy = smoothstep(0.2, 0.6, class_share(g.p.xy, 5u));
-    let water = smoothstep(0.25, 0.6, class_share(g.p.xy, 6u));
-    let lies = max(static_top(g.p) * (1.0 - g.on_land), g.on_land * snowy * (1.0 - water) * 0.6);
-    let level = smoothstep(0.55, 0.85, g.n.z);
-    let cover = lies * level * g.reach * g.open * 0.92;
-    if (cover <= 0.0) {
-        return c;
-    }
-    // The surface's relief: its brightness against its neighbours' a few pixels round.
-    let l = luminance(c);
-    let around = (luminance(picture(px + vec2<i32>(3, 0))) + luminance(picture(px - vec2<i32>(3, 0)))
-        + luminance(picture(px + vec2<i32>(0, 3))) + luminance(picture(px - vec2<i32>(0, 3))) + l) / 5.0;
-    let relief = clamp(l / max(around, 0.001), 0.75, 1.2);
-    return mix(c, snow_colour(g.n) * mix(1.0, relief, 0.4), cover);
-}
-
 // --- the frame --------------------------------------------------------------------------------
 
 @fragment
@@ -731,18 +654,14 @@ fn fs_weather(in: FullscreenOut) -> @location(0) vec4<f32> {
         if (W.debug.x > 1.5) {
             return vec4<f32>(encode(vec3<f32>(1.0 - g.open, on_land, 0.0)), raw.a);
         }
-        var ground = c;
+        // The snow leaves the ground as the world draws it: the wet goes as the snow comes.
         if (snowfall < 1.0 || W.debug.x > 0.5) {
             let wet = wet_ground(c, g, dir, t, quality, air);
             if (W.debug.x > 0.5) {
                 return vec4<f32>(encode(vec3<f32>(on_land, g.road, wet.a)), raw.a);
             }
-            ground = wet.rgb;
+            c = mix(c, wet.rgb, amount * (1.0 - snowfall));
         }
-        if (snowfall > 0.0) {
-            ground = mix(ground, snow_ground(c, g, px), snowfall);
-        }
-        c = mix(c, ground, amount);
     }
     return vec4<f32>(encode(c), raw.a);
 }

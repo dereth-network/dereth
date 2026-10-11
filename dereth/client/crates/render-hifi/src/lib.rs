@@ -133,7 +133,9 @@ impl DebugView {
 /// preferences onto it, and nothing here reads a preference itself. Everything is off by default.
 ///
 /// The light per pixel is the base the shadows, the bounced light and the lamps are drawn inside:
-/// without it they draw nothing. The occlusion, the sky and the weather stand on their own.
+/// without it they draw nothing. The weather is asked for only with it too, and is drawn into its
+/// picture (over the ordinary picture on a frame that is not re-shaded). The occlusion and the sky
+/// stand on their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct HifiSettings {
     /// Per-pixel sun and sky light, high dynamic range, bloom and exposure. `Low` is the light
@@ -151,7 +153,8 @@ pub struct HifiSettings {
     pub lamps: Level,
     /// A physical sky and aerial perspective.
     pub sky: Level,
-    /// Rain, snow and wet ground, when the day's own weather brings them.
+    /// Rain, snow and wet ground, when the day's own weather brings them (asked for with
+    /// `lighting` on).
     pub weather: Level,
     /// A diagnostic view.
     pub debug: DebugView,

@@ -567,7 +567,7 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
         Station {
             name: "snow-village",
             why: "the nearest snowbound block with buildings to Holtburg, at eye height before \
-                  its houses, on the Rainy day: snow on the roofs and none under them",
+                  its houses, on the Rainy day: snow falling over the roofs and none under them",
             place: Place::Free {
                 block: SNOW_VILLAGE,
                 x: 72.0,
@@ -583,7 +583,7 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
         Station {
             name: "snow-shore",
             why: "a snowy shore of the northern sea from eight metres up, looking out to sea, on \
-                  the Rainy day: the snow lies on the land and never on the water",
+                  the Rainy day: the snow falls over the land and the water",
             place: Place::Free {
                 block: SNOW_SHORE,
                 x: 120.0,
