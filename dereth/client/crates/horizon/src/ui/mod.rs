@@ -499,8 +499,8 @@ pub(crate) fn place_spell(rows: &[u32], spell_id: u32, index: usize, tab: usize)
         .map_or_else(Vec::new, |plan| plan.requests(spell_id, tab))
 }
 
-/// A thing carried, drawn at `(x, y)`: lifted a little off where it is held, on a dark slot of
-/// its own, so it reads over windows and the world alike.
+/// A thing carried, drawn at `(x, y)`: its own picture alone, with no slot under it, lifted a
+/// little off where it is held.
 pub(crate) fn draw_lifted(
     p: &mut paint::Painter<'_>,
     icon: &crate::art::Sprite,
@@ -509,12 +509,6 @@ pub(crate) fn draw_lifted(
     let k = p.scale;
     let s = 40.0 * k;
     let r = crate::draw::Rect::new(x - s / 2.0 - 4.0 * k, y - s / 2.0 - 6.0 * k, s, s);
-    let back = r.inset(-5.0 * k);
-    p.fill(back.offset(3.0 * k, 4.0 * k), 0x6000_0000);
-    p.fill(back, 0xE010_0E0C);
-    if let Some(frame) = p.piece("slot.empty") {
-        p.sprite(&frame, back, crate::draw::WHITE);
-    }
     p.sprite(icon, r, crate::draw::WHITE);
 }
 
@@ -660,4 +654,40 @@ fn drag_picture(p: &paint::Painter<'_>, drag: &Drag) -> Option<crate::art::Sprit
         return drag.icon.and_then(|d| p.art.ac_component(d));
     }
     drag.icon.and_then(|d| p.art.ac_icon(d))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (experimental Horizon interface)
+    use super::*;
+
+    /// What is carried is drawn as its picture alone: no slot, frame or shadow under it, even
+    /// with the interface's own slot art there to draw one.
+    #[test]
+    fn a_carried_thing_is_its_picture_alone_with_no_slot_under_it() {
+        let pieces = crate::pieces::Pieces::built_in().expect("the built-in pieces");
+        let art = crate::art::Art::new(std::sync::Arc::new(pieces));
+        assert!(
+            art.has_piece("slot.empty"),
+            "a slot to draw, were one drawn"
+        );
+        let mut list = crate::draw::DrawList::default();
+        let mut p = paint::Painter {
+            list: &mut list,
+            art: &art,
+            scale: 1.0,
+            screen: (800.0, 600.0),
+            fade: 1.0,
+        };
+        let icon = crate::art::Sprite {
+            tex: 7_777,
+            src: crate::draw::Rect::new(0.0, 0.0, 32.0, 32.0),
+            w: 32.0,
+            h: 32.0,
+            scale: 1.0,
+        };
+        draw_lifted(&mut p, &icon, (400.0, 300.0));
+        let drawn: Vec<_> = list.quads.iter().map(|q| q.tex).collect();
+        assert_eq!(drawn, [Some(7_777)], "the picture and nothing else");
+    }
 }

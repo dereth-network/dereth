@@ -17,6 +17,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's skills show their value with your spells in it, green when raised and red when lowered, as attributes already did; hovering a skill, attribute or vital shows its base and what magic adds, as "200 (+35)".
 - Horizon shows an item's cooldown until the server lets it be used again, never ending a second or so early, and shows cooldowns on the gamepad's cross hotbars too.
 - In Horizon's vendor window, a right-click on an item in the shopping list or the items to sell takes it back off the list.
+- An item dragged in Horizon follows the pointer as its own picture, without the dark slot that was drawn behind it.
 
 ## 0.4.1 (2026-10-11)
 
