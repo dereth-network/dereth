@@ -1341,6 +1341,8 @@ pub(crate) struct Shot {
     /// A camera held behind the body instead of its chase camera: metres back, metres up, the
     /// pitch (radians) and the heading (radians from north).
     pub follow: Option<[f32; 4]>,
+    /// What the player holds down each step: nothing unless an instrument walks the body.
+    pub input: CharacterInput,
 }
 
 impl Shot {
@@ -1507,6 +1509,7 @@ impl Shot {
             body,
             front,
             follow: None,
+            input: CharacterInput::default(),
         }
     }
 
@@ -1572,7 +1575,7 @@ impl Shot {
         }
         self.scene.update(
             dereth_client_runtime::camera::CameraInput::default(),
-            CharacterInput::default(),
+            self.input,
             now,
             1.0 / 30.0,
         );

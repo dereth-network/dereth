@@ -1800,6 +1800,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "world.streaming.a-block-whose-detail-changes-keeps-its-land-until-rebuilt",
+        says: "Walking across a landblock line never leaves a block that stays in the window \
+               without land for a frame: a block whose level of detail changes is drawn with its \
+               old land until its new land is built.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-REMESH-KEEPS-LAND-STREAMING"),
+        station: "dereth-landscape::lib::window::tests::a_block_whose_ring_changed_keeps_its_old_geometry_until_the_new_is_set",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.streaming.a-departed-block-releases-the-objects-in-its-interior-cells",
         says: "When a landblock leaves the window, the objects standing in its interior rooms \
                leave visibility and are queued for destruction just as its outdoor objects are, \

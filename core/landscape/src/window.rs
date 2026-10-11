@@ -24,8 +24,11 @@ pub struct WindowSlot<M> {
     /// `block_coord = (blockX*8, blockY*8)`, stored on each block by `update_block`.
     pub block_x: i32,
     pub block_y: i32,
+    /// The block's geometry. After a change of ring it is still the old ring's until the caller
+    /// sets the new one ([`LandblockWindow::set_mesh`]), so a block that stays in the window is
+    /// never left with nothing to draw while it waits to be rebuilt.
     pub mesh: Option<M>,
-    /// The LOD divisor this slot was last generated at, so `update_block` can tell whether
+    /// The LOD divisor the slot's ring asks for, so `update_block` can tell whether
     /// `notify_change_size` is needed.
     pub lod_div: u8,
     pub trans_dir: Direction,
@@ -45,7 +48,8 @@ pub enum SlotAction {
     },
     /// The slot stayed, at the same detail and direction: `generate` returns 0 and does nothing.
     Unchanged,
-    /// The slot stayed but its ring changed: `notify_change_size` then a full `generate`.
+    /// The slot stayed but its ring changed: `notify_change_size` then a full `generate`. The
+    /// slot keeps its old geometry until the new geometry is set.
     Resized { lod_div: u8, dir: Direction },
     /// The slot stayed at the same size but a new stitch direction: `ConstructVertices`,
     /// `TransAdjust`, the plane adjustment, `CalcWater` — the "rebuilt = 0" tail of `generate`.
@@ -203,10 +207,12 @@ impl<M> LandblockWindow<M> {
                             trans_dir: dir,
                         });
                     }
+                    // The client destroys the old geometry and generates the new in this same
+                    // update, so no frame draws the block without land. Here the new geometry may
+                    // be built on a later frame, so the old stays until it replaces it.
                     (Some(s), SlotAction::Resized { lod_div, dir }) => {
                         s.lod_div = lod_div;
                         s.trans_dir = dir;
-                        s.mesh = None; // Destroy() then InitPVArrays()
                     }
                     (Some(s), SlotAction::Restitched { dir }) => s.trans_dir = dir,
                     _ => {}
@@ -462,6 +468,57 @@ mod tests {
             restitched > 0,
             "and change some blocks' stitch direction without resizing"
         );
+    }
+
+    /// Oracle: the client rebuilds a block whose ring changed in the same update that changed
+    /// it, so no frame draws a block of the window without land. Here the rebuild may come on a
+    /// later frame, so the block keeps the geometry of its old ring until the new geometry is
+    /// set: after a one-block step, every block that stayed in the window still has geometry,
+    /// and only the newly exposed edge has none.
+    ///
+    /// Behaviour: world.streaming.a-block-whose-detail-changes-keeps-its-land-until-rebuilt
+    #[test]
+    fn a_block_whose_ring_changed_keeps_its_old_geometry_until_the_new_is_set() {
+        let mut win = LandblockWindow::<u8>::new(5);
+        win.update_block((100, 100));
+        let w = win.mid_width();
+        // Every block generated at its ring: the geometry is the detail it was built at.
+        for xi in 0..w {
+            for yi in 0..w {
+                let lod = win.slot(xi, yi).expect("a fetched slot").lod_div;
+                win.set_mesh(xi, yi, lod);
+            }
+        }
+        let actions = win.update_block((101, 100));
+        let mut resized = Vec::new();
+        for xi in 0..w {
+            for yi in 0..w {
+                let slot = win.slot(xi, yi).expect("every slot holds a block");
+                match actions[win.index(xi, yi)] {
+                    SlotAction::Fetched { .. } => assert_eq!(
+                        slot.mesh, None,
+                        "({xi},{yi}) has just entered the window and has nothing built yet"
+                    ),
+                    SlotAction::Resized { lod_div, .. } => {
+                        let old = slot.mesh.unwrap_or_else(|| {
+                            panic!("({xi},{yi}) changed ring and lost its land before the rebuild")
+                        });
+                        assert_ne!(old, lod_div, "({xi},{yi}) still draws its old ring's land");
+                        resized.push((xi, yi, lod_div));
+                    }
+                    _ => assert!(slot.mesh.is_some(), "({xi},{yi}) stayed and has land"),
+                }
+            }
+        }
+        assert!(
+            !resized.is_empty(),
+            "a one-block step changes some blocks' rings"
+        );
+        // Building the new geometry replaces the old.
+        for &(xi, yi, lod_div) in &resized {
+            win.set_mesh(xi, yi, lod_div);
+            assert_eq!(win.slot(xi, yi).and_then(|s| s.mesh), Some(lod_div));
+        }
     }
 
     /// Oracle: the block frame origin is the block offset from

@@ -14,11 +14,29 @@
 //!   (default 4; `0` builds everything at once, as an offline run does).
 //! - `DERETH_TURN_DISTANCE`: the orbit camera's distance (default its own).
 //! - `DERETH_HIFI_SIZE`: `WxH`, default `1920x1080`.
+//!
+//! And a walk: the same body running from the same place across a landblock line, so the window
+//! re-centres and every block whose ring changed is rebuilt, each frame written with how many of
+//! the window's blocks had no land to draw. A block that was drawn before and has no land now is
+//! counted apart from one that has just entered the window and has not been built yet.
+//!
+//! - `DERETH_WALK_DIR`: where the files go.
+//! - `DERETH_WALK_CAMERA`: `orbit` (the default) or `game`, as for the turn.
+//! - `DERETH_WALK_HEADING`: the heading run along, in degrees counter-clockwise from north
+//!   (default 180: south, across the line into the block south of Holtburg).
+//! - `DERETH_WALK_BACK`: `1` walks backwards instead, so the camera looks back along the walk:
+//!   with a heading of 0, the body backs south across the same line looking north.
+//! - `DERETH_WALK_FRAMES`: frames run (default 150, five seconds).
+//! - `DERETH_WALK_PNG_EVERY`: write every this many frames as a PNG (default 1; `0` writes none).
+//! - `DERETH_TURN_RADIUS`, `DERETH_TURN_BUDGET_MS` and `DERETH_HIFI_SIZE`, as for the turn.
 
 #![cfg(gpu)]
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
+
+use dereth_scene::world_scene::SceneReads;
 
 use super::hifi_stations::{self, capture, write_png, Clock, Place, Shot, Station};
 
@@ -197,4 +215,147 @@ fn capture_a_turn() {
         }
     }
     std::fs::write(dir.join("turn.txt"), log).expect("the log");
+}
+
+/// A set of landblocks, by block coordinates.
+type Blocks = BTreeSet<(i32, i32)>;
+
+/// Every block in the window, and those of them that have land to draw: a terrain mesh in its
+/// slot and the drawing's own record of the block.
+fn window_land(shot: &Shot) -> (Blocks, Blocks) {
+    let w = &shot.scene.streamer.window;
+    let n = w.mid_width();
+    let (mut all, mut land) = (BTreeSet::new(), BTreeSet::new());
+    for xi in 0..n {
+        for yi in 0..n {
+            if let Some(s) = w.slot(xi, yi) {
+                let b = (s.block_x, s.block_y);
+                all.insert(b);
+                if s.mesh.is_some() && shot.scene.block_bake(b).is_some() {
+                    land.insert(b);
+                }
+            }
+        }
+    }
+    (all, land)
+}
+
+#[test]
+#[ignore = "instrument: writes PNGs; run with DERETH_WALK_DIR set and --ignored"]
+fn capture_a_walk() {
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let (width, height) = env("DERETH_HIFI_SIZE")
+        .and_then(|s| {
+            let (w, h) = s.split_once(['x', 'X'])?;
+            Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or((1920u32, 1080u32));
+    let dir = PathBuf::from(env("DERETH_WALK_DIR").expect("DERETH_WALK_DIR"));
+    std::fs::create_dir_all(&dir).expect("the capture folder");
+    let mode = env("DERETH_WALK_CAMERA").unwrap_or_else(|| "orbit".into());
+    let heading = num("DERETH_WALK_HEADING", 180.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let radius = num("DERETH_TURN_RADIUS", 25.0) as u32;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let budget = num("DERETH_TURN_BUDGET_MS", 4.0) as u64;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let frames = num("DERETH_WALK_FRAMES", 150.0).max(1.0) as usize;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let png_every = num("DERETH_WALK_PNG_EVERY", 1.0).max(0.0) as usize;
+    let station = Station {
+        name: "walk",
+        why: "",
+        place: Place::Ground {
+            block: hifi_stations::HOLTBURG,
+            x: 86.600_27,
+            y: 5.626_395,
+            yaw: heading,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: radius,
+    };
+    let mut device = crate::common::test_gpu(width, height);
+    let gpu = &mut device;
+    let mut shot = Shot::open(&store, gpu, &station);
+    shot.poll(gpu);
+    if mode == "orbit" {
+        let c = shot.scene.character.as_mut().expect("a body");
+        c.camera.orbit_active = true;
+        c.camera.place_orbit_anew();
+    }
+    // Everything streamed in at once, then the connected client's budget from here on.
+    for _ in 0..8 {
+        shot.step(gpu);
+    }
+    shot.scene.draw.cfg.stream_budget =
+        (budget > 0).then(|| std::time::Duration::from_millis(budget));
+    for _ in 0..600 {
+        shot.step(gpu);
+        if shot.scene.draw.pending_slot_count() == 0 && holes(&shot).is_empty() {
+            break;
+        }
+    }
+    for _ in 0..4 {
+        shot.step(gpu);
+    }
+    // The blocks drawn with land since they entered the window.
+    let mut drawn = window_land(&shot).1;
+    let back = env("DERETH_WALK_BACK").is_some_and(|v| v == "1");
+    shot.input = dereth_client_runtime::character::CharacterInput {
+        forward: !back,
+        back,
+        run: true,
+        ..Default::default()
+    };
+    let mut log = String::new();
+    let (mut lost_frames, mut lost_total, mut lost_worst) = (0usize, 0usize, 0usize);
+    for f in 0..frames {
+        let calls = gpu.draw_calls();
+        shot.step(gpu);
+        let calls = gpu.draw_calls() - calls;
+        if png_every > 0 && f % png_every == 0 {
+            let rgba = capture(gpu);
+            write_png(&dir.join(format!("w{f:04}.png")), width, height, &rgba);
+        }
+        let (all, land) = window_land(&shot);
+        drawn.retain(|b| all.contains(b));
+        let lost: Vec<(i32, i32)> = drawn.difference(&land).copied().collect();
+        let fresh = all.len() - land.len() - lost.len();
+        drawn.extend(land.iter().copied());
+        let stale = shot
+            .scene
+            .window_rings()
+            .iter()
+            .filter(|r| r.side_cell_count != r.expected_side_cell_count)
+            .count();
+        if !lost.is_empty() {
+            lost_frames += 1;
+            lost_total += lost.len();
+            lost_worst = lost_worst.max(lost.len());
+        }
+        let block = shot.scene.streamer.viewer_block().unwrap_or((0, 0));
+        let body = shot
+            .scene
+            .character
+            .as_ref()
+            .map(|c| (c.position().cell.0, c.position().frame.origin));
+        let _ = writeln!(
+            log,
+            "{f:04} window={:02X}{:02X} body={body:X?} pending={} lost={} new={fresh} \
+             stale={stale} draws={calls} first_lost={:?}",
+            block.0,
+            block.1,
+            shot.scene.draw.pending_slot_count(),
+            lost.len(),
+            &lost[..lost.len().min(6)],
+        );
+    }
+    let _ = writeln!(
+        log,
+        "frames with a drawn block lost: {lost_frames} of {frames}; blocks lost over all frames: \
+         {lost_total}; most in one frame: {lost_worst}"
+    );
+    std::fs::write(dir.join("walk.txt"), log).expect("the log");
 }
