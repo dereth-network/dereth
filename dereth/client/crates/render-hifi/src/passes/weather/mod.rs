@@ -380,7 +380,7 @@ impl ReplayFilter for LegacyLayer {
         }
     }
 
-    fn mark(&mut self, mark: Mark, _pass: &mut wgpu::RenderPass<'_>) {
+    fn mark(&mut self, mark: Mark, _pass: &mut wgpu::RenderPass<'_>) -> bool {
         match mark {
             Mark::SkyBegin(_) => {
                 self.in_sky = true;
@@ -395,6 +395,7 @@ impl ReplayFilter for LegacyLayer {
             }
             _ => {}
         }
+        false
     }
 }
 

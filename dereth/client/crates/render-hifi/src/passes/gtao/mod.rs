@@ -5,6 +5,10 @@
 //! surface's normal (taken from depth). An edge-aware blur removes the search's noise, and the
 //! term multiplies the picture in linear light: under eaves, in building corners, where walls
 //! meet the ground and under objects. Fogged distance and the sky are left alone.
+//!
+//! On a picture of more than [`HALF_ABOVE`] pixels the search and the blur work at half
+//! resolution, a texel for each two by two pixels, and each pixel takes the term from the texels
+//! round it that lie at its own distance, so a near edge lends nothing to what lies behind it.
 
 use std::collections::HashMap;
 
@@ -26,8 +30,29 @@ const POWER: f32 = 1.5;
 /// How much more a sample's approach toward the eye counts in its distance.
 const THICKNESS: f32 = 3.0;
 
-/// The constant block's size: two matrices and five vectors.
-const PARAMS_BYTES: u64 = 2 * 64 + 5 * 16;
+/// The constant block's size: two matrices and six vectors.
+const PARAMS_BYTES: u64 = 2 * 64 + 6 * 16;
+
+/// The occlusion's shader, for validation without a device.
+#[must_use]
+pub fn shader_source() -> &'static str {
+    WGSL
+}
+
+/// The pixels in the world's viewport above which the search and its blur work at half
+/// resolution: more than 2560x1440.
+pub const HALF_ABOVE: u64 = 2560 * 1440;
+
+/// The pixels a working texel of the search spans on each axis, for a viewport `width` by
+/// `height`: two above [`HALF_ABOVE`] pixels, one otherwise.
+#[must_use]
+pub fn search_grid(width: u32, height: u32) -> u32 {
+    if u64::from(width) * u64::from(height) > HALF_ABOVE {
+        2
+    } else {
+        1
+    }
+}
 
 /// The pass's pipelines, made on first use.
 #[derive(Debug)]
@@ -66,6 +91,8 @@ pub struct Gtao {
     gpu: Option<Gpu>,
     /// This instance draws the occlusion of frames that step indoors, after their rooms.
     late: bool,
+    /// The texels this instance searched in the frame, none when it drew nothing.
+    searched: u64,
 }
 
 impl Gtao {
@@ -76,6 +103,7 @@ impl Gtao {
         Self {
             gpu: None,
             late: true,
+            searched: 0,
         }
     }
 }
@@ -257,8 +285,8 @@ fn pipeline(
     })
 }
 
-/// The constant block for `frame`.
-fn params(s: &HifiSettings, f: &HifiFrame, encoded: bool) -> Vec<u8> {
+/// The constant block for `frame`, its search working on texels `grid` pixels square.
+fn params(s: &HifiSettings, f: &HifiFrame, encoded: bool, grid: u32) -> Vec<u8> {
     let (slices, steps, _) = effort(s.ambient_occlusion);
     let cam = &f.camera;
     let vp = cam.viewport;
@@ -281,12 +309,13 @@ fn params(s: &HifiSettings, f: &HifiFrame, encoded: bool) -> Vec<u8> {
             out.extend_from_slice(&v.to_le_bytes());
         }
     }
-    let vecs: [[f32; 4]; 5] = [
+    let vecs: [[f32; 4]; 6] = [
         [vp[0] as f32, vp[1] as f32, vp[2] as f32, vp[3] as f32],
         [RADIUS, 0.6, scale, 0.2 * vh],
         [slices as f32, steps as f32, STRENGTH, POWER],
         [fog_min, fog_max, has_fog, fade_end],
         [debug, if encoded { 1.0 } else { 0.0 }, 0.035, THICKNESS],
+        [grid as f32, 0.0, 0.0, 0.0],
     ];
     for v in vecs {
         for x in v {
@@ -325,8 +354,18 @@ impl HifiPass for Gtao {
             && f.camera.viewport[3] > 0
     }
 
+    fn observe(&mut self, _cx: &mut PrepareCx<'_, '_>) {
+        self.searched = 0;
+    }
+
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
         Ok(())
+    }
+
+    fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
+        if self.searched > 0 {
+            notes.push(("occlusion texels searched", self.searched));
+        }
     }
 
     fn encode(&mut self, cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
@@ -348,13 +387,15 @@ impl HifiPass for Gtao {
         }
         let (_, _, blurs) = effort(settings.ambient_occlusion);
         let (width, height) = cx.seam.surface_size();
+        let vp = cx.frame.camera.viewport;
+        let grid = search_grid(vp[2], vp[3]);
         let work = |cx: &mut EncodeCx<'_, '_>, name| {
             cx.resources.texture(
                 &device,
                 name,
                 TextureSpec {
-                    width,
-                    height,
+                    width: width.div_ceil(grid),
+                    height: height.div_ceil(grid),
                     format: WORK_FORMAT,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                         | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -411,7 +452,7 @@ impl HifiPass for Gtao {
         let encoded = !format.is_srgb() && reshade.is_none();
         cx.seam
             .queue()
-            .write_buffer(&gpu.params, 0, &params(&settings, cx.frame, encoded));
+            .write_buffer(&gpu.params, 0, &params(&settings, cx.frame, encoded, grid));
 
         let bind_with = |ao: &wgpu::TextureView, picture: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -438,15 +479,22 @@ impl HifiPass for Gtao {
             })
         };
         let bind = |ao: &wgpu::TextureView| bind_with(ao, &input);
-        let vp = cx.frame.camera.viewport;
         let x = vp[0].min(width.saturating_sub(1));
         let y = vp[1].min(height.saturating_sub(1));
         let scissor = (x, y, vp[2].min(width - x), vp[3].min(height - y));
+        // The texels the viewport covers, for the search and the blur.
+        let texels = (
+            scissor.0 / grid,
+            scissor.1 / grid,
+            (scissor.0 + scissor.2).div_ceil(grid) - scissor.0 / grid,
+            (scissor.1 + scissor.3).div_ceil(grid) - scissor.1 / grid,
+        );
+        self.searched = u64::from(texels.2) * u64::from(texels.3);
         let run = |encoder: &mut wgpu::CommandEncoder,
                    timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
                    out: &wgpu::TextureView,
                    clear: bool,
-                   clip: bool,
+                   clip: Option<(u32, u32, u32, u32)>,
                    instance: u32,
                    pipeline: &wgpu::RenderPipeline,
                    group: &wgpu::BindGroup| {
@@ -475,8 +523,8 @@ impl HifiPass for Gtao {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if clip {
-                pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+            if let Some((x, y, w, h)) = clip {
+                pass.set_scissor_rect(x, y, w, h);
             }
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, group, &[]);
@@ -490,12 +538,15 @@ impl HifiPass for Gtao {
             cx.timer.writes("gtao search"),
             &a,
             true,
-            true,
+            Some(texels),
             0,
             &gpu.search,
             &from_b,
         );
         cx.seam.count_pass();
+        // Each blur's taps lie a pixel further apart than the last's at full resolution; at half
+        // resolution, where a texel already spans two pixels, every blur's lie a texel apart.
+        let spread = |i: u32| if grid > 1 { 0 } else { i };
         let mut last_in_a = true;
         for i in 0..blurs {
             let (out, group) = if last_in_a {
@@ -505,15 +556,12 @@ impl HifiPass for Gtao {
             };
             run(
                 cx.encoder,
-                if i == 0 {
-                    cx.timer.writes("gtao blur")
-                } else {
-                    None
-                },
+                cx.timer
+                    .span_writes("gtao blur", i as usize, blurs as usize),
                 out,
                 true,
-                true,
-                i,
+                Some(texels),
+                spread(i),
                 &gpu.denoise,
                 group,
             );
@@ -539,7 +587,7 @@ impl HifiPass for Gtao {
             cx.timer.writes("gtao apply"),
             &target,
             false,
-            in_place,
+            in_place.then_some(scissor),
             0,
             &apply,
             group,

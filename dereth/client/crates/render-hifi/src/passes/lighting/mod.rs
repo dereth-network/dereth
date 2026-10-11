@@ -36,7 +36,8 @@ const CASCADE_LAYERS: u32 = 4;
 pub(crate) const SPLITS: [f32; CASCADES] = [14.0, 45.0, 150.0, 560.0];
 /// How far toward the sun casters are looked for beyond a cascade's own sphere, metres.
 const CASTER_REACH: f32 = 900.0;
-const MAX_LIGHTS: usize = 128;
+/// How many point lights the relight takes: the length of its list of them.
+pub const MAX_LIGHTS: usize = 128;
 const CASTER_STRIDE: u64 = 256;
 const BLOOM_LEVELS: u32 = 6;
 
@@ -69,6 +70,31 @@ pub(crate) fn legacy_light(frame: &HifiFrame) -> ([f32; 3], [f32; 3]) {
         .ambient_color
         .map(|c| f32::from(c) / 255.0 * sky.ambient_level.max(0.2));
     (sun, amb)
+}
+
+/// The point lights the relight puts on the frame's surfaces at `gain`: the nearest
+/// [`MAX_LIGHTS`] that reach within 250 metres of the eye, those inside a building's or a dungeon's
+/// cells first, then the rest, each kind nearest first. None at no gain, so no pixel walks them.
+#[must_use]
+pub fn point_lights(frame: &HifiFrame, gain: f32) -> Vec<&crate::snapshot::HifiLight> {
+    if gain <= 0.0 {
+        return Vec::new();
+    }
+    let eye = frame.camera.eye;
+    let mut lights: Vec<&crate::snapshot::HifiLight> = frame
+        .lights
+        .iter()
+        .filter(|l| l.falloff > 0.0 && (l.position - eye).length() - l.falloff < 250.0)
+        .collect();
+    lights.sort_by(|a, b| {
+        (a.position - eye)
+            .length()
+            .total_cmp(&(b.position - eye).length())
+    });
+    lights.truncate(MAX_LIGHTS);
+    // Stable: each kind stays nearest first.
+    lights.sort_by_key(|l| !l.interior);
+    lights
 }
 
 /// Whether the sun is up far enough to shade and shadow.
@@ -970,21 +996,19 @@ impl HifiPass for Lighting {
         p.extend(cas.texel);
         p.extend(cas.depth_range);
         p.extend(viewport);
-        // The point lights nearest the eye.
-        let mut lights: Vec<&crate::snapshot::HifiLight> = frame
-            .lights
-            .iter()
-            .filter(|l| l.falloff > 0.0 && (l.position - cam.eye).length() - l.falloff < 250.0)
-            .collect();
-        lights.sort_by(|a, b| {
-            (a.position - cam.eye)
-                .length()
-                .total_cmp(&(b.position - cam.eye).length())
-        });
-        lights.truncate(MAX_LIGHTS);
+        let sun_on = sun_up(frame);
+        // The point lights' gain: none while the sun stands high.
+        let point_gain = env_f32("DERETH_HIFI_POINT", 0.35)
+            * if sun_on {
+                1.0 - (frame.sky.sun_direction.z * frame.sky.sun_brightness * 4.0).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+        let lights = point_lights(frame, point_gain);
+        #[allow(clippy::cast_precision_loss)] // at most a few hundred lights
+        let inside = lights.iter().filter(|l| l.interior).count() as f32;
         #[allow(clippy::cast_precision_loss)]
         p.extend([cam.eye.x, cam.eye.y, cam.eye.z, lights.len() as f32]);
-        let sun_on = sun_up(frame);
         let l = frame.sky.sun_direction.normalize_or(Vec3::Z);
         p.extend([l.x, l.y, l.z, f32::from(u8::from(shadows))]);
         // After dark the sky's directional light (the moon's) is kept as the ordinary frame had
@@ -1017,13 +1041,7 @@ impl HifiPass for Lighting {
         let view_mode = f32::from(u8::from(cx.settings.debug == DebugView::Shadows));
         #[allow(clippy::cast_precision_loss)]
         p.extend([
-            env_f32("DERETH_HIFI_POINT", 0.35)
-                * if sun_on {
-                    1.0 - (frame.sky.sun_direction.z * frame.sky.sun_brightness * 4.0)
-                        .clamp(0.0, 1.0)
-                } else {
-                    1.0
-                },
+            point_gain,
             if sun_on {
                 env_f32("DERETH_HIFI_CONTACT", 2.5)
             } else {
@@ -1059,7 +1077,7 @@ impl HifiPass for Lighting {
             } else {
                 0.0
             },
-            0.0,
+            inside,
         ]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);

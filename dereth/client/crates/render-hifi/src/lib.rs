@@ -452,6 +452,58 @@ impl HifiRenderer {
         Ok(())
     }
 
+    /// Replay `range` of the world as recorded (unless `filter` says otherwise) into `targets`,
+    /// cleared as the ordinary frame clears; with a [`composite::stamp_split`], in two passes
+    /// timed as one, the depth kept between them as the start of the unstamped depth.
+    ///
+    /// # Errors
+    /// [`HifiError::Budget`] when the kept depth does not fit the video memory budget.
+    #[allow(clippy::too_many_arguments)]
+    fn replay_split(
+        compositor: &mut Compositor,
+        cx: &mut SidecarContext<'_>,
+        encoder: &mut wgpu::CommandEncoder,
+        resources: &mut resources::Resources,
+        timer: &mut GpuTimer,
+        targets: &composite::WorldTargets,
+        range: std::ops::Range<u32>,
+        split: Option<u32>,
+        filter: &mut dyn ReplayFilter,
+    ) -> Result<(), HifiError> {
+        let Some(at) = split else {
+            Compositor::replay_legacy(
+                cx,
+                encoder,
+                targets,
+                range,
+                true,
+                timer.writes("world replay"),
+                filter,
+            );
+            return Ok(());
+        };
+        Compositor::replay_legacy(
+            cx,
+            encoder,
+            targets,
+            range.start..at,
+            true,
+            timer.span_begin("world replay"),
+            filter,
+        );
+        compositor.keep_unstamped(cx, resources, encoder, &targets.depth)?;
+        Compositor::replay_legacy(
+            cx,
+            encoder,
+            targets,
+            at..range.end,
+            false,
+            timer.span_end(),
+            filter,
+        );
+        Ok(())
+    }
+
     /// Latch `e` and hand it to the device as the frame's failure.
     fn fail(&mut self, e: &HifiError) -> SidecarError {
         self.latch.trip(e);
@@ -486,6 +538,7 @@ impl HifiRenderer {
         let last_stamp = composite::last_building_stamp(cx.tables());
         let mut unstamped = None;
         let mut resolved = rt.is_none();
+        self.compositor.begin_frame();
         for slot in Slot::ORDER {
             if matches!(slot, Slot::WorldReplay | Slot::AlphaReplay) {
                 let mut filters: Vec<&mut dyn ReplayFilter> = self
@@ -523,24 +576,63 @@ impl HifiRenderer {
                                 rt,
                                 timer.writes("sky lift"),
                             );
+                            // Up to the first building stamp the world's depth is its depth with
+                            // no stamp: it is kept there, and only what follows is drawn again
+                            // for the depth each pixel sees.
+                            let split = last_stamp.and_then(|_| {
+                                composite::stamp_split(cx.tables(), plan.opaque.clone())
+                            });
                             let mut pass = reshade::reshade_pass(
                                 cx,
                                 encoder,
                                 rt,
                                 &targets.depth,
                                 "world re-shade",
-                                timer.writes("world re-shade"),
+                                match split {
+                                    Some(_) => timer.span_begin("world re-shade"),
+                                    None => timer.writes("world re-shade"),
+                                },
                             );
-                            cx.replay(plan.opaque.clone(), &mut pass, &mut chain);
+                            cx.replay(
+                                plan.opaque.start..split.unwrap_or(plan.opaque.end),
+                                &mut pass,
+                                &mut chain,
+                            );
                             drop(pass);
-                            if let Some(last) = last_stamp {
-                                let u = Compositor::unstamped_depth(
+                            if let Some(at) = split {
+                                self.compositor.keep_unstamped(
                                     cx,
                                     &mut self.resources,
                                     encoder,
-                                    0..last + 1,
-                                    timer.writes("unstamped depth"),
+                                    &targets.depth,
                                 )?;
+                                let mut pass = reshade::reshade_pass(
+                                    cx,
+                                    encoder,
+                                    rt,
+                                    &targets.depth,
+                                    "world re-shade",
+                                    timer.span_end(),
+                                );
+                                cx.replay(at..plan.opaque.end, &mut pass, &mut chain);
+                            }
+                            if let Some(last) = last_stamp {
+                                let u = match split {
+                                    Some(at) => self.compositor.unstamped_depth_from(
+                                        cx,
+                                        &mut self.resources,
+                                        encoder,
+                                        at..last + 1,
+                                        timer,
+                                    )?,
+                                    None => self.compositor.unstamped_depth(
+                                        cx,
+                                        &mut self.resources,
+                                        encoder,
+                                        0..last + 1,
+                                        timer.writes("unstamped depth"),
+                                    )?,
+                                };
                                 depth = self.compositor.seen_depth(
                                     cx,
                                     &mut self.resources,
@@ -642,24 +734,37 @@ impl HifiRenderer {
                             // A frame that steps indoors is replayed in two, so the depth seen
                             // before the step is kept for what is seen through its rooms'
                             // openings.
-                            Compositor::replay_legacy(
+                            let split = last_stamp
+                                .and_then(|_| composite::stamp_split(cx.tables(), 0..step.start));
+                            Self::replay_split(
+                                &mut self.compositor,
                                 cx,
                                 encoder,
+                                &mut self.resources,
+                                timer,
                                 &targets,
                                 0..step.start,
-                                true,
-                                timer.writes("world replay"),
+                                split,
                                 &mut chain,
-                            );
+                            )?;
                             let before = match last_stamp {
                                 Some(last) => {
-                                    let u = Compositor::unstamped_depth(
-                                        cx,
-                                        &mut self.resources,
-                                        encoder,
-                                        0..last + 1,
-                                        timer.writes("unstamped depth"),
-                                    )?;
+                                    let u = match split {
+                                        Some(at) => self.compositor.unstamped_depth_from(
+                                            cx,
+                                            &mut self.resources,
+                                            encoder,
+                                            at..last + 1,
+                                            timer,
+                                        )?,
+                                        None => self.compositor.unstamped_depth(
+                                            cx,
+                                            &mut self.resources,
+                                            encoder,
+                                            0..last + 1,
+                                            timer.writes("unstamped depth"),
+                                        )?,
+                                    };
                                     self.compositor.seen_depth(
                                         cx,
                                         &mut self.resources,
@@ -696,19 +801,45 @@ impl HifiRenderer {
                             )?;
                             world_depth = depth.clone();
                         } else {
-                            let writes = timer.writes("world replay");
-                            Compositor::replay_world(cx, encoder, &targets, writes, &mut chain)?;
                             // A frame that steps indoors has cleared the outdoor stamps away
                             // with the depth, and its air is not drawn.
-                            let split = ReshadePlan::new(cx.tables()).is_some_and(|p| p.is_split());
-                            if let (Some(last), false) = (last_stamp, split) {
-                                let u = Compositor::unstamped_depth(
-                                    cx,
-                                    &mut self.resources,
-                                    encoder,
-                                    0..last + 1,
-                                    timer.writes("unstamped depth"),
-                                )?;
+                            let stepped =
+                                ReshadePlan::new(cx.tables()).is_some_and(|p| p.is_split());
+                            let world = cx
+                                .tables()
+                                .world_span()
+                                .ok_or(HifiError::NotReady("the frame drew no whole world"))?;
+                            let split = last_stamp
+                                .filter(|_| !stepped)
+                                .and_then(|_| composite::stamp_split(cx.tables(), 0..world.end));
+                            Self::replay_split(
+                                &mut self.compositor,
+                                cx,
+                                encoder,
+                                &mut self.resources,
+                                timer,
+                                &targets,
+                                0..world.end,
+                                split,
+                                &mut chain,
+                            )?;
+                            if let (Some(last), false) = (last_stamp, stepped) {
+                                let u = match split {
+                                    Some(at) => self.compositor.unstamped_depth_from(
+                                        cx,
+                                        &mut self.resources,
+                                        encoder,
+                                        at..last + 1,
+                                        timer,
+                                    )?,
+                                    None => self.compositor.unstamped_depth(
+                                        cx,
+                                        &mut self.resources,
+                                        encoder,
+                                        0..last + 1,
+                                        timer.writes("unstamped depth"),
+                                    )?,
+                                };
                                 depth = self.compositor.seen_depth(
                                     cx,
                                     &mut self.resources,
@@ -901,6 +1032,14 @@ impl FrameSidecar for HifiRenderer {
         report.notes.push((
             "drawn as recorded after an indoor step",
             self.recorded_draws.1,
+        ));
+        report.notes.push((
+            "kept the depth before the first building stamp",
+            u64::from(self.compositor.kept()),
+        ));
+        report.notes.push((
+            "drawn again for the unstamped depth",
+            self.compositor.redrawn(),
         ));
         report
             .notes

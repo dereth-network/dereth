@@ -10,7 +10,8 @@
 //! - `DERETH_HIFI_STATIONS`: a comma list of station names, or `all` (the default).
 //! - `DERETH_HIFI_QUALITY`: `low`, `medium`, `high` (the default) or `ultra`.
 //! - `DERETH_HIFI_SIZE`: `WxH`, default `1920x1080`.
-//! - `DERETH_HIFI_TIMING`: `1` times each station at 3840x2160 as well.
+//! - `DERETH_HIFI_TIMING`: `1` times each station at 3840x2160 as well, or at
+//!   `DERETH_HIFI_TIMING_SIZE` (`WxH`).
 //! - `DERETH_HIFI_BASELINE_DIR`: a capture of another build to compare the off frames with.
 //!
 //! The device is the one `DERETH_TEST_RENDERER` names, a fresh one for every run of a station;
@@ -143,20 +144,72 @@ fn device(width: u32, height: u32) -> Gpu {
     gpu
 }
 
-/// The CPU milliseconds of one frame, averaged over [`TIMED`] frames drawn as they stand, after
-/// [`TIMING_WARM`] frames; the device is waited for at the end so the frames are all counted.
-fn time_frames(shot: &mut Shot, gpu: &mut Gpu) -> f64 {
+/// What timing a station's frames found.
+struct Timed {
+    /// Milliseconds a frame, wall clock, the device waited for at the end so every frame is
+    /// counted: the frames are drawn back to back as the client draws them, so this is the slower
+    /// of the processor's and the device's work.
+    frame_ms: f64,
+    /// Milliseconds of processor time a frame: the scene's walk and the device's encoding and
+    /// submission, of the frame a tenth of the way up from the quickest, so that other work on a
+    /// busy machine, which only ever adds to a frame, does not decide it.
+    cpu_ms: f64,
+    /// Each of the presentation's passes' GPU milliseconds, the median of what the timed frames
+    /// reported.
+    passes: Vec<(&'static str, f32)>,
+}
+
+/// [`TIMED`] frames of `shot` drawn as they stand, after [`TIMING_WARM`] frames, each opened,
+/// drawn and ended as the client does once a frame, and what they cost.
+fn time_frames(shot: &mut Shot, gpu: &mut Gpu) -> Timed {
+    use dereth_scene::world_scene::SceneReads as _;
     for _ in 0..TIMING_WARM {
         shot.draw(gpu);
     }
+    gpu.wait_idle().expect("the device finishes");
+    #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
+    let mut samples: Vec<(&'static str, Vec<f32>)> = Vec::new();
+    let mut cpu: Vec<f64> = Vec::with_capacity(TIMED);
     let started = Instant::now();
     for _ in 0..TIMED {
-        shot.draw(gpu);
+        let t = Instant::now();
+        gpu.begin_frame().expect("begin");
+        shot.scene.draw(gpu).expect("draw");
+        gpu.end_frame().expect("end");
+        cpu.push(t.elapsed().as_secs_f64() * 1000.0);
+        #[cfg(feature = "hifi")]
+        for (name, ms) in gpu.hifi_report().map(|r| r.gpu_ms).unwrap_or_default() {
+            match samples.iter_mut().find(|(n, _)| *n == name) {
+                Some((_, v)) => v.push(ms),
+                None => samples.push((name, vec![ms])),
+            }
+        }
     }
     gpu.wait_idle().expect("the device finishes");
     #[allow(clippy::cast_precision_loss)] // a small frame count
-    let ms = started.elapsed().as_secs_f64() * 1000.0 / TIMED as f64;
-    ms
+    let frame_ms = started.elapsed().as_secs_f64() * 1000.0 / TIMED as f64;
+    cpu.sort_by(f64::total_cmp);
+    Timed {
+        frame_ms,
+        cpu_ms: cpu[cpu.len() / 10],
+        passes: samples
+            .into_iter()
+            .map(|(name, mut v)| {
+                v.sort_by(f32::total_cmp);
+                (name, v[v.len() / 2])
+            })
+            .collect(),
+    }
+}
+
+/// The second size frames are timed at: `DERETH_HIFI_TIMING_SIZE` (`WxH`), 3840x2160 by default.
+fn timing_size() -> (u32, u32) {
+    env("DERETH_HIFI_TIMING_SIZE")
+        .and_then(|s| {
+            let (w, h) = s.split_once(['x', 'X'])?;
+            Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or((3840, 2160))
 }
 
 /// `rgba` at a quarter of its size or smaller, box-filtered, `tw` wide.
@@ -273,6 +326,8 @@ struct Run {
     counts: String,
     cpu_ms: Option<f64>,
     cpu_ms_4k: Option<f64>,
+    /// The processor's own milliseconds a frame, at the capture size and the second timing size.
+    cpu_only: (Option<f64>, Option<f64>),
     gpu_ms: Vec<(&'static str, f32)>,
     /// The presentation's passes at the capture size, when timed; `gpu_ms` is then at 4K when
     /// that was timed too.
@@ -323,22 +378,21 @@ fn run(
         eprintln!("{}: the presentation failed: {e}", station.name);
     }
     gpu.set_frame_digest(false);
-    let cpu_ms = timing.then(|| time_frames(&mut shot, gpu));
-    #[cfg(feature = "hifi")]
-    let gpu_ms_frame = gpu.hifi_report().map(|r| r.gpu_ms).unwrap_or_default();
-    #[cfg(not(feature = "hifi"))]
-    let gpu_ms_frame = Vec::new();
-    let cpu_ms_4k = (timing && env("DERETH_HIFI_TIMING").as_deref() == Some("1")).then(|| {
+    let timed = timing.then(|| time_frames(&mut shot, gpu));
+    let cpu_ms = timed.as_ref().map(|t| t.frame_ms);
+    let cpu_only_frame = timed.as_ref().map(|t| t.cpu_ms);
+    let gpu_ms_frame = timed.map(|t| t.passes).unwrap_or_default();
+    let timed_4k = (timing && env("DERETH_HIFI_TIMING").as_deref() == Some("1")).then(|| {
         let (w, h) = gpu.size();
-        gpu.resize(3840, 2160).expect("4K");
-        let ms = time_frames(&mut shot, gpu);
+        let (tw, th) = timing_size();
+        gpu.resize(tw, th).expect("the timing size");
+        let timed = time_frames(&mut shot, gpu);
         gpu.resize(w, h).expect("back");
-        ms
+        timed
     });
-    #[cfg(feature = "hifi")]
-    let gpu_ms = gpu.hifi_report().map(|r| r.gpu_ms).unwrap_or_default();
-    #[cfg(not(feature = "hifi"))]
-    let gpu_ms = Vec::new();
+    let cpu_ms_4k = timed_4k.as_ref().map(|t| t.frame_ms);
+    let cpu_only = (cpu_only_frame, timed_4k.as_ref().map(|t| t.cpu_ms));
+    let gpu_ms = timed_4k.map_or_else(|| gpu_ms_frame.clone(), |t| t.passes);
     #[cfg(feature = "hifi")]
     {
         shot.scene.draw.cfg.render.fidelity = Default::default();
@@ -350,6 +404,7 @@ fn run(
         counts,
         cpu_ms,
         cpu_ms_4k,
+        cpu_only,
         gpu_ms,
         gpu_ms_frame,
     }
@@ -358,7 +413,7 @@ fn run(
 /// The boxes alone and together, every station drawn once off and once per combination, each on
 /// a device of its own: `<root>/<combination>/<station>-on.png`, the off frames in
 /// `<root>/presets/`, a contact sheet of every station across every combination, and the frame
-/// times at the capture size and at 4K (CPU per frame, GPU per pass) in
+/// times at the capture size and at the second timing size (frame, CPU, GPU per pass) in
 /// `<root>/presets/timing.csv`.
 ///
 /// `DERETH_HIFI_PRESETS` is a comma list of `spec-<Name=value+...>` and `all` (every box); the
@@ -405,8 +460,16 @@ fn capture_the_presets() {
         .collect();
     let base = root().join("presets");
     std::fs::create_dir_all(&base).expect("the capture folder");
-    let mut csv = String::from(
-        "station,preset,size,cpu_ms_off,cpu_ms_on,cpu_ms_off_4k,cpu_ms_on_4k,gpu_ms_total,gpu_ms_total_4k,pass_ms,pass_ms_4k\n",
+    // Frame milliseconds (wall clock, frames back to back), the processor's milliseconds, and
+    // the passes' GPU milliseconds, at the capture size and at the second timing size.
+    let big = {
+        let (w, h) = timing_size();
+        format!("{w}x{h}")
+    };
+    let mut csv = format!(
+        "station,preset,size,frame_ms_off,frame_ms_on,frame_ms_off_{big},frame_ms_on_{big},\
+         cpu_ms_off,cpu_ms_on,cpu_ms_off_{big},cpu_ms_on_{big},gpu_ms_total,gpu_ms_total_{big},\
+         pass_ms,pass_ms_{big}\n",
     );
     let mut rows: Vec<Vec<Vec<u8>>> = Vec::new();
     for station in &stations {
@@ -447,12 +510,16 @@ fn capture_the_presets() {
             let four_k = on.cpu_ms_4k.is_some();
             let _ = writeln!(
                 csv,
-                "{},{preset},{width}x{height},{},{},{},{},{:.4},{:.4},\"{}\",\"{}\"",
+                "{},{preset},{width}x{height},{},{},{},{},{},{},{},{},{:.4},{:.4},\"{}\",\"{}\"",
                 station.name,
                 opt(off.cpu_ms),
                 opt(on.cpu_ms),
                 opt(off.cpu_ms_4k),
                 opt(on.cpu_ms_4k),
+                opt(off.cpu_only.0),
+                opt(on.cpu_only.0),
+                opt(off.cpu_only.1),
+                opt(on.cpu_only.1),
                 total(&on.gpu_ms_frame),
                 if four_k { total(&on.gpu_ms) } else { 0.0 },
                 list(&on.gpu_ms_frame),

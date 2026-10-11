@@ -35,7 +35,8 @@ struct Params {
     // ray is taken to be close to the eye.
     extra: vec4<f32>,
     // x 1 when the lamps are lit, y the gain of their glowing parts, z 1 to show their light
-    // alone.
+    // alone; w how many of the point lights, first in the list, are inside a building's or a
+    // dungeon's cells.
     lamp: vec4<f32>,
 };
 
@@ -197,18 +198,19 @@ fn contact_shadow(world: vec3<f32>, dist: f32, noise: f32) -> f32 {
 
 // The point lights on a surface. A light inside a building lights only that building's own
 // cells: nothing here knows what stands between it and the world outside, so the roofs, walls and
-// ground around the house would otherwise take its light straight through the walls.
+// ground around the house would otherwise take its light straight through the walls. The lights
+// inside come first in the list, so a surface walks only the lights of its own kind.
 fn point_light(world: vec3<f32>, n: vec3<f32>, inside: bool) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
     let count = i32(params.eye.w);
-    for (var k: i32 = 0; k < 128; k = k + 1) {
-        if (k >= count) {
+    let inner = i32(params.lamp.w);
+    let first = select(inner, 0, inside);
+    let last = select(count, inner, inside);
+    for (var k: i32 = first; k < 128; k = k + 1) {
+        if (k >= last) {
             break;
         }
         let l = lights[k];
-        if ((l.col.w > 0.5) != inside) {
-            continue;
-        }
         let d = l.pos.xyz - world;
         let dist = length(d);
         let r = l.pos.w;
@@ -303,7 +305,8 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
         if (leafy) {
             // A canopy is never wholly dark: light finds its way between the leaves.
             shadow = 0.4 + 0.6 * shadow;
-        } else {
+        } else if (shadow > 0.0) {
+            // What the sun's shadow already darkens wholly, a contact ray cannot darken more.
             shadow = shadow * contact_shadow(world, dist, fract(noise + 0.37));
         }
     }

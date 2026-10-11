@@ -784,35 +784,38 @@ impl std::fmt::Debug for Sky {
 }
 
 impl Sky {
-    /// Draw the physical sky into the open world pass, once a frame.
-    fn draw_sky(s: &mut Shared, pass: &mut wgpu::RenderPass<'_>) {
+    /// Draw the physical sky into the open world pass, once a frame, and whether it was drawn.
+    fn draw_sky(s: &mut Shared, pass: &mut wgpu::RenderPass<'_>) -> bool {
         s.sky_drawn = true;
         if s.weight < LEAST_WEIGHT {
-            return;
+            return false;
         }
-        Self::draw_full(s, pass, |g| &g.sky);
+        Self::draw_full(s, pass, |g| &g.sky)
     }
 
-    /// Draw the horizon's veil over the sky into the open world pass, once a frame.
-    fn draw_veil(s: &mut Shared, pass: &mut wgpu::RenderPass<'_>) {
+    /// Draw the horizon's veil over the sky into the open world pass, once a frame, and whether it
+    /// was drawn.
+    fn draw_veil(s: &mut Shared, pass: &mut wgpu::RenderPass<'_>) -> bool {
         s.veil_drawn = true;
-        Self::draw_full(s, pass, |g| &g.veil);
+        Self::draw_full(s, pass, |g| &g.veil)
     }
 
+    /// Draw a full-target triangle with `pipeline`, and whether it was drawn.
     fn draw_full(
         s: &Shared,
         pass: &mut wgpu::RenderPass<'_>,
         pipeline: impl FnOnce(&Gpu) -> &wgpu::RenderPipeline,
-    ) {
+    ) -> bool {
         let Some(gpu) = s.gpu.as_ref() else {
-            return;
+            return false;
         };
         let Some(binds) = gpu.binds.as_ref() else {
-            return;
+            return false;
         };
         pass.set_pipeline(pipeline(gpu));
         pass.set_bind_group(0, &binds.sky, &[]);
         pass.draw(0..3, 0..1);
+        true
     }
 }
 
@@ -861,12 +864,13 @@ impl ReplayFilter for Sky {
         }
     }
 
-    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) {
+    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) -> bool {
         let mut shared = state(&self.0);
         let s = &mut *shared;
         if !s.active {
-            return;
+            return false;
         }
+        let mut drew = false;
         match mark {
             Mark::SkyBegin(0) => {
                 s.in_sky = true;
@@ -875,22 +879,23 @@ impl ReplayFilter for Sky {
             Mark::SkyObject { index, properties } if s.in_sky => {
                 let dome = model::is_dome(index, properties);
                 if !dome && !s.sky_drawn {
-                    Self::draw_sky(s, pass);
+                    drew |= Self::draw_sky(s, pass);
                 }
                 s.in_dome = dome;
             }
             Mark::SkyEnd(0) => {
                 if s.in_sky && !s.sky_drawn {
-                    Self::draw_sky(s, pass);
+                    drew |= Self::draw_sky(s, pass);
                 }
                 if s.in_sky && !s.veil_drawn {
-                    Self::draw_veil(s, pass);
+                    drew |= Self::draw_veil(s, pass);
                 }
                 s.in_sky = false;
                 s.in_dome = false;
             }
             _ => {}
         }
+        drew
     }
 }
 

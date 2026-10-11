@@ -168,6 +168,10 @@ pub struct Compositor {
     pipelines: Option<Pipelines>,
     seen: Option<SeenPipeline>,
     seen_after_step: Option<SeenPipeline>,
+    /// How many recorded draws this frame drew again for the unstamped depth.
+    redrawn: u64,
+    /// Whether this frame kept its depth at a [`stamp_split`].
+    kept: bool,
 }
 
 /// Whether `note` is a stamp of an opening: a building's, drawn before its rooms from outdoors,
@@ -187,6 +191,38 @@ pub fn last_building_stamp(tables: &SideTables) -> Option<u32> {
         .filter(|d| d.cmd < cut)
         .find(|d| is_stamp(d))
         .map(|d| d.cmd)
+}
+
+/// Where a replay of the world over `range` stops for a moment, so the depth can be kept as it
+/// stands before any building is stamped: at the first building stamp in `range`, or the nearest
+/// command before it that no mark stands at, so that no mark is handed to the replay's filters
+/// twice. `None` when `range` stamps no building after its first command.
+///
+/// Up to that point the world's depth is the depth the world would have with no stamp at all, so
+/// only what follows it, up to the last stamp, has to be drawn again to finish the unstamped depth
+/// (see [`Compositor::unstamped_depth_from`]).
+#[must_use]
+pub fn stamp_split(tables: &SideTables, range: std::ops::Range<u32>) -> Option<u32> {
+    let first = tables
+        .draws
+        .iter()
+        .find(|d| range.contains(&d.cmd) && is_stamp(d))?
+        .cmd;
+    let marked = |at: u32| tables.marks.binary_search_by_key(&at, |(m, _)| *m).is_ok();
+    let mut at = first;
+    while marked(at) {
+        at = at.checked_sub(1)?;
+    }
+    (at > range.start).then_some(at)
+}
+
+/// Whether the commands in `range` draw anything but building stamps.
+fn draws_besides_stamps(tables: &SideTables, range: &std::ops::Range<u32>) -> bool {
+    tables
+        .draws
+        .iter()
+        .any(|d| range.contains(&d.cmd) && !is_stamp(d))
+        || tables.unnoted.iter().any(|at| range.contains(at))
 }
 
 /// The commands from the frame's indoor step to the world's end, when it steps indoors: the
@@ -220,6 +256,24 @@ pub struct WorldTargets {
 }
 
 impl Compositor {
+    /// Start a frame's count of the draws drawn again for the unstamped depth.
+    pub fn begin_frame(&mut self) {
+        self.redrawn = 0;
+        self.kept = false;
+    }
+
+    /// How many recorded draws this frame drew again for the unstamped depth.
+    #[must_use]
+    pub fn redrawn(&self) -> u64 {
+        self.redrawn
+    }
+
+    /// Whether this frame kept its depth at a [`stamp_split`].
+    #[must_use]
+    pub fn kept(&self) -> bool {
+        self.kept
+    }
+
     /// The colour and depth targets the world is replayed into, at the frame target's size,
     /// made or remade as the size or format changes.
     ///
@@ -310,10 +364,95 @@ impl Compositor {
     /// # Errors
     /// [`HifiError::Budget`] when its targets do not fit the video memory budget.
     pub fn unstamped_depth(
+        &mut self,
         cx: &mut SidecarContext<'_>,
         resources: &mut Resources,
         encoder: &mut wgpu::CommandEncoder,
         range: std::ops::Range<u32>,
+        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
+    ) -> Result<wgpu::TextureView, HifiError> {
+        self.unstamped_replay(cx, resources, encoder, range, true, timestamps)
+    }
+
+    /// Keep `depth`, the world's depth as it stands at a [`stamp_split`], as the start of the
+    /// unstamped depth.
+    ///
+    /// # Errors
+    /// [`HifiError::Budget`] when it does not fit the video memory budget.
+    pub fn keep_unstamped(
+        &mut self,
+        cx: &SidecarContext<'_>,
+        resources: &mut Resources,
+        encoder: &mut wgpu::CommandEncoder,
+        depth: &wgpu::TextureView,
+    ) -> Result<(), HifiError> {
+        let (width, height) = cx.surface_size();
+        let kept = Self::unstamped_target(cx, resources)?;
+        encoder.copy_texture_to_texture(
+            depth.texture().as_image_copy(),
+            kept.texture().as_image_copy(),
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.kept = true;
+        Ok(())
+    }
+
+    /// The depth the world leaves with no stamp, from the depth [`Compositor::keep_unstamped`]
+    /// kept at the command `range` starts at: `range` replayed over it with every stamp left out,
+    /// as [`Compositor::unstamped_depth`] replays the world from its start. When `range` draws
+    /// nothing but stamps, the kept depth is that depth already and nothing is drawn.
+    ///
+    /// # Errors
+    /// [`HifiError::Budget`] when its targets do not fit the video memory budget.
+    pub fn unstamped_depth_from(
+        &mut self,
+        cx: &mut SidecarContext<'_>,
+        resources: &mut Resources,
+        encoder: &mut wgpu::CommandEncoder,
+        range: std::ops::Range<u32>,
+        timer: &mut GpuTimer,
+    ) -> Result<wgpu::TextureView, HifiError> {
+        if draws_besides_stamps(cx.tables(), &range) {
+            let timestamps = timer.writes("unstamped depth");
+            self.unstamped_replay(cx, resources, encoder, range, false, timestamps)
+        } else {
+            Self::unstamped_target(cx, resources)
+        }
+    }
+
+    /// The unstamped depth's texture.
+    fn unstamped_target(
+        cx: &SidecarContext<'_>,
+        resources: &mut Resources,
+    ) -> Result<wgpu::TextureView, HifiError> {
+        let (width, height) = cx.surface_size();
+        resources.texture(
+            cx.device(),
+            ResourceName::WorldDepthUnstamped,
+            TextureSpec {
+                width,
+                height,
+                format: SidecarContext::depth_format(),
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST,
+            },
+        )
+    }
+
+    /// `range` replayed with every stamp left out into the unstamped depth, cleared first when
+    /// `clear`, otherwise over what it holds.
+    fn unstamped_replay(
+        &mut self,
+        cx: &mut SidecarContext<'_>,
+        resources: &mut Resources,
+        encoder: &mut wgpu::CommandEncoder,
+        range: std::ops::Range<u32>,
+        clear: bool,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> Result<wgpu::TextureView, HifiError> {
         let (width, height) = cx.surface_size();
@@ -329,17 +468,7 @@ impl Compositor {
                     | wgpu::TextureUsages::COPY_SRC,
             },
         )?;
-        let depth = resources.texture(
-            cx.device(),
-            ResourceName::WorldDepthUnstamped,
-            TextureSpec {
-                width,
-                height,
-                format: SidecarContext::depth_format(),
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-            },
-        )?;
+        let depth = Self::unstamped_target(cx, resources)?;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("unstamped depth"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -359,7 +488,11 @@ impl Compositor {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &depth,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
+                    load: if clear {
+                        wgpu::LoadOp::Clear(1.0)
+                    } else {
+                        wgpu::LoadOp::Load
+                    },
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
@@ -369,8 +502,9 @@ impl Compositor {
             multiview_mask: None,
         });
         cx.count_pass();
-        cx.replay_uncounted(range, &mut pass, &mut Unstamped);
+        let census = cx.replay_uncounted(range, &mut pass, &mut Unstamped);
         drop(pass);
+        self.redrawn += u64::from(census.legacy);
         Ok(depth)
     }
 
@@ -427,7 +561,7 @@ impl Compositor {
             .iter()
             .any(|d| step.contains(&d.cmd) && is_stamp(d));
         let unstamped = if stamped {
-            Self::unstamped_depth(
+            self.unstamped_depth(
                 cx,
                 resources,
                 encoder,
@@ -504,55 +638,6 @@ impl Compositor {
         });
         cx.count_pass();
         cx.replay(range, &mut pass, filter);
-    }
-
-    /// Replay everything recorded up to the world's end into `targets`, cleared as the ordinary
-    /// frame clears its own, asking `filter` about each draw.
-    ///
-    /// # Errors
-    /// [`HifiError::NotReady`] when the frame drew no whole world.
-    pub fn replay_world(
-        cx: &mut SidecarContext<'_>,
-        encoder: &mut wgpu::CommandEncoder,
-        targets: &WorldTargets,
-        timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
-        filter: &mut dyn ReplayFilter,
-    ) -> Result<(), HifiError> {
-        let span = cx
-            .tables()
-            .world_span()
-            .ok_or(HifiError::NotReady("the frame drew no whole world"))?;
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("world replay"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &targets.colour,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 1.0,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &targets.depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: timestamps,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        cx.count_pass();
-        cx.replay(0..span.end, &mut pass, filter);
-        Ok(())
     }
 
     /// Copy `picture` into the frame target texel for texel; with the depth view asked for,

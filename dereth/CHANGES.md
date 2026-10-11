@@ -29,6 +29,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's camera tilts with the ground as you run up and down hills, as the other interfaces' camera does: Align Camera to Slope, on Horizon's Controls page, on by default.
 - The butterflies, bats and birds that fly over the land as scenery circle round as they did in the original game, instead of beating their wings in one place.
 - Horizon's experimental effects cost less with the picture unchanged: Better Lighting adds about a third of the processor time it did and a sixth less graphics time, and each other effect less processor time too.
+- Horizon's experimental effects cost less: Better Lighting adds about a third of the processor time it did and a sixth less graphics time, and each other effect less processor time too. Above 2560x1440, Ambient Occlusion also takes under a third of the graphics time it did, its finest creases a little softer.
 
 ## 0.4.1 (2026-10-11)
 

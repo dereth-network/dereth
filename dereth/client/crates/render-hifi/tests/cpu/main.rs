@@ -3,6 +3,8 @@
 mod common;
 mod derive;
 mod graph;
+mod lighting;
+mod occlusion;
 mod reshade;
 mod shared;
 mod sky;

@@ -662,13 +662,18 @@ fn make_views(device: &wgpu::Device, format: wgpu::TextureFormat) -> Views {
             // The ordinary frame never writes the target's alpha.
             wgpu::ColorWrites::COLOR,
         ),
-        lift: fullscreen_pipeline_into(
-            device,
-            &layout,
-            &module,
-            "fs_lift",
-            &crate::derive::pipeline::reshade_targets(None, false).map(Some),
-        ),
+        lift: {
+            // The normals are cleared by the lift's pass rather than written by its pixels.
+            let [colour, mut normal] = crate::derive::pipeline::reshade_targets(None, false);
+            normal.write_mask = wgpu::ColorWrites::empty();
+            fullscreen_pipeline_into(
+                device,
+                &layout,
+                &module,
+                "fs_lift",
+                &[Some(colour), Some(normal)],
+            )
+        },
         normals: fullscreen_pipeline(
             device,
             &layout,
@@ -1024,7 +1029,8 @@ impl Reshader {
     }
 
     /// Lift `picture`, the world drawn so far in the frame target's encoding, into `targets` as
-    /// linear light with no normal, over the whole target.
+    /// linear light with no normal, over the whole target. The normals are cleared with the
+    /// pass, which costs the device next to nothing, rather than written pixel by pixel.
     pub fn lift(
         &mut self,
         cx: &mut SidecarContext<'_>,
@@ -1041,7 +1047,18 @@ impl Reshader {
         };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("sky lift"),
-            color_attachments: &[load(&targets.hdr), load(&targets.normal)],
+            color_attachments: &[
+                load(&targets.hdr),
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.normal,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+            ],
             depth_stencil_attachment: None,
             timestamp_writes: timestamps,
             occlusion_query_set: None,

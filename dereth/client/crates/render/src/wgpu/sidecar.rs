@@ -149,6 +149,9 @@ pub struct Census {
     pub skipped_covered_by_feed: u32,
     /// Left out as replaced by a pass's own draws.
     pub skipped_replaced_by_pass: u32,
+    /// How often the replay put the recording's state back after a filter drew at a mark: not a
+    /// draw, and not in [`Census::total`].
+    pub restored: u32,
 }
 
 impl Census {
@@ -193,6 +196,7 @@ impl Census {
         self.skipped_sky_dome += other.skipped_sky_dome;
         self.skipped_covered_by_feed += other.skipped_covered_by_feed;
         self.skipped_replaced_by_pass += other.skipped_replaced_by_pass;
+        self.restored += other.restored;
     }
 }
 
@@ -202,10 +206,12 @@ pub trait ReplayFilter {
     fn draw(&mut self, cmd: u32, note: Option<&DrawNote>) -> DrawAction<'_>;
 
     /// The replay has reached `mark`, with the world pass open. A pass may record draws of its
-    /// own here, for instance water before the held-back translucent draws. The pass's state
-    /// afterwards is put back as the recording had it.
-    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) {
+    /// own here, for instance water before the held-back translucent draws, and then answers
+    /// true: the pass's state afterwards is put back as the recording had it. A filter that
+    /// recorded nothing into the pass answers false.
+    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) -> bool {
         let _ = (mark, pass);
+        false
     }
 
     /// Another per-frame constant block for every draw recorded with the block at `recorded`,
@@ -429,6 +435,20 @@ struct ReplayState<'c> {
     binds: [Option<&'c wgpu::BindGroup>; 5],
 }
 
+/// The pipeline a replay's pass has bound: one of the device's own, by its index, or another a
+/// filter handed it, by its address (which stays put while the replay holds it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bound {
+    Recorded(usize),
+    Other(*const wgpu::RenderPipeline),
+}
+
+impl Bound {
+    fn other(p: &wgpu::RenderPipeline) -> Self {
+        Self::Other(std::ptr::from_ref(p))
+    }
+}
+
 /// What the replay draws with: the device's recorded frame and the resources it was recorded
 /// against.
 struct Replayer<'a> {
@@ -495,17 +515,23 @@ impl Replayer<'_> {
         if state.viewport != self.full {
             apply_viewport(pass, state.viewport);
         }
-        let mut current = None;
+        // The pipeline the pass has bound, so a run of draws with one pipeline binds it once.
+        let mut current: Option<Bound> = None;
         let mut next_mark = marks.partition_point(|(at, _)| (*at as usize) < start);
         for (i, cmd) in self.commands[start..end].iter().enumerate() {
             let at = start + i;
             while next_mark < marks.len() && marks[next_mark].0 as usize == at {
-                filter.mark(marks[next_mark].1, pass);
+                let drew = filter.mark(marks[next_mark].1, pass);
                 next_mark += 1;
-                // Whatever the filter drew, the recording continues in its own state.
-                current = None;
-                restore(pass, &state);
-                apply_viewport(pass, state.viewport);
+                // Whatever the filter drew, the recording continues in its own state. A frame
+                // holds thousands of marks and a filter draws at a handful, so the state is put
+                // back only after those.
+                if drew {
+                    current = None;
+                    restore(pass, &state);
+                    apply_viewport(pass, state.viewport);
+                    census.restored += 1;
+                }
             }
             match cmd {
                 Cmd::Viewport(v) => {
@@ -541,9 +567,9 @@ impl Replayer<'_> {
                     census.count_framed(&action, remap.is_some());
                     match action {
                         DrawAction::Legacy => {
-                            if current != Some(*pipeline) {
+                            if current != Some(Bound::Recorded(*pipeline)) {
                                 pass.set_pipeline(&self.pipelines[*pipeline]);
-                                current = Some(*pipeline);
+                                current = Some(Bound::Recorded(*pipeline));
                             }
                             let f = remap.unwrap_or(*frame);
                             pass.set_bind_group(0, uniform_bind, &[f, *draw]);
@@ -552,25 +578,29 @@ impl Replayer<'_> {
                         }
                         DrawAction::Skip(_) => {}
                         DrawAction::Frame(f) => {
-                            if current != Some(*pipeline) {
+                            if current != Some(Bound::Recorded(*pipeline)) {
                                 pass.set_pipeline(&self.pipelines[*pipeline]);
-                                current = Some(*pipeline);
+                                current = Some(Bound::Recorded(*pipeline));
                             }
                             pass.set_bind_group(0, uniform_bind, &[f, *draw]);
                             pass.set_vertex_buffer(0, vb.slice(vertices.clone()));
                             pass.draw(0..*count, 0..1);
                         }
                         DrawAction::Pipeline(p) => {
-                            pass.set_pipeline(p);
-                            current = None;
+                            if current != Some(Bound::other(p)) {
+                                pass.set_pipeline(p);
+                                current = Some(Bound::other(p));
+                            }
                             let f = remap.unwrap_or(*frame);
                             pass.set_bind_group(0, uniform_bind, &[f, *draw]);
                             pass.set_vertex_buffer(0, vb.slice(vertices.clone()));
                             pass.draw(0..*count, 0..1);
                         }
                         DrawAction::PipelineFrame(p, f) => {
-                            pass.set_pipeline(p);
-                            current = None;
+                            if current != Some(Bound::other(p)) {
+                                pass.set_pipeline(p);
+                                current = Some(Bound::other(p));
+                            }
                             pass.set_bind_group(0, uniform_bind, &[f, *draw]);
                             pass.set_vertex_buffer(0, vb.slice(vertices.clone()));
                             pass.draw(0..*count, 0..1);
@@ -585,7 +615,8 @@ impl Replayer<'_> {
             if matches!(m, Mark::WorldBegin | Mark::WorldEnd) {
                 break;
             }
-            filter.mark(m, pass);
+            // Nothing of the recording follows, so there is no state to put back.
+            let _ = filter.mark(m, pass);
             next_mark += 1;
         }
         census

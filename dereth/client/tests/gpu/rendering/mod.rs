@@ -16,6 +16,8 @@ mod game_viewport;
 #[cfg(feature = "hifi")]
 mod hifi_atmosphere;
 #[cfg(feature = "hifi")]
+mod hifi_cost;
+#[cfg(feature = "hifi")]
 mod hifi_lighting;
 mod hifi_off;
 #[cfg(feature = "hifi")]

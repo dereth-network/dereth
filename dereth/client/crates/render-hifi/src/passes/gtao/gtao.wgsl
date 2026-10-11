@@ -1,5 +1,7 @@
 // Ground-truth ambient occlusion over the world's depth: a horizon search in slices around each
-// pixel, an edge-aware blur, and a multiply into the picture in linear light.
+// pixel, an edge-aware blur, and a multiply into the picture in linear light. On a large picture
+// the search and the blur work at half resolution, a texel for each two by two pixels, and each
+// pixel takes the term from the texels round it that lie at its own distance.
 
 struct Params {
     // View to clip, and back.
@@ -17,6 +19,8 @@ struct Params {
     // Debug view, whether the target stores encoded (gamma) values, blur depth tolerance,
     // blur step in pixels.
     misc: vec4<f32>,
+    // The pixels a working texel spans on each axis (1 or 2), and three unused.
+    grid: vec4<f32>,
 };
 
 @group(0) @binding(0) var depth_tex: texture_depth_2d;
@@ -28,10 +32,13 @@ const PI: f32 = 3.14159265;
 const HALF_PI: f32 = 1.57079632;
 // How much wider the search grows per metre of distance.
 const RADIUS_PER_METRE: f32 = 0.08;
+// How far a texel's distance may stand from a pixel's, as a share of the pixel's, before the
+// texel lends it nothing at half resolution.
+const UPSAMPLE_LIKENESS: f32 = 0.05;
 
 struct VsOut {
     @builtin(position) position: vec4<f32>,
-    // The blur pass: its taps are this many pixels apart, less one.
+    // The blur pass: its taps are this many texels apart, less one.
     @location(0) @interpolate(flat) pass_index: u32,
 };
 
@@ -99,6 +106,33 @@ fn inside(px: vec2<i32>) -> bool {
     return in_viewport(vec2<f32>(px) + 0.5);
 }
 
+// The working texels the viewport covers: the first, and one past the last.
+fn work_lo() -> vec2<i32> {
+    return vec2<i32>(floor(params.viewport.xy / params.grid.x));
+}
+
+fn work_hi() -> vec2<i32> {
+    return vec2<i32>(ceil((params.viewport.xy + params.viewport.zw) / params.grid.x));
+}
+
+fn in_work(t: vec2<i32>) -> bool {
+    return all(t >= work_lo()) && all(t < work_hi());
+}
+
+// The pixel working texel `t` searches from, or (-1, -1) where it covers none in the viewport:
+// the first in the viewport of those it covers, the same corner of every texel wherever it can be,
+// so the texels on a surface lie evenly over it and the blur finds each like its neighbours.
+fn search_pixel(t: vec2<i32>) -> vec2<i32> {
+    let g = i32(params.grid.x);
+    for (var k = 0; k < g * g; k++) {
+        let p = t * g + vec2<i32>(k % g, k / g);
+        if (inside(p)) {
+            return p;
+        }
+    }
+    return vec2<i32>(-1);
+}
+
 // The surface's step along `axis` at `px`, from the side that continues the surface best.
 fn tangent(px: vec2<i32>, p: vec3<f32>, axis: vec2<i32>) -> vec3<f32> {
     let a1 = px - axis;
@@ -130,15 +164,20 @@ fn tangent(px: vec2<i32>, p: vec3<f32>, axis: vec2<i32>) -> vec3<f32> {
 // The search: visibility and the view distance, or (1, -1) where there is nothing to occlude.
 @fragment
 fn fs_ao(@builtin(position) frag: vec4<f32>) -> @location(0) vec2<f32> {
-    let px = vec2<i32>(frag.xy);
-    if (!in_viewport(frag.xy)) {
+    let t = vec2<i32>(frag.xy);
+    if (!in_work(t)) {
         return vec2<f32>(1.0, -1.0);
     }
+    let px = search_pixel(t);
+    if (px.x < 0) {
+        return vec2<f32>(1.0, -1.0);
+    }
+    let centre = vec2<f32>(px) + 0.5;
     let d = depth_at(px);
     if (d >= 1.0) {
         return vec2<f32>(1.0, -1.0);
     }
-    let p = view_at(frag.xy, d);
+    let p = view_at(centre, d);
     let dist = length(p);
     let depth_z = abs(p.z);
 
@@ -165,7 +204,7 @@ fn fs_ao(@builtin(position) frag: vec4<f32>) -> @location(0) vec2<f32> {
 
     let slices = u32(params.shape.x);
     let steps = u32(params.shape.y);
-    let rot_noise = bayer4(px);
+    let rot_noise = bayer4(t);
     let step_noise = ign(frag.xy);
     let min_s = 1.3 / screen_radius;
 
@@ -174,7 +213,7 @@ fn fs_ao(@builtin(position) frag: vec4<f32>) -> @location(0) vec2<f32> {
         let phi = (f32(slice) + rot_noise) * PI / f32(slices);
         let omega = vec2<f32>(cos(phi), sin(phi));
         // The view-space direction of moving along omega on screen.
-        let along = view_at(frag.xy + omega, d) - p;
+        let along = view_at(centre + omega, d) - p;
         let dir = normalize(along);
         let ortho = dir - dot(dir, v) * v;
         let axis = normalize(cross(ortho, v));
@@ -194,8 +233,8 @@ fn fs_ao(@builtin(position) frag: vec4<f32>) -> @location(0) vec2<f32> {
             var s = (f32(step) + fine) / f32(steps);
             s = s * s + min_s;
             let off = omega * (s * screen_radius);
-            let q_plus = frag.xy + off;
-            let q_minus = frag.xy - off;
+            let q_plus = centre + off;
+            let q_minus = centre - off;
             if (in_viewport(q_plus)) {
                 let qp = vec2<i32>(q_plus);
                 let dq = depth_at(qp);
@@ -240,6 +279,8 @@ fn fs_denoise(@builtin(position) frag: vec4<f32>, @location(0) @interpolate(flat
     }
     let tol = max(c.y * params.misc.z, 0.05);
     let stride = i32(pass_index) + 1;
+    let lo = work_lo();
+    let hi = work_hi();
     var sum = 0.0;
     var weight = 0.0;
     var sum_all = 0.0;
@@ -247,7 +288,7 @@ fn fs_denoise(@builtin(position) frag: vec4<f32>, @location(0) @interpolate(flat
     for (var y = -2; y <= 2; y++) {
         for (var x = -2; x <= 2; x++) {
             let q = px + vec2<i32>(x, y) * stride;
-            if (!in_viewport(vec2<f32>(q) + 0.5)) {
+            if (any(q < lo) || any(q >= hi)) {
                 continue;
             }
             let s = textureLoad(ao_in, q, 0).xy;
@@ -271,9 +312,70 @@ fn fs_denoise(@builtin(position) frag: vec4<f32>, @location(0) @interpolate(flat
     return vec2<f32>(mix(max(own, around), own, alone), c.y);
 }
 
+// The visibility at a pixel `dist` metres away, from the four texels round it: their
+// visibilities `ao`, their distances `at` (negative where nothing was searched) and their shares
+// by nearness `near`. A texel counts by its share and by how like the pixel's its distance is, so
+// one across an edge lends the pixel none of its occlusion. Where none is like it, the pixel takes
+// the texel nearest it in distance; where none was searched, it is open.
+fn upsample(dist: f32, ao: vec4<f32>, at: vec4<f32>, near: vec4<f32>) -> f32 {
+    let searched = step(vec4<f32>(0.0), at);
+    if (dot(searched, vec4<f32>(1.0)) < 0.5) {
+        return 1.0;
+    }
+    let off = abs(at - vec4<f32>(dist)) + (vec4<f32>(1.0) - searched) * 1e9;
+    let tol = max(dist * UPSAMPLE_LIKENESS, 0.05);
+    let r = off / tol;
+    let w = near * max(vec4<f32>(0.0), vec4<f32>(1.0) - r * r);
+    let least = min(min(off.x, off.y), min(off.z, off.w));
+    let nearest = select(
+        select(select(ao.w, ao.z, off.z <= least), ao.y, off.y <= least),
+        ao.x,
+        off.x <= least
+    );
+    return (dot(w, ao) + nearest * 1e-3) / (dot(w, vec4<f32>(1.0)) + 1e-3);
+}
+
+// The search's visibility and the view distance at pixel `px`: its own texel's at full
+// resolution; at half resolution, the four texels round it joined by `upsample`, at the pixel's
+// own distance.
+fn term_at(px: vec2<i32>) -> vec2<f32> {
+    if (params.grid.x < 1.5) {
+        return textureLoad(ao_in, px, 0).xy;
+    }
+    let d = depth_at(px);
+    if (d >= 1.0) {
+        return vec2<f32>(1.0, -1.0);
+    }
+    let dist = length(view_at(vec2<f32>(px) + 0.5, d));
+    // The pixel's place among the texels, each standing at the first pixel it covers.
+    let h = vec2<f32>(px) * 0.5;
+    let b = floor(h);
+    let f = h - b;
+    let t = vec2<i32>(b);
+    let lo = work_lo();
+    let hi = work_hi() - vec2<i32>(1);
+    let s00 = textureLoad(ao_in, clamp(t, lo, hi), 0).xy;
+    let s10 = textureLoad(ao_in, clamp(t + vec2<i32>(1, 0), lo, hi), 0).xy;
+    let s01 = textureLoad(ao_in, clamp(t + vec2<i32>(0, 1), lo, hi), 0).xy;
+    let s11 = textureLoad(ao_in, clamp(t + vec2<i32>(1, 1), lo, hi), 0).xy;
+    let near = vec4<f32>(
+        (1.0 - f.x) * (1.0 - f.y),
+        f.x * (1.0 - f.y),
+        (1.0 - f.x) * f.y,
+        f.x * f.y
+    );
+    let vis = upsample(
+        dist,
+        vec4<f32>(s00.x, s10.x, s01.x, s11.x),
+        vec4<f32>(s00.y, s10.y, s01.y, s11.y),
+        near
+    );
+    return vec2<f32>(vis, dist);
+}
+
 // The term as applied: strengthened, raised to its power, and faded with fog and distance.
 fn final_term(px: vec2<i32>) -> f32 {
-    let s = textureLoad(ao_in, px, 0).xy;
+    let s = term_at(px);
     if (s.y < 0.0) {
         return 1.0;
     }

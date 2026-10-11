@@ -207,10 +207,12 @@ impl ReplayFilter for Chain<'_> {
         }
     }
 
-    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) {
+    fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) -> bool {
+        let mut drew = false;
         for f in &mut self.0 {
-            f.mark(mark, pass);
+            drew |= f.mark(mark, pass);
         }
+        drew
     }
 
     fn frame(&mut self, recorded: u32) -> Option<u32> {
