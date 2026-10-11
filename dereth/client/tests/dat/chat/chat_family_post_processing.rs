@@ -16,7 +16,8 @@
 //!
 //! Fixture: seven families built as protocol messages (the recordings carry no emote or textbox
 //! example), a recorded-opcode scan of the corpus for the five recorded families, and a headless
-//! App whose preferences and chat log use temporary paths; no datagram leaves the process.
+//! App whose preferences and chat log use temporary paths, its link aimed at a loopback port this
+//! process holds and never answers.
 
 use crate::common::client_dir_or_workspace_client as client_dir;
 
@@ -109,7 +110,7 @@ fn connected_config() -> Config {
         connect: true,
         account: "p1185".into(),
         host: "127.0.0.1".into(),
-        port: 9000,
+        port: u32::from(crate::common::unanswered_port()),
         ui: true,
         headless: true,
         sound: false,

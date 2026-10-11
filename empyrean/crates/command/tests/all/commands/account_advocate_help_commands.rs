@@ -238,7 +238,7 @@ fn console(
 
 #[test]
 fn acecommands_from_the_console_matches_ace() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let mut ts = empyrean_testkit::TestServer::new();
     let types = ace_command_types();
     let file = vectors::load_named("commands", "help_acecommands_console");
@@ -261,7 +261,7 @@ fn acecommands_from_the_console_matches_ace() {
 
 #[test]
 fn acehelp_from_the_console_matches_ace() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let mut ts = empyrean_testkit::TestServer::new();
     let types = ace_command_types();
     let file = vectors::load_named("commands", "help_acehelp_console");
@@ -453,7 +453,7 @@ fn bestow_name_parsing_matches_ace() {
 
 #[test]
 fn every_handler_is_registered_once() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let mine: HashSet<&str> = [
         "AccountCommands",
         "AdvocateCommands",

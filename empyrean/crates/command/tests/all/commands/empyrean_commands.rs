@@ -33,15 +33,11 @@ pub fn is_brand_row(command: &str) -> bool {
         || ALIASES.contains(&command.as_str())
 }
 
-/// The table without the manager tests' own commands and `config-write` (not in ACE).
+/// The table without `config-write` (not in ACE).
 fn table() -> Vec<empyrean_command::command_handler_info::CommandHandlerInfo> {
     command_manager::get_commands()
         .into_iter()
-        .filter(|i| {
-            !i.attribute.command.starts_with("u61-")
-                && !i.attribute.command.starts_with("u62-")
-                && i.attribute.command != "config-write"
-        })
+        .filter(|i| i.attribute.command != "config-write")
         .collect()
 }
 
@@ -49,7 +45,7 @@ fn table() -> Vec<empyrean_command::command_handler_info::CommandHandlerInfo> {
 /// name is ACE's row with the alias description.
 #[test]
 fn empyrean_s_names_are_ace_s_commands() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let file = empyrean_common::vectors::load_named("commands", "command_registry");
     let all = table();
     let last_ace = all
@@ -113,7 +109,7 @@ fn empyrean_s_names_are_ace_s_commands() {
 #[test]
 fn both_names_answer_on_the_console() {
     use empyrean_command::handlers::help_commands as hc;
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let mut ts = empyrean_testkit::TestServer::new();
     let mut console = |handler: empyrean_command::command_handler::CommandHandler,
                        parameters: &[&str]| {
@@ -179,7 +175,7 @@ fn both_names_answer_on_the_console() {
 
 #[test]
 fn reportbug_is_empyrean_s_in_ace_s_slot() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let file = empyrean_common::vectors::load_named("commands", "command_registry");
     let ace_slot = file
         .cases
@@ -188,11 +184,7 @@ fn reportbug_is_empyrean_s_in_ace_s_slot() {
         .unwrap();
     let all: Vec<_> = command_manager::get_commands()
         .into_iter()
-        .filter(|i| {
-            !i.attribute.command.starts_with("u61-")
-                && !i.attribute.command.starts_with("u62-")
-                && i.attribute.command != "config-write"
-        })
+        .filter(|i| i.attribute.command != "config-write")
         .collect();
     // ACE's rows up to reportbug are the same rows (the registry test checks each of them), so
     // reportbug's index among them is ACE's slot.

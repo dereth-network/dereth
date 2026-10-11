@@ -7,7 +7,7 @@
 //! while a scripted `--enter-world` run, with nobody to press it, ends on the character error.
 //! From inside the world, Exit to Character Selection raises a modal confirmation, No leaves the
 //! player in the world, Yes asks to log off without quitting, and Exit Game quits without asking.
-//! Fixture: the retail dats, a headless `App` with a link pointed at a port nobody listens on, and
+//! Fixture: the retail dats, a headless `App` with a link pointed at a port nobody answers on, and
 //! clicks broadcast through the live UI tree to elements of the shipped layout.
 
 #![cfg(gpu)]
@@ -33,9 +33,9 @@ fn base_config() -> Config {
     }
 }
 
-/// `--connect`, pointed at a host with **nothing listening**.
+/// `--connect`, pointed at a loopback port this process holds and **never answers**.
 ///
-/// The socket binds to `0.0.0.0` on an ephemeral port and the `LoginRequest` goes nowhere; no
+/// The socket binds to `0.0.0.0` on an ephemeral port and the `LoginRequest` goes unanswered; no
 /// server is contacted. `App::link` is `Some`, so `build_host_state` takes its link arm and
 /// `process_logon_event_queue` runs its event loop instead of returning at the guard. A linkless
 /// `App` exercises neither.
@@ -44,7 +44,7 @@ fn connected_config() -> Config {
         connect: true,
         account: "disconnect".into(),
         host: "127.0.0.1".into(),
-        port: 9000,
+        port: u32::from(crate::common::unanswered_port()),
         ..base_config()
     }
 }

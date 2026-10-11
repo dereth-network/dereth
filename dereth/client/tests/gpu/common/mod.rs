@@ -34,3 +34,9 @@ pub mod app;
 
 #[path = "../../common/chat.rs"]
 pub mod chat;
+
+/// A loopback port no server answers on, for the stations that connect.
+#[path = "../../common/unanswered.rs"]
+pub mod unanswered;
+
+pub use unanswered::unanswered_port;

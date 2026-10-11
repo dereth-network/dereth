@@ -565,6 +565,7 @@ pub(super) fn draw_part(
                     subset: n,
                     probe: PartSubsetDraw {
                         object: s.object,
+                        placed: s.placed,
                         part: s.index,
                         subset: n,
                         cypt: s.cypt,
@@ -614,6 +615,7 @@ pub(super) fn draw_part(
         // subset at all when `part_alpha_lists` is clear.
         pass.trace.push(PartSubsetDraw {
             object: s.object,
+            placed: s.placed,
             part: s.index,
             subset: n,
             cypt: s.cypt,

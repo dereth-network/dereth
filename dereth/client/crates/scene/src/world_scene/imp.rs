@@ -312,8 +312,14 @@ pub enum AlphaFlush {
 /// the scene to agree with itself.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PartSubsetDraw {
-    /// The server object this part belongs to, or `None` for the **local body**.
+    /// The server object this part belongs to, or `None` for the **local body** or a placed
+    /// static.
     pub object: Option<ObjectId>,
+    /// The placed static this part belongs to (an animated piece of scenery or furniture), by
+    /// its cell and its index among its block's live placements; `None` for a server object and
+    /// for the local body. A placed static has no object id, so without this its parts read as
+    /// the body's.
+    pub placed: Option<(CellId, usize)>,
     /// Its index in the object's part array.
     pub part: usize,
     /// Which subset of `gfxobj[deg_level]` this is -- the alpha-list append's surface number.
@@ -3715,10 +3721,10 @@ struct PartSubmission<'a> {
     /// The server object this part belongs to, or `None` for the **local body** or a placed
     /// static.
     object: Option<ObjectId>,
-    /// Whether the part is a placed static's (an animated piece of scenery or furniture): it
-    /// has no object id, so it is neither the local body nor anything the selection ray can
-    /// take.
-    placed: bool,
+    /// The placed static the part is from (an animated piece of scenery or furniture), by its
+    /// cell and its index among its block's live placements: it has no object id, so it is
+    /// neither the local body nor anything the selection ray can take.
+    placed: Option<(CellId, usize)>,
     /// Its index in the object's part array.
     index: usize,
     part: &'a dereth_animation::parts::PhysicsPart,

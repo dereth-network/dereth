@@ -154,7 +154,10 @@ fn shader_haze(
 /// device for land at every distance out past the fog's end, below, level with and above the
 /// eye, is the haze the model is calibrated with, to within the device's rounding.
 #[test]
-#[ignore = "draws on the hardware GPU: run with --ignored, one GPU run at a time"]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "draws on the hardware GPU: --features retail-dats, one GPU run at a time"
+)]
 fn the_shaders_haze_is_the_haze_the_model_is_calibrated_with() {
     let (device, queue) = crate::hardware();
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

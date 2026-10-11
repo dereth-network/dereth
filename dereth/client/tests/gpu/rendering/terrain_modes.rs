@@ -89,9 +89,13 @@ fn look(mut scene: WorldScene, pitch: f32) -> WorldScene {
 }
 
 /// Draw a few frames at the pinned clock; the last frame's RGBA.
+///
+/// The clock does not move between the frames: the animated scenery (the butterflies over the
+/// meadows) is posed by the time that passes, so frames drawn at a moving clock are a different
+/// picture each time, and no comparison here could see a ground change through them.
 fn draw(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> Vec<u8> {
     let mut rgba = Vec::new();
-    for i in 0..3 {
+    for _ in 0..3 {
         let mut stream = ObjectStream::new();
         scene
             .sync_objects(store, gpu, &mut stream)
@@ -99,7 +103,7 @@ fn draw(scene: &mut WorldScene, store: &Arc<RetailDatStore>, gpu: &mut Gpu) -> V
         scene.update(
             dereth_client_runtime::camera::CameraInput::default(),
             dereth_client_runtime::character::CharacterInput::default(),
-            LocalTime(f64::from(i) / 30.0),
+            LocalTime(0.0),
             1.0 / 30.0,
         );
         scene.stream(store, gpu).expect("stream");

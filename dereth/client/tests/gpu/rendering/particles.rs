@@ -72,16 +72,35 @@ fn run(
     rgba
 }
 
-/// Park the camera in front of one of the block's scripted statics — a torch or a brazier — so
-/// that what it is looking at is an emitter rather than a hillside.
-fn look_at_an_emitter(scene: &mut WorldScene, index: usize) -> Vec3 {
+/// The scripted static the stations look at, a torch or a brazier in Holtburg, named by where it
+/// stands in the scene's render space.
+///
+/// Named by its place and not by its position among the scene's live placements: which statics
+/// are live, and in what order, is a property of the client (a static that plays a default
+/// animation is one, and the butterflies over the meadows are among them), so an index names
+/// whichever placement that slot holds today, while a coordinate is a fact about the dat.
+const STATION_EMITTER: Vec3 = Vec3::new(77.609_375, -105.0, 97.505);
+
+/// Park the camera in front of [`STATION_EMITTER`], so that what it is looking at is an emitter
+/// rather than a hillside.
+fn look_at_an_emitter(scene: &mut WorldScene) -> Vec3 {
     let origins = scene.emitter_host_origins();
-    assert!(
-        origins.len() > index,
-        "only {} emitter hosts around Holtburg; expected more",
+    let w = STATION_EMITTER;
+    let found: Vec<Vec3> = origins
+        .iter()
+        .copied()
+        .filter(|o| {
+            let (dx, dy, dz) = (o.x - w.x, o.y - w.y, o.z - w.z);
+            dx * dx + dy * dy + dz * dz < 0.01
+        })
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "expected exactly one live static at {w:?} among the {} around Holtburg; found {found:?}",
         origins.len()
     );
-    let o = origins[index];
+    let o = found[0];
     scene.camera.position = Vec3::new(o.x, o.y - 8.0, o.z + 1.5);
     scene.camera.yaw = 0.0;
     scene.camera.pitch = 0.0;
@@ -144,7 +163,7 @@ fn every_live_emitter_resolves_to_a_mesh() {
     let mut gpu = crate::common::test_gpu(640, 480);
     let mut scene = WorldScene::load(&store, &mut gpu, cfg(true)).expect("the landscape loads");
     run(&store, &mut gpu, &mut scene, 4);
-    look_at_an_emitter(&mut scene, 4);
+    look_at_an_emitter(&mut scene);
     run(&store, &mut gpu, &mut scene, 60);
 
     let d = scene.drawn_particles();
@@ -188,7 +207,7 @@ fn a_frame_with_the_emitters_running_differs_from_the_same_frame_without() {
         let mut gpu = crate::common::test_gpu(640, 480);
         let mut scene = WorldScene::load(&store, &mut gpu, cfg(particles)).expect("loads");
         run(&store, &mut gpu, &mut scene, 4);
-        look_at_an_emitter(&mut scene, 4);
+        look_at_an_emitter(&mut scene);
         let rgba = run(&store, &mut gpu, &mut scene, 60);
         Some((rgba, scene.drawn_particles().drawn))
     };

@@ -83,7 +83,7 @@ const LAP: [(i32, i32); 12] = [
 /// `WorldScene::load` left it, and the acceptance is that **lap 2's home reading equals lap 1's**,
 /// which is exactly "a block that leaves and re-enters does not accumulate".
 ///
-/// All three home stations (load, lap 1, lap 2) read **345** pairs and **333** scenery objects
+/// All three home stations (load, lap 1, lap 2) read **327** pairs and **383** scenery objects
 /// over the same 25 blocks. The load figure is reported beside the laps and bounded from above
 /// rather than pinned, because it is an upper bound on the whole window's residency and a leak
 /// would put the laps above it.
@@ -348,11 +348,14 @@ fn a_window_that_scrolls_away_from_its_blocks_and_back_holds_the_same_slots() {
     // on the scroll inward would keep a scenery-free block for ever.
     //
     // Asserted at the home station on `scenery_objects` **alone**: `object_triangles` is an
-    // aggregate the statics satisfy by themselves.
+    // aggregate the statics satisfy by themselves. The count is the within-block test's: a piece
+    // of generated scenery is kept when, by its shape, its collision cylinders' feet, its sorting
+    // sphere or its origin stay inside its block, which keeps the trees standing near the block
+    // lines that testing every piece by its sorting sphere dropped.
     assert_eq!(
-        loaded.scenery, 333,
+        loaded.scenery, 383,
         "the load window over Holtburg baked {} scenery objects; the readings below are written \
-         against 333 and the number has moved",
+         against 383 and the number has moved",
         loaded.scenery
     );
     assert_eq!(

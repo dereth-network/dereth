@@ -199,7 +199,7 @@ impl SceneDraw {
                 }
                 subs.push(PartSubmission {
                     object: Some(*id),
-                    placed: false,
+                    placed: None,
                     index: i,
                     part,
                     outdoors,
@@ -248,7 +248,7 @@ impl SceneDraw {
                     }
                     subs.push(PartSubmission {
                         object: None,
-                        placed: true,
+                        placed: Some((h.cell, h.placement)),
                         index: i,
                         part,
                         outdoors,
@@ -302,7 +302,7 @@ impl SceneDraw {
                 }
                 subs.push(PartSubmission {
                     object: None,
-                    placed: false,
+                    placed: None,
                     index: i,
                     part,
                     outdoors: *outdoors,
@@ -596,7 +596,7 @@ impl SceneDraw {
                     (None, Some(m)) => {
                         let handle = match s.object {
                             Some(id) => ws.objects.get(&id).and_then(|o| o.sim.physics_handle),
-                            None if s.placed => None,
+                            None if s.placed.is_some() => None,
                             None => ws.character.as_ref().map(|c| c.handle),
                         };
                         handle
@@ -660,7 +660,7 @@ impl SceneDraw {
             if let Some(seen) = self.frame_pick_candidates.borrow_mut().as_mut() {
                 if let Some(id) = s
                     .object
-                    .or_else(|| body_id.filter(|_| !s.placed).map(ObjectId))
+                    .or_else(|| body_id.filter(|_| s.placed.is_none()).map(ObjectId))
                 {
                     seen.insert(id);
                 }
@@ -696,7 +696,10 @@ impl SceneDraw {
             // physics-object id reads for him (he *can* be his own selection).
             if status == dereth_world_render::objects::draw::MeshDrawStatus::InsideViewcone
                 && watched != 0
-                && s.object.map(|o| o.0).or(body_id.filter(|_| !s.placed)) == Some(watched)
+                && s.object
+                    .map(|o| o.0)
+                    .or(body_id.filter(|_| s.placed.is_none()))
+                    == Some(watched)
             {
                 self.selected_part_drawn.set(true);
             }

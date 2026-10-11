@@ -13,6 +13,10 @@ autotests = false
 # Captures only: the weather's masks may be shown and its clock stepped by frames, from the
 # environment the process starts with. A shipped build never reads them.
 capture = []
+# Tier switch only: no code is gated on it. The `gpu` binary's tests draw on the hardware GPU with
+# it and are ignored without it, so a workspace run on a machine with no device builds them and
+# runs none.
+retail-dats = []
 
 [dependencies]
 # The frame's recording and the seam it is read through, on the `wgpu` device.

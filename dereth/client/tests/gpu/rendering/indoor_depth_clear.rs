@@ -356,6 +356,28 @@ fn near_opening_edge(polys: &[Vec<(f32, f32)>], px: f32, py: f32, margin: f32) -
     })
 }
 
+/// The cleared pixels grouped into slivers: two pixels are in one sliver when they are at most two
+/// pixels apart on each axis, directly or through others of the group.
+fn slivers(cleared: &[(u32, u32, bool)]) -> Vec<Vec<(u32, u32, bool)>> {
+    let mut left: Vec<(u32, u32, bool)> = cleared.to_vec();
+    let mut out = Vec::new();
+    while let Some(first) = left.pop() {
+        let mut group = vec![first];
+        let mut i = 0;
+        while i < group.len() {
+            let (x, y, _) = group[i];
+            let (near, far): (Vec<_>, Vec<_>) = left
+                .into_iter()
+                .partition(|&(px, py, _)| px.abs_diff(x) <= 2 && py.abs_diff(y) <= 2);
+            group.extend(near);
+            left = far;
+            i += 1;
+        }
+        out.push(group);
+    }
+    out
+}
+
 /// The premise, read out of `client_cell_1.dat`: this really is a house with a cellar, the
 /// stairwell head really is below the land, and the cellar is below that.
 #[test]
@@ -476,12 +498,13 @@ fn the_ground_over_the_stairwell_is_the_outdoor_passs_depth() {
          is being credited with covering nothing, not with covering the land"
     );
     // The claim: the depth clear lets the interior draw over the land rather than blanking the
-    // frame. It is not an exact zero: from the production camera a handful of changed pixels (5 of
-    // 480,000 at this station) end as the colour clear. None of them is within 3 px of a projected
-    // opening, so they are not the outlines' rasterisation; they are one small sliver where the
-    // interior's own geometry does not quite close, through which the land showed before and now
-    // nothing does. So the cleared pixels must be **one small cluster** (a blanking depth clear
-    // would scatter them across the frame) and a small fraction of the change, not a fixed count.
+    // frame. It is not an exact zero: from the production camera a handful of changed pixels (10
+    // of 480,000 at this station) end as the colour clear. None of them is within 3 px of a
+    // projected opening, so they are not the outlines' rasterisation; they are small slivers where
+    // the interior's own geometry does not quite close, through which the land showed before and
+    // now nothing does. So every group of cleared pixels must be **a small cluster** (a blanking
+    // depth clear leaves a region of the frame) and all of them together a small fraction of the
+    // change, not a fixed count.
     eprintln!(
         "indoor depth cleared pixels: {black_after} of {changed} changed ({:.3} % of the change, \
          {:.4} % of the frame) -- (x, y, within 3 px of an opening outline) {:?}",
@@ -489,21 +512,22 @@ fn the_ground_over_the_stairwell_is_the_outdoor_passs_depth() {
         100.0 * black_after as f32 / total as f32,
         cleared,
     );
-    if black_after > 0 {
-        let xs = cleared.iter().map(|c| c.0);
-        let ys = cleared.iter().map(|c| c.1);
+    for sliver in slivers(&cleared) {
+        let xs = sliver.iter().map(|c| c.0);
+        let ys = sliver.iter().map(|c| c.1);
         let (x0, x1) = (xs.clone().min().unwrap(), xs.max().unwrap());
         let (y0, y1) = (ys.clone().min().unwrap(), ys.max().unwrap());
         let area = (x1 - x0 + 1) * (y1 - y0 + 1);
         eprintln!(
-            "indoor depth cleared bounding box: ({x0},{y0})..({x1},{y1}), {area} px, holding \
-             {black_after}"
+            "indoor depth cleared sliver: ({x0},{y0})..({x1},{y1}), {area} px, holding {}",
+            sliver.len()
         );
         assert!(
             area <= 256,
-            "the {black_after} pixels the Z clear left as the colour clear span a {area} px box \
+            "{} pixels the Z clear left as the colour clear span a {area} px box \
              ({x0},{y0})..({x1},{y1}) -- that is a region of the frame and not a sliver, so the Z \
-             clear is blanking the frame rather than letting the interior draw over the land"
+             clear is blanking the frame rather than letting the interior draw over the land",
+            sliver.len()
         );
     }
     assert!(

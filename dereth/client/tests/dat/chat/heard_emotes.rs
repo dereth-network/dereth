@@ -14,8 +14,9 @@
 //!
 //! Fixture: an opcode census of the recorded corpus, which carries each of the four emote
 //! opcodes (`0x01DF`, `0x01E0`, `0x01E1`, `0x01E2`) in `requested-death-vitae-salvage`; the drawn
-//! stations use synthesised messages handed to [`App::apply_hud_events`] on a headless App, and
-//! the log is read as its glyph trace.
+//! stations use synthesised messages handed to [`App::apply_hud_events`] on a headless App whose
+//! link is aimed at a loopback port this process holds and never answers, and the log is read as
+//! its glyph trace.
 
 use crate::common::client_dir_or_workspace_client as client_dir;
 
@@ -124,7 +125,7 @@ fn connected_config() -> Config {
         connect: true,
         account: "p1133".into(),
         host: "127.0.0.1".into(),
-        port: 9000,
+        port: u32::from(crate::common::unanswered_port()),
         ui: true,
         headless: true,
         sound: false,

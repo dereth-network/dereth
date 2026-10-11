@@ -772,11 +772,17 @@ fn change(app: &mut App, r: UiRequest) -> u64 {
 /// idles, and view-cone culling chooses a different set of its parts every frame, so `clip` can
 /// wander 8 -> 10 -> 15 across a run on a preference that cannot move a subset between lists.
 /// Two numbers taken inside one frame cannot drift against each other.
+///
+/// A subset is named by its owner as well as its part and subset numbers: the body and every
+/// animated static carry no object id, so without the placed static's own identity two owners'
+/// subsets with the same numbers read as one, deferred by one owner and drawn in place by the
+/// other, and so as one subset drawn twice.
 fn second_pass_census(app: &App) -> (usize, usize) {
     use std::collections::BTreeSet;
     let trace = app.world_scene().expect("a world").drawn_part_order();
-    let key =
-        |d: &dereth_scene::world_scene::PartSubsetDraw| (d.object.map(|o| o.0), d.part, d.subset);
+    let key = |d: &dereth_scene::world_scene::PartSubsetDraw| {
+        (d.object.map(|o| o.0), d.placed, d.part, d.subset)
+    };
     let deferred: BTreeSet<_> = trace
         .iter()
         .filter(|d| d.list == Some(dereth_world_render::objects::alpha::AlphaList::Clip))

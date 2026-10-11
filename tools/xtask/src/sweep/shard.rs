@@ -936,24 +936,37 @@ pub fn collect_all(mut running: Vec<Running>, t0: Instant) -> Vec<ShardResult> {
 }
 
 /// The features a tier binary needs. `dat`, `gpu` and `local` sit behind `retail-dats`; `gpu` also
-/// needs the crate's device feature, `vulkan` or `d3d12`, read from its own manifest rather than
-/// assumed.
+/// needs the crate's device feature, `vulkan` or `d3d12`. Each is asked for only when the crate's
+/// own manifest declares it: cargo refuses a feature its package does not have, builds nothing and
+/// prints no result, so a crate without the switch would never have its tier run.
 pub fn tier_features(crate_dir: &Path, tier: &str) -> Vec<String> {
+    let manifest = std::fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap_or_default();
+    features_for(&manifest, tier)
+}
+
+/// [`tier_features`] over a manifest's text.
+fn features_for(manifest: &str, tier: &str) -> Vec<String> {
     if tier == "cpu" {
         return Vec::new();
     }
-    let mut feats = vec!["retail-dats".to_owned()];
+    let declared: BTreeSet<String> = toml::from_str::<toml::Table>(manifest)
+        .ok()
+        .and_then(|t| {
+            t.get("features")?
+                .as_table()
+                .map(|f| f.keys().cloned().collect())
+        })
+        .unwrap_or_default();
+    let mut feats = Vec::new();
+    if declared.contains("retail-dats") {
+        feats.push("retail-dats".to_owned());
+    }
     if tier == "gpu" {
-        let manifest = std::fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap_or_default();
-        for dev in ["vulkan", "d3d12"] {
-            let declared = manifest.lines().any(|l| {
-                l.strip_prefix(dev)
-                    .is_some_and(|rest| rest.trim_start().starts_with('='))
-            });
-            if declared {
-                feats.push(dev.to_owned());
-                break;
-            }
+        if let Some(dev) = ["vulkan", "d3d12"]
+            .into_iter()
+            .find(|d| declared.contains(*d))
+        {
+            feats.push(dev.to_owned());
         }
     }
     feats
@@ -1999,6 +2012,27 @@ mod tests {
         let by_module: Vec<Vec<String>> =
             vec![(0..20).map(|i| format!("area::module_{i}")).collect()];
         assert!(longest_command("t.exe", &by_module, By::Module) < MAX_CMDLINE);
+    }
+
+    /// A tier binary is built with the features its crate declares and no others: a feature the
+    /// package lacks makes cargo refuse the build, and the suite then never runs.
+    #[test]
+    fn a_tier_asks_only_for_the_features_its_crate_declares() {
+        let client = "[package]\nname = \"c\"\n\n[features]\ndefault = [\"vulkan\", \"d3d12\"]\n\
+            vulkan = []\nd3d12 = []\nretail-dats = []\n\n[dependencies]\nvulkan-loader = \"1\"\n";
+        assert_eq!(features_for(client, "gpu"), s(&["retail-dats", "vulkan"]));
+        assert_eq!(features_for(client, "dat"), s(&["retail-dats"]));
+        assert!(features_for(client, "cpu").is_empty());
+        let d3d12_only = "[features]\nd3d12 = []\nretail-dats = []\n";
+        assert_eq!(
+            features_for(d3d12_only, "gpu"),
+            s(&["retail-dats", "d3d12"])
+        );
+        // A crate with neither switch, and one with no feature table at all.
+        let capture_only = "[package]\nname = \"h\"\n\n[features]\ncapture = []\n";
+        assert!(features_for(capture_only, "gpu").is_empty());
+        let no_features = "[package]\nname = \"tool\"\n\n[dependencies]\nretail-dats = \"1\"\n";
+        assert!(features_for(no_features, "local").is_empty());
     }
 
     /// Timings written and read back are the same, slowest first on disk.

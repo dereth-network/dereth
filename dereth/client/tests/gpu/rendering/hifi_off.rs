@@ -166,6 +166,7 @@ fn every_station_records_and_draws_what_the_base_build_did() {
         .expect("DERETH_HIFI_BASELINE_DIR names the base build's capture");
     let store = crate::common::dats();
     let stations = hifi_stations::isolation_stations(&store);
+    #[cfg(feature = "hifi")]
     let every_box = dereth_client_runtime::render_prefs::FidelityPreferences::parse_switch(
         "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1,Interface=0",
     )
@@ -189,8 +190,10 @@ fn every_station_records_and_draws_what_the_base_build_did() {
                     station.name
                 );
             };
-            let widened_too = cfg!(feature = "hifi") && backend == Backend::Wgpu;
-            let runs: &[(bool, bool)] = if widened_too {
+            // A build without the effects has no box to tick and no device to widen.
+            let runs: &[(bool, bool)] = if !cfg!(feature = "hifi") {
+                &[(false, false)]
+            } else if backend == Backend::Wgpu {
                 &[(false, false), (true, false), (true, true)]
             } else {
                 &[(false, false), (true, false)]
@@ -208,6 +211,7 @@ fn every_station_records_and_draws_what_the_base_build_did() {
                 let mut gpu = Gpu::new_on(backend, None, &cfg).expect("the device opens");
                 gpu.set_frame_digest(true);
                 let mut shot = Shot::open(&store, &mut gpu, station);
+                #[cfg(feature = "hifi")]
                 if ticked {
                     shot.scene.draw.cfg.render.fidelity = every_box;
                 }
@@ -276,7 +280,11 @@ fn every_station_records_and_draws_what_the_base_build_did() {
             }
         }
     }
-    assert!(checked >= 2 * 2 * stations.len(), "{checked}");
+    let runs_per_backend = if cfg!(feature = "hifi") { 2 } else { 1 };
+    assert!(
+        checked >= 2 * runs_per_backend * stations.len(),
+        "{checked}"
+    );
 }
 
 #[cfg(feature = "hifi")]

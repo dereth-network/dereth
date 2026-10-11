@@ -102,7 +102,7 @@ fn stuff_raw_into_parameters_matches_ace() {
 
 #[test]
 fn get_command_handler_on_the_console_matches_ace() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let ts = TestServer::new();
     let file = vectors::load_named("commands", "get_command_handler_console");
     for case in &file.cases {
@@ -288,7 +288,7 @@ fn handler_of(ty: &str, method: &str) -> Option<&'static str> {
 
 #[test]
 fn the_command_table_matches_aces_for_these_handler_files() {
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let file = vectors::load_named("commands", "command_registry");
     let mine = [
         "AccountCommands",
@@ -338,9 +338,7 @@ fn the_command_table_matches_aces_for_these_handler_files() {
     let got: Vec<_> = all
         .into_iter()
         .filter(|i| {
-            !i.attribute.command.starts_with("u61-")
-                && !i.attribute.command.starts_with("u62-")
-                && i.attribute.command != "config-write"
+            i.attribute.command != "config-write"
                 && !crate::brand::is_brand_row(&i.attribute.command)
         })
         .collect();

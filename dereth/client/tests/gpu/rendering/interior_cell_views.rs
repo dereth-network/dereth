@@ -943,7 +943,7 @@ fn body_parts_drawn(app: &App) -> BTreeSet<usize> {
         .expect("a world scene")
         .drawn_part_order()
         .iter()
-        .filter(|q| q.object.is_none())
+        .filter(|q| q.object.is_none() && q.placed.is_none())
         .map(|q| q.part)
         .collect()
 }

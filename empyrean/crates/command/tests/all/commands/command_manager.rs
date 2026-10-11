@@ -5,7 +5,7 @@
 //! Fixture: synthetic command arguments, handler tables and isolated server state.
 
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard};
 
 use empyrean_command::command_handler_flag::CommandHandlerFlag;
 use empyrean_command::command_manager::{self, WorldCommand};
@@ -18,8 +18,22 @@ fn noop(_w: &mut World, _session: Option<SessionId>, _parameters: &[String]) {}
 
 fn other(_w: &mut World, _session: Option<SessionId>, _parameters: &[String]) {}
 
+/// The command table is one per process, and [`try_add_and_try_remove_follow_aces_rules`] adds a
+/// row to it and takes it away again while the other tests read it: a comparison or a listing that
+/// ran in between saw a row ACE's table does not have. That test holds this lock alone; every
+/// other test that fills the table holds it shared, through [`initialized_table`].
+static TABLE: RwLock<()> = RwLock::new(());
+
+/// Fill the command table, and keep it free of other tests' own rows until the guard drops.
+pub fn initialized_table() -> RwLockReadGuard<'static, ()> {
+    let shared = TABLE.read().unwrap_or_else(PoisonError::into_inner);
+    command_manager::initialize(None);
+    shared
+}
+
 #[test]
 fn try_add_and_try_remove_follow_aces_rules() {
+    let _alone = TABLE.write().unwrap_or_else(PoisonError::into_inner);
     command_manager::initialize(None);
     let name = "u61-Added";
     assert!(command_manager::try_add_command_handler(
@@ -96,7 +110,7 @@ fn the_interactive_console_key_turns_the_prompt_off() {
 
 #[test]
 fn a_console_line_is_parsed_on_the_console_thread_and_run_on_the_world_thread() {
-    command_manager::initialize(None);
+    let _table = initialized_table();
     let queued: Arc<Mutex<Vec<WorldCommand>>> = Arc::default();
     let q = Arc::clone(&queued);
     let submit = move |c: WorldCommand| {
@@ -162,7 +176,7 @@ fn a_console_line_is_parsed_on_the_console_thread_and_run_on_the_world_thread() 
 
 #[test]
 fn a_console_command_with_the_wrong_count_prints_the_usage() {
-    command_manager::initialize(None);
+    let _table = initialized_table();
     let mut ts = TestServer::new();
     command_manager::start_console_capture();
     let (command, parameters) = command_manager::parse_command("unban").unwrap();
@@ -176,7 +190,7 @@ fn a_console_command_with_the_wrong_count_prints_the_usage() {
 
 #[test]
 fn console_ban_unban_and_banlist_use_the_auth_database() {
-    command_manager::initialize(None);
+    let _table = initialized_table();
     let mut ts = TestServer::new();
     ts.auth()
         .create_account(
@@ -342,7 +356,7 @@ fn config_write_on_the_console_dumps_the_configuration_as_empyrean_toml() {
     use empyrean_common::config_manager::ConfigManager;
     use empyrean_common::toml_config;
 
-    command_manager::initialize(None);
+    let _table = initialized_table();
     let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("u68-config-write");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();

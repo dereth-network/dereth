@@ -7,7 +7,7 @@
 //! support.turbine.com` (expiry > 0: current Unix time rounded up to the minute plus the duration),
 //! and `You have been banned from Asheron's Call%s.` (expiry <= 0). A clean exit still reaches the
 //! epilogue. Fixture: the `login-account-booted` recording replayed through `ClientNetwork`;
-//! constructed ban events; a headless linked App aimed at an unused loopback port.
+//! constructed ban events; a headless linked App aimed at a loopback port nobody answers on.
 
 #![cfg(gpu)]
 
@@ -42,14 +42,14 @@ fn base_config() -> Config {
     }
 }
 
-/// Enable the link path using loopback port 9000, intended to have no listener. This makes
-/// App::link present and selects build_host_state's link arm; no remote host is configured.
+/// Enable the link path using a loopback port this process holds and never answers. This makes
+/// App::link present and selects build_host_state's link arm; no server is contacted.
 fn connected_config() -> Config {
     Config {
         connect: true,
         account: "booted-and-banned".into(),
         host: "127.0.0.1".into(),
-        port: 9000,
+        port: u32::from(crate::common::unanswered_port()),
         ..base_config()
     }
 }

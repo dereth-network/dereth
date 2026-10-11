@@ -860,24 +860,22 @@ clear_ahead_at_all={ahead_full_any}/{trials}",
         head.ahead_full_any,
     );
 
-    // Pin the head-on halves: they are the only reading that sees the second-sphere slide's
-    // local-to-world contact-normal transform. The slide is reached about 1,220 times on this
-    // walk with four normals; rotation changes three of them, and the fourth, (0, 0, -1), is
-    // fixed by z rotations (it accounts for all of `world::cell_statics`'s hits, which therefore
-    // cannot distinguish the transform). Without the transform the pair reads 65 and 2 against
-    // 67 and 1.
+    // Pin the head-on halves. The second-sphere slide's local-to-world contact-normal transform is
+    // reached about 1,220 times on this walk with four normals; rotation changes three of them,
+    // and the fourth, (0, 0, -1), is fixed by z rotations (it accounts for all of
+    // `world::cell_statics`'s hits, which therefore cannot distinguish the transform). On this
+    // walk, deleting the transform moves two trials' distances (`A9B40113/q3` and `A9B40115/q3`)
+    // and neither count, so the transform itself is checked where it is computed, by
+    // `dereth-physics`'s `transition::slide_normal_rotation`.
     //
     // These are composition pins: a change requires interpreting the readings, not adjusting an
-    // unexplained expected number, and a re-pinned value must be re-checked against the same
-    // deletion.
+    // unexplained expected number.
     assert_eq!(
         (head.stalled_any, head.ahead_full_any),
         (HEAD_ON_STALLED, HEAD_ON_CLEAR_AHEAD),
         "the 0-degree pass has {} trials that stalled and {} that finished with a full \
          {AHEAD_FULL:.3} m free ahead, against {HEAD_ON_STALLED} and {HEAD_ON_CLEAR_AHEAD} on the \
-         landed composition. Deleting the rotation in the BSP collision slide reads \
-         65 and 2, and this is the only \
-         assertion in the tree that can see it",
+         landed composition; read the named trials rather than the count",
         head.stalled_any,
         head.ahead_full_any,
     );
@@ -1241,13 +1239,18 @@ const STALL_FRAMES: usize = 30;
 #[allow(dead_code)]
 const HEAD_ON_IN_SOLID: usize = 0;
 
-/// The head-on stalled/clear-ahead pair, which is what sees the second contact-normal rotation
-/// (part space to world space during second-sphere sliding); see the assertion above. A refused
-/// transition keeps the body at the wall, so most head-on trials stall. The one trial that stalls
-/// with a full probe free ahead is `A9B40100/q3`, resting at about 5.25 m with 1.064 m clear:
+/// The head-on stalled/clear-ahead pair, the walk's composition; see the assertion above. A
+/// refused transition keeps the body at the wall, so most head-on trials stall. The one trial
+/// that stalls with a full probe free ahead is `A9B40100/q3`, resting at about 5.25 m with
+/// 1.064 m clear:
 /// transitional insertion returns the state edge sliding wrote, so validation restores the last
 /// contact plane and undoes the substep there, and the body stops in the open.
-const HEAD_ON_STALLED: usize = 67;
+///
+/// The walk ticks the world on every frame: its clock adds up thirtieths, which land a hair under
+/// the quantum on some frames, and the tick opens on those as on the others. Each trial's path,
+/// and so this count, is that cadence's: a walk stepped unevenly takes other paths through the
+/// same rooms.
+const HEAD_ON_STALLED: usize = 66;
 const HEAD_ON_CLEAR_AHEAD: usize = 1;
 
 /// Stuck trials on the head-on pass. Separate constants keep differences between the two passes

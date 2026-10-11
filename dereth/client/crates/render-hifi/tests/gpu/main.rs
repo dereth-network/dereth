@@ -1,8 +1,8 @@
 //! The high-fidelity presentation's claims that need a device: its shaders' own arithmetic,
 //! drawn on the hardware GPU and read back.
 //!
-//! Fixture: a hardware adapter. These tests are ignored by default; run them with `--ignored`,
-//! one GPU run at a time.
+//! Fixture: a hardware adapter. These tests run with `--features retail-dats`, the switch every
+//! device tier sits behind, one GPU run at a time; without it they are ignored.
 
 mod atmosphere;
 

@@ -667,7 +667,7 @@ fn developer_console_lines_run_on_the_world_thread() {
 
     use empyrean_command::command_manager::WorldCommand;
 
-    command_manager::initialize(None);
+    let _table = super::command_manager::initialized_table();
     let queued: Arc<Mutex<Vec<WorldCommand>>> = Arc::default();
     let q = Arc::clone(&queued);
     let submit = move |c: WorldCommand| {

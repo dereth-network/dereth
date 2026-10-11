@@ -336,7 +336,7 @@ fn clicking_the_local_body_selects_the_player_and_beside_him_selects_nothing() {
     let body_parts_drawn = scene
         .drawn_part_order()
         .iter()
-        .filter(|d| d.object.is_none())
+        .filter(|d| d.object.is_none() && d.placed.is_none())
         .count();
     assert!(
         body_parts_drawn > 0,

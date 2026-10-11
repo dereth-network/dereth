@@ -524,8 +524,8 @@ fn inside_polygon(poly: &[(f32, f32)], x: f32, y: f32) -> bool {
 /// baked furniture. Retail's land-cell order covers a farther building's portal stamp with every
 /// nearer terrain cell; a floor, wall or furnishing fleck on that foreground terrain is therefore
 /// a concrete ordering failure rather than a lighting difference.
-/// The assertions require all changed RGB pixels to lie in the measured terrain band, then
-/// require that count to be zero. Polygon containment and edge distance are reported only.
+/// The assertions require the interior to show at this pose, every changed RGB pixel to lie inside
+/// a projected opening or on its outline, and none to lie in the measured terrain band.
 #[test]
 fn the_recorded_outdoor_pose_confines_static_interiors_to_building_openings() {
     let store = store();
@@ -589,10 +589,19 @@ fn the_recorded_outdoor_pose_confines_static_interiors_to_building_openings() {
         "exterior recorded pose: {} opening(s), {changed} static-interior pixels, {outside} outside, worst {worst:.1}px, terrain leak {terrain_leak}",
         on.portal_polygons.len(),
     );
-    assert_eq!(
-        terrain_leak, changed,
-        "{terrain_leak} of {changed} portal pixels lie in the measured terrain band; the subject \
-         changed somewhere beyond the terrain-fleck band and needs a new bounded attribution"
+    // From this pose the rooms behind the openings are in view, so the containment below is about
+    // something.
+    assert!(
+        changed > 0,
+        "the interior pass changed no pixel at the recorded pose, so nothing here shows that it is \
+         confined to the openings"
+    );
+    // A pixel whose centre is within one pixel of an opening's projected outline is the outline's
+    // rasterisation, not a leak.
+    assert!(
+        worst <= 1.0,
+        "{outside} of {changed} interior pixels lie outside every projected opening, the farthest \
+         {worst:.1} px from an outline: the interior is drawn where no opening shows it"
     );
     assert_eq!(
         terrain_leak, 0,
