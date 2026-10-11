@@ -333,6 +333,40 @@ impl PadDriver {
     }
 }
 
+/// A, CONFIRM, over what the focus is on: the left button, down with A and up with it. What a
+/// press picks up (an item, the interface's `drag`) is lifted when A comes up and carried
+/// (`carrying`) until A puts it down again, so the d-pad can take it elsewhere. A press is always
+/// a click of its own, never the second of a double-click, however soon and wherever it follows
+/// the last: Y is the pad's double-click.
+pub fn confirm(
+    step: &PadStep,
+    carrying: &mut bool,
+    input: &mut crate::ui::input::InputFrame,
+    drag: &mut Option<crate::ui::Drag>,
+) {
+    if step.pressed(B::South) {
+        if *carrying {
+            *carrying = false;
+            input.down[0] = false;
+            input.released[0] = true;
+        } else {
+            input.down[0] = true;
+            input.pressed[0] = true;
+        }
+    }
+    if step.released(B::South) && input.down[0] && !*carrying {
+        if let Some(d) = drag.as_mut() {
+            // Lifted at once, and never the selection: putting it down anywhere moves it.
+            d.active = true;
+            d.on_click = None;
+            *carrying = true;
+        } else {
+            input.down[0] = false;
+            input.released[0] = true;
+        }
+    }
+}
+
 /// A key of the on-screen keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OskKey {

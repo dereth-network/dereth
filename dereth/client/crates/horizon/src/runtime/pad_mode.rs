@@ -314,7 +314,7 @@ impl HorizonFrontEnd {
         self.frame_input.pad.osk = None;
         if in_ui {
             self.frame_input.pad.mode = Some(PadHints::Cursor);
-            self.cursor(cx, &step, &snap, game, &mut keys);
+            self.cursor(&step, &snap, game, &mut keys);
             return keys;
         }
         self.world(cx, &step);
@@ -409,14 +409,7 @@ impl HorizonFrontEnd {
 
     /// The focus over the interface: the d-pad moves it within its panel, and the face buttons
     /// confirm, cancel and act there.
-    fn cursor<S: Shell>(
-        &mut self,
-        cx: &mut Cx<'_, S>,
-        step: &PadStep,
-        snap: &Snapshot,
-        game: bool,
-        keys: &mut Vec<HostEvent>,
-    ) {
+    fn cursor(&mut self, step: &PadStep, snap: &Snapshot, game: bool, keys: &mut Vec<HostEvent>) {
         let mut pointer = None;
         let mut one_frame = false;
         // A slider is adjusted only once A has taken hold of it, until B lets it go.
@@ -546,33 +539,14 @@ impl HorizonFrontEnd {
                 }
             }
         }
+        // A: CONFIRM, the left button, carrying what it picks up.
+        crate::pad::confirm(
+            step,
+            &mut self.pad_mode.carrying,
+            &mut self.frame_input,
+            &mut self.ui.drag,
+        );
         let f = &mut self.frame_input;
-        // A: CONFIRM, the left button. What a press picks up (an item) is carried until A puts it
-        // down again, so the d-pad can take it elsewhere.
-        if step.pressed(B::South) {
-            if self.pad_mode.carrying {
-                self.pad_mode.carrying = false;
-                f.down[0] = false;
-                f.released[0] = true;
-            } else {
-                f.down[0] = true;
-                f.pressed[0] = true;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let ms = (cx.now() * 1000.0) as u32;
-                f.note_left_press(ms);
-            }
-        }
-        if step.released(B::South) && f.down[0] && !self.pad_mode.carrying {
-            if let Some(d) = self.ui.drag.as_mut() {
-                // Lifted at once, and never the selection: putting it down anywhere moves it.
-                d.active = true;
-                d.on_click = None;
-                self.pad_mode.carrying = true;
-            } else {
-                f.down[0] = false;
-                f.released[0] = true;
-            }
-        }
         // X: the right button (an item's options, examine).
         if step.pressed(B::West) {
             f.down[1] = true;

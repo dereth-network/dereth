@@ -6,9 +6,12 @@
 use dereth_client_contract::view::DropTarget;
 use dereth_client_contract::UiRequest;
 use dereth_horizon::draw::Rect;
+use dereth_horizon::pad::{PadDriver, PadSettings};
 use dereth_horizon::ui::game::{GameState, Item};
+use dereth_horizon::ui::input::PadHints;
 use dereth_horizon::ui::kit::Drop;
 use dereth_horizon::ui::panels::WindowId;
+use dereth_input::pad::{PadButton, PadState};
 use dereth_primitives::ObjectId;
 
 use crate::Harness;
@@ -168,6 +171,74 @@ fn a_double_click_on_a_tile_uses_the_item() {
         out.requests.contains(&UiRequest::Use(POTION)),
         "{:?}",
         out.requests
+    );
+}
+
+/// The pad's A held (`down`) or not this frame with the focus `at`, as gamepad mode drives the
+/// interface with it, and then the interface's frame: what it asked for.
+fn pad_a(
+    h: &mut Harness,
+    state: &GameState,
+    pad: &mut (PadDriver, bool),
+    down: bool,
+    at: (f32, f32),
+) -> Vec<UiRequest> {
+    let mut buttons = PadState::default();
+    buttons.set(PadButton::South, down);
+    let step = pad
+        .0
+        .step(Some(buttons), &PadSettings::default(), 1.0 / 60.0);
+    h.move_to(at.0, at.1);
+    dereth_horizon::pad::confirm(&step, &mut pad.1, &mut h.input, &mut h.ui.drag);
+    if h.ui.drag.is_none() {
+        pad.1 = false;
+    }
+    h.input.pad.carrying = pad.1;
+    h.frame(state).requests
+}
+
+#[test]
+fn with_the_pad_an_item_picked_up_where_another_was_put_down_from_is_carried_not_used() {
+    let (mut h, state) = open(&[WindowId::Inventory]);
+    h.input.pad.mode = Some(PadHints::Cursor);
+    let first = centre(zone(&h, slot(0)));
+    let second = centre(zone(&h, slot(1)));
+    let mut pad = (PadDriver::default(), false);
+    // The potion lifted from the first place, carried to the second and put down: it is moved
+    // and selected.
+    pad_a(&mut h, &state, &mut pad, true, first);
+    pad_a(&mut h, &state, &mut pad, false, first);
+    assert!(pad.1, "carried");
+    pad_a(&mut h, &state, &mut pad, false, second);
+    let put = pad_a(&mut h, &state, &mut pad, true, second);
+    assert!(
+        put.iter()
+            .any(|r| matches!(r, UiRequest::DragDrop { item, .. } if *item == POTION))
+            && put.contains(&UiRequest::Select(POTION)),
+        "{put:?}"
+    );
+    pad_a(&mut h, &state, &mut pad, false, second);
+    // The game has moved it: the helm is first now, and A there lifts the helm.
+    let moved = GameState {
+        pack: vec![item(HELM, "Helm"), item(POTION, "Potion")],
+        ..carrying()
+    };
+    h.frame(&moved);
+    let press = pad_a(&mut h, &moved, &mut pad, true, first);
+    assert!(
+        !press
+            .iter()
+            .any(|r| matches!(r, UiRequest::Use(_) | UiRequest::ExecuteTargetItem(_))),
+        "a second press where the first was is no double-click: {press:?}"
+    );
+    pad_a(&mut h, &moved, &mut pad, false, first);
+    assert!(
+        pad.1
+            && h.ui
+                .drag
+                .as_ref()
+                .is_some_and(|d| d.item == HELM && d.active),
+        "the helm is carried"
     );
 }
 
