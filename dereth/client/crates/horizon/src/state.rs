@@ -2,12 +2,28 @@
 
 use dereth_client_contract::pregame::GamePhase;
 use dereth_client_contract::view::{GameView, Vital as ViewVital};
+use dereth_client_contract::{SkillAdvancement, SkillEntry};
 use dereth_client_runtime::shell::Shell;
 
 use crate::ui::game::{
-    Blip, BlipKind, CharacterEntry, ChatLine, Effect, GameState, Item, Relation, Shortcut, Skill,
-    Spell, StatRow, Target, Vital,
+    Blip, BlipKind, CharacterEntry, ChatLine, Effect, GameState, Item, Modifiers, Relation,
+    Shortcut, Skill, Spell, StatRow, Target, Vital,
 };
+
+/// A skill as the character window shows it: its value with the spells in force and vitae, and
+/// what that value is made of.
+fn skill_of(s: &SkillEntry, adv: SkillAdvancement) -> Skill {
+    Skill {
+        name: s.name.clone(),
+        value: u32::try_from(s.effective).unwrap_or(0),
+        modifiers: Modifiers::of(s.level, s.effective, s.vitae),
+        training: s.sac,
+        id: s.id,
+        icon: s.icon.map(|d| d.0),
+        cost: adv.cost_to_raise,
+        cost_10: adv.cost_to_raise_10,
+    }
+}
 
 /// The integer qualities read here.
 mod int {
@@ -392,34 +408,18 @@ pub fn snapshot<S: Shell>(
         .skills()
         .iter()
         .filter(|s| s.sac >= 1)
-        .map(|s| {
-            let adv = v.skill_advancement(s.id).unwrap_or_default();
-            Skill {
-                name: s.name.clone(),
-                value: u32::try_from(s.level).unwrap_or(0),
-                training: s.sac,
-                id: s.id,
-                icon: s.icon.map(|d| d.0),
-                cost: adv.cost_to_raise,
-                cost_10: adv.cost_to_raise_10,
-            }
-        })
+        .map(|s| skill_of(s, v.skill_advancement(s.id).unwrap_or_default()))
         .collect();
     g.skill_credits = v.skill_credits();
     // The attributes in the game's own order, then the three vitals by their maxima.
     let stat = |wire: u32, vital: bool, name: &str, shown: String| {
         let adv = v.attribute_advancement(wire, vital).unwrap_or_default();
-        let colour = match adv.effective.cmp(&adv.value) {
-            std::cmp::Ordering::Greater => 1,
-            std::cmp::Ordering::Less => 2,
-            std::cmp::Ordering::Equal => 0,
-        };
         StatRow {
             name: name.to_owned(),
             wire,
             vital,
             shown,
-            colour,
+            modifiers: Modifiers::of(adv.value, adv.effective, adv.vitae),
             cost: adv.cost_to_raise,
             cost_10: adv.cost_to_raise_10,
         }
@@ -1140,5 +1140,39 @@ mod tests {
             ..GameState::default()
         };
         assert_eq!(nameplate_candidates(&state), [door]);
+    }
+
+    #[test]
+    fn a_skill_shows_its_enchanted_value_coloured_by_magic_but_not_by_vitae() {
+        let entry = |level: i32, effective: i32, vitae: i32| SkillEntry {
+            id: 6,
+            name: "Melee Defense".into(),
+            icon: None,
+            min_level: 1,
+            sac: 3,
+            level,
+            effective,
+            vitae,
+        };
+        let adv = SkillAdvancement::default();
+        let buffed = skill_of(&entry(200, 235, 0), adv);
+        assert_eq!(buffed.value, 235, "the value with the spells in force");
+        assert_eq!(buffed.modifiers.colour(), 1, "green");
+        assert_eq!(buffed.modifiers.lines(), ["200 (+35)"]);
+        let lowered = skill_of(&entry(200, 180, 0), adv);
+        assert_eq!(lowered.value, 180);
+        assert_eq!(lowered.modifiers.colour(), 2, "red");
+        assert_eq!(lowered.modifiers.lines(), ["200 (-20)"]);
+        let plain = skill_of(&entry(200, 200, 0), adv);
+        assert_eq!(plain.modifiers.colour(), 0);
+        assert_eq!(plain.modifiers.lines(), ["200"]);
+        // Vitae alone lowers the value but colours nothing; a buff under vitae is still a buff.
+        let vitae = skill_of(&entry(200, 190, -10), adv);
+        assert_eq!(vitae.value, 190);
+        assert_eq!(vitae.modifiers.colour(), 0, "vitae alone is not a debuff");
+        assert_eq!(vitae.modifiers.lines(), ["200", "Vitae: -10"]);
+        let both = skill_of(&entry(200, 196, -10), adv);
+        assert_eq!(both.modifiers.colour(), 1, "a +6 buff under a -10 vitae");
+        assert_eq!(both.modifiers.lines(), ["200 (+6)", "Vitae: -10"]);
     }
 }

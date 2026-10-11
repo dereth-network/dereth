@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Horizon's skills show their value with your spells in it, green when raised and red when lowered, as attributes already did; hovering a skill, attribute or vital shows its base and what magic adds, as "200 (+35)".
+
 ## 0.4.1 (2026-10-11)
 
 - Turning your character with the right mouse button in Horizon no longer stutters.

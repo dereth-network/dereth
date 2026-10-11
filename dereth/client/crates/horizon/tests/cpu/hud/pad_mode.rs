@@ -603,7 +603,7 @@ fn with_attributes() -> GameState {
         wire,
         vital: false,
         shown: "10".into(),
-        colour: 0,
+        modifiers: Default::default(),
         cost,
         cost_10: cost * 10,
     };

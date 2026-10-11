@@ -272,11 +272,67 @@ pub struct Item {
     pub cooldown: Option<(f64, f64)>,
 }
 
+/// What the spells in force and vitae make of a skill, an attribute or a vital's maximum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Modifiers {
+    /// The value with no enchantment on it.
+    pub base: i32,
+    /// What the spells in force add to it; negative when they lower it.
+    pub magic: i32,
+    /// What vitae takes from it: zero, or negative under a vitae penalty.
+    pub vitae: i32,
+}
+
+impl Modifiers {
+    /// From the value with no enchantment, the value with every enchantment (vitae's among
+    /// them), and vitae's part of the difference.
+    #[must_use]
+    pub const fn of(base: i32, enchanted: i32, vitae: i32) -> Self {
+        Self {
+            base,
+            magic: enchanted.saturating_sub(vitae).saturating_sub(base),
+            vitae,
+        }
+    }
+
+    /// The colour the value is drawn in: 1 raised by magic, 2 lowered by it, 0 neither. Vitae
+    /// alone colours nothing.
+    #[must_use]
+    pub const fn colour(&self) -> u8 {
+        if self.magic > 0 {
+            1
+        } else if self.magic < 0 {
+            2
+        } else {
+            0
+        }
+    }
+
+    /// The value's breakdown as its tooltip shows it: the base, then what magic adds or takes
+    /// in brackets ("200 (+35)", "200 (-20)"), then vitae's penalty, if any, on a line of its
+    /// own.
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut lines = vec![match self.magic {
+            0 => self.base.to_string(),
+            m if m > 0 => format!("{} (+{m})", self.base),
+            m => format!("{} ({m})", self.base),
+        }];
+        if self.vitae < 0 {
+            lines.push(format!("Vitae: {}", self.vitae));
+        }
+        lines
+    }
+}
+
 /// A skill, for the character window.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Skill {
     pub name: String,
+    /// Its value with the spells in force and vitae: the one the window shows.
     pub value: u32,
+    /// What its value is made of.
+    pub modifiers: Modifiers,
     /// 1 untrained, 2 trained, 3 specialised.
     pub training: u32,
     /// The skill's id, as the game's training messages name it.
@@ -298,8 +354,8 @@ pub struct StatRow {
     pub vital: bool,
     /// What the row shows: the value, or a vital's current and maximum.
     pub shown: String,
-    /// Raised or lowered by magic: 1 raised, 2 lowered, 0 neither.
-    pub colour: u8,
+    /// What its value (a vital's maximum) is made of.
+    pub modifiers: Modifiers,
     /// Experience to raise it by one and by ten.
     pub cost: u32,
     pub cost_10: u32,

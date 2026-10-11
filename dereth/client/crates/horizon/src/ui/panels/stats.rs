@@ -19,7 +19,7 @@ use crate::ui::Outcome;
 /// How long a raise waits for the game's answer before its row may be raised again anyway.
 const RAISE_WAIT: f64 = 3.0;
 
-/// The colour of a value raised or lowered by magic.
+/// The colour of a value raised or lowered by magic: green raised, red lowered.
 fn value_colour(ctx: &Ctx<'_>, colour: u8) -> u32 {
     match colour {
         1 => 0xFF7C_E07C,
@@ -197,7 +197,7 @@ impl Windows {
                 );
                 y += 24.0 * k;
             }
-            let style = body.colour(value_colour(ctx, row.colour));
+            let style = body.colour(value_colour(ctx, row.modifiers.colour()));
             label_and_value(
                 p,
                 Rect::new(area.x, y - 3.0 * k, area.w, 22.0 * k),
@@ -208,8 +208,17 @@ impl Windows {
                 value_right,
                 &row.shown,
             );
-            // The row itself is a stop for the pad, left of its buttons.
-            ctx.stop(&row_stop(k, area.x + 14.0 * k, area.right() - 14.0 * k, y));
+            // The row itself is a stop for the pad, left of its buttons; over it, the value's
+            // breakdown (a vital's maximum's).
+            let stop = row_stop(k, area.x + 14.0 * k, area.right() - 14.0 * k, y);
+            ctx.stop(&stop);
+            if ctx.input.hover(&stop) {
+                let mut lines = row.modifiers.lines();
+                if row.vital {
+                    lines[0] = format!("Maximum: {}", lines[0]);
+                }
+                self.tip = Some((row.name.clone(), lines));
+            }
             let key = (row.vital, row.wire);
             let waiting = self.raising(ctx, key, &row.shown);
             if let Some(ten) = self.raise_buttons(
@@ -333,18 +342,23 @@ impl Windows {
                 &label,
                 rows.x + 32.0 * k,
                 &s.name,
-                &body,
+                &body.colour(value_colour(ctx, s.modifiers.colour())),
                 value_right,
                 &shown,
             );
-            // The row itself is a stop for the pad, left of its buttons.
+            // The row itself is a stop for the pad, left of its buttons; over it, the value's
+            // breakdown.
             let buttons = if s.training >= 2 { 76.0 } else { 80.0 };
-            ctx.stop(&Rect::new(
+            let stop = Rect::new(
                 rows.x + 4.0 * k,
                 y - 3.0 * k,
                 (buttons_right - buttons * k - 4.0 * k - rows.x).max(0.0),
                 22.0 * k,
-            ));
+            );
+            ctx.stop(&stop);
+            if ctx.input.hover(&stop) && ctx.input.hover(&list) {
+                self.tip = Some((s.name.clone(), s.modifiers.lines()));
+            }
             let key = (true, 0x1000 + s.id);
             let waiting = self.raising(ctx, key, &shown);
             if s.training >= 2 {
