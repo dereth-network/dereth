@@ -55,6 +55,9 @@ pub struct WorldStreamer {
     /// Draw-order square coordinates: which cell of the viewer's own block the viewpoint
     /// is in, `0..=7` on each axis.
     pub viewer_cell: (u8, u8),
+    /// The landblock the viewpoint's cell is in, which the drawing is ordered around. It is the
+    /// window's own block unless the camera stands across a block line from the player.
+    pub viewer_cell_block: Option<(i32, i32)>,
 }
 
 impl WorldStreamer {
@@ -64,6 +67,7 @@ impl WorldStreamer {
         Self {
             window: LandblockWindow::new(land_radius),
             viewer_cell: (0, 0),
+            viewer_cell_block: None,
         }
     }
 
@@ -89,7 +93,11 @@ impl WorldStreamer {
     }
 
     /// Update viewpoint residency: re-centre the window when the
-    /// viewer crosses a landblock boundary.
+    /// player crosses a landblock boundary.
+    ///
+    /// The window follows the **player**, not the camera: see [`Self::load_point_block`]. The
+    /// camera only orders the drawing ([`Self::update_viewer_cell`]), so a turn on the spot
+    /// that swings the camera across a block line moves nothing.
     ///
     /// The whole landscape is drawn in a space whose origin is the south-west corner of the
     /// viewer's block, so re-centring moves that origin: everything expressed in it — the free
@@ -138,15 +146,9 @@ impl WorldStreamer {
                 None,
             );
         };
-        // The block is `viewpoint_block` — the landblock of the **cell
-        // id** normal-mode rendering hands to the landscape viewpoint update, which is the
-        // only thing retail ever derives it from:
-        //
-        // When the new cell id differs from the stored `viewer_cell_id`, retail stores it and
-        // re-runs `calc_draw_order` with a flag of `((old ^ new) & 0xffff0000) != 0`.
-        //
-        // `(old ^ new) & 0xffff0000` is the whole of "did the landblock change", and the
-        // landblock is the cell id's top 16 bits.
+        // The block is `load_point_block` — the landblock of the **player's cell id**, which is
+        // the only thing the client scrolls its window by. The landblock is the cell id's top
+        // 16 bits.
         //
         // The `false` arm is the **origin-derived fallback**, kept for the differential
         // [`SceneConfig::indoor_viewpoint_gate`] documents: re-derive the block from the
@@ -154,11 +156,11 @@ impl WorldStreamer {
         // inside a dungeon — 642,001 of the retail dat's 734,976 interior cells sit outside
         // their block's `[0, 192]²`, and the shift then walks the window off the very
         // landblock whose cells are being drawn.
-        // **The body-less arm.** `viewpoint_block` opens
+        // **The body-less arm.** `load_point_block` opens
         // `let c = character.as_ref()?`, so on the `--no-character` flycam it answers
         // `None` for a reason that has nothing to do with retail's zero cell id — there is
-        // no body-derived viewer and no cell id *at all*, not a cell id the draw order cannot
-        // use. Reading that `None` as `viewpoint_block().unwrap_or(cur)` turns "the flycam has
+        // no player and no cell id *at all*, not a cell id the window cannot
+        // use. Reading that `None` as `load_point_block().unwrap_or(cur)` turns "the flycam has
         // no cell id" into "keep the block you have", which is a window that **never moves
         // however far the flycam flies**.
         //
@@ -169,10 +171,8 @@ impl WorldStreamer {
         // interior cells authored outside their block's `[0, 192]²`: they are
         // reachable only through a `Position`, i.e. only with a body.
         let next = if indoor_viewpoint_gate && character.is_some() {
-            self.viewpoint_block(character).unwrap_or(cur)
+            self.load_point_block(character).unwrap_or(cur)
         } else {
-            // Normal rendering updates the landscape viewpoint with the *camera's* cell, not the
-            // body's, and so does this. `viewpoint` selects that camera.
             let p = viewpoint(character, camera);
             (
                 cur.0 + dereth_primitives::num::floor_to_i32(p.x / BLOCK_LENGTH),
@@ -181,7 +181,7 @@ impl WorldStreamer {
         };
         let (dx, dy) = (next.0 - cur.0, next.1 - cur.1);
         if dx == 0 && dy == 0 {
-            // The viewer did not cross a boundary: no `update_block`, and so no bake queue
+            // The player did not cross a boundary: no `update_block`, and so no bake queue
             // call. See the note above on why this is `None` and not an empty list.
             return ((0, 0), choose_viewer_block(character, cur), None);
         }
@@ -196,16 +196,25 @@ impl WorldStreamer {
         ((dx, dy), space, Some(actions))
     }
 
-    /// Normal-mode rendering's viewpoint gate decides whether the landscape viewpoint update
-    /// is called on this frame at all.
+    /// The load point's block: where the landscape window is centred, read from the **player's**
+    /// position.
+    ///
+    /// The client keeps two positions for its landscape. Once a frame the world update moves
+    /// the landscape's load point to the player's position, and only that scrolls the window:
+    /// it decides which blocks are resident, each block's ring and level of detail, and so
+    /// which blocks carry their objects. The camera's cell reaches the landscape only through
+    /// the drawing, which orders the blocks and cells around the camera's block and moves
+    /// nothing ([`Self::update_viewer_cell`]). A turn on the spot swings the camera, and
+    /// Horizon's camera stands six metres or more from the player, across a block line
+    /// without moving the player, and scrolls nothing.
     ///
     /// ```text
-    /// if the viewer's cell is outdoors:
-    ///     update the landscape viewpoint with the viewer's cell id
-    /// else if the viewer's cell can see outdoors:
-    ///     update the landscape viewpoint with the viewer's outside-cell mapping
+    /// if the player's cell is outdoors:
+    ///     the load point is the player's cell
+    /// else if the player's cell can see outdoors:
+    ///     the load point is the player's outside-cell mapping
     /// else:
-    ///     do not update the landscape viewpoint
+    ///     the landscape is released
     /// ```
     ///
     /// The third arm is not an optimisation: a
@@ -221,9 +230,9 @@ impl WorldStreamer {
     ///
     /// # The third arm is a *block*, not a refusal
     ///
-    /// Transcribing the branch as "on the third arm, do not move the window", which is what the
-    /// client does, while leaving `recenter`'s `floor(origin / 192)` standing on the other two
-    /// arms breaks on arrival: **teleporting** into Drudge Hideout
+    /// Transcribing the branch as "on the third arm, do not move the window" while leaving
+    /// `recenter`'s `floor(origin / 192)` standing on the other two arms breaks on arrival:
+    /// **teleporting** into Drudge Hideout
     /// (`0x019E0114`, authored at `y = -40`) from another landblock, the destination cell is
     /// not yet resident, so the refusal above does not fire, the origin arithmetic re-centres
     /// the window **one block south** of the dungeon — `(1, 157)` for `(1, 158)` — and from
@@ -237,44 +246,28 @@ impl WorldStreamer {
     ///
     /// So the arms answer a **landblock** here, out of the cell id, and never out of an origin.
     ///
-    /// **The third arm's deviation, stated.** Retail does not run its viewpoint update at all
-    /// there, and this returns the viewer cell's own landblock instead. The two are the same
-    /// thing everywhere the client can reach: the landscape window is the *outdoor* draw list;
-    /// interior cells come from the cell manager, and a viewer who has been in that dungeon
-    /// since it loaded already has the window where its cells are. They differ only on the
-    /// frame retail cannot reach — the arrival, where the teleport path has just updated the
-    /// landscape with a zero viewpoint and *emptied*
-    /// `block_draw_list` — and this build cannot take retail's answer there, because the same
-    /// window is where its interior cells come from. Answering "the cell's own block" is the
-    /// one answer that recovers; "keep what you had" is the one that cannot.
+    /// **The third arm's deviation, stated.** The client releases its landscape there, and this
+    /// returns the player cell's own landblock instead. The two are the same thing everywhere
+    /// the client can reach: the landscape window is the *outdoor* draw list; interior cells
+    /// come from the cell manager, and a player who has been in that dungeon since it loaded
+    /// already has the window where its cells are. This build cannot release the window
+    /// there, because the same window is where its interior cells come from. Answering "the
+    /// cell's own block" is the one answer that recovers; "keep what you had" is the one that
+    /// cannot.
     ///
-    /// **A viewer with no body** (the flycam) has no body-derived viewer to read and
+    /// **A scene with no body** (the flycam) has no player to read and
     /// answers `None`. **That `None` is not retail's zero cell id and `recenter`
     /// must not read it as "keep the block you have"**, which would freeze the
     /// `--no-character` window in its starting block for ever. `recenter` takes the body-less
     /// arm before it reaches this function; see the comment on its own `next` binding.
-    ///
-    /// **This is the block half only.** The normal-mode branch also governs the *cell*
-    /// half, `viewpoint_cell_id`, which still runs `get_outside_cell_id` for **every**
-    /// indoor viewer rather than only a `seen_outside` one. The viewer-cell tests measure that
-    /// behaviour over 64 indoor stations; correcting it is a separate change.
-    pub fn viewpoint_block(&self, character: &Option<Character>) -> Option<(i32, i32)> {
+    pub fn load_point_block(&self, character: &Option<Character>) -> Option<(i32, i32)> {
         use dereth_physics::landdefs as ld;
         let c = character.as_ref()?;
-        // the *camera's* position, with the client's own fallback to the
-        // body; see `viewer_cell`, which documents why `update_viewer`'s last resort
-        // makes the body's `objcell_id` the one the world render pass reads on the next line.
-        let pos = if c.camera.attached() {
-            c.camera.viewer
-        } else {
-            c.position()
-        };
-        let cell = c.camera.viewer_cell.unwrap_or(pos.cell);
+        let pos = c.position();
+        let cell = pos.cell;
         let id = if ld::is_outdoors(cell) {
-            // Update the landscape viewpoint with the viewer cell.
             cell
         } else if cell_seen_outside(character, cell) {
-            // Update the landscape viewpoint from the viewer.
             ld::get_outside_cell_id(cell, pos.frame.origin)
         } else {
             // The third arm, as a block. See the note above.
@@ -285,11 +278,12 @@ impl WorldStreamer {
     }
 
     /// Update the viewpoint's cell coordinates: which cell of its own block the
-    /// viewer stands in, which is what the per-block cell draw ordering orders each block's cells around.
+    /// viewer stands in, which is what the per-block cell draw ordering orders each block's cells
+    /// around, and which landblock that cell is in, which the blocks are ordered around.
     ///
-    /// Same source as the block half — see `viewpoint` — and it must run *after*
-    /// `recenter`, because the index it names is an index into the viewer's own block
-    /// and `recenter` is what chooses that block.
+    /// This is the camera's, where the window's block is the player's
+    /// ([`Self::load_point_block`]): the camera orders the drawing and moves nothing. It runs
+    /// *after* `recenter`, the same frame's window.
     ///
     /// # It is a reading of the viewpoint's cell **id**, not of its position.
     ///
@@ -325,6 +319,32 @@ impl WorldStreamer {
     pub fn update_viewer_cell(&mut self, character: &Option<Character>, camera: &FreeCamera) {
         if let Some(xy) = self.viewpoint_cell(character, camera) {
             self.viewer_cell = xy;
+            #[allow(clippy::cast_possible_wrap)] // a landblock index, 0..=255
+            let block = |id: CellId| (((id.0 >> 24) & 0xFF) as i32, ((id.0 >> 16) & 0xFF) as i32);
+            self.viewer_cell_block = self.viewpoint_cell_id(character, camera).map(block);
+        }
+    }
+
+    /// Where the viewpoint's block sits in the window, as a window index `(xi, yi)`: the block
+    /// the drawing is ordered around. The window's own centre when the viewpoint's block is not
+    /// known or not in the window.
+    #[must_use]
+    pub fn viewer_window_index(&self) -> (u32, u32) {
+        let r = self.window.mid_radius();
+        let centre = (r, r);
+        let (Some((cx, cy)), Some((vx, vy))) = (self.window.viewer_block(), self.viewer_cell_block)
+        else {
+            return centre;
+        };
+        #[allow(clippy::cast_possible_wrap)] // the window radius, at most 25
+        let ri = r as i32;
+        let (xi, yi) = (vx - cx + ri, vy - cy + ri);
+        let w = 2 * ri + 1;
+        if (0..w).contains(&xi) && (0..w).contains(&yi) {
+            #[allow(clippy::cast_sign_loss)] // both checked non-negative on the line above
+            (xi as u32, yi as u32)
+        } else {
+            centre
         }
     }
 

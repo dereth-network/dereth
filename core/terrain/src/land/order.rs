@@ -51,11 +51,19 @@ pub fn ring_offsets(ring: i32, k: i32) -> [(i32, i32); 8] {
 /// `block_draw_list[0]` is the viewer's own block, then ring 1, ring 2, … Entries outside the
 /// window are skipped.
 ///
+/// The rings run out to the window's farthest edge from the viewer, so a viewer standing off
+/// the window's centre block (a camera across a block line from the player the window follows)
+/// still visits every block of the window.
+///
 /// Each entry is the window index `mid_width * xi + yi`.
 #[must_use]
 pub fn block_draw_list(mid_width: u32, viewer: (i32, i32)) -> Vec<u32> {
     let w = mid_width as i32;
-    let mid_radius = (w - 1) / 2;
+    let rings = viewer
+        .0
+        .max(viewer.1)
+        .max(w - 1 - viewer.0)
+        .max(w - 1 - viewer.1);
     let mut out = Vec::new();
     // LINT-OK: index arithmetic bounded by mid_width <= 31.
     let push = |out: &mut Vec<u32>, x: i32, y: i32| {
@@ -64,7 +72,7 @@ pub fn block_draw_list(mid_width: u32, viewer: (i32, i32)) -> Vec<u32> {
         }
     };
     push(&mut out, viewer.0, viewer.1);
-    for ring in 1..=mid_radius {
+    for ring in 1..=rings {
         for k in 0..ring {
             for (dx, dy) in ring_offsets(ring, k) {
                 push(&mut out, viewer.0 + dx, viewer.1 + dy);
@@ -81,8 +89,17 @@ pub fn block_draw_list(mid_width: u32, viewer: (i32, i32)) -> Vec<u32> {
 /// dropping the whole list when the viewer's block offset escapes `[0, mid_width)`.
 #[must_use]
 pub fn block_draw_order(mid_width: u32) -> Vec<u32> {
-    let r = (mid_width as i32 - 1) / 2;
-    let mut v = block_draw_list(mid_width, (r, r));
+    let r = (mid_width - 1) / 2;
+    block_draw_order_from(mid_width, (r, r))
+}
+
+/// [`block_draw_order`] around the viewer's block at window index `viewer`, which is the
+/// window's centre unless the camera stands across a block line from the player: every block
+/// of the window, far to near from the viewer's block, the viewer's block last.
+#[must_use]
+pub fn block_draw_order_from(mid_width: u32, viewer: (u32, u32)) -> Vec<u32> {
+    #[allow(clippy::cast_possible_wrap)] // window indices, at most 51
+    let mut v = block_draw_list(mid_width, (viewer.0 as i32, viewer.1 as i32));
     v.reverse();
     v
 }
@@ -187,6 +204,50 @@ mod tests {
                 "viewer block last"
             );
         }
+    }
+
+    /// Oracle: the client's block order, built around a viewer whose block is not the window's
+    /// centre, still visits every block of the window once, far to near from the viewer's block
+    /// and the viewer's block last: its rings run out to the window's farthest edge.
+    #[test]
+    fn a_viewer_off_the_centre_block_still_draws_every_block_far_to_near() {
+        for (mid_width, viewer) in [
+            (3u32, (1u32, 0u32)),
+            (7, (2, 3)),
+            (11, (5, 6)),
+            (11, (0, 10)),
+        ] {
+            let w = mid_width as i32;
+            let order = block_draw_order_from(mid_width, viewer);
+            let mut seen = std::collections::BTreeSet::new();
+            for &e in &order {
+                assert!(seen.insert(e), "block {e} visited twice");
+            }
+            assert_eq!(
+                seen.len(),
+                (mid_width * mid_width) as usize,
+                "mid_width {mid_width}, viewer {viewer:?}: every block is visited"
+            );
+            let (vx, vy) = (viewer.0 as i32, viewer.1 as i32);
+            let ring_of = |e: u32| {
+                let (x, y) = ((e as i32) / w, (e as i32) % w);
+                (x - vx).abs().max((y - vy).abs())
+            };
+            let rings: Vec<i32> = order.iter().map(|&e| ring_of(e)).collect();
+            assert!(
+                rings.windows(2).all(|p| p[0] >= p[1]),
+                "mid_width {mid_width}, viewer {viewer:?}: rings must be non-increasing, got \
+                 {rings:?}"
+            );
+            // LINT-OK: index arithmetic.
+            assert_eq!(
+                *order.last().expect("non-empty"),
+                (w * vx + vy) as u32,
+                "viewer block last"
+            );
+        }
+        // At the centre it is the centred order.
+        assert_eq!(block_draw_order_from(7, (3, 3)), block_draw_order(7));
     }
 
     /// Oracle: `draw_array` is filled backwards from the

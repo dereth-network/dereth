@@ -18,6 +18,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon shows an item's cooldown until the server lets it be used again, never ending a second or so early, and shows cooldowns on the gamepad's cross hotbars too.
 - In Horizon's vendor window, a right-click on an item in the shopping list or the items to sell takes it back off the list.
 - An item dragged in Horizon follows the pointer as its own picture, without the dark slot that was drawn behind it.
+- Turning on the spot near the edge of a landblock no longer makes the distant landscape flicker and change shape: the landscape follows your character, not the camera.
 
 ## 0.4.1 (2026-10-11)
 

@@ -1266,7 +1266,10 @@ impl SceneDraw {
         let land_detail = self.current_detail(dereth_world_render::detail::DetailClass::Landscape);
         let camera = ws.camera.frame();
         let mut detail_vertices: Vec<u8> = Vec::with_capacity(6 * LAND_VERTEX_STRIDE as usize);
-        let order: Vec<(u32, u32)> = block_draw_order(mid)
+        // Far to near from the viewpoint's block, which is the window's own centre unless the
+        // camera stands across a block line from the player the window follows.
+        let viewer_at = ws.streamer.viewer_window_index();
+        let order: Vec<(u32, u32)> = block_draw_order_from(mid, viewer_at)
             .into_iter()
             .map(|i| (i / mid, i % mid))
             .collect();
@@ -1291,8 +1294,13 @@ impl SceneDraw {
                 Quat::IDENTITY,
             ));
             let n = mesh.side_cell_count;
-            // A block outside the viewer's own is stitched towards it, and `closest_cell`
-            // reads `trans_dir` to decide which of its cells is nearest.
+            // Which way the block lies from the viewpoint's block decides which of its cells is
+            // nearest.
+            #[allow(clippy::cast_possible_wrap)] // window indices, at most 51
+            let dir = dereth_terrain::land::order::get_dir(
+                xi as i32 - viewer_at.0 as i32,
+                yi as i32 - viewer_at.1 as i32,
+            );
             let step = 8 / u16::from(n).max(1);
             #[allow(clippy::cast_possible_truncation)]
             // LINT-OK: both are clamped to side_cell_count - 1 <= 7 on the line above. Not a
@@ -1301,7 +1309,7 @@ impl SceneDraw {
                 (u16::from(ws.streamer.viewer_cell.0) / step).min(u16::from(n) - 1) as u8,
                 (u16::from(ws.streamer.viewer_cell.1) / step).min(u16::from(n) - 1) as u8,
             );
-            for cell in cell_draw_order(n, mesh.trans_dir, viewer_cell) {
+            for cell in cell_draw_order(n, dir, viewer_cell) {
                 let (i, j) = (
                     usize::from(cell) / usize::from(n),
                     usize::from(cell) % usize::from(n),

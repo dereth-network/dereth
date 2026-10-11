@@ -81,7 +81,10 @@ use {
     dereth_terrain::land::mesh::generate_landblock_with_table,
     dereth_terrain::land::mesh::height_table, dereth_terrain::land::mesh::LandblockMesh,
 };
-use {dereth_terrain::land::order::block_draw_order, dereth_terrain::land::order::cell_draw_order};
+use {
+    dereth_terrain::land::order::block_draw_order_from,
+    dereth_terrain::land::order::cell_draw_order,
+};
 // The light pool, the eight slots and the D3DLIGHT9s, from the one transcription.
 use dereth_terrain::math::V3;
 use dereth_terrain::scenery::outside_cell_index;

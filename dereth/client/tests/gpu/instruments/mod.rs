@@ -8,3 +8,4 @@ mod nameplate_frames;
 mod scenery_edge_frames;
 mod smooth_animation_frames;
 mod smooth_movement_frames;
+mod turn_pop_frames;

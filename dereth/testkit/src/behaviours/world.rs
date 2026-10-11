@@ -1850,14 +1850,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
-        id: "world.streaming.the-window-recentres-on-the-swept-viewer",
-        says: "The landblock window re-centres on the block holding the camera's swept viewpoint, \
-               not the block the chase camera's ideal spot falls in, and it does so on the frame \
-               of a teleport before any sweep has run.",
+        id: "world.streaming.the-window-recentres-on-the-players-block",
+        says: "The landblock window re-centres on the block the player stands in, never on the \
+               block the chase camera's ideal spot falls in, and it does so on the frame of a \
+               teleport before any camera sweep has run.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-VIEWPOINT-SOURCE-STREAMING"),
-        station: "dereth-client::dat::world::streaming_viewpoint::the_block_decision_follows_the_swept_viewer",
+        station: "dereth-client::dat::world::streaming_viewpoint::the_block_decision_follows_the_player_and_never_the_chase_camera",
         tier: Tier::Gpu,
+    },
+    behaviour! {
+        id: "world.streaming.turning-on-the-spot-leaves-the-landblock-window-alone",
+        says: "Turning on the spot leaves the landblock window where it is even when the turn \
+               swings the camera across a landblock line, with either interface's camera: no \
+               block is rebuilt and none changes its level of detail. Only the order the blocks \
+               are drawn in follows the camera.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-LOAD-POINT-STREAMING"),
+        station: "dereth-client::dat::world::streaming_viewpoint::turning_on_the_spot_leaves_the_window_where_the_player_stands",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "world.teleport.a-teleport-into-a-dungeon-draws-what-logging-in-there-draws",
@@ -1892,7 +1903,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "world.viewpoint.the-cell-decision-reads-last-frames-sweep",
         says: "The world update never moves the viewpoint; only the camera sweep does, and only on \
-               frames where physics ticked, so each frame's cell and block decisions read the \
+               frames where physics ticked, so each frame's draw-order cell decision reads the \
                viewpoint the previous frame's sweep left, exactly one frame behind.",
         since: RETAIL,
         evidence: Evidence::Private("AC-EVID-O427-VIEWPOINT"),

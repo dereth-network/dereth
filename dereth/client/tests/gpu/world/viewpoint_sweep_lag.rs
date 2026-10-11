@@ -1,9 +1,10 @@
 //! The cost of the frame loop reading a viewpoint the *previous* frame's camera sweep left. Retail
-//! sweeps the camera and then takes the block and cell decision from that frame's viewer cell;
-//! `App::frame` runs `WorldScene::update` (with `recenter` and `update_viewer_cell`) before
-//! `crate::camera::update_viewer`, so the decision on frame n reads `viewer[n - 1]`. The lag is one
-//! frame of camera travel, below one 24 m cell at every station and never more than one cell
-//! behind; `update` itself never moves the viewpoint, and `SceneStats::updates_without_a_sweep`
+//! sweeps the camera and then takes the draw-order cell and block from that frame's viewer cell;
+//! `App::frame` runs `WorldScene::update` (with `update_viewer_cell`) before
+//! `crate::camera::update_viewer`, so the decision on frame n reads `viewer[n - 1]`. The block the
+//! window is centred on is the player's, not the camera's, and is not part of this lag. The lag
+//! is one frame of camera travel, below one 24 m cell at every station and never more than one
+//! cell behind; `update` itself never moves the viewpoint, and `SceneStats::updates_without_a_sweep`
 //! counts a harness that steps a body without the sweep. Stations: five runs on Holtburg's terrain
 //! (`0xA9B4`), on and four metres off a 24 m line, walking and running, off-axis, and one long
 //! enough to leave the block, all read in global metres. Fixture: the retail dats on a software

@@ -1,15 +1,17 @@
-//! The landblock window re-centres on the swept viewer, not the debug chase camera. Retail's
-//! normal-mode rendering reads one viewer value, written from the swept sphere just before, and
-//! outdoors hands its cell id to the landscape viewpoint update, which takes both the block (the
-//! high 16 bits changed) and the draw-order cell from that one id. Here that value is
+//! The landblock window follows the player and the drawing is ordered around the swept viewer;
+//! the debug chase camera decides neither. The client keeps two positions for its landscape: the
+//! player's position, handed over once a frame, is the load point that scrolls the window and sets
+//! each block's level of detail; the swept camera's cell id only orders the drawing, its block
+//! the block order and its low bits the draw-order cell. Here the camera's value is
 //! `Character::camera.viewer`; the chase camera (`WorldState::follow_character`, 4.5 m behind the
 //! body along its heading, through walls) never reaches a drawn frame with a body, so it must not
-//! drive `recenter()` or `update_viewer_cell()` either. Legs of opposite polarity cover the block,
-//! including the teleport frame before any sweep; stations on two axes cover the cell; a real walk
-//! at the shipped distance shows the two sources disagree. Fixture: the retail dats and a body in
-//! Holtburg, in the world the runtime simulates with no device: the window's re-centre, the viewer
-//! cell and the swept camera are the simulation's, and nothing here reads a pixel. Fails without
-//! the dats.
+//! drive `recenter()` or `update_viewer_cell()`. Legs of opposite polarity cover the block,
+//! including the teleport frame before any sweep; a turn on the spot that swings the camera across
+//! a block line, with the Horizon interface's camera and the classic one, shows the camera never
+//! moves the window; stations on two axes cover the cell; a real walk at the shipped distance shows
+//! the two sources disagree. Fixture: the retail dats and a body in Holtburg, in the world the
+//! runtime simulates with no device: the window's re-centre, the viewer cell and the swept camera
+//! are the simulation's, and nothing here reads a pixel. Fails without the dats.
 
 use std::sync::Arc;
 
@@ -243,9 +245,9 @@ fn leg(
     }
 }
 
-/// Behaviour: world.streaming.the-window-recentres-on-the-swept-viewer
+/// Behaviour: world.streaming.the-window-recentres-on-the-players-block
 ///
-/// **The window re-centres on the block containing the swept viewer.**
+/// **The window re-centres on the block the player stands in, never on the chase camera's.**
 ///
 /// Two legs of opposite polarity, so that neither direction of the wiring can pass by doing
 /// nothing:
@@ -253,18 +255,18 @@ fn leg(
 /// * `stay`: the body 24 m inside the home block facing north. The swept viewer is ~3 m behind it
 ///   and stays in the block; the chase camera is 60 m behind it and is in the block to the south.
 ///   The correct answer is **no shift**, and the chase camera would have shifted `(0, -1)`.
-/// * `move`: the body 24 m into the block to the north. The swept viewer is in that block; the
+/// * `move`: the body 24 m into the block to the north. The swept viewer is in that block too; the
 ///   chase camera is 60 m behind and still in the home block. The correct answer is **shift
 ///   `(0, 1)`**, and the chase camera would not have shifted at all.
 /// * `move-no-sweep`: the same arrangement, but the frame under test is the **teleport frame**:
 ///   teleport initialization has put `viewer` on the pivot and cleared `viewer_cell` to NULL, and
-///   no sweep has run since. Retail's normal-mode rendering still takes the viewpoint from
-///   `viewer` in that state (its two fallback writes use the *body's* position and clear
-///   `viewer_cell` on the next line), so the block decision must still follow it. This leg pins
-///   `Character::viewer_render_frame`'s guard to `attached` rather than to `viewer_cell`;
-///   without it, either gate passes.
+///   no sweep has run since. The player already stands in the new block, so the window moves with
+///   it on that frame.
+///
+/// The camera and the player stand in different blocks only near a block line; the turn below
+/// separates the two.
 #[test]
-fn the_block_decision_follows_the_swept_viewer() {
+fn the_block_decision_follows_the_player_and_never_the_chase_camera() {
     let store = store();
 
     for (name, legs, at, want, sweep) in [
@@ -300,11 +302,127 @@ fn the_block_decision_follows_the_swept_viewer() {
             l.swept.1, l.chase.1
         );
         // The same statement said the other way round, against the value rather than the delta:
-        // after the frame, the swept viewer stands in the window's own centre block.
+        // after the frame, the player and the swept viewer stand in the window's own centre block.
         assert_eq!(
             l.swept.1, want,
             "the {name} leg's fixture is wrong: the swept viewer names block {:?}, not {want:?}",
             l.swept.1
+        );
+    }
+}
+
+/// The heading of a body turned `degrees` counter-clockwise from north, as a rotation about +z.
+fn heading(degrees: f32) -> Quat {
+    let half = degrees.to_radians() * 0.5;
+    Quat::new(math::cosf(half), 0.0, 0.0, math::sinf(half))
+}
+
+/// The landblock a cell id names.
+fn block_of_cell(id: dereth_primitives::CellId) -> (i32, i32) {
+    #[allow(clippy::cast_possible_wrap)] // LINT-OK: a landblock index, 0..=255
+    (((id.0 >> 24) & 0xFF) as i32, ((id.0 >> 16) & 0xFF) as i32)
+}
+
+/// Behaviour: world.streaming.turning-on-the-spot-leaves-the-landblock-window-alone
+///
+/// **A turn on the spot never moves the landblock window, though it swings the camera across a
+/// block line; only the block the drawing is ordered around follows the camera.**
+///
+/// The body stands a few metres north of Holtburg's southern block line and turns from four
+/// degrees east of north to forty-seven and a half west of it, half a degree a step, never moving.
+/// Behind it the camera swings from the block to the south into the body's own block:
+///
+/// * `orbit`: the Horizon interface's camera at its own distance, at the spot the turn was seen at
+///   (`0xA9B40019`, 5.6 m from the line).
+/// * `game`: the classic and modern interfaces' camera, which stands closer, 2.2 m from the line.
+///
+/// A window that followed the camera re-centred on every turn across the line: it rebuilt every
+/// block whose level of detail changed, leaving holes in the distant land while they were rebuilt,
+/// and moved which blocks carry their objects.
+#[test]
+fn turning_on_the_spot_leaves_the_window_where_the_player_stands() {
+    let store = store();
+    let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
+    let home = block_at(hx, hy);
+    let south = (hx, hy - 1);
+
+    for (name, orbit, y) in [("orbit", true, 5.626_395f32), ("game", false, 2.2f32)] {
+        let mut scene = embodied(&store);
+        if orbit {
+            let c = scene.ws_mut().character.as_mut().expect("a body");
+            c.camera.orbit_active = true;
+            c.camera.place_orbit_anew();
+        }
+        place(&mut scene, home, 86.600_27, y, (-4.023f32).to_radians());
+        let mut now = 0.5;
+        for _ in 0..30 {
+            now += 1.0 / 30.0;
+            app_frame(&mut scene, now, 1.0 / 30.0);
+            scene.stream();
+        }
+
+        let mut camera_blocks = std::collections::BTreeSet::new();
+        let mut windows = std::collections::BTreeSet::new();
+        let mut ordered_around = std::collections::BTreeSet::new();
+        let mut frames = 0u32;
+        // The classic camera follows the body round over a few frames.
+        let per_step = if orbit { 1 } else { 4 };
+        for k in 0..=103u16 {
+            let yaw = 0.5f32.mul_add(f32::from(k), -4.023);
+            {
+                let c = scene.ws_mut().character.as_mut().expect("a body");
+                let h = c.handle;
+                if let Some(o) = c.world.get_mut(h) {
+                    o.position.frame.rotation = heading(yaw);
+                }
+                if orbit {
+                    c.camera.place_orbit_anew();
+                }
+            }
+            for _ in 0..per_step {
+                now += 1.0 / 30.0;
+                app_frame(&mut scene, now, 1.0 / 30.0);
+                scene.stream();
+                frames += 1;
+                let ws = scene.ws();
+                let c = ws.character.as_ref().expect("a body");
+                assert_eq!(
+                    block_of_cell(c.position().cell),
+                    (hx, hy),
+                    "the {name} leg's body left its block while turning"
+                );
+                let window = ws.viewer_block().expect("a viewer block");
+                windows.insert(window);
+                camera_blocks.insert(block_of_cell(c.camera.viewer.cell));
+                // The block the drawing is ordered around, from the window index the drawing reads.
+                let (xi, yi) = ws.streamer.viewer_window_index();
+                let r = ws.streamer.window.mid_radius();
+                #[allow(clippy::cast_possible_wrap)] // LINT-OK: window indices, at most 51
+                ordered_around.insert((
+                    window.0 + xi as i32 - r as i32,
+                    window.1 + yi as i32 - r as i32,
+                ));
+            }
+        }
+
+        eprintln!(
+            "turn {name}: {frames} frames; the camera stood in {camera_blocks:?}, the drawing was \
+             ordered around {ordered_around:?} and the window stood on {windows:?}"
+        );
+        // The premise: the camera crossed the line, so a window that followed it would have moved.
+        assert!(
+            camera_blocks.contains(&south) && camera_blocks.contains(&(hx, hy)),
+            "the {name} leg's camera stood only in {camera_blocks:?}, so the turn never swung it \
+             across the block line"
+        );
+        assert_eq!(
+            windows.into_iter().collect::<Vec<_>>(),
+            vec![(hx, hy)],
+            "the {name} leg's turn moved the landblock window off the block the player stands in"
+        );
+        assert_eq!(
+            ordered_around, camera_blocks,
+            "the {name} leg's drawing was not ordered around the camera's block"
         );
     }
 }
