@@ -1072,6 +1072,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.scenery.an-animated-static-turns-by-the-spin-its-animation-sets",
+        says: "A piece of scenery whose animation sets it spinning turns by that spin, whole, \
+               each time its animation steps: a bat or a butterfly set out from its placement's \
+               centre flies round it as it beats its wings, the bat a kilometre east of \
+               Holtburg on a circle three metres out, once round in under eight seconds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-STATIC-DEFAULT-ANIM-SPIN"),
+        station: "dereth-scene::lib::world_scene::imp::animated_scenery::a_bat_east_of_holtburg_flies_round_its_placement_once_every_eight_seconds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "rendering.scenery.scenery-stops-at-the-full-detail-ring",
         says: "Trees, rocks and other scenery are placed only on land drawn at full detail: the \
                block the player stands on and the eight around it, exactly that three-by-three \

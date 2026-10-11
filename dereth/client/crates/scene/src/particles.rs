@@ -310,6 +310,10 @@ pub(crate) struct EmitterHost {
     pub(crate) sound_table: Option<DataId>,
     /// Whether the setup names a default animation, which this host plays and draws.
     pub(crate) animated: bool,
+    /// The turn its animation last set (a spin hook), about a world axis by its length in
+    /// radians, which an animated host takes once each time its animation steps: a butterfly or
+    /// a bat set out from the placement's centre flies round it. Zero until a hook sets it.
+    pub(crate) omega: Vec3,
     /// When the animation last advanced, on the frame clock; `None` before its first step.
     pub(crate) update_time: Option<f64>,
     /// An animated host's drawing half: one entry per part, each holding every degrade level.
@@ -385,6 +389,7 @@ impl EmitterHost {
             body: p.body,
             sound_table,
             animated: p.animated,
+            omega: Vec3::ZERO,
             update_time: None,
             meshes: None,
             part_levels: Vec::new(),
@@ -398,8 +403,9 @@ impl EmitterHost {
     ///
     /// A gap too short to open the physics tick ([`dereth_physics::globals::tick_is_due`]) is left
     /// to accumulate into the next frame, so a static steps when the world does; a gap longer than
-    /// [`STATIC_MAX_STEP`] restarts the clock without advancing. A host with no default animation
-    /// only has its parts re-placed. Returns whether the animation advanced.
+    /// [`STATIC_MAX_STEP`] restarts the clock without advancing. Each step also turns the host by
+    /// its [`Self::omega`], whole, however long the step. A host with no default animation only
+    /// has its parts re-placed. Returns whether the animation advanced.
     pub(crate) fn animate(&mut self, now: f64) -> bool {
         use dereth_physics::MotionSource;
         let mut advanced = false;
@@ -413,6 +419,10 @@ impl EmitterHost {
                     } else if dereth_physics::globals::tick_is_due(dt) {
                         if dt <= STATIC_MAX_STEP {
                             let _ = self.driver.advance(dt);
+                            // The spin is a turn a step, not a rate: it is not scaled by the
+                            // step's length.
+                            dereth_primitives::frame::grotate(&mut self.frame, self.omega);
+                            self.driver.env.position.frame = self.frame;
                             advanced = true;
                         }
                         self.update_time = Some(now);

@@ -2336,7 +2336,8 @@ pub struct SceneStats {
 /// transitively through `CALL_PES` — the shipped data puts the whole
 /// raisable set at `SOUND_TWEAKED` 524, `CREATE_PARTICLE` 7,757, `CALL_PES` 536,
 /// `SOUND_TABLE` 49, `SCALE` 43 and `TEXTURE_VELOCITY` 11, and **zero** of `ETHEREAL`,
-/// `NODRAW`, `SET_OMEGA`, `ATTACK` and `DEFAULT_SCRIPT_PART`.
+/// `NODRAW`, `SET_OMEGA`, `ATTACK` and `DEFAULT_SCRIPT_PART`. The default animations an animated
+/// host plays add `SET_OMEGA`: eight setups' animations raise it on their first frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct HostHookStats {
     /// Every event taken off a host's queue, whatever became of it. The denominator, and the
@@ -2361,15 +2362,20 @@ pub struct HostHookStats {
     /// The particle trio and `CallPes`, both of whose arms [`dereth_animation`] resolves inside the
     /// driver. These are reports, not requests; draining them is the whole of the work.
     pub applied_in_driver: u64,
-    /// `SetEthereal`, `SetNoDraw`'s state bit, `SetOmega`, `Attack` and `PlayDefaultScript` —
-    /// every one of them a call on the physics object a host has not got, or on the child list
-    /// that lives on it. Not a success, and not silently one: without this field a build that
-    /// routed nothing would read exactly like one that routed everything.
+    /// `SetEthereal`, `SetNoDraw`'s state bit, `Attack` and `PlayDefaultScript` — every one of
+    /// them a call on the physics object a host has not got, or on the child list that lives on
+    /// it. Not a success, and not silently one: without this field a build that routed nothing
+    /// would read exactly like one that routed everything.
     ///
-    /// **`SetScale` is not in this set** — see [`Self::scale_hooks`]. The five
-    /// here are raised by **nothing** in the shipped data, so this counter
-    /// is expected to stay at zero and a non-zero reading is new data, not a new drop.
+    /// **`SetScale` and `SetOmega` are not in this set** — see [`Self::scale_hooks`] and
+    /// [`Self::omega_hooks`]. The four here are raised by **nothing** in the shipped data, so
+    /// this counter is expected to stay at zero and a non-zero reading is new data, not a new
+    /// drop.
     pub no_body: u64,
+    /// `SetOmega` events drained: the turn the host takes at each step of its animation. The
+    /// default animations of eight shipped setups (butterflies and bats, among others) raise one
+    /// on their first frame, each time round.
+    pub omega_hooks: u64,
     /// `SetScale` events drained.
     ///
     /// The scale hook carries `(end, time)`, whose immediate arm writes the part-array

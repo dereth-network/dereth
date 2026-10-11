@@ -93,8 +93,9 @@ fn a_landblock_statics_event_queue_stays_bounded_over_a_long_session() {
     );
     eprintln!(
         "static event tally: drained {} = sounds {} + sound-type {} + sound-type-no-table {} + \
-         in-driver {} + no-body {} + scale {} (no body {}) + unreceivable {} + retail-noop {} + \
-         motion-done {}; pes {} ({} delayed); {} wave trigger(s) reached the mixer",
+         in-driver {} + no-body {} + scale {} (no body {}) + spin {} + unreceivable {} + \
+         retail-noop {} + motion-done {}; pes {} ({} delayed); {} wave trigger(s) reached the \
+         mixer",
         h.drained,
         h.sounds,
         h.sound_types,
@@ -103,6 +104,7 @@ fn a_landblock_statics_event_queue_stays_bounded_over_a_long_session() {
         h.no_body,
         h.scale_hooks,
         h.scale_hooks_no_body,
+        h.omega_hooks,
         h.unreceivable,
         h.retail_noop,
         h.motion_done,
@@ -134,9 +136,10 @@ fn a_landblock_statics_event_queue_stays_bounded_over_a_long_session() {
             + h.sound_types_no_table
             + h.applied_in_driver
             + h.no_body
-            // `SetScale` and the resolvable `SoundTable` hooks have arms of their own, apart from
-            // `no_body` and `sound_types_no_table`.
+            // `SetScale`, `SetOmega` and the resolvable `SoundTable` hooks have arms of their
+            // own, apart from `no_body` and `sound_types_no_table`.
             + h.scale_hooks
+            + h.omega_hooks
             + h.unreceivable
             + h.retail_noop
             + h.motion_done,

@@ -191,8 +191,8 @@ impl SceneDraw {
     ///
     /// Each [`crate::particles::EmitterHost`] is a `MotionDriver`, cell and world frame, paired
     /// with the existing placement body and carrying the setup's default sound-table id.
-    /// Consequently direct waves, table sounds and body-scale hooks reach their consumers;
-    /// driver-owned particle operations remain applied in the driver.
+    /// Consequently direct waves, table sounds, body-scale hooks and the spin an animation sets
+    /// reach their consumers; driver-owned particle operations remain applied in the driver.
     ///
     /// The remaining body operations and child-script arm are counted rather than
     /// applied, although the handle is available, because their receivers have not been
@@ -210,16 +210,15 @@ impl SceneDraw {
     /// never raises on a static, so that the next reader can see the set was read rather than
     /// skipped — and so that a new variant is a compile error rather than a silent drop.
     pub(super) fn drain_host_hooks(
-        driver: &mut dereth_animation::MotionDriver,
+        host: &mut crate::particles::EmitterHost,
         at: Vec3,
-        body: Option<dereth_physics::PhysHandle>,
         world: Option<&mut dereth_physics::PhysicsWorld>,
-        table: Option<DataId>,
         pending_sound: &mut Vec<SoundTrigger>,
         stats: &mut HostHookStats,
     ) {
         let mut world = world;
-        for e in driver.take_events() {
+        let (body, table) = (host.body, host.sound_table);
+        for e in host.driver.take_events() {
             stats.drained += 1;
             match e {
                 // Sound and tweaked-sound hooks play sound with
@@ -290,13 +289,21 @@ impl SceneDraw {
                         None => stats.scale_hooks_no_body += 1,
                     }
                 }
+                // **The spin.** The hook sets the object's turn, which an animated host takes
+                // whole at each step of its animation (`EmitterHost::animate`): the default
+                // animations of eight shipped setups set one on their first frame, and their
+                // butterflies and bats fly round the placement's centre. None of the eight has a
+                // collision shape, so there is no body to turn with it.
+                dereth_animation::AnimEvent::SetOmega(axis) => {
+                    stats.omega_hooks += 1;
+                    host.omega = axis;
+                }
                 // These body operations and the child-list script operation are not routed
-                // through this seam. All five are
+                // through this seam. All four are
                 // raised by nothing in the shipped data, so this arm
                 // is the read set and not a live route; a non-zero counter is new data.
                 dereth_animation::AnimEvent::SetEthereal(_)
                 | dereth_animation::AnimEvent::SetNoDraw(_)
-                | dereth_animation::AnimEvent::SetOmega(_)
                 | dereth_animation::AnimEvent::Attack { .. }
                 | dereth_animation::AnimEvent::PlayDefaultScript { .. } => {
                     stats.no_body += 1;
@@ -445,11 +452,9 @@ impl SceneDraw {
                 // It is handed the rest of the object: the body the placement
                 // pairing found and the sound table the setup named.
                 Self::drain_host_hooks(
-                    &mut h.driver,
+                    h,
                     origin,
-                    h.body,
                     character.as_mut().map(|c| &mut c.world),
-                    h.sound_table,
                     pending_sound,
                     &mut stats.hosts,
                 );
