@@ -3,9 +3,10 @@
 //!
 //! The vendor: the stock under the vendor's own type filters, a quantity for the selected row,
 //! Buy (at once) or Add to List, the basket with Buy All and its clears; on the Sell tab, the
-//! items dropped there and Sell Item, Sell All and the clears. Closing the window closes the
-//! vendor. The trade: what each side offers, an item dropped on your side offered, and Accept,
-//! Decline, Clear and Close.
+//! items dropped there and Sell Item, Sell All and the clears. A right-click on a row of the
+//! basket or of the items to sell takes it back off. Closing the window closes the vendor. The
+//! trade: what each side offers, an item dropped on your side offered, and Accept, Decline, Clear
+//! and Close.
 
 use dereth_client_contract::view::{ShopRow, TradeRow};
 use dereth_client_contract::UiRequest;
@@ -54,7 +55,16 @@ fn retail_commas(v: i32) -> String {
     dereth_ui_screens::panels::examination::insert_commas(v)
 }
 
-/// A scrolling list of rows; the index clicked and the index double-clicked, if any.
+/// What was done to a list's rows this frame: the row clicked, the row double-clicked and the
+/// row right-clicked, if any.
+#[derive(Debug, Clone, Copy, Default)]
+struct Pressed {
+    clicked: Option<usize>,
+    doubled: Option<usize>,
+    right: Option<usize>,
+}
+
+/// A scrolling list of rows, and what was done to them.
 fn list(
     p: &mut Painter<'_>,
     ctx: &mut Ctx<'_>,
@@ -63,7 +73,7 @@ fn list(
     looks: &[Item],
     selected: Option<ObjectId>,
     scroll: &mut f32,
-) -> (Option<usize>, Option<usize>) {
+) -> Pressed {
     let k = p.scale;
     let row_h = 34.0 * k;
     p.fill(area, 0x6010_0C08);
@@ -78,7 +88,7 @@ fn list(
     };
     let name = TextStyle::new(Family::Body, 13.0, ctx.colours.text()).edge(ctx.colours.edge());
     let price = TextStyle::new(Family::Body, 12.0, 0xFFE8_D8A0).edge(ctx.colours.edge());
-    let (mut clicked, mut doubled) = (None, None);
+    let mut pressed = Pressed::default();
     p.list.push_clip(area);
     for (i, row) in rows.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
@@ -123,16 +133,18 @@ fn list(
             p.text_in(&price, r.offset(-8.0 * k, 0.0), Align::Right, &row.right);
         }
         if ctx.input.double_clicked(&visible) {
-            doubled = Some(i);
+            pressed.doubled = Some(i);
         } else if ctx.input.clicked(&visible) {
-            clicked = Some(i);
+            pressed.clicked = Some(i);
+        } else if ctx.input.right_clicked(&visible) {
+            pressed.right = Some(i);
         }
     }
     p.list.pop_clip();
     if ctx.over_quiet(&area) {
         ctx.hot = true;
     }
-    (clicked, doubled)
+    pressed
 }
 
 impl Windows {
@@ -311,7 +323,9 @@ impl Windows {
             }
             let rows: Vec<Row> = stock.iter().map(|r| shop_row(r)).collect();
             let list_area = Rect::new(left.x, left.y + 30.0 * k, left.w, left.h - 30.0 * k);
-            let (clicked, doubled) = list(
+            let Pressed {
+                clicked, doubled, ..
+            } = list(
                 p,
                 ctx,
                 list_area,
@@ -418,7 +432,7 @@ impl Windows {
             // The basket.
             p.text(&dim, right.x, right.y - 20.0 * k, "Shopping list");
             let basket: Vec<Row> = shop.buy_list.iter().map(shop_row).collect();
-            let (clicked, _) = list(
+            let pressed = list(
                 p,
                 ctx,
                 right,
@@ -427,8 +441,15 @@ impl Windows {
                 self.basket_selected,
                 &mut self.basket_scroll,
             );
-            if let Some(i) = clicked {
+            if let Some(i) = pressed.clicked {
                 self.basket_selected = Some(basket[i].item);
+            }
+            // A right-click takes a row back off the list.
+            if let Some(i) = pressed.right {
+                out.requests.push(UiRequest::VendorClearList {
+                    sell: false,
+                    item: Some(basket[i].item),
+                });
             }
             p.text(
                 &text,
@@ -484,7 +505,7 @@ impl Windows {
             );
             ctx.drops.push((area, Some(Drop::Sell)));
             let rows: Vec<Row> = shop.sell_list.iter().map(shop_row).collect();
-            let (clicked, _) = list(
+            let pressed = list(
                 p,
                 ctx,
                 area,
@@ -493,8 +514,15 @@ impl Windows {
                 self.basket_selected,
                 &mut self.basket_scroll,
             );
-            if let Some(i) = clicked {
+            if let Some(i) = pressed.clicked {
                 self.basket_selected = Some(rows[i].item);
+            }
+            // A right-click takes a row back off the list.
+            if let Some(i) = pressed.right {
+                out.requests.push(UiRequest::VendorClearList {
+                    sell: true,
+                    item: Some(rows[i].item),
+                });
             }
             p.text(
                 &text,
