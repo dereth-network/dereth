@@ -23,6 +23,12 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's names stand still over portals and creatures that move in place, rather than rising and falling with their animation.
 - In Horizon's gamepad mode, LB held with the right stick up or down zooms the camera in and out, and a tap of LB turns autorun on only while you are already running forward.
 - In Horizon's gamepad mode, picking up an inventory item with A no longer uses it when an item was picked up from the same place before.
+- In Horizon's gamepad mode, the target's name and health bar show the alternate selection while its ring is up, and the selection again once it closes. Horizon's target bar shows a health only once the game has told it, and none for a thing with no health.
+- The launcher asks which interface to play in the first time it starts (Horizon, Modern or Classic), and its Library can change it later.
+- Walking from one landblock into the next at a long draw distance no longer leaves holes in the landscape for a few frames.
+- Horizon's camera tilts with the ground as you run up and down hills, as the other interfaces' camera does: Align Camera to Slope, on Horizon's Controls page, on by default.
+- The butterflies, bats and birds that fly over the land as scenery circle round as they did in the original game, instead of beating their wings in one place.
+- Horizon's experimental effects cost less with the picture unchanged: Better Lighting adds about a third of the processor time it did and a sixth less graphics time, and each other effect less processor time too.
 
 ## 0.4.1 (2026-10-11)
 

@@ -523,31 +523,9 @@ pub fn snapshot<S: Shell>(
         })
         .collect();
     if let Some(sel) = v.selection() {
-        let facts = v.selection_query_facts(sel);
-        let relation = match facts {
-            Some(f) if f.is_player => Relation::Player,
-            Some(f) if f.attackable => Relation::Hostile,
-            // A person: a creature that cannot be fought (a vendor, a guard), whether or not the
-            // game sends a level for it, as the radar tells them apart.
-            Some(_)
-                if v.int_stat(sel, int::LEVEL).is_some()
-                    || v.slot_decoration(sel)
-                        .is_some_and(|d| d.obj_type & ITEM_TYPE_CREATURE != 0) =>
-            {
-                Relation::Npc
-            }
-            _ => Relation::Object,
-        };
         g.target = Some(Target {
-            look: Some(item_of(&v, sel)),
-            id: sel,
-            name: v.name(sel).unwrap_or_default().to_owned(),
-            relation,
             health: v.selected_meters().0,
-            level: v
-                .int_stat(sel, int::LEVEL)
-                .and_then(|l| u32::try_from(l).ok()),
-            icon: v.icon(sel).map(|d| d.0),
+            ..target_of(&v, sel)
         });
     }
     // A selection to pick up off the ground: an item of no one's. (One in the chest or corpse
@@ -963,6 +941,40 @@ pub fn character_options(
         .collect()
 }
 
+/// Object `id` as the target bar shows it, with its health unknown: the game is told the health
+/// of the selection alone.
+pub fn target_of(
+    view: &dyn dereth_client_contract::view::GameView,
+    id: dereth_primitives::ObjectId,
+) -> Target {
+    let relation = match view.selection_query_facts(id) {
+        Some(f) if f.is_player => Relation::Player,
+        Some(f) if f.attackable => Relation::Hostile,
+        // A person: a creature that cannot be fought (a vendor, a guard), whether or not the
+        // game sends a level for it, as the radar tells them apart.
+        Some(_)
+            if view.int_stat(id, int::LEVEL).is_some()
+                || view
+                    .slot_decoration(id)
+                    .is_some_and(|d| d.obj_type & ITEM_TYPE_CREATURE != 0) =>
+        {
+            Relation::Npc
+        }
+        _ => Relation::Object,
+    };
+    Target {
+        look: Some(item_of(view, id)),
+        id,
+        name: view.name(id).unwrap_or_default().to_owned(),
+        relation,
+        health: None,
+        level: view
+            .int_stat(id, int::LEVEL)
+            .and_then(|l| u32::try_from(l).ok()),
+        icon: view.icon(id).map(|d| d.0),
+    }
+}
+
 /// One object as an item tile shows it.
 pub fn item_of(
     view: &dyn dereth_client_contract::view::GameView,
@@ -1023,6 +1035,42 @@ fn local_clock(offset_secs: i32) -> Option<String> {
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
+
+    #[test]
+    fn any_object_is_read_for_the_target_bar_by_name_kind_and_level_with_its_health_unknown() {
+        use dereth_client_contract::view::SelectionQueryFacts;
+        use dereth_primitives::ObjectId;
+        #[derive(Debug)]
+        struct View;
+        impl GameView for View {
+            fn name(&self, _: ObjectId) -> Option<&str> {
+                Some("Drudge Skulker")
+            }
+            fn int_stat(&self, _: ObjectId, prop: u32) -> Option<i32> {
+                (prop == int::LEVEL).then_some(12)
+            }
+            fn selection_query_facts(&self, _: ObjectId) -> Option<SelectionQueryFacts> {
+                Some(SelectionQueryFacts {
+                    attackable: true,
+                    ..SelectionQueryFacts::default()
+                })
+            }
+            fn selected_meters(&self) -> (Option<f32>, Option<f32>) {
+                (Some(0.5), None)
+            }
+        }
+        let t = target_of(&View, ObjectId(0x8000_0077));
+        assert_eq!(
+            (t.id, t.name.as_str(), t.relation, t.level),
+            (
+                ObjectId(0x8000_0077),
+                "Drudge Skulker",
+                Relation::Hostile,
+                Some(12)
+            )
+        );
+        assert_eq!(t.health, None, "the selection's health is not its own");
+    }
 
     #[test]
     fn doors_and_corpses_are_targets_but_the_player_and_what_the_interface_hides_are_not() {

@@ -209,6 +209,23 @@ pub fn window_for_action(action: u32) -> Option<WindowId> {
 /// The HUD Layout window's size, in layout units.
 const LAYOUT_SIZE: (f32, f32) = (380.0, 200.0);
 
+/// The target bar's health for `t`: how full its channel is drawn and the number over it, or
+/// `None` for no bar. A player, a person or a creature has health, as the selection's ring marks
+/// them; a thing has none. A health the game has not told is no bar either, rather than a guess:
+/// the alternate selection's, a selection's before the server answers for it, or one a world
+/// never sends.
+#[must_use]
+pub fn target_health(t: &crate::ui::game::Target) -> Option<(f32, String)> {
+    if !crate::ring::ringed(t.relation) {
+        return None;
+    }
+    let h = t.health?.clamp(0.0, 1.0);
+    Some((
+        h,
+        format!("{}%", dereth_primitives::num::to_i32((h * 100.0).round())),
+    ))
+}
+
 impl Hud {
     /// The game's actions that are the interface's: the shortcut keys, the window keys and
     /// logging out; and the spell keys, on the second bar.
@@ -1453,8 +1470,18 @@ impl Hud {
     // The target bar
     // -----------------------------------------------------------------------------------------
 
+    /// What the target bar shows: the pad's alternate selection while it is up, else the
+    /// selection.
+    #[must_use]
+    pub fn target_shown<'s>(&self, state: &'s GameState) -> Option<&'s crate::ui::game::Target> {
+        match self.alt {
+            Some(_) => state.alt_target.as_ref().or(state.target.as_ref()),
+            None => state.target.as_ref(),
+        }
+    }
+
     fn target_bar(&mut self, p: &mut Painter<'_>, _ctx: &mut Ctx<'_>, state: &GameState) {
-        let Some(t) = &state.target else {
+        let Some(t) = self.target_shown(state) else {
             return;
         };
         let k = p.scale;
@@ -1477,19 +1504,13 @@ impl Hud {
         }
         p.text(&name, x, y - 26.0 * k, &label);
         let bar = Rect::new(x, y, w, 14.0 * k);
-        // A creature's or a person's health; an object has none to show.
-        let living = t.relation != Relation::Object || t.health.is_some();
-        if living {
+        if let Some((full, s)) = target_health(t) {
             let fill: Argb = match t.relation {
                 Relation::Hostile | Relation::Engaged => 0xFFD6_4B3A,
                 _ => 0xFF6E_CB5C,
             };
-            kit::gauge(p, bar, t.health.unwrap_or(1.0), fill);
-        }
-        if let Some(h) = t.health {
+            kit::gauge(p, bar, full, fill);
             let pct = TextStyle::new(Family::BarNumbers, 16.0, 0xFFFF_FFFF).edge(0xFF33_2211);
-            #[allow(clippy::cast_possible_truncation)]
-            let s = format!("{}%", dereth_primitives::num::to_i32((h * 100.0).round()));
             let pw = p.measure(&pct, &s);
             p.text(&pct, bar.right() - pw, y - 22.0 * k, &s);
         }

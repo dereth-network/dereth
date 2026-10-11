@@ -781,3 +781,146 @@ fn b_over_the_interface_with_a_use_armed_puts_it_down_and_leaves_the_focus() {
         )]
     );
 }
+
+#[test]
+fn the_alternate_selection_takes_the_target_bar_while_it_is_up_and_gives_it_back_after() {
+    use dereth_horizon::draw::Rect;
+    use dereth_horizon::ui::game::{Relation, Target};
+    use dereth_horizon::ui::input::PadWorld;
+    use dereth_primitives::ObjectId;
+    const CHANNEL: u32 = 0xFF20_1810;
+    const HOSTILE_FILL: u32 = 0xFFD6_4B3A;
+    let mut state = surrounded();
+    state.target = Some(Target {
+        id: ObjectId(0x10),
+        name: "Crier".into(),
+        relation: Relation::Hostile,
+        health: Some(0.25),
+        ..Target::default()
+    });
+    // The chicken as the game reads it for the bar while the alternate selection rests on it:
+    // its health unknown, the game being told only the selection's.
+    state.alt_target = Some(Target {
+        id: ObjectId(0x20),
+        name: "Chicken".into(),
+        relation: Relation::Hostile,
+        ..Target::default()
+    });
+    // The target bar's health as drawn in `channel`: whether the channel is there, and how full
+    // its fill is.
+    let drawn = |h: &Harness, channel: Rect| {
+        let quads = &h.list.quads;
+        let there = quads
+            .iter()
+            .any(|q| q.tex.is_none() && q.colour == CHANNEL && q.dst == channel);
+        let fill = quads
+            .iter()
+            .find(|q| q.tex.is_none() && q.colour == HOSTILE_FILL)
+            .map(|q| q.dst.w / channel.w);
+        (there, fill)
+    };
+    let shown = |h: &Harness, state: &dereth_horizon::ui::game::GameState| {
+        h.ui.hud.target_shown(state).map(|t| t.name.clone())
+    };
+    let mut h = Harness::new(Default::default());
+    h.frame(&state);
+    assert_eq!(shown(&h, &state).as_deref(), Some("Crier"));
+    // The selection's channel, found under its fill.
+    let at = h
+        .list
+        .quads
+        .iter()
+        .position(|q| q.tex.is_none() && q.colour == HOSTILE_FILL)
+        .expect("the selection's health is drawn");
+    let channel = h.list.quads[at - 1].dst;
+    let (there, fill) = drawn(&h, channel);
+    assert!(
+        there && fill.is_some_and(|f| (f - 0.25).abs() < 1e-3),
+        "{fill:?}"
+    );
+    // The chicken's health is not known: no bar until it is.
+    h.input.pad.world.push(PadWorld::Alternate(1));
+    h.frame(&state);
+    assert_eq!(h.ui.hud.alt, Some(ObjectId(0x20)));
+    assert_eq!(
+        shown(&h, &state).as_deref(),
+        Some("Chicken"),
+        "the bar is the chicken's"
+    );
+    assert_eq!(
+        drawn(&h, channel),
+        (false, None),
+        "no bar, and not the crier's health"
+    );
+    // On a gem, which has no health whatever number came for it: no bar at all.
+    let mut on_gem = state.clone();
+    on_gem.alt_target = Some(Target {
+        id: ObjectId(0x30),
+        name: "Gem".into(),
+        relation: Relation::Object,
+        health: Some(0.5),
+        ..Target::default()
+    });
+    h.input.pad.world.push(PadWorld::Alternate(1));
+    h.frame(&on_gem);
+    assert_eq!(shown(&h, &on_gem).as_deref(), Some("Gem"));
+    assert_eq!(
+        drawn(&h, channel),
+        (false, None),
+        "no health bar for a thing"
+    );
+    h.input.pad.world.push(PadWorld::DropAlternate);
+    h.frame(&state);
+    assert_eq!(
+        shown(&h, &state).as_deref(),
+        Some("Crier"),
+        "back to the selection"
+    );
+    let (there, fill) = drawn(&h, channel);
+    assert!(
+        there && fill.is_some_and(|f| (f - 0.25).abs() < 1e-3),
+        "{fill:?}"
+    );
+    // A selection the server has not yet answered for: no bar until it does.
+    let mut fresh = state.clone();
+    if let Some(t) = fresh.target.as_mut() {
+        t.health = None;
+    }
+    h.frame(&fresh);
+    assert_eq!(
+        drawn(&h, channel),
+        (false, None),
+        "no bar before its health"
+    );
+}
+
+#[test]
+fn the_target_bar_shows_a_known_health_and_no_bar_for_an_unknown_one_or_a_thing() {
+    use dereth_horizon::ui::game::{Relation, Target};
+    use dereth_horizon::ui::hud::target_health;
+    let of = |relation: Relation, health: Option<f32>| {
+        target_health(&Target {
+            relation,
+            health,
+            ..Target::default()
+        })
+    };
+    assert_eq!(
+        of(Relation::Hostile, Some(0.25)),
+        Some((0.25, "25%".into()))
+    );
+    assert_eq!(of(Relation::Player, Some(1.0)), Some((1.0, "100%".into())));
+    // Not known (a selection the game has not answered for, the alternate selection, or a world
+    // that does not send it): no bar, rather than a guess.
+    for relation in [
+        Relation::Hostile,
+        Relation::Engaged,
+        Relation::Npc,
+        Relation::Player,
+    ] {
+        assert_eq!(of(relation, None), None, "{relation:?}");
+    }
+    // A thing (an item, a door, a portal) has none, as no ring marks it.
+    assert_eq!(of(Relation::Object, None), None);
+    assert_eq!(of(Relation::Object, Some(0.5)), None);
+}

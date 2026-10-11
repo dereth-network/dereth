@@ -809,13 +809,23 @@ impl HorizonFrontEnd {
             state.look_by_camera = self.ui.options.orbit_in_effect().movement
                 == dereth_client_runtime::orbit::MovementMode::Camera;
         }
-        // The pad's alternate selection, where it stands on screen for its ring.
+        // The pad's alternate selection, where it stands on screen for its ring, and as the target
+        // bar shows it: its health is known only when it is the selection.
         if let Some(alt) = self.ui.hud.alt {
             #[allow(clippy::cast_precision_loss)]
             {
                 state.alt_at = self.origins.get(&alt).map(|(x, y)| (*x as f32, *y as f32));
             }
             self.wanted_projections.push(alt);
+            let view = cx.hud().view(cx.objects());
+            state.alt_target = Some(crate::ui::game::Target {
+                health: state
+                    .target
+                    .as_ref()
+                    .filter(|t| t.id == alt)
+                    .and_then(|t| t.health),
+                ..crate::state::target_of(&view, alt)
+            });
         }
         self.ring_target = state
             .target

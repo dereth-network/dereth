@@ -581,6 +581,9 @@ pub struct GameState {
     pub prompts: Vec<Prompt>,
     /// Where on screen the pad's alternate selection stands, raised to its middle.
     pub alt_at: Option<(f32, f32)>,
+    /// The pad's alternate selection as the target bar shows it while it is up, in place of the
+    /// selection.
+    pub alt_target: Option<Target>,
     /// The player's heading, degrees clockwise from north.
     pub heading: f32,
     /// The way the camera looks, degrees clockwise from north, as `heading` is given.
