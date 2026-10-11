@@ -1138,6 +1138,12 @@ impl Windows {
             column.h + 2.0 * margin,
         ));
         let mut pack_rects = Vec::with_capacity(packs.len());
+        // A side pack being dragged along the column is put down at the place it is let go on.
+        let dragged_pack = ctx
+            .drag
+            .as_ref()
+            .map(|d| d.item)
+            .filter(|d| state.side_packs.iter().any(|(p, _)| p.id == *d));
         for (i, (id, pack)) in packs.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let r = Rect::new(
@@ -1151,8 +1157,11 @@ impl Windows {
                 ctx.input.nav.note_hidden(r);
                 continue;
             }
-            // A drop on a pack puts the item in it.
-            if let Some(id) = id {
+            // A drop on a pack puts the item in it; a pack, at that place among the packs.
+            if let Some(moving) = dragged_pack {
+                ctx.drops
+                    .push((r, Some(pack_place(state, moving, i).into())));
+            } else if let Some(id) = id {
                 ctx.drops.push((
                     r,
                     Some(dereth_client_contract::view::DropTarget::Container(*id).into()),
@@ -1751,6 +1760,19 @@ pub fn pack_move(
     moving: dereth_primitives::ObjectId,
     index: usize,
 ) -> UiRequest {
+    UiRequest::DragDrop {
+        item: moving,
+        target: pack_place(state, moving, index),
+    }
+}
+
+/// Where pack `moving` is put down at place `index` of the pack column: see [`pack_move`].
+#[must_use]
+pub fn pack_place(
+    state: &GameState,
+    moving: dereth_primitives::ObjectId,
+    index: usize,
+) -> dereth_client_contract::view::DropTarget {
     let packs: Vec<dereth_primitives::ObjectId> =
         state.side_packs.iter().map(|(p, _)| p.id).collect();
     let at = index.saturating_sub(1).min(packs.len());
@@ -1762,15 +1784,12 @@ pub fn pack_move(
     } else {
         at
     };
-    UiRequest::DragDrop {
-        item: moving,
-        target: dereth_client_contract::view::DropTarget::ItemListSlot {
-            container: state.player_id.unwrap_or_default(),
-            under: packs.get(at).copied(),
-            index: u32::try_from(place).unwrap_or(0),
-            num_ui_items: u32::try_from(packs.len()).unwrap_or(0),
-            dragged_is_container: true,
-            container_list: true,
-        },
+    dereth_client_contract::view::DropTarget::ItemListSlot {
+        container: state.player_id.unwrap_or_default(),
+        under: packs.get(at).copied(),
+        index: u32::try_from(place).unwrap_or(0),
+        num_ui_items: u32::try_from(packs.len()).unwrap_or(0),
+        dragged_is_container: true,
+        container_list: true,
     }
 }

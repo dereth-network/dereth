@@ -196,6 +196,204 @@ fn the_main_pack_is_dragged_from_the_pack_column_to_the_shortcut_bar() {
     );
 }
 
+/// What a drag from `from` to `to` asks for when it is let go.
+fn drag(h: &mut Harness, state: &GameState, from: (f32, f32), to: (f32, f32)) -> Vec<UiRequest> {
+    h.move_to(from.0, from.1);
+    h.press();
+    h.frame(state);
+    h.move_to(to.0, to.1);
+    h.frame(state);
+    h.release();
+    h.frame(state).requests
+}
+
+/// The middle of pack `id`'s place in the pack column.
+fn pack_tile(h: &Harness, id: ObjectId) -> (f32, f32) {
+    centre(zones(h, |t| *t == DropTarget::Container(id))[0])
+}
+
+/// The drop on the row of packs that puts a pack at `index` among them, on top of `under`.
+fn on_the_row_of_packs(under: ObjectId, index: u32) -> DropTarget {
+    DropTarget::ItemListSlot {
+        container: ME,
+        under: Some(under),
+        index,
+        num_ui_items: 3,
+        dragged_is_container: true,
+        container_list: true,
+    }
+}
+
+#[test]
+fn a_pack_dragged_along_the_pack_column_takes_the_place_it_is_let_go_on() {
+    let state = carrying(3);
+    let third = ObjectId(0x8000_0102);
+    let mut h = open(&state, &[WindowId::Inventory]);
+    let (main_tile, first_tile, third_tile) =
+        (pack_tile(&h, ME), pack_tile(&h, SACK), pack_tile(&h, third));
+    // Up: the third pack to the first's place, in front of it; on the main pack's place too.
+    let up = drag(&mut h, &state, third_tile, first_tile);
+    assert!(
+        up.contains(&UiRequest::DragDrop {
+            item: third,
+            target: on_the_row_of_packs(SACK, 0),
+        }),
+        "{up:?}"
+    );
+    let to_main = drag(&mut h, &state, third_tile, main_tile);
+    assert!(
+        to_main.contains(&UiRequest::DragDrop {
+            item: third,
+            target: on_the_row_of_packs(SACK, 0),
+        }),
+        "{to_main:?}"
+    );
+    // Down: the first pack to the third's place, after it once it has left its own.
+    let down = drag(&mut h, &state, first_tile, third_tile);
+    assert!(
+        down.contains(&UiRequest::DragDrop {
+            item: SACK,
+            target: on_the_row_of_packs(third, 3),
+        }),
+        "{down:?}"
+    );
+    // Neither is put in the pack it was let go on.
+    for (requests, pack) in [(&up, SACK), (&down, third)] {
+        assert!(
+            !requests.iter().any(|r| matches!(
+                r,
+                UiRequest::DragDrop { target: DropTarget::Container(c), .. } if *c == pack
+            )),
+            "{requests:?}"
+        );
+    }
+}
+
+#[test]
+fn a_pack_the_pad_is_moving_is_put_down_on_the_place_pressed() {
+    let state = carrying(3);
+    let third = ObjectId(0x8000_0102);
+    let mut h = open(&state, &[WindowId::Inventory]);
+    let first_tile = pack_tile(&h, SACK);
+    // Its menu's Move picks it up; the pad's confirm is the left button.
+    h.ui.windows.moving_pack = Some(third);
+    let requests = click(&mut h, &state, first_tile);
+    assert!(
+        requests.contains(&UiRequest::DragDrop {
+            item: third,
+            target: on_the_row_of_packs(SACK, 0),
+        }),
+        "{requests:?}"
+    );
+    assert_eq!(h.ui.windows.moving_pack, None, "put down");
+}
+
+/// The place among the player's packs the game asks the server to put `moving` at, when the
+/// interface puts it down at place `index` of the pack column: the place sent with
+/// `Inventory_PutItemInContainer` (`0x0019`), or `None` when nothing is sent.
+fn sent_place(state: &GameState, moving: ObjectId, index: usize) -> Option<u32> {
+    use dereth_client_model::inventory::{ItemListDrop, SplitState};
+    use dereth_client_model::objects::ObjectInventory;
+    use dereth_client_model::{RecordingRequests, RecordingSink, Request, Weenie, World};
+    use dereth_protocol::types::PublicWeenieDesc;
+    use dereth_rules::weenie::{bitfield, item_type};
+    let mut w = World::new();
+    let mut put = |id: ObjectId, pwd: PublicWeenieDesc| {
+        let mut it = Weenie::new(id);
+        it.pwd = pwd;
+        it.valid = true;
+        w.tables.weenies.insert(id, it);
+        w.tables.inventories.insert(id, ObjectInventory::new(id));
+    };
+    put(
+        ME,
+        PublicWeenieDesc {
+            bitfield: bitfield::PLAYER,
+            obj_type: item_type::CREATURE,
+            items_capacity: Some(102),
+            containers_capacity: Some(7),
+            ..PublicWeenieDesc::default()
+        },
+    );
+    for (pack, _) in &state.side_packs {
+        put(
+            pack.id,
+            PublicWeenieDesc {
+                container_id: Some(ME),
+                items_capacity: Some(24),
+                bitfield: bitfield::OPENABLE,
+                ..PublicWeenieDesc::default()
+            },
+        );
+    }
+    w.player = Some(ME);
+    for (n, (pack, _)) in state.side_packs.iter().enumerate() {
+        w.tables
+            .inventories
+            .get_mut(ME)
+            .expect("the player's own list")
+            .add_content(pack.id, true, n);
+    }
+    let DropTarget::ItemListSlot {
+        container,
+        under,
+        index,
+        num_ui_items,
+        dragged_is_container,
+        container_list,
+    } = dereth_horizon::ui::panels::pack_place(state, moving, index)
+    else {
+        panic!("a drop on the row of packs");
+    };
+    let mut sent = RecordingRequests::default();
+    w.item_list_accept_drag(
+        &mut sent,
+        &mut RecordingSink::default(),
+        moving,
+        ItemListDrop {
+            parent_container: container,
+            under,
+            index,
+            num_ui_items,
+            dragged_is_container,
+            container_list,
+        },
+        SplitState::whole_stack(1),
+        dereth_primitives::ServerTime(1.0),
+    );
+    sent.0.iter().find_map(|r| match r {
+        Request::PutItemInContainer(m) if m.item == moving && m.container == ME => Some(m.slot),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_game_puts_a_pack_moved_along_the_column_in_the_place_it_was_put_down_on() {
+    let state = carrying(3);
+    let packs: Vec<ObjectId> = state.side_packs.iter().map(|(p, _)| p.id).collect();
+    for from in 0..packs.len() {
+        // Place 0 of the column is the main pack's, which stands for the first among the packs.
+        for to in 0..=packs.len() {
+            let wanted = to.saturating_sub(1);
+            let place = sent_place(&state, packs[from], to);
+            if wanted == from {
+                assert_eq!(place, None, "pack {from} put back on its own place");
+                continue;
+            }
+            // The server takes the pack out of its place and puts it in at the place sent.
+            let mut order = packs.clone();
+            let moved = order.remove(from);
+            let place = usize::try_from(place.expect("a place is sent")).unwrap();
+            order.insert(place.min(order.len()), moved);
+            assert_eq!(
+                order.iter().position(|p| *p == moved),
+                Some(wanted),
+                "pack {from} put down on column place {to}: {order:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn closing_a_corpse_or_the_inventory_lets_go_of_a_selection_inside_it() {
     let let_go = UiRequest::Select(ObjectId(0));
