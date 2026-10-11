@@ -132,8 +132,8 @@ pub struct Nameplate {
     pub bounds: crate::draw::Rect,
     /// How far the object is from the player, in metres, when both have a place in the world.
     pub distance: Option<f32>,
-    /// How near it is for the name's fade: 1 well within the names' range, falling to 0 at its
-    /// edge.
+    /// How near it is for the name's size and fade: 1 where names are whole, falling to 0 where
+    /// they are gone, further outdoors than in.
     pub nearness: f32,
 }
 

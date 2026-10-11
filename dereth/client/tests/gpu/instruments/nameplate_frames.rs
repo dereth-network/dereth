@@ -214,7 +214,7 @@ fn nameplates(scene: &WorldScene, subjects: &[&Subject]) -> Vec<Nameplate> {
                 selected: false,
                 bounds,
                 distance: Some(d),
-                nearness: dereth_horizon::state::nearness(d),
+                nearness: dereth_horizon::state::nearness(d, true),
             })
         })
         .collect()

@@ -2240,17 +2240,10 @@ impl Hud {
             Relation::Player => 0xFFB0_D8FF,
             Relation::Object => 0xFFFF_FFFF,
         });
-        // Names are full size out to `near`, then shrink and fade to nothing at `far`: the names'
-        // range, or the radar's where that is shorter (indoors), since only what the radar holds
-        // is named.
-        let far = crate::state::NAMEPLATE_RANGE.min(state.radar_range.max(1.0));
-        let near = far * NAME_FULL_SIZE_SHARE;
         for plate in &state.nameplates {
-            // The selection's name stays whole.
-            let fade = match plate.distance {
-                Some(d) if !plate.selected => ((far - d) / (far - near)).clamp(0.0, 1.0),
-                _ => 1.0,
-            };
+            // Names shrink and fade with distance, further outdoors than in; the selection's
+            // stays whole.
+            let fade = if plate.selected { 1.0 } else { plate.nearness };
             if fade <= 0.05 {
                 continue;
             }
@@ -2342,9 +2335,6 @@ const SPELL_PAGE: usize = 12;
 
 /// How long the radar takes to come most of the way round to a new heading, in seconds.
 const RADAR_EASE_SECONDS: f32 = 0.08;
-
-/// How much of the names' range they show at full size, before shrinking away over the rest.
-const NAME_FULL_SIZE_SHARE: f32 = 0.6;
 
 /// How far a name's line stands clear of the top of the body it names, in layout units.
 pub const NAME_CLEARANCE: f32 = 4.0;

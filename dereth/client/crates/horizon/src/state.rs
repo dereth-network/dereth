@@ -614,8 +614,40 @@ pub fn option_rows(
         .collect()
 }
 
-/// How near, in metres, something must be for its name to show over it.
-pub const NAMEPLATE_RANGE: f32 = 30.0;
+/// How names shrink and fade with distance, in meters from the player: whole out to `whole`,
+/// then shrinking and fading to nothing at `gone`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NameFade {
+    pub whole: f32,
+    pub gone: f32,
+}
+
+/// Outdoors names are whole out to 36 meters and gone at 60, well within the radar's reach.
+pub const NAME_FADE_OUTDOORS: NameFade = NameFade {
+    whole: 36.0,
+    gone: 60.0,
+};
+
+/// Indoors names are whole out to 20 meters, across most rooms, and gone at 25, the radar's
+/// reach indoors, past which nothing is named.
+pub const NAME_FADE_INDOORS: NameFade = NameFade {
+    whole: 20.0,
+    gone: 25.0,
+};
+
+/// How names fade for a player outdoors (`outside`) or in.
+#[must_use]
+pub const fn name_fade(outside: bool) -> NameFade {
+    if outside {
+        NAME_FADE_OUTDOORS
+    } else {
+        NAME_FADE_INDOORS
+    }
+}
+
+/// How near, in meters, something must be for its name to show over it: where names are gone
+/// outdoors, the further of the two.
+pub const NAMEPLATE_RANGE: f32 = NAME_FADE_OUTDOORS.gone;
 
 /// The objects whose names may show over them this frame: each blip within range that is not a
 /// thing.
@@ -747,7 +779,7 @@ pub fn nameplates(
                 selected: kind == BlipKind::Selected,
                 bounds,
                 distance,
-                nearness: distance.map_or(1.0, nearness),
+                nearness: distance.map_or(1.0, |d| nearness(d, outside)),
             })
         })
         .filter(|n| !n.name.is_empty())
@@ -762,15 +794,13 @@ pub fn name_shown(outside: bool, place: Option<(bool, f32)>, selected: bool) -> 
     selected || place.is_none_or(|(out, _)| out == outside)
 }
 
-/// How near a name stands, for fading it: 1 within [`NAMEPLATE_FADE`] of the edge of
-/// [`NAMEPLATE_RANGE`], falling to 0 at the edge, `distance` in metres.
+/// How near a name stands, for shrinking and fading it, to a player outdoors (`outside`) or in:
+/// 1 out to where names are whole, falling to 0 where they are gone, `distance` in meters.
 #[must_use]
-pub fn nearness(distance: f32) -> f32 {
-    ((NAMEPLATE_RANGE - distance) / NAMEPLATE_FADE).clamp(0.0, 1.0)
+pub fn nearness(distance: f32, outside: bool) -> f32 {
+    let NameFade { whole, gone } = name_fade(outside);
+    ((gone - distance) / (gone - whole)).clamp(0.0, 1.0)
 }
-
-/// The distance over which a name fades out at the edge of [`NAMEPLATE_RANGE`], in metres.
-pub const NAMEPLATE_FADE: f32 = 6.0;
 
 /// The examine window's pane for `id`, from the game's appraisal of it, in the words the game's
 /// own examine panel builds: the item's description blocks, or a creature's or a player's
@@ -1175,12 +1205,71 @@ mod tests {
     }
 
     #[test]
-    fn a_name_fades_over_the_last_metres_of_its_range() {
-        assert!((nearness(1.0) - 1.0).abs() < f32::EPSILON);
-        assert!((nearness(NAMEPLATE_RANGE - NAMEPLATE_FADE) - 1.0).abs() < 1e-6);
-        assert!((nearness(NAMEPLATE_RANGE - NAMEPLATE_FADE / 2.0) - 0.5).abs() < 1e-6);
-        assert!(nearness(NAMEPLATE_RANGE).abs() < f32::EPSILON);
-        assert!(nearness(NAMEPLATE_RANGE + 10.0).abs() < f32::EPSILON);
+    fn names_are_whole_out_to_36_meters_outdoors_and_20_indoors_and_gone_at_60_and_25() {
+        let at = |d: f32, outside: bool| nearness(d, outside);
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        // Outdoors.
+        assert!(near(at(1.0, true), 1.0));
+        assert!(near(at(36.0, true), 1.0), "whole at 36 meters");
+        assert!(near(at(48.0, true), 0.5), "half way at 48");
+        assert!(near(at(60.0, true), 0.0), "gone at 60");
+        assert!(near(at(70.0, true), 0.0));
+        // Indoors.
+        assert!(near(at(20.0, false), 1.0), "whole at 20 meters");
+        assert!(near(at(22.5, false), 0.5), "half way at 22.5");
+        assert!(near(at(25.0, false), 0.0), "gone at 25");
+        assert!(near(at(36.0, false), 0.0));
+        // Names are looked for as far as they can be seen anywhere, and no further than the
+        // radar reaches.
+        assert!(near(NAMEPLATE_RANGE, 60.0));
+        assert!(NAME_FADE_OUTDOORS.gone <= dereth_ui_screens::mapradar::radar::radar_range(true));
+        assert!(NAME_FADE_INDOORS.gone <= dereth_ui_screens::mapradar::radar::radar_range(false));
+    }
+
+    #[test]
+    fn a_name_thirty_meters_away_is_whole_outdoors_and_gone_indoors() {
+        use dereth_primitives::ObjectId;
+        #[derive(Debug)]
+        struct Place(bool);
+        impl GameView for Place {
+            fn name(&self, _: ObjectId) -> Option<&str> {
+                Some("Drudge Skulker")
+            }
+            fn player_outside(&self) -> bool {
+                self.0
+            }
+        }
+        let drudge = ObjectId(0x8000_0101);
+        let state = GameState {
+            blips: vec![crate::ui::game::Blip {
+                id: drudge,
+                dx: 0.0,
+                dy: 30.0,
+                kind: BlipKind::Creature,
+                colour: 0,
+                shape: 0,
+                name: "Drudge Skulker".into(),
+            }],
+            ..GameState::default()
+        };
+        let projections = Projections::from([(
+            drudge,
+            dereth_client_contract::target::Projection::OnScreen((900, 400, 940, 500)),
+        )]);
+        let nearness_at = |outside: bool| {
+            let places = std::collections::BTreeMap::from([(drudge, (outside, 30.0))]);
+            let plates = nameplates(
+                &Place(outside),
+                &state,
+                &projections,
+                &std::collections::BTreeMap::new(),
+                &Tops::new(),
+                &places,
+            );
+            plates.first().expect("the drudge is named").nearness
+        };
+        assert!((nearness_at(true) - 1.0).abs() < 1e-6, "outdoors: whole");
+        assert!(nearness_at(false).abs() < 1e-6, "indoors: gone");
     }
 
     #[test]

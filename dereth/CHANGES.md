@@ -31,6 +31,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon's experimental effects cost less with the picture unchanged: Better Lighting adds about a third of the processor time it did and a sixth less graphics time, and each other effect less processor time too.
 - Horizon's experimental effects cost less: Better Lighting adds about a third of the processor time it did and a sixth less graphics time, and each other effect less processor time too. Above 2560x1440, Ambient Occlusion also takes under a third of the graphics time it did, its finest creases a little softer.
 - Horizon's experimental Weather needs Better Lighting, its box greyed until that is ticked, and its snow falls without lying on roofs or the land.
+- Horizon's names stay whole twice as far off outdoors (out to 36 meters, gone at 60) and further indoors (out to 20 meters, gone at 25).
 
 ## 0.4.1 (2026-10-11)
 

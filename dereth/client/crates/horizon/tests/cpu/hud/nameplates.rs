@@ -18,6 +18,7 @@ use crate::Harness;
 const NEAR: ObjectId = ObjectId(0x8300_0601);
 const FAR: ObjectId = ObjectId(0x8300_0602);
 const CHOSEN: ObjectId = ObjectId(0x8300_0603);
+const INSIDE: ObjectId = ObjectId(0x8300_0604);
 
 /// The interface at 1920x1080 with the pieces and fonts the client carries.
 fn harness() -> Harness {
@@ -32,6 +33,7 @@ fn harness() -> Harness {
     }
 }
 
+/// A name `distance` meters from a player outdoors.
 fn plate(id: ObjectId, name: &str, (x, y): (f32, f32), distance: f32) -> Nameplate {
     Nameplate {
         id,
@@ -46,12 +48,12 @@ fn plate(id: ObjectId, name: &str, (x, y): (f32, f32), distance: f32) -> Namepla
         selected: id == CHOSEN,
         bounds: Rect::new(x - 40.0, y, 80.0, 160.0),
         distance: Some(distance),
-        nearness: dereth_horizon::state::nearness(distance),
+        nearness: dereth_horizon::state::nearness(distance, true),
     }
 }
 
-/// The game screen with names standing on the tops at `at`: a creature five metres away, one
-/// twenty-five metres away (its name shrunk and faded), and the selection.
+/// The game screen with names standing on the tops at `at`: a creature five meters away, one
+/// fifty meters away (its name shrunk and faded), and the selection.
 fn names_at(at: [(f32, f32); 3]) -> GameState {
     GameState {
         in_world: true,
@@ -67,7 +69,7 @@ fn names_at(at: [(f32, f32); 3]) -> GameState {
         }),
         nameplates: vec![
             plate(NEAR, "Drudge Skulker", at[0], 5.0),
-            plate(FAR, "Gotrok Lugian", at[1], 25.0),
+            plate(FAR, "Gotrok Lugian", at[1], 50.0),
             plate(CHOSEN, "Lugian", at[2], 9.0),
         ],
         ..GameState::default()
@@ -154,6 +156,37 @@ fn a_name_drawn_before_the_world_moved_is_moved_where_it_is_drawn_near_and_far()
             assert_eq!(qa.dst, qb.dst, "{id:?}: followed, against drawn there");
         }
     }
+}
+
+#[test]
+fn a_name_thirty_meters_off_outdoors_is_drawn_as_large_as_one_close_by_and_indoors_is_not_drawn() {
+    let mut h = harness();
+    let mut state = names_at(DRAWN);
+    state.target = None;
+    state.nameplates = vec![
+        plate(NEAR, "Drudge", DRAWN[0], 5.0),
+        plate(FAR, "Drudge", DRAWN[1], 30.0),
+        Nameplate {
+            nearness: dereth_horizon::state::nearness(30.0, false),
+            ..plate(INSIDE, "Drudge", DRAWN[2], 30.0)
+        },
+    ];
+    h.frame(&state);
+    let drawn = names(&h.list);
+    let size = |id: ObjectId| {
+        let (_, quads) = drawn.iter().find(|(i, _)| *i == id).expect("drawn");
+        let b = bounds(quads);
+        (b.w, b.h)
+    };
+    let ((fw, fh), (nw, nh)) = (size(FAR), size(NEAR));
+    assert!(
+        (fw - nw).abs() < 0.01 && (fh - nh).abs() < 0.01,
+        "thirty meters off outdoors: whole, {fw}x{fh} against {nw}x{nh}"
+    );
+    assert!(
+        drawn.iter().all(|(id, _)| *id != INSIDE),
+        "thirty meters off indoors: not drawn"
+    );
 }
 
 #[test]
