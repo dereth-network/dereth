@@ -769,6 +769,23 @@ impl<'a, S: Shell> UiContext<'a, S> {
         }
     }
 
+    /// Bring the orbit camera `notches` of the wheel closer (further, for a negative count), as a
+    /// pad's stick zooms it a little each frame. Nothing without the orbit camera or a body.
+    pub fn orbit_zoom(&mut self, notches: f32) {
+        if self.app.orbit.is_none() {
+            return;
+        }
+        if let Some(c) = self.app.world.as_mut().and_then(|w| w.character.as_mut()) {
+            c.camera.orbit.zoom(notches);
+        }
+    }
+
+    /// The player's movement controls as they stand: moving ahead, back, turning, the run lock.
+    #[must_use]
+    pub fn movement_controls(&self) -> crate::character::CharacterInput {
+        self.app.char_input
+    }
+
     /// One of the orbit camera's mouse buttons, the right one for `right`, going down or up over
     /// the world. Either held turns the camera with the pointer; both together run the player
     /// forward where it looks. Under character-based movement the right one steers the player,

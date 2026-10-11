@@ -1272,4 +1272,49 @@ mod tests {
             "camera-based: the body faced the camera's way: {off:?}"
         );
     }
+
+    /// Behaviour: none (the Horizon interface's own camera, not the retail client's)
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn an_interface_zooms_the_orbit_camera_and_reads_the_players_movement_controls() {
+        use crate::orbit::{MovementMode, ZOOM_STEP};
+        let key = |name: &str| names::action_for_enum_name(name).expect("a shipped name");
+        let (mut app, mut shell) = camera_turned_off(MovementMode::Camera);
+        let distance = |app: &App<NullShell>| {
+            app.world
+                .as_ref()
+                .and_then(|w| w.character.as_ref())
+                .expect("a body")
+                .camera
+                .orbit
+                .distance
+        };
+        let before = distance(&app);
+        app.ui_context().orbit_zoom(2.0);
+        let closer = distance(&app);
+        assert!(
+            (before - closer - 2.0 * ZOOM_STEP).abs() < 1e-4,
+            "two notches closer: {before} to {closer}"
+        );
+        app.ui_context().orbit_zoom(-0.5);
+        assert!(distance(&app) > closer, "a negative count takes it further");
+        // Standing still, then running ahead, then on the run lock.
+        let controls = |app: &mut App<NullShell>| app.ui_context().movement_controls();
+        assert!(!controls(&mut app).forward);
+        app.inject_action(Action::begin(key("MovementForward")));
+        assert!(app.frame(&mut shell));
+        let ahead = controls(&mut app);
+        assert!(ahead.forward && !ahead.auto_run, "{ahead:?}");
+        app.inject_action(Action::begin(key("MovementRunLock")));
+        assert!(app.frame(&mut shell));
+        assert!(controls(&mut app).auto_run);
+        // Without the orbit camera nothing zooms it.
+        app.orbit = None;
+        let at = distance(&app);
+        app.ui_context().orbit_zoom(3.0);
+        assert!((distance(&app) - at).abs() < 1e-6);
+    }
 }

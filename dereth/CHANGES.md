@@ -21,6 +21,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Turning on the spot near the edge of a landblock no longer makes the distant landscape flicker and change shape: the landscape follows your character, not the camera.
 - Examining a creature: Horizon heads the window with its name and gives its kind beside its level, the modern and classic interfaces spell its kind as the game does (Fire Elemental, not Fire_Elemental), and on a world running the February 2005 files the modern interface frames its model whole instead of looking out from its feet.
 - Horizon's names stand still over portals and creatures that move in place, rather than rising and falling with their animation.
+- In Horizon's gamepad mode, LB held with the right stick up or down zooms the camera in and out, and a tap of LB turns autorun on only while you are already running forward.
 
 ## 0.4.1 (2026-10-11)
 

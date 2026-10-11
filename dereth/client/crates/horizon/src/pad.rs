@@ -16,8 +16,9 @@
 //! * **D-pad up and down**: the fellowship's members (the player, with none). **Left and right**:
 //!   the alternate selection, a ring cycling what can be selected without changing the selection;
 //!   A takes it, B lets it go.
-//! * **LB** tapped: run on. **The left stick pressed in**: peace or combat. **The right stick
-//!   pressed in**: run or walk.
+//! * **LB** tapped: autorun on while already running ahead, or off. **LB held**: the right stick's
+//!   up and down zoom the camera in and out instead of turning it. **The left stick pressed in**:
+//!   peace or combat. **The right stick pressed in**: run or walk.
 //! * **Start**: the pad's menu, of every window and logging out. **Back**: the focus to the next
 //!   panel open, the chat log among them.
 //! * In a melee or missile stance the cross hotbars show their stance set, whose right half holds
@@ -108,6 +109,13 @@ pub fn look(stick: (f32, f32), settings: &PadSettings) -> (f32, f32) {
     })
 }
 
+/// The look stick's up and down as the camera zooms by it, while LB is held: past the dead zone,
+/// eased as [`look`] is, pushed up bringing it closer (positive) and down taking it further.
+#[must_use]
+pub fn zoom(stick: (f32, f32), settings: &PadSettings) -> f32 {
+    dead_zone(stick, settings.dead_zone).map_or(0.0, |(x, y)| y * (x * x + y * y).sqrt())
+}
+
 /// Which half of the cross hotbars a trigger held brings up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrossSet {
@@ -148,8 +156,10 @@ pub const SET_BUTTONS: [PadButton; 8] = [
 pub struct PadStep {
     /// The left stick past its dead zone: right and ahead.
     pub movement: Option<(f32, f32)>,
-    /// The right stick, as the camera turns by it.
+    /// The right stick, as the camera turns by it: nothing while LB is held, when it zooms.
     pub look: (f32, f32),
+    /// The right stick's up and down while LB is held, as the camera zooms by it ([`zoom`]).
+    pub zoom: f32,
     /// The right stick past its dead zone, as it is pushed: what scrolls a list.
     pub scroll: Option<(f32, f32)>,
     /// The cross hotbar set up, while a trigger is held.
@@ -233,9 +243,20 @@ impl PadDriver {
         };
         let went_down = now.buttons & !before.buttons;
         let pulled = |n: f32, b: f32| n >= TRIGGER_HELD && b < TRIGGER_HELD;
+        // LB held turns the right stick from turning the camera to zooming it.
+        let zooming = now.held(B::LeftBumper);
         let mut step = PadStep {
             movement: dead_zone(now.left, settings.dead_zone),
-            look: look(now.right, settings),
+            look: if zooming {
+                (0.0, 0.0)
+            } else {
+                look(now.right, settings)
+            },
+            zoom: if zooming {
+                zoom(now.right, settings)
+            } else {
+                0.0
+            },
             scroll: dead_zone(now.right, settings.dead_zone),
             set,
             pressed: went_down,
@@ -259,6 +280,10 @@ impl PadDriver {
         }
         if went_down & B::RightBumper.bit() != 0 {
             self.rb_used = false;
+        }
+        // The right stick pushed while LB is held zooms: its let-go is not a tap either.
+        if zooming && step.scroll.is_some() {
+            self.lb_used = true;
         }
         step.lb_tap = step.released(B::LeftBumper) && !std::mem::take(&mut self.lb_used);
         step.rb_tap = step.released(B::RightBumper) && !std::mem::take(&mut self.rb_used);
@@ -573,6 +598,38 @@ mod tests {
         );
         let _ = d.step(Some(pad(&[PadButton::LeftBumper])), &s, FRAME);
         assert!(d.step(Some(pad(&[])), &s, FRAME).lb_tap);
+    }
+
+    #[test]
+    fn lb_held_turns_the_right_stick_from_turning_the_camera_to_zooming_it_and_is_then_no_tap() {
+        let s = PadSettings::default();
+        let mut d = PadDriver::default();
+        let up = PadState {
+            right: (0.3, 1.0),
+            ..PadState::default()
+        };
+        let turning = d.step(Some(up), &s, FRAME);
+        assert!(turning.look.1 > 0.5 && turning.look.0 > 0.0);
+        assert!(turning.zoom.abs() < 1e-6, "without LB it only turns");
+        let _ = d.step(Some(pad(&[PadButton::LeftBumper])), &s, FRAME);
+        let held = PadState {
+            buttons: pad(&[PadButton::LeftBumper]).buttons,
+            ..up
+        };
+        let zooming = d.step(Some(held), &s, FRAME);
+        assert_eq!(zooming.look, (0.0, 0.0), "no turn or tilt with LB held");
+        assert!(zooming.zoom > 0.5, "up zooms in: {}", zooming.zoom);
+        let down = PadState {
+            right: (0.0, -1.0),
+            ..held
+        };
+        assert!(d.step(Some(down), &s, FRAME).zoom < -0.5, "down zooms out");
+        assert!(
+            !d.step(Some(pad(&[])), &s, FRAME).lb_tap,
+            "LB let go after zooming does not toggle autorun"
+        );
+        let _ = d.step(Some(pad(&[PadButton::LeftBumper])), &s, FRAME);
+        assert!(d.step(Some(pad(&[])), &s, FRAME).lb_tap, "a tap still is");
     }
 
     #[test]

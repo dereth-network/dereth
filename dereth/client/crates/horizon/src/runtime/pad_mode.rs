@@ -234,16 +234,19 @@ impl HorizonFrontEnd {
             self.pad_mode.map_cursor = None;
         }
         // The left stick moves in the world whatever the buttons do; the right stick turns the
-        // camera only while no panel has the focus: over a panel it scrolls it, and over the map
-        // it moves the map's cursor.
+        // camera (zooms it, with LB held) only while no panel has the focus: over a panel it
+        // scrolls it, and over the map it moves the map's cursor.
         let scrolling = in_ui && focus.is_some_and(|f| f.layer > 0);
         if game {
-            let look = if on_map.is_some() || scrolling {
-                (0.0, 0.0)
+            let (look, zoom) = if on_map.is_some() || scrolling {
+                ((0.0, 0.0), 0.0)
             } else {
-                step.look
+                (step.look, step.zoom)
             };
             cx.orbit_sticks(step.movement, look);
+            if zoom != 0.0 {
+                cx.orbit_zoom(zoom_notches(zoom, dt));
+            }
             self.frame_input.pad.set = step.set;
             self.frame_input
                 .pad
@@ -704,21 +707,28 @@ impl HorizonFrontEnd {
             cx.inject_action(Action::begin(ActionId(id)));
             self.pad_mode.holding.push((b, id));
         }
-        // LB tapped: run on, or stop running on.
+        // LB tapped: autorun on while already running ahead, or off.
         if step.lb_tap {
-            for a in autorun_tap() {
+            let now = cx.movement_controls();
+            if let Some(a) = autorun_tap(now.auto_run, now.forward) {
                 cx.inject_action(a);
             }
         }
     }
 }
 
-/// What a tap of LB sends: autorun is a toggle, each event flipping it, so one event (a key's
-/// press) and not a press and a release, which would turn it on and straight off again.
-fn autorun_tap() -> [Action; 1] {
-    [Action::begin(
-        dereth_client_contract::actions::movement::AUTORUN,
-    )]
+/// Notches of the wheel the right stick zooms the camera by over `dt` seconds, pushed `zoom` (as
+/// [`crate::pad::zoom`]): all the way, as fast as a zoom key held.
+fn zoom_notches(zoom: f32, dt: f64) -> f32 {
+    zoom * dereth_client_runtime::orbit::ZOOM_RATE * crate::ui::narrow(dt)
+}
+
+/// What a tap of LB sends, with autorun `on` or not and the player moving `ahead` or not: autorun
+/// goes off whenever it is on, and comes on only while the player is already moving ahead. It is a
+/// toggle, each event flipping it, so one event (a key's press) and not a press and a release,
+/// which would turn it on and straight off again.
+fn autorun_tap(on: bool, ahead: bool) -> Option<Action> {
+    (on || ahead).then(|| Action::begin(dereth_client_contract::actions::movement::AUTORUN))
 }
 
 /// Escape, pressed and let go, for the shell to route as the window's own.
@@ -876,17 +886,29 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_of_lb_flips_autorun_once() {
+    fn a_tap_of_lb_turns_autorun_on_only_while_moving_ahead_and_always_off() {
         use dereth_client_runtime::actions::movement::{command, on_action, MovementAction};
-        let flips = super::autorun_tap()
-            .iter()
-            .filter(|a| {
-                matches!(
-                    on_action(a, |_| None),
-                    MovementAction::SetMotion(c) if c.command == command::AUTO_RUN
-                )
-            })
-            .count();
-        assert_eq!(flips, 1);
+        let flips = |on: bool, ahead: bool| {
+            super::autorun_tap(on, ahead)
+                .iter()
+                .filter(|a| {
+                    matches!(
+                        on_action(a, |_| None),
+                        MovementAction::SetMotion(c) if c.command == command::AUTO_RUN
+                    )
+                })
+                .count()
+        };
+        assert_eq!(flips(false, true), 1, "moving ahead: on, once");
+        assert_eq!(flips(false, false), 0, "standing still: stays off");
+        assert_eq!(flips(true, true), 1, "on: off, once");
+        assert_eq!(flips(true, false), 1, "on, however it moves: off");
+    }
+
+    #[test]
+    fn the_right_stick_all_the_way_up_zooms_in_as_fast_as_a_zoom_key_held() {
+        let second = super::zoom_notches(1.0, 1.0);
+        assert!((second - dereth_client_runtime::orbit::ZOOM_RATE).abs() < 1e-4);
+        assert!(super::zoom_notches(-0.5, 0.1) < 0.0, "down zooms out");
     }
 }
