@@ -101,7 +101,7 @@
       { world_slug: "eulmore", account: "player", client: "dereth", dat_set_id: "eor", last_played: 15 },
       { world_slug: "harvestgain", account: "alt1", client: "retail", last_played: 10 },
     ],
-    settings: { allow_play_anyway: false, auto_update: true },
+    settings: { allow_play_anyway: false, auto_update: true, discord_presence: true },
     custom_worlds: [{ slug: "custom-1", name: "My test server", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
   };
   const vault = new Set(["eulmore/player", "achard/player2"]);
@@ -213,6 +213,7 @@
       if (!offer) throw `${name} is not an interface the Dereth client has.`;
       chosenInterface = offer.name;
     },
+    set_discord_presence: ({ on }) => { state.settings.discord_presence = on; },
     dismiss_message: () => { message = null; },
     open_url: ({ url }) => { window.open(url, "_blank"); },
     create_desktop_shortcut: () => "C:\\Users\\you\\Desktop\\Dereth.lnk",

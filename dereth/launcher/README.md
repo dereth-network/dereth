@@ -85,6 +85,31 @@ saves its own when it closes. A client started without the launcher still starts
 Horizon. On Windows the client's first run still copies the original game's settings in, with the
 interface chosen here kept in them.
 
+## Discord
+
+While a game the launcher started is running, Discord shows it on the player's profile:
+**Playing Dereth Network**, the world's name, then the client (`Dereth` or `Retail client`) and
+the era (the one the world names, else `End of Retail`), and the time since the game started.
+With several games running, it shows the last one started; when the games exit, it is cleared.
+The character is not named, since the launcher does not know which one is played, and the account
+never is.
+
+It works for both clients on every world, with nothing to sign in to and no server involved: the
+launcher talks to the Discord desktop app on the same computer, over the app's local socket
+(`discord-ipc-0` to `discord-ipc-9`: a named pipe on Windows; elsewhere a Unix socket in the first
+of `$XDG_RUNTIME_DIR`, `$TMPDIR`, `$TMP` and `$TEMP` that is set, else `/tmp`, and on Linux also
+in the Flatpak and Snap app folders there), as the Dereth Network's Discord application,
+`1557643227513757726`. With Discord not running, nothing happens and nothing is said; while a game
+runs, the launcher looks for it again every 10 seconds, so a Discord started later, or restarted,
+shows the game too. Closing the launcher clears it, even with the game still running.
+
+The Library's **Show what I'm playing on Discord** turns it off (it is on to begin with, and kept
+in `launcher-state.json`). `DERETH_DISCORD_APPLICATION_ID` names another Discord application, and
+`DERETH_DISCORD_LARGE_IMAGE` the key of a picture among the application's uploaded art, shown
+beside the activity; there is none by default.
+
+The web client shows nothing on Discord: a page in a browser cannot reach the Discord app.
+
 ## Where things are
 
 | what | where |

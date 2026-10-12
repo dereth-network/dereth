@@ -6,11 +6,13 @@
 //! Before the window opens, the launcher finds its folders ([`dereth_launch::folders`]) and removes
 //! what its last update set aside. On Windows it first makes sure the WebView2 runtime is there to
 //! draw the page with, and says where to get it when it is not; on Linux it registers its desktop
-//! entry and icon ([`registration`]).
+//! entry and icon ([`registration`]). Once it runs, [`discord`] keeps the Discord app told of the
+//! game it started.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend;
+mod discord;
 // Only Linux registers a desktop entry; elsewhere the module is its tests and a no-op.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod registration;
@@ -222,6 +224,12 @@ fn set_interface(b: State<'_, Shared>, name: String) -> Cmd<()> {
     lock(&b).set_interface(&name)
 }
 
+/// "Show what I'm playing on Discord", on or off.
+#[tauri::command]
+fn set_discord_presence(b: State<'_, Shared>, on: bool) {
+    lock(&b).set_discord_presence(on);
+}
+
 #[tauri::command]
 fn dismiss_message(b: State<'_, Shared>) {
     lock(&b).dismiss_message();
@@ -403,6 +411,8 @@ fn main() {
                 Backend::tick(&ticker);
                 std::thread::sleep(Duration::from_secs(1));
             });
+            // What a game it started is showing on Discord, when Discord runs here.
+            discord::watch(shared.clone(), discord::Presence::from_env());
             app.manage(shared);
             update::check(app.handle(), is_release);
             Ok(())
@@ -444,6 +454,7 @@ fn main() {
             probe_world,
             remove_custom_world,
             set_interface,
+            set_discord_presence,
             dismiss_message,
             open_url,
             create_desktop_shortcut,

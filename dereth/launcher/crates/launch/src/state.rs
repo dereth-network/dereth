@@ -178,6 +178,10 @@ pub struct Settings {
     pub allow_play_anyway: bool,
     #[serde(default = "yes")]
     pub auto_update: bool,
+    /// "Show what I'm playing on Discord": while a game the launcher started is running, the
+    /// Discord app on this computer shows its world, client and era ([`crate::discord`]).
+    #[serde(default = "yes")]
+    pub discord_presence: bool,
 }
 
 fn yes() -> bool {
@@ -190,6 +194,7 @@ impl Default for Settings {
             library_dir: None,
             allow_play_anyway: false,
             auto_update: true,
+            discord_presence: true,
         }
     }
 }
@@ -567,6 +572,13 @@ mod tests {
             s.settings.auto_update,
             "absent means the default, which is on"
         );
+        assert!(
+            s.settings.discord_presence,
+            "showing the game on Discord is on until the player turns it off"
+        );
+        let s: LauncherState =
+            serde_json::from_str(r#"{"schema":1,"settings":{"discord_presence":false}}"#).unwrap();
+        assert!(!s.settings.discord_presence && s.settings.auto_update);
     }
 
     #[test]

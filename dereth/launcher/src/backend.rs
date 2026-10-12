@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dereth_launch::check::RunningClient;
 use dereth_launch::choices::{self, ClientOption};
 use dereth_launch::datset::{scan_dir, DatOrigin, DatSet, SetKind};
+use dereth_launch::discord::Activity;
 use dereth_launch::eras::{self, EraInfo, FeatureInfo};
 use dereth_launch::folders::Folders;
 use dereth_launch::hubstatus::HubWatch;
@@ -168,6 +169,8 @@ struct Running {
     kind: ClientKind,
     multi_instance: bool,
     dat_set_id: Option<String>,
+    /// What Discord shows while it runs: its world, client and era, from when it started.
+    activity: Activity,
 }
 
 /// A long job, as the page shows it.
@@ -540,6 +543,24 @@ impl Backend {
 
     fn world(&self, slug: &str) -> Option<World> {
         self.all_worlds().find(|w| w.slug == slug)
+    }
+
+    // ----- Discord -------------------------------------------------------------------------------
+
+    /// What Discord should show now ([`crate::discord`]): the last game started that is still
+    /// running, or nothing when none is or the player turned the setting off.
+    pub fn presence(&self) -> Option<Activity> {
+        if !self.state.settings.discord_presence {
+            return None;
+        }
+        self.running.last().map(|r| r.activity.clone())
+    }
+
+    /// "Show what I'm playing on Discord", on or off. Off clears what Discord shows within a
+    /// second.
+    pub fn set_discord_presence(&mut self, on: bool) {
+        self.state.settings.discord_presence = on;
+        self.save();
     }
 
     fn running_clients(&self) -> Vec<RunningClient> {
@@ -961,6 +982,8 @@ impl Backend {
             kind: install.kind,
             multi_instance: install.multi_instance,
             dat_set_id,
+            // The launcher never learns which character is played, so the activity names none.
+            activity: Activity::new(&world, install.kind, None, now()),
         });
         LaunchOutcome::Launched {
             world: world.name.clone(),
@@ -2250,6 +2273,88 @@ mod tests {
             "a named list is read alone, and says nothing of status"
         );
         assert_eq!(seen(&shared, "coldeve"), (WorldState::Unknown, None));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A game the launcher "started" on `world`: this test program again, listing its tests,
+    /// which ends at once.
+    fn running_game(world: &World, kind: ClientKind) -> Running {
+        let child = Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        Running {
+            child,
+            world_slug: world.slug.clone(),
+            account: "player".into(),
+            kind,
+            multi_instance: true,
+            dat_set_id: None,
+            activity: Activity::new(world, kind, None, 1_700_000_000),
+        }
+    }
+
+    /// Discord is shown the last game started while it runs, and cleared once the games exit;
+    /// with "Show what I'm playing on Discord" off (it is on to begin with, and kept with the
+    /// launcher's state) Discord is not even looked for.
+    #[test]
+    fn discord_shows_the_running_game_until_it_exits_and_nothing_with_the_setting_off() {
+        use crate::discord::tests::{endpoint, next, quiet, stand_in, Script, Seen};
+        use crate::discord::Presence;
+        let (mut b, dir) = backend("discord");
+        assert!(b.state.settings.discord_presence, "on to begin with");
+        assert_eq!(b.presence(), None, "no game, nothing shown");
+
+        let eulmore = b.world("eulmore").unwrap();
+        let mut leafcull = World::new("leafcull", "Leafcull");
+        leafcull.era = Some("infiltration".into());
+        b.running.push(running_game(&eulmore, ClientKind::Dereth));
+        b.running.push(running_game(&leafcull, ClientKind::Retail));
+        let shown = b.presence().expect("a game runs");
+        assert_eq!(
+            (shown.details.as_str(), shown.state.as_str()),
+            ("Leafcull", "Retail client · Infiltration (February 2005)"),
+            "the last game started"
+        );
+
+        let path = endpoint("backend");
+        let rx = stand_in(&path, Script::Answer);
+        let app = dereth_launch::discord::Application {
+            id: "1".into(),
+            large_image: None,
+        };
+        let mut discord = Presence::new(app, vec![path]);
+        b.set_discord_presence(false);
+        assert_eq!(b.presence(), None);
+        discord.update(b.presence().as_ref(), Instant::now());
+        assert!(quiet(&rx), "the setting off: nothing is said");
+        let (saved, _) = LauncherState::load(&dir.join("state"));
+        assert!(!saved.settings.discord_presence, "kept with the state");
+
+        b.set_discord_presence(true);
+        let t0 = Instant::now();
+        discord.update(b.presence().as_ref(), t0);
+        assert!(matches!(next(&rx), Seen::Frame(0, _)));
+        match next(&rx) {
+            Seen::Frame(1, v) => assert_eq!(v["args"]["activity"]["details"], "Leafcull"),
+            other => panic!("{other:?}"),
+        }
+
+        let until = Instant::now() + Duration::from_secs(30);
+        while !b.running.is_empty() && Instant::now() < until {
+            b.poll_running();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(b.running.is_empty(), "the games exit");
+        assert_eq!(b.presence(), None);
+        discord.update(b.presence().as_ref(), t0 + Duration::from_secs(1));
+        match next(&rx) {
+            Seen::Frame(1, v) => assert_eq!(v["args"].get("activity"), None, "cleared"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(next(&rx), Seen::Closed);
         let _ = std::fs::remove_dir_all(dir);
     }
 

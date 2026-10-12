@@ -62,3 +62,8 @@ glib = "0.18"
 
 [dev-dependencies]
 dereth-launch = { path = "crates/launch", features = ["testing"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# The tests' stand-in for the Discord app listens on a named pipe of its own, which the standard
+# library can open but not serve. Already in the lock, under the async runtime.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Pipes"] }

@@ -745,6 +745,10 @@ function library() {
     || `<p class="muted">No Modern data files yet. Add a folder that holds the client_*.dat files.</p>`;
   const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
     || `<p class="muted">No Classic data files yet. Add a folder that holds portal.dat and cell.dat.</p>`;
+  // What a game the launcher started shows on Discord, on unless the player turns it off.
+  const discord = `<div class="row static"><div class="grow">
+      <label class="check"><input type="checkbox" id="discord-presence" ${s.settings.discord_presence !== false ? "checked" : ""}>Show what I'm playing on Discord</label>
+      <div class="sub">While a game the launcher started is running, Discord on this computer shows its world, its client and its era.</div></div></div>`;
 
   let pending = "";
   if (ui.addFind) {
@@ -762,7 +766,8 @@ function library() {
         <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
           <h2>DERETH CLIENT</h2><div class="list">${dereth}</div>
           <h2>MODERN DATA SETS</h2><p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>
-          <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div></div>
+          <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>
+          <h2>DISCORD</h2><div class="list">${discord}</div></div>
       </section>
     </div>`;
 }
@@ -1080,6 +1085,7 @@ document.addEventListener("input", (ev) => {
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
   if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
+  if (t.id === "discord-presence") { await act("set_discord_presence", { on: t.checked }); return; }
   if (!ui.world) return;
   const f = ui.world.form;
   switch (t.id) {

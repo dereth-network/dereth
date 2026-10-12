@@ -39,6 +39,16 @@ fn era_label(era: EraId) -> &'static str {
     }
 }
 
+/// The era a world plays, in words: the launcher's name for an era this build knows, the world's
+/// own word for one it does not, and the end of retail for a world that names none, as the page
+/// words it.
+pub fn label(era: Option<&str>) -> String {
+    match era.map(str::trim).filter(|e| !e.is_empty()) {
+        None => era_label(EraId::Eor).to_owned(),
+        Some(e) => EraId::parse(e).map_or_else(|| e.to_owned(), |id| era_label(id).to_owned()),
+    }
+}
+
 /// Every era, latest first: the end of retail is what most worlds play.
 pub fn eras() -> Vec<EraInfo> {
     EraId::ALL
@@ -112,6 +122,15 @@ mod tests {
         assert_eq!(e[0].features.len(), EraFeatures::COUNT);
         assert_eq!(features().len(), EraFeatures::COUNT);
         assert_eq!(features()[1].label, "Consolidated weapon skills");
+    }
+
+    #[test]
+    fn an_era_in_words_is_the_launchers_label_the_worlds_word_or_the_end_of_retail() {
+        assert_eq!(label(None), "End of Retail");
+        assert_eq!(label(Some(" ")), "End of Retail");
+        assert_eq!(label(Some("eor")), "End of Retail");
+        assert_eq!(label(Some("Infiltration")), "Infiltration (February 2005)");
+        assert_eq!(label(Some("dark-majesty")), "dark-majesty");
     }
 
     #[test]

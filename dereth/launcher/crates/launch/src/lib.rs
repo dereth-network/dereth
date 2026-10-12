@@ -31,6 +31,7 @@
 //! | [`mod@check`] | the pre-launch check: what the world would refuse, and the fix for each |
 //! | [`launch`] | the command line per client and server, a form of it that is safe to log, and what the client is told about the world |
 //! | [`copy`] | a private dat set, copied from the shared one |
+//! | [`discord`] | what Discord shows while a game the launcher started is running, and the frames that say it to the Discord app |
 //! | [`state`] | `launcher-state.json`: the retail client, sets, accounts, favourites, per-world choices |
 //! | [`folders`] | where the state and the private sets live on each system, and the one-time move there |
 //! | [`interface`] | the interface the Dereth client starts in, asked for once and written where the client reads it |
@@ -54,6 +55,7 @@ pub mod copy;
 pub mod dat;
 pub mod datset;
 pub mod desktop;
+pub mod discord;
 pub mod eras;
 pub mod folders;
 pub mod hubstatus;
