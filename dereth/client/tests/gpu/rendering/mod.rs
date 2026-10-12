@@ -18,6 +18,8 @@ mod hifi_atmosphere;
 #[cfg(feature = "hifi")]
 mod hifi_cost;
 #[cfg(feature = "hifi")]
+mod hifi_indoor;
+#[cfg(feature = "hifi")]
 mod hifi_lighting;
 mod hifi_off;
 #[cfg(feature = "hifi")]

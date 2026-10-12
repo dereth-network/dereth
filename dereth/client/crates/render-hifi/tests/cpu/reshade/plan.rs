@@ -1,11 +1,12 @@
-//! How a frame is re-shaded: which commands are re-shaded, which are replayed as recorded after
-//! an indoor step, and that every recorded draw of the world has an action.
+//! How a frame is re-shaded: which commands are re-shaded, how a step indoors is re-shaded, and
+//! that every recorded draw of the world has an action.
 
 use dereth_render::{PipelineKey, VertexFormat, ZFunc};
 use dereth_render_hifi::derive::cache::{catalogue_keys, PipelineCache};
 use dereth_render_hifi::derive::Variant;
 use dereth_render_hifi::reshade::{
-    classify, derived_key, readiness, translucent, DrawClass, Layer, Layered, ReshadePlan,
+    classify, derived_key, readiness, translucent, DrawClass, IndoorPart, Layer, Layered,
+    ReshadePlan,
 };
 use dereth_render_hifi::{
     Census, DrawAction, DrawNote, LegacyReplay, Mark, ReplayFilter, SideTables,
@@ -41,14 +42,17 @@ fn tables(n: u32, alpha: u32, extra: &[(u32, Mark)]) -> SideTables {
     t
 }
 
-/// Behaviour: hifi.reshade.a-frame-is-re-shaded-up-to-its-indoor-step
+/// Behaviour: hifi.reshade.a-frame-is-re-shaded-whole-and-a-step-indoors-re-shades-its-rooms
 /// An outdoor frame is re-shaded from the end of the sky's first pass to the world's end, its
-/// translucent draws after the rest, the sky and what comes before the world drawn as recorded; a
-/// frame that steps indoors, by an indoor flush, an indoor cell drawn outside the rooms of
-/// buildings seen from outdoors, or a depth clear of the world, is re-shaded up to the first of
-/// them and replayed as recorded from there.
+/// translucent draws after the rest, the sky and what comes before the world drawn as recorded. A
+/// frame drawn over one depth -- underground, or in a room that shows nothing of the outdoors --
+/// is re-shaded whole too, its rooms with the rest. A frame that steps from the outdoors into its
+/// rooms by a depth clear re-shades both parts: the outdoors up to its flush before the clear,
+/// the rooms from after the clear, each with its own translucent draws and its own flush of
+/// held-back ones. Only a frame that clears the world's depth twice is re-shaded up to its first
+/// step and replayed as recorded from there.
 #[test]
-fn an_outdoor_frame_is_re_shaded_whole_and_an_indoor_step_ends_the_re_shade() {
+fn an_outdoor_frame_and_an_indoor_one_are_re_shaded_whole_and_a_step_indoors_re_shades_its_rooms() {
     let outdoor = ReshadePlan::new(&tables(40, 30, &[])).expect("a world");
     assert_eq!(outdoor.pre, 0..1);
     assert_eq!(outdoor.sky, 1..4);
@@ -56,6 +60,7 @@ fn an_outdoor_frame_is_re_shaded_whole_and_an_indoor_step_ends_the_re_shade() {
     assert_eq!(outdoor.opaque, 4..30);
     assert_eq!(outdoor.alpha, 30..40);
     assert!(outdoor.rest.is_empty() && !outdoor.is_split());
+    assert_eq!((outdoor.step.clone(), outdoor.indoors_from), (None, 40));
     assert_eq!(outdoor.reshaded(), 4..40);
 
     // A world that does not open with the sky re-shades its sky with the rest.
@@ -69,22 +74,34 @@ fn an_outdoor_frame_is_re_shaded_whole_and_an_indoor_step_ends_the_re_shade() {
     let skyless = ReshadePlan::new(&skyless).expect("a world");
     assert_eq!((skyless.sky, skyless.opaque), (1..1, 1..30));
 
-    let indoor = ReshadePlan::new(&tables(40, 30, &[(12, Mark::IndoorFlush)])).expect("a world");
+    // Underground: the rooms from the world's start, over one depth.
+    let mut underground = tables(40, 30, &[(1, Mark::EnvCell { cell: 0x0101_0100 })]);
+    underground
+        .marks
+        .retain(|(_, m)| !matches!(m, Mark::SkyBegin(0) | Mark::SkyEnd(0)));
+    let underground = ReshadePlan::new(&underground).expect("a world");
     assert_eq!(
-        (indoor.opaque, indoor.alpha, indoor.rest),
-        (4..12, 12..12, 12..40)
+        (underground.opaque.clone(), underground.alpha.clone()),
+        (1..30, 30..40)
     );
+    assert!(underground.rest.is_empty() && underground.step.is_none());
+    assert_eq!(underground.indoors_from, 1);
+    assert_eq!(underground.reshaded(), 1..40);
 
-    let cell = ReshadePlan::new(&tables(
-        40,
-        30,
-        &[
+    // An indoor flush, or an indoor cell drawn outside the rooms of buildings seen from
+    // outdoors, with no depth clear after it is drawn over the same depth: no step.
+    for extra in [
+        vec![(12, Mark::IndoorFlush)],
+        vec![
             (9, Mark::EnvCell { cell: 0x0101_0100 }),
             (15, Mark::IndoorFlush),
         ],
-    ))
-    .expect("a world");
-    assert_eq!(cell.rest, 9..40);
+    ] {
+        let plan = ReshadePlan::new(&tables(40, 30, &extra)).expect("a world");
+        assert_eq!((plan.opaque, plan.alpha), (4..30, 30..40), "{extra:?}");
+        assert!(plan.step.is_none() && plan.rest.is_empty(), "{extra:?}");
+        assert_eq!(plan.indoors_from, extra[0].0);
+    }
 
     // Rooms of buildings seen from outdoors are drawn into the outdoor world, not a step indoors.
     let rooms = ReshadePlan::new(&tables(
@@ -102,17 +119,75 @@ fn an_outdoor_frame_is_re_shaded_whole_and_an_indoor_step_ends_the_re_shade() {
         ],
     ))
     .expect("a world");
-    assert!(!rooms.is_split(), "{rooms:?}");
+    assert!(!rooms.is_split() && rooms.step.is_none(), "{rooms:?}");
     assert_eq!(rooms.interiors, [6..11, 20..25]);
 
+    // A room that shows the outdoors: the outdoors, its flush before the clear, the clear, then
+    // the stamps and the rooms up to their own flush.
+    let mut doorway = tables(
+        40,
+        30,
+        &[
+            (6, Mark::Interiors),
+            (8, Mark::InteriorsEnd),
+            (12, Mark::IndoorFlush),
+            (18, Mark::EnvCell { cell: 0x0101_0100 }),
+            (22, Mark::Interiors),
+            (24, Mark::InteriorsEnd),
+        ],
+    );
+    doorway.clears.push(15);
+    let doorway = ReshadePlan::new(&doorway).expect("a world");
+    assert_eq!(
+        (doorway.opaque.clone(), doorway.alpha.clone()),
+        (4..12, 12..15)
+    );
+    assert_eq!(
+        doorway.step,
+        Some(IndoorPart {
+            clear: 15,
+            opaque: 16..30,
+            translucent: 30..30,
+            alpha: 30..40,
+        })
+    );
+    assert!(doorway.steps_indoors() && !doorway.is_split());
+    assert_eq!((doorway.indoors_from, doorway.reshaded()), (12, 4..40));
+    // Only the rooms of buildings drawn before the step are the outdoors'.
+    assert_eq!(
+        (doorway.interiors.len(), doorway.interiors.first()),
+        (1, Some(&(6..8)))
+    );
+
+    // A clear after the flush of the held-back draws: the outdoors keeps its flush, and the rooms
+    // after the clear have none of their own.
     let mut cleared = tables(40, 30, &[]);
     cleared.clears.push(0); // a clear before the world is not the world's
     cleared.clears.push(33);
     let cleared = ReshadePlan::new(&cleared).expect("a world");
     assert_eq!(
-        (cleared.opaque, cleared.alpha, cleared.rest),
-        (4..30, 30..33, 33..40)
+        (cleared.opaque.clone(), cleared.alpha.clone()),
+        (4..30, 30..33)
     );
+    assert!(cleared.rest.is_empty());
+    assert_eq!(
+        cleared.step.map(|s| (s.clear, s.opaque, s.alpha)),
+        Some((33, 34..40, 40..40))
+    );
+
+    // Two clears of the world: re-shaded up to the first step, drawn as recorded after it.
+    let mut twice = tables(40, 30, &[(12, Mark::IndoorFlush)]);
+    twice.clears.extend([15, 25]);
+    let twice = ReshadePlan::new(&twice).expect("a world");
+    assert_eq!(
+        (
+            twice.opaque.clone(),
+            twice.alpha.clone(),
+            twice.rest.clone()
+        ),
+        (4..12, 12..12, 12..40)
+    );
+    assert!(twice.is_split() && twice.step.is_none());
 
     let mut no_world = SideTables::default();
     no_world.marks.push((0, Mark::WorldBegin));
@@ -121,6 +196,35 @@ fn an_outdoor_frame_is_re_shaded_whole_and_an_indoor_step_ends_the_re_shade() {
         None,
         "a world that never ended"
     );
+}
+
+/// Behaviour: hifi.reshade.a-frame-is-re-shaded-whole-and-a-step-indoors-re-shades-its-rooms
+/// In a room that shows the outdoors, the rooms' own translucent draws before their flush are
+/// held back to be drawn after the work over the opaque world, as the outdoors' are.
+#[test]
+fn the_rooms_translucent_draws_after_a_step_indoors_are_held_back_as_the_outdoors_are() {
+    let opaque = catalogue_keys()[0];
+    let smoke = PipelineKey {
+        alpha_blend: true,
+        alpha_test: false,
+        z_write: false,
+        z_func: ZFunc::Less,
+        ..opaque
+    };
+    let mut t = tables(40, 30, &[(12, Mark::IndoorFlush)]);
+    t.clears.push(15);
+    for d in &mut t.draws {
+        d.splat = false;
+        d.key = if matches!(d.cmd, 7 | 21 | 26) {
+            smoke
+        } else {
+            opaque
+        };
+    }
+    let plan = ReshadePlan::new(&t).expect("a world");
+    assert_eq!(plan.translucent, 7..12);
+    let step = plan.step.expect("a step indoors");
+    assert_eq!((step.opaque, step.translucent), (16..30, 21..30));
 }
 
 /// Behaviour: hifi.reshade.every-world-draw-has-an-action
@@ -194,7 +298,7 @@ fn note(cmd: u32, key: PipelineKey) -> DrawNote {
     }
 }
 
-/// Behaviour: hifi.reshade.a-frame-is-re-shaded-up-to-its-indoor-step
+/// Behaviour: hifi.reshade.a-frame-is-re-shaded-whole-and-a-step-indoors-re-shades-its-rooms
 /// The translucent draws the world draws before its flush of held-back draws (smoke, glass, the
 /// blended parts of objects) are left out of the replay of the opaque world and drawn by a second
 /// replay of it after the work over the opaque world, in their recorded order; a draw that blends

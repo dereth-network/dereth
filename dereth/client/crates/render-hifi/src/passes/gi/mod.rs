@@ -6,7 +6,9 @@
 //! The result is gathered over frames with the camera's reprojection, filtered along depth and
 //! normal edges, brought back to full resolution, and put in place of the relight's flat sky
 //! term. Shadowed ground takes the sky's blue and the grass's green, walls by sunlit ground warm
-//! up, and corners and the ground under trees darken.
+//! up, and corners and the ground under trees darken. While the viewer is in a room, a room's
+//! surface, which sees no sky, takes only the bounce: the light of its room's lit walls and floor,
+//! added to its own.
 
 use glam::{Mat4, Vec3};
 
@@ -214,7 +216,7 @@ impl HifiPass for GlobalIllumination {
             self.previous = None;
             return Ok(());
         };
-        if self.split || !cx.frame.sky.outdoor {
+        if self.split {
             self.previous = None;
             return Ok(());
         }
@@ -315,7 +317,11 @@ impl HifiPass for GlobalIllumination {
             px_per_m,
             env_f32("DERETH_HIFI_GI", 1.0),
             viewport[3] * 0.14,
-            0.0,
+            if frame.sky.outdoor {
+                0.0
+            } else {
+                env_f32("DERETH_HIFI_GI_ROOMS", 1.0)
+            },
         ]);
         #[allow(clippy::cast_precision_loss)]
         let half_f = [half.0 as f32, half.1 as f32];

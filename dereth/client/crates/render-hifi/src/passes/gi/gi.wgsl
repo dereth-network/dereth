@@ -7,6 +7,8 @@
 // colour: one bounce of sun, sky and lamp light. Whatever no sample covers sees the sky (or, below
 // the horizon, the distant ground). The result is accumulated over frames, reprojected with the
 // camera, filtered with depth and normal edges, and written over the relight's flat sky term.
+// A room's surface sees no sky: what no sample covers brings it nothing, and the light its room
+// bounces onto it is added to the light it has.
 
 struct Params {
     clip_to_render: mat4x4<f32>,
@@ -28,7 +30,8 @@ struct Params {
     sky: vec4<f32>,
     // The distant ground's radiance; w the thickness taken behind each surface, metres.
     ground: vec4<f32>,
-    // x pixels per metre at one metre, y strength, z the largest search radius in pixels, w view.
+    // x pixels per metre at one metre, y strength, z the largest search radius in pixels, w the
+    // share of the bounce a room's surface takes, zero while the viewer is outdoors.
     tune: vec4<f32>,
     // xy the half-resolution size; z the filter's stride; w the bounce strength.
     half: vec4<f32>,
@@ -77,6 +80,13 @@ fn full_of(h: vec2<i32>) -> vec2<i32> {
 }
 
 // Interleaved gradient noise, moved along each frame.
+// Whether the pixel is a room's own surface lit by the room's lights per pixel (while the viewer
+// is in a room), never by the sky.
+fn room_surface(px: vec2<i32>) -> bool {
+    let kind = textureLoad(normals, px, 0).w;
+    return params.tune.w > 0.0 && kind > 1.5 && kind < 2.5;
+}
+
 fn ign(p: vec2<f32>, frame: f32) -> f32 {
     let q = p + vec2<f32>(5.588238, 5.588238) * (frame % 64.0);
     return fract(52.9829189 * fract(dot(q, vec2<f32>(0.06711056, 5.83715e-3))));
@@ -123,6 +133,7 @@ fn fs_trace(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let noise_b = ign(pos.xy + vec2<f32>(37.0, 17.0), frame);
     let size = vec2<f32>(full_size());
 
+    let sky_open = select(1.0, 0.0, room_surface(fp));
     var light = vec3<f32>(0.0);
     var weight = 0.0;
     for (var s: i32 = 0; s < SLICES; s = s + 1) {
@@ -202,11 +213,11 @@ fn fs_trace(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
             let dir = v * cos(ang) + dp * sin(ang);
             open = open + open_light(dir) * f32(free) / 32.0;
         }
-        light = light + (bounce * params.half.w + open) * pl;
+        light = light + (bounce * params.half.w + open * sky_open) * pl;
         weight = weight + pl;
     }
     if (weight <= 0.0) {
-        return vec4<f32>(open_light(n), dist);
+        return vec4<f32>(open_light(n) * sky_open, dist);
     }
     return vec4<f32>(light / weight, dist);
 }
@@ -352,6 +363,10 @@ fn fs_composite(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     }
     var before = old_sky(n);
     var bounced = e.rgb * params.tune.y;
+    if (room_surface(fp)) {
+        // The relight gave a room's surface no sky to take back: the bounce is added.
+        return vec4<f32>(r.rgb * e.rgb * params.tune.y * params.tune.w, 0.0);
+    }
     // After dark the sky holds no light to occlude: what it brings the relight already holds,
     // and the bounce (from the lamps) only adds to it.
     if (params.sun_dir.w < 0.5) {

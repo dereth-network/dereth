@@ -12,6 +12,7 @@
 //! - [`LightingPost`], at the high dynamic range slot: bloom, exposure, a filmic tone map (ACES,
 //!   or AgX) and a light grade, written into the picture.
 
+pub mod cells;
 pub mod derive;
 
 use std::collections::HashMap;
@@ -26,6 +27,7 @@ use crate::{Caps, DebugView, HifiError, HifiFrame, HifiSettings, Level};
 const SHADOW_WGSL: &str = include_str!("shadow.wgsl");
 const RELIGHT_WGSL: &str = include_str!("relight.wgsl");
 const POST_WGSL: &str = include_str!("post.wgsl");
+const EXPOSURE_WGSL: &str = include_str!("exposure.wgsl");
 
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -73,7 +75,8 @@ pub(crate) fn legacy_light(frame: &HifiFrame) -> ([f32; 3], [f32; 3]) {
 }
 
 /// The point lights the relight puts on the frame's surfaces at `gain`: the nearest
-/// [`MAX_LIGHTS`] that reach within 250 metres of the eye, those inside a building's or a dungeon's
+/// [`MAX_LIGHTS`] that reach within 250 metres of the eye, leaving out the copies of the lights
+/// burned into the rooms that the rooms' own light per pixel takes, those inside a building's or a dungeon's
 /// cells first, then the rest, each kind nearest first. None at no gain, so no pixel walks them.
 #[must_use]
 pub fn point_lights(frame: &HifiFrame, gain: f32) -> Vec<&crate::snapshot::HifiLight> {
@@ -84,7 +87,7 @@ pub fn point_lights(frame: &HifiFrame, gain: f32) -> Vec<&crate::snapshot::HifiL
     let mut lights: Vec<&crate::snapshot::HifiLight> = frame
         .lights
         .iter()
-        .filter(|l| l.falloff > 0.0 && (l.position - eye).length() - l.falloff < 250.0)
+        .filter(|l| !l.burned && l.falloff > 0.0 && (l.position - eye).length() - l.falloff < 250.0)
         .collect();
     lights.sort_by(|a, b| {
         (a.position - eye)
@@ -97,9 +100,9 @@ pub fn point_lights(frame: &HifiFrame, gain: f32) -> Vec<&crate::snapshot::HifiL
     lights
 }
 
-/// Whether the sun is up far enough to shade and shadow.
+/// Whether the sun is up far enough to shade and shadow what the frame shows of the outdoors.
 pub(crate) fn sun_up(frame: &HifiFrame) -> bool {
-    frame.sky.outdoor && frame.sky.sun_direction.z > 0.02 && frame.sky.sun_brightness > 0.02
+    frame.sky.sees_outside && frame.sky.sun_direction.z > 0.02 && frame.sky.sun_brightness > 0.02
 }
 
 /// The exposure for the frame's light: a key of the sun and sky, held to a sane range so night
@@ -120,6 +123,50 @@ pub(crate) fn exposure(frame: &HifiFrame, sun_gain: f32, amb_gain: f32) -> f32 {
     let lift = (0.35 / key.max(1e-3)).clamp(1.0, 1.6);
     env_f32("DERETH_HIFI_EXPOSURE", 1.8) * lift
 }
+
+/// How the eye adapts to the light of a frame indoors: the brightness the frame's mean light is
+/// brought to, how much of the way, the least and the greatest exposure, and the seconds it takes
+/// to adjust into the dark and into the light.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Adaptation {
+    /// The brightness, linear, the frame's geometric mean light is brought toward.
+    pub key: f32,
+    /// How much of the way toward the key the exposure goes: 1 all of it, 0 none.
+    pub strength: f32,
+    /// The least exposure.
+    pub least: f32,
+    /// The greatest exposure.
+    pub most: f32,
+    /// The seconds the eye takes to adjust to a darker frame (a brighter exposure).
+    pub into_dark: f32,
+    /// The seconds the eye takes to adjust to a brighter frame (a dimmer exposure).
+    pub into_light: f32,
+}
+
+impl Adaptation {
+    /// The adaptation indoors.
+    #[must_use]
+    pub fn indoors() -> Self {
+        Self {
+            key: env_f32("DERETH_HIFI_INDOOR_KEY", 0.16),
+            strength: env_f32("DERETH_HIFI_INDOOR_ADAPT", 0.7),
+            least: 0.8,
+            most: 6.0,
+            into_dark: 1.6,
+            into_light: 0.5,
+        }
+    }
+}
+
+/// How far past the sun and the sky's exposure a room that shows the outdoors is exposed at most.
+const OUTDOORS_SHOWN_EXPOSURE: f32 = 1.25;
+
+/// How long after the last frame indoors the eye still adjusts outdoors, rather than taking the
+/// sun and sky's exposure at once, seconds.
+const ADJUSTING_OUTDOORS: f32 = 3.0;
+/// The longest gap between two frames over which the eye is taken to have kept its adaptation,
+/// seconds; after a longer one it takes the frame's exposure at once.
+const ADAPTATION_KEPT: f32 = 0.5;
 
 /// The retained shadow geometry of one block.
 #[derive(Debug)]
@@ -545,6 +592,7 @@ impl LightingGpu {
                 buf_entry(5, wgpu::ShaderStages::FRAGMENT, false),
                 buf_entry(6, wgpu::ShaderStages::FRAGMENT, false),
                 tex_entry(7, float, d2),
+                tex_entry(8, float, d2),
             ],
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -646,6 +694,8 @@ pub struct Lighting {
     no_lamps: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// The outdoor lamps' light after dusk.
     lamps: crate::passes::lamps::LampLight,
+    /// The rooms' own light per pixel.
+    cells: cells::CellLight,
 }
 
 /// The side of each shadow cascade's map: one texel, only so the light has a map to bind, when
@@ -665,6 +715,10 @@ fn shadows_wanted(s: &HifiSettings) -> bool {
 impl HifiPass for Lighting {
     fn name(&self) -> &'static str {
         "lighting"
+    }
+
+    fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
+        notes.push(("room lights walked", self.cells.walked() as u64));
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
@@ -753,7 +807,7 @@ impl HifiPass for Lighting {
         let Some(rt) = cx.reshade else {
             return Ok(());
         };
-        if self.split || !cx.frame.sky.outdoor {
+        if self.split {
             return Ok(());
         }
         let frame = cx.frame;
@@ -981,6 +1035,27 @@ impl HifiPass for Lighting {
             })
             .1;
         let lamp_view = lamp_picture.unwrap_or(no_lamps);
+        // The rooms' own lights per pixel, traced through the same structures with the lamps,
+        // while the viewer is in a room: the rooms seen from outdoors keep the light they were
+        // drawn with.
+        let scene = if built { self.rt.bindings() } else { None };
+        let room_light = if frame.sky.outdoor {
+            None
+        } else {
+            self.cells.encode(
+                &device,
+                &queue,
+                cx.encoder,
+                scene.as_ref(),
+                frame,
+                cx.depth,
+                &rt.normal,
+                size,
+                viewport,
+                cx.timer,
+            )
+        };
+        let room_view = room_light.unwrap_or(no_lamps);
         let cam = &frame.camera;
         let (sun, amb) = legacy_light(frame);
         let sun_gain = env_f32("DERETH_HIFI_SUN", 2.6);
@@ -1016,7 +1091,7 @@ impl HifiPass for Lighting {
         // what the vertex light gave it.
         let sun_w = if sun_on {
             sun_gain
-        } else if frame.sky.outdoor {
+        } else if frame.sky.sees_outside {
             env_f32("DERETH_HIFI_MOON", 1.0)
         } else {
             0.0
@@ -1079,6 +1154,14 @@ impl HifiPass for Lighting {
             },
             inside,
         ]);
+        p.extend([
+            f32::from(u8::from(frame.sky.sees_outside)),
+            f32::from(u8::from(room_light.is_some())),
+            f32::from(u8::from(
+                std::env::var_os("DERETH_HIFI_ROOM_SHOW").is_some(),
+            )),
+            f32::from(u8::from(!frame.sky.outdoor)),
+        ]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);
         for l in &lights {
@@ -1131,6 +1214,10 @@ impl HifiPass for Lighting {
                     wgpu::BindGroupEntry {
                         binding: 7,
                         resource: wgpu::BindingResource::TextureView(lamp_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: wgpu::BindingResource::TextureView(room_view),
                     },
                 ],
             })
@@ -1225,6 +1312,11 @@ struct PostGpu {
     tonemap: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
     params: Vec<wgpu::Buffer>,
+    exposure_layout: wgpu::BindGroupLayout,
+    exposure: wgpu::ComputePipeline,
+    exposure_params: wgpu::Buffer,
+    /// The exposure in force, the frame's mean light and the exposure it is adjusting toward.
+    exposure_state: wgpu::Buffer,
 }
 
 /// Bloom, exposure and the tone map.
@@ -1232,6 +1324,43 @@ struct PostGpu {
 pub struct LightingPost {
     gpu: Option<PostGpu>,
     bloom: Option<(Held, Vec<wgpu::TextureView>, u32)>,
+    /// When the last frame was tone mapped.
+    last: Option<std::time::Instant>,
+    /// When the last frame indoors was tone mapped.
+    last_indoors: Option<std::time::Instant>,
+}
+
+/// How the exposure of a frame is reached: keyed to the frame's own light or taken from the sun
+/// and the sky; at once, or eased toward from the last frame's over `dt` seconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExposureStep {
+    /// Keyed to the frame's own light (indoors), rather than the sun and the sky's.
+    pub keyed: bool,
+    /// Taken at once.
+    pub at_once: bool,
+    /// The seconds since the last frame, held to a quarter of a second.
+    pub dt: f32,
+}
+
+/// How the exposure of a frame `since_last` seconds after the last one (`None` for the first),
+/// and `since_indoors` after the last one indoors, is reached; `indoors` says whether the viewer
+/// is in a building's or a dungeon's cell. Indoors it is keyed to the frame and eased toward;
+/// outdoors it is the sun and the sky's, taken at once, unless the viewer has just come out, when
+/// it is eased toward too. After a gap the eye has not kept its adaptation, and the exposure is
+/// taken at once.
+#[must_use]
+pub fn exposure_step(
+    indoors: bool,
+    since_last: Option<f32>,
+    since_indoors: Option<f32>,
+) -> ExposureStep {
+    let kept = since_last.is_some_and(|s| s <= ADAPTATION_KEPT);
+    let adjusting = indoors || since_indoors.is_some_and(|s| s <= ADJUSTING_OUTDOORS);
+    ExposureStep {
+        keyed: indoors,
+        at_once: !kept || !adjusting,
+        dt: since_last.unwrap_or(0.0).clamp(0.0, 0.25),
+    }
 }
 
 impl PostGpu {
@@ -1250,7 +1379,76 @@ impl PostGpu {
                     count: None,
                 },
                 buf_entry(3, wgpu::ShaderStages::FRAGMENT, false),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
+        });
+        let exposure_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("high-fidelity exposure"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                buf_entry(2, wgpu::ShaderStages::COMPUTE, false),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let exposure_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("high-fidelity exposure"),
+            source: wgpu::ShaderSource::Wgsl(format!("{EXPOSURE_WGSL}\n{COLOUR_WGSL}").into()),
+        });
+        let exposure_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("high-fidelity exposure"),
+            bind_group_layouts: &[Some(&exposure_layout)],
+            immediate_size: 0,
+        });
+        let exposure = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("high-fidelity exposure"),
+            layout: Some(&exposure_pl),
+            module: &exposure_module,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+        let exposure_state = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("high-fidelity exposure"),
+            size: 16,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("high-fidelity bloom and tone map"),
@@ -1296,6 +1494,10 @@ impl PostGpu {
                 .map(|_| uniform(device, "high-fidelity bloom", 64))
                 .collect(),
             layout,
+            exposure_layout,
+            exposure,
+            exposure_params: uniform(device, "high-fidelity exposure", 64),
+            exposure_state,
         }
     }
 }
@@ -1318,7 +1520,7 @@ impl HifiPass for LightingPost {
         let Some(rt) = cx.reshade else {
             return Ok(());
         };
-        if *cx.resolved || !cx.frame.sky.outdoor {
+        if *cx.resolved || std::env::var_os("DERETH_HIFI_ROOM_SHOW").is_some() {
             return Ok(());
         }
         if cx.settings.debug == DebugView::Shadows {
@@ -1366,6 +1568,14 @@ impl HifiPass for LightingPost {
         let sun_gain = env_f32("DERETH_HIFI_SUN", 2.6);
         let amb_gain = env_f32("DERETH_HIFI_AMBIENT", 0.85);
         let exposure = exposure(frame, sun_gain, amb_gain);
+        let now = std::time::Instant::now();
+        let since = |t: Option<std::time::Instant>| t.map(|t| (now - t).as_secs_f32());
+        let indoors = !frame.sky.outdoor;
+        let step = exposure_step(indoors, since(self.last), since(self.last_indoors));
+        self.last = Some(now);
+        if indoors {
+            self.last_indoors = Some(now);
+        }
         let agx = f32::from(u8::from(
             std::env::var("DERETH_HIFI_TONEMAP").is_ok_and(|v| v.eq_ignore_ascii_case("agx")),
         ));
@@ -1420,6 +1630,10 @@ impl HifiPass for LightingPost {
                         binding: 3,
                         resource: gpu.params[i].as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: gpu.exposure_state.as_entire_binding(),
+                    },
                 ],
             })
         };
@@ -1458,6 +1672,63 @@ impl HifiPass for LightingPost {
             slot += 1;
         }
         write(slot, full, false);
+        // The exposure, from the frame's light before the tone map. A room that shows the
+        // outdoors is not exposed so far past the sun and the sky's exposure that the outdoors
+        // it shows is blown out.
+        let mut a = Adaptation::indoors();
+        if frame.sky.sees_outside {
+            a.most = a.most.min(exposure * OUTDOORS_SHOWN_EXPOSURE).max(a.least);
+        }
+        let ep = [
+            viewport[0],
+            viewport[1],
+            viewport[2],
+            viewport[3],
+            f32::from(u8::from(step.keyed)),
+            exposure,
+            f32::from(u8::from(step.at_once)),
+            step.dt,
+            a.key,
+            a.least,
+            a.most,
+            a.strength,
+            a.into_dark,
+            a.into_light,
+            0.0,
+            0.0,
+        ];
+        queue.write_buffer(&gpu.exposure_params, 0, &floats(&ep));
+        {
+            let eb = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("high-fidelity exposure"),
+                layout: &gpu.exposure_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&rt.hdr),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(cx.depth),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: gpu.exposure_params.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: gpu.exposure_state.as_entire_binding(),
+                    },
+                ],
+            });
+            let mut pass = cx.encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("exposure"),
+                timestamp_writes: cx.timer.compute_writes("exposure"),
+            });
+            pass.set_pipeline(&gpu.exposure);
+            pass.set_bind_group(0, &eb, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
         let b = bind(&rt.hdr, &mips[0], slot);
         let writes = cx.timer.writes("tone map");
         let mut pass = colour_pass(cx.encoder, cx.colour, "tone map", writes);
@@ -1505,8 +1776,10 @@ fn colour_pass_clear<'e>(
 
 /// The lighting shaders as the device is handed them, for validation without a device.
 #[must_use]
-pub fn shaders() -> [(&'static str, String); 4] {
+pub fn shaders() -> [(&'static str, String); 7] {
     [
+        ("room light", cells::shader(false)),
+        ("room light, traced", cells::shader(true)),
         ("gi", crate::passes::gi::GI_WGSL.to_owned()),
         ("shadow", SHADOW_WGSL.to_owned()),
         (
@@ -1514,5 +1787,6 @@ pub fn shaders() -> [(&'static str, String); 4] {
             format!("{RELIGHT_WGSL}\n{COLOUR_WGSL}\n{COPY_WGSL}"),
         ),
         ("post", format!("{POST_WGSL}\n{COLOUR_WGSL}")),
+        ("exposure", format!("{EXPOSURE_WGSL}\n{COLOUR_WGSL}")),
     ]
 }

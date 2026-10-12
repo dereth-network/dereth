@@ -31,12 +31,16 @@
 //! derived pipeline, the frame is drawn exactly as the ordinary frame is (the overlay replay), and
 //! the missing pipelines are built off the frame's thread meanwhile.
 //!
-//! **A frame that steps indoors is re-shaded up to that step.** From the first indoor flush,
-//! indoor cell or depth clear of the world on, the rest of the world is replayed with its own
-//! pipelines over the resolved picture. Screen-space work after that point sees the depth as it
-//! stood before the clear. The rooms of buildings seen from outdoors are not such a step: they
-//! are drawn into the outdoor world with its depth, and are re-shaded with it; the plan names
-//! their commands, so light meant for the outdoors can leave them out.
+//! **A frame that steps indoors is re-shaded whole.** Underground, and in a room whose openings
+//! show nothing of the outdoors, the world is the rooms alone, drawn over one depth: it is
+//! re-shaded as an outdoor frame is. A room whose openings show the outdoors draws the outdoors
+//! first, then clears the depth, stamps its openings back into it and draws itself over: both
+//! parts are re-shaded, the depth clear drawn into the re-shaded targets as recorded, and the
+//! translucent draws of both parts wait, in their recorded order, until the work over the opaque
+//! world is done, tested against the depth each pixel sees. Only a frame that clears the world's
+//! depth more than once is re-shaded up to its first step and replayed as recorded from there.
+//! The rooms of buildings seen from outdoors are not a step: they are drawn into the outdoor world
+//! with its depth, and are re-shaded with it; the plan names their commands.
 
 use std::ops::Range;
 
@@ -62,21 +66,55 @@ pub struct ReshadePlan {
     /// The sky's first pass, where it opens the world: replayed with the recorded pipelines too,
     /// then lifted into linear light. Empty when the world does not open with it.
     pub sky: Range<u32>,
-    /// The world up to the flush of its held-back translucent draws: re-shaded, but for the
-    /// translucent draws in it (see [`translucent`]).
+    /// The world up to the flush of its held-back translucent draws (the outdoor part's, in a
+    /// frame that steps indoors): re-shaded, but for the translucent draws in it (see
+    /// [`translucent`]).
     pub opaque: Range<u32>,
     /// The part of `opaque` from its first translucent draw on, empty when it has none: replayed
     /// again after the opaque screen-space work, drawing those translucent draws alone.
     pub translucent: Range<u32>,
-    /// The held-back translucent draws, up to the cut: re-shaded, after the opaque screen-space
-    /// work and the translucent draws of `opaque`.
+    /// The held-back translucent draws, up to the world's end or the step indoors: re-shaded,
+    /// after the opaque screen-space work and the translucent draws of `opaque`.
     pub alpha: Range<u32>,
+    /// The rooms drawn after the frame steps indoors from the outdoors, re-shaded over the depth
+    /// the step clears; `None` when the frame has no such step.
+    pub step: Option<IndoorPart>,
     /// From the cut to the world's end: replayed with the recorded pipelines over the resolved
-    /// picture. Empty unless the frame steps indoors.
+    /// picture. Empty unless the frame clears the world's depth more than once.
     pub rest: Range<u32>,
+    /// Where the frame first steps indoors -- its first indoor flush, indoor cell drawn outside
+    /// the rooms of buildings seen from outdoors, or depth clear of the world -- or the world's
+    /// end.
+    pub indoors_from: u32,
     /// The commands of the rooms of buildings drawn into the outdoor world, each bracket of them
     /// in order.
     pub interiors: Vec<Range<u32>>,
+}
+
+/// The rooms a frame draws once it steps indoors from the outdoors: the depth is cleared, the
+/// rooms' openings are stamped back into it, and the rooms and what stands in them are drawn over
+/// the outdoors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndoorPart {
+    /// The depth clear that opens the step.
+    pub clear: u32,
+    /// After the clear, up to the flush of the rooms' held-back translucent draws: the stamps,
+    /// the rooms and what stands in them; re-shaded, but for the translucent draws in it.
+    pub opaque: Range<u32>,
+    /// The part of `opaque` from its first translucent draw on, empty when it has none.
+    pub translucent: Range<u32>,
+    /// The rooms' held-back translucent draws, to the world's end.
+    pub alpha: Range<u32>,
+}
+
+/// The range from the first translucent draw in `span` to its end, empty at its end when it has
+/// none.
+fn translucent_tail(tables: &SideTables, span: &Range<u32>) -> Range<u32> {
+    tables
+        .draws
+        .iter()
+        .find(|d| span.contains(&d.cmd) && translucent(d))
+        .map_or(span.end..span.end, |d| d.cmd..span.end)
 }
 
 impl ReshadePlan {
@@ -90,6 +128,7 @@ impl ReshadePlan {
         let mut interiors = Vec::new();
         let mut open: Option<u32> = None;
         let mut indoor: Option<u32> = None;
+        let mut flush: Option<u32> = None;
         for (at, m) in tables
             .marks
             .iter()
@@ -104,23 +143,45 @@ impl ReshadePlan {
                         }
                     }
                 }
-                Mark::IndoorFlush => indoor = Some(indoor.map_or(*at, |i| i.min(*at))),
+                Mark::IndoorFlush => {
+                    indoor = Some(indoor.map_or(*at, |i| i.min(*at)));
+                    flush = Some(flush.map_or(*at, |i| i.min(*at)));
+                }
                 Mark::EnvCell { .. } if open.is_none() => {
                     indoor = Some(indoor.map_or(*at, |i| i.min(*at)));
                 }
                 _ => {}
             }
         }
-        let indoor = indoor
-            .into_iter()
-            .chain(tables.clears.iter().copied().filter(|at| inside(*at)))
-            .min();
-        let cut = indoor.unwrap_or(world.end).max(world.start);
-        let alpha = tables
-            .marks
+        let clears: Vec<u32> = tables
+            .clears
             .iter()
-            .find(|(at, m)| *m == Mark::AlphaFlush && *at >= world.start && *at <= world.end)
-            .map_or(cut, |(at, _)| (*at).min(cut));
+            .copied()
+            .filter(|at| inside(*at))
+            .collect();
+        let indoors_from = indoor
+            .into_iter()
+            .chain(clears.iter().copied())
+            .min()
+            .unwrap_or(world.end)
+            .max(world.start);
+        // A frame with no depth clear in its world draws all of it over one depth, its rooms too:
+        // it is one part. One clear steps from the outdoors into the rooms, the outdoors' flush
+        // of its held-back draws just before it. More than one, which the scene never records,
+        // is re-shaded up to its first step and drawn as recorded after it.
+        let (cut, clear) = match clears.as_slice() {
+            [] => (world.end, None),
+            [c] => (flush.filter(|f| *f < *c).unwrap_or(*c), Some(*c)),
+            _ => (indoors_from, None),
+        };
+        let alpha_flush = |from: u32, to: u32| {
+            tables
+                .marks
+                .iter()
+                .find(|(at, m)| *m == Mark::AlphaFlush && *at >= from && *at <= to)
+                .map(|(at, _)| *at)
+        };
+        let alpha = alpha_flush(world.start, world.end).map_or(cut, |at| at.min(cut));
         // The sky's first pass, when the world opens with it.
         let opens = tables
             .marks
@@ -138,32 +199,56 @@ impl ReshadePlan {
             world.start
         };
         let opaque = sky_end..alpha;
-        let translucent = tables
-            .draws
-            .iter()
-            .find(|d| opaque.contains(&d.cmd) && translucent(d))
-            .map_or(opaque.end..opaque.end, |d| d.cmd..opaque.end);
+        let translucent = translucent_tail(tables, &opaque);
+        let (alpha_end, step, rest) = match clear {
+            Some(c) => {
+                let start = (c + 1).min(world.end);
+                let flushed = alpha_flush(start, world.end).unwrap_or(world.end);
+                let opaque = start..flushed;
+                let step = IndoorPart {
+                    clear: c,
+                    translucent: translucent_tail(tables, &opaque),
+                    opaque,
+                    alpha: flushed..world.end,
+                };
+                (c, Some(step), world.end..world.end)
+            }
+            None => (cut, None, cut..world.end),
+        };
+        let outdoors_end = clear.unwrap_or(cut);
         Some(Self {
             pre: 0..world.start,
             sky: world.start..sky_end,
             opaque,
             translucent,
-            alpha: alpha..cut,
-            rest: cut..world.end,
-            interiors: interiors.into_iter().filter(|r| r.start < cut).collect(),
+            alpha: alpha..alpha_end,
+            step,
+            rest,
+            indoors_from,
+            interiors: interiors
+                .into_iter()
+                .filter(|r| r.start < outdoors_end)
+                .collect(),
         })
     }
 
-    /// Whether the frame steps indoors, so only its start is re-shaded.
+    /// Whether the frame is re-shaded only up to a step indoors and drawn as recorded after it.
     #[must_use]
     pub fn is_split(&self) -> bool {
         !self.rest.is_empty()
     }
 
+    /// Whether the frame steps from the outdoors into rooms it re-shades over a cleared depth.
+    #[must_use]
+    pub fn steps_indoors(&self) -> bool {
+        self.step.is_some()
+    }
+
     /// The command range that is re-shaded.
     #[must_use]
     pub fn reshaded(&self) -> Range<u32> {
-        self.opaque.start..self.alpha.end
+        let end = self.step.as_ref().map_or(self.alpha.end, |s| s.alpha.end);
+        self.opaque.start..end
     }
 
     /// The commands replayed with the recorded pipelines before the re-shade: everything before
@@ -587,16 +672,41 @@ fn fs_ground(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
 }
 
 /// The shaders of the passes that read the re-shaded targets, for the device-free validation
-/// test: the resolve and debug views, and the landscape-normal pass.
+/// test: the resolve and debug views, the landscape-normal pass and the depth clear of a step
+/// indoors.
 #[must_use]
-pub fn shaders() -> [String; 2] {
-    [format!("{RESHADE_WGSL}\n{COLOUR_WGSL}"), ground_wgsl()]
+pub fn shaders() -> [String; 3] {
+    [
+        format!("{RESHADE_WGSL}\n{COLOUR_WGSL}"),
+        ground_wgsl(),
+        CLEAR_WGSL.to_owned(),
+    ]
 }
+
+/// The shader of the depth clear drawn into the re-shaded targets: the far depth over the world
+/// viewport, as a recorded depth clear draws it, and no color.
+const CLEAR_WGSL: &str = r"
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+    let x = f32((i << 1u) & 2u) * 2.0 - 1.0;
+    let y = f32(i & 2u) * 2.0 - 1.0;
+    return vec4<f32>(x, y, 1.0, 1.0);
+}
+struct Nothing {
+    @location(0) color: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+};
+@fragment
+fn fs() -> Nothing {
+    return Nothing(vec4<f32>(0.0), vec4<f32>(0.0));
+}
+";
 
 /// The pipelines of the passes that read the re-shaded targets, made on first use.
 #[derive(Debug, Default)]
 pub struct Reshader {
     views: Option<Views>,
+    clear: Option<wgpu::RenderPipeline>,
     ground: Option<Ground>,
     /// What the landscape field on the device was built from, and its shader parameters.
     field: Option<(FieldSignature, [u8; 32])>,
@@ -913,6 +1023,69 @@ impl Reshader {
         }
         self.field = Some((signature, field.params()));
         Ok(())
+    }
+
+    /// Clear the depth of `pass`, a re-shade pass, over the world viewport, as the recorded depth
+    /// clear of a step indoors does; the color is left as it is.
+    pub fn clear_depth(&mut self, cx: &mut SidecarContext<'_>, pass: &mut wgpu::RenderPass<'_>) {
+        let pipeline = self.clear.get_or_insert_with(|| {
+            let device = cx.device();
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("high-fidelity depth clear"),
+                source: wgpu::ShaderSource::Wgsl(CLEAR_WGSL.into()),
+            });
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("high-fidelity depth clear"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+            let mut targets = crate::derive::pipeline::reshade_targets(None, false);
+            for t in &mut targets {
+                t.write_mask = wgpu::ColorWrites::empty();
+                t.blend = None;
+            }
+            let targets = targets.map(Some);
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("high-fidelity depth clear"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: SidecarContext::depth_format(),
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &targets,
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+        if let Some(v) = cx.world_viewport() {
+            #[allow(clippy::cast_precision_loss)] // pixel extents
+            pass.set_viewport(
+                v.x as f32,
+                v.y as f32,
+                v.width as f32,
+                v.height as f32,
+                0.0,
+                1.0,
+            );
+        }
+        pass.set_pipeline(pipeline);
+        pass.draw(0..3, 0..1);
     }
 
     /// Forget every binding and the landscape field, so nothing here holds a released resource.

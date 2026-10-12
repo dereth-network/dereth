@@ -670,12 +670,58 @@ impl HifiRenderer {
                                 &mut self.resources,
                                 timer.writes("landscape normals"),
                             );
+                            if let Some(step) = &plan.step {
+                                // The rooms, over the outdoors: the depth the outdoors is seen
+                                // at is kept for what the rooms' openings show, the step's
+                                // clear is drawn into the re-shaded targets, and the rooms are
+                                // re-shaded over it. The passes after it see each pixel's
+                                // depth, the room's or, through an opening, the outdoors'.
+                                let before = match &unstamped {
+                                    Some(_) => depth.clone(),
+                                    None => Compositor::keep_depth(
+                                        cx,
+                                        &mut self.resources,
+                                        encoder,
+                                        &targets.depth,
+                                    )?,
+                                };
+                                let mut pass = reshade::reshade_pass(
+                                    cx,
+                                    encoder,
+                                    rt,
+                                    &targets.depth,
+                                    "indoor re-shade",
+                                    timer.writes("indoor re-shade"),
+                                );
+                                self.reshader.clear_depth(cx, &mut pass);
+                                let mut opaque = reshade::Layered::new(Layer::Opaque, &mut chain);
+                                cx.replay(step.opaque.clone(), &mut pass, &mut opaque);
+                                drop(pass);
+                                depth = self.compositor.seen_after_step(
+                                    cx,
+                                    &mut self.resources,
+                                    encoder,
+                                    timer,
+                                    &targets.depth,
+                                    &before,
+                                    step.clear..step.opaque.end,
+                                )?;
+                                world_depth = depth.clone();
+                            }
                         } else {
+                            // A frame that steps indoors draws the translucent draws of both
+                            // its parts here, in their recorded order, against the depth each
+                            // pixel sees: what the outdoors drew stays behind the rooms.
+                            let alpha_depth = if plan.steps_indoors() {
+                                depth.clone()
+                            } else {
+                                targets.depth.clone()
+                            };
                             let mut pass = reshade::reshade_pass(
                                 cx,
                                 encoder,
                                 rt,
-                                &targets.depth,
+                                &alpha_depth,
                                 "alpha re-shade",
                                 timer.writes("alpha re-shade"),
                             );
@@ -685,6 +731,14 @@ impl HifiRenderer {
                                 cx.replay(plan.translucent.clone(), &mut pass, &mut held);
                             }
                             cx.replay(plan.alpha.clone(), &mut pass, &mut chain);
+                            if let Some(step) = &plan.step {
+                                if !step.translucent.is_empty() {
+                                    let mut held =
+                                        reshade::Layered::new(Layer::Translucent, &mut chain);
+                                    cx.replay(step.translucent.clone(), &mut pass, &mut held);
+                                }
+                                cx.replay(step.alpha.clone(), &mut pass, &mut chain);
+                            }
                             drop(pass);
                             if plan.is_split() {
                                 // The world steps indoors here: what follows is drawn with its
@@ -734,7 +788,7 @@ impl HifiRenderer {
                                         step,
                                     )?;
                                 }
-                            } else if let Some(u) = &unstamped {
+                            } else if let (Some(u), false) = (&unstamped, plan.steps_indoors()) {
                                 // Again, with what the translucent draws wrote.
                                 depth = self.compositor.seen_depth(
                                     cx,

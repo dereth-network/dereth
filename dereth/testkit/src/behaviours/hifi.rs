@@ -334,25 +334,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "hifi.reshade.a-frame-is-re-shaded-up-to-its-indoor-step",
+        id: "hifi.reshade.a-frame-is-re-shaded-whole-and-a-step-indoors-re-shades-its-rooms",
         says: "A frame drawn re-shaded is re-shaded from the start of the world to its end, its \
-               translucent draws after the rest; a frame that steps indoors is re-shaded up to its \
-               first indoor flush, indoor cell or depth clear and drawn as recorded from there.",
+               translucent draws after the rest, underground and in a room that shows nothing of \
+               the outdoors as outdoors; a frame that steps from the outdoors into its rooms by a \
+               depth clear re-shades both parts, each with its translucent draws held back; only \
+               one that clears the world's depth twice is drawn as recorded after its first step.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-RESHADE-PLAN"),
-        station: "dereth-render-hifi::cpu::reshade::plan::an_outdoor_frame_is_re_shaded_whole_and_an_indoor_step_ends_the_re_shade",
+        station: "dereth-render-hifi::cpu::reshade::plan::an_outdoor_frame_and_an_indoor_one_are_re_shaded_whole_and_a_step_indoors_re_shades_its_rooms",
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "hifi.reshade.an-indoor-frame-re-shades-only-its-outdoor-part",
-        says: "At the stations that step indoors, the frame with re-shading on draws the world \
-               after the step with its own pipelines over the resolved picture and matches the \
-               ordinary frame within the outdoor stations' bounds.",
+        id: "hifi.reshade.an-indoor-frame-is-re-shaded-whole",
+        says: "At the stations underground, in a room and at a doorway, every draw of the world \
+               but the sky's is re-shaded, the rooms after a step indoors too, and the neutral \
+               resolve matches the ordinary frame within the outdoor stations' bounds.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-RESHADE-SPLIT"),
-        station: "dereth-client::gpu::rendering::hifi_reshade::an_indoor_frame_is_re_shaded_up_to_its_step_and_drawn_as_recorded_after",
+        station: "dereth-client::gpu::rendering::hifi_reshade::an_indoor_frame_is_re_shaded_whole_and_its_parity_view_matches_the_ordinary_frame",
         tier: Tier::Gpu,
     },
     behaviour! {

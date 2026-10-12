@@ -1,7 +1,7 @@
 //! The re-shaded world: drawn with the pipelines derived from the ordinary ones and written back
 //! through the neutral resolve, it is the ordinary frame but for blending in linear light; it is
-//! built without holding up a frame; and a frame that steps indoors is re-shaded only up to the
-//! step.
+//! built without holding up a frame; and a frame underground, in a room or stepping into one from
+//! the outdoors is re-shaded whole.
 //!
 //! Each station is loaded twice and stepped the same way, once with the presentation off and once
 //! with re-shading on (the lighting option, whose own pass draws nothing yet, so the picture is
@@ -148,7 +148,10 @@ fn note(report: &dereth_render::wgpu::sidecar::SidecarReport, name: &str) -> u64
 const SILHOUETTE: u8 = 48;
 
 fn outdoor(station: &Station) -> bool {
-    !matches!(station.name, "doorway" | "indoor" | "dungeon")
+    !matches!(
+        station.name,
+        "doorway" | "indoor" | "dungeon" | "dungeon-cave"
+    )
 }
 
 /// Behaviour: hifi.reshade.the-parity-view-matches-the-ordinary-frame
@@ -201,21 +204,25 @@ fn the_parity_view_matches_the_ordinary_frame_at_every_outdoor_station() {
     assert!(failures.is_empty(), "{failures:?}");
 }
 
-/// Behaviour: hifi.reshade.an-indoor-frame-re-shades-only-its-outdoor-part
-/// At the stations that step indoors, the frame with re-shading on is composited, the world after
-/// the step is replayed with its own pipelines, and the picture matches the ordinary frame within
-/// the outdoor stations' bounds; at the doorway the outdoor part is re-shaded.
+/// Behaviour: hifi.reshade.an-indoor-frame-is-re-shaded-whole
+/// At the stations underground, in a room and at a doorway, every draw of the world but the sky's
+/// is re-shaded -- the rooms drawn after a step indoors too, over the depth the step clears --
+/// and the neutral resolve of the re-shaded world matches the ordinary frame within the outdoor
+/// stations' bounds.
 #[test]
-fn an_indoor_frame_is_re_shaded_up_to_its_step_and_drawn_as_recorded_after() {
+fn an_indoor_frame_is_re_shaded_whole_and_its_parity_view_matches_the_ordinary_frame() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let mut gpu = device();
-    for station in hifi_stations::stations(&store)
-        .iter()
+    let stations: Vec<Station> = hifi_stations::stations(&store)
+        .into_iter()
+        .chain(hifi_stations::close_stations(&store))
         .filter(|s| !outdoor(s))
-    {
+        .collect();
+    assert_eq!(stations.len(), 4, "{stations:?}");
+    for station in &stations {
         let (off, _) = run(&mut gpu, station, FidelityPreferences::default(), false);
-        let (on, report) = run(&mut gpu, station, fidelity("Lighting=1"), true);
+        let (on, report) = run(&mut gpu, station, fidelity("Debug=7"), true);
         let report = report.expect("the presentation was installed");
         assert!(report.composited, "{}: {report:?}", station.name);
         let (mean, silhouette) = difference(&off, &on, SILHOUETTE);
@@ -239,9 +246,9 @@ fn an_indoor_frame_is_re_shaded_up_to_its_step_and_drawn_as_recorded_after() {
             "{}: {report:?}",
             station.name
         );
-        assert!(
-            after > 0,
-            "{}: the frame did not step indoors",
+        assert_eq!(
+            after, 0,
+            "{}: draws were drawn as recorded after a step indoors",
             station.name
         );
         assert!(
@@ -251,8 +258,8 @@ fn an_indoor_frame_is_re_shaded_up_to_its_step_and_drawn_as_recorded_after() {
         );
         assert_eq!(
             u64::from(report.census.legacy),
-            before + after,
-            "{}: a draw was drawn as recorded outside the sky and the indoor step",
+            before,
+            "{}: a draw was drawn as recorded outside the sky",
             station.name
         );
         assert!(

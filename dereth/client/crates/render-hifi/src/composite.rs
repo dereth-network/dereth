@@ -183,7 +183,7 @@ fn is_stamp(note: &DrawNote) -> bool {
 /// The command of the last building stamp drawn before the frame steps indoors, if it draws one.
 #[must_use]
 pub fn last_building_stamp(tables: &SideTables) -> Option<u32> {
-    let cut = crate::reshade::ReshadePlan::new(tables)?.rest.start;
+    let cut = crate::reshade::ReshadePlan::new(tables)?.indoors_from;
     tables
         .draws
         .iter()
@@ -227,9 +227,12 @@ fn draws_besides_stamps(tables: &SideTables, range: &std::ops::Range<u32>) -> bo
 
 /// The commands from the frame's indoor step to the world's end, when it steps indoors: the
 /// rooms it draws over the depth it clears, and the stamps of their openings where it draws any.
+/// The world replayed as recorded is replayed in two there.
 #[must_use]
 pub fn indoor_step(tables: &SideTables) -> Option<std::ops::Range<u32>> {
-    Some(crate::reshade::ReshadePlan::new(tables)?.rest).filter(|rest| !rest.is_empty())
+    let world = tables.world_span()?;
+    let from = crate::reshade::ReshadePlan::new(tables)?.indoors_from;
+    Some(from..world.end).filter(|step| !step.is_empty())
 }
 
 /// The replay that leaves every stamp out. It is not counted in the frame's census, so the rule

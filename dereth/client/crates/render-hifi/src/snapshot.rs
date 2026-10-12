@@ -165,6 +165,9 @@ pub struct HifiLight {
     pub falloff: f32,
     /// Whether it stands in a building's or dungeon's own cell, so lights only that interior.
     pub interior: bool,
+    /// Whether its light is burned into the vertex colors of the rooms around it: one of the
+    /// static lights the rooms' light is made from, with the color and place it was made with.
+    pub burned: bool,
 }
 
 /// Where an outdoor lamp's light was found in the data.

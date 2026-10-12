@@ -70,13 +70,15 @@ fn the_composite_shader_parses_and_validates() {
 }
 
 /// Behaviour: hifi.shaders.the-re-shade-shaders-validate
-/// The shaders of the neutral resolve, the normal and census views and the landscape-normal pass
-/// parse and validate without a device, with the entry points their pipelines name.
+/// The shaders of the neutral resolve, the normal and census views, the landscape-normal pass and
+/// the depth clear of a step indoors parse and validate without a device, with the entry points
+/// their pipelines name.
 #[test]
 fn the_re_shade_shaders_parse_and_validate() {
-    let wanted: [&[&str]; 2] = [
+    let wanted: [&[&str]; 3] = [
         &["vs", "fs_lift", "fs_resolve", "fs_normals", "fs_census"],
         &["vs", "fs_ground"],
+        &["vs", "fs"],
     ];
     for (source, want) in dereth_render_hifi::reshade::shaders().iter().zip(wanted) {
         let module = naga::front::wgsl::parse_str(source)

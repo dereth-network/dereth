@@ -368,10 +368,9 @@ fn snapshot(
 
     // --- the lights -----------------------------------------------------------------------
     frame.lights.clear();
-    // The static pool is drawn from the cell lights below, so only the dynamic lights are taken
-    // from the pools. A pooled light's hardware record holds its position with height on the
-    // second axis and its colour times its intensity; the snapshot holds height on the third
-    // axis and the colour alone, as for the cell lights.
+    // A pooled dynamic light's hardware record holds its position with height on the second
+    // axis and its color times its intensity; the snapshot holds height on the third axis and
+    // the color alone, as for the cell lights.
     //
     // Outdoors the landscape and everything standing on it, the player's body too, are drawn
     // with the sun alone, so a dynamic light standing outdoors (the light that follows the
@@ -391,6 +390,7 @@ fn snapshot(
             intensity: l.info.intensity,
             falloff: l.info.falloff,
             interior: true,
+            burned: false,
         });
     }
     // Every cell light belongs to a building's or dungeon's own cell.
@@ -403,8 +403,25 @@ fn snapshot(
                 intensity: light.info.intensity,
                 falloff: light.info.falloff,
                 interior: true,
+                burned: false,
             });
         }
+    }
+    // And the static pool once more, exactly as the rooms' vertex colors are burned from it: its
+    // lights are already in render space, with the color they were burned with.
+    for l in &pools.statics {
+        if l.info.light_type != dereth_world_render::lighting::LightType::Point {
+            continue;
+        }
+        let at = l.info.offset.origin;
+        frame.lights.push(HifiLight {
+            position: glam::Vec3::new(at.x, at.y, at.z),
+            color: l.info.color,
+            intensity: l.info.intensity,
+            falloff: l.info.falloff,
+            interior: true,
+            burned: true,
+        });
     }
 
     // --- the outdoor lamps -----------------------------------------------------------------

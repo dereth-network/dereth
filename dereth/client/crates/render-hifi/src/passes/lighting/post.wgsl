@@ -2,7 +2,8 @@
 // light grade, from the linear world into the frame target's encoding.
 
 struct Post {
-    // x exposure, y bloom strength, z 1 for AgX (else ACES), w the bloom levels.
+    // x the sun and sky's exposure (the exposure in force is the exposure pass's), y bloom
+    // strength, z 1 for AgX (else ACES), w the bloom levels.
     tone: vec4<f32>,
     // The source texel size (for the bloom passes); z the slope of the tone map's toe, w unused.
     texel: vec4<f32>,
@@ -15,6 +16,9 @@ struct Post {
 @group(0) @binding(1) var bloom: texture_2d<f32>;
 @group(0) @binding(2) var lin: sampler;
 @group(0) @binding(3) var<uniform> post: Post;
+// The exposure in force, as the eye has adapted to the light (see the exposure pass); the rest
+// of the state is the exposure pass's own.
+@group(0) @binding(4) var<storage, read> exposure: array<f32, 4>;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -145,7 +149,7 @@ fn fs_tonemap(i: VsOut) -> @location(0) vec4<f32> {
     let c = textureLoad(src, px, 0).rgb;
     let uv = vec2<f32>(i.pos.xy) * post.texel.xy;
     let b = textureSampleLevel(bloom, lin, uv, 0.0).rgb / post.tone.w;
-    var x = mix(c, b, post.tone.y) * post.tone.x;
+    var x = mix(c, b, post.tone.y) * exposure[0];
     // Vignette, inside the world viewport.
     let v = (i.pos.xy - post.viewport.xy) / post.viewport.zw - vec2<f32>(0.5);
     x = x * (1.0 - post.grade.z * dot(v, v));

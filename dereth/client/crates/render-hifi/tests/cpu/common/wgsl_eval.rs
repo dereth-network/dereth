@@ -230,6 +230,8 @@ fn math(fun: MathFunction, a: &Value, b: Option<&Value>, c: Option<&Value>) -> V
         M::Sin => each(a, &math::sinf),
         M::Cos => each(a, &math::cosf),
         M::Exp => each(a, &math::expf),
+        M::Exp2 => each(a, &|x| math::powf(2.0, x)),
+        M::Log2 => each(a, &|x| math::logf(x) / std::f32::consts::LN_2),
         M::Min => each3(a, b(), &zero, &|x, y, _| x.min(y)),
         M::Max => each3(a, b(), &zero, &|x, y, _| x.max(y)),
         M::Pow => each3(a, b(), &zero, &|x, y, _| math::powf(x, y)),

@@ -194,9 +194,9 @@ fn with_every_box_ticked_the_occlusion_is_still_drawn_indoors_and_underground() 
         let off = run(&station, FidelityPreferences::default());
         let ao = moved(&off, &run(&station, fidelity("AmbientOcclusion=1")));
         let (every_px, reshaded) = run_reshaded(&station, fidelity(EVERY_BOX));
-        // Underground nothing is re-shaded; the room and the doorway are, up to their step.
+        // Underground, the room and the doorway are re-shaded, the rooms with the rest.
         assert!(
-            reshaded || name == "dungeon",
+            reshaded,
             "{name}: the frame with every box was not re-shaded"
         );
         let every = moved(&off, &every_px);

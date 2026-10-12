@@ -1,6 +1,7 @@
 // The opaque world lit again per pixel: the vertex light each surface was drawn with is divided
 // out, and the sun (with its shadow), a sky hemisphere and the scene's point lights are put back,
-// in linear high dynamic range.
+// in linear high dynamic range. A room's surface takes its own lights per pixel in place of the
+// light burned into its vertices, and nothing of the sun or the sky.
 
 struct Params {
     clip_to_render: mat4x4<f32>,
@@ -38,6 +39,10 @@ struct Params {
     // alone; w how many of the point lights, first in the list, are inside a building's or a
     // dungeon's cells.
     lamp: vec4<f32>,
+    // x 1 when the frame shows the outdoors, whose surfaces take the sun and the sky; y 1 when
+    // the rooms' own light per pixel is bound; z 1 to show it alone; w 1 when the viewer is in a
+    // room, whose surfaces then take their lights per pixel.
+    indoor: vec4<f32>,
 };
 
 struct Light {
@@ -57,6 +62,9 @@ struct Light {
 // The outdoor lamps' light on each pixel, rgb; alpha how much of the pixel is a lamp's glowing
 // part, negative where the lamps light nothing.
 @group(0) @binding(7) var lamp_light: texture_2d<f32>;
+// The rooms' own lights on each pixel of a room's surface, as the vertex colors are burned from
+// them; alpha negative where the pixel is not a room's surface.
+@group(0) @binding(8) var room_light: texture_2d<f32>;
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
@@ -227,6 +235,53 @@ fn point_light(world: vec3<f32>, n: vec3<f32>, inside: bool) -> vec3<f32> {
     return sum * params.tune.x;
 }
 
+// How bright the light burned into a room's surface was where this pixel was drawn, from the code
+// its class carries (the logarithm of the brightness over eight halvings); negative where it does
+// not carry one.
+fn burned_drawn(kind: f32) -> f32 {
+    if (abs(kind - 1.75) > 0.21) {
+        return -1.0;
+    }
+    let t = clamp((kind - 1.55) / 0.4, 0.0, 1.0);
+    return exp2(t * 8.0 - 8.0);
+}
+
+// A room's surface lit by its own lights per pixel: the light burned into its vertices, which the
+// color was drawn with, gives way to the same lights worked out here, by the brightness of the
+// two in the display's encoding. Close to a torch the surface is brighter than its vertices held,
+// farther off and on faces turned from it darker, and where a wall shuts a light out it is lit
+// only by what the room scatters. Where the vertices held next to no light the color says
+// nothing of the surface, and is kept as drawn; so it is where nothing is known.
+fn room_lit(c: vec3<f32>, kind: f32, px: vec2<i32>) -> vec3<f32> {
+    let drawn = burned_drawn(kind);
+    if (params.indoor.y < 0.5 || drawn < 0.0) {
+        return c;
+    }
+    let here = textureLoad(room_light, px, 0);
+    if (here.w < 0.0) {
+        return c;
+    }
+    // A quarter of the light the vertices held stays, as the light the room's walls throw about.
+    let trust = smoothstep(0.03, 0.2, drawn);
+    let raw = clamp(luminance(here.rgb) / max(drawn, 0.03), 0.0, 3.0);
+    let ratio = mix(1.0, 0.25 + 0.75 * raw, trust);
+    if (params.indoor.z > 0.5) {
+        return vec3<f32>(drawn, luminance(here.rgb) * 0.25, ratio * 0.25);
+    }
+    return srgb_to_linear(linear_to_srgb(max(c, vec3<f32>(0.0))) * ratio);
+}
+
+// What a room's surface reflects of the light the room bounces about: its own color, the light
+// burned into it taken out, where the burn held enough light to tell; nothing elsewhere.
+fn room_reflects(c: vec3<f32>, kind: f32) -> vec4<f32> {
+    let drawn = burned_drawn(kind);
+    if (drawn < 0.1) {
+        return vec4<f32>(0.0);
+    }
+    let own = srgb_to_linear(min(linear_to_srgb(max(c, vec3<f32>(0.0))) / drawn, vec3<f32>(1.0)));
+    return vec4<f32>(own, 1.0);
+}
+
 struct Out {
     @location(0) colour: vec4<f32>,
     // What the pixel reflects of new light, faded by the fog; zero where it is not relit.
@@ -253,10 +308,21 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
     if (d >= 1.0 || dot(nw.xyz, nw.xyz) < 0.25 || (kind < 0.5 && !unlit_scenery)) {
         return out(c, vec4<f32>(0.0));
     }
-    // A lit thing drawn without the sun among its lights while the sun is up stands indoors:
-    // in a building's or a dungeon's cell, lit by the cell's own lights. It keeps the light it
-    // was drawn with, as the cell around it does.
-    if (kind > 1.2 && kind < 1.3 && luminance(params.sun_legacy.rgb) > 0.01) {
+    // A room's own surface takes its lights per pixel while the viewer is in a room; seen from
+    // outdoors, it keeps the light it was drawn with, as below.
+    if (kind > 1.5 && kind < 2.5 && params.indoor.w > 0.5) {
+        return out(vec4<f32>(room_lit(c.rgb, kind, px), c.a), room_reflects(c.rgb, kind));
+    }
+    // A lit thing drawn without the sun among its lights while the sun is up, or anywhere in a
+    // frame that shows nothing of the outdoors, stands indoors: in a building's or a dungeon's
+    // cell, lit by the cell's own lights and the light that follows the player. It keeps the
+    // light it was drawn with. So does everything else in such a frame: none of it is lit by the
+    // sun or the sky.
+    let outdoors_shown = params.indoor.x > 0.5;
+    if (kind > 1.2 && kind < 1.3 && (luminance(params.sun_legacy.rgb) > 0.01 || !outdoors_shown)) {
+        return out(c, vec4<f32>(0.0));
+    }
+    if (!outdoors_shown) {
         return out(c, vec4<f32>(0.0));
     }
     // Leaves and other cut-out growth: thin, lit from either side.

@@ -1042,6 +1042,19 @@ pub(crate) fn close_stations(store: &RetailDatStore) -> Vec<Station> {
         weather: false,
         land_radius: 3,
     });
+    out.push(Station {
+        name: "dungeon-cave",
+        why: "a body standing in a cave passage of a deep dungeon, hung with webs: a second \
+              frame wholly underground, of rock rather than masonry",
+        place: Place::Body {
+            cell: 0x00D1_0180,
+            origin: Vec3::ZERO,
+            yaw: 90.0,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: 3,
+    });
     out.extend(grass_stations(store));
     out.extend(wade_stations(store));
     out

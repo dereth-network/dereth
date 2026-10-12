@@ -23,7 +23,9 @@
 //! Location 0 is the colour; location 1 is the normal, `xyz` the unit view-space normal (zero
 //! where there is none) and `w` the [`MaterialClass`] as a small whole number. A lit draw whose
 //! lights hold no sun (a thing standing in a building's or a dungeon's cell, lit by the cell's
-//! lights) writes its class plus [`WITHOUT_SUN`].
+//! lights) writes its class plus [`WITHOUT_SUN`]. A room's surface, whose vertex color is the
+//! light burned into it, writes how bright that light was where it is drawn in place of its
+//! class's whole number (see [`baked_code`]).
 
 use dereth_render::VertexFormat;
 
@@ -33,6 +35,36 @@ use crate::shared::fullscreen::COLOUR_WGSL;
 /// What a [`MaterialClass::Lit`] draw adds to its class when none of its lights is the sun: it
 /// was lit as a thing indoors is.
 pub const WITHOUT_SUN: f32 = 0.25;
+
+/// The least and the greatest code a room's surface writes for the light burned into it: the
+/// light's brightness, by [`baked_code`].
+pub const BAKED_CODES: (f32, f32) = (1.55, 1.95);
+
+/// How many halvings below full brightness the dimmest burned light [`baked_code`] tells apart
+/// lies.
+const BAKED_STOPS: f32 = 8.0;
+
+/// The code a room's surface writes in its normal target's `w` for the burned light it was drawn
+/// with, `luminance` its brightness 0..1 as the vertex color holds it: [`BAKED_CODES`] spread
+/// over the logarithm of the brightness, so dim light keeps as fine a step as bright. No light
+/// at all is the darkest code.
+#[must_use]
+pub fn baked_code(luminance: f32) -> f32 {
+    let log2 = dereth_primitives::num::math::logf(luminance.max(1e-6)) / std::f32::consts::LN_2;
+    let t = ((log2 + BAKED_STOPS) / BAKED_STOPS).clamp(0.0, 1.0);
+    BAKED_CODES.0 + (BAKED_CODES.1 - BAKED_CODES.0) * t
+}
+
+/// The burned light's brightness a code of [`baked_code`] stands for; `None` for any other code
+/// (a room's surface whose burned light is not known writes [`MaterialClass::Baked`] itself).
+#[must_use]
+pub fn baked_light(code: f32) -> Option<f32> {
+    let (lo, hi) = BAKED_CODES;
+    (code >= lo - 0.005 && code <= hi + 0.005).then(|| {
+        let t = ((code - lo) / (hi - lo)).clamp(0.0, 1.0);
+        dereth_primitives::num::math::powf(2.0, t * BAKED_STOPS - BAKED_STOPS)
+    })
+}
 
 /// What kind of surface a re-shaded pixel is, as its normal target's `w` carries it.
 #[repr(u8)]
@@ -355,6 +387,20 @@ fn hifi_foliage_code(i: VsOut) -> f32 {{
     return {foliage} + 0.1 + 0.3 * clamp(i.sun_share, 0.0, 1.0);
 }}
 
+// A room's surface: how bright the light burned into its vertices is here, as a code between
+// {baked_lo:.2} and {baked_hi:.2} on the logarithm of its brightness, dithered by a fraction of the step
+// the target keeps so its rounding leaves no bands; the class's own number where the light is
+// not known.
+fn hifi_baked_code(i: VsOut) -> f32 {{
+    let l = dot(i.lit_emissive, vec3<f32>(0.2126, 0.7152, 0.0722));
+    if (l <= 0.0) {{
+        return {baked};
+    }}
+    let t = clamp((log2(max(l, 1e-6)) + {stops:.1}) / {stops:.1}, 0.0, 1.0);
+    let n = fract(52.9829189 * fract(dot(i.pos.xy, vec2<f32>(0.06711056, 5.83715e-3)))) - 0.5;
+    return {baked_lo:.2} + ({baked_hi:.2} - {baked_lo:.2}) * t + n * 0.0009;
+}}
+
 fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{
     var o: HifiOut;
     // Fog and brightness as the ordinary stage applies them, then the result as linear light,
@@ -364,6 +410,8 @@ fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{
     let n = hifi_view_normal(i);
     if (material == {foliage}) {{
         o.normal = vec4<f32>(hifi_canopy_normal(i, n), hifi_foliage_code(i));
+    }} else if (material == {baked}) {{
+        o.normal = vec4<f32>(n, hifi_baked_code(i));
     }} else {{
         o.normal = vec4<f32>(n, material);
     }}
@@ -376,5 +424,8 @@ fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{
         foliage = MaterialClass::Foliage.wgsl_name(),
         without_sun = WITHOUT_SUN,
         view_normal = view_normal(format),
+        baked_lo = BAKED_CODES.0,
+        baked_hi = BAKED_CODES.1,
+        stops = BAKED_STOPS,
     )
 }

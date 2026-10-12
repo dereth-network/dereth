@@ -13,6 +13,7 @@ fn light(x: f32, interior: bool) -> HifiLight {
         intensity: 1.0,
         falloff: 5.0,
         interior,
+        burned: false,
     }
 }
 
@@ -62,4 +63,13 @@ fn only_the_nearest_lights_are_taken_before_they_are_sorted_by_kind() {
     let taken = point_lights(&f, 1.0);
     assert_eq!(taken.len(), MAX_LIGHTS);
     assert!(taken.iter().all(|l| !l.interior));
+}
+
+#[test]
+fn the_copies_of_the_lights_burned_into_the_rooms_are_not_walked_as_point_lights() {
+    let mut burned = light(3.0, true);
+    burned.burned = true;
+    let f = frame(vec![light(4.0, true), burned]);
+    let walked: Vec<f32> = point_lights(&f, 1.0).iter().map(|l| l.position.x).collect();
+    assert_eq!(walked, [4.0]);
 }
