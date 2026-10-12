@@ -36,17 +36,25 @@ fn a_live_link_closes_when_its_key_is_rotated_or_revoked() {
 /// Spec: hub: a link attempt takes from its client address's request allowance.
 #[test]
 fn link_attempts_with_a_bad_key_are_limited_as_requests_are() {
-    let (running, _, _) = super::conformance::hub();
+    // An allowance of five a minute: twenty attempts outrun its refill however slowly they go.
+    let (running, _, _) = super::conformance::hub_with(HubConfig {
+        http_per_minute: 5,
+        ..HubConfig::default()
+    });
     let base = format!("ws://{}", running.local_addr());
     let bad = format!("drth_{}", "A".repeat(43));
-    let mut limited = 0;
-    for _ in 0..250 {
+    let (mut refused, mut limited) = (0, 0);
+    for _ in 0..20 {
         match Link::open(&base, "aa", &bad) {
             Err(Open::Refused(429)) => limited += 1,
-            Err(Open::Refused(401)) => {}
+            Err(Open::Refused(401)) => refused += 1,
             other => panic!("{other:?}"),
         }
     }
+    assert!(
+        refused > 0,
+        "within the allowance, a bad key is refused 401"
+    );
     assert!(limited > 0, "past the allowance, an attempt is refused 429");
     running.shutdown();
 }

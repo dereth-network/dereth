@@ -712,7 +712,7 @@ fn a_verification_call_without_a_valid_key_looks_nothing_up() {
 /// yet.
 #[test]
 fn a_slow_name_server_holds_no_call_past_the_deadline() {
-    let (stand_in, _) = lookup(Duration::from_secs(3), "127.0.0.1");
+    let (stand_in, _) = lookup(Duration::from_secs(10), "127.0.0.1");
     let f = hub_with(move |c| {
         c.lookup = stand_in;
         c.resolve_deadline = Duration::from_millis(100);
@@ -733,11 +733,12 @@ fn a_slow_name_server_holds_no_call_past_the_deadline() {
             .is_some_and(|m| m.starts_with("slow.example did not resolve in time")),
         "{a:?}"
     );
-    assert!(started.elapsed() < Duration::from_millis(1500));
+    // Well short of the 10 s lookup, with room for a slow machine.
+    assert!(started.elapsed() < Duration::from_secs(5));
     f.running.shutdown();
 
     // A lookup well inside its deadline is still never waited on by /v1/resolve.
-    let (stand_in, _) = lookup(Duration::from_millis(1500), "1.1.1.1");
+    let (stand_in, _) = lookup(Duration::from_secs(3), "1.1.1.1");
     let f = hub_with(move |c| {
         c.lookup = stand_in;
         c.resolve_deadline = Duration::from_secs(10);
@@ -748,13 +749,21 @@ fn a_slow_name_server_holds_no_call_past_the_deadline() {
         .expect("registered");
     let started = std::time::Instant::now();
     let r = call(f.addr(), "GET", "/v1/resolve/slowres", &[], "");
-    assert!(started.elapsed() < Duration::from_millis(1000));
+    // Short of the 3 s lookup: the answer did not wait for it.
+    assert!(started.elapsed() < Duration::from_millis(2500));
     assert_eq!(r.status, 200, "{r:?}");
     assert_eq!(r.json()["resolution"]["source"], "unknown");
     assert_eq!(r.json()["resolution"]["addresses"], json!([]));
     assert_eq!(r.json()["endpoint"]["address"], "slower.example");
-    std::thread::sleep(Duration::from_millis(1800));
-    let r = call(f.addr(), "GET", "/v1/resolve/slowres", &[], "");
+    // Once the lookup has finished, the next answer has its addresses.
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    let r = loop {
+        let r = call(f.addr(), "GET", "/v1/resolve/slowres", &[], "");
+        if r.json()["resolution"]["source"] == "dns" || std::time::Instant::now() > until {
+            break r;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
     assert_eq!(r.json()["resolution"]["source"], "dns", "{r:?}");
     assert_eq!(r.json()["endpoint"]["address"], "1.1.1.1");
     f.running.shutdown();
@@ -1242,13 +1251,14 @@ fn a_trickled_body_is_cut_off_at_its_deadline() {
          Content-Length: {}\r\n\r\n",
         body.len()
     );
+    // The whole body would take nearly ten seconds; the cut comes at the deadline, well inside five.
     let (status, took) = trickle(&f, &head, body, Duration::from_millis(150));
     assert_eq!(status, Some(408));
-    assert!(took < Duration::from_millis(2500), "{took:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
     // A body that never comes is cut off at the same deadline.
     let (status, took) = trickle(&f, &head, &[], Duration::from_millis(100));
     assert_eq!(status, Some(408));
-    assert!(took < Duration::from_millis(2500), "{took:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
     f.running.shutdown();
 }
 
