@@ -4,8 +4,9 @@
 // ACE's mod loader creates `Dereth.Network.Mod` and calls Initialize once. Initialize never throws
 // and never blocks: it reads Settings.json, starts the link on a task of its own, and patches ACE
 // one feature at a time, each only if every method it needs is there (see PatchTargets). Without a
-// Settings.json, or with one that cannot be served, nothing is patched and the world behaves as ACE
-// always does.
+// Settings.json, or with one that cannot be used, nothing is patched and the world behaves as ACE
+// always does. The character screen's message is the world's own: it is sent whenever it is set,
+// even when a network setting keeps the network off.
 
 using System.Diagnostics;
 using System.Reflection;
@@ -24,7 +25,6 @@ internal sealed class Runtime
     public required StoreWriter Writer { get; init; }
     public required AceHost Host { get; init; }
 
-    private readonly Dictionary<string, long> faults = new();
     private int started;
 
     /// <summary>
@@ -38,17 +38,7 @@ internal sealed class Runtime
     }
 
     /// <summary>Logs a fault in one place at most once a minute.</summary>
-    public void Fault(string where, Exception e)
-    {
-        var now = Stopwatch.GetTimestamp();
-        lock (faults)
-        {
-            if (faults.TryGetValue(where, out var at) && Stopwatch.GetElapsedTime(at, now) < TimeSpan.FromMinutes(1))
-                return;
-            faults[where] = now;
-        }
-        Mod.Log(LogLevel.Error, $"{where} failed and was left to ACE: {e.GetType().Name}: {e.Message}");
-    }
+    public void Fault(string where, Exception e) => Mod.Fault(where, e, LogLevel.Error);
 }
 
 public sealed class Mod : IHarmonyMod
@@ -65,7 +55,32 @@ public sealed class Mod : IHarmonyMod
     /// <summary>The error that kept the network off, for `/dn admin status`; null when none was logged.</summary>
     internal static string? OffReason => Volatile.Read(ref offReason);
 
+    private static string? screenMessage;
+
+    /// <summary>The character screen's message sent at every login, or null for none.</summary>
+    internal static string? ScreenMessage => Volatile.Read(ref screenMessage);
+
+    private static readonly Dictionary<string, long> Faults = new();
+
     private Harmony? harmony;
+
+    /// <summary>The character screen's patch, apart from the network's: the network stopping leaves it.</summary>
+    private Harmony? screenHarmony;
+
+    private const string ScreenHarmonyId = HarmonyId + ".character-screen";
+
+    /// <summary>Logs a fault in one place at most once a minute.</summary>
+    internal static void Fault(string where, Exception e, LogLevel level)
+    {
+        var now = Stopwatch.GetTimestamp();
+        lock (Faults)
+        {
+            if (Faults.TryGetValue(where, out var at) && Stopwatch.GetElapsedTime(at, now) < TimeSpan.FromMinutes(1))
+                return;
+            Faults[where] = now;
+        }
+        Log(level, $"{where} failed and was left to ACE: {e.GetType().Name}: {e.Message}");
+    }
 
     public void Initialize()
     {
@@ -84,6 +99,7 @@ public sealed class Mod : IHarmonyMod
     {
         try
         {
+            StopScreenMessage();
             Stop();
         }
         catch (Exception e)
@@ -132,6 +148,7 @@ public sealed class Mod : IHarmonyMod
             return;
         }
         var settings = ModSettings.FromJson(settingsText);
+        StartScreenMessage(settings.ScreenMessage());
         var slug = Text.AsciiLower(settings.Slug.Trim());
         if (!Address.IsNetworkSlug(slug))
         {
@@ -176,6 +193,9 @@ public sealed class Mod : IHarmonyMod
         var resolved = new Dictionary<string, List<(PatchTarget Target, MethodBase Method)>>();
         foreach (var feature in PatchTargets.Features)
         {
+            // The world's own, patched already.
+            if (feature == PatchTargets.CharacterScreen)
+                continue;
             var list = new List<(PatchTarget, MethodBase)>();
             var missing = new List<string>();
             foreach (var t in PatchTargets.Of(feature))
@@ -229,7 +249,7 @@ public sealed class Mod : IHarmonyMod
         {
             if (feature == PatchTargets.GlobalRoom && room is null)
                 continue;
-            if (Apply(feature, targets))
+            if (Apply(harmony, feature, targets))
                 on.Add(feature);
             else if (feature is PatchTargets.Core or PatchTargets.Names)
             {
@@ -286,15 +306,15 @@ public sealed class Mod : IHarmonyMod
         : new HarmonyMethod(typeof(Patches).GetMethod(name, BindingFlags.Public | BindingFlags.Static)
             ?? throw new MissingMethodException(nameof(Patches), name));
 
-    /// <summary>Patches every target of one feature, or none of them.</summary>
-    private bool Apply(string feature, List<(PatchTarget Target, MethodBase Method)> targets)
+    /// <summary>Patches every target of one feature with `h`, or none of them.</summary>
+    private static bool Apply(Harmony h, string feature, List<(PatchTarget Target, MethodBase Method)> targets)
     {
         var done = new List<MethodBase>();
         try
         {
             foreach (var (t, m) in targets)
             {
-                harmony!.Patch(m, prefix: Hook(t.Prefix), postfix: Hook(t.Postfix));
+                h.Patch(m, prefix: Hook(t.Prefix), postfix: Hook(t.Postfix));
                 done.Add(m);
             }
             return true;
@@ -306,7 +326,7 @@ public sealed class Mod : IHarmonyMod
             {
                 try
                 {
-                    harmony!.Unpatch(m, HarmonyPatchType.All, harmony.Id);
+                    h.Unpatch(m, HarmonyPatchType.All, h.Id);
                 }
                 catch (Exception)
                 {
@@ -315,6 +335,48 @@ public sealed class Mod : IHarmonyMod
             }
             return false;
         }
+    }
+
+    /// <summary>
+    /// The character screen's message, when one is set: sent after the character list at every
+    /// login whether or not the network starts, as it is the world's own.
+    /// </summary>
+    private void StartScreenMessage(string? text)
+    {
+        if (text is null)
+            return;
+        var ace = typeof(PlayerManager).Assembly;
+        var targets = new List<(PatchTarget, MethodBase)>();
+        foreach (var t in PatchTargets.Of(PatchTargets.CharacterScreen))
+        {
+            var m = PatchTargets.Resolve(ace, t, out var why);
+            if (m is null)
+            {
+                Log(LogLevel.Warn, $"feature {PatchTargets.CharacterScreen} is off: this server has {why}; the character screen's message is not sent");
+                return;
+            }
+            targets.Add((t, m));
+        }
+        Volatile.Write(ref screenMessage, text);
+        screenHarmony = new Harmony(ScreenHarmonyId);
+        if (Apply(screenHarmony, PatchTargets.CharacterScreen, targets))
+            Log(LogLevel.Info, "the character screen's message is sent at every login");
+        else
+            StopScreenMessage();
+    }
+
+    private void StopScreenMessage()
+    {
+        Volatile.Write(ref screenMessage, null);
+        try
+        {
+            screenHarmony?.UnpatchAll(ScreenHarmonyId);
+        }
+        catch (Exception e)
+        {
+            Log(LogLevel.Warn, $"unpatching the character screen's message: {e.GetType().Name}: {e.Message}");
+        }
+        screenHarmony = null;
     }
 
     /// <summary>Stops without waiting on the network: the link closes on its own task.</summary>

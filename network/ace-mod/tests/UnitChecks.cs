@@ -21,6 +21,7 @@ internal static unsafe class UnitChecks
         WorldOnMemoryLink(c);
         GlobalCommand(c);
         RefusedSettings(c);
+        ScreenMessage(c);
         TurbineRoomRequest(c);
         GuardChecks.Run(c);
         FloodChecks.Run(c);
@@ -348,6 +349,66 @@ internal static unsafe class UnitChecks
         c.Check(s, ModSettings.FromJson("{ \"Slug\": \"alpha\" }").GlobalRoom == "Roleplay"
             && ModSettings.FromJson("{ \"Slug\": \"alpha\" }").HubUrl == "wss://hub.dereth.network",
             "unset, Global is carried by Roleplay and the hub is the public one");
+    }
+
+    private static string SourceFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
+    private static void ScreenMessage(Checks c)
+    {
+        const string s = "units/screen-message";
+        c.Check(s, ModSettings.FromJson("{ \"Slug\": \"alpha\" }").ScreenMessage() is null
+            && ModSettings.FromJson("{ \"CharacterScreenMessage\": \"  \\n \" }").ScreenMessage() is null
+            && ModSettings.FromJson("{ \"CharacterScreenMessage\": null }").ScreenMessage() is null
+            && ModSettings.Problem("{ \"CharacterScreenMessage\": null }") is null,
+            "unset, blank or null, no character screen message is sent");
+        const string welcome = "Welcome to Frostfell!\nPatch notes follow \u2014 see the site.";
+        const string set = "{ \"characterscreenmessage\": \"Welcome to Frostfell!\\nPatch notes follow \\u2014 see the site.\" }";
+        c.Check(s, ModSettings.Problem(set) is null && ModSettings.FromJson(set).ScreenMessage() == welcome,
+            "a message of Windows-1252 text with a line break is sent as written, its setting named in any case");
+        var example = Path.Combine(Path.GetDirectoryName(SourceFile())!, "..", "Dereth.Network", "Settings.json.example");
+        if (File.Exists(example))
+        {
+            var text = File.ReadAllText(example);
+            c.Check(s, ModSettings.Problem(text) is null && ModSettings.FromJson(text).ScreenMessage() is null
+                && text.Contains("\"CharacterScreenMessage\"", StringComparison.Ordinal),
+                "the shipped Settings.json.example names the setting and sends no message");
+        }
+        else
+            c.NotRun(s, "Settings.json.example not found beside the harness's sources");
+        foreach (var (json, named, what) in new[]
+                 {
+                     ("{ \"CharacterScreenMessage\": 5 }", "not text", "a number"),
+                     ("{ \"characterScreenMessage\": [\"a\"] }", "not text", "a list"),
+                     ("{ \"CharacterScreenMessage\": \"star \\u2605\" }", "U+2605", "a character Windows-1252 has no byte for"),
+                     ("{ \"CharacterScreenMessage\": \"\\u0101\" }", "U+0101", "a character Windows-1252 only best-fits"),
+                     ("{ \"CharacterScreenMessage\": \"bell \\u0007\" }", "U+0007", "a control character"),
+                 })
+        {
+            var p = ModSettings.Problem(json);
+            c.Check(s, p is not null && p.Contains("CharacterScreenMessage", StringComparison.OrdinalIgnoreCase)
+                && p.Contains(named, StringComparison.Ordinal), $"a message holding {what} is refused, naming the setting ({p})");
+        }
+        var longest = new string('x', ModSettings.MaxScreenMessageChars);
+        c.Check(s, ModSettings.ScreenMessageProblem(longest) is null
+            && ModSettings.ScreenMessageProblem(longest + "x") is { } tooLong && tooLong.Contains("65535", StringComparison.Ordinal),
+            "a message is at most 65,535 characters, the most its string's length carries");
+
+        // As the client reads it: the text, then an empty second string, each padded to four bytes.
+        var ms = new MemoryStream();
+        var w = new BinaryWriter(ms);
+        Payload.WriteCharacterScreenMessage(w, "Hi");
+        w.Flush();
+        c.Check(s, Payload.CharacterScreenMessageOpcode == 0xF65A
+            && ms.ToArray().SequenceEqual(new byte[] { 2, 0, (byte)'H', (byte)'i', 0, 0, 0, 0 }),
+            "Login_CharacterScreenMessage (0xF65A) is the text and an empty string, each a padded String16L");
+        ms = new MemoryStream();
+        w = new BinaryWriter(ms);
+        Payload.WriteCharacterScreenMessage(w, welcome);
+        w.Flush();
+        ms.Position = 0;
+        var r = new BinaryReader(ms);
+        c.Check(s, Payload.ReadString16L(r) == welcome && Payload.ReadString16L(r) == "" && ms.Position == ms.Length,
+            "a message with a line break and Windows-1252's own characters reads back whole");
     }
 
     private static void TurbineRoomRequest(Checks c)

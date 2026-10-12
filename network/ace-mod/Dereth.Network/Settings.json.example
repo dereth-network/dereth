@@ -5,5 +5,6 @@
   "KeyEnvironmentVariable": "DERETH_NETWORK_KEY",
   "GlobalRoom": "Roleplay",
   "MinCharacterAgeSeconds": 0,
-  "StorePath": "Dereth.Network.store.json"
+  "StorePath": "Dereth.Network.store.json",
+  "CharacterScreenMessage": ""
 }

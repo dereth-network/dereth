@@ -1,11 +1,13 @@
 // The network's world half, hosted in ACE: who is online, what they are, and how to show them
 // something, through ACE's own players, sessions and messages. Every call is on the world thread.
+// Beside it, the two game messages the mod writes itself.
 
 using ACE.Entity.Enum;
 using ACE.Server.Managers;
 using ACE.Server.Network;
 using ACE.Server.Network.GameEvent;
 using ACE.Server.Network.GameEvent.Events;
+using ACE.Server.Network.GameMessages;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.WorldObjects;
 
@@ -177,6 +179,16 @@ internal sealed class AceHost : IWorldHost
     }
 
     public void LocalAddFriend(uint character, string name) => P(character)?.HandleActionAddFriend(name);
+}
+
+/// <summary>`Login_CharacterScreenMessage` (`0xF65A`): the world's message on the character screen.</summary>
+internal sealed class GameMessageCharacterScreenMessage : GameMessage
+{
+    public GameMessageCharacterScreenMessage(string text)
+        : base((GameMessageOpcode)Payload.CharacterScreenMessageOpcode, GameMessageGroup.UIQueue)
+    {
+        Payload.WriteCharacterScreenMessage(Writer, text);
+    }
 }
 
 /// <summary>`Social_FriendsUpdate` (`0x0021`) with one row, for a remote friend under its stand-in id.</summary>

@@ -1,6 +1,7 @@
 // The mod's settings (`Settings.json` in the mod's folder) and the checks that decide whether the
-// network can start. The world's registry key is never in the file: an environment variable holds
-// it, so it stays out of anything an operator might share.
+// network can start, and the character screen's message, which the world sends whether or not it
+// does. The world's registry key is never in the file: an environment variable holds it, so it
+// stays out of anything an operator might share.
 
 using System.Text.Json;
 
@@ -30,12 +31,27 @@ public sealed class ModSettings
     public string StorePath { get; set; } = "Dereth.Network.store.json";
 
     /// <summary>
+    /// The world's message on the character screen, sent after the character list at every login
+    /// (`Login_CharacterScreenMessage`, `0xF65A`), whether or not the network is on; empty for none.
+    /// </summary>
+    public string CharacterScreenMessage { get; set; } = "";
+
+    /// <summary>The longest character screen message: the 16-bit length its string carries, a byte a character.</summary>
+    public const int MaxScreenMessageChars = ushort.MaxValue;
+
+    /// <summary>The character screen's message to send at login: null when it is unset or blank.</summary>
+    public string? ScreenMessage() => string.IsNullOrWhiteSpace(CharacterScreenMessage) ? null : CharacterScreenMessage;
+
+    /// <summary>
     /// Settings renamed before any release read them under the old name: the old name is refused,
     /// naming the new one, so a setting is never silently dropped.
     /// </summary>
     private static readonly (string Old, string New)[] Refused = [("EventsRoom", "GlobalRoom")];
 
-    /// <summary>Why the file cannot be used as it is: a refused old setting name, or null.</summary>
+    /// <summary>
+    /// Why the file cannot be used as it is: a refused old setting name, or a character screen
+    /// message that is not text the client can show; else null.
+    /// </summary>
     public static string? Problem(string text)
     {
         using var doc = JsonDocument.Parse(text, new JsonDocumentOptions
@@ -46,9 +62,41 @@ public sealed class ModSettings
         if (doc.RootElement.ValueKind != JsonValueKind.Object)
             return null;
         foreach (var p in doc.RootElement.EnumerateObject())
+        {
             foreach (var (old, now) in Refused)
                 if (p.Name.Equals(old, StringComparison.OrdinalIgnoreCase))
                     return $"unknown setting {p.Name} in Settings.json: it is now {now}; rename it (the old name is not read)";
+            if (!p.Name.Equals(nameof(CharacterScreenMessage), StringComparison.OrdinalIgnoreCase)
+                || p.Value.ValueKind == JsonValueKind.Null)
+                continue;
+            if (p.Value.ValueKind != JsonValueKind.String)
+                return $"{p.Name} in Settings.json is not text: put the message in quotes";
+            if (ScreenMessageProblem(p.Value.GetString() ?? "") is { } why)
+                return why;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Why `text` cannot be the character screen's message, or null: the client shows Windows-1252
+    /// text, with line breaks and tabs but no other control character, and its length is 16 bits.
+    /// </summary>
+    public static string? ScreenMessageProblem(string text)
+    {
+        var count = 0;
+        foreach (var r in text.EnumerateRunes())
+        {
+            count++;
+            var c = r.Value;
+            if (c is '\r' or '\n' or '\t')
+                continue;
+            if (c is < 0x20 or (>= 0x7F and <= 0x9F))
+                return $"CharacterScreenMessage holds the control character U+{c:X4}; only line breaks and tabs may be in it";
+            if (!TextRules.Cp1252Exact(c))
+                return $"CharacterScreenMessage holds U+{c:X4}, which the client cannot show: it shows Windows-1252 text only";
+        }
+        if (count > MaxScreenMessageChars)
+            return $"CharacterScreenMessage is {count} characters long; the client takes at most {MaxScreenMessageChars}";
         return null;
     }
 

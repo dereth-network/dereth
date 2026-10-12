@@ -37,6 +37,28 @@ internal static class Patches
         }
     }
 
+    // ---- the character screen ------------------------------------------------------------------
+
+    /// <summary>
+    /// After `AuthenticationHandler.SendConnectResponse`, which sends a login its character list:
+    /// the character screen's message, when one is set. It is the world's own, sent whether or not
+    /// the network is on.
+    /// </summary>
+    public static void ConnectResponsePostfix(Session __0)
+    {
+        if (Mod.ScreenMessage is not { } text || __0 is null)
+            return;
+        try
+        {
+            __0.Network.EnqueueSend(new GameMessageCharacterScreenMessage(text));
+        }
+        catch (Exception e)
+        {
+            // Not the network's, so never the reason `/dn admin status` gives for it being off.
+            Mod.Fault("the character screen's message", e, LogLevel.Warn);
+        }
+    }
+
     // ---- verification in game -------------------------------------------------------------------
 
     /// <summary>

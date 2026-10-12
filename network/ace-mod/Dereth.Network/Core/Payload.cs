@@ -1,5 +1,6 @@
 // The few pieces of the game's own message layout the mod reads and writes itself: a
-// length-prefixed Windows-1252 string, and the rows of `Social_FriendsUpdate` (`0x0021`).
+// length-prefixed Windows-1252 string, the rows of `Social_FriendsUpdate` (`0x0021`), and the
+// character screen's message.
 
 namespace Dereth.Network;
 
@@ -35,6 +36,19 @@ public static class Payload
         var pad = (4 - (2 + bytes.Length) % 4) % 4;
         for (var i = 0; i < pad; i++)
             w.Write((byte)0);
+    }
+
+    /// <summary>`Login_CharacterScreenMessage`'s opcode: the world's message on the character screen.</summary>
+    public const uint CharacterScreenMessageOpcode = 0xF65A;
+
+    /// <summary>
+    /// `Login_CharacterScreenMessage`'s body: the message, then a second string the client shows
+    /// after it, left empty.
+    /// </summary>
+    public static void WriteCharacterScreenMessage(BinaryWriter w, string text)
+    {
+        WriteString16L(w, text);
+        WriteString16L(w, "");
     }
 
     /// <summary>`Communication_TurbineChat`'s opcode.</summary>

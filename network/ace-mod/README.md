@@ -70,7 +70,7 @@ build it yourself (above).
    must stay `Dereth.Network`: it holds `Dereth.Network.dll`, `Meta.json`, `Settings.json.example`
    and `LICENSE`.
 2. Copy `Settings.json.example` to `Settings.json` in that folder and set `Slug` (and `GlobalRoom`,
-   see below).
+   and the character screen's `CharacterScreenMessage` if you want one; see below).
 3. Put the registry key in the environment of the ACE process, under the name `KeyEnvironmentVariable`
    gives (by default `DERETH_NETWORK_KEY`): your service's protected environment file, or the
    machine's secret store. Never put it in `Settings.json`, a launcher or a script you share. A
@@ -92,11 +92,23 @@ from the console).
 | `GlobalRoom` | `Roleplay` | The TurbineChat room that carries the Global room: `General`, `Trade`, `LFG`, `Roleplay`, or empty for none. |
 | `MinCharacterAgeSeconds` | `0` | Seconds a character must have played before it may send to the network: tells, Global room lines and channel requests. |
 | `StorePath` | `Dereth.Network.store.json` | The network's records, relative to the mod's folder. |
+| `CharacterScreenMessage` | (none) | The world's message on the character screen, sent after the character list at every login; `\n` starts a new line. See *The character screen's message*. |
 
 Any setting that cannot be served (a bad slug, a `ws://` hub without the opt-in, no key in the
 variable, an unknown room) keeps the network off, with the reason in the log as an error and in
 `/dn admin status`. So does a setting under a name the mod no longer reads: `EventsRoom` is now
-`GlobalRoom`, and the error says so.
+`GlobalRoom`, and the error says so. A `CharacterScreenMessage` the client cannot show (anything
+but Windows-1252 text, a control character other than a line break or tab, more than 65,535
+characters, or not text at all) keeps the network off too, and sends no message.
+
+## The character screen's message
+
+`CharacterScreenMessage` is the world's own, not the network's: it is sent whenever it is set,
+even while another setting keeps the network off. The world sends it at every login, after the
+character list, as `Login_CharacterScreenMessage` (`0xF65A`), which ACE never sends. The Dereth
+client shows it on the character screen: in the modern interface in its Announcements window, in
+the classic one in the message box. Clients of the 2005 era show it in their character screen's
+message box; the final retail client ignores it. Unset or blank, nothing is sent, as ACE does.
 
 ## The Global room
 
@@ -160,6 +172,7 @@ Each feature is patched only if every ACE method it needs is found. The table is
 | `global-room` | `TurbineChatHandler.TurbineChatReceived` (before and after), `TurbineChatHandler.LogTurbineChat` (before) | A line ACE let through in the carrying room goes on to the hub. Only when `GlobalRoom` is set; if it cannot be patched, the room is not carried at all. |
 | `names` | `CharacterHandler.CharacterCreateEx`, `AdminCommands.HandleRename` (before) | No new or renamed character's name may hold `@`, the address separator. Without it the network stays off: a local name holding `@` could pass for a character of another world. |
 | `verify` | `ClientPacket.Unpack` (before) | The hub's challenge on the game port, while a `/dn verify` waits for the hub's answer and within a minute of it being typed: its nonce goes back to the hub over HTTPS (never over UDP), and ACE does not unpack it (its own size check would drop it anyway). Any other datagram is ACE's, untouched; a challenge at any other time is dropped. Without it `/dn verify` cannot verify the world in game, and says so. |
+| `character-screen` | `AuthenticationHandler.SendConnectResponse` (after) | The character screen's message after the character list at login. Only when `CharacterScreenMessage` is set, and whether or not the network is on. |
 
 Incoming tells, room lines, channel lines and presence need no patch: they are sent with ACE's own
 messages (`GameEventTell`, `GameMessageTurbineChat`, a friends-list event, system chat).

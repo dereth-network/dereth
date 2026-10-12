@@ -32,6 +32,9 @@ public static class PatchTargets
     public const string Names = "names";
     public const string Verify = "verify";
 
+    /// <summary>The character screen's message: the world's own, patched whether or not the network starts.</summary>
+    public const string CharacterScreen = "character-screen";
+
     private const string Session = "ACE.Server.Network.Session";
     private const string ClientMessage = "ACE.Server.Network.ClientMessage";
     private const string Player = "ACE.Server.WorldObjects.Player";
@@ -75,6 +78,9 @@ public static class PatchTargets
         // The hub's challenge on the game port, when its operator verifies the world in game: read
         // where every datagram the listener receives is unpacked, before ACE's own parsing.
         new(Verify, "ACE.Server.Network.ClientPacket", "Unpack", ["System.Byte[]", "System.Int32"], "ChallengePrefix", null),
+        // The character screen's message, after the character list sent at login.
+        new(CharacterScreen, "ACE.Server.Network.Handlers.AuthenticationHandler", "SendConnectResponse",
+            [Session, "System.Collections.Generic.List`1[ACE.Database.Models.Shard.Character]"], null, "ConnectResponsePostfix"),
     ];
 
     public static IEnumerable<string> Features => All.Select(t => t.Feature).Distinct();
@@ -129,8 +135,13 @@ public static class PatchTargets
         if (ps.Length != parameters.Length)
             return false;
         for (var i = 0; i < ps.Length; i++)
-            if (ps[i].ParameterType.FullName != parameters[i])
+            if (NameOf(ps[i].ParameterType) != parameters[i])
                 return false;
         return true;
     }
+
+    /// <summary>A type's full name; a constructed generic type's arguments by theirs, without their assemblies.</summary>
+    private static string? NameOf(Type t) => t.IsConstructedGenericType
+        ? $"{t.GetGenericTypeDefinition().FullName}[{string.Join(",", t.GetGenericArguments().Select(NameOf))}]"
+        : t.FullName;
 }
