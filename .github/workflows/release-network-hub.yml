@@ -1,4 +1,4 @@
-name: Release the Dereth Network hub
+name: Release Dereth Network Hub
 
 # Builds, checks and drafts a release of the Dereth Network's hub. A pushed `network-hub-v<version>`
 # tag builds the binary for every target and the container image for Linux, and creates a DRAFT
@@ -62,7 +62,7 @@ jobs:
             fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Dereth Network hub $version"
+          echo "Dereth Network Hub $version"
       - name: The release notes, from the commits since the previous release
         shell: bash
         env:
@@ -339,7 +339,7 @@ jobs:
           PRE=""
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
-            --title "Dereth Network hub $VERSION" --notes-file ../notes.md \
+            --title "Dereth Network Hub $VERSION" --notes-file ../notes.md \
             "${assets[@]}"
 
   publish-image:

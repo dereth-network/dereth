@@ -406,7 +406,7 @@ fn a_file_already_on_the_draft_with_the_same_sha256_is_skipped() {
     let mut fake = FakeGitHub::with_tag(&tag);
     run_upload(&mut fake, Kind::Web, v, &up).expect("the first upload");
     assert!(fake.release(&tag).draft, "the release is a draft");
-    assert_eq!(fake.release(&tag).name, "Dereth 0.2.0 for the web");
+    assert_eq!(fake.release(&tag).name, "Dereth 0.2.0 (Web)");
     assert_eq!(fake.asset_names(&tag), ["dereth-web-0.2.0.zip", "web.json"]);
     assert_eq!(
         fake.release(&tag).assets[0].label,

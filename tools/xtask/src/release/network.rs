@@ -80,8 +80,8 @@ impl Part {
     /// The name a person reads, as the release workflow titles the release.
     pub fn display_name(self) -> &'static str {
         match self {
-            Self::Hub => "Dereth Network hub",
-            Self::Ace => "Dereth Network ACE mod",
+            Self::Hub => "Dereth Network Hub",
+            Self::Ace => "Dereth.Network ACE",
         }
     }
 

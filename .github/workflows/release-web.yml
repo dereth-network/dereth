@@ -1,4 +1,4 @@
-name: Release the web client
+name: Release Dereth (Web)
 
 # Builds, checks and drafts a release of the web client, the Dereth client in a browser. A pushed
 # `dereth-web-v<version>` tag builds the bundle and creates a DRAFT GitHub release, which a
@@ -200,5 +200,5 @@ jobs:
           # Never the repository's "Latest" release: that stays the launcher's and the server's,
           # which people download by hand. Consumers of the web client list the releases instead.
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
-            --title "Dereth $VERSION for the web" --notes-file ../notes.md \
+            --title "Dereth $VERSION (Web)" --notes-file ../notes.md \
             "${assets[@]}"

@@ -328,8 +328,27 @@ fn public(f: &Fixture) -> Vec<(String, String)> {
         "/compat/treestats/player_counts-latest.json",
     ]
     .iter()
-    .map(|p| ((*p).to_owned(), call(f.addr(), "GET", p, &[], "").body))
+    .map(|p| {
+        (
+            (*p).to_owned(),
+            without_generated_at(&call(f.addr(), "GET", p, &[], "").body),
+        )
+    })
     .collect()
+}
+
+/// `body` with the time its snapshot was made blanked: the lists are answered from a snapshot at
+/// most a second old, so two reads seconds apart differ there and nowhere else.
+fn without_generated_at(body: &str) -> String {
+    const FIELD: &str = "\"generatedAt\":\"";
+    match body.find(FIELD) {
+        Some(at) => {
+            let start = at + FIELD.len();
+            let end = body[start..].find('"').map_or(body.len(), |n| start + n);
+            format!("{}{}", &body[..start], &body[end..])
+        }
+        None => body.to_owned(),
+    }
 }
 
 /// Spec: hub: no public route and no world's audit log says anything of persons.

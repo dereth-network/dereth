@@ -1,4 +1,4 @@
-name: Release the Dereth Network ACE mod
+name: Release Dereth.Network ACE
 
 # Builds, checks and drafts a release of Dereth.Network, the ACE mod that puts an ACE world on the
 # Dereth Network. A pushed `network-ace-v<version>` tag builds the mod against a pinned ACE release,
@@ -165,6 +165,6 @@ jobs:
           PRE=""
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
-            --title "Dereth Network ACE mod $VERSION" --notes-file ../notes.md \
+            --title "Dereth.Network ACE $VERSION" --notes-file ../notes.md \
             "Dereth.Network-$VERSION.zip#Dereth.Network for ACE (mod folder)" \
             "SHA256SUMS#Checksums (SHA-256)"

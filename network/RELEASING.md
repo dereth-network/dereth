@@ -36,8 +36,8 @@ cargo xtask release network-hub|network-ace <MAJOR.MINOR.PATCH[-pre]> [--push] [
    or `network-ace-v<version>`) exists neither here nor on the remote (default `origin`). For the
    mod, `dotnet` is on `PATH`, and `DERETH_ACE_DIR`, when it is set, names a folder holding
    `ACE.Server.dll` and `0Harmony.dll`. Every unmet check is named.
-2. Sets the version and commits exactly those files as `Dereth Network hub <version>` or
-   `Dereth Network ACE mod <version>`: for the hub, `version` in `network/hub/Cargo.toml` and its
+2. Sets the version and commits exactly those files as `Dereth Network Hub <version>` or
+   `Dereth.Network ACE <version>`: for the hub, `version` in `network/hub/Cargo.toml` and its
    entry in `Cargo.lock` (the protocol crate keeps its own version, which the workflow does not
    read); for the mod, `Version` in `Meta.json` and `<Version>` in `Dereth.Network.csproj`,
    together. When the tree already carries `<version>` there is nothing to commit.

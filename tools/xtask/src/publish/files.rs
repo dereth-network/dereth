@@ -61,7 +61,7 @@ impl Kind {
         match self {
             Self::Dereth => format!("Dereth {version}"),
             Self::Empyrean => format!("Empyrean {version}"),
-            Self::Web => format!("Dereth {version} for the web"),
+            Self::Web => format!("Dereth {version} (Web)"),
         }
     }
 }

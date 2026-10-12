@@ -122,7 +122,7 @@ The owner of the repository runs releases:
 
 1. Release the version for Dereth as usual (`cargo xtask release dereth <version>`), or pick a
    commit on `main` that carries a version not yet released for the web.
-2. Tag it `dereth-web-v<version>` and push the tag. The `Release the web client` workflow builds
+2. Tag it `dereth-web-v<version>` and push the tag. The `Release Dereth (Web)` workflow builds
    the bundle (`cargo xtask package web --tag <tag>`), checks it against its manifest, and drafts
    the release with Dereth's notes for the version.
 3. Review the draft and publish it. Hosts that follow the releases pick it up.
