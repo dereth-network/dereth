@@ -18,6 +18,7 @@ use dereth_launch::choices::{self, ClientOption};
 use dereth_launch::datset::{scan_dir, DatOrigin, DatSet, SetKind};
 use dereth_launch::eras::{self, EraInfo, FeatureInfo};
 use dereth_launch::folders::Folders;
+use dereth_launch::hubstatus::HubWatch;
 use dereth_launch::install::{ClientKind, Installation};
 use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
@@ -28,7 +29,7 @@ use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, Vault};
 #[cfg(test)]
 use dereth_launch::world::WorldState;
-use dereth_launch::world::{AccountModel, Emulator, StatusMethod, Told, World};
+use dereth_launch::world::{AccountModel, Emulator, StatusMethod, World};
 use dereth_launch::worlds;
 use serde::{Deserialize, Serialize};
 
@@ -289,9 +290,6 @@ pub struct NewServer {
     /// Unknown when not said.
     #[serde(default)]
     pub emulator: Emulator,
-    /// An era's name; `None` when not said.
-    #[serde(default)]
-    pub era: Option<String>,
 }
 
 /// What pressing PLAY came to.
@@ -333,6 +331,8 @@ pub struct Backend {
     list_cache: Option<ListCache>,
     live: HashMap<String, LiveStatus>,
     polled: HashMap<String, Instant>,
+    /// What the hub's list says of each world from its heartbeat, read again about once a minute.
+    hub: HubWatch,
     /// Whether each server answered the server-tracker login, for worlds with no status document.
     probed: HashMap<String, bool>,
     probing: HashSet<String>,
@@ -409,6 +409,10 @@ impl Backend {
             .as_ref()
             .and_then(|c| c.worlds().ok())
             .unwrap_or_default();
+        let mut hub = HubWatch::new(&list_sources);
+        if let Some(copy) = &list_cache {
+            hub.copy_shown(copy);
+        }
         Self {
             folders,
             list_sources,
@@ -420,6 +424,7 @@ impl Backend {
             list_cache,
             live: HashMap::new(),
             polled: HashMap::new(),
+            hub,
             probed: HashMap::new(),
             probing: HashSet::new(),
             running: Vec::new(),
@@ -460,7 +465,8 @@ impl Backend {
     fn with_live(&self, w: World) -> World {
         let probed = self.probed.get(&w.slug).copied();
         let live = self.live.get(&w.slug);
-        worlds::shown(w, probed, live, &self.state)
+        let hub = self.hub.current(&w.slug, now());
+        worlds::shown(w, probed, live, hub, &self.state)
     }
 
     /// Forget Play Again's entries for worlds the list read last no longer names. Only after a list
@@ -571,7 +577,8 @@ impl Backend {
 
     /// Fetch the list again on a thread, whatever the copy's age: the refresh button. Its sources
     /// are tried in order until one answers with a list; when none does, the last copy's worlds
-    /// stay on screen.
+    /// stay on screen. The hub's list, fetched, also brings each world's status as the hub has it
+    /// now.
     pub fn refresh(shared: &Shared) {
         Self::refresh_with(shared, http_get);
     }
@@ -595,6 +602,7 @@ impl Backend {
                     if let Err(e) = cache.save(&b.folders.data) {
                         eprintln!("dereth-launcher: the world list's copy was not saved: {e}");
                     }
+                    b.hub.list_read(&cache, now());
                     b.worlds = worlds;
                     b.list_cache = Some(cache);
                     b.list_state = ListState::Loaded;
@@ -674,9 +682,32 @@ impl Backend {
         }
     }
 
-    /// Once a second: ask for each Empyrean world's status when it is due (its status document,
-    /// or the status ping for a world that answered it), and watch the clients.
+    /// Read the hub's list for each world's status when a read is due at `at` (seconds since the
+    /// epoch; [`HubWatch::start`]): on a thread, each page fetched with `get`. Answers the thread,
+    /// when a read started.
+    fn read_hub_status_at<G>(
+        shared: &Shared,
+        at: u64,
+        mut get: G,
+    ) -> Option<std::thread::JoinHandle<()>>
+    where
+        G: FnMut(&str) -> Result<Vec<u8>, String> + Send + 'static,
+    {
+        let mut read = lock(shared).hub.start(at)?;
+        let shared = shared.clone();
+        Some(std::thread::spawn(move || {
+            while let Some(url) = read.next_url().map(str::to_owned) {
+                read.take(get(&url));
+            }
+            lock(&shared).hub.finish(read, at);
+        }))
+    }
+
+    /// Once a second: read the hub's list for each world's status when it is due, ask for each
+    /// Empyrean world's status when it is due (its status document, or the status ping for a world
+    /// that answered it), and watch the clients.
     pub fn tick(shared: &Shared) {
+        Self::read_hub_status_at(shared, now(), http_get);
         let pings: Vec<String> = {
             let b = lock(shared);
             b.all_worlds()
@@ -964,41 +995,6 @@ impl Backend {
         self.save();
     }
 
-    /// Choose the era of a world that does not say its own. `None`: not chosen.
-    pub fn set_world_era(&mut self, slug: &str, era: Option<&str>) -> Result<(), String> {
-        let w = self.world(slug).ok_or("That world is no longer listed.")?;
-        if w.era_source == Some(Told::World) {
-            return Err(format!("{} says its own era.", w.name));
-        }
-        self.state.set_world_era(slug, era);
-        self.save();
-        Ok(())
-    }
-
-    /// Turn one of a world's systems on or off, for a world that does not say its own. The choice
-    /// is made over the era the world plays, whoever named it.
-    pub fn set_world_feature(&mut self, slug: &str, name: &str, on: bool) -> Result<(), String> {
-        let w = self.world(slug).ok_or("That world is no longer listed.")?;
-        if w.features_source == Some(Told::World) {
-            return Err(format!("{} says which systems it has.", w.name));
-        }
-        if w.era_source == Some(Told::World)
-            && self
-                .state
-                .world_eras
-                .get(slug)
-                .and_then(|c| c.era.as_deref())
-                != w.era.as_deref()
-        {
-            self.state.set_world_era(slug, w.era.as_deref());
-        }
-        if !self.state.set_world_feature(slug, name, on) {
-            return Err(format!("{name} is not a system the client knows."));
-        }
-        self.save();
-        Ok(())
-    }
-
     /// Make a set the default of its kind, the one the Dereth client is offered first.
     pub fn set_default_set(&mut self, id: &str) -> Result<(), String> {
         if !self.state.set_default_set(id) {
@@ -1194,13 +1190,13 @@ impl Backend {
         self.save();
     }
 
-    /// Add a server by hand, with the rules, the emulator and the era the player says it has.
+    /// Add a server by hand, with the rules and the emulator the player says it has. Its era is
+    /// what it says when asked, else the end of retail.
     pub fn add_custom_world(&mut self, s: &NewServer) -> Result<String, String> {
         let slug = self
             .state
             .add_custom_world(&s.name, &s.host, &s.port, s.ruleset.as_deref(), s.emulator)
             .map_err(|e| e.to_string())?;
-        self.state.set_world_era(&slug, s.era.as_deref());
         self.save();
         Ok(slug)
     }
@@ -1277,10 +1273,11 @@ impl Backend {
 
 #[cfg(test)]
 mod tests {
+    //! Behaviour: none (the desktop launcher's backend: worlds, their status, the list, PLAY).
     use super::*;
     use dereth_launch::testing::write_dat_set;
     use dereth_launch::vault::MemoryVault;
-    use dereth_launch::world::{Emulator, Endpoint};
+    use dereth_launch::world::{Emulator, Endpoint, Told};
     use dereth_launch::Iterations;
 
     fn tmp(name: &str) -> PathBuf {
@@ -1444,7 +1441,6 @@ mod tests {
                 port: "9001".into(),
                 ruleset: Some("PvP".into()),
                 emulator: Emulator::ClassicAce,
-                era: Some("infiltration".into()),
             })
             .unwrap();
         assert!(b
@@ -1457,17 +1453,16 @@ mod tests {
         assert_eq!(v.world.emulator, Emulator::ClassicAce);
         // The form as the page sends it.
         let form: NewServer = serde_json::from_str(
-            r#"{"name":"","host":"h","port":"9000","ruleset":null,"emulator":"classic_ace","era":null}"#,
+            r#"{"name":"","host":"h","port":"9000","ruleset":null,"emulator":"classic_ace"}"#,
         )
         .unwrap();
         assert_eq!(form.emulator, Emulator::ClassicAce);
-        assert_eq!(v.world.era.as_deref(), Some("infiltration"));
-        assert_eq!(v.world.era_source, Some(Told::Player));
         assert_eq!(
-            v.requires,
-            SetKind::Classic,
-            "an era before Throne of Destiny"
+            (v.world.era.as_deref(), v.world.era_source),
+            (None, None),
+            "it says no era: the end of retail"
         );
+        assert_eq!(v.requires, SetKind::Modern);
         b.state.upsert_account(Account {
             world_slug: slug.clone(),
             username: "player".into(),
@@ -1576,48 +1571,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A world's era and systems are its own word, and a world that says none plays the end of
+    /// retail; the page is given nothing to choose them with.
     #[test]
-    fn the_players_era_fills_in_for_a_world_that_does_not_say_and_never_over_one_that_does() {
+    fn a_world_plays_the_era_it_says_and_any_other_the_end_of_retail() {
         let (mut b, dir) = backend("eras");
         let mut w = World::new("leafcull", "Leafcull");
+        w.emulator = Emulator::Ace;
         w.endpoint = b.worlds[0].endpoint.clone();
         b.worlds.push(w);
 
-        b.set_world_era("leafcull", Some("infiltration")).unwrap();
-        b.set_world_feature("leafcull", "aetheria", true).unwrap();
+        // Leafcull says nothing: the end of retail, from the later files.
         let w = b.world("leafcull").unwrap();
-        assert_eq!(w.era.as_deref(), Some("infiltration"));
-        assert_eq!(w.era_source, Some(Told::Player));
-        assert_eq!(w.era_features.as_deref(), Some("aetheria=true"));
-        assert_eq!(w.features_source, Some(Told::Player));
-        assert_eq!(b.world_view("leafcull").unwrap().requires, SetKind::Classic);
-        assert!(b.set_world_feature("leafcull", "nothing", true).is_err());
+        assert_eq!((w.era.as_deref(), w.era_source), (None, None));
+        assert_eq!(b.world_view("leafcull").unwrap().requires, SetKind::Modern);
 
-        // Eulmore's status says its era and systems: they stand, and the player cannot change them.
+        // Eulmore's status says its era and systems.
         b.live.insert(
             "eulmore".into(),
             dereth_launch::status::parse_world_document(
-                br#"{"world_open":true,"version":"0.1.2","era":"eor","features":{"trade":true}}"#,
+                br#"{"world_open":true,"version":"0.1.2","era":"infiltration","features":{"trade":false}}"#,
             )
             .unwrap(),
         );
         let w = b.world("eulmore").unwrap();
         assert_eq!(
-            (w.era.as_deref(), w.era_source),
-            (Some("eor"), Some(Told::World))
+            (w.era.as_deref(), w.era_source, w.features_source),
+            (Some("infiltration"), Some(Told::World), Some(Told::World))
         );
         assert_eq!(w.emulator_version.as_deref(), Some("0.1.2"));
-        assert!(b.set_world_era("eulmore", Some("infiltration")).is_err());
-        assert!(b.set_world_feature("eulmore", "trade", false).is_err());
+        assert_eq!(b.world_view("eulmore").unwrap().requires, SetKind::Classic);
 
-        // A world that says its era but not its systems: the player's systems are over its era.
+        // Saying its era but not its systems, it has that era's whole table.
         b.live.get_mut("eulmore").unwrap().era_features = None;
-        b.set_world_feature("eulmore", "trade", false).unwrap();
-        assert_eq!(b.state.world_eras["eulmore"].era.as_deref(), Some("eor"));
         let w = b.world("eulmore").unwrap();
+        assert_eq!((w.era_features.as_deref(), w.features_source), (None, None));
+        let json = serde_json::to_string(&b.snapshot()).unwrap();
+        assert!(!json.contains("world_eras"), "{json}");
+
+        // A world the launcher's table knows plays the table's era, until it says its own; an era
+        // it names alone has that era's whole table, not the systems the table gave another.
+        let mut seedsow = World::new("seedsow", "Seedsow");
+        seedsow.list_id = Some("394C58D0-885D-466B-B17F-D7E0B96FE3E2".into());
+        dereth_launch::known::apply(&mut seedsow);
+        seedsow.endpoint = b.worlds[0].endpoint.clone();
+        b.worlds.push(seedsow);
+        let w = b.world("seedsow").unwrap();
         assert_eq!(
-            (w.era_features.as_deref(), w.features_source),
-            (Some("trade=false"), Some(Told::Player))
+            (w.era.as_deref(), w.era_source),
+            (Some("infiltration"), Some(Told::World))
+        );
+        b.live.insert(
+            "seedsow".into(),
+            dereth_launch::status::parse_world_document(br#"{"world_open":true,"era":"eor"}"#)
+                .unwrap(),
+        );
+        let w = b.world("seedsow").unwrap();
+        assert_eq!(
+            (w.era.as_deref(), w.era_features.as_deref()),
+            (Some("eor"), None)
         );
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1653,7 +1665,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn the_dereth_client_is_given_the_classic_set_and_the_chosen_era() {
+    fn the_dereth_client_is_given_the_classic_set_and_the_era_the_world_says() {
         let (mut b, dir) = backend("classic-play");
         let classic = dir.join("feb2005");
         std::fs::create_dir_all(&classic).unwrap();
@@ -1662,8 +1674,17 @@ mod tests {
         let find = b.read_folder(&classic);
         let id = find.classic.as_ref().unwrap().id.clone();
         b.add_folder(find);
-        b.set_world_era("eulmore", Some("infiltration")).unwrap();
-        b.set_world_feature("eulmore", "aetheria", true).unwrap();
+        b.live.insert(
+            "eulmore".into(),
+            LiveStatus {
+                era: Some("infiltration".into()),
+                era_features: Some("aetheria=true".into()),
+                ..LiveStatus::default()
+            },
+        );
+        let systems = dereth_launch::launch::describe(&b.world("eulmore").unwrap())
+            .era_features
+            .expect("the systems it says");
         let out = b.launch(Choice {
             classic_set_id: Some(id.clone()),
             ..choice(Some("pw"))
@@ -1673,7 +1694,7 @@ mod tests {
         let args = std::fs::read_to_string(dir.join("client/args.txt")).unwrap();
         assert!(
             args.contains(&format!("--classic-dat-dir {}", classic.display()))
-                && args.contains("--era infiltration --era-features aetheria=true"),
+                && args.contains(&format!("--era infiltration --era-features {systems}")),
             "{args}"
         );
         assert_eq!(
@@ -1968,6 +1989,267 @@ mod tests {
             None,
         );
         assert!(none.snapshot().interface.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A row of the hub's list: the world `name` on this machine's discard port, its status
+    /// `state` (a heartbeat's, counting until `expires`, when `expires` is given).
+    fn hub_row(
+        name: &str,
+        state: &str,
+        players: Option<u32>,
+        expires: Option<&str>,
+    ) -> serde_json::Value {
+        let status = match expires {
+            Some(at) => serde_json::json!({"state": state, "playersOnline": players,
+                "source": "server-heartbeat", "expiresAt": at,
+                "playersKind": "connected-characters"}),
+            None => serde_json::json!({"state": state, "playersOnline": null}),
+        };
+        serde_json::json!({"slug": serverlist::slug_for(name), "name": name, "isDemo": false,
+            "emulator": {"family": "ACE"},
+            "endpoint": {"mode": "manual", "address": "127.0.0.1", "port": 9},
+            "status": status})
+    }
+
+    /// A page of the hub's list holding `rows`, the next starting at `next`.
+    fn hub_page_of(rows: &[serde_json::Value], next: Option<u64>) -> String {
+        serde_json::json!({"data": rows, "nextOffset": next, "total": rows.len()}).to_string()
+    }
+
+    /// The expiry of a heartbeat that counts for as long as any test runs, and of one long past.
+    const LATER: &str = "2999-01-01T00:00:00.000Z";
+    const LONG_AGO: &str = "2000-01-01T00:00:00.000Z";
+
+    /// A launcher whose day's copy of the list is `copy`, read from the usual sources, or from the
+    /// `Servers.xml` `named` alone.
+    fn launcher_with(name: &str, copy: &ListCache, named: Option<&str>) -> (Shared, PathBuf) {
+        let dir = tmp(name);
+        let folders = Folders::single(dir.join("state"));
+        copy.save(&folders.data).unwrap();
+        let b = Backend::new(
+            folders,
+            serverlist::sources(named),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            None,
+        );
+        (Arc::new(Mutex::new(b)), dir)
+    }
+
+    /// The state and players a world is shown with.
+    fn seen(shared: &Shared, slug: &str) -> (WorldState, Option<u32>) {
+        let w = lock(shared).world(slug).unwrap();
+        (w.state, w.players)
+    }
+
+    /// What was asked of a stand-in for the hub.
+    type Asked = Arc<Mutex<Vec<String>>>;
+
+    /// A stand-in for the hub that answers the addresses asked with `answers`, in order, and
+    /// records them.
+    fn stand_in(
+        answers: Vec<Result<String, &'static str>>,
+    ) -> (
+        Asked,
+        impl FnMut(&str) -> Result<Vec<u8>, String> + Send + 'static,
+    ) {
+        let asked: Asked = Arc::new(Mutex::new(Vec::new()));
+        let ask = asked.clone();
+        let get = move |url: &str| {
+            let mut asked = ask.lock().unwrap();
+            asked.push(url.to_owned());
+            answers
+                .get(asked.len() - 1)
+                .cloned()
+                .unwrap_or(Err("no answer"))
+                .map(String::into_bytes)
+                .map_err(|e| format!("{url}: {e}"))
+        };
+        (asked, get)
+    }
+
+    /// The day's copy holds the hub's list as it was: none of its status is shown. The hub's list,
+    /// read again a page at a time about once a minute, gives each world's state and players, an
+    /// ACE world's included; a read that fails changes nothing, and a heartbeat past its expiry
+    /// leaves the world to its probe.
+    #[test]
+    fn the_hubs_list_read_once_a_minute_shows_an_ace_worlds_state_and_players() {
+        use serverlist::HUB_LIST_URL;
+        let copy = ListCache {
+            fetched_at: now(),
+            list: String::new(),
+            hub: vec![hub_page_of(
+                &[
+                    hub_row("Coldeve", "online", Some(99), Some(LATER)),
+                    hub_row("Frostfell", "online", Some(5), Some(LATER)),
+                ],
+                None,
+            )],
+        };
+        let (shared, dir) = launcher_with("hub-status", &copy, None);
+        assert_eq!(
+            seen(&shared, "coldeve"),
+            (WorldState::Unknown, None),
+            "nothing from the copy, however fresh"
+        );
+        // Neither answered the server-tracker login: down, until the hub says otherwise.
+        lock(&shared).probed.insert("coldeve".into(), false);
+        lock(&shared).probed.insert("frostfell".into(), false);
+        assert_eq!(seen(&shared, "coldeve"), (WorldState::Offline, None));
+
+        let t0 = now();
+        let (asked, get) = stand_in(vec![
+            Ok(hub_page_of(
+                &[hub_row("Coldeve", "online", Some(12), Some(LATER))],
+                Some(100),
+            )),
+            Ok(hub_page_of(
+                &[hub_row("Frostfell", "maintenance", Some(0), Some(LATER))],
+                None,
+            )),
+        ]);
+        Backend::read_hub_status_at(&shared, t0, get)
+            .expect("a read is due at once")
+            .join()
+            .unwrap();
+        assert_eq!(
+            *asked.lock().unwrap(),
+            [
+                format!("{HUB_LIST_URL}?limit=100&offset=0"),
+                format!("{HUB_LIST_URL}?limit=100&offset=100")
+            ],
+            "one list, a page at a time"
+        );
+        assert_eq!(seen(&shared, "coldeve"), (WorldState::Online, Some(12)));
+        assert_eq!(seen(&shared, "frostfell"), (WorldState::Starting, Some(0)));
+        // The world's own answer (Empyrean's status ping) goes before the hub's word.
+        lock(&shared).live.insert(
+            "frostfell".into(),
+            LiveStatus {
+                state: WorldState::Online,
+                players: Some(3),
+                ..LiveStatus::default()
+            },
+        );
+        assert_eq!(seen(&shared, "frostfell"), (WorldState::Online, Some(3)));
+        lock(&shared).live.remove("frostfell");
+        let json = serde_json::to_string(&lock(&shared).snapshot()).unwrap();
+        assert!(json.contains("\"players\":12"), "{json}");
+
+        let (asked, get) = stand_in(Vec::new());
+        assert!(
+            Backend::read_hub_status_at(&shared, t0 + 59, get).is_none(),
+            "not within the minute"
+        );
+        assert!(asked.lock().unwrap().is_empty());
+
+        let (asked, get) = stand_in(vec![Err("connection refused")]);
+        Backend::read_hub_status_at(&shared, t0 + 60, get)
+            .expect("due a minute later")
+            .join()
+            .unwrap();
+        assert_eq!(asked.lock().unwrap().len(), 1, "the hub alone is asked");
+        assert_eq!(
+            seen(&shared, "coldeve"),
+            (WorldState::Online, Some(12)),
+            "a failed read changes nothing"
+        );
+
+        let (_, get) = stand_in(vec![Ok(hub_page_of(
+            &[
+                hub_row("Coldeve", "online", Some(12), Some(LONG_AGO)),
+                hub_row("Frostfell", "unknown", None, None),
+            ],
+            None,
+        ))]);
+        lock(&shared).probed.insert("frostfell".into(), true);
+        Backend::read_hub_status_at(&shared, t0 + 120, get)
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(
+            seen(&shared, "coldeve"),
+            (WorldState::Offline, None),
+            "an expired heartbeat leaves the world to its probe"
+        );
+        assert_eq!(seen(&shared, "frostfell"), (WorldState::Online, None));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The refresh button's list, when it is the hub's, brings each world's status at once. The
+    /// community's list read in its place brings none, nor does a list the player names, and no
+    /// status is read while either is shown.
+    #[test]
+    fn the_refresh_buttons_hub_list_brings_the_status_and_no_other_list_does() {
+        let xml = "<ArrayOfServerItem><ServerItem><name>Coldeve</name>\
+                   <server_host>127.0.0.1</server_host><server_port>9</server_port>\
+                   </ServerItem></ArrayOfServerItem>";
+        let community = ListCache {
+            fetched_at: now(),
+            list: xml.into(),
+            hub: Vec::new(),
+        };
+        let (shared, dir) = launcher_with("hub-refresh", &community, None);
+        let (_, get) = stand_in(Vec::new());
+        assert!(
+            Backend::read_hub_status_at(&shared, now(), get).is_none(),
+            "the community's list is on screen"
+        );
+
+        let hub = hub_page_of(&[hub_row("Coldeve", "online", Some(31), Some(LATER))], None);
+        Backend::refresh_with(&shared, move |url| {
+            assert!(url.starts_with(serverlist::HUB_LIST_URL), "{url}");
+            Ok(hub.clone().into_bytes())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(seen(&shared, "coldeve"), (WorldState::Online, Some(31)));
+        let (_, get) = stand_in(Vec::new());
+        assert!(
+            Backend::read_hub_status_at(&shared, now() + 30, get).is_none(),
+            "the list just fetched counts as a read"
+        );
+
+        Backend::refresh_with(&shared, move |url| {
+            if url.starts_with(serverlist::HUB_LIST_URL) {
+                Err("http status: 502".into())
+            } else {
+                Ok(xml.as_bytes().to_vec())
+            }
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            seen(&shared, "coldeve").1,
+            None,
+            "the community's list says nothing of players"
+        );
+        let (_, get) = stand_in(Vec::new());
+        assert!(Backend::read_hub_status_at(&shared, now() + 600, get).is_none());
+        let _ = std::fs::remove_dir_all(dir);
+
+        let hub_copy = ListCache {
+            fetched_at: now(),
+            list: String::new(),
+            hub: vec![hub_page_of(
+                &[hub_row("Coldeve", "online", Some(31), Some(LATER))],
+                None,
+            )],
+        };
+        let (shared, dir) = launcher_with(
+            "hub-named",
+            &hub_copy,
+            Some("https://lists.example/Servers.xml"),
+        );
+        let (asked, get) = stand_in(Vec::new());
+        assert!(Backend::read_hub_status_at(&shared, now(), get).is_none());
+        assert!(
+            asked.lock().unwrap().is_empty(),
+            "a named list is read alone, and says nothing of status"
+        );
+        assert_eq!(seen(&shared, "coldeve"), (WorldState::Unknown, None));
         let _ = std::fs::remove_dir_all(dir);
     }
 

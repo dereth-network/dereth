@@ -23,7 +23,7 @@
   const NAMES = ["ratings", "consolidated_weapon_skills", "item_spell_auras", "assessed_armor_and_ratings", "swear_to_lower_level", "pre_order_items_and_rares", "dual_wield", "weapon_masteries", "innate_augmentations", "aetheria", "luminance", "contracts", "titles", "cloaks", "trinkets", "journal", "trade", "housing", "apartments", "tinkering", "cantrips", "spell_research", "chess", "swear_xp_cost"];
   const table = (on) => Object.fromEntries(NAMES.map((n) => [n, on(n)]));
   const eras = [
-    { name: "eor", label: "End of retail", needs: "modern", features: table((n) => n !== "spell_research" && n !== "swear_xp_cost") },
+    { name: "eor", label: "End of Retail", needs: "modern", features: table((n) => n !== "spell_research" && n !== "swear_xp_cost") },
     { name: "infiltration", label: "Infiltration (February 2005)", needs: "classic", features: table((n) => ["trade", "housing", "apartments", "tinkering", "cantrips", "chess", "swear_xp_cost"].includes(n)) },
   ];
   const features = NAMES.map((name) => {
@@ -103,7 +103,6 @@
     ],
     settings: { allow_play_anyway: false, auto_update: true },
     custom_worlds: [{ slug: "custom-1", name: "My test server", host: "127.0.0.1", port: 9000, ruleset: "PvE" }],
-    world_eras: { leafcull: { era: "eor", features: { trade: false } } },
   };
   const vault = new Set(["eulmore/player", "achard/player2"]);
   // The interface the Dereth client starts in; `#interface` shows the first start, with none saved.
@@ -123,23 +122,11 @@
   const needsPrivate = (w) => !!w.dats.patches_over_wire || !!w.dats.custom;
   const setsFor = (w) => state.dat_sets.filter((s) => s.kind !== "classic").filter((s) => (s.origin.kind === "world" ? s.origin.slug === w.slug : s.origin.kind === "custom" ? !!w.dats.custom : !needsPrivate(w)));
 
-  // What the world does not say, the player may have chosen; as the backend lays it over.
-  const withChoice = (w) => {
-    const c = state.world_eras[w.slug];
-    if (!c) return w;
-    const out = { ...w };
-    if (!out.era && c.era) { out.era = c.era; out.era_source = "player"; }
-    const text = Object.entries(c.features ?? {}).map(([k, v]) => `${k}=${v}`).join(",");
-    if (!out.era_features && text) { out.era_features = text; out.features_source = "player"; }
-    return out;
-  };
   const allWorlds = () => [...worlds, ...state.custom_worlds.map((c) => ({
     ...world(c.slug, c.name, c.emulator ?? "unknown", "unknown", null, c.ruleset ?? null),
     endpoint: { address: c.host, port: c.port, transport: null },
     description: `Added by you: ${c.host}:${c.port}`, development_status: null,
-  }))].map(withChoice);
-  const choice = (slug) => (state.world_eras[slug] ??= { era: null, features: {} });
-  const tidy = (slug) => { const c = state.world_eras[slug]; if (c && !c.era && !Object.keys(c.features ?? {}).length) delete state.world_eras[slug]; };
+  }))];
 
   const handlers = {
     snapshot: () => ({
@@ -150,17 +137,6 @@
       interface: { chosen: chosenInterface, offers: interfaceOffers, file: "C:\\Users\\you\\AppData\\Roaming\\Dereth\\client\\UserPreferences.ini" },
     }),
     refresh: () => {},
-    set_world_era: ({ slug, era }) => {
-      const c = choice(slug);
-      if ((era ?? null) !== (c.era ?? null)) { c.era = era ?? null; c.features = {}; }
-      tidy(slug);
-    },
-    set_world_feature: ({ slug, name, on }) => {
-      const c = choice(slug);
-      const base = eras.find((e) => e.name === (c.era || "eor")).features;
-      if (base[name] === on) delete c.features[name]; else c.features[name] = on;
-      tidy(slug);
-    },
     world_view: ({ slug }) => {
       const w = allWorlds().find((x) => x.slug === slug);
       if (!w) throw "That world is no longer listed.";
@@ -222,13 +198,12 @@
     set_remember: ({ slug, username, remember }) => { const a = state.accounts.find((x) => x.world_slug === slug && x.username === username); if (a) a.remember = remember; if (!remember) vault.delete(`${slug}/${username}`); },
     forget_all_passwords: () => { vault.clear(); state.accounts.forEach((a) => (a.remember = false)); },
     forget_all_accounts: () => { vault.clear(); state.accounts = []; state.favourites = []; state.recent = []; },
-    add_custom_world: ({ server: { name, host, port, ruleset, era, emulator } }) => {
+    add_custom_world: ({ server: { name, host, port, ruleset, emulator } }) => {
       if (!host.trim()) throw "Enter the server's host name or address.";
       const p = Number(port);
       if (!(p >= 1 && p <= 65535)) throw "The port must be a number from 1 to 65535.";
       const slug = `custom-${state.custom_worlds.length + 1}`;
       state.custom_worlds.push({ slug, name: name.trim() || host.trim(), host: host.trim(), port: p, ruleset: ruleset ?? null, emulator: emulator ?? "unknown" });
-      if (era) state.world_eras[slug] = { era, features: {} };
       return slug;
     },
     probe_world: () => {},

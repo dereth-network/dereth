@@ -47,8 +47,8 @@ picks. Every world needs a Modern set. An era before Throne of Destiny needs a C
 which its world is drawn from, with the Modern set beside it for the interface; for any other era,
 or when the era is not known, the Classic set is optional (beside the Modern one it gives the
 classic interface and looks). The Modern set is `--dat-dir`, the Classic set `--classic-dat-dir`, and the world's era and systems `--era` and `--era-features` (the systems as
-the shared bitfield, `<table version>:<hex>`: the era's table with what the world or the player
-turned on or off over it). A world that patches data files over the network, or ships its own, gets a private copy, and only the
+the shared bitfield, `<table version>:<hex>`: the era's table with what the world turned on or
+off over it; neither switch for a world that names no era, which plays the end of retail). A world that patches data files over the network, or ships its own, gets a private copy, and only the
 Dereth client can use one.
 
 Both clients receive the account and password on their command line (`-a <account> -v <password>`).
@@ -60,12 +60,11 @@ Worlds shows three sections, each opened and closed by its header: **Custom** (t
 player added, each with a bin to remove it), **Online** (listed worlds that are up, or not yet
 asked) and **Offline** (closed at first). A search shows every match, closed section or not. Each
 row names the world, its emulator and version (`ACE`, `Empyrean | v0.1.2`; the version only
-when the world says it), its era (a drop-down, `Unknown` first, when the world does not say it),
-its rules and its players (`unknown` when nobody says). Clicking a row opens it, one at a time:
-its description, website and Discord, how settled it says it is, and the era's systems as check
-boxes, which the player may change when the world does not say them. Its PLAY opens the world's
-page, whose `<` comes back. A server added by hand is given its name, host, port, emulator, rules
-and era.
+when the world says it), its era (the one the world names, else `End of Retail`), its rules and
+its players (`unknown` when nobody says). Clicking a row opens it, one at a time: its description,
+website and Discord, how settled it says it is, and, for a world that names its era or systems,
+those systems. Its PLAY opens the world's page, whose `<` comes back. A server added by hand is
+given its name, host, port, emulator and rules; its era is what it says when asked.
 
 ## The interface
 
@@ -94,10 +93,10 @@ interface chosen here kept in them.
 | data: private copies of data files, the web view's cache | `%LOCALAPPDATA%\Dereth\launcher` on Windows, the settings folder on macOS, `$XDG_DATA_HOME/dereth/launcher` (`~/.local/share`) on Linux |
 | both, in one folder of your choosing | `DERETH_STATE_DIR` |
 | passwords | Windows Credential Manager, the macOS login Keychain, or the Linux desktop's keyring (the Secret Service: GNOME Keyring, KWallet): one entry per account per world, named `dereth:world/<slug>/<account>` |
-| the world list | the Dereth Network hub's list (`https://hub.dereth.network/v1/servers`, a hundred worlds a page), which imports the community's list, `Servers.xml` in [acresources/serverslist](https://github.com/acresources/serverslist), daily and adds the worlds registered at the hub (a world with no address yet is not shown, and a demonstration world is shown with the status `Test`); the community's own `Servers.xml` when the hub does not answer with its list; or the `Servers.xml` that `DERETH_SERVERS_LIST` names, read alone. A world is kept under its name, whichever list it came from. Fetched at most once a day (the refresh button fetches it again) and kept in the data folder as `world-list.json`; and the servers the player added, which are kept in the state |
-| a world's era and systems | its Empyrean status document or status ping when it says them; otherwise the player's choice on the world's row, kept per world in the state |
+| the world list | the Dereth Network hub's list (`https://hub.dereth.network/v1/servers`, a hundred worlds a page), which imports the community's list, `Servers.xml` in [acresources/serverslist](https://github.com/acresources/serverslist), daily and adds the worlds registered at the hub (a world with no address yet is not shown, and a demonstration world is shown with the status `Test`); the community's own `Servers.xml` when the hub does not answer with its list; or the `Servers.xml` that `DERETH_SERVERS_LIST` names, read alone. A world is kept under its name, whichever list it came from. Fetched at most once a day (the refresh button fetches it again) and kept in the data folder as `world-list.json`; and the servers the player added, which are kept in the state. While the list shown is the hub's, the launcher also reads it again about once a minute for each world's status (below), kept in memory only, never from the day's copy |
+| a world's era and systems | its Empyrean status document or status ping when it says them; else the launcher's table of worlds that run a client of their own; else the end of retail, with its systems. The player chooses neither; eras chosen in earlier versions are passed over |
 | the interface the Dereth client starts in | the client's own preferences file, `UserPreferences.ini` (above, "The interface") |
-| whether a world is up | its Empyrean status document when it has one; else, for a world that may run Empyrean, the status ping on its game port (`docs/networking/06-status-ping.md`), which also says how many are on, its era and systems, the server's version and its name, asked again every minute once answered; otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on |
+| whether a world is up | its Empyrean status document when it has one; else, for a world that may run Empyrean, the status ping on its game port (`docs/networking/06-status-ping.md`), which also says how many are on, its era and systems, the server's version and its name, asked again every minute once answered; else, while the world list shown is the hub's, what the hub's list says of the world (matched by its name) from the world's own heartbeat to the hub, which every world linked to the Dereth Network sends, ACE worlds with the network's mod among them: up, starting (the hub's `maintenance`) or down, and how many are on, read about once a minute and with each fetch of the list, and taken only until the heartbeat expires; a read that fails changes nothing. Otherwise the server-tracker login (`acservertracker:jj9h26hcsggc`, no password), which ACE, GDLE and Empyrean all answer, sent when the list loads or is refreshed and when a world's page opens. It says up or down, never how many are on. A list `DERETH_SERVERS_LIST` names, and the community's own list read when the hub does not answer, bring no status: those worlds are asked themselves |
 
 Nothing is kept beside the launcher, and the launcher writes nothing outside its own `launcher`
 folders but the interface in the client's preferences: the rest of `Dereth` (`dereth` on Linux) is

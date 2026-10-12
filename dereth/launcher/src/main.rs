@@ -91,18 +91,6 @@ fn refresh(b: State<'_, Shared>) {
     Backend::refresh(&b);
 }
 
-/// Choose the era of a world that does not say its own; `None` unchooses it.
-#[tauri::command]
-fn set_world_era(b: State<'_, Shared>, slug: String, era: Option<String>) -> Cmd<()> {
-    lock(&b).set_world_era(&slug, era.as_deref())
-}
-
-/// Turn one of a world's systems on or off, for a world that does not say its own.
-#[tauri::command]
-fn set_world_feature(b: State<'_, Shared>, slug: String, name: String, on: bool) -> Cmd<()> {
-    lock(&b).set_world_feature(&slug, &name, on)
-}
-
 #[tauri::command]
 fn world_view(b: State<'_, Shared>, slug: String) -> Cmd<WorldView> {
     lock(&b).world_view(&slug)
@@ -434,8 +422,6 @@ fn main() {
             snapshot,
             restart_to_update,
             refresh,
-            set_world_era,
-            set_world_feature,
             world_view,
             has_password,
             launch,
@@ -521,7 +507,7 @@ mod tests {
             }
         }
         assert!(
-            called.contains("set_world_era") && called.contains("snapshot"),
+            called.contains("add_custom_world") && called.contains("snapshot"),
             "{called:?}"
         );
         for cmd in called {

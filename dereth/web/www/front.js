@@ -9,8 +9,12 @@
 // it, and keeps what the launcher keeps (its state record, the day's copy of the list) in the
 // browser's local storage.
 //
-// A browser cannot ask a server over UDP whether it is up, so a world with no status document is
-// shown with its state unknown. An Empyrean world added by its status address is asked over HTTP.
+// While the page shows its worlds, the launcher reads the hub's list again about once a minute
+// for whether each world is up and how many are on, from each world's heartbeat to the hub; it
+// says when a read is due and which pages to fetch, and a read that fails changes nothing. A
+// browser cannot ask a server over UDP whether it is up, so a world with no status document, of
+// which the hub has no word, is shown with its state unknown. An Empyrean world added by its
+// status address is asked over HTTP.
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -49,11 +53,13 @@ export function startFront({ call, launch, params, log }) {
   const ui = {
     worlds: [], eras: [], features: [], page: null, slug: load(CHOSEN_KEY, null),
     search: '', kept: [], overlays: [], blocklist: [], picked: null, adding: null, direct: {},
-    connect: load(CONNECT_KEY, {}),
+    connect: load(CONNECT_KEY, {}), playing: false,
   };
   const save = async () => keep(STATE_KEY, await call('state'));
   const state = async () => JSON.parse(await call('state'));
   const eraLabel = (name) => ui.eras.find((e) => e.name === name)?.label ?? name;
+  // The era a world plays, in words: the one it names, else the end of retail.
+  const eraText = (w) => eraLabel(w.era || 'eor');
 
   // ---- the world list -----------------------------------------------------------------------
 
@@ -94,6 +100,44 @@ export function startFront({ call, launch, params, log }) {
         return `The world list did not answer (${why}); showing the copy from ${new Date(cached.fetched_at * 1000).toLocaleString()}.`;
       }
       return `The world list did not answer (${why}). Add a server by its address.`;
+    }
+  }
+
+  // The hub's word on each world: the launcher in the worker says when a read of the hub's list is
+  // due (about a minute after the last, while the worlds shown are the hub's and the page names no
+  // list of its own) and names each page to fetch. Asked every few seconds while the page shows
+  // its worlds; never while the client plays or the page is out of sight.
+  let readingHub = false;
+  async function readHub() {
+    if (readingHub || ui.playing || document.hidden) return;
+    readingHub = true;
+    try {
+      let url = await call('hubStart', params.get('list'), Math.floor(Date.now() / 1000));
+      if (!url) return;
+      while (url) {
+        let body = null;
+        let error = null;
+        try {
+          const res = await fetch(url, { cache: 'no-store' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          body = await res.text();
+        } catch (e) {
+          error = String(e?.message ?? e);
+        }
+        url = await call('hubNext', body, error);
+      }
+      const answered = await call('hubDone', Math.floor(Date.now() / 1000));
+      if (!answered) log('the hub\'s status did not answer');
+      // Drawn again whether or not the read answered: a heartbeat past its expiry no longer counts.
+      await refresh();
+      // The world open on the page: its state and players, and nothing the player is typing.
+      const page = ui.slug ? await call('world', ui.slug) : null;
+      if (page && ui.page?.world.slug === page.world.slug) {
+        ui.page = { ...ui.page, world: page.world };
+        renderFacts(page);
+      }
+    } finally {
+      readingHub = false;
     }
   }
 
@@ -142,7 +186,7 @@ export function startFront({ call, launch, params, log }) {
     const row = (w) => `<tr class="world ${w.slug === ui.slug ? 'chosen' : ''}" data-slug="${esc(w.slug)}">
         <td><span class="bead ${esc(w.state)}" title="${esc(STATES[w.state] ?? w.state)}"></span></td>
         <td class="name">${esc(w.name)}</td><td>${esc(EMULATORS[w.emulator] ?? w.emulator)}</td>
-        <td>${esc(w.era ? eraLabel(w.era) : 'unknown')}</td>
+        <td>${esc(eraText(w))}</td>
         <td>${direct(w) ? 'directly' : `<a href="${RELAY_README}" target="_blank" rel="noopener noreferrer">needs a local relay</a>`}</td></tr>`;
     const section = (label, these) => (these.length ? `<tr class="section"><td colspan="5">${label} · ${these.length}</td></tr>${these.map(row).join('')}` : '');
     $('worlds').tBodies[0].innerHTML = rows.length
@@ -232,6 +276,20 @@ export function startFront({ call, launch, params, log }) {
     return RELAY;
   }
 
+  // A world's facts: its state, software, rules, players and address.
+  function renderFacts(page) {
+    const w = page.world;
+    const facts = [
+      ['STATE', STATES[w.state] ?? w.state], ['EMULATOR', EMULATORS[w.emulator] ?? w.emulator],
+      ['STATUS', w.development_status ?? 'unknown'], ['RULES', w.ruleset ?? 'unknown'],
+      ['PLAYERS', w.state === 'offline' ? 'down' : w.players ?? 'unknown'],
+      ['ADDRESS', page.address ?? 'none'],
+    ];
+    if (w.logon_version) facts.push(['LOGON', w.logon_version]);
+    if (w.world_profile) facts.push(['RULES OF ITS CLIENT', w.world_profile]);
+    $('w-facts').innerHTML = facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join('');
+  }
+
   async function renderWorld() {
     const page = ui.slug ? await call('world', ui.slug) : null;
     ui.page = page;
@@ -242,29 +300,10 @@ export function startFront({ call, launch, params, log }) {
     $('w-name').textContent = w.name;
     $('w-remove').classList.toggle('hidden', !ui.worlds.find((x) => x.slug === w.slug)?.added);
     $('w-desc').textContent = w.description ?? '';
-    const facts = [
-      ['STATE', STATES[w.state] ?? w.state], ['EMULATOR', EMULATORS[w.emulator] ?? w.emulator],
-      ['STATUS', w.development_status ?? 'unknown'], ['RULES', w.ruleset ?? 'unknown'],
-      ['PLAYERS', w.state === 'offline' ? 'down' : w.players ?? 'unknown'],
-      ['ADDRESS', page.address ?? 'none'],
-    ];
-    if (w.logon_version) facts.push(['LOGON', w.logon_version]);
-    if (w.world_profile) facts.push(['RULES OF ITS CLIENT', w.world_profile]);
-    $('w-facts').innerHTML = facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join('');
+    renderFacts(page);
 
-    // The era and systems: the world's word when it says them, else the player's choice.
-    if (w.era_source === 'world') {
-      $('w-era').innerHTML = `<span id="w-era-select">${esc(eraLabel(w.era))}</span>`;
-    } else {
-      $('w-era').innerHTML = `<select id="w-era-select"><option value="">Unknown (the client reads it from the data files)</option>${
-        ui.eras.map((e) => `<option value="${esc(e.name)}" ${w.era === e.name ? 'selected' : ''}>${esc(e.label)}</option>`).join('')}</select>`;
-      $('w-era-select').addEventListener('change', async (ev) => {
-        await call('setEra', w.slug, ev.target.value);
-        await save();
-        await refresh();
-        await renderWorld();
-      });
-    }
+    // The era: the one the world names, else the end of retail.
+    $('w-era').textContent = eraText(w);
     // The data sets: those this world takes, then how to get the ones it wants.
     const prefs = page.prefs ?? {};
     const st = await state();
@@ -279,7 +318,7 @@ export function startFront({ call, launch, params, log }) {
     const classicChosen = prefs.classic_set_id ?? page.classic_sets[0]?.id ?? '';
     $('w-classic').innerHTML = '<option value="">None</option>' + page.classic_sets.map((s) => option(s, classicChosen)).join('');
     const notes = [];
-    if (page.launch.set === 'classic') notes.push(`${eraLabel(w.era)} is before Throne of Destiny: its world is drawn from the older files, portal.dat and cell.dat, with the later files beside them for the interface.`);
+    if (page.launch.set === 'classic') notes.push(`${eraText(w)} is before Throne of Destiny: its world is drawn from the older files, portal.dat and cell.dat, with the later files beside them for the interface.`);
     if (w.dats?.custom) {
       notes.push(page.dat_sets.length
         ? `${w.name} plays with its own data files: the sets here are those that report what its files report (${iterLabel(Object.entries(w.dats.custom.iterations).map(([role, iterations]) => ({ role, iterations })))}).`
@@ -500,6 +539,7 @@ export function startFront({ call, launch, params, log }) {
     });
     await save();
     await persist();
+    ui.playing = true;
     launch({
       dats,
       server,
@@ -527,24 +567,22 @@ export function startFront({ call, launch, params, log }) {
       } catch (e) {
         $('list-note').textContent = `?server=${linked}: ${e?.message ?? e}`;
       }
-      const era = params.get('era');
-      if (era && ui.slug) await call('setEra', ui.slug, era);
-      for (const part of (params.get('features') || '').split(',')) {
-        const [k, v] = part.split('=');
-        if (k && v !== undefined && ui.slug) await call('setFeature', ui.slug, k.trim(), v.trim() === 'true');
-      }
       await save();
     }
     for (const slug of Object.keys(ui.connect)) if (!slug.includes('#')) await askStatus(slug);
     await refresh();
     await renderKept();
     if (ui.slug) await choose(ui.slug);
+    const hub = () => readHub().catch((e) => log(`the hub's status: ${e?.message ?? e}`));
+    hub();
+    setInterval(hub, 5000);
   }
 
   return {
     begin,
     // The client ended: the front page again, as it was, with what is kept read again.
     async back() {
+      ui.playing = false;
       await renderKept().catch(() => {});
       await renderWorld().catch(() => {});
     },

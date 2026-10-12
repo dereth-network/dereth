@@ -24,7 +24,7 @@ const ui = {
   filter: null,            // the Worlds list's one rules filter: null | "pve" | "pvp"
   expanded: null,          // the Worlds list's one open row: a world's slug, or null
   folded: { custom: false, online: false, offline: true },   // the Worlds list's closed sections
-  addServer: null,         // the Worlds list's "add a server" form, while it is open: { name, host, port, ruleset, era, error }
+  addServer: null,         // the Worlds list's "add a server" form, while it is open: { name, host, port, emulator, ruleset, error }
   world: null,             // the world page: { view, form, notice }
   firstRun: { step: "ask", find: null, dismissed: false },
   // The interface question: the interface picked so far (null: the one already saved, else the
@@ -83,10 +83,14 @@ function setName(s) {
     : isEndOfRetail(it) ? "Modern" : "Modern (older)";
   return `${what}  ${iterLabel(it)}`;
 }
-// The era a world plays, in words; `null` when nobody has said.
+// An era, in words; `null` for none.
 function eraLabel(name) {
   if (!name) return null;
   return ui.snap?.eras.find((e) => e.name === name)?.label ?? name;
+}
+// The era a world plays, in words: the one it names, else the end of retail.
+function eraText(w) {
+  return eraLabel(w.era || "eor");
 }
 // The server software and, when the world says it, its version: "ACE | v1.77.4778".
 function emulatorLabel(w) {
@@ -95,7 +99,7 @@ function emulatorLabel(w) {
   return v ? `${name} | v${v}` : name;
 }
 // The systems a world has: its era's table (the end of retail's when no era is named), with what
-// the world or the player turned on or off over it, as the client reads them.
+// the world turned on or off over it, as the client reads them.
 function worldFeatures(w) {
   const era = ui.snap.eras.find((e) => e.name === (w.era || "eor")) ?? ui.snap.eras[0];
   const f = { ...(era?.features ?? {}) };
@@ -327,7 +331,7 @@ function home() {
   } else {
     list = `<div class="list">` + entries.map((e, i) => {
       const w = worldBy(e.world_slug);
-      const era = eraLabel(w?.era) ?? "era unknown";
+      const era = w ? eraText(w) : "era unknown";
       const end = !w ? "not listed" : w.state === "offline" ? "offline" : w.players != null ? `${w.players} online` : "players unknown";
       const pin = e.fav
         ? `<span class="star" title="Favourite">★</span><button class="btn icon-btn mini" data-unfav="${esc(e.fav.id)}" title="Remove from favourites">✕</button>`
@@ -393,16 +397,6 @@ const CHEVRON_LEFT = `<svg viewBox="0 0 8 12" fill="currentColor" aria-hidden="t
 // A bin, for taking a server of your own off the list.
 const TRASH_ICON = `<svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true"><rect x="4" y="0" width="4" height="1"/><rect x="1" y="2" width="10" height="1"/><rect x="2" y="4" width="1" height="8"/><rect x="9" y="4" width="1" height="8"/><rect x="2" y="11" width="8" height="1"/><rect x="5" y="5" width="1" height="5"/><rect x="7" y="5" width="1" height="5"/></svg>`;
 
-// The era drop-down: "Unknown", then every era. `id` is what the change handler reads.
-function eraSelect(w, id, extraClass = "") {
-  const opts = [`<option value="" ${w.era ? "" : "selected"}>Unknown</option>`]
-    .concat(ui.snap.eras.map((e) => `<option value="${esc(e.name)}" ${w.era === e.name ? "selected" : ""}>${esc(e.label)}</option>`));
-  return `<select class="field ${extraClass}" id="${esc(id)}" data-era-for="${esc(w.slug)}" title="The era this world plays">${opts.join("")}</select>`;
-}
-// A world's era: in words when the world says it, else the drop-down the player chooses it with.
-function eraCell(w) {
-  return w.era_source === "world" ? esc(eraLabel(w.era)) : eraSelect(w, `era-${w.slug}`, "mini");
-}
 function playersLabel(w) {
   return w.state === "offline" ? "offline" : w.players != null ? `${w.players}` : "unknown";
 }
@@ -410,12 +404,16 @@ function playersLabel(w) {
 // An open row: what the world says about itself, its era and systems, and the way to its page.
 function worldDetail(w) {
   const links = [["Website", w.links.website], ["Discord", w.links.discord], ["Rules", w.links.rules]].filter(([, u]) => u);
-  const fixed = w.features_source === "world";
+  // The systems, shown for a world that names its era or systems; nothing here is chosen.
+  const named = w.era_source === "world" || w.features_source === "world";
   const on = worldFeatures(w);
-  const boxes = ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" data-feature="${esc(f.name)}" data-slug="${esc(w.slug)}" ${on[f.name] ? "checked" : ""} ${fixed ? "disabled" : ""}>${esc(f.label)}</label>`).join("");
-  const said = w.era_source === "world" && fixed ? "This world says its era and the systems it has."
-    : w.era_source === "world" ? "This world says its era but not its systems: tick what it has, and the Dereth client is told."
-    : "This world does not say its era or systems: choose what it plays, and the Dereth client is told.";
+  const boxes = named
+    ? ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" ${on[f.name] ? "checked" : ""} disabled>${esc(f.label)}</label>`).join("")
+    : "";
+  const said = !named ? `This world does not name its era: it plays ${eraText(w)}.`
+    : w.era_source !== "world" ? `This world says the systems it has, and plays ${eraText(w)}.`
+    : w.features_source === "world" ? "This world says its era and the systems it has."
+    : "This world says its era, and has that era's systems.";
   const facts = [
     ["EMULATOR", emulatorLabel(w)],
     ["STATUS", w.development_status ?? "unknown"],
@@ -430,9 +428,9 @@ function worldDetail(w) {
         </div>
         <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
         ${links.length ? `<div class="btns">${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}</div>` : ""}
-        <div class="era-line"><b>ERA</b>${w.era_source === "world" ? `<span>${esc(eraLabel(w.era))}</span>` : eraSelect(w, `era-detail-${w.slug}`, "mini")}</div>
+        <div class="era-line"><b>ERA</b><span>${esc(eraText(w))}</span></div>
         <p class="small muted">${esc(said)}</p>
-        <div class="features">${boxes}</div>
+        ${boxes ? `<div class="features">${boxes}</div>` : ""}
       </div></td></tr>`;
 }
 
@@ -441,7 +439,7 @@ function worldRow(w) {
   const trash = isCustom(w) ? `<button class="btn icon-btn trash" data-trash="${esc(w.slug)}" title="Remove ${esc(w.name)}">${TRASH_ICON}</button>` : "";
   return `<tr data-world="${esc(w.slug)}" class="${w.state === "offline" ? "dim" : ""} ${open ? "open" : ""}">
       <td>${bead(w.state)}</td><td class="name">${esc(w.name)}</td>
-      <td>${esc(emulatorLabel(w))}</td><td ${w.era_source === "world" ? "" : "data-stop"}>${eraCell(w)}</td>
+      <td>${esc(emulatorLabel(w))}</td><td>${esc(eraText(w))}</td>
       <td>${esc(w.ruleset ?? "")}</td><td>${esc(playersLabel(w))}</td><td class="end">${trash}</td></tr>`
     + (open ? worldDetail(w) : "");
 }
@@ -483,7 +481,6 @@ function worlds() {
           <label class="lab" for="srv-port">PORT</label><input id="srv-port" class="field" autocomplete="off" inputmode="numeric" style="max-width:140px" value="${esc(a.port)}">
           <label class="lab" for="srv-emulator">EMULATOR</label><select id="srv-emulator" class="field" style="max-width:220px">${emulatorOpts}</select>
           <label class="lab" for="srv-ruleset">RULES</label><select id="srv-ruleset" class="field" style="max-width:220px">${rulesOpts}</select>
-          <label class="lab" for="srv-era">ERA</label>${eraSelect({ slug: "", era: a.era }, "srv-era").replace(' data-era-for=""', "").replace("<select", '<select style="max-width:320px"')}
           ${a.error ? `<p class="note bad">${esc(a.error)}</p>` : ""}
         </div>
         <div class="btns end" style="margin-top:12px"><button class="btn" data-act="server-cancel">Cancel</button><button class="btn" data-act="server-add">Add</button></div>
@@ -623,7 +620,7 @@ function worldPage() {
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   const f = w.form;
 
-  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraLabel(world.era) ?? "era unknown", emulatorLabel(world)].filter(Boolean);
+  const facts = [stateLabel(world), world.players != null ? `${world.players} players` : "players unknown", world.ruleset, eraText(world), emulatorLabel(world)].filter(Boolean);
   const links = [["Website", world.links.website], ["Discord", world.links.discord], ["Rules", world.links.rules]].filter(([, u]) => u);
   const custom = ui.snap.state.custom_worlds.some((c) => c.slug === world.slug);
 
@@ -653,12 +650,12 @@ function worldPage() {
     + (w.view.offers_private_copy ? `<option value="__private">Create a private copy (1.4 GB)</option>` : "")
     + (world.dats.custom ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
-  const eraName = eraLabel(world.era);
+  const eraName = eraText(world);
   const dataNote = world.world_base === "modern" && world.dats.custom
-    ? `${world.name} plays ${eraName || "its era"} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
+    ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
     : needs === "classic"
     ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
-    : `${eraName ? `${eraName} needs` : "With no era named, the Dereth client plays the end of retail, which needs"} Modern data files. Classic ones are optional, for the classic interface and looks.`;
+    : `${eraName} needs Modern data files. Classic ones are optional, for the classic interface and looks.`;
   const missing = f.client === "dereth" && !hasRequiredSet();
   // A world that plays with its own files, and none of the player's sets is them: where they come
   // from, and the way to point at them.
@@ -1029,7 +1026,7 @@ document.addEventListener("click", async (ev) => {
     case "forget-all-accounts": await act("forget_all_accounts"); break;
     case "restart-update": await act("restart_to_update"); break;
     case "shortcut": { const where = await act("create_desktop_shortcut"); if (where) toast("Desktop shortcut created."); break; }
-    case "server-open": ui.addServer = { name: "", host: "", port: "9000", emulator: "unknown", ruleset: "", era: "", error: null }; render(); focusSoon("srv-host"); break;
+    case "server-open": ui.addServer = { name: "", host: "", port: "9000", emulator: "unknown", ruleset: "", error: null }; render(); focusSoon("srv-host"); break;
     case "server-cancel": ui.addServer = null; render(); break;
     case "server-add": await addServer(); break;
     case "server-remove": {
@@ -1054,7 +1051,7 @@ document.addEventListener("click", async (ev) => {
 async function addServer() {
   const a = ui.addServer;
   try {
-    const slug = await api("add_custom_world", { server: { name: a.name, host: a.host, port: a.port, emulator: a.emulator || "unknown", ruleset: a.ruleset || null, era: a.era || null } });
+    const slug = await api("add_custom_world", { server: { name: a.name, host: a.host, port: a.port, emulator: a.emulator || "unknown", ruleset: a.ruleset || null } });
     ui.addServer = null;
     await pull();
     await openWorld(slug);
@@ -1082,10 +1079,7 @@ document.addEventListener("input", (ev) => {
 
 document.addEventListener("change", async (ev) => {
   const t = ev.target;
-  // The Worlds list: a world's era and systems, for a world that does not say them.
-  if (t.dataset.eraFor) { await act("set_world_era", { slug: t.dataset.eraFor, era: t.value || null }); return; }
-  if (t.dataset.feature) { await act("set_world_feature", { slug: t.dataset.slug, name: t.dataset.feature, on: t.checked }); return; }
-  if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-era" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
+  if (ui.addServer && (t.id === "srv-ruleset" || t.id === "srv-emulator")) { ui.addServer[t.id.slice(4)] = t.value; return; }
   if (!ui.world) return;
   const f = ui.world.form;
   switch (t.id) {
@@ -1201,7 +1195,7 @@ async function demoJump() {
   await pull();
   if (what === "world") await openWorld(arg || "eulmore");
   else if (what === "worlds" && arg === "add") {
-    ui.addServer = { name: "", host: "play.example.org", port: "9000", ruleset: "PvE", era: "infiltration", error: null };
+    ui.addServer = { name: "", host: "play.example.org", port: "9000", ruleset: "PvE", error: null };
     ui.filter = "pve";
     ui.screen = "worlds";
   }

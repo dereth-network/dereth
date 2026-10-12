@@ -188,14 +188,14 @@ pub struct Operator {
     pub key_id: Option<String>,
 }
 
-/// Who said a world's era, or the systems it has.
+/// Who said a world's era, or the systems it has. A world nobody said them for plays the end of
+/// retail, with its systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Told {
-    /// The world: its status document or its directory row.
+    /// The world: its status ping or document, its list row, or the launcher's table of worlds
+    /// that run a client of their own, which speaks for the world.
     World,
-    /// The player, for a world that does not say.
-    Player,
 }
 
 /// One world.
@@ -208,11 +208,12 @@ pub struct World {
     pub ruleset: Option<String>,
     /// The era the world plays (`"eor"`, the end of retail, or an earlier one such as
     /// `"infiltration"`), from the registry row or, when it answers, the world's status document.
-    /// `None` when neither says.
+    /// `None` when neither says: the world plays the end of retail.
     #[serde(default)]
     pub era: Option<String>,
     /// The systems the world has (`ratings=false,trade=true,...`), from its status document when
-    /// it answers; each one over the era's table. `None` when it does not say.
+    /// it answers; each one over the era's table. `None` when it does not say: it has the era's
+    /// whole table.
     #[serde(default)]
     pub era_features: Option<String>,
     /// Who named [`World::era`]; `None` when nobody has.

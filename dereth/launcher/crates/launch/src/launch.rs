@@ -19,7 +19,9 @@
 //! plays, the Dereth client is told it, and the systems the world has with it, so its screens show
 //! that world's systems from the start. The systems go as the shared bitfield
 //! (`dereth_primitives::EraFeatureBits`): the world's whole set, the era's table with what the
-//! world or the player turned on or off over it. A world that runs a client of its own
+//! world turned on or off over it. A world that names no era plays the end of retail, and the
+//! client is told nothing: it plays the end of retail from the later files its world is drawn
+//! from. A world that runs a client of its own
 //! ([`crate::known`]) also names the set its world is drawn from, the logon version its server
 //! accepts and the rules its client played by.
 
@@ -106,9 +108,9 @@ fn plain(s: impl Into<String>) -> Arg {
 
 /// What the Dereth client is told about the world it plays, whatever starts it: one description,
 /// built from the world as the launcher shows it (its list row, the built-in table of worlds that
-/// run a client of their own, its status document, and what the player chose for what it does not
-/// say). The desktop launcher puts it on the client's command line ([`plan`]); the web page hands
-/// the same words to the client in the browser, which reads them with the same parser.
+/// run a client of their own, and its status ping or document). The desktop launcher puts it on
+/// the client's command line ([`plan`]); the web page hands the same words to the client in the
+/// browser, which reads them with the same parser.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct WorldLaunch {
     /// The data set the world is drawn from, which the player's files must hold.
@@ -404,6 +406,31 @@ mod tests {
             .unwrap()
             .argv("pw")
             .contains(&"--era".to_owned()));
+    }
+
+    /// A world that names no era starts the Dereth client with nothing said of its era or systems,
+    /// and the client plays the end of retail, with its systems, from the later files the world is
+    /// drawn from.
+    #[test]
+    fn a_world_that_names_no_era_starts_the_dereth_client_on_the_end_of_retail() {
+        use dereth_primitives::{ContainerEra, EraId};
+        let (w, i) = (world(Emulator::Ace), inst(ClientKind::Dereth));
+        let d = describe(&w);
+        assert!(d.args().is_empty(), "{:?}", d.args());
+        assert_eq!(d.set, crate::datset::SetKind::Modern);
+        let argv = plan(&req(&w, &i)).unwrap().argv("pw");
+        let cfg = dereth_client_runtime::config::Config::from_args_and_prefs_with(
+            &argv,
+            &dereth_client_runtime::config::Preferences::default(),
+        )
+        .unwrap();
+        assert_eq!((cfg.era, cfg.world_base), (None, None));
+        assert!(cfg.era_features.is_empty());
+        // As the client's start-up reads it: the era of the files its world is drawn from.
+        assert_eq!(
+            dereth_client_contract::EraView::era_of_dats(ContainerEra::Modern),
+            EraId::Eor
+        );
     }
 
     /// A world's status document, read as the launcher reads it, reaches the Dereth client's era

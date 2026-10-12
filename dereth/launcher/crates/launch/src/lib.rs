@@ -19,9 +19,10 @@
 //! |---|---|
 //! | [`world`] | a registry entry, read tolerantly: which clients a world accepts, which dats it expects |
 //! | [`serverlist`] | the community's world list, and its day-old copy |
+//! | [`hubstatus`] | whether each world is up and how many are on, as the hub has it from the world's heartbeat |
 //! | [`known`] | the worlds that run a client of their own, by list id: logon, files, rules |
 //! | [`worlds`] | the worlds a launcher shows, each with what it said of itself and what the player chose |
-//! | [`eras`] | the eras and systems a world can play, and the player's choice for a world that does not say |
+//! | [`eras`] | the eras and systems a world can play, as the launcher names them; a world that does not say plays the end of retail |
 //! | [`dat`] | a dat's iteration number, read straight off disk in a few small reads |
 //! | [`datset`] | a Modern set (the four later dats, identified by iterations) or a Classic one (`portal.dat` and `cell.dat`) |
 //! | [`install`] | which client build a folder holds, by the executable's hash and a manifest |
@@ -55,6 +56,7 @@ pub mod datset;
 pub mod desktop;
 pub mod eras;
 pub mod folders;
+pub mod hubstatus;
 pub mod install;
 pub mod interface;
 pub mod known;

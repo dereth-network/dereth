@@ -24,7 +24,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::datset::{DatOrigin, DatSet, SetKind, SHARED_SET_ID};
-use crate::eras::EraChoice;
 use crate::install::{ClientKind, Installation};
 use crate::world::{Emulator, Endpoint, World};
 
@@ -216,9 +215,6 @@ pub struct LauncherState {
     pub custom_worlds: Vec<CustomWorld>,
     #[serde(default)]
     pub world_prefs: BTreeMap<String, WorldPrefs>,
-    /// The era and systems the player chose, per world, for worlds that do not say theirs.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub world_eras: BTreeMap<String, EraChoice>,
     #[serde(default)]
     pub settings: Settings,
 }
@@ -234,7 +230,6 @@ impl Default for LauncherState {
             recent: Vec::new(),
             custom_worlds: Vec::new(),
             world_prefs: BTreeMap::new(),
-            world_eras: BTreeMap::new(),
             settings: Settings::default(),
         }
     }
@@ -310,33 +305,6 @@ impl LauncherState {
         self.dat_sets
             .iter()
             .find(|s| s.kind == kind && s.origin == DatOrigin::Shared)
-    }
-
-    /// Choose a world's era (`None`: not chosen), forgetting the choice when nothing is left of it.
-    pub fn set_world_era(&mut self, slug: &str, era: Option<&str>) {
-        self.world_eras
-            .entry(slug.to_owned())
-            .or_default()
-            .set_era(era);
-        self.drop_empty_era_choice(slug);
-    }
-
-    /// Turn one of a world's systems on or off over its chosen era's table. Answers whether
-    /// `name` is a system's.
-    pub fn set_world_feature(&mut self, slug: &str, name: &str, on: bool) -> bool {
-        let known = self
-            .world_eras
-            .entry(slug.to_owned())
-            .or_default()
-            .set_feature(name, on);
-        self.drop_empty_era_choice(slug);
-        known
-    }
-
-    fn drop_empty_era_choice(&mut self, slug: &str) {
-        if self.world_eras.get(slug).is_some_and(EraChoice::is_empty) {
-            self.world_eras.remove(slug);
-        }
     }
 
     /// The private set for a world, if one has been made.
@@ -474,7 +442,6 @@ impl LauncherState {
         self.favourites.retain(|f| f.world_slug != slug);
         self.recent.retain(|r| r.world_slug != slug);
         self.world_prefs.remove(slug);
-        self.world_eras.remove(slug);
     }
 
     /// Forget the recent and favourite combinations whose world is no longer listed: not among
@@ -544,6 +511,7 @@ impl LauncherState {
 
 #[cfg(test)]
 mod tests {
+    //! Behaviour: none (the launcher's state file: what it keeps, and how it reads an older one).
     use super::*;
     use crate::datset::tests::tmp;
 
@@ -703,37 +671,36 @@ mod tests {
         );
 
         s.upsert_account(account(&slug, "player"));
-        s.set_world_era(&slug, Some("infiltration"));
         s.remove_custom_world(&slug);
         assert!(s.custom_worlds.is_empty() && s.accounts.is_empty());
-        assert!(s.world_eras.is_empty(), "its era choice goes with it");
     }
 
+    /// A state file from a launcher that asked the player for a world's era still reads, with
+    /// everything else in it; the eras and systems chosen then are passed over, and gone from the
+    /// file once it is written again.
     #[test]
-    fn a_worlds_era_and_systems_are_kept_per_world_and_round_trip() {
+    fn eras_once_chosen_by_the_player_are_read_past_and_dropped() {
         let d = tmp("state-eras");
-        let mut s = LauncherState::default();
-        s.set_world_era("leafcull", Some("infiltration"));
-        assert!(s.set_world_feature("leafcull", "aetheria", true));
-        assert!(!s.set_world_feature("leafcull", "nothing", true));
-        assert!(s.set_world_feature("coldeve", "trade", false));
-        s.save(&d).unwrap();
-        let (back, _) = LauncherState::load(&d);
-        assert_eq!(back.world_eras, s.world_eras);
-        let c = &back.world_eras["leafcull"];
-        assert_eq!(c.era.as_deref(), Some("infiltration"));
-        assert_eq!(c.features_text().as_deref(), Some("aetheria=true"));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join(STATE_FILE),
+            r#"{"schema":1,"custom_worlds":[{"slug":"custom-1","name":"Home","host":"127.0.0.1","port":9000}],
+               "world_eras":{"leafcull":{"era":"infiltration","features":{"aetheria":true}},
+                             "coldeve":{"features":{"trade":false}}}}"#,
+        )
+        .unwrap();
+        let (s, how) = LauncherState::load(&d);
+        assert_eq!(how, Loaded::Read, "not set aside as unreadable");
         assert_eq!(
-            back.world_eras["coldeve"].era, None,
-            "systems without an era are over the end of retail's table"
+            s.custom_worlds[0].name, "Home",
+            "the rest of the file stands"
         );
-
-        // Undoing every choice forgets the world's entry.
-        s.set_world_feature("coldeve", "trade", true);
-        assert!(!s.world_eras.contains_key("coldeve"));
-        s.set_world_feature("leafcull", "aetheria", false);
-        s.set_world_era("leafcull", None);
-        assert!(s.world_eras.is_empty());
+        s.save(&d).unwrap();
+        let written = std::fs::read_to_string(d.join(STATE_FILE)).unwrap();
+        assert!(
+            !written.contains("world_eras") && !written.contains("infiltration"),
+            "{written}"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 

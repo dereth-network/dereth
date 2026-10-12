@@ -18,7 +18,9 @@
 //!
 //! With the servers the player adds by hand, the list is every world the launcher shows. What the
 //! list does not say (era, systems, version, players) comes from the world itself when it answers
-//! (Empyrean's status document) or from the player.
+//! (Empyrean's status document) or from the player. Whether a world is up and how many are on also
+//! comes from the hub's list read again while the worlds are shown ([`crate::hubstatus`]), not
+//! from this copy, which can be a day old.
 //!
 //! Reading is tolerant: a row without a name is skipped, a malformed port is no endpoint, and
 //! nothing in one row can cost the player another. Of the hub's rows, one with no address to
@@ -353,14 +355,22 @@ fn world_of(row: &BTreeMap<String, String>, taken: &mut HashSet<String>) -> Opti
     Some(w)
 }
 
-/// The key a world named `name` is kept under: [`slug_for`] its name, or `fallback` (its id) for a
-/// name with no letter or digit in it. Two names with one spelling: the later one is told apart by
-/// a number.
-fn take_slug(name: &str, fallback: Option<&str>, taken: &mut HashSet<String>) -> String {
-    let mut slug = slug_for(name);
+/// The key a world named `name` is kept under before it is told apart from another of the same
+/// spelling: [`slug_for`] its name, or `fallback` (its id) for a name with no letter or digit in
+/// it.
+fn key_for(name: &str, fallback: Option<&str>) -> String {
+    let slug = slug_for(name);
     if slug.is_empty() {
-        slug = fallback.unwrap_or("world").to_owned();
+        fallback.unwrap_or("world").to_owned()
+    } else {
+        slug
     }
+}
+
+/// The key a world named `name` is kept under: [`key_for`] it. Two names with one spelling: the
+/// later one is told apart by a number.
+fn take_slug(name: &str, fallback: Option<&str>, taken: &mut HashSet<String>) -> String {
+    let mut slug = key_for(name, fallback);
     if taken.contains(&slug) {
         let base = slug.clone();
         slug = (2u32..)
@@ -384,47 +394,79 @@ fn hub_page(text: &str) -> Result<(Vec<Value>, Option<u64>), MalformedList> {
     }
 }
 
+/// The rows of the hub's list, its pages in order, each world once: a world that moved from one
+/// page to the next while they were read is read where it was first seen.
+///
+/// # Errors
+/// [`MalformedList`] when a page is not a page of the list.
+pub(crate) fn hub_rows(pages: &[String]) -> Result<Vec<Value>, MalformedList> {
+    let mut seen = HashSet::new();
+    let mut rows = Vec::new();
+    for page in pages {
+        for row in hub_page(page)?.0 {
+            let hub_slug = row.get("slug").and_then(Value::as_str).map(str::to_owned);
+            if hub_slug.is_some_and(|s| !seen.insert(s)) {
+                continue;
+            }
+            rows.push(row);
+        }
+    }
+    Ok(rows)
+}
+
 /// Read the hub's list, its pages in order: the worlds to show, in its order.
 ///
 /// # Errors
 /// [`MalformedList`] when a page is not a page of the list.
 pub fn parse_hub_pages(pages: &[String]) -> Result<Vec<World>, MalformedList> {
     let mut taken = HashSet::new();
-    let mut seen = HashSet::new();
-    let mut worlds = Vec::new();
-    for page in pages {
-        for row in hub_page(page)?.0 {
-            // A world that moved from one page to the next while they were read is read once.
-            let hub_slug = row.get("slug").and_then(Value::as_str).map(str::to_owned);
-            if hub_slug.is_some_and(|s| !seen.insert(s)) {
-                continue;
-            }
-            worlds.extend(hub_world(&row, &mut taken));
-        }
-    }
-    Ok(worlds)
+    Ok(hub_rows(pages)?
+        .iter()
+        .filter_map(|row| hub_world(row, &mut taken))
+        .collect())
 }
 
-/// One world of the hub's list, read as the same world is from `Servers.xml`. `None` for a row
-/// with no name, and one with no address and port to connect to.
-fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
-    let text = |at: &str| {
-        row.pointer(at)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-    };
-    let name = text("/name")?;
-    let address = text("/endpoint/address")?;
+/// A text field of a hub row, at the JSON pointer `at`; `None` when it is missing or blank.
+fn hub_text<'a>(row: &'a Value, at: &str) -> Option<&'a str> {
+    row.pointer(at)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// The name of the world a hub row shows, with the id to key it by when the name has no letter or
+/// digit in it, and the address and port to connect to. `None` for a row the launcher does not
+/// show: one with no name, and one with no address and port.
+fn hub_shown(row: &Value) -> Option<(&str, Option<&str>, &str, u16)> {
+    let name = hub_text(row, "/name")?;
+    let address = hub_text(row, "/endpoint/address")?;
     let port = row
         .pointer("/endpoint/port")
         .and_then(Value::as_u64)
         .and_then(|p| u16::try_from(p).ok())
         .filter(|p| *p > 0)?;
+    // The community list's id, which the hub keeps for a world it imported from it; else the
+    // hub's slug.
+    let fallback = hub_text(row, "/provenance/externalId").or(hub_text(row, "/slug"));
+    Some((name, fallback, address, port))
+}
+
+/// The key the world a hub row shows is kept under before it is told apart from a namesake
+/// ([`key_for`] its name); `None` for a row the launcher does not show.
+pub(crate) fn hub_key(row: &Value) -> Option<String> {
+    let (name, fallback, ..) = hub_shown(row)?;
+    Some(key_for(name, fallback))
+}
+
+/// One world of the hub's list, read as the same world is from `Servers.xml`. `None` for a row
+/// with no name, and one with no address and port to connect to.
+fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
+    let text = |at: &str| hub_text(row, at);
+    let (name, fallback, address, port) = hub_shown(row)?;
     // The community list's id, which the hub keeps for a world it imported from it.
     let list_id = text("/provenance/externalId").map(str::to_owned);
     // Kept under its name, not the hub's slug, as the community list's world is.
-    let slug = take_slug(name, list_id.as_deref().or(text("/slug")), taken);
+    let slug = take_slug(name, fallback, taken);
 
     let mut w = World::new(slug, name);
     w.list_id = list_id;
@@ -472,6 +514,11 @@ pub struct ListCache {
 }
 
 impl ListCache {
+    /// Whether the copy is the hub's list.
+    pub fn is_hubs(&self) -> bool {
+        !self.hub.is_empty()
+    }
+
     /// Whether the copy is less than a day old. A copy from the future (a clock set back) is not.
     pub fn is_fresh(&self, now: u64) -> bool {
         now >= self.fetched_at && now - self.fetched_at < MAX_AGE_SECS

@@ -201,10 +201,17 @@ carries it): pick a world or type an address, choose or add the data files, and 
 - **What the client is told about the world** (its era, the set its world is drawn from, its
   systems, its logon version and the rules its client played by) is the launcher's one
   description of it: the words the desktop launcher puts on the client's command line, read by the
-  client in the browser with the same parser. They come from the list, the table, the world's
-  status document when it has one, and what the player chose for what the world does not say. A
-  browser cannot ask a server over UDP whether it is up, so a world with no status document is
-  shown with its state unknown.
+  client in the browser with the same parser. They come from the list, the table and the world's
+  status document when it has one. A world plays the era it says, else the one the table gives
+  it, else the end of retail, which the client is not told and plays from the later files; the
+  player chooses neither the era nor its systems.
+- **Whether a world is up**, and how many are on, is its status document's word when it has one;
+  else, while the world list shown is the hub's, the hub's word from the world's own heartbeat (any
+  world linked to the Dereth Network, ACE worlds with the network's mod among them), read from the
+  hub's list about once a minute while the page shows its worlds and taken until the heartbeat
+  expires, by the desktop launcher's rules. A browser cannot ask a server over UDP whether it is
+  up, so any other world is shown with its state unknown. A list the `list` parameter names, and
+  the community's own list read when the hub does not answer, bring no status.
 - **Reaching a world.** The browser connects directly only to Empyrean servers that have their
   WebSocket endpoint on. Any other server (ACE, GDLE, ClassicACE, or an Empyrean without it) needs
   [`dereth-web-relay`](../../tools/web-relay/README.md) running on the player's machine; the page
@@ -300,7 +307,6 @@ chosen. The page takes only these:
 |---|---|
 | `server=<url>` | adds that server (a `wss://` URL or a status address) and chooses it |
 | `account=<name>` | fills the Account field |
-| `era=<name>`, `features=<name=true,...>` | the era and systems of the server `server=` names, when its status does not say them |
 | `list=<url>` | reads the world list from another address, a `Servers.xml` read alone |
 | `log`, `log=<level>` | shows the client's log and its frame rate over the canvas, and sets how much of the log reaches the browser console (`info` by default; `debug`, `trace`, `warn`, `error`), for reporting a problem |
 | `gpu=webgl` | draws with WebGL 2 even where the browser has WebGPU, for a browser whose WebGPU misbehaves |

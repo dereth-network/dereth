@@ -6,9 +6,8 @@
 // endpoint, and the WebSocket URL it reports is used.
 //
 // The query string may choose the world, so a server's operator can link to the page with it
-// chosen: `?server=<url>&account=<name>` adds that server and chooses it; `?era=<name>` (and
-// `?features=<name=true,...>`) names the era and systems of a server reached by its WebSocket URL,
-// whose status the page does not read. `?dats=http` offers the dev runner's data files
+// chosen: `?server=<url>&account=<name>` adds that server and chooses it; a server linked by its
+// status address says its own era and systems. `?dats=http` offers the dev runner's data files
 // (`cargo xtask web --dat-dir`), and `?list=<url>` reads the world list from another address (a
 // `Servers.xml`, read alone).
 // `?log` (or `?log=debug`, ...) shows the client's log and its frame rate over the canvas, for

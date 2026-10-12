@@ -100,6 +100,11 @@ fn whole(x: f64) -> u64 {
     u64::try_from(dereth_primitives::num::to_i64_f64(x)).unwrap_or(0)
 }
 
+/// The page's clock, in whole seconds since the epoch.
+fn now_secs() -> u64 {
+    whole(js_sys::Date::now() / 1000.0)
+}
+
 fn js_err(e: impl std::fmt::Display) -> JsError {
     JsError::new(&e.to_string())
 }
@@ -549,18 +554,47 @@ pub fn front_status_failed(slug: &str) {
     FRONT.with(|f| f.borrow_mut().status_failed(slug));
 }
 
-/// Every world, with the eras and systems on offer, as JSON.
+/// Start reading the hub's list for each world's status, when a read is due at `now` (seconds
+/// since the epoch): about a minute after the last, while the worlds shown are the hub's list's and
+/// the page names no list of its own (`named`, its `list` parameter). Answers the first address to
+/// fetch; nothing when no read is due.
+#[wasm_bindgen(js_name = frontHubStart)]
+#[must_use]
+pub fn front_hub_start(named: Option<String>, now: f64) -> Option<String> {
+    FRONT.with(|f| f.borrow_mut().hub_start(named.as_deref(), whole(now)))
+}
+
+/// What fetching the address last given for the status brought: its `body`, or the `error` that
+/// kept it from coming. Answers the next address to fetch, or nothing once the read is over.
+#[wasm_bindgen(js_name = frontHubNext)]
+#[must_use]
+pub fn front_hub_next(body: Option<String>, error: Option<String>) -> Option<String> {
+    let fetched = body
+        .map(String::into_bytes)
+        .ok_or_else(|| error.unwrap_or_else(|| "no answer".to_owned()));
+    FRONT.with(|f| f.borrow_mut().hub_next(fetched))
+}
+
+/// The status read is over, at `now` (seconds since the epoch). Answers whether it brought the
+/// hub's word; a read that failed changes nothing.
+#[wasm_bindgen(js_name = frontHubDone)]
+#[must_use]
+pub fn front_hub_done(now: f64) -> bool {
+    FRONT.with(|f| f.borrow_mut().hub_done(whole(now)))
+}
+
+/// Every world as it is shown now, with the eras and systems on offer, as JSON.
 #[wasm_bindgen(js_name = frontWorlds)]
 #[must_use]
 pub fn front_worlds() -> String {
-    FRONT.with(|f| f.borrow().worlds().to_string())
+    FRONT.with(|f| f.borrow().worlds(now_secs()).to_string())
 }
 
-/// One world's page as JSON: [`Front::world`]. `None` for a world not shown.
+/// One world's page as it is shown now, as JSON: [`Front::world`]. `None` for a world not shown.
 #[wasm_bindgen(js_name = frontWorld)]
 #[must_use]
 pub fn front_world(slug: &str) -> Option<String> {
-    FRONT.with(|f| f.borrow().world(slug).map(|v| v.to_string()))
+    FRONT.with(|f| f.borrow().world(slug, now_secs()).map(|v| v.to_string()))
 }
 
 /// Add a server by host and port; answers its slug.
@@ -587,19 +621,6 @@ pub fn front_add_world(
 #[wasm_bindgen(js_name = frontRemoveWorld)]
 pub fn front_remove_world(slug: &str) {
     FRONT.with(|f| f.borrow_mut().remove_world(slug));
-}
-
-/// The era the player chose for a world that does not say its own (empty for none).
-#[wasm_bindgen(js_name = frontSetEra)]
-pub fn front_set_era(slug: &str, era: &str) {
-    FRONT.with(|f| f.borrow_mut().set_era(slug, era));
-}
-
-/// One of a world's systems on or off; answers whether `name` is a system's.
-#[wasm_bindgen(js_name = frontSetFeature)]
-#[must_use]
-pub fn front_set_feature(slug: &str, name: &str, on: bool) -> bool {
-    FRONT.with(|f| f.borrow_mut().set_feature(slug, name, on))
 }
 
 /// Remember the player's choices on a world (JSON: `account`, `dat_set_id`, `classic_set_id`).
