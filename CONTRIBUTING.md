@@ -94,6 +94,12 @@ the release; once published, it is the one launchers update from.
 `cargo xtask package dereth` builds this host's release files locally.
 [dereth/launcher/RELEASING.md](dereth/launcher/RELEASING.md) describes the whole flow.
 
+The Dereth Network's hub and ACE mod are released the same way, each on tags of its own:
+`cargo xtask release network-hub <version>` (a pushed `network-hub-v<version>` tag) and
+`cargo xtask release network-ace <version>` (`network-ace-v<version>`). They keep no change log;
+their workflows write the release notes from the commits.
+[network/RELEASING.md](network/RELEASING.md) describes the whole flow.
+
 ## Releasing without GitHub Actions
 
 When the release workflows cannot run, `cargo xtask publish` makes the same GitHub release from

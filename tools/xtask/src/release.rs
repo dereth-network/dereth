@@ -1,5 +1,7 @@
-//! `cargo xtask release empyrean|dereth <version> [--push] [--remote <name>]`: cut a release of
-//! Empyrean or of Dereth (the launcher and the client, one version).
+//! `cargo xtask release <product> <version> [--push] [--remote <name>]`: cut a release of
+//! Empyrean (`empyrean`), of Dereth (`dereth`: the launcher and the client, one version), or of one
+//! of the Dereth Network's two products, its hub (`network-hub`) and its ACE mod (`network-ace`;
+//! [`network`]).
 //!
 //! On a clean `main` it sets the version of every crate that carries the product's version
 //! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher) to `<version>` and
@@ -14,6 +16,11 @@
 //! prints the two push commands and runs them only with `--push`: the product's release workflow
 //! starts when the tag reaches the public repository, and builds, checks and drafts the release
 //! from there.
+//!
+//! The network's hub and ACE mod take the same steps with their own version files, their own
+//! checks in place of tier 0 and a package, and their own tags (`network-hub-v<version>`,
+//! `network-ace-v<version>`), and no change log: their workflows write the release notes from the
+//! commits since the previous tag of the same kind.
 
 use std::path::Path;
 
@@ -21,6 +28,7 @@ use crate::package::version::Product;
 use crate::package::{self, git, version};
 use crate::util::{workspace_root, Profile};
 
+pub mod network;
 pub mod notes;
 
 /// What the release command reads from the repository before it changes anything.
@@ -30,11 +38,12 @@ pub struct RepoState {
     pub branch: String,
     /// Tracked files with uncommitted changes.
     pub uncommitted: Vec<String>,
-    /// The version the `empyrean-*` crates carry now.
+    /// The version the tree carries now: the product's crates', or the network product's version
+    /// files'.
     pub current: String,
-    /// The `empyrean-v*` tags that exist here.
+    /// The product's release tags (`empyrean-v*`, `network-hub-v*`, ...) that exist here.
     pub local_tags: Vec<String>,
-    /// The `empyrean-v*` tags on the remote, when it could be asked.
+    /// The product's release tags on the remote, when it could be asked.
     pub remote_tags: Option<Vec<String>>,
 }
 
@@ -59,6 +68,17 @@ pub fn preconditions_for(
     requested: &str,
     state: &RepoState,
 ) -> Result<Plan, Vec<String>> {
+    preconditions_tagged(product.tag_for(requested), requested, state)
+}
+
+/// Whether `requested`, tagged `tag`, may be released from `state`, and how; every reason it may
+/// not. The rules every product shares: a clean `main`, a release version not older than the one
+/// the tree carries, and a tag that exists neither here nor on the remote.
+pub fn preconditions_tagged(
+    tag: String,
+    requested: &str,
+    state: &RepoState,
+) -> Result<Plan, Vec<String>> {
     let mut problems = Vec::new();
     let wanted = version::parse_release_version(requested).map_err(|e| vec![e])?;
     if state.branch != "main" {
@@ -73,7 +93,6 @@ pub fn preconditions_for(
             state.uncommitted.join("; ")
         ));
     }
-    let tag = product.tag_for(requested);
     if state.local_tags.contains(&tag) {
         problems.push(format!("the tag {tag} already exists here"));
     }
@@ -87,7 +106,7 @@ pub fn preconditions_for(
     let bump = match version::parse_release_version(&state.current) {
         Ok(current) if wanted < current => {
             problems.push(format!(
-                "{requested} is older than the version the crates carry ({})",
+                "{requested} is older than the version the tree carries ({})",
                 state.current
             ));
             false
@@ -123,19 +142,39 @@ pub fn push_commands(remote: &str, tag: &str) -> [Vec<String>; 2] {
     ]
 }
 
-const USAGE: &str =
-    "usage: cargo xtask release empyrean|dereth <MAJOR.MINOR.PATCH> [--push] [--remote <name>]";
+const USAGE: &str = "usage: cargo xtask release empyrean|dereth|network-hub|network-ace \
+                     <MAJOR.MINOR.PATCH> [--push] [--remote <name>]";
+
+/// What the command releases: Empyrean or Dereth, or one of the Dereth Network's products.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Releasable {
+    Product(Product),
+    Network(network::Part),
+}
+
+impl Releasable {
+    /// The product named on a command line.
+    fn from_command_name(name: &str) -> Option<Self> {
+        Product::from_command_name(name)
+            .map(Self::Product)
+            .or_else(|| network::Part::from_command_name(name).map(Self::Network))
+    }
+}
 
 /// `cargo xtask release ...`.
 pub fn release(args: &[String]) -> i32 {
-    let (product, requested, push, remote) = match parse(args) {
+    let (what, requested, push, remote) = match parse(args) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{e}");
             return 2;
         }
     };
-    match run(product, &requested, push, &remote) {
+    let outcome = match what {
+        Releasable::Product(product) => run(product, &requested, push, &remote),
+        Releasable::Network(part) => network::run(part, &requested, push, &remote),
+    };
+    match outcome {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("\nrelease: STOPPED\n{e}");
@@ -144,11 +183,11 @@ pub fn release(args: &[String]) -> i32 {
     }
 }
 
-fn parse(args: &[String]) -> Result<(Product, String, bool, String), String> {
+fn parse(args: &[String]) -> Result<(Releasable, String, bool, String), String> {
     let mut it = args.iter();
-    let product = it
+    let what = it
         .next()
-        .and_then(|a| Product::from_command_name(a))
+        .and_then(|a| Releasable::from_command_name(a))
         .ok_or(USAGE)?;
     let mut requested = None;
     let mut push = false;
@@ -161,11 +200,18 @@ fn parse(args: &[String]) -> Result<(Product, String, bool, String), String> {
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
         }
     }
-    Ok((product, requested.ok_or(USAGE)?, push, remote))
+    Ok((what, requested.ok_or(USAGE)?, push, remote))
 }
 
-fn state(ws: &Path, product: Product, remote: &str) -> Result<RepoState, String> {
-    let pattern = format!("{}*", product.tag_prefix());
+/// The repository's state for a product whose tags start `tag_prefix` and whose tree carries
+/// `current`.
+fn repo_state(
+    ws: &Path,
+    tag_prefix: &str,
+    current: String,
+    remote: &str,
+) -> Result<RepoState, String> {
+    let pattern = format!("{tag_prefix}*");
     let remote_pattern = format!("refs/tags/{pattern}");
     let remote_tags = match git(ws, &["ls-remote", "--tags", remote, &remote_pattern]) {
         Ok(out) => Some(tag_names(&out)),
@@ -177,10 +223,14 @@ fn state(ws: &Path, product: Product, remote: &str) -> Result<RepoState, String>
     Ok(RepoState {
         branch: git(ws, &["rev-parse", "--abbrev-ref", "HEAD"])?,
         uncommitted: package::uncommitted(ws)?,
-        current: product.version(ws)?,
+        current,
         local_tags: tag_names(&git(ws, &["tag", "--list", &pattern])?),
         remote_tags,
     })
+}
+
+fn state(ws: &Path, product: Product, remote: &str) -> Result<RepoState, String> {
+    repo_state(ws, product.tag_prefix(), product.version(ws)?, remote)
 }
 
 /// The lock files a version change updates, as (the folder cargo runs in, the lock file),

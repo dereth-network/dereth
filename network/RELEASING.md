@@ -10,15 +10,10 @@ client's:
 
 ## Cutting a release
 
-1. On `main`, set the version: `version` in `network/hub/Cargo.toml` (then `cargo build` so
-   `Cargo.lock` follows), or `Version` in `Meta.json` and `<Version>` in the mod's project. Commit.
-2. Tag that commit and push the tag:
-
-   ```sh
-   git tag network-hub-v0.2.0
-   git push origin network-hub-v0.2.0
-   ```
-
+1. **`cargo xtask release network-hub <version>`** or **`cargo xtask release network-ace
+   <version>`** on a clean `main`: sets the version, runs the product's checks, commits and tags
+   it (below).
+2. Push `main` and the tag: the command prints the two commands, and runs them with `--push`.
 3. The workflow checks that the tag names the version and is on `main`, builds and checks every
    file (the hub's tests on each platform, a smoke run of each binary and of the image; the mod's
    whole harness and every patch applied against the pinned ACE release), and drafts the GitHub
@@ -30,13 +25,53 @@ client's:
 Running either workflow by hand (workflow_dispatch) is a dry run: the same builds and checks, the
 files kept as a workflow artifact for 7 days, nothing published.
 
-## Why tags alone
+## `cargo xtask release network-hub|network-ace <version>`
 
-The rest of the repository cuts its releases with `cargo xtask release`. The network does not: this
-folder is self-contained, so that it can become a repository of its own, and depends on no
-workspace tool. A version is one line in one file (two for the mod, which the workflow holds equal),
-and the workflow refuses a tag that does not name it, or that is not on `main`; there is no change
-log to roll or declaration to write, so a command would do no more than the two steps above.
+```
+cargo xtask release network-hub|network-ace <MAJOR.MINOR.PATCH[-pre]> [--push] [--remote <name>]
+```
+
+1. Checks: the checkout is on `main`; no tracked file has uncommitted changes; `<version>` is a
+   release version, not older than the one the tree carries, and its tag (`network-hub-v<version>`
+   or `network-ace-v<version>`) exists neither here nor on the remote (default `origin`). For the
+   mod, `dotnet` is on `PATH`, and `DERETH_ACE_DIR`, when it is set, names a folder holding
+   `ACE.Server.dll` and `0Harmony.dll`. Every unmet check is named.
+2. Sets the version and commits exactly those files as `Dereth Network hub <version>` or
+   `Dereth Network ACE mod <version>`: for the hub, `version` in `network/hub/Cargo.toml` and its
+   entry in `Cargo.lock` (the protocol crate keeps its own version, which the workflow does not
+   read); for the mod, `Version` in `Meta.json` and `<Version>` in `Dereth.Network.csproj`,
+   together. When the tree already carries `<version>` there is nothing to commit.
+3. Runs the product's checks as CI does:
+   - the hub: the network's crates' tests (`dereth-network-protocol`, `dereth-network-hub`,
+     `dereth-network-conformance`) and the conformance vectors through the suite's binary; then
+     builds the hub's release binary for this host, which must answer `--version` with the version;
+   - the mod: builds the hub the harness links its worlds through, then the harness, and runs it
+     against that hub. With `DERETH_ACE_DIR` set to an ACE server folder it also builds the mod
+     against that ACE, runs the harness's `targets` section, applies every patch with ACE's own
+     Harmony (`PatchApply`), and checks the mod's release folder holds what its archive needs.
+     Without it, those are left out and the output says so; the release workflow runs them against
+     its pinned ACE release.
+4. Tags that commit (annotated), and prints the notes the workflow will write: the commits since
+   the previous tag of the same kind that touch the product's paths. The network keeps no change
+   log.
+5. Prints `git push <remote> main` and `git push <remote> <tag>`, and runs them only with `--push`.
+
+If a check fails after the version commit, no tag is made; fix the failure and run the command
+again (it does not bump twice), or drop the commit with `git reset --hard HEAD~1`.
+
+## By hand
+
+The workflows use no workspace tool, so that this folder can become a repository of its own.
+Without the command, a release is cut by hand: on `main`, set the version (`version` in
+`network/hub/Cargo.toml`, then `cargo build` so `Cargo.lock` follows; or `Version` in `Meta.json`
+and `<Version>` in the mod's project, the same), commit, then tag that commit and push the tag:
+
+```sh
+git tag network-hub-v0.2.0
+git push origin network-hub-v0.2.0
+```
+
+The workflow refuses a tag that does not name the version, or that is not on `main`.
 
 ## The ACE release the mod is checked against
 

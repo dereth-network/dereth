@@ -128,6 +128,14 @@ Release and packaging:
                             dereth-v<version>; pushes only with --push. A final release also
                             turns the Unreleased section of the product's CHANGES.md
                             (empyrean/ or dereth/) into the release's own, dated
+  release network-hub|network-ace <version> [--push] [--remote <name>]
+                            the same for the Dereth Network's hub or ACE mod: set its version
+                            and commit it, run its checks as CI does (the mod's need dotnet,
+                            and those that need ACE run when DERETH_ACE_DIR names an ACE server
+                            folder), build the hub's release binary for this host (the hub),
+                            tag network-hub-v<version> or network-ace-v<version>. No
+                            CHANGES.md: the release workflow writes the notes from the commits
+                            (network/RELEASING.md)
   release-notes dereth|empyrean [--since <tag>] [--version <v>] [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final

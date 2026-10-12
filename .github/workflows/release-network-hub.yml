@@ -8,8 +8,9 @@ name: Release the Dereth Network hub
 # kept as a workflow artifact for 7 days, nothing published.
 #
 # The network (network/) is self-contained, so this uses no workspace tool: the version is
-# network/hub/Cargo.toml's, which the tag must name (network/RELEASING.md). The CI workflow runs
-# the hub's tests and the ACE mod's harness on every push.
+# network/hub/Cargo.toml's, which the tag must name (`cargo xtask release network-hub <version>`
+# sets it and makes the tag; network/RELEASING.md). The CI workflow runs the hub's tests and the ACE
+# mod's harness on every push.
 
 on:
   push:

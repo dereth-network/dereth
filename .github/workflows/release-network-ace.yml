@@ -9,7 +9,8 @@ name: Release the Dereth Network ACE mod
 # release files kept as a workflow artifact for 7 days, nothing published.
 #
 # The version is the mod's Meta.json `Version` and its project's `<Version>`, which must agree and
-# which the tag must name (network/RELEASING.md).
+# which the tag must name (`cargo xtask release network-ace <version>` sets both and makes the tag;
+# network/RELEASING.md).
 
 on:
   push:
