@@ -57,6 +57,12 @@ pub enum ResourceName {
     ScratchColour,
     /// A copy of the re-shaded picture, for passes that read it while they draw into it.
     ScratchHdr,
+    /// The re-shaded picture as it stood before the light per pixel: the frame as the ordinary
+    /// picture draws it, in linear light.
+    LitCopy,
+    /// How bright the outdoor frame would be drawn at each of a ladder of exposures, against the
+    /// ordinary picture: what the tone map holds the outdoor exposure to.
+    OutdoorMeasure,
     /// A copy of the normals and classes as the opaque span left them, for the pass that
     /// rewrites the landscape's.
     ScratchNormal,

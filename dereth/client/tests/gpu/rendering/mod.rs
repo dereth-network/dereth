@@ -24,6 +24,8 @@ mod hifi_lighting;
 mod hifi_off;
 #[cfg(feature = "hifi")]
 mod hifi_options;
+#[cfg(feature = "hifi")]
+mod hifi_outdoor;
 mod hifi_reshade;
 mod hifi_visual_only;
 #[cfg(feature = "hifi")]

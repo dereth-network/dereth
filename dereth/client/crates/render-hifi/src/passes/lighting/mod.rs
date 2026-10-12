@@ -28,6 +28,7 @@ const SHADOW_WGSL: &str = include_str!("shadow.wgsl");
 const RELIGHT_WGSL: &str = include_str!("relight.wgsl");
 const POST_WGSL: &str = include_str!("post.wgsl");
 const EXPOSURE_WGSL: &str = include_str!("exposure.wgsl");
+const TONE_WGSL: &str = include_str!("tone.wgsl");
 
 const HDR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const SHADOW_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -107,7 +108,8 @@ pub(crate) fn sun_up(frame: &HifiFrame) -> bool {
 
 /// The exposure for the frame's light: a key of the sun and sky, held to a sane range so night
 /// stays night and noon is not crushed.
-pub(crate) fn exposure(frame: &HifiFrame, sun_gain: f32, amb_gain: f32) -> f32 {
+#[must_use]
+pub fn exposure(frame: &HifiFrame, sun_gain: f32, amb_gain: f32) -> f32 {
     let (sun, amb) = legacy_light(frame);
     let lum = |c: [f32; 3]| {
         let l = c.map(|x| dereth_primitives::num::math::powf(x.max(0.0), 2.2));
@@ -119,9 +121,31 @@ pub(crate) fn exposure(frame: &HifiFrame, sun_gain: f32, amb_gain: f32) -> f32 {
         0.0
     };
     let key = s + lum(amb) * amb_gain;
-    // A gentle lift where the light is dim, so dusk reads, without turning night into day.
+    // A gentle lift where the light is dim, so the night reads, without turning it into day.
+    // While the sun stands a few degrees over the horizon its own light is drawn as it is: the
+    // lift fades out as it rises, so a low sun does not light the land far past the ordinary
+    // picture.
     let lift = (0.35 / key.max(1e-3)).clamp(1.0, 1.6);
-    env_f32("DERETH_HIFI_EXPOSURE", 1.8) * lift
+    let risen = smoothstep(
+        LIFT_GONE_FROM.0,
+        LIFT_GONE_FROM.1,
+        if frame.sky.sees_outside {
+            frame.sky.sun_direction.z
+        } else {
+            0.0
+        },
+    );
+    env_f32("DERETH_HIFI_EXPOSURE", 1.8) * (lift + (1.0 - lift) * risen)
+}
+
+/// The height of the sun, as the vertical share of its direction, over which the night's lift of
+/// the exposure fades out: whole below the first, gone above the second (about one and five
+/// degrees).
+const LIFT_GONE_FROM: (f32, f32) = (0.02, 0.08);
+
+fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
+    let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// How the eye adapts to the light of a frame indoors: the exposure that draws a room as the
@@ -166,6 +190,70 @@ impl Adaptation {
             into_light: 0.5,
         }
     }
+}
+
+/// How bright the outdoors is drawn against the ordinary picture of the same frame: its mean
+/// brightness held between the least and the most share of the ordinary picture's.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OutdoorHold {
+    /// The least share: one by day, so the light never dims the daylit world below the ordinary
+    /// picture; none at night, which the light draws darker on purpose.
+    pub least: f32,
+    /// The most share: a little over one, so what the light adds in shade, contrast and color
+    /// shows without the whole being drawn brighter.
+    pub most: f32,
+}
+
+impl OutdoorHold {
+    /// The hold for `frame`: by day once the sun stands a few degrees up, at night none from
+    /// below.
+    #[must_use]
+    pub fn of(frame: &HifiFrame) -> Self {
+        let risen = if frame.sky.sees_outside {
+            smoothstep(
+                LIFT_GONE_FROM.0,
+                LIFT_GONE_FROM.1,
+                frame.sky.sun_direction.z,
+            )
+        } else {
+            0.0
+        };
+        Self {
+            least: risen,
+            most: env_f32("DERETH_HIFI_OUTDOOR_MOST", 1.08),
+        }
+    }
+}
+
+/// The exposure pass's constants that hold the outdoors to the ordinary picture: whether it is
+/// held (`held`), the hold, the tone map's look, the authored fog the picture before the light
+/// lacks under the physical sky (`sky_on`), the eye, and the way back from the depth to the world.
+fn outdoor_constants(frame: &HifiFrame, sky_on: bool, held: bool) -> Vec<f32> {
+    let hold = OutdoorHold::of(frame);
+    let mut c = vec![
+        f32::from(u8::from(held)),
+        hold.least,
+        hold.most,
+        0.0,
+        env_f32("DERETH_HIFI_TOE", 0.36),
+        env_f32("DERETH_HIFI_CONTRAST", 1.04),
+        env_f32("DERETH_HIFI_VIGNETTE", 0.28),
+        0.0,
+    ];
+    // Under the physical sky the world is replayed without its authored fog; the ordinary
+    // picture has it.
+    match frame.sky.fog.filter(|_| sky_on && frame.sky.outdoor) {
+        Some(fog) => {
+            c.extend([fog.min, fog.max, 1.0, 0.0]);
+            c.extend(fog.color.map(|v| f32::from(v) / 255.0));
+            c.push(1.0);
+        }
+        None => c.extend([0.0; 8]),
+    }
+    let cam = &frame.camera;
+    c.extend([cam.eye.x, cam.eye.y, cam.eye.z, 0.0]);
+    c.extend(render_from_clip(cam.view, cam.projection).to_cols_array());
+    c
 }
 
 /// How far past the sun and the sky's exposure a room that shows the outdoors is exposed at most.
@@ -663,7 +751,7 @@ fn fs_copy(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
 #[derive(Debug)]
 struct Held {
     _texture: wgpu::Texture,
-    view: wgpu::TextureView,
+    _view: wgpu::TextureView,
     size: (u32, u32),
 }
 
@@ -691,7 +779,6 @@ pub struct Lighting {
     blocks: HashMap<u16, CasterBlock>,
     /// Whether this frame steps indoors: the pass then leaves it as re-shaded.
     split: bool,
-    src: Option<Held>,
     shadow: Option<(
         wgpu::Texture,
         Vec<wgpu::TextureView>,
@@ -986,18 +1073,19 @@ impl HifiPass for Lighting {
         }
 
         // --- the relight -------------------------------------------------------------------
-        if self.src.as_ref().is_none_or(|h| h.size != size) {
-            let t = hdr_texture(&device, "high-fidelity lit copy", size, 1);
-            let view = t.create_view(&wgpu::TextureViewDescriptor::default());
-            self.src = Some(Held {
-                _texture: t,
-                view,
-                size,
-            });
-        }
-        let Some(src) = self.src.as_ref() else {
-            return Ok(());
-        };
+        // The picture as it stands before the light per pixel, which the exposure also holds the
+        // outdoors to.
+        let src = cx.resources.texture(
+            &device,
+            crate::resources::ResourceName::LitCopy,
+            crate::resources::TextureSpec {
+                width: size.0,
+                height: size.1,
+                format: HDR,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+            },
+        )?;
         #[allow(clippy::cast_precision_loss)]
         let viewport = cx
             .seam
@@ -1234,9 +1322,9 @@ impl HifiPass for Lighting {
             })
         };
         let copy_bind = bind(&rt.hdr);
-        let relight_bind = bind(&src.view);
+        let relight_bind = bind(&src);
         {
-            let mut pass = colour_pass(cx.encoder, &src.view, "lit copy", None);
+            let mut pass = colour_pass(cx.encoder, &src, "lit copy", None);
             cx.seam.count_pass();
             pass.set_pipeline(&gpu.copy);
             pass.set_bind_group(0, &copy_bind, &[]);
@@ -1328,6 +1416,8 @@ struct PostGpu {
     exposure_params: wgpu::Buffer,
     /// The exposure in force, the frame's mean light and the exposure it is adjusting toward.
     exposure_state: wgpu::Buffer,
+    /// What the exposure reads where the outdoors was not measured this frame.
+    no_measure: wgpu::Buffer,
 }
 
 /// Bloom, exposure and the tone map.
@@ -1436,11 +1526,24 @@ impl PostGpu {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                storage_entry(5),
             ],
         });
         let exposure_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("high-fidelity exposure"),
-            source: wgpu::ShaderSource::Wgsl(format!("{EXPOSURE_WGSL}\n{COLOUR_WGSL}").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!("{EXPOSURE_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}").into(),
+            ),
         });
         let exposure_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("high-fidelity exposure"),
@@ -1463,7 +1566,9 @@ impl PostGpu {
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("high-fidelity bloom and tone map"),
-            source: wgpu::ShaderSource::Wgsl(format!("{POST_WGSL}\n{COLOUR_WGSL}").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                format!("{POST_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}").into(),
+            ),
         });
         let hdr = |blend| wgpu::ColorTargetState {
             format: HDR,
@@ -1507,8 +1612,9 @@ impl PostGpu {
             layout,
             exposure_layout,
             exposure,
-            exposure_params: uniform(device, "high-fidelity exposure", 64),
+            exposure_params: uniform(device, "high-fidelity exposure", 256),
             exposure_state,
+            no_measure: measure_buffer(device),
         }
     }
 }
@@ -1564,7 +1670,7 @@ impl HifiPass for LightingPost {
             self.bloom = Some((
                 Held {
                     _texture: t,
-                    view,
+                    _view: view,
                     size: half,
                 },
                 mips,
@@ -1708,7 +1814,23 @@ impl HifiPass for LightingPost {
             a.base,
             a.white,
         ];
+        // Outdoors the frame is held to the ordinary picture's brightness, as the measure over the
+        // opaque world found it: no more than a little brighter, and by day no darker.
+        let measured = match cx
+            .resources
+            .touch(crate::resources::ResourceName::OutdoorMeasure)
+        {
+            Some(crate::resources::Resource::Buffer(b)) if !indoors => Some(b.clone()),
+            _ => None,
+        };
+        let mut ep = ep.to_vec();
+        ep.extend(outdoor_constants(
+            frame,
+            cx.settings.sky.is_on(),
+            measured.is_some(),
+        ));
         queue.write_buffer(&gpu.exposure_params, 0, &floats(&ep));
+        let measured = measured.unwrap_or_else(|| gpu.no_measure.clone());
         {
             let eb = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("high-fidelity exposure"),
@@ -1729,6 +1851,14 @@ impl HifiPass for LightingPost {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: gpu.exposure_state.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&rt.hdr),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: measured.as_entire_binding(),
                     },
                 ],
             });
@@ -1757,6 +1887,202 @@ impl HifiPass for LightingPost {
         pass.draw(0..3, 0..1);
         drop(pass);
         *cx.resolved = true;
+        Ok(())
+    }
+}
+
+/// A read-write storage binding at `binding` of a compute stage.
+fn storage_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+/// The buffer the measure of the outdoor frame is written into.
+fn measure_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("high-fidelity outdoor measure"),
+        size: 48,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+#[derive(Debug)]
+struct MeasureGpu {
+    layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::ComputePipeline,
+    params: wgpu::Buffer,
+    state: wgpu::Buffer,
+}
+
+/// The outdoor frame's brightness against the ordinary picture's, once its light, occlusion,
+/// bounced light and air are drawn and before the weather: at each of a ladder of exposures
+/// about the sun and the sky's, as the tone map would draw it. The tone map holds the outdoor
+/// exposure to it.
+#[derive(Debug, Default)]
+pub struct OutdoorMeasure {
+    gpu: Option<MeasureGpu>,
+}
+
+impl HifiPass for OutdoorMeasure {
+    fn name(&self) -> &'static str {
+        "outdoor measure"
+    }
+
+    fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
+        s.lighting.is_on() && f.sky.outdoor
+    }
+
+    fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
+        Ok(())
+    }
+
+    fn encode(&mut self, cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
+        if cx.reshade.is_none() || cx.settings.debug == DebugView::Shadows {
+            return Ok(());
+        }
+        let ordinary = match cx.resources.touch(crate::resources::ResourceName::LitCopy) {
+            Some(crate::resources::Resource::Texture(_, v)) => v.clone(),
+            _ => return Ok(()),
+        };
+        let Some(rt) = cx.reshade else {
+            return Ok(());
+        };
+        let device = cx.seam.device().clone();
+        let queue = cx.seam.queue().clone();
+        if cx
+            .resources
+            .touch(crate::resources::ResourceName::OutdoorMeasure)
+            .is_none()
+        {
+            cx.resources.insert(
+                crate::resources::ResourceName::OutdoorMeasure,
+                crate::resources::Resource::Buffer(measure_buffer(&device)),
+                48,
+            )?;
+        }
+        let Some(crate::resources::Resource::Buffer(measured)) = cx
+            .resources
+            .get(crate::resources::ResourceName::OutdoorMeasure)
+        else {
+            return Ok(());
+        };
+        let measured = measured.clone();
+        let gpu = self.gpu.get_or_insert_with(|| {
+            let float = wgpu::TextureSampleType::Float { filterable: false };
+            let d2 = wgpu::TextureViewDimension::D2;
+            let compute = wgpu::ShaderStages::COMPUTE;
+            let texture = |binding, sample_type| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: compute,
+                ty: wgpu::BindingType::Texture {
+                    sample_type,
+                    view_dimension: d2,
+                    multisampled: false,
+                },
+                count: None,
+            };
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("high-fidelity outdoor measure"),
+                entries: &[
+                    texture(0, float),
+                    texture(1, wgpu::TextureSampleType::Depth),
+                    buf_entry(2, compute, false),
+                    storage_entry(3),
+                    texture(4, float),
+                    storage_entry(5),
+                ],
+            });
+            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("high-fidelity outdoor measure"),
+                source: wgpu::ShaderSource::Wgsl(
+                    format!("{EXPOSURE_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}").into(),
+                ),
+            });
+            let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("high-fidelity outdoor measure"),
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
+            });
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("high-fidelity outdoor measure"),
+                layout: Some(&pl),
+                module: &module,
+                entry_point: Some("measure"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            MeasureGpu {
+                layout,
+                pipeline,
+                params: uniform(&device, "high-fidelity outdoor measure", 256),
+                state: measure_buffer(&device),
+            }
+        });
+        let frame = cx.frame;
+        let size = cx.seam.surface_size();
+        #[allow(clippy::cast_precision_loss)]
+        let viewport = cx
+            .seam
+            .world_viewport()
+            .map_or([0.0, 0.0, size.0 as f32, size.1 as f32], |v| {
+                [v.x as f32, v.y as f32, v.width as f32, v.height as f32]
+            });
+        let exposure = exposure(
+            frame,
+            env_f32("DERETH_HIFI_SUN", 2.6),
+            env_f32("DERETH_HIFI_AMBIENT", 0.85),
+        );
+        let mut p = viewport.to_vec();
+        p.extend([0.0, exposure, 0.0, 0.0]);
+        p.extend([0.0; 8]);
+        p.extend(outdoor_constants(frame, cx.settings.sky.is_on(), true));
+        queue.write_buffer(&gpu.params, 0, &floats(&p));
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("high-fidelity outdoor measure"),
+            layout: &gpu.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&rt.hdr),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(cx.depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: gpu.params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: gpu.state.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&ordinary),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: measured.as_entire_binding(),
+                },
+            ],
+        });
+        let mut pass = cx.encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("outdoor measure"),
+            timestamp_writes: cx.timer.compute_writes("outdoor measure"),
+        });
+        pass.set_pipeline(&gpu.pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
         Ok(())
     }
 }
@@ -1797,7 +2123,10 @@ pub fn shaders() -> [(&'static str, String); 7] {
             "relight",
             format!("{RELIGHT_WGSL}\n{COLOUR_WGSL}\n{COPY_WGSL}"),
         ),
-        ("post", format!("{POST_WGSL}\n{COLOUR_WGSL}")),
-        ("exposure", format!("{EXPOSURE_WGSL}\n{COLOUR_WGSL}")),
+        ("post", format!("{POST_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}")),
+        (
+            "exposure",
+            format!("{EXPOSURE_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}"),
+        ),
     ]
 }

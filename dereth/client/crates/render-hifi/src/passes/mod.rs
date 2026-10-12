@@ -22,6 +22,12 @@ pub fn all() -> Vec<(Slot, Box<dyn HifiPass>)> {
         (Slot::Opaque, Box::new(gi::GlobalIllumination::default())),
         (Slot::Atmosphere, Box::new(gtao::Gtao::late())),
         (Slot::Atmosphere, Box::new(air)),
+        // Once the light, the occlusion, the bounced light and the air are drawn, before the
+        // weather.
+        (
+            Slot::Atmosphere,
+            Box::new(lighting::OutdoorMeasure::default()),
+        ),
         (Slot::Atmosphere, Box::new(weather::Weather::default())),
         (Slot::Hdr, Box::new(lighting::LightingPost::default())),
     ]
