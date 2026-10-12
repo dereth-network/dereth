@@ -9,7 +9,8 @@
 // chosen: `?server=<url>&account=<name>` adds that server and chooses it; `?era=<name>` (and
 // `?features=<name=true,...>`) names the era and systems of a server reached by its WebSocket URL,
 // whose status the page does not read. `?dats=http` offers the dev runner's data files
-// (`cargo xtask web --dat-dir`), and `?list=<url>` reads the world list from another address.
+// (`cargo xtask web --dat-dir`), and `?list=<url>` reads the world list from another address (a
+// `Servers.xml`, read alone).
 // `?log` (or `?log=debug`, ...) shows the client's log and its frame rate over the canvas, for
 // reporting a problem, and `?gpu=webgl` draws with WebGL 2 where a browser's WebGPU misbehaves.
 

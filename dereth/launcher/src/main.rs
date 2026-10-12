@@ -25,6 +25,7 @@ use std::time::Duration;
 use backend::{lock, Backend, Choice, LaunchOutcome, Shared, Snapshot, WorldView};
 use dereth_launch::folders::{self, Folders, System};
 use dereth_launch::library::FolderFind;
+use dereth_launch::serverlist;
 use dereth_launch::state::Favourite;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -395,12 +396,14 @@ fn main() {
                 .devtools(DEVTOOLS)
                 .build()?;
 
-            let servers_list = std::env::var("DERETH_SERVERS_LIST")
-                .unwrap_or_else(|_| backend::DEFAULT_SERVERS_LIST.into());
+            // The hub's list, then the community's own when the hub does not answer with one; a
+            // list named by `DERETH_SERVERS_LIST` is read alone.
+            let list_sources =
+                serverlist::sources(std::env::var("DERETH_SERVERS_LIST").ok().as_deref());
             let (vault, name) = vault();
             let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(Backend::new(
                 folders.clone(),
-                servers_list,
+                list_sources,
                 client.clone(),
                 vault,
                 name,

@@ -465,21 +465,46 @@ pub fn server_url_problem(url: &str) -> Option<String> {
 
 // ---- the front page's launcher ---------------------------------------------------------------
 
-/// Where the community list is read from: the desktop launcher's address for it.
-#[wasm_bindgen(js_name = frontListUrl)]
+/// Start reading the world list, by the desktop launcher's rule: the `Servers.xml` `named` (the
+/// page's `list` parameter) alone when one is named, and otherwise the Dereth Network hub's list,
+/// then the community's own. Answers the first address to fetch.
+#[wasm_bindgen(js_name = frontListStart)]
 #[must_use]
-pub fn front_list_url() -> String {
-    dereth_launch::serverlist::COMMUNITY_LIST_URL.to_owned()
+pub fn front_list_start(named: Option<String>) -> Option<String> {
+    FRONT.with(|f| f.borrow_mut().list_start(named.as_deref()))
 }
 
-/// Read the community list (`Servers.xml`, as fetched); answers how many worlds it lists.
+/// What fetching the address last given brought: its `body`, or the `error` that kept it from
+/// coming. Answers the next address to fetch, or nothing once the reading is over.
+#[wasm_bindgen(js_name = frontListNext)]
+#[must_use]
+pub fn front_list_next(body: Option<String>, error: Option<String>) -> Option<String> {
+    let fetched = body
+        .map(String::into_bytes)
+        .ok_or_else(|| error.unwrap_or_else(|| "no answer".to_owned()));
+    FRONT.with(|f| f.borrow_mut().list_next(fetched))
+}
+
+/// The list read becomes the world list. Answers, as JSON, how many worlds it lists, where it came
+/// from and the day's copy (fetched at `now`, seconds since the epoch) for the page to keep.
 ///
 /// # Errors
-/// The list does not read; the worlds read before stand.
-#[wasm_bindgen(js_name = frontList)]
-pub fn front_list(xml: &str) -> Result<u32, JsError> {
+/// No source answered with its list; the worlds read before stand.
+#[wasm_bindgen(js_name = frontListDone)]
+pub fn front_list_done(now: f64) -> Result<String, JsError> {
+    FRONT
+        .with(|f| f.borrow_mut().list_done(whole(now)))
+        .map_err(js_err)
+}
+
+/// Take the day's copy of the world list, as the page kept it; answers how many worlds it lists.
+///
+/// # Errors
+/// The copy does not read; the worlds read before stand.
+#[wasm_bindgen(js_name = frontListCopy)]
+pub fn front_list_copy(copy: &str) -> Result<u32, JsError> {
     let n = FRONT
-        .with(|f| f.borrow_mut().set_list(xml))
+        .with(|f| f.borrow_mut().set_copy(copy))
         .map_err(js_err)?;
     Ok(u32::try_from(n).unwrap_or(u32::MAX))
 }

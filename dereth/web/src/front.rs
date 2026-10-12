@@ -1,9 +1,10 @@
 //! The front page's launcher: the worlds and what each says, what the player chose and added, the
 //! data sets the player keeps in this browser and which of them a world takes, and what the client
 //! is told about the world. All of it is the desktop launcher's own logic (`dereth-launch`): the
-//! community list read by its reader, the table of worlds that run a client of their own, a world
-//! shown as its window shows it, its sets matched by iterations as its library matches them, and
-//! the client told about the world in the words its command line carries.
+//! world list read from its sources in their order (the page fetches each address it is given),
+//! the table of worlds that run a client of their own, a world shown as its window shows it, its
+//! sets matched by iterations as its library matches them, and the client told about the world in
+//! the words its command line carries.
 //!
 //! The page keeps the launcher's state record between visits (as JSON in the browser's storage),
 //! and the day's copy of the list; this holds them while the page is open and answers the page's
@@ -17,7 +18,7 @@ use dereth_launch::choices;
 use dereth_launch::datset::{self, DatOrigin, DatSet, SetKind};
 use dereth_launch::eras;
 use dereth_launch::launch;
-use dereth_launch::serverlist::{self, ListCache};
+use dereth_launch::serverlist::{self, ListCache, ListFetch};
 use dereth_launch::state::{LauncherState, WorldPrefs};
 use dereth_launch::status::{self, LiveStatus};
 use dereth_launch::world::{Emulator, World};
@@ -32,6 +33,8 @@ pub struct Front {
     live: BTreeMap<String, LiveStatus>,
     /// Worlds whose status document did not answer: shown as down.
     unanswered: BTreeMap<String, bool>,
+    /// The list being read, while the page fetches it.
+    fetch: Option<ListFetch>,
 }
 
 /// Whether a copy of the list fetched at `fetched_at` (seconds since the epoch) is still the
@@ -40,7 +43,7 @@ pub struct Front {
 pub fn list_is_fresh(fetched_at: u64, now: u64) -> bool {
     ListCache {
         fetched_at,
-        list: String::new(),
+        ..ListCache::default()
     }
     .is_fresh(now)
 }
@@ -55,14 +58,50 @@ pub fn overlay_folder(address: &str) -> String {
 }
 
 impl Front {
-    /// Read the community list, `Servers.xml`. Answers how many worlds it lists.
+    /// Take the day's copy of the world list as the page kept it (the desktop launcher's copy, as
+    /// JSON). Answers how many worlds it lists.
     ///
     /// # Errors
-    /// The list does not read; the worlds read before stand.
-    pub fn set_list(&mut self, xml: &str) -> Result<usize, String> {
-        let list = serverlist::parse_servers_xml(xml.as_bytes()).map_err(|e| e.to_string())?;
-        self.list = list;
+    /// The copy does not read; the worlds read before stand.
+    pub fn set_copy(&mut self, copy: &str) -> Result<usize, String> {
+        let copy: ListCache = serde_json::from_str(copy).map_err(|e| e.to_string())?;
+        self.list = copy.worlds().map_err(|e| e.to_string())?;
         Ok(self.list.len())
+    }
+
+    /// Start reading the world list from its sources: the `Servers.xml` `named` alone (the page's
+    /// `list` parameter) when one is named, and otherwise the hub's list, then the community's own.
+    /// Answers the first address to fetch.
+    pub fn list_start(&mut self, named: Option<&str>) -> Option<String> {
+        let fetch = ListFetch::new(serverlist::sources(named));
+        let first = fetch.next_url().map(str::to_owned);
+        self.fetch = Some(fetch);
+        first
+    }
+
+    /// What fetching the address last given brought: its body, or why there is none. Answers the
+    /// next address to fetch, or nothing once the reading is over.
+    pub fn list_next(&mut self, fetched: Result<Vec<u8>, String>) -> Option<String> {
+        let fetch = self.fetch.as_mut()?;
+        let url = fetch.next_url().unwrap_or_default().to_owned();
+        fetch.take(fetched.map_err(|e| format!("{url}: {e}")));
+        fetch.next_url().map(str::to_owned)
+    }
+
+    /// The list read: it becomes the world list. Answers how many worlds it lists, where it came
+    /// from and the day's copy (fetched at `now`), for the page to keep, as JSON.
+    ///
+    /// # Errors
+    /// Each source's failure when none answered with its list; the worlds read before stand.
+    pub fn list_done(&mut self, now: u64) -> Result<String, String> {
+        let fetch = self
+            .fetch
+            .take()
+            .ok_or("the world list is not being read")?;
+        let from = fetch.source().map(|s| s.url.clone());
+        let (copy, worlds) = fetch.finish(now)?;
+        self.list = worlds;
+        Ok(json!({"worlds": self.list.len(), "from": from, "copy": copy}).to_string())
     }
 
     /// Take the launcher's state record as the page kept it (empty for none).
@@ -315,6 +354,88 @@ mod tests {
   </ServerItem>
 </ArrayOfServerItem>";
 
+    /// The day's copy of `xml`, as the page has always kept a `Servers.xml` (and kept every copy
+    /// before the hub's list was read).
+    fn copy_of(xml: &str) -> String {
+        json!({"fetched_at": 1, "list": xml}).to_string()
+    }
+
+    /// The page reads the list as the desktop launcher does: the hub's first, the community's when
+    /// the hub does not answer with its list, a list it names alone, and the last list it read when
+    /// none answers.
+    #[test]
+    fn the_page_reads_the_hubs_list_first_and_the_community_list_when_the_hub_fails() {
+        use serverlist::{COMMUNITY_LIST_URL, HUB_LIST_URL};
+        let mut f = Front::default();
+        let page = json!({"data": [{"slug": "ushores", "name": "Unfamiliar Shores",
+            "isDemo": false, "emulator": {"family": "ACE"},
+            "endpoint": {"mode": "manual", "address": "192.0.2.7", "port": 9000},
+            "provenance": {"externalId": "3f1f41ec-c7fd-4ed9-b47d-25b0d94219c1",
+                           "legacyType": "PvE"}}], "nextOffset": null})
+        .to_string();
+        let hub = f.list_start(None).unwrap();
+        assert!(hub.starts_with(HUB_LIST_URL), "{hub}");
+        assert_eq!(f.list_next(Ok(page.into_bytes())), None);
+        let done: Value = serde_json::from_str(&f.list_done(5).unwrap()).unwrap();
+        assert_eq!(
+            (done["worlds"].as_u64(), done["from"].as_str()),
+            (Some(1), Some(HUB_LIST_URL))
+        );
+        assert_eq!(f.worlds()["worlds"][0]["slug"], "unfamiliar-shores");
+        assert_eq!(f.worlds()["worlds"][0]["logon_version"], "c118");
+        let mut again = Front::default();
+        assert_eq!(
+            again.set_copy(&done["copy"].to_string()),
+            Ok(1),
+            "the copy reads again"
+        );
+
+        assert_eq!(f.list_start(None), Some(hub.clone()));
+        assert_eq!(
+            f.list_next(Err("Failed to fetch".into())).as_deref(),
+            Some(COMMUNITY_LIST_URL)
+        );
+        assert_eq!(f.list_next(Ok(LIST.as_bytes().to_vec())), None);
+        let done: Value = serde_json::from_str(&f.list_done(6).unwrap()).unwrap();
+        assert_eq!(
+            (done["worlds"].as_u64(), done["from"].as_str()),
+            (Some(2), Some(COMMUNITY_LIST_URL))
+        );
+
+        // A hub that shows no world is passed over too.
+        f.list_start(None);
+        let empty = json!({"data": [], "total": 0, "nextOffset": null}).to_string();
+        assert_eq!(
+            f.list_next(Ok(empty.into_bytes())).as_deref(),
+            Some(COMMUNITY_LIST_URL)
+        );
+        f.list_next(Ok(LIST.as_bytes().to_vec()));
+        assert_eq!(f.list_done(7).map(|_| ()), Ok(()));
+
+        f.list_start(None);
+        f.list_next(Err("HTTP 502".into()));
+        assert_eq!(f.list_next(Ok(b"<html/>".to_vec())), None);
+        let e = f.list_done(7).unwrap_err();
+        assert!(
+            e.contains(&format!("{hub}: HTTP 502")) && e.contains(COMMUNITY_LIST_URL),
+            "{e}"
+        );
+        assert_eq!(
+            f.worlds()["worlds"].as_array().unwrap().len(),
+            2,
+            "the last list stands"
+        );
+
+        let named = "https://lists.example/Servers.xml";
+        assert_eq!(f.list_start(Some(named)).as_deref(), Some(named));
+        assert_eq!(
+            f.list_next(Err("HTTP 404".into())),
+            None,
+            "nothing else is fetched"
+        );
+        assert!(f.list_done(8).unwrap_err().starts_with(named));
+    }
+
     fn file(name: &str, bytes: Vec<u8>) -> (String, u64, Box<dyn dereth_dat::DatStorage>) {
         let size = bytes.len() as u64;
         (name.to_owned(), size, Box::new(bytes))
@@ -335,8 +456,9 @@ mod tests {
     #[test]
     fn the_list_and_the_table_read_in_the_page_as_in_the_desktop_launcher() {
         let mut f = Front::default();
-        assert_eq!(f.set_list(LIST), Ok(2));
-        assert!(f.set_list("<html/>").is_err(), "not the list");
+        assert_eq!(f.set_copy(&copy_of(LIST)), Ok(2));
+        assert!(f.set_copy(&copy_of("<html/>")).is_err(), "not the list");
+        assert!(f.set_copy("not a copy").is_err());
         let all = f.worlds();
         let worlds = all["worlds"].as_array().unwrap();
         assert_eq!(worlds.len(), 2, "a list that does not read leaves the last");
@@ -431,7 +553,7 @@ mod tests {
     #[test]
     fn sets_kept_in_the_browser_are_matched_to_a_world_by_their_iterations() {
         let mut f = Front::default();
-        f.set_list(LIST).unwrap();
+        f.set_copy(&copy_of(LIST)).unwrap();
         let ids = f.add_sets("sets/eor", end_of_retail_files());
         assert_eq!(
             ids.len(),

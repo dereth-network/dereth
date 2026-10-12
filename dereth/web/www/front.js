@@ -1,6 +1,7 @@
 // The front page: pick a world or type an address, choose or add the data files, connect. The
-// worlds come from the community list, the launcher's table of worlds that run a client of their
-// own, and the servers the player adds; a world's page names the data sets kept in this browser
+// worlds come from the world list (the Dereth Network hub's, or the community's own when the hub
+// does not answer), the launcher's table of worlds that run a client of their own, and the
+// servers the player adds; a world's page names the data sets kept in this browser
 // that it takes (matched by what the files report, as the desktop library matches them), its
 // overlay, and how it is reached: directly, for an Empyrean world with its WebSocket endpoint on,
 // or through dereth-web-relay on this machine for any other. What the client is told about the
@@ -57,27 +58,42 @@ export function startFront({ call, launch, params, log }) {
   // ---- the world list -----------------------------------------------------------------------
 
   async function fetchList(force) {
-    const cached = load(LIST_KEY, null);
+    let cached = load(LIST_KEY, null);
     const now = Date.now() / 1000;
-    if (!force && cached && (await call('listFresh', cached.fetched_at, now))) {
-      await call('list', cached.list);
-      return '';
+    // The copy's worlds are the list until a fetch brings another. A copy that does not read
+    // (damaged, or in a shape this page does not know) is no copy, and the list is fetched.
+    if (cached && !(await call('listCopy', JSON.stringify(cached)).then(() => true, () => false))) {
+      cached = null;
     }
-    const url = params.get('list') || (await call('listUrl'));
+    if (!force && cached && (await call('listFresh', cached.fetched_at, now))) return '';
+    // The launcher in the worker names each address to fetch: the hub's list a page at a time,
+    // then the community's own when the hub does not answer with its list; a list the page's
+    // `list` parameter names is read alone.
+    let url = await call('listStart', params.get('list'));
+    while (url) {
+      let body = null;
+      let error = null;
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        body = await res.text();
+      } catch (e) {
+        error = String(e?.message ?? e);
+      }
+      url = await call('listNext', body, error);
+    }
     try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const xml = await res.text();
-      const n = await call('list', xml);
-      keep(LIST_KEY, { fetched_at: Math.floor(now), list: xml });
-      log(`world list: ${n} worlds from ${url}`);
+      const done = await call('listDone', Math.floor(now));
+      keep(LIST_KEY, done.copy);
+      log(`world list: ${done.worlds} worlds from ${done.from}`);
       return '';
     } catch (e) {
+      const why = e?.message ?? e;
+      log(`world list: ${why}`);
       if (cached) {
-        await call('list', cached.list).catch(() => {});
-        return `The world list did not answer (${e?.message ?? e}); showing the copy from ${new Date(cached.fetched_at * 1000).toLocaleString()}.`;
+        return `The world list did not answer (${why}); showing the copy from ${new Date(cached.fetched_at * 1000).toLocaleString()}.`;
       }
-      return `The world list did not answer (${e?.message ?? e}). Add a server by its address.`;
+      return `The world list did not answer (${why}). Add a server by its address.`;
     }
   }
 

@@ -1,4 +1,4 @@
-//! The worlds a launcher shows: the community list's, then the servers the player added, each as
+//! The worlds a launcher shows: the world list's, then the servers the player added, each as
 //! it last said of itself (its status) and with what the player chose for what it does not say.
 //!
 //! Every front end over this crate (the launcher's window, a web page) shows a world this way, so

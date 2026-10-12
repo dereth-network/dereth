@@ -191,10 +191,13 @@ Chrome shares Edge's engine but has not been run itself.
 The page opens on a launcher, the desktop launcher's own logic run in the browser (the module
 carries it): pick a world or type an address, choose or add the data files, and play.
 
-- **The worlds** are the community list (`acresources/serverslist`'s `Servers.xml`, fetched from
-  the browser and kept for a day in its local storage), the launcher's table of worlds that run a
-  client of their own (their logon version, rules, era and files), and the servers the player adds
-  by address: `host:port`, a `wss://` URL, or an Empyrean status address (`https://…/status`).
+- **The worlds** are the world list (the Dereth Network hub's, `/v1/servers`, which holds the
+  community list, `acresources/serverslist`'s `Servers.xml`, and the worlds registered at the
+  hub; that `Servers.xml` itself when the hub does not answer with its list; or the `Servers.xml`
+  the `list` parameter names, read alone; fetched from the browser and kept for a day in its local
+  storage), the launcher's table of worlds that run a client of their own (their logon version,
+  rules, era and files), and the servers the player adds by address: `host:port`, a `wss://`
+  URL, or an Empyrean status address (`https://…/status`).
 - **What the client is told about the world** (its era, the set its world is drawn from, its
   systems, its logon version and the rules its client played by) is the launcher's one
   description of it: the words the desktop launcher puts on the client's command line, read by the
@@ -298,7 +301,7 @@ chosen. The page takes only these:
 | `server=<url>` | adds that server (a `wss://` URL or a status address) and chooses it |
 | `account=<name>` | fills the Account field |
 | `era=<name>`, `features=<name=true,...>` | the era and systems of the server `server=` names, when its status does not say them |
-| `list=<url>` | reads the world list from another address |
+| `list=<url>` | reads the world list from another address, a `Servers.xml` read alone |
 | `log`, `log=<level>` | shows the client's log and its frame rate over the canvas, and sets how much of the log reaches the browser console (`info` by default; `debug`, `trace`, `warn`, `error`), for reporting a problem |
 | `gpu=webgl` | draws with WebGL 2 even where the browser has WebGPU, for a browser whose WebGPU misbehaves |
 | `dats=http` | offers the dev runner's data files (development only; see below) |

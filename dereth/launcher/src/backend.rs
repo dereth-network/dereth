@@ -22,7 +22,7 @@ use dereth_launch::install::{ClientKind, Installation};
 use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
-use dereth_launch::serverlist::{self, ListCache};
+use dereth_launch::serverlist::{self, ListCache, ListSource};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, Vault};
@@ -31,10 +31,6 @@ use dereth_launch::world::WorldState;
 use dereth_launch::world::{AccountModel, Emulator, StatusMethod, Told, World};
 use dereth_launch::worlds;
 use serde::{Deserialize, Serialize};
-
-/// Where the world list comes from unless `DERETH_SERVERS_LIST` says otherwise: the community's
-/// list.
-pub const DEFAULT_SERVERS_LIST: &str = serverlist::COMMUNITY_LIST_URL;
 
 const STATUS_INTERVAL: Duration = Duration::from_secs(60);
 
@@ -326,7 +322,8 @@ const RETAIL_HERE: bool = cfg!(windows);
 /// The launcher's state and everything it is doing.
 pub struct Backend {
     folders: Folders,
-    servers_list: String,
+    /// Where the world list is read from, in the order the sources are tried.
+    list_sources: Vec<ListSource>,
     state: LauncherState,
     dereth: Option<Installation>,
     worlds: Vec<World>,
@@ -367,14 +364,15 @@ pub fn lock(b: &Shared) -> MutexGuard<'_, Backend> {
 
 impl Backend {
     /// Load the state from the settings folder and the last copy of the world list from the data
-    /// folder, read the Dereth client at `dereth_exe`, and start. `servers_list` is the list's
-    /// address, and `client_preferences` the preferences file the Dereth client reads.
+    /// folder, read the Dereth client at `dereth_exe`, and start. `list_sources` are where the list is
+    /// read from, in the order they are tried ([`serverlist::sources`]), and
+    /// `client_preferences` the preferences file the Dereth client reads.
     ///
     /// A first run whose Dereth client has a full end-of-retail set beside it (a developer's
     /// checkout, say) takes that set as the shared one, so there is something to play with at once.
     pub fn new(
         folders: Folders,
-        servers_list: String,
+        list_sources: Vec<ListSource>,
         dereth_exe: Option<PathBuf>,
         vault: Box<dyn Vault + Send>,
         vault_name: &'static str,
@@ -413,7 +411,7 @@ impl Backend {
             .unwrap_or_default();
         Self {
             folders,
-            servers_list,
+            list_sources,
             state,
             dereth,
             worlds,
@@ -571,17 +569,26 @@ impl Backend {
         }
     }
 
-    /// Fetch the list again on a thread, whatever the copy's age: the refresh button. A failure
-    /// keeps the last copy's worlds on screen.
+    /// Fetch the list again on a thread, whatever the copy's age: the refresh button. Its sources
+    /// are tried in order until one answers with a list; when none does, the last copy's worlds
+    /// stay on screen.
     pub fn refresh(shared: &Shared) {
-        let list_url = {
+        Self::refresh_with(shared, http_get);
+    }
+
+    /// [`Self::refresh`], fetching each address with `get`. Answers the thread that fetches.
+    fn refresh_with<G>(shared: &Shared, get: G) -> std::thread::JoinHandle<()>
+    where
+        G: FnMut(&str) -> Result<Vec<u8>, String> + Send + 'static,
+    {
+        let sources = {
             let mut b = lock(shared);
             b.list_state = ListState::Loading;
-            b.servers_list.clone()
+            b.list_sources.clone()
         };
         let shared = shared.clone();
         std::thread::spawn(move || {
-            let result = fetch_list(&list_url, now());
+            let result = serverlist::fetch_first(&sources, now(), get);
             let mut b = lock(&shared);
             match result {
                 Ok((cache, worlds)) => {
@@ -601,7 +608,7 @@ impl Backend {
             }
             drop(b);
             Self::probe_all(&shared);
-        });
+        })
     }
 
     /// Ask every world without a status document (the player's own servers included) whether it
@@ -1268,18 +1275,6 @@ impl Backend {
     }
 }
 
-/// Fetch the list, as the day's copy and the worlds it holds.
-fn fetch_list(list_url: &str, now: u64) -> Result<(ListCache, Vec<World>), String> {
-    let body = http_get(list_url)?;
-    let list = String::from_utf8(body).map_err(|e| format!("{list_url}: {e}"))?;
-    let cache = ListCache {
-        fetched_at: now,
-        list,
-    };
-    let worlds = cache.worlds().map_err(|e| e.to_string())?;
-    Ok((cache, worlds))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1314,7 +1309,7 @@ mod tests {
         }
         let mut b = Backend::new(
             Folders::single(dir.join("state")),
-            String::new(),
+            Vec::new(),
             Some(exe),
             Box::new(MemoryVault::default()),
             "memory",
@@ -1697,12 +1692,13 @@ mod tests {
             list: "<ArrayOfServerItem><ServerItem><name>Leafcull</name><server_host>l.example</server_host>\
                    <server_port>9000</server_port><type>PvE</type></ServerItem></ArrayOfServerItem>"
                 .into(),
+            hub: Vec::new(),
         }
         .save(&folders.data)
         .unwrap();
         let b = Backend::new(
             folders,
-            String::new(),
+            Vec::new(),
             None,
             Box::new(MemoryVault::default()),
             "memory",
@@ -1717,6 +1713,168 @@ mod tests {
             "fresh: no fetch at start"
         );
         assert_eq!(s.eras.len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The list the launcher fetches by default comes from the hub, or from the community's own
+    /// list when the hub does not answer with its list, and becomes the day's copy; when neither
+    /// answers with a list that shows a world, the last copy's worlds stay on screen and the list is
+    /// unavailable. A world keeps its key, and what is remembered under it, whichever list it came
+    /// from.
+    #[test]
+    fn the_community_list_stands_in_for_the_hub_and_neither_answering_keeps_the_last_copy() {
+        use serverlist::{COMMUNITY_LIST_URL, HUB_LIST_URL};
+        let list_of = |names: &[&str]| {
+            let items: String = names
+                .iter()
+                .map(|n| format!("<ServerItem><name>{n}</name></ServerItem>"))
+                .collect();
+            format!("<ArrayOfServerItem>{items}</ArrayOfServerItem>")
+        };
+        // The hub lists the world under a slug of its own; its address is this machine's.
+        let hub_page = serde_json::json!({"data": [{"slug": "leafcull", "name": "Leafcull Isle",
+            "isDemo": false, "emulator": {"family": "ACE"},
+            "endpoint": {"mode": "manual", "address": "127.0.0.1", "port": 9}}],
+            "nextOffset": null})
+        .to_string();
+        let dir = tmp("list-sources");
+        let folders = Folders::single(dir.join("state"));
+        ListCache {
+            fetched_at: 1,
+            list: list_of(&["Leafcull Isle"]),
+            hub: Vec::new(),
+        }
+        .save(&folders.data)
+        .unwrap();
+        let shared: Shared = Arc::new(Mutex::new(Backend::new(
+            folders.clone(),
+            serverlist::sources(None),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            None,
+        )));
+        lock(&shared).state.record_recent(Recent {
+            world_slug: "leafcull-isle".into(),
+            account: "player".into(),
+            client: ClientKind::Dereth,
+            dat_set_id: None,
+            classic_set_id: None,
+            last_played: 1,
+        });
+        let slugs = || -> Vec<String> {
+            lock(&shared)
+                .snapshot()
+                .worlds
+                .into_iter()
+                .map(|w| w.slug)
+                .collect()
+        };
+        let remembered = || -> Vec<String> {
+            let b = lock(&shared);
+            b.state
+                .recent
+                .iter()
+                .map(|r| r.world_slug.clone())
+                .collect()
+        };
+        assert_eq!(
+            slugs(),
+            ["leafcull-isle"],
+            "the last copy, before any fetch"
+        );
+
+        let fetch = |hub: Result<String, &'static str>, community: Result<String, &'static str>| {
+            let asked = Arc::new(Mutex::new(Vec::new()));
+            let ask = asked.clone();
+            Backend::refresh_with(&shared, move |url| {
+                ask.lock().unwrap().push(url.to_owned());
+                let answer = if url.starts_with(HUB_LIST_URL) {
+                    hub.clone()
+                } else {
+                    community.clone()
+                };
+                answer
+                    .map(String::into_bytes)
+                    .map_err(|e| format!("{url}: {e}"))
+            })
+            .join()
+            .unwrap();
+            let asked = asked.lock().unwrap().clone();
+            asked
+        };
+
+        let asked = fetch(Ok(hub_page.clone()), Ok(list_of(&["Eulmore"])));
+        assert_eq!(asked.len(), 1, "{asked:?}: the hub answered");
+        assert!(asked[0].starts_with(HUB_LIST_URL), "{asked:?}");
+        assert_eq!(
+            slugs(),
+            ["leafcull-isle"],
+            "kept under its name, not the hub's slug"
+        );
+        assert_eq!(
+            remembered(),
+            ["leafcull-isle"],
+            "and what was remembered with it"
+        );
+        assert_eq!(lock(&shared).list_state, ListState::Loaded);
+        let copy = ListCache::load(&folders.data).unwrap();
+        assert_eq!(
+            copy.hub,
+            std::slice::from_ref(&hub_page),
+            "the hub's list is the day's copy"
+        );
+
+        let started = now();
+        let asked = fetch(
+            Err("http status: 502"),
+            Ok(list_of(&["Leafcull Isle", "Eulmore"])),
+        );
+        assert_eq!(asked.len(), 2, "{asked:?}");
+        assert!(asked[0].starts_with(HUB_LIST_URL), "{asked:?}");
+        assert_eq!(asked[1], COMMUNITY_LIST_URL);
+        assert_eq!(slugs(), ["leafcull-isle", "eulmore"]);
+        assert_eq!(remembered(), ["leafcull-isle"]);
+        assert_eq!(lock(&shared).list_state, ListState::Loaded);
+        assert_eq!(lock(&shared).list_error, None);
+        let copy = ListCache::load(&folders.data).unwrap();
+        assert_eq!(
+            copy.list,
+            list_of(&["Leafcull Isle", "Eulmore"]),
+            "the community's list is the day's copy"
+        );
+        assert!(copy.hub.is_empty() && copy.fetched_at >= started);
+
+        fetch(Err("connection refused"), Err("connection refused"));
+        assert_eq!(
+            slugs(),
+            ["leafcull-isle", "eulmore"],
+            "the last copy's worlds stay"
+        );
+        assert_eq!(lock(&shared).list_state, ListState::Unavailable);
+        let error = lock(&shared).list_error.clone().unwrap();
+        assert!(
+            error.contains(HUB_LIST_URL) && error.contains(COMMUNITY_LIST_URL),
+            "{error}"
+        );
+        assert_eq!(
+            ListCache::load(&folders.data).as_ref(),
+            Some(&copy),
+            "the copy is kept as it was"
+        );
+
+        // Lists that show no world are no answer either: nothing empty takes the place of the
+        // worlds on screen or of the day's copy.
+        let empty_hub = serde_json::json!({"data": [], "total": 0, "nextOffset": null}).to_string();
+        fetch(Ok(empty_hub), Ok(list_of(&[])));
+        assert_eq!(slugs(), ["leafcull-isle", "eulmore"]);
+        assert_eq!(remembered(), ["leafcull-isle"]);
+        assert_eq!(lock(&shared).list_state, ListState::Unavailable);
+        assert_eq!(
+            ListCache::load(&folders.data),
+            Some(copy),
+            "an empty list is never the day's copy"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1784,7 +1942,7 @@ mod tests {
 
         let again = Backend::new(
             Folders::single(dir.join("state")),
-            String::new(),
+            Vec::new(),
             None,
             Box::new(MemoryVault::default()),
             "memory",
@@ -1803,7 +1961,7 @@ mod tests {
         // With no preferences at all, nothing is asked.
         let none = Backend::new(
             Folders::single(dir.join("state")),
-            String::new(),
+            Vec::new(),
             None,
             Box::new(MemoryVault::default()),
             "memory",

@@ -306,9 +306,11 @@ function input(ev) {
 // What the front page asks of the launcher: the module's own calls, and the files kept in this
 // browser. Each answers a value, or throws with what to tell the player.
 const calls = {
-  listUrl: () => dereth.frontListUrl(),
+  listStart: (named) => dereth.frontListStart(named || undefined),
+  listNext: (body, error) => dereth.frontListNext(body ?? undefined, error ?? undefined),
+  listDone: (now) => JSON.parse(dereth.frontListDone(now)),
   listFresh: (fetchedAt, now) => dereth.frontListFresh(fetchedAt, now),
-  list: (xml) => dereth.frontList(xml),
+  listCopy: (copy) => dereth.frontListCopy(copy),
   setState: (json) => dereth.frontSetState(json),
   state: () => dereth.frontState(),
   status: (slug, text) => dereth.frontStatus(slug, new TextEncoder().encode(text)),

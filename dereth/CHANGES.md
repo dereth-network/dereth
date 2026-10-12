@@ -37,6 +37,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Dragging a pack along Horizon's pack column with the mouse moves it to that place among your packs.
 - Horizon's Create Spell window shows the whole frame of every component slot, the first column and row included.
 - With Horizon's better lighting, smoke, portals and other see-through effects no longer glow green or light up the trees behind them at night.
+- The launcher's world list, on the desktop and in the browser, comes from the Dereth Network, falling back to the community list when it is unreachable; the network's test worlds show the status Test.
 
 ## 0.4.1 (2026-10-11)
 

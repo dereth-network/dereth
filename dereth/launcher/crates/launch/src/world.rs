@@ -229,7 +229,8 @@ pub struct World {
     /// The community list's id for the world, which never changes.
     #[serde(default)]
     pub list_id: Option<String>,
-    /// How settled the world says it is: `Stable`, `Development` or `Experimental`.
+    /// How settled the world says it is: `Stable`, `Development` or `Experimental`; `Test` for a
+    /// world the hub lists for demonstration.
     #[serde(default)]
     pub development_status: Option<String>,
     pub endpoint: Option<Endpoint>,
