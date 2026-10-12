@@ -594,6 +594,8 @@ impl Gpu {
     #[cfg(not(target_arch = "wasm32"))]
     fn prepare(window: Option<WindowHandles>, cfg: &DeviceConfig) -> Result<Prepared, RenderError> {
         let (w, h) = (cfg.width.max(1), cfg.height.max(1));
+        // Nothing to carry in a build without the high-fidelity request.
+        #[cfg_attr(not(feature = "hifi"), allow(clippy::let_unit_value))]
         let hifi = wants_hifi(cfg);
         pollster::block_on(async {
             match window {

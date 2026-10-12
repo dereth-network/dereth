@@ -148,7 +148,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "hifi.lighting.translucent-draws-are-not-lit-as-the-surface-behind",
-        says: "At midnight in the rain, with a chimney's smoke rising in front of a tree, the                high-fidelity lighting alone and every box ticked draw the smoke over the lit                tree with the light it was drawn with: neither the smoke nor the tree behind it                turns green.",
+        says: "At midnight in the rain, with a chimney's smoke rising in front of a tree, the \
+               high-fidelity lighting alone and every box ticked draw the smoke over the lit \
+               tree with the light it was drawn with: neither the smoke nor the tree behind it \
+               turns green.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-TRANSLUCENT-OVER-LIGHT"),

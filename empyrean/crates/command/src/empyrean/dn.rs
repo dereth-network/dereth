@@ -43,7 +43,7 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
                     AccessLevel::Player,
                     CommandHandlerFlag::None,
                     "The Dereth Network: tells, friends and channels with other worlds.",
-                    "on | off | visible <who> | reachable <who> | listed on|off | friends [add|remove <Name@world> [all]] | link | unlink | alts [shown|hidden|<Name@world>] | worlds | global <text> | channel ... | help",
+                    "on | off | visible <who> | reachable <who> | listed on|off | friends [add|remove <Name@world>] | link | unlink | alts [shown|hidden|<Name@world>] | worlds | global <text> | channel ... | help",
                 ),
             }
         })
