@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.2 (2026-10-12)
+
 - The launcher shows every world's era instead of asking (what the world says, or End of Retail), and Dereth Network worlds' players and whether they are up, from the hub, ACE worlds included.
 - Horizon's Better Lighting no longer brightens the outdoors well past the ordinary picture at low sun, in shade and in towns: by day it stays close to it, at night as dark as before.
 - Dereth Network channel lines show as channel lines, "[group] Person@world says, ...", in a channel color instead of as tells from the channel, and so do the lines you send to a channel.
