@@ -186,6 +186,15 @@ fn phase_words(phase: &GamePhase) -> String {
     }
 }
 
+/// The world's address, `host:port`, from the host and port the client was given, read as the
+/// connection reads them: a port written into the host itself (`host:port`) wins over the port
+/// given apart.
+#[must_use]
+pub fn world_address(host: &str, port: u32) -> String {
+    let spec = dereth_client_net::socket::parse_host_spec(host, u16::try_from(port).unwrap_or(0));
+    format!("{}:{}", spec.host, spec.port)
+}
+
 /// Take this frame's snapshot, with the chat lines delivered to the interface this frame.
 pub fn snapshot<S: Shell>(
     cx: &crate::runtime::Cx<'_, S>,
@@ -195,6 +204,7 @@ pub fn snapshot<S: Shell>(
     let mut g = GameState {
         client_version: cx.client_version().to_owned(),
         host: cx.config().host.clone(),
+        address: world_address(&cx.config().host, cx.config().port),
         account: cx.config().account.clone(),
         world: pregame.world_name.clone(),
         sigil_slots: cx.hud().view(cx.objects()).aetheria_slots(),
@@ -1065,6 +1075,25 @@ fn local_clock(offset_secs: i32) -> Option<String> {
 mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
+
+    #[test]
+    fn the_world_s_address_is_its_host_and_port_however_the_port_was_given() {
+        assert_eq!(
+            world_address("retail.dereth.network", 19000),
+            "retail.dereth.network:19000"
+        );
+        assert_ne!(
+            world_address("retail.dereth.network", 19000),
+            world_address("retail.dereth.network", 29000),
+            "two worlds on one host"
+        );
+        assert_eq!(
+            world_address("127.0.0.1:29000", 7304),
+            "127.0.0.1:29000",
+            "a port in the host wins"
+        );
+        assert_eq!(world_address("a.example,b.example", 9000), "a.example:9000");
+    }
 
     #[test]
     fn any_object_is_read_for_the_target_bar_by_name_kind_and_level_with_its_health_unknown() {

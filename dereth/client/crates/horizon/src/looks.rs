@@ -37,7 +37,9 @@ pub struct Looks {
     looks: BTreeMap<String, Look>,
 }
 
-/// The key a character's look is kept under: the server it plays on and its name.
+/// The key a character's look is kept under: the world it plays on and its name. The world is
+/// its address, `host:port`, as two worlds on one host may each have a character of one name.
+/// Looks were once kept by the world's host alone: [`Looks::carry_over`] brings them over.
 #[must_use]
 pub fn key(server: &str, name: &str) -> String {
     format!("{server}/{name}")
@@ -66,6 +68,20 @@ impl Looks {
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&Look> {
         self.looks.get(key)
+    }
+
+    /// Where `key` has no look, keep the one kept for `earlier` for it too: a look kept by an
+    /// earlier key carried over. The look stays under `earlier` as well, since another world
+    /// that kept it there may not have carried it over yet. False when the file could not be
+    /// written.
+    pub fn carry_over(&mut self, key: &str, earlier: &str) -> bool {
+        if self.looks.contains_key(key) {
+            return true;
+        }
+        match self.looks.get(earlier).cloned() {
+            Some(look) => self.remember(key, look),
+            None => true,
+        }
     }
 
     /// Keep `look` for `key`, writing the file when it changed. False when the file could not

@@ -10,7 +10,7 @@
 //!
 //! **Depends on** the shared crates: `dereth-primitives`, `dereth-client-contract`,
 //! `dereth-client-runtime`, `dereth-client-model`, `dereth-dat`, `dereth-assets`, `dereth-chargen`,
-//! `dereth-rules`, `dereth-animation`, `dereth-presentation` and `dereth-input`; the client's `dereth-scene` (the game's icons), `dereth-ui` (the game's
+//! `dereth-rules`, `dereth-animation`, `dereth-presentation`, `dereth-client-net` and `dereth-input`; the client's `dereth-scene` (the game's icons), `dereth-ui` (the game's
 //! text) and `dereth-ui-screens` (the game's words and rules that the retail screens keep free of
 //! their widgets). **Used by** the client shell (`dereth-client-shell`), which shows it when the
 //! player chooses it.

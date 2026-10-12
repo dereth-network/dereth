@@ -6,9 +6,10 @@
 //! draws, so its buttons still answer where they are shown. An element's outline in the editor is
 //! the box around what it drew.
 //!
-//! A layout is kept per character in a small text file in the client's settings folder: one line
-//! per element, `name dx dy scale`. What the editor changes shows at once and is kept only when
-//! the player saves it; closing the editor with changes unsaved puts back the layout last kept.
+//! A layout is kept per world and character in a small text file in the client's settings folder
+//! ([`file_name`]): one line per element, `name dx dy scale`. What the editor changes shows at
+//! once and is kept only when the player saves it; closing the editor with changes unsaved puts
+//! back the layout last kept.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -87,6 +88,28 @@ pub struct HudLayout {
     saved: BTreeMap<String, Placement>,
 }
 
+/// The file, in the settings folder, a character's layout is kept in: by its world's address
+/// (`host:port`) and its name, as two worlds, even on one host, may each have a character of one
+/// name. Anything a file name cannot hold is made an underscore.
+#[must_use]
+pub fn file_name(address: &str, name: &str) -> String {
+    format!("horizon-hud-{}-{}.txt", safe(address), safe(name))
+}
+
+/// The file a character's layout was kept in before layouts were kept per world: by its name
+/// alone.
+#[must_use]
+pub fn earlier_file_name(name: &str) -> String {
+    format!("horizon-hud-{}.txt", safe(name))
+}
+
+/// `text` with every character but an ASCII letter or digit made an underscore.
+fn safe(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
 impl HudLayout {
     /// The layout in `file`, or the default layout when the file is absent or unreadable.
     #[must_use]
@@ -97,6 +120,29 @@ impl HudLayout {
         };
         if let Ok(text) = std::fs::read_to_string(&file) {
             layout.placements = parse(&text);
+        }
+        layout.saved = layout.placements.clone();
+        layout
+    }
+
+    /// The layout in `file`; where there is no such file, the one in `earlier`, which is then
+    /// kept in `file` too. `earlier` is left as it is, since another world's character of the
+    /// same name may not have carried it over yet.
+    #[must_use]
+    pub fn load_carrying(file: PathBuf, earlier: &std::path::Path) -> Self {
+        if file.exists() {
+            return Self::load(file);
+        }
+        let Ok(text) = std::fs::read_to_string(earlier) else {
+            return Self::load(file);
+        };
+        let mut layout = Self {
+            file: Some(file),
+            placements: parse(&text),
+            ..Self::default()
+        };
+        if let Err(e) = layout.save() {
+            tracing::warn!("the HUD layout carried over was not kept: {e}");
         }
         layout.saved = layout.placements.clone();
         layout

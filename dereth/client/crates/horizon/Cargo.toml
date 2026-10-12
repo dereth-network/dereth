@@ -21,6 +21,9 @@ dereth-primitives.workspace = true
 dereth-client-contract.workspace = true
 dereth-client-runtime.workspace = true
 dereth-client-model.workspace = true
+# The world's address, read from the host and port as the connection reads them: what the
+# characters' own files are kept by.
+dereth-client-net.workspace = true
 dereth-dat.workspace = true
 # The string tables the option labels and the game's messages are read from.
 dereth-assets.workspace = true

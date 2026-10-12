@@ -1,5 +1,5 @@
 //! The HUD Layout window: what it changes shows at once, Save keeps it, and Close with changes
-//! unsaved puts back the layout last kept.
+//! unsaved puts back the layout last kept. A layout is kept per world and character.
 //!
 //! Behaviour: none (experimental Horizon interface)
 
@@ -190,4 +190,106 @@ fn a_chat_window_moved_in_hud_layout_is_kept_by_save_and_put_back_by_close() {
     )));
     assert!(!h.ui.hud.layout_unsaved());
     let _ = std::fs::remove_dir_all(file.parent().unwrap());
+}
+
+/// In the world at `host`, given port `port`, as Tester.
+fn on_world(host: &str, port: u32) -> GameState {
+    GameState {
+        host: host.into(),
+        address: dereth_horizon::state::world_address(host, port),
+        ..in_world()
+    }
+}
+
+/// A fresh settings folder of its own.
+fn settings_folder(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "dereth-horizon-layouts-{name}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The interface in the world as `state` says, keeping its settings in `dir`.
+fn in_folder(dir: &std::path::Path, state: &GameState) -> Harness {
+    let mut h = Harness::new(HorizonOptions::default());
+    h.ui.hud.settings_dir = Some(dir.to_owned());
+    h.frame(state);
+    h
+}
+
+#[test]
+fn two_worlds_on_one_host_keep_their_own_layouts_for_characters_of_one_name() {
+    let dir = settings_folder("worlds");
+    let one = on_world("retail.dereth.network", 19000);
+    let two = on_world("retail.dereth.network", 29000);
+    let mut h = in_folder(&dir, &one);
+    open_layout(&mut h, &one);
+    let c = minimap_middle(&h);
+    drag(&mut h, &one, c, (c.0 - 40.0, c.1 + 30.0));
+    {
+        let b = button(&h, 0);
+        click_at(&mut h, &one, b)
+    };
+    assert!(
+        dir.join("horizon-hud-retail_dereth_network_19000-Tester.txt")
+            .exists(),
+        "kept by the world's host and port and the character's name"
+    );
+    let other = in_folder(&dir, &two);
+    assert!(
+        other.ui.hud.layout.placements.is_empty(),
+        "the other world's Tester keeps the layout as it starts"
+    );
+    let again = in_folder(&dir, &one);
+    let pl = again.ui.hud.layout.placements["minimap"];
+    assert_eq!((pl.dx, pl.dy), (-40.0, 30.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_layout_kept_by_the_name_alone_is_carried_over_to_each_world_and_left_in_place() {
+    use dereth_horizon::ui::layout::file_name;
+    let dir = settings_folder("carried");
+    let earlier = dir.join("horizon-hud-Tester.txt");
+    std::fs::write(&earlier, "minimap -40.0 30.0 1.00\n").unwrap();
+    let one = on_world("retail.dereth.network", 19000);
+    let h = in_folder(&dir, &one);
+    let pl = h.ui.hud.layout.placements["minimap"];
+    assert_eq!((pl.dx, pl.dy), (-40.0, 30.0));
+    assert!(!h.ui.hud.layout_unsaved(), "nothing to save");
+    let kept = dir.join(file_name(&one.address, "Tester"));
+    assert_eq!(h.ui.hud.layout.file.as_deref(), Some(kept.as_path()));
+    assert_eq!(
+        std::fs::read_to_string(&kept).unwrap(),
+        "minimap -40.0 30.0 1.00\n",
+        "kept by the world"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&earlier).unwrap(),
+        "minimap -40.0 30.0 1.00\n",
+        "and left in place"
+    );
+    // The other world on the host carries it over too; a world that has its own keeps it.
+    let two = on_world("retail.dereth.network", 29000);
+    assert!(in_folder(&dir, &two)
+        .ui
+        .hud
+        .layout
+        .placements
+        .contains_key("minimap"));
+    let three = on_world("retail.dereth.network", 39000);
+    std::fs::write(
+        dir.join(file_name(&three.address, "Tester")),
+        "chat 5.0 5.0 1.00\n",
+    )
+    .unwrap();
+    let own = in_folder(&dir, &three);
+    assert_eq!(
+        own.ui.hud.layout.placements.keys().collect::<Vec<_>>(),
+        ["chat"]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

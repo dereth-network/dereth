@@ -66,7 +66,7 @@ pub struct Hud {
     pub layout: crate::ui::layout::HudLayout,
     /// The shortcut slots a drag can land on, on screen, with their slot numbers.
     pub drop_slots: Vec<(Rect, u32)>,
-    /// The character the layout was loaded for.
+    /// The world and character the layout was loaded for.
     layout_for: Option<String>,
     /// The HUD Layout window was open last frame.
     layout_open: bool,
@@ -556,18 +556,18 @@ impl Hud {
             }
             self.level_seen = state.level;
         }
-        // The layout of the character in the world, loaded once per character.
-        if self.layout_for.as_deref() != Some(state.name.as_str()) && !state.name.is_empty() {
+        // The layout of the character in the world, loaded once per world and character. One
+        // kept by the character's name alone, as layouts once were, is carried over.
+        let layout_for = format!("{}/{}", state.address, state.name);
+        if self.layout_for.as_deref() != Some(layout_for.as_str()) && !state.name.is_empty() {
+            use crate::ui::layout::{earlier_file_name, file_name, HudLayout};
             if let Some(dir) = &self.settings_dir {
-                let safe: String = state
-                    .name
-                    .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect();
-                self.layout =
-                    crate::ui::layout::HudLayout::load(dir.join(format!("horizon-hud-{safe}.txt")));
+                self.layout = HudLayout::load_carrying(
+                    dir.join(file_name(&state.address, &state.name)),
+                    &dir.join(earlier_file_name(&state.name)),
+                );
             }
-            self.layout_for = Some(state.name.clone());
+            self.layout_for = Some(layout_for);
         }
         let editing = windows.is_open(WindowId::Layout);
         self.layout.outlines.clear();

@@ -445,6 +445,10 @@ pub struct GameState {
     pub chargen_refusal: Option<String>,
     /// The host the client connected to.
     pub host: String,
+    /// The world's address, `host:port`, as the client connects to it: what the characters'
+    /// looks, HUD layouts and cross hotbars are kept by, since two worlds, even on one host, may
+    /// each have a character of one name.
+    pub address: String,
     /// The player looks where the camera does (camera-based movement), rather than along the
     /// character's facing.
     pub look_by_camera: bool,

@@ -226,8 +226,15 @@ impl CrossBars {
         }
     }
 
-    /// Read the sets kept for character `name` on `server` in `dir`, once per character.
-    pub fn load_for(&mut self, dir: Option<&std::path::Path>, server: &str, name: &str) {
+    /// Read the sets kept for character `name` on the world at `server` (its address,
+    /// `host:port`) in `dir`, once per character; `host` is the world's host alone.
+    pub fn load_for(
+        &mut self,
+        dir: Option<&std::path::Path>,
+        server: &str,
+        host: &str,
+        name: &str,
+    ) {
         let key = format!("{server}|{name}");
         if name.is_empty() || self.loaded_for.as_deref() == Some(key.as_str()) {
             return;
@@ -240,13 +247,16 @@ impl CrossBars {
                 .collect();
             dir.map(|d| d.join(format!("horizon-cross-{safe}.txt")))
         };
-        // Kept per server and character, as two servers may each have a character of one name;
-        // a file kept by the character's name alone is read when there is none yet.
+        // Kept per world and character, as two worlds, even on one host, may each have a
+        // character of one name. Where there is none yet, a file kept by the world's host alone,
+        // or by the character's name alone, is read; the sets are kept by the world from their
+        // first save, and the older file is left for another world's character of the name.
         self.path = file(&[server, name]);
         let read = |p: Option<std::path::PathBuf>| {
             p.and_then(|p| dereth_client_runtime::platform::files::read_to_string(&p).ok())
         };
         let text = read(self.path.clone())
+            .or_else(|| read(file(&[host, name])))
             .or_else(|| read(file(&[name])))
             .unwrap_or_default();
         let (sets, set) = parse(&text);
@@ -620,8 +630,12 @@ impl Hud {
         state: &GameState,
         out: &mut Outcome,
     ) {
-        self.cross
-            .load_for(self.settings_dir.as_deref(), &state.host, &state.name);
+        self.cross.load_for(
+            self.settings_dir.as_deref(),
+            &state.address,
+            &state.host,
+            &state.name,
+        );
         let server = state.player_module_strings.as_ref().map(|all| {
             all.iter()
                 .find(|(id, _)| *id == SERVER_PROPERTY)
@@ -1096,22 +1110,33 @@ mod tests {
     }
 
     #[test]
-    fn the_sets_are_kept_per_server_and_character() {
-        let dir = std::env::temp_dir().join(format!("horizon-cross-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+    fn the_sets_are_kept_per_world_and_character_even_for_two_worlds_on_one_host() {
+        let dir = scratch("worlds");
         let mut a = CrossBars::default();
-        a.load_for(Some(&dir), "one.example:9000", "Cora");
+        a.load_for(Some(&dir), "one.example:19000", "one.example", "Cora");
         a.assign(0, Some(CrossBind::Spell(62)));
         let mut b = CrossBars::default();
-        b.load_for(Some(&dir), "two.example:9000", "Cora");
+        b.load_for(Some(&dir), "two.example:19000", "two.example", "Cora");
         assert_eq!(b.slot(0), None, "a character of the same name elsewhere");
+        let mut c = CrossBars::default();
+        c.load_for(Some(&dir), "one.example:29000", "one.example", "Cora");
+        assert_eq!(c.slot(0), None, "another world on the same host");
         let mut again = CrossBars::default();
-        again.load_for(Some(&dir), "one.example:9000", "Cora");
+        again.load_for(Some(&dir), "one.example:19000", "one.example", "Cora");
         assert_eq!(again.slot(0), Some(CrossBind::Spell(62)));
-        // A file kept by the name alone is read where there is none for the server yet.
+        // A file kept by the host alone, or by the name alone, is read where there is none for
+        // the world yet.
+        std::fs::write(
+            dir.join("horizon-cross-one_example_Host.txt"),
+            "1 1 spell 5\n",
+        )
+        .unwrap();
+        let mut host = CrossBars::default();
+        host.load_for(Some(&dir), "one.example:19000", "one.example", "Host");
+        assert_eq!(host.sets[MAGIC][0], Some(CrossBind::Spell(5)));
         std::fs::write(dir.join("horizon-cross-Old.txt"), "1 1 spell 7\n").unwrap();
         let mut old = CrossBars::default();
-        old.load_for(Some(&dir), "one.example:9000", "Old");
+        old.load_for(Some(&dir), "one.example:19000", "one.example", "Old");
         assert_eq!(old.sets[MAGIC][0], Some(CrossBind::Spell(7)));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1174,12 +1199,12 @@ mod tests {
     fn with_none_on_the_server_the_sets_from_the_file_go_up_once_and_then_each_change() {
         let dir = scratch("up");
         std::fs::write(
-            dir.join("horizon-cross-one_example_Cora.txt"),
+            dir.join("horizon-cross-one_example_9000_Cora.txt"),
             to_text(&full_sets(), 0),
         )
         .unwrap();
         let mut bars = CrossBars::default();
-        bars.load_for(Some(&dir), "one.example", "Cora");
+        bars.load_for(Some(&dir), "one.example:9000", "one.example", "Cora");
         assert_eq!(bars.sync_server(None), None, "the module has not arrived");
         let up = bars.sync_server(Some(None)).expect("the file's sets go up");
         assert_eq!(decode(&up), Some((full_sets(), 0)));
@@ -1198,12 +1223,12 @@ mod tests {
     fn the_servers_sets_win_over_the_files_and_are_copied_to_it() {
         let dir = scratch("down");
         std::fs::write(
-            dir.join("horizon-cross-one_example_Cora.txt"),
+            dir.join("horizon-cross-one_example_9000_Cora.txt"),
             "bars=2\nset=1\npeace 1 spell 5\n",
         )
         .unwrap();
         let mut bars = CrossBars::default();
-        bars.load_for(Some(&dir), "one.example", "Cora");
+        bars.load_for(Some(&dir), "one.example:9000", "one.example", "Cora");
         let server = encode(&full_sets(), 2);
         assert_eq!(
             bars.sync_server(Some(Some(&server))),
@@ -1212,7 +1237,8 @@ mod tests {
         );
         assert_eq!(bars.slot(15), Some(CrossBind::Spell(0x3E)));
         assert_eq!(bars.set, 2);
-        let file = std::fs::read_to_string(dir.join("horizon-cross-one_example_Cora.txt")).unwrap();
+        let file =
+            std::fs::read_to_string(dir.join("horizon-cross-one_example_9000_Cora.txt")).unwrap();
         assert_eq!(
             parse(&file),
             (full_sets(), 2),

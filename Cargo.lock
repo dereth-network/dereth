@@ -1145,6 +1145,7 @@ dependencies = [
  "dereth-chargen",
  "dereth-client-contract",
  "dereth-client-model",
+ "dereth-client-net",
  "dereth-client-runtime",
  "dereth-dat",
  "dereth-input",

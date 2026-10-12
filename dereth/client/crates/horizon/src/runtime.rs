@@ -833,32 +833,10 @@ impl HorizonFrontEnd {
             .filter(|t| crate::ring::ringed(t.relation))
             .map(|t| (t.id, t.relation));
         self.remember_look(cx, &state);
-        state.known_looks = state
-            .characters
-            .iter()
-            .filter(|c| {
-                self.looks
-                    .get(&crate::looks::key(&state.host, &c.name))
-                    .is_some()
-            })
-            .map(|c| c.id)
-            .collect();
-        state.heritages = state
-            .characters
-            .iter()
-            .filter_map(|c| {
-                let look = self.looks.get(&crate::looks::key(&state.host, &c.name))?;
-                Some((c.id, look.heritage))
-            })
-            .collect();
-        state.levels = state
-            .characters
-            .iter()
-            .filter_map(|c| {
-                let look = self.looks.get(&crate::looks::key(&state.host, &c.name))?;
-                (look.level != 0).then_some((c.id, look.level))
-            })
-            .collect();
+        if !listed_looks(&mut self.looks, &mut state) {
+            self.errors
+                .push("the characters' looks could not be saved".to_owned());
+        }
         self.examine_and_containers(cx, &mut state, notices);
         self.info_words(cx, &mut state);
         state.shop_buying = std::mem::take(&mut self.shop_buying);
@@ -959,7 +937,7 @@ impl HorizonFrontEnd {
             .flatten()
             .and_then(|c| {
                 self.looks
-                    .get(&crate::looks::key(&state.host, &c.name))
+                    .get(&crate::looks::key(&state.address, &c.name))
                     .cloned()
             });
         self.backdrop(cx, now);
@@ -971,7 +949,6 @@ impl HorizonFrontEnd {
         changed
     }
 
-    /// Keep the player's look while they stand in the world, so character select can show them.
     /// Once the character is in the world and its options have come, listen to every chat
     /// channel the game offers that it is not listening to yet: General, Trade, LFG, Roleplay,
     /// Society and the allegiance's, each as far as the server lets the character in. Each chat window's filters say
@@ -1004,6 +981,8 @@ impl HorizonFrontEnd {
         self.channels_joined = true;
     }
 
+    /// Keep the player's look while they stand in the world, so character select can show them:
+    /// by the world's address and the character's name.
     fn remember_look<S: Shell>(&mut self, cx: &mut Cx<'_, S>, state: &crate::ui::game::GameState) {
         if !state.in_world || state.name.is_empty() {
             return;
@@ -1029,7 +1008,7 @@ impl HorizonFrontEnd {
         };
         if !self
             .looks
-            .remember(&crate::looks::key(&state.host, &state.name), look)
+            .remember(&crate::looks::key(&state.address, &state.name), look)
         {
             self.errors
                 .push("the characters' looks could not be saved".to_owned());
@@ -1868,6 +1847,32 @@ fn hold_early_chat(
     }
 }
 
+/// What character select shows of the listed characters from their remembered looks: which have
+/// one, and their heritages and levels, each read by the world's address and the character's
+/// name. A look kept by the world's host alone, as looks once were, is carried over to the
+/// address first. It is left under the host too, for another world on that host that has not
+/// carried it over yet. False when a look carried over could not be saved.
+fn listed_looks(looks: &mut crate::looks::Looks, state: &mut crate::ui::game::GameState) -> bool {
+    use crate::looks::key;
+    let mut saved = true;
+    for c in &state.characters {
+        saved &= looks.carry_over(&key(&state.address, &c.name), &key(&state.host, &c.name));
+    }
+    let listed: Vec<(ObjectId, &crate::looks::Look)> = state
+        .characters
+        .iter()
+        .filter_map(|c| Some((c.id, looks.get(&key(&state.address, &c.name))?)))
+        .collect();
+    state.known_looks = listed.iter().map(|(id, _)| *id).collect();
+    state.heritages = listed.iter().map(|(id, l)| (*id, l.heritage)).collect();
+    state.levels = listed
+        .iter()
+        .filter(|(_, l)| l.level != 0)
+        .map(|(id, l)| (*id, l.level))
+        .collect();
+    saved
+}
+
 /// The animations of a body's idle: `motion_table`'s default stance and that stance's default
 /// motion, as a body standing in the world plays them. Empty when there is no such table or
 /// cycle.
@@ -2015,6 +2020,116 @@ mod tests {
         // A line from before entering, at character select, is not kept for the next session.
         assert!(hold_early_chat(&mut early, false, false, vec![line("stale")]).is_empty());
         assert!(hold_early_chat(&mut early, true, true, Vec::new()).is_empty());
+    }
+
+    /// A look of heritage `heritage` last seen at `level`.
+    fn look(heritage: u32, level: u32) -> crate::looks::Look {
+        crate::looks::Look {
+            setup: dereth_primitives::DataId(0x0200_0001),
+            desc: dereth_animation::parts::ObjDesc::default(),
+            heritage,
+            scale: 1.0,
+            level,
+            motion_table: dereth_primitives::DataId(0x0900_0001),
+        }
+    }
+
+    const CORA: ObjectId = ObjectId(0x5000_0001);
+
+    /// Character select on the world at `host`, given port `port`, listing Cora.
+    fn listing(host: &str, port: u32) -> crate::ui::game::GameState {
+        crate::ui::game::GameState {
+            host: host.to_owned(),
+            address: crate::state::world_address(host, port),
+            characters: vec![crate::ui::game::CharacterEntry {
+                id: CORA,
+                name: "Cora".into(),
+                delete_seconds: 0,
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The looks file in a fresh folder of its own.
+    fn looks_file(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "dereth-horizon-listed-looks-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(crate::looks::FILE_NAME)
+    }
+
+    #[test]
+    fn two_worlds_on_one_host_keep_their_own_looks_for_characters_of_one_name() {
+        use crate::looks::{key, Looks};
+        let file = looks_file("worlds");
+        let mut looks = Looks::load(Some(file.clone()));
+        let (mut one, mut two) = (
+            listing("retail.dereth.network", 19000),
+            listing("retail.dereth.network", 29000),
+        );
+        assert!(looks.remember(&key(&one.address, "Cora"), look(1, 30)));
+        assert!(listed_looks(&mut looks, &mut one));
+        assert!(listed_looks(&mut looks, &mut two));
+        assert_eq!(one.known_looks, [CORA]);
+        assert_eq!(one.levels.get(&CORA), Some(&30));
+        assert!(
+            two.known_looks.is_empty(),
+            "the other world's Cora is unseen"
+        );
+        assert!(two.heritages.is_empty() && two.levels.is_empty());
+        // Each world's Cora keeps her own look, and saving one leaves the other's.
+        assert!(looks.remember(&key(&two.address, "Cora"), look(3, 80)));
+        let mut looks = Looks::load(Some(file.clone()));
+        assert!(listed_looks(&mut looks, &mut one));
+        assert!(listed_looks(&mut looks, &mut two));
+        assert_eq!(
+            (one.heritages.get(&CORA), one.levels.get(&CORA)),
+            (Some(&1), Some(&30))
+        );
+        assert_eq!(
+            (two.heritages.get(&CORA), two.levels.get(&CORA)),
+            (Some(&3), Some(&80))
+        );
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
+    }
+
+    #[test]
+    fn a_look_kept_by_the_host_alone_is_carried_over_to_each_world_and_left_in_place() {
+        use crate::looks::{encode, key, Looks};
+        let file = looks_file("carried");
+        let earlier = key("retail.dereth.network", "Cora");
+        std::fs::write(&file, format!("{earlier}\t{}\n", encode(&look(2, 55)))).unwrap();
+        let mut looks = Looks::load(Some(file.clone()));
+        let mut one = listing("retail.dereth.network", 19000);
+        assert!(listed_looks(&mut looks, &mut one));
+        assert_eq!(one.known_looks, [CORA]);
+        assert_eq!(
+            (one.heritages.get(&CORA), one.levels.get(&CORA)),
+            (Some(&2), Some(&55))
+        );
+        let kept = Looks::load(Some(file.clone()));
+        assert_eq!(
+            kept.get(&key("retail.dereth.network:19000", "Cora")),
+            Some(&look(2, 55)),
+            "kept by the world's address"
+        );
+        assert_eq!(
+            kept.get(&earlier),
+            Some(&look(2, 55)),
+            "and left under the host"
+        );
+        // The other world on the host carries it over too; a world that has its own keeps it.
+        let mut looks = kept;
+        assert!(looks.remember(&key("retail.dereth.network:19000", "Cora"), look(2, 60)));
+        let mut two = listing("retail.dereth.network", 29000);
+        assert!(listed_looks(&mut looks, &mut one));
+        assert!(listed_looks(&mut looks, &mut two));
+        assert_eq!(one.levels.get(&CORA), Some(&60));
+        assert_eq!(two.levels.get(&CORA), Some(&55));
+        let _ = std::fs::remove_dir_all(file.parent().unwrap());
     }
 
     #[test]
