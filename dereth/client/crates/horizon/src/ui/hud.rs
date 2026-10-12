@@ -2394,29 +2394,53 @@ enum MenuAction {
     Quit,
 }
 
-/// A name in a chat line: its first and last-plus-one character, and the name a tell goes to.
-pub type Link = (usize, usize, String);
+/// What clicking a link in a chat line does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkTarget {
+    /// Begins a tell to this name.
+    Name(String),
+    /// Asks to open this web address in the browser.
+    Web(String),
+}
 
-/// A chat line's text with the game's text tags taken out, and the names they marked: each
-/// name's first and last-plus-one character in that text, and the name a tell goes to.
+/// A link in a chat line: its first and last-plus-one character, and what clicking it does.
+pub type Link = (usize, usize, LinkTarget);
+
+/// A chat line's text with the game's text tags taken out, and its links in order: the names the
+/// tags marked, each beginning a tell, and the web addresses in it
+/// ([`dereth_client_contract::chat::links`]), each asking to be opened. Each link is its first and
+/// last-plus-one character in that text, and what clicking it does.
 #[must_use]
 pub fn chat_links(raw: &str) -> (String, Vec<Link>) {
-    if !raw.contains('<') {
-        return (raw.to_owned(), Vec::new());
+    let (text, mut links) = if raw.contains('<') {
+        let tagged = dereth_ui::text::tag::parse(raw);
+        let chars: Vec<char> = tagged.text.chars().collect();
+        let names: Vec<Link> = tagged
+            .spans
+            .iter()
+            .filter(|s| s.end > s.start && s.end <= chars.len())
+            .map(|s| {
+                let shown: String = chars[s.start..s.end].iter().collect();
+                let name = s.tag.payload().map_or_else(|| shown.clone(), str::to_owned);
+                (s.start, s.end, LinkTarget::Name(name))
+            })
+            .collect();
+        (tagged.text, names)
+    } else {
+        (raw.to_owned(), Vec::new())
+    };
+    if text.contains("://") {
+        let chars: Vec<char> = text.chars().collect();
+        for (s, e) in dereth_client_contract::chat::links::find_chars(&text) {
+            // A name keeps its own run.
+            if links.iter().any(|(ns, ne, _)| *ns < e && s < *ne) {
+                continue;
+            }
+            links.push((s, e, LinkTarget::Web(chars[s..e].iter().collect())));
+        }
+        links.sort_by_key(|(s, _, _)| *s);
     }
-    let tagged = dereth_ui::text::tag::parse(raw);
-    let chars: Vec<char> = tagged.text.chars().collect();
-    let links = tagged
-        .spans
-        .iter()
-        .filter(|s| s.end > s.start && s.end <= chars.len())
-        .map(|s| {
-            let shown: String = chars[s.start..s.end].iter().collect();
-            let name = s.tag.payload().map_or_else(|| shown.clone(), str::to_owned);
-            (s.start, s.end, name)
-        })
-        .collect();
-    (tagged.text, links)
+    (text, links)
 }
 
 /// The pixels of a radar blip of the game's shape `shape`, around its centre; a plain dot for a
@@ -2614,7 +2638,27 @@ mod tests {
             r#"<Tell:IIDString:1342177281:Borin Stonefist>Borin Stonefist<\Tell> says, "Hail!""#;
         let (text, links) = super::chat_links(raw);
         assert_eq!(text, "Borin Stonefist says, \"Hail!\"");
-        assert_eq!(links, vec![(0, 15, "Borin Stonefist".to_owned())]);
+        assert_eq!(
+            links,
+            vec![(0, 15, LinkTarget::Name("Borin Stonefist".to_owned()))]
+        );
+    }
+
+    /// Behaviour: none (experimental Horizon interface)
+    #[test]
+    fn a_web_address_in_a_line_is_a_link_beside_the_speaker_s_name() {
+        let raw = r#"<Tell:IIDString:1342177281:Ana>Ana<\Tell> says, "see https://example.com/a."#;
+        let (text, links) = super::chat_links(raw);
+        assert_eq!(text, "Ana says, \"see https://example.com/a.");
+        assert_eq!(
+            links,
+            vec![
+                (0, 3, LinkTarget::Name("Ana".to_owned())),
+                (15, 36, LinkTarget::Web("https://example.com/a".to_owned())),
+            ]
+        );
+        let (_, plain) = super::chat_links("You say, \"file:///c:/x or javascript:go() or x.y\"");
+        assert!(plain.is_empty(), "{plain:?}");
     }
 
     use super::*;

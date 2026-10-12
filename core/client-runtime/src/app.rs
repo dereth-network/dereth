@@ -96,8 +96,8 @@ thread_local! {
     /// `Some` once a test has called `record_shell_calls`: the two host calls are then recorded
     /// instead of performed, so a station can assert that the request reached the shell without a
     /// browser window or a modal dialog appearing on the desktop. The `i32` is what the recorder
-    /// answers `ShellExecuteA` with.
-    static SHELL_LOG: std::cell::RefCell<Option<(i32, ())>> =
+    /// answers `ShellExecuteA` with, and the list every URL it was handed, in order.
+    static SHELL_LOG: std::cell::RefCell<Option<(i32, Vec<String>)>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -114,13 +114,30 @@ pub fn record_shell_calls() {
 /// (`result <= 32`) and inspect the requested error dialog.
 #[cfg(any(test, feature = "test-support"))]
 pub fn record_shell_calls_answering(result: i32) {
-    SHELL_LOG.with(|l| *l.borrow_mut() = Some((result, ())));
+    SHELL_LOG.with(|l| *l.borrow_mut() = Some((result, Vec::new())));
 }
 
-/// The armed `ShellExecuteA` answer, or `None` when recording is not armed and the real host call
-/// must be made.
-fn armed_shell_answer() -> Option<i32> {
-    SHELL_LOG.with(|l| l.borrow().as_ref().map(|(result, ())| *result))
+/// Every URL handed to the host's launch on this thread since recording was armed, in order.
+#[cfg(any(test, feature = "test-support"))]
+#[must_use]
+pub fn recorded_launches() -> Vec<String> {
+    SHELL_LOG.with(|l| {
+        l.borrow()
+            .as_ref()
+            .map(|(_, urls)| urls.clone())
+            .unwrap_or_default()
+    })
+}
+
+/// The armed `ShellExecuteA` answer for `url`, which is recorded, or `None` when recording is
+/// not armed and the real host call must be made.
+fn armed_shell_answer(url: &str) -> Option<i32> {
+    SHELL_LOG.with(|l| {
+        l.borrow_mut().as_mut().map(|(result, urls)| {
+            urls.push(url.to_owned());
+            *result
+        })
+    })
 }
 
 /// Build the failure dialog text from the launch result and URL.
@@ -290,10 +307,16 @@ fn open_url(url: &str, calls: &mut Vec<ShellCall>) {
 
 /// `ShellExecuteA(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL)`'s answer, through the seam.
 fn shell_execute_open(url: &str) -> i32 {
-    if let Some(answer) = armed_shell_answer() {
+    if let Some(answer) = armed_shell_answer(url) {
         return answer;
     }
     crate::platform::shell::launch_uri(url)
+}
+
+/// Hand a chat link the player agreed to open to the host's launch, through the same seam the
+/// support buttons use, and answer its result: greater than 32 when the browser was started.
+pub(crate) fn launch_link(url: &str) -> i32 {
+    shell_execute_open(url)
 }
 
 /// The application phases, deliberately smaller than the client's UI flow to begin with.

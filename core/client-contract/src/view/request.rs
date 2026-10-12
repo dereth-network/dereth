@@ -489,6 +489,9 @@ pub enum UiRequest {
     SetItemWaiting(ObjectId),
     /// `ShellExecuteA("open", url)` from the Game/Support page.
     OpenUrl(&'static str),
+    /// A web address in a chat line was clicked: the player is asked first, and only a yes hands
+    /// it to the host to open ([`crate::chat::links`]).
+    ChatLinkClicked(String),
     /// Shut down the device — the epilogue screen's only job.
     DeviceDone,
     /// The player opened (`true`) or closed (`false`) character creation: the one game phase a UI

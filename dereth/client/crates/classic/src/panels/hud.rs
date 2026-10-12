@@ -1414,6 +1414,8 @@ struct Chat {
     selected: Option<String>,
     /// When and where the last press in the log landed, to tell a double click.
     last_press: Option<(dereth_primitives::LocalTime, i32, i32)>,
+    /// The web link a press in the log landed on, which a release on it clicks.
+    pressed_link: Option<String>,
 }
 impl Default for Chat {
     fn default() -> Self {
@@ -1428,6 +1430,7 @@ impl Default for Chat {
             selecting: false,
             selected: None,
             last_press: None,
+            pressed_link: None,
         }
     }
 }
@@ -1478,6 +1481,20 @@ impl Chat {
         chat_log::place_at(&chat_lines(c), &rows, row_height, x - 2, y, &|text| {
             chat_measure(c, text)
         })
+    }
+    /// The web link under a point in the window, as its address.
+    fn link_under(&self, c: &Context<'_>, x: i32, y: i32) -> Option<String> {
+        let (rows, row_height, _, body, scroll) = self.log(c);
+        let inside = x >= 0 && x < self.width as i32 - 16 && y >= 10 && y < body + 10;
+        if !inside {
+            return None;
+        }
+        let lines = chat_lines(c);
+        let place =
+            chat_log::char_at(&lines, &rows, row_height, x - 2, y - 10 + scroll, &|text| {
+                chat_measure(c, text)
+            })?;
+        chat_log::link_at(&lines, place)
     }
     fn select(&mut self, c: &Context<'_>, selection: Option<(chat_log::Place, chat_log::Place)>) {
         self.selection = selection.filter(|(a, b)| a != b);
@@ -1530,14 +1547,31 @@ impl Panel for Chat {
         self.selected.clone()
     }
     /// A press in the log selects from there to where the button comes up; a double click
-    /// selects a word.
+    /// selects a word. A press and release on a web link asks to open it instead.
     fn input(
         &mut self,
         input: &crate::widgets::Input,
         c: &Context<'_>,
     ) -> Option<Vec<PanelAction>> {
         use crate::widgets::Input;
+        if let Input::PointerDown { x, y } = *input {
+            // A press on a web link is the link's, and starts no selection.
+            self.pressed_link = self.link_under(c, x, y);
+            if self.pressed_link.is_some() {
+                self.last_press = None;
+                return Some(vec![]);
+            }
+        }
         match *input {
+            Input::PointerUp { x, y } if self.pressed_link.is_some() => {
+                let pressed = self.pressed_link.take();
+                Some(
+                    pressed
+                        .filter(|url| self.link_under(c, x, y).as_ref() == Some(url))
+                        .map(|url| vec![PanelAction::Game(UiRequest::ChatLinkClicked(url))])
+                        .unwrap_or_default(),
+                )
+            }
             Input::PointerDown { x, y } => {
                 let place = self.log_place(c, x, y, false)?;
                 let double = self.last_press.is_some_and(|(t, px, py)| {
@@ -1615,6 +1649,18 @@ impl Panel for Chat {
                     false,
                     clip,
                 );
+            }
+        }
+        // A web link is underlined, in its line's color, a pixel under the text it stands on.
+        let underline = c
+            .resources
+            .fonts
+            .baseline(CHAT_FONT)
+            .map_or(row_height - 2, |b| b + 1);
+        for (row, x0, x1) in chat_log::link_spans(&lines, &rows, &|text| chat_measure(c, text)) {
+            let area = rect(2 + x0, row.y - scroll + 10 + underline, x1 - x0, 1);
+            if let Some(area) = area.intersect(rect(0, 10, w - 16, body)) {
+                f.fill(area, chat_color(c.classic.chat[row.line].0));
             }
         }
         f.control(
@@ -2517,6 +2563,79 @@ mod tests {
                 Command::TextBox { text, color: actual, .. } if text == "Channel line" && *actual == color
             )));
         }
+    }
+
+    /// Behaviour: chat.links.a-web-address-in-the-classic-chat-log-is-a-link
+    #[test]
+    fn a_web_address_in_the_chat_log_is_underlined_and_a_click_on_it_asks_to_open_it() {
+        use crate::widgets::Input;
+        const URL: &str = "https://example.com/a";
+        // Six-pixel characters, a fifteen-pixel line standing on eleven.
+        let resources = crate::resources::Resources {
+            fonts: crate::renderer::FontMetrics::fixed(CHAT_FONT, 6, 15, 11),
+            ..crate::resources::Resources::default()
+        };
+        let state = ClassicState {
+            chat: vec![(2, format!("Ana says, \"see {URL}.\""))],
+            ..ClassicState::default()
+        };
+        let world = World::default();
+        let (p, k, s) = (
+            PregameView::default(),
+            KeyboardState::default(),
+            ClassicSettings::default(),
+        );
+        let c = context(&resources, &world, &state, &p, &k, &s);
+        let mut chat = Chat::default();
+        // The one line is the log's first row, ten pixels down and two in. The address follows
+        // fifteen characters, from 92 to 218 pixels; the full stop is at 218.
+        let click = |chat: &mut Chat, down: i32, up: i32| {
+            let pressed = chat.input(&Input::PointerDown { x: down, y: 17 }, &c);
+            let released = chat.input(&Input::PointerUp { x: up, y: 17 }, &c);
+            (pressed, released)
+        };
+        let asks = Some(vec![PanelAction::Game(UiRequest::ChatLinkClicked(
+            URL.into(),
+        ))]);
+        assert_eq!(click(&mut chat, 93, 93), (Some(vec![]), asks.clone()));
+        assert_eq!(click(&mut chat, 217, 217).1, asks, "its last letter");
+        assert!(
+            chat.selected_text().is_none(),
+            "a click on a link selects nothing"
+        );
+        assert_eq!(
+            click(&mut chat, 93, 230).1,
+            Some(vec![]),
+            "let go off the link: nothing"
+        );
+        for beside in [91, 219] {
+            let (_, released) = click(&mut chat, beside, beside);
+            assert!(
+                !released
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|a| matches!(a, PanelAction::Game(UiRequest::ChatLinkClicked(_)))),
+                "at {beside}"
+            );
+        }
+        // Drawn underlined in its line's color, a pixel under the text it stands on.
+        let underlines: Vec<_> = chat
+            .frame(&c)
+            .screen
+            .commands
+            .into_iter()
+            .filter_map(|command| match command {
+                crate::Command::Fill {
+                    x,
+                    y,
+                    width,
+                    height: 1,
+                    color,
+                } => Some((x, y, width, color)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(underlines, [(92, 22, 126, chat_color(2))]);
     }
 
     #[test]

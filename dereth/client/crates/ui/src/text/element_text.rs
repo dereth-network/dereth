@@ -261,6 +261,10 @@ pub struct TextElement {
     /// `set_chat_color` still write `chat_colors`, and that copy still wins, so nothing the chat
     /// does changes.
     pub font_colors: Vec<u32>,
+    /// The web addresses in text appended to this element become links (`CD-chat-links`): drawn
+    /// in [`Self::tag_font_color`], as a clickable name is, and asking to be opened when clicked.
+    /// Only the chat windows' logs set it; every other text element leaves addresses as text.
+    pub web_links: bool,
 }
 
 impl Default for TextElement {
@@ -297,6 +301,7 @@ impl Default for TextElement {
             scroll: crate::scrollable::Scrollable::default(),
             chat_colors: Vec::new(),
             font_colors: Vec::new(),
+            web_links: false,
         }
     }
 }
@@ -328,6 +333,7 @@ impl TextElement {
             self.current_tag.as_ref(),
         );
         self.stamp_tag_spans(base, &parsed.spans);
+        self.stamp_web_links(base);
         self.bits.set_dirty(true);
         // The text setter stamps the cursor-move time on **both** its arms, so setting text is a
         // caret move: the next tick shows the caret solid.
@@ -393,6 +399,7 @@ impl TextElement {
             self.current_tag.as_ref(),
         );
         self.stamp_tag_spans(base, &parsed.spans);
+        self.stamp_web_links(base);
         self.bits.set_dirty(true);
         // The same text-insert tail as `append_text`: its call stamps the move.
         self.caret_moved = true;
@@ -431,6 +438,34 @@ impl TextElement {
                     if tell {
                         g.color = tag_color;
                     }
+                }
+            }
+        }
+    }
+
+    /// The web addresses among the glyphs from `base` on become links, when this element makes
+    /// them ([`Self::web_links`]): each glyph of one carries a web-link tag and the tag color. A
+    /// glyph already carrying a tag keeps it.
+    fn stamp_web_links(&mut self, base: usize) {
+        if !self.web_links {
+            return;
+        }
+        let Some(appended) = self.glyphs.glyphs.get(base..) else {
+            return;
+        };
+        // One character a glyph, so a character's place is its glyph's.
+        let text: String = appended
+            .iter()
+            .map(|g| char::from_u32(u32::from(g.data)).unwrap_or('\u{FFFD}'))
+            .collect();
+        let tag_color = self.tag_font_color;
+        for (start, end) in dereth_client_contract::chat::links::find_chars(&text) {
+            let url: String = text.chars().skip(start).take(end - start).collect();
+            let tag = Arc::new(crate::text::tag::web_link(&url));
+            for g in &mut self.glyphs.glyphs[base + start..base + end] {
+                if g.tag.is_none() {
+                    g.tag = Some(Arc::clone(&tag));
+                    g.color = tag_color;
                 }
             }
         }
@@ -815,6 +850,16 @@ impl TextElement {
 
         let screen = ctx.ui.screen_box(ctx.me);
         let (x, y) = m.point.window;
+        // A web address in a chat line (`CD-chat-links`), under the pointer, asks to be opened;
+        // what is asked, and what a yes does, is the game's. A web link raises no notice.
+        if let Some(url) = self.web_link_at_xy(screen, x, y) {
+            ctx.ui
+                .requests
+                .emit(dereth_client_contract::UiRequest::ChatLinkClicked(
+                    url.to_owned(),
+                ));
+            return;
+        }
         let pos = self.position_from_xy(screen, x, y);
         let Some(tag) = self.tag_at(pos).cloned() else {
             return;
@@ -1090,6 +1135,57 @@ impl TextElement {
             return end;
         }
         n
+    }
+
+    /// The glyph whose cell holds a screen point, in the layout [`Self::position_from_xy`] walks;
+    /// `None` over no glyph. Unlike the caret position, a glyph's whole width is that glyph, so a
+    /// press on the right half of a letter is on that letter.
+    #[must_use]
+    pub fn glyph_at_xy(&self, screen: crate::Box2D, px: i32, py: i32) -> Option<usize> {
+        let content = self.content_box(screen);
+        let n = self.glyphs.len();
+        if !content.is_valid() || n == 0 {
+            return None;
+        }
+        let (px, py) = (px + self.scroll.x, py + self.scroll.y);
+        let g = &self.glyphs.glyphs;
+        let lines = crate::text::glyph::wrap(g, content.width(), self.glyphs.one_line);
+        let text_h: i32 = lines.iter().map(|l| l.height).sum();
+        let max_w: i32 = lines.iter().map(|l| l.width).max().unwrap_or(0);
+        let avail_h = crate::text::glyph::justification_extent(content.height(), text_h);
+        let avail_w = crate::text::glyph::justification_extent(content.width(), max_w);
+        let mut y = content.y0
+            + crate::text::glyph::calc_justification(avail_h, text_h, 0, 0, self.v_justify);
+        for line in &lines {
+            if py >= y && py < y + line.height {
+                let mut x = content.x0
+                    + crate::text::glyph::calc_justification(
+                        avail_w,
+                        line.width,
+                        0,
+                        0,
+                        self.h_justify,
+                    );
+                for (j, glyph) in g[line.start.min(n)..line.end.min(n)].iter().enumerate() {
+                    if px >= x && px < x + glyph.width {
+                        return Some(line.start + j);
+                    }
+                    x += glyph.width;
+                }
+                return None;
+            }
+            y += line.height;
+        }
+        None
+    }
+
+    /// The web address of the link under a screen point (`CD-chat-links`), if one is there.
+    #[must_use]
+    pub fn web_link_at_xy(&self, screen: crate::Box2D, px: i32, py: i32) -> Option<&str> {
+        self.glyph_at_xy(screen, px, py)
+            .and_then(|i| self.tag_at(i))
+            .filter(|t| t.kind == crate::text::tag::TagKind::WebLink)
+            .map(|t| t.data.as_str())
     }
 
     /// The tag under a glyph index, for the click path (the position-from-XY lookup, then the
@@ -2683,6 +2779,52 @@ mod tests {
         t.bits.set_selectable(false);
         t.bits.set_editable(true);
         assert!(t.should_be_mouse_visible());
+    }
+
+    /// Behaviour: chat.links.a-web-address-in-the-modern-chat-log-is-a-link
+    #[test]
+    fn a_web_address_appended_to_a_log_that_makes_links_is_a_link_in_the_tag_color() {
+        use crate::text::tag::TagKind;
+        let (line, tag) = (0xFF11_2233, 0xFF00_B200);
+        let mut log = TextElement {
+            font_color: line,
+            tag_font_color: tag,
+            web_links: true,
+            ..TextElement::default()
+        };
+        log.append_text(
+            r#"<Tell:IIDString:0x50001234:Ana>Ana<\Tell> says, "https://example.com/a.""#,
+        );
+        assert_eq!(
+            log.glyphs.inq_text(false),
+            "Ana says, \"https://example.com/a.\""
+        );
+        // `https://example.com/a` is glyphs 11 to 31: the full stop and the quote are text.
+        for i in 0..log.glyphs.len() {
+            let t = log.tag_at(i).map(|t| t.kind);
+            let want = match i {
+                0..=2 => Some(TagKind::IidString),
+                11..=31 => Some(TagKind::WebLink),
+                _ => None,
+            };
+            assert_eq!(t, want, "glyph {i}");
+            let color = log.glyphs.glyphs[i].color;
+            assert_eq!(color == tag, want.is_some(), "glyph {i}'s color");
+        }
+        assert_eq!(log.tag_at(11).unwrap().data, "https://example.com/a");
+        // Read back with its tags, the line keeps the name's markup and the bare address: a font
+        // reset re-sets it from that and finds the link again.
+        assert_eq!(
+            log.glyphs.inq_text(true),
+            r#"<Tell:IIDString:0x50001234:Ana>Ana<\Tell> says, "https://example.com/a.""#
+        );
+        log.do_font_reset();
+        assert_eq!(log.tag_at(20).map(|t| t.kind), Some(TagKind::WebLink));
+
+        // Any other text element leaves an address as text.
+        let mut label = TextElement::default();
+        label.append_text("https://example.com/a");
+        assert!(label.tag_at(0).is_none());
     }
 
     /// Appended tagged text puts the tag on every covered glyph.

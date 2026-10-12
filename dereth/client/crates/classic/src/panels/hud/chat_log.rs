@@ -1,7 +1,9 @@
-//! The chat log's rows and its text selection. The log can be selected like the era's other
-//! selectable text: a press and drag selects, a double click selects a word, and the copy key
-//! copies what is selected. Rows are wrapped the way the log draws them, and every row keeps its
-//! place in its line's text, so a copy gives back the text as it was received.
+//! The chat log's rows, its text selection and its web links. The log can be selected like the
+//! era's other selectable text: a press and drag selects, a double click selects a word, and the
+//! copy key copies what is selected. Rows are wrapped the way the log draws them, and every row
+//! keeps its place in its line's text, so a copy gives back the text as it was received. A web
+//! address in a line is a link (`CD-chat-links`): it is underlined and a click on it asks to open
+//! it.
 
 /// A place in the log: a line of chat and a byte offset in its text.
 pub type Place = (usize, usize);
@@ -192,6 +194,61 @@ pub fn text(lines: &[&str], selection: (Place, Place)) -> String {
         .join("\n")
 }
 
+/// The character under a point, in the log's own coordinates (x from the rows' left edge, y from
+/// the top of the whole log), as the place where it begins; `None` off the rows' text.
+pub fn char_at(
+    lines: &[&str],
+    rows: &[Row],
+    row_height: i32,
+    x: i32,
+    y: i32,
+    measure: &dyn Fn(&str) -> i32,
+) -> Option<Place> {
+    let row = rows.iter().find(|r| r.y <= y && y < r.y + row_height)?;
+    let text = lines[row.line];
+    if x < 0 {
+        return None;
+    }
+    text[row.start..row.end]
+        .char_indices()
+        .map(|(i, c)| (row.start + i, row.start + i + c.len_utf8()))
+        .find(|&(_, next)| x < measure(&text[row.start..next]))
+        .map(|(at, _)| (row.line, at))
+}
+
+/// The web link at a place, as its address: the link in the line whose characters hold it.
+pub fn link_at(lines: &[&str], (line, at): Place) -> Option<String> {
+    let text = lines.get(line)?;
+    dereth_client_contract::chat::links::find(text)
+        .into_iter()
+        .find(|r| r.contains(&at))
+        .map(|r| text[r].to_owned())
+}
+
+/// The part of each row a web link covers, as an x range from the row's left edge: where each
+/// link is underlined.
+pub fn link_spans(
+    lines: &[&str],
+    rows: &[Row],
+    measure: &dyn Fn(&str) -> i32,
+) -> Vec<(Row, i32, i32)> {
+    let mut out = vec![];
+    for row in rows {
+        let text = lines[row.line];
+        for link in dereth_client_contract::chat::links::find(text) {
+            let (from, to) = (link.start.max(row.start), link.end.min(row.end));
+            if from < to {
+                out.push((
+                    *row,
+                    measure(&text[row.start..from]),
+                    measure(&text[row.start..to]),
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// The word around a place: the run of non-space characters it touches.
 pub fn word(lines: &[&str], (line, at): Place) -> (Place, Place) {
     let text = lines[line];
@@ -249,6 +306,41 @@ mod tests {
         );
         // Below the last row is the end of the log.
         assert_eq!(place_at(&lines, &rows, 15, 0, 200, &measure), Some((1, 16)));
+    }
+
+    #[test]
+    fn the_character_under_the_pointer_is_found_by_its_whole_width() {
+        let lines = ["abc", "defgh"];
+        let (rows, _) = rows(&lines, 100, 15, 15, &measure);
+        // Anywhere over a character's ten pixels is that character.
+        assert_eq!(char_at(&lines, &rows, 15, 0, 5, &measure), Some((0, 0)));
+        assert_eq!(char_at(&lines, &rows, 15, 19, 5, &measure), Some((0, 1)));
+        assert_eq!(char_at(&lines, &rows, 15, 20, 20, &measure), Some((1, 2)));
+        // Past the end of a row's text, or between rows' lines, is no character.
+        assert_eq!(char_at(&lines, &rows, 15, 30, 5, &measure), None);
+        assert_eq!(char_at(&lines, &rows, 15, 5, 40, &measure), None);
+    }
+
+    #[test]
+    fn a_web_link_is_found_under_any_of_its_characters_and_underlined_across_rows() {
+        let lines = ["see https://example.com/a. ok"];
+        assert_eq!(link_at(&lines, (0, 3)), None);
+        assert_eq!(
+            link_at(&lines, (0, 4)).as_deref(),
+            Some("https://example.com/a")
+        );
+        assert_eq!(
+            link_at(&lines, (0, 24)).as_deref(),
+            Some("https://example.com/a")
+        );
+        assert_eq!(link_at(&lines, (0, 25)), None, "the full stop is text");
+        // Rows of ten characters: the link runs over three of them.
+        let (rows, _) = rows(&lines, 100, 15, 15, &measure);
+        let spans: Vec<(usize, i32, i32)> = link_spans(&lines, &rows, &measure)
+            .iter()
+            .map(|(r, x0, x1)| (r.start, *x0, *x1))
+            .collect();
+        assert_eq!(spans, [(4, 0, 100), (14, 0, 100), (24, 0, 10)]);
     }
 
     #[test]

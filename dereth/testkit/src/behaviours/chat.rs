@@ -542,6 +542,57 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "chat.links.a-click-asks-first-and-only-a-yes-opens-the-address",
+        says: "Clicking a web address in a chat line, in any interface, asks \"Open\" and the \
+               whole address \"in your browser?\" before anything opens. Yes opens exactly that \
+               address in the browser, and tells the player so when the browser cannot be \
+               opened; No, or a box taken down unanswered, opens nothing. A second click on the \
+               same address while it is being asked about asks nothing more, and nothing but a \
+               whole http or https address is ever asked about.",
+        since: THIS_CLIENT,
+        divergence: "CD-chat-links",
+        evidence: Evidence::Private("AC-EVID-CHAT-LINKS-ASK"),
+        station: "dereth-client-runtime::lib::dialogs::tests::a_clicked_link_is_asked_about_and_a_yes_opens_exactly_that_address",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.links.a-web-address-in-the-classic-chat-log-is-a-link",
+        says: "In the classic interface's chat log a web address is underlined in its line's \
+               color, and pressing and letting go on any of its letters asks to open it; a press \
+               on it selects nothing, letting go off it does nothing, and a press beside it \
+               selects text as before.",
+        since: THIS_CLIENT,
+        divergence: "CD-chat-links",
+        evidence: Evidence::Private("AC-EVID-CHAT-LINKS-CLASSIC"),
+        station: "dereth-classic-ui::lib::panels::hud::tests::a_web_address_in_the_chat_log_is_underlined_and_a_click_on_it_asks_to_open_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.links.a-web-address-in-the-modern-chat-log-is-a-link",
+        says: "In each of the modern interface's five chat windows a web address is drawn in the \
+               color a clickable name is drawn in, the rest of its line keeping its own color, \
+               and a click on any of its letters asks to open it. Copied, the line is its plain \
+               text.",
+        since: THIS_CLIENT,
+        divergence: "CD-chat-links",
+        evidence: Evidence::Private("AC-EVID-CHAT-LINKS-MODERN"),
+        station: "dereth-ui-screens::dat::chat::web_links::a_web_address_in_a_chat_line_is_a_link_in_every_window_and_a_click_asks_to_open_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.links.only-a-web-address-in-a-chat-line-is-a-link",
+        says: "Only an address starting http:// or https://, at the start of a word, is a link: \
+               a file path, a script, a mail address, a bare www name, a dotted name or a \
+               Name@world address stays text. A link runs to the first space, quote or angle \
+               bracket; the punctuation ending a sentence after it is not part of it, nor a \
+               closing bracket it did not open, and a line can hold several.",
+        since: THIS_CLIENT,
+        divergence: "CD-chat-links",
+        evidence: Evidence::Private("AC-EVID-CHAT-LINKS-SCHEMES"),
+        station: "dereth-client-contract::lib::chat::links::tests::only_an_http_or_https_address_is_a_link",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.loc.prints-the-bodys-location-line",
         says: "Typing /loc and Enter prints Your location is: followed by the body's cell, its \
                position to six decimals and its facing on the main chat log, and counts as neither \

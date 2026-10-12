@@ -444,6 +444,18 @@ pub static DIVERGENCES: &[Divergence] = &[
               the day.",
     },
     Divergence {
+        id: "CD-chat-links",
+        title: "Web addresses in chat are links",
+        change: "An http or https address in any chat line, in every interface, is a link: \
+                 Horizon underlines it in its link color, the modern interface draws it in the \
+                 color a clickable name has, and the classic interface underlines it in its \
+                 line's color. A click asks whether to open the whole address in the browser, \
+                 and only a yes opens it. No other kind of address is a link, and a copied line \
+                 is its plain text. The final client had no links in its chat but names.",
+        why: "A player can follow an address someone shares without copying it out by hand, \
+              and nothing opens without the player saying so.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \

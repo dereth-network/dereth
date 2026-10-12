@@ -102,6 +102,27 @@ impl Interaction {
         self.absorb(game, out, req);
     }
 
+    /// The web addresses clicked in chat lines since the dialog service last asked.
+    pub fn take_link_confirmations(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_link_confirmations)
+    }
+
+    /// A chat link's question answered yes: the host opens `url` in the browser. When the host
+    /// could not, the player is told so, with the address, as the game's own errors are, so it can
+    /// be opened by hand.
+    pub fn open_link(&mut self, game: &mut dereth_client_model::World, url: &str) {
+        if crate::app::launch_link(url) > 32 {
+            return;
+        }
+        game.scroll.add_feedback_to_scroll(
+            &format!("Your browser could not be opened for {url}"),
+            dereth_client_model::scroll::LOCAL_ERROR_TYPE,
+            true,
+            0,
+            dereth_client_contract::feedback::Feedback::LOCAL,
+        );
+    }
+
     /// `@house abandon`'s two prompts, for
     /// `crate::target_confirmation::TargetedDialogs` to put on screen.
     pub fn take_house_abandon_first(&mut self) -> Vec<&'static str> {

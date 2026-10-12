@@ -2,8 +2,8 @@
 //! one-at-a-time slots, what an answer does and what the server's withdrawal does.
 //!
 //! The game's questions -- a use that needs a yes, a server's confirmation request, an invitation,
-//! a swear, a house payment, `@die`, the vendor's unfinished basket, a pop-up message -- arrive as
-//! queues on [`crate::interaction::Interaction`]. [`DialogService::service`](crate::dialogs::DialogService::service) turns them into
+//! a swear, a house payment, `@die`, the vendor's unfinished basket, a pop-up message, a web link
+//! clicked in chat -- arrive as queues on [`crate::interaction::Interaction`]. [`DialogService::service`](crate::dialogs::DialogService::service) turns them into
 //! [`Question`](crate::dialogs::Question)s, runs each answer's rule when the player answers, and answers **No** on the way
 //! out when the server withdraws a question it asked. What a question looks like, and how a UI
 //! queues several of them, is the front end's: it implements [`DialogPresenter`](crate::dialogs::DialogPresenter).
@@ -93,7 +93,7 @@ pub trait DialogPresenter {
 }
 
 /// What an answer does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Rule {
     /// Altar and volatile-rare uses: a yes performs the use.
     Usage(ObjectId),
@@ -127,6 +127,8 @@ enum Rule {
     HousePayment { rent: bool },
     /// A pop-up message: nothing to answer.
     PopUp,
+    /// A web link clicked in chat: a yes opens it in the browser.
+    OpenLink(String),
 }
 
 /// The questions the game has asked and the player has not answered.
@@ -273,7 +275,7 @@ impl DialogService {
                 interaction.stats.confirmations_aborts_unmatched += 1;
                 continue;
             };
-            let (id, rule) = self.open[at];
+            let (id, rule) = self.open[at].clone();
             // The context answered with is the slot's, not the withdrawal's.
             let answered_context = match rule {
                 Rule::FellowshipRequest { context_id } => context_id,
@@ -458,6 +460,21 @@ impl DialogService {
                 (None, None),
             );
         }
+        // **A web link clicked in chat**: a question of its own, which a yes opens. A link
+        // already being asked about is not asked about again.
+        for url in interaction.take_link_confirmations() {
+            if self.has(|r| matches!(r, Rule::OpenLink(open) if *open == url)) {
+                continue;
+            }
+            let prompt = dereth_client_contract::chat::links::confirm_prompt(&url);
+            self.ask(
+                &mut *ui,
+                Rule::OpenLink(url),
+                Prompt::Text(prompt),
+                (false, false, false),
+                (None, None),
+            );
+        }
         // **The vendor's unfinished basket**: one at a time.
         for prompt in closes {
             if self.has(|r| *r == Rule::CloseVendor) {
@@ -522,6 +539,7 @@ impl DialogService {
             }),
             Rule::HouseAbandonFirst if yes => interaction.confirm_house_abandon_first(),
             Rule::HouseAbandonSecond if yes => interaction.confirm_house_abandon(world),
+            Rule::OpenLink(url) if yes => interaction.open_link(world, &url),
             Rule::AcceptSwear { context_id } => {
                 if let Some(accepted) = answered {
                     interaction.confirm_server_confirmation(1, context_id, accepted);
@@ -539,6 +557,7 @@ impl DialogService {
             | Rule::Die
             | Rule::HouseAbandonFirst
             | Rule::HouseAbandonSecond
+            | Rule::OpenLink(_)
             | Rule::PopUp => {}
         }
     }
@@ -553,5 +572,176 @@ pub fn prompt_for(confirmation_type: i32, text: &str) -> String {
     match confirmation_type {
         7 => text.to_string(),
         _ => format!("{text} Continue?"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use dereth_client_contract::UiRequest;
+    use dereth_primitives::{LocalTime, ServerTime};
+
+    use super::*;
+    use crate::app::{record_shell_calls, record_shell_calls_answering, recorded_launches};
+
+    /// A front end that shows whatever it is asked and answers what the test tells it to.
+    #[derive(Debug, Default)]
+    struct Boxes {
+        shown: Vec<Question>,
+        answers: BTreeMap<QuestionId, Option<bool>>,
+    }
+
+    impl DialogPresenter for Boxes {
+        fn accepting(&self) -> bool {
+            true
+        }
+        fn generation(&self) -> u64 {
+            1
+        }
+        fn open(&mut self, question: &Question) -> bool {
+            self.shown.push(question.clone());
+            true
+        }
+        fn poll(&mut self, id: QuestionId) -> Answer {
+            self.answers
+                .get(&id)
+                .map_or(Answer::Waiting, |a| Answer::Closed(*a))
+        }
+        fn close(&mut self, id: QuestionId) {
+            self.shown.retain(|q| q.id != id);
+            self.answers.remove(&id);
+        }
+        fn deliver(&mut self, _request: UiRequest) {}
+    }
+
+    /// A game where the player has clicked each of `urls` in chat, its dialog service, and the
+    /// boxes after one pass of it.
+    fn clicked(
+        urls: &[&str],
+    ) -> (
+        Interaction,
+        dereth_client_model::World,
+        DialogService,
+        Boxes,
+    ) {
+        let mut inter = Interaction::new();
+        let mut world = dereth_client_model::World::new();
+        inter.queue(
+            vec![],
+            urls.iter()
+                .map(|u| UiRequest::ChatLinkClicked((*u).to_owned()))
+                .collect(),
+        );
+        assert!(inter
+            .run_ui_requests(&mut world, false, ServerTime(1.0))
+            .is_empty());
+        let mut service = DialogService::default();
+        let mut boxes = Boxes::default();
+        service.service(Some(&mut boxes), &mut inter, &mut world, LocalTime(1.0));
+        (inter, world, service, boxes)
+    }
+
+    /// Answer the one box `answer` and run the service once more.
+    fn answer(
+        (inter, world, service, boxes): &mut (
+            Interaction,
+            dereth_client_model::World,
+            DialogService,
+            Boxes,
+        ),
+        answer: Option<bool>,
+    ) {
+        let id = boxes.shown[0].id;
+        boxes.answers.insert(id, answer);
+        service.service(Some(boxes), inter, world, LocalTime(2.0));
+    }
+
+    /// Behaviour: chat.links.a-click-asks-first-and-only-a-yes-opens-the-address
+    #[test]
+    fn a_clicked_link_is_asked_about_and_a_yes_opens_exactly_that_address() {
+        record_shell_calls();
+        const URL: &str = "https://example.com/a?b=c#d";
+        let mut game = clicked(&[URL]);
+        let boxes = &game.3;
+        assert_eq!(boxes.shown.len(), 1, "one question");
+        assert_eq!(
+            boxes.shown[0].prompt,
+            Prompt::Text(format!("Open {URL} in your browser?"))
+        );
+        assert!(!boxes.shown[0].message, "a yes-or-no question");
+        // Nothing opens while the question waits.
+        let (inter, world, service, boxes) = &mut game;
+        service.service(Some(boxes), inter, world, LocalTime(1.5));
+        assert!(recorded_launches().is_empty());
+        answer(&mut game, Some(true));
+        assert_eq!(recorded_launches(), [URL], "the address, whole, once");
+        assert!(game.3.shown.is_empty(), "the box is taken down");
+        assert!(game.1.scroll.pending().is_empty(), "nothing to say");
+    }
+
+    /// Behaviour: chat.links.a-click-asks-first-and-only-a-yes-opens-the-address
+    #[test]
+    fn a_no_or_a_box_gone_unanswered_opens_nothing() {
+        for refusal in [Some(false), None] {
+            record_shell_calls();
+            let mut game = clicked(&["https://example.com/"]);
+            answer(&mut game, refusal);
+            assert!(recorded_launches().is_empty(), "{refusal:?}");
+            assert!(game.3.shown.is_empty());
+        }
+    }
+
+    /// Behaviour: chat.links.a-click-asks-first-and-only-a-yes-opens-the-address
+    #[test]
+    fn only_a_whole_web_address_is_asked_about() {
+        record_shell_calls();
+        let (_, _, _, boxes) = clicked(&[
+            "javascript:alert(1)",
+            "file:///c:/windows/system32/calc.exe",
+            "https://example.com/a and more",
+            "www.example.com",
+            "",
+        ]);
+        assert!(boxes.shown.is_empty(), "{:?}", boxes.shown);
+        assert!(recorded_launches().is_empty());
+    }
+
+    /// Behaviour: chat.links.a-click-asks-first-and-only-a-yes-opens-the-address
+    #[test]
+    fn a_link_clicked_again_while_it_is_asked_about_is_not_asked_twice() {
+        let (_, _, _, boxes) = clicked(&[
+            "https://example.com/a",
+            "https://example.com/a",
+            "https://example.com/b",
+        ]);
+        let asked: Vec<&Prompt> = boxes.shown.iter().map(|q| &q.prompt).collect();
+        assert_eq!(
+            asked,
+            [
+                &Prompt::Text("Open https://example.com/a in your browser?".into()),
+                &Prompt::Text("Open https://example.com/b in your browser?".into()),
+            ]
+        );
+    }
+
+    /// Behaviour: chat.links.a-click-asks-first-and-only-a-yes-opens-the-address
+    #[test]
+    fn a_browser_that_will_not_open_is_said_so_with_the_address() {
+        record_shell_calls_answering(0);
+        let mut game = clicked(&["https://example.com/x"]);
+        answer(&mut game, Some(true));
+        assert_eq!(recorded_launches(), ["https://example.com/x"]);
+        let said: Vec<&str> = game
+            .1
+            .scroll
+            .pending()
+            .iter()
+            .map(|l| l.body.as_str())
+            .collect();
+        assert_eq!(
+            said,
+            ["Your browser could not be opened for https://example.com/x"]
+        );
     }
 }

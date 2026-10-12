@@ -569,6 +569,9 @@ pub struct Interaction {
     /// A `Vec` for `pending_vendor_close_confirmations`' reason, and the only chat command in
     /// retail that opens a dialog of its own.
     pending_die_confirmations: Vec<&'static str>,
+    /// The web addresses clicked in chat lines, each waiting for the dialog service to ask the
+    /// player whether to open it.
+    pending_link_confirmations: Vec<String>,
     /// `@house abandon`'s prompts, first stage and second, for
     /// `crate::target_confirmation::TargetedDialogs`. Two queues rather than one because the
     /// two stages carry different callbacks: stage one's Yes raises stage two, and only stage

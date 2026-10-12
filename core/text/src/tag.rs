@@ -30,6 +30,10 @@ pub enum TagKind {
     IidString,
     /// An invalid or unmapped format; `make_tag` rejects it before a run is constructed.
     Unknown,
+    /// A web address this client found in a chat line ([`web_link`]); its data is the address.
+    /// No markup makes one: the format keywords never name it, so text from a server cannot
+    /// dress something else up as a link.
+    WebLink,
 }
 
 impl TagKind {
@@ -273,21 +277,58 @@ pub fn parse(s: &str) -> TaggedText {
     out
 }
 
-/// Build the start tag.
+/// Build the start tag. A web link has none: its text is the address, found again wherever the
+/// text is read for links.
 #[must_use]
 pub fn build_start_tag(t: &TextTag) -> String {
+    if t.kind == TagKind::WebLink {
+        return String::new();
+    }
     format!("<{}:{}:{}>", t.type_keyword, t.format, t.data)
 }
 
 /// Build the end tag — `"<\\%ls>"`, a **backslash**.
 #[must_use]
 pub fn build_end_tag(t: &TextTag) -> String {
+    if t.kind == TagKind::WebLink {
+        return String::new();
+    }
     format!("<\\{}>", t.type_keyword)
+}
+
+/// The tag a web address in a chat line carries: clicking it asks to open `url`.
+#[must_use]
+pub fn web_link(url: &str) -> TextTag {
+    TextTag {
+        kind: TagKind::WebLink,
+        type_keyword: String::new(),
+        format: String::new(),
+        data: url.to_owned(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A web link writes no markup, so its text reads back as the bare address; and no markup a
+    /// server could send makes one.
+    #[test]
+    fn a_web_link_is_never_markup_either_way() {
+        let link = web_link("https://example.com/a");
+        assert_eq!(link.data, "https://example.com/a");
+        assert_eq!(build_start_tag(&link), "");
+        assert_eq!(build_end_tag(&link), "");
+        for markup in [
+            "<WebLink:WebLink:https://example.com>",
+            "<Tell:WebLink:https://example.com>",
+            "<Tell::https://example.com>",
+        ] {
+            assert!(make_tag(markup).is_none(), "{markup}");
+        }
+        let parsed = parse(r"<Tell:WebLink:x>see<\Tell>");
+        assert!(parsed.spans.is_empty(), "{parsed:?}");
+    }
 
     /// Tag parsing requires the string to start with `'<'` and
     /// be at least 3 characters, then splits on `':'`".

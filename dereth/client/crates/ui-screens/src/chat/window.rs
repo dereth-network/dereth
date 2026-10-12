@@ -110,6 +110,10 @@ impl ChatWindow {
             send: ui.get_child_recursive(root, SEND),
         };
         w.build_chat_color_lookup_table(ui);
+        // The web addresses in the log's lines are links (`CD-chat-links`).
+        if let Some(log) = w.log.and_then(|h| ui.text_element_mut(h)) {
+            log.web_links = true;
+        }
         // The two states are one property each, read off the live tree: state `1` is
         // `0x3B = false` (shown) and state `0x0D` is `0x3B = true` (hidden) — so the arrow's "up"
         // and "down" *are* the hide flag, and the base record's `0x3B = false` starts it shown.

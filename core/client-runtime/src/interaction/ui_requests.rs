@@ -1499,6 +1499,14 @@ feedback,channel: 0x1A, text},
                     }
                     self.stats.notice_strings_scrolled += game.drain_minigame_text() as u64;
                 }
+                // A web address clicked in a chat line is a question first: the dialog service
+                // asks before anything opens. Only a whole `http` or `https` address is asked
+                // about, whichever interface the click came from.
+                UiRequest::ChatLinkClicked(url) => {
+                    if dereth_client_contract::chat::links::is_link(&url) {
+                        self.pending_link_confirmations.push(url);
+                    }
+                }
                 UiRequest::MiniGameQuitAnswer(confirmed) => {
                     game.minigame_quit_answer(confirmed, &mut req);
                     self.stats.minigame_gestures += 1;

@@ -1524,6 +1524,61 @@ mod text_tag_release_tests {
 }
 
 #[cfg(test)]
+mod web_link_tests {
+    use crate::focus::action;
+    use crate::text::TextElement;
+    use crate::UiSystem;
+    use dereth_client_contract::UiRequest;
+
+    /// A text element that makes links, holding `text` in eight-pixel glyphs from its left edge.
+    fn log(text: &str) -> UiSystem {
+        let mut ui = UiSystem::new((400, 100));
+        let log = ui.create_hollow(Some(ui.root()));
+        let mut element = TextElement::default();
+        element.web_links = true;
+        ui.put_behaviour(log, Box::new(element));
+        ui.resize_to(log, 380, 40);
+        ui.set_mouse_visible(log, true);
+        ui.text_element_mut(log)
+            .expect("text behaviour")
+            .append_text(text);
+        let _ = ui.drain_outbox();
+        let _ = ui.requests.take();
+        ui
+    }
+
+    fn click(ui: &mut UiSystem, x: i32) -> Vec<UiRequest> {
+        ui.mouse_down(action::PRIMARY_CLICK, x, 8);
+        ui.mouse_up(action::PRIMARY_CLICK, x, 8, false);
+        let _ = ui.drain_outbox();
+        ui.requests.take()
+    }
+
+    /// Behaviour: chat.links.a-web-address-in-the-modern-chat-log-is-a-link
+    #[test]
+    fn a_click_on_a_web_address_asks_to_open_it_and_a_click_beside_it_does_not() {
+        // `see ` is four glyphs: the address is at 32 to 200 pixels.
+        let mut ui = log("see https://example.com/a. ok");
+        assert_eq!(
+            click(&mut ui, 36),
+            [UiRequest::ChatLinkClicked("https://example.com/a".into())]
+        );
+        assert_eq!(
+            click(&mut ui, 199),
+            [UiRequest::ChatLinkClicked("https://example.com/a".into())],
+            "the right half of its last letter"
+        );
+        assert!(click(&mut ui, 12).is_empty(), "before it");
+        assert!(
+            click(&mut ui, 30).is_empty(),
+            "the space before it, by its right half"
+        );
+        assert!(click(&mut ui, 201).is_empty(), "its full stop");
+        assert!(click(&mut ui, 300).is_empty(), "past the end of the line");
+    }
+}
+
+#[cfg(test)]
 mod child_action_tests {
     use std::cell::RefCell;
     use std::rc::Rc;

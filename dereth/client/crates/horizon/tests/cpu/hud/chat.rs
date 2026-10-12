@@ -266,3 +266,102 @@ fn a_drag_over_the_log_selects_its_lines_and_control_c_copies_them() {
     h.frame(&state);
     assert!(h.input.copied.is_none());
 }
+
+/// The interface with the pieces and fonts the client carries, so its text has its widths.
+fn with_fonts() -> Harness {
+    use std::sync::Arc;
+    let art = Arc::new(dereth_horizon::art::Art::new(Arc::new(
+        dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in"),
+    )));
+    Harness {
+        ui: dereth_horizon::ui::HorizonUi::new(art, Default::default()),
+        list: Default::default(),
+        input: Default::default(),
+        screen: (1920.0, 1080.0),
+    }
+}
+
+#[test]
+fn a_web_address_in_a_line_is_a_link_and_a_click_on_it_asks_to_open_it() {
+    use dereth_horizon::ui::game::ChatLine;
+    const URL: &str = "https://example.com/a?b=c";
+    let mut state = in_world();
+    state.new_chat = vec![ChatLine {
+        chat_type: 0,
+        text: format!(
+            r#"<Tell:IIDString:1342177281:Ana>Ana<\Tell> says, "see {URL}." and https://example.org"#
+        ),
+        window: MAIN,
+    }];
+    let mut h = with_fonts();
+    h.frame(&state);
+    state.new_chat.clear();
+    let link = h.ui.hud.log.control(URL).expect("the link is drawn");
+    assert!(
+        h.ui.hud.log.control("https://example.org").is_some(),
+        "and the second"
+    );
+    // A press on the link, let go: the game is asked to open it, and nothing else happens.
+    h.input.mouse = (link.x + link.w - 1.0, link.y + link.h / 2.0);
+    h.input.down[0] = true;
+    h.input.pressed[0] = true;
+    let clicked = h.frame(&state);
+    h.input.down[0] = false;
+    h.input.released[0] = true;
+    let released = h.frame(&state);
+    assert_eq!(
+        clicked.requests,
+        [UiRequest::ChatLinkClicked(URL.into())],
+        "the whole address, without the full stop"
+    );
+    assert!(released.requests.is_empty(), "{:?}", released.requests);
+    assert!(
+        !h.ui.hud.log.has_selection(),
+        "a click on a link selects nothing"
+    );
+    // Beside it, a press is the log's own: it starts a selection and asks nothing.
+    h.input.released[0] = false;
+    h.input.mouse = (link.x + link.w + 40.0, link.y + link.h / 2.0);
+    h.input.down[0] = true;
+    h.input.pressed[0] = true;
+    let beside = h.frame(&state);
+    assert!(
+        !beside
+            .requests
+            .iter()
+            .any(|r| matches!(r, UiRequest::ChatLinkClicked(_))),
+        "{:?}",
+        beside.requests
+    );
+}
+
+#[test]
+fn a_line_with_a_link_copies_as_its_plain_text() {
+    use dereth_horizon::ui::game::ChatLine;
+    let mut state = in_world();
+    state.new_chat = vec![ChatLine {
+        chat_type: 0,
+        text: "Cora says, \"https://example.com/x\"".into(),
+        window: MAIN,
+    }];
+    let mut h = Harness::new(Default::default());
+    h.frame(&state);
+    state.new_chat.clear();
+    let dock = h.ui.hud.log.dock;
+    h.input.mouse = (dock.x + 20.0, dock.y + 10.0);
+    h.input.down[0] = true;
+    h.input.pressed[0] = true;
+    h.frame(&state);
+    h.input.mouse = (dock.x + 20.0, dock.bottom() + 40.0);
+    h.frame(&state);
+    h.input.down[0] = false;
+    h.input.released[0] = true;
+    h.frame(&state);
+    h.input.ctrl = true;
+    key(&mut h, 0x43);
+    h.frame(&state);
+    assert_eq!(
+        h.input.copied.take().as_deref(),
+        Some("Cora says, \"https://example.com/x\"")
+    );
+}

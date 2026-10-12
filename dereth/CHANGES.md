@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Web addresses (http and https) in chat are links in every interface: click one and, once you say yes, it opens in your browser.
+
 ## 0.4.2 (2026-10-12)
 
 - The launcher shows every world's era instead of asking (what the world says, or End of Retail), and Dereth Network worlds' players and whether they are up, from the hub, ACE worlds included.

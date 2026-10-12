@@ -20,7 +20,7 @@ use crate::draw::{Argb, Rect};
 use crate::options::{ChatOpacity, TabNames};
 use crate::ui::colours::chat_colour;
 use crate::ui::game::{ChatLine, ChatWindow, GameState};
-use crate::ui::hud::{chat_links, Link};
+use crate::ui::hud::{chat_links, Link, LinkTarget};
 use crate::ui::input::vk;
 use crate::ui::kit::{self, Ctx};
 use crate::ui::paint::{Align, Painter, TextStyle};
@@ -314,8 +314,8 @@ pub struct ChatLog {
     home: Rect,
     /// Where the docked window's lines are, as it drew them before the HUD layout placed it.
     dock_drawn: Rect,
-    /// Where the tabs and the open menu's controls were drawn this frame, by their captions:
-    /// what a scripted run or a test clicks.
+    /// Where the tabs, the open menu's controls and the web links were drawn this frame, by their
+    /// captions (a link's is its address): what a scripted run or a test clicks.
     controls: Vec<(String, Rect)>,
 }
 
@@ -373,8 +373,8 @@ impl ChatLog {
         self.typing.is_some()
     }
 
-    /// Where the control captioned `label` was drawn this frame: a docked tab by its name, or a
-    /// check box or the button of the open tab menu.
+    /// Where the control captioned `label` was drawn this frame: a docked tab by its name, a
+    /// check box or the button of the open tab menu, or a web link in the lines by its address.
     #[must_use]
     pub fn control(&self, label: &str) -> Option<Rect> {
         self.controls
@@ -971,7 +971,8 @@ impl ChatLog {
     }
 
     /// The lines `window` shows, wrapped into `area`, newest at the bottom; the wheel scrolls
-    /// them, and a name in a line is a link that begins a tell to it.
+    /// them; a name in a line is a link that begins a tell to it, and a web address one that asks
+    /// to be opened in the browser.
     #[allow(clippy::too_many_arguments)]
     fn draw_lines(
         &mut self,
@@ -1118,11 +1119,12 @@ impl ChatLog {
             if links.is_empty() {
                 p.text(&body.colour(*colour), area.x, ly, text);
             } else {
-                // The line in pieces: plain, a name, plain; a name is lit and can be clicked.
+                // The line in pieces: plain, a link, plain; a link is lit and can be clicked. A
+                // name begins a tell; a web address, underlined, asks to be opened.
                 let chars: Vec<char> = text.chars().collect();
                 let mut x = area.x;
                 let mut at = 0;
-                for (s, e, name) in links {
+                for (s, e, target) in links {
                     let before: String = chars[at.min(chars.len())..(*s).min(chars.len())]
                         .iter()
                         .collect();
@@ -1133,17 +1135,20 @@ impl ChatLog {
                     let w = p.measure(body, &shown);
                     let r = Rect::new(x, ly, w, lh);
                     let over = ctx.over(&r);
-                    p.text(
-                        &body.colour(if over { 0xFFFF_F0B0 } else { 0xFFB0_D8FF }),
-                        x,
-                        ly,
-                        &shown,
-                    );
+                    let lit = if over { 0xFFFF_F0B0 } else { 0xFFB0_D8FF };
+                    p.text(&body.colour(lit), x, ly, &shown);
+                    if let LinkTarget::Web(url) = target {
+                        p.fill(Rect::new(x, ly + lh - 2.0 * k, w, k.max(1.0)), lit);
+                        self.controls.push((url.clone(), r));
+                    }
                     if over && ctx.input.clicked(&r) {
-                        out.requests.push(UiRequest::ChatEntry {
-                            window: window::MAIN,
-                            text: self.typing.clone().unwrap_or_default(),
-                            action: EntryAction::StartTell { name: name.clone() },
+                        out.requests.push(match target {
+                            LinkTarget::Name(name) => UiRequest::ChatEntry {
+                                window: window::MAIN,
+                                text: self.typing.clone().unwrap_or_default(),
+                                action: EntryAction::StartTell { name: name.clone() },
+                            },
+                            LinkTarget::Web(url) => UiRequest::ChatLinkClicked(url.clone()),
                         });
                     }
                     x += w;

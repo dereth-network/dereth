@@ -19,3 +19,6 @@ pub mod colors;
 
 /// Shared entry intents and readback.
 pub mod entry;
+
+/// Web addresses in chat lines, and the question asked before one opens.
+pub mod links;

@@ -265,6 +265,40 @@ impl FontMetrics {
     pub fn line_height(&self, font: &str) -> Option<i32> {
         self.0.get(font).map(|f| f.line_height)
     }
+    /// How far below a line's top its text stands on.
+    pub fn baseline(&self, font: &str) -> Option<i32> {
+        self.0.get(font).map(|f| f.baseline)
+    }
+    /// Metrics for one font named `name` whose every printable character is `advance` pixels
+    /// wide, for tests that place text by its widths.
+    #[cfg(test)]
+    pub(crate) fn fixed(name: &str, advance: i32, line_height: i32, baseline: i32) -> Self {
+        let mut low = vec![None; 256];
+        for slot in low.iter_mut().skip(32) {
+            *slot = Some(Glyph {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                advance,
+                bearing_x: 0,
+                bearing_y: 0,
+            });
+        }
+        let font = Font {
+            width: 1,
+            height: 1,
+            rgba_file: String::new(),
+            baseline,
+            line_height,
+            low,
+            high: BTreeMap::new(),
+        };
+        Self(Arc::new(BTreeMap::from([(
+            name.to_owned(),
+            Arc::new(font),
+        )])))
+    }
     pub fn text_width(&self, font: &str, text: &str) -> Option<i32> {
         self.0.get(font).map(|f| measure(f, text))
     }

@@ -12,7 +12,7 @@ pub const fn click_notice(kind: TagKind) -> Option<NoticeId> {
         TagKind::Iid => NoticeId::IidTagClicked,
         TagKind::IidEnum => NoticeId::IidEnumTagClicked,
         TagKind::IidString => NoticeId::IidStringTagClicked,
-        TagKind::Unknown => return None,
+        TagKind::Unknown | TagKind::WebLink => return None,
     })
 }
 
@@ -34,5 +34,10 @@ mod tests {
             Some(NoticeId::IidStringTagClicked)
         );
         assert_eq!(click_notice(TagKind::Unknown), None);
+        assert_eq!(
+            click_notice(TagKind::WebLink),
+            None,
+            "a web link raises no notice"
+        );
     }
 }
