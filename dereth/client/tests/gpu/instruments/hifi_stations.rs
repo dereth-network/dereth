@@ -1055,6 +1055,19 @@ pub(crate) fn close_stations(store: &RetailDatStore) -> Vec<Station> {
         weather: false,
         land_radius: 3,
     });
+    out.push(Station {
+        name: "dungeon-candles",
+        why: "a body standing beside a candelabrum in a dungeon's hall, a wall close behind the \
+              candles: a frame right by a light",
+        place: Place::Body {
+            cell: 0x019E_010F,
+            origin: Vec3::ZERO,
+            yaw: 90.0,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: 3,
+    });
     out.extend(grass_stations(store));
     out.extend(wade_stations(store));
     out

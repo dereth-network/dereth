@@ -43,6 +43,9 @@ struct Params {
     // the rooms' own light per pixel is bound; z 1 to show it alone; w 1 when the viewer is in a
     // room, whose surfaces then take their lights per pixel.
     indoor: vec4<f32>,
+    // x the share of the light a room's vertices held that its surfaces keep however far from
+    // the lights (the light the room's walls throw about); yzw unused.
+    room: vec4<f32>,
 };
 
 struct Light {
@@ -246,6 +249,15 @@ fn burned_drawn(kind: f32) -> f32 {
     return exp2(t * 8.0 - 8.0);
 }
 
+// How much brighter than its vertices held a room's surface is drawn, for `raw` times their light
+// worked out here: as worked out up to the vertices' own light, and past it rising ever more
+// slowly to two fifths more at most. Close by a torch the surface is a warm pool, brighter than
+// the vertices could hold, with its texture still in it; never a white blot.
+fn room_gain(raw: f32) -> f32 {
+    let over = max(raw - 1.0, 0.0);
+    return min(raw, 1.0) + over / (1.0 + over / 0.4);
+}
+
 // A room's surface lit by its own lights per pixel: the light burned into its vertices, which the
 // color was drawn with, gives way to the same lights worked out here, by the brightness of the
 // two in the display's encoding. Close to a torch the surface is brighter than its vertices held,
@@ -261,10 +273,11 @@ fn room_lit(c: vec3<f32>, kind: f32, px: vec2<i32>) -> vec3<f32> {
     if (here.w < 0.0) {
         return c;
     }
-    // A quarter of the light the vertices held stays, as the light the room's walls throw about.
+    // A share of the light the vertices held stays, as the light the room's walls throw about.
     let trust = smoothstep(0.03, 0.2, drawn);
     let raw = clamp(luminance(here.rgb) / max(drawn, 0.03), 0.0, 3.0);
-    let ratio = mix(1.0, 0.25 + 0.75 * raw, trust);
+    let kept = params.room.x;
+    let ratio = mix(1.0, kept + (1.0 - kept) * room_gain(raw), trust);
     if (params.indoor.z > 0.5) {
         return vec3<f32>(drawn, luminance(here.rgb) * 0.25, ratio * 0.25);
     }

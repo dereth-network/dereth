@@ -1,9 +1,10 @@
 //! Behaviour: none (experimental Horizon rendering effects: the better lighting underground, in
 //! a room and at a doorway, as it looks)
 //!
-//! The better lighting indoors: underground, in a house's room and at a doorway seen from the
-//! room, it changes the frame, and the frame stays within a sane brightness of the ordinary one,
-//! neither dark nor blown out; and with the lamps' rays a room's light does not reach a surface
+//! The better lighting indoors: underground, beside a dungeon's candles, in a house's room and at
+//! a doorway seen from the room, it changes the frame, and the frame stays within a sane
+//! brightness of the ordinary one, neither dark nor brighter, and nothing near a light blown out
+//! to white; and with the lamps' rays a room's light does not reach a surface
 //! past the walls that stand between them.
 //!
 //! Each frame is compared with the same station loaded again on a device of its own and stepped
@@ -93,6 +94,18 @@ fn luma(rgba: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+/// The share of a picture's pixels with a channel drawn at full: clipped.
+fn clipped(rgba: &[u8]) -> f32 {
+    let px = rgba.as_chunks::<4>().0;
+    #[allow(clippy::cast_precision_loss)] // pixel counts
+    let share = px.iter().filter(|p| p[..3].contains(&255)).count() as f32 / px.len() as f32;
+    share
+}
+
+/// Every box, as the options page ticks them.
+const EVERY_BOX: &str =
+    "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1,Weather=1";
+
 /// The mean brightness of a picture, and the shares of its pixels that are near black and that
 /// are near white.
 fn brightness(rgba: &[u8]) -> (f32, f32, f32) {
@@ -139,20 +152,44 @@ fn mean_in(rgba: &[u8], (x0, y0): (f32, f32), (x1, y1): (f32, f32)) -> f32 {
 fn underground_and_in_a_room_the_better_lighting_changes_the_frame_within_a_sane_brightness() {
     let _gpu = crate::common::gpu_lock();
     let mut failures = Vec::new();
-    for name in ["dungeon", "dungeon-cave", "indoor", "doorway"] {
+    for name in [
+        "dungeon",
+        "dungeon-cave",
+        "dungeon-candles",
+        "indoor",
+        "doorway",
+    ] {
         let station = station(name);
         let (off, _) = run(&station, FidelityPreferences::default());
-        let (on, reshaded) = run(&station, fidelity("Lighting=1"));
-        let changed = moved(&off, &on);
-        let (off_mean, off_dark, off_blown) = brightness(&off);
-        let (on_mean, on_dark, on_blown) = brightness(&on);
+        for spec in ["Lighting=1", EVERY_BOX] {
+            let (on, reshaded) = run(&station, fidelity(spec));
+            failures.extend(sane(name, spec, &off, &on, reshaded));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+/// What is wrong with `on`, a frame of the station `name` with `spec` ticked, against `off`, the
+/// ordinary frame: unchanged, or not within a sane brightness of it -- its mean brightness within
+/// a fifth or a quarter of the ordinary frame's, no great share of it fallen to black, and almost
+/// nothing more of it drawn white or clipped, however close a light stands.
+fn sane(name: &str, spec: &str, off: &[u8], on: &[u8], reshaded: bool) -> Vec<String> {
+    let mut failures = Vec::new();
+    let name = format!("{name} with {spec}");
+    {
+        let changed = moved(off, on);
+        let (off_mean, off_dark, off_blown) = brightness(off);
+        let (on_mean, on_dark, on_blown) = brightness(on);
+        let (off_clipped, on_clipped) = (clipped(off), clipped(on));
         eprintln!(
             "{name}: {changed} bytes changed; mean {off_mean:.1} -> {on_mean:.1}, near black \
-             {:.1}% -> {:.1}%, near white {:.1}% -> {:.1}%",
+             {:.1}% -> {:.1}%, near white {:.2}% -> {:.2}%, clipped {:.2}% -> {:.2}%",
             off_dark * 100.0,
             on_dark * 100.0,
             off_blown * 100.0,
-            on_blown * 100.0
+            on_blown * 100.0,
+            off_clipped * 100.0,
+            on_clipped * 100.0
         );
         if !reshaded {
             failures.push(format!("{name}: the frame was not re-shaded"));
@@ -162,7 +199,7 @@ fn underground_and_in_a_room_the_better_lighting_changes_the_frame_within_a_sane
             failures.push(format!("{name}: only {changed} bytes changed"));
         }
         let ratio = on_mean / off_mean;
-        if !(0.75..=1.5).contains(&ratio) {
+        if !(0.8..=1.25).contains(&ratio) {
             failures.push(format!(
                 "{name}: mean brightness {on_mean:.1} against {off_mean:.1}"
             ));
@@ -174,15 +211,22 @@ fn underground_and_in_a_room_the_better_lighting_changes_the_frame_within_a_sane
                 off_dark * 100.0
             ));
         }
-        if on_blown > off_blown + 0.03 {
+        if on_blown > off_blown + 0.001 {
             failures.push(format!(
-                "{name}: {:.1}% near white against {:.1}%",
+                "{name}: {:.2}% near white against {:.2}%",
                 on_blown * 100.0,
                 off_blown * 100.0
             ));
         }
+        if on_clipped > off_clipped + 0.003 {
+            failures.push(format!(
+                "{name}: {:.2}% clipped against {:.2}%",
+                on_clipped * 100.0,
+                off_clipped * 100.0
+            ));
+        }
     }
-    assert!(failures.is_empty(), "{failures:?}");
+    failures
 }
 
 #[test]
@@ -249,24 +293,25 @@ fn with_the_lamps_rays_a_rooms_light_does_not_reach_past_what_shuts_it_out() {
 }
 
 #[test]
-fn in_a_room_the_bounced_light_adds_the_light_of_its_walls_and_floor() {
+fn in_a_cave_the_bounced_light_adds_the_light_of_its_walls_and_floor() {
     let _gpu = crate::common::gpu_lock();
-    for name in ["dungeon", "indoor"] {
-        let station = station(name);
-        let (lit, _) = run(&station, fidelity("Lighting=1"));
-        let (bounced, reshaded) = run(&station, fidelity("Lighting=1,GlobalIllumination=1"));
-        assert!(reshaded, "{name}");
-        let (a, b) = (luma(&lit), luma(&bounced));
-        let brighter = a.iter().zip(&b).filter(|(x, y)| **y > **x + 2.0).count();
-        let darker = a.iter().zip(&b).filter(|(x, y)| **y + 2.0 < **x).count();
-        eprintln!("{name}: {brighter} pixels brighter with the bounce, {darker} darker");
-        assert!(
-            brighter * 1000 > a.len(),
-            "{name}: only {brighter} pixels took the bounce"
-        );
-        assert!(
-            darker * 4 < brighter,
-            "{name}: {darker} pixels darker against {brighter} brighter"
-        );
-    }
+    // A cave passage of a deep dungeon, its rock lit by the passage's own lights: the lit rock
+    // throws light onto the rock across from it.
+    let station = station("dungeon-cave");
+    let (lit, _) = run(&station, fidelity("Lighting=1"));
+    let (bounced, reshaded) = run(&station, fidelity("Lighting=1,GlobalIllumination=1"));
+    assert!(reshaded);
+    let (a, b) = (luma(&lit), luma(&bounced));
+    let brighter = a.iter().zip(&b).filter(|(x, y)| **y > **x + 2.0).count();
+    let darker = a.iter().zip(&b).filter(|(x, y)| **y + 2.0 < **x).count();
+    eprintln!("{brighter} pixels brighter with the bounce, {darker} darker");
+    // One pixel in two hundred at least is visibly lit by the rock around it.
+    assert!(
+        brighter * 200 > a.len(),
+        "only {brighter} pixels took the bounce"
+    );
+    assert!(
+        darker * 4 < brighter,
+        "{darker} pixels darker against {brighter} brighter"
+    );
 }

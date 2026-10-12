@@ -14,13 +14,18 @@ fn exposure_shader() -> Evaluator {
     Evaluator::new(&source)
 }
 
-fn keyed(eval: &Evaluator, mean: f32, a: &Adaptation) -> f32 {
+/// The exposure for a frame whose light has geometric mean `mean` and whose brightest share's
+/// light is `bright`.
+fn keyed(eval: &Evaluator, mean: f32, bright: f32, a: &Adaptation) -> f32 {
     eval.call(
         "keyed",
         &[
             Value::F32(mean),
+            Value::F32(bright),
             Value::F32(a.key),
             Value::F32(a.strength),
+            Value::F32(a.base),
+            Value::F32(a.white),
             Value::F32(a.least),
             Value::F32(a.most),
         ],
@@ -78,7 +83,8 @@ fn a_darker_frame_is_exposed_brighter_within_the_least_and_the_greatest_exposure
     let eval = exposure_shader();
     let a = Adaptation::indoors();
     let means = [0.002f32, 0.01, 0.03, 0.08, 0.2, 0.6, 2.0];
-    let exposures: Vec<f32> = means.iter().map(|m| keyed(&eval, *m, &a)).collect();
+    // Nothing in these frames is bright enough to hold the exposure down.
+    let exposures: Vec<f32> = means.iter().map(|m| keyed(&eval, *m, 0.1, &a)).collect();
     for w in exposures.windows(2) {
         assert!(w[1] <= w[0], "{exposures:?}");
     }
@@ -90,9 +96,28 @@ fn a_darker_frame_is_exposed_brighter_within_the_least_and_the_greatest_exposure
         "a black frame is not pushed past the greatest exposure"
     );
     assert_eq!(*exposures.last().unwrap(), a.least);
-    // A frame already at the key keeps an exposure of one.
-    let at_key = keyed(&eval, a.key, &a);
-    assert!((at_key - 1.0).abs() < 1e-5, "{at_key}");
+    // A frame already at the key is drawn as the ordinary frame draws it, and the darkest and
+    // the brightest are moved only a half more and two fifths less than it.
+    let at_key = keyed(&eval, a.key, 0.1, &a);
+    assert!((at_key - a.base).abs() < 1e-5, "{at_key}");
+    assert!(a.most <= a.base * 1.5 + 1e-5 && a.least >= a.base * 0.6 - 1e-5);
+}
+
+#[test]
+fn indoors_the_brightest_share_of_the_frame_is_never_exposed_past_white() {
+    let eval = exposure_shader();
+    let a = Adaptation::indoors();
+    // A dark room with a bright torch-lit wall in it: the wall holds the exposure down so it is
+    // brought to the white the tone map still draws with detail.
+    for bright in [0.8f32, 1.0, 1.2, 1.5] {
+        let e = keyed(&eval, 0.005, bright, &a);
+        assert!(e * bright <= a.white + 1e-4, "{bright}: {e}");
+        assert!(e >= a.least, "{bright}: {e}");
+    }
+    // However bright, never below the least exposure.
+    assert_eq!(keyed(&eval, 0.005, 40.0, &a), a.least);
+    // A frame with nothing bright in it is left as the key sets it.
+    assert_eq!(keyed(&eval, a.key, 0.2, &a), keyed(&eval, a.key, 0.1, &a));
 }
 
 #[test]

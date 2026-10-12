@@ -124,11 +124,15 @@ pub(crate) fn exposure(frame: &HifiFrame, sun_gain: f32, amb_gain: f32) -> f32 {
     env_f32("DERETH_HIFI_EXPOSURE", 1.8) * lift
 }
 
-/// How the eye adapts to the light of a frame indoors: the brightness the frame's mean light is
-/// brought to, how much of the way, the least and the greatest exposure, and the seconds it takes
-/// to adjust into the dark and into the light.
+/// How the eye adapts to the light of a frame indoors: the exposure that draws a room as the
+/// ordinary frame does, the brightness the frame's mean light is brought toward and how much of
+/// the way, the least and the greatest exposure, the light the brightest share of the frame is
+/// brought to at most, and the seconds it takes to adjust into the dark and into the light.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Adaptation {
+    /// The exposure that draws a room of ordinary brightness about as bright as the ordinary
+    /// frame draws it, the tone map's deeper shadows taken into account.
+    pub base: f32,
     /// The brightness, linear, the frame's geometric mean light is brought toward.
     pub key: f32,
     /// How much of the way toward the key the exposure goes: 1 all of it, 0 none.
@@ -137,6 +141,9 @@ pub struct Adaptation {
     pub least: f32,
     /// The greatest exposure.
     pub most: f32,
+    /// The light, before the tone map, the brightest share of the frame is brought to at most:
+    /// bright, with its detail kept, never white.
+    pub white: f32,
     /// The seconds the eye takes to adjust to a darker frame (a brighter exposure).
     pub into_dark: f32,
     /// The seconds the eye takes to adjust to a brighter frame (a dimmer exposure).
@@ -147,11 +154,14 @@ impl Adaptation {
     /// The adaptation indoors.
     #[must_use]
     pub fn indoors() -> Self {
+        let base = env_f32("DERETH_HIFI_INDOOR_EXPOSURE", 2.6);
         Self {
-            key: env_f32("DERETH_HIFI_INDOOR_KEY", 0.16),
-            strength: env_f32("DERETH_HIFI_INDOOR_ADAPT", 0.7),
-            least: 0.8,
-            most: 6.0,
+            base,
+            key: env_f32("DERETH_HIFI_INDOOR_KEY", 0.033),
+            strength: env_f32("DERETH_HIFI_INDOOR_ADAPT", 0.4),
+            least: base * 0.6,
+            most: base * env_f32("DERETH_HIFI_INDOOR_MOST", 1.5),
+            white: env_f32("DERETH_HIFI_INDOOR_WHITE", 2.5),
             into_dark: 1.6,
             into_light: 0.5,
         }
@@ -1162,6 +1172,7 @@ impl HifiPass for Lighting {
             )),
             f32::from(u8::from(!frame.sky.outdoor)),
         ]);
+        p.extend([env_f32("DERETH_HIFI_ROOM_KEPT", 0.45), 0.0, 0.0, 0.0]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);
         for l in &lights {
@@ -1694,8 +1705,8 @@ impl HifiPass for LightingPost {
             a.strength,
             a.into_dark,
             a.into_light,
-            0.0,
-            0.0,
+            a.base,
+            a.white,
         ];
         queue.write_buffer(&gpu.exposure_params, 0, &floats(&ep));
         {

@@ -155,3 +155,27 @@ fn the_burned_light_a_room_surface_was_drawn_with_comes_back_from_its_code() {
         );
     }
 }
+
+#[test]
+fn close_by_a_light_a_rooms_surface_is_brighter_than_its_vertices_held_but_never_white() {
+    let relight = dereth_render_hifi::passes::lighting::shaders()
+        .into_iter()
+        .find(|(n, _)| *n == "relight")
+        .expect("the relight shader")
+        .1;
+    let eval = Evaluator::new(&relight);
+    let gain = |raw: f32| eval.call("room_gain", &[Value::F32(raw)]).f32();
+    // Up to the light its vertices held, as worked out.
+    for raw in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
+        assert!((gain(raw) - raw).abs() < 1e-6, "{raw}: {}", gain(raw));
+    }
+    // Past it, brighter and brighter, but never two fifths past it.
+    let past: Vec<f32> = [1.0f32, 1.25, 1.5, 2.0, 2.5, 3.0]
+        .iter()
+        .map(|r| gain(*r))
+        .collect();
+    for w in past.windows(2) {
+        assert!(w[1] > w[0], "{past:?}");
+    }
+    assert!(past.iter().all(|g| *g < 1.4), "{past:?}");
+}
