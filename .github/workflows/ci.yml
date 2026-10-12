@@ -117,7 +117,7 @@ jobs:
       - name: The ACE mod, its harness, and every patch applied
         working-directory: network/ace-mod
         run: |
-          ace=../../target/ace-server
+          ace="$GITHUB_WORKSPACE/target/ace-server"
           exe=""; skip=()
           # Windows' own best-fit conversion is checked on Windows only.
           case "$RUNNER_OS" in Windows) exe=".exe" ;; *) skip=(--skip units) ;; esac

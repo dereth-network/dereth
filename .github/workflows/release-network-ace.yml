@@ -91,7 +91,7 @@ jobs:
       - name: Build the mod, and check it with its harness and against ACE's Harmony
         working-directory: network/ace-mod
         run: |
-          ace=../../target/ace-server
+          ace="$GITHUB_WORKSPACE/target/ace-server"
           dotnet build Dereth.Network/Dereth.Network.csproj -c Release -p:AceDirectory="$ace" -p:ContinuousIntegrationBuild=true
           dotnet build tests/Harness.csproj -c Release
           dotnet build tests/PatchApply/PatchApply.csproj -c Release -p:AceDirectory="$ace"

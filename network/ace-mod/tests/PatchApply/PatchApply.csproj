@@ -9,11 +9,16 @@
     <AssemblyName>Dereth.Network.PatchApply</AssemblyName>
     <RootNamespace>Dereth.Network.PatchApply</RootNamespace>
   </PropertyGroup>
+  <!-- AceDirectory as given, a relative one read from the folder the build was started in rather
+       than from this file's (a property given with -p: cannot itself be changed here). -->
+  <PropertyGroup>
+    <AceFolder Condition="'$(AceDirectory)' != ''">$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine('$(MSBuildStartupDirectory)', '$(AceDirectory)'))'))</AceFolder>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../Dereth.Network/Core/PatchTargets.cs" Link="Core/PatchTargets.cs" />
-    <Reference Include="0Harmony"><HintPath>$(AceDirectory)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(AceFolder)/0Harmony.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
   <Target Name="CheckAceDirectory" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(AceDirectory)/0Harmony.dll')" Text="Set -p:AceDirectory to the folder that holds your server's ACE.Server.dll and 0Harmony.dll." />
+    <Error Condition="!Exists('$(AceFolder)/0Harmony.dll')" Text="Set -p:AceDirectory to the folder that holds your server's ACE.Server.dll and 0Harmony.dll." />
   </Target>
 </Project>

@@ -9,18 +9,23 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <GenerateDependencyFile>true</GenerateDependencyFile>
   </PropertyGroup>
+  <!-- AceDirectory as given, a relative one read from the folder the build was started in rather
+       than from this file's (a property given with -p: cannot itself be changed here). -->
+  <PropertyGroup>
+    <AceFolder Condition="'$(AceDirectory)' != ''">$([System.IO.Path]::GetFullPath('$([System.IO.Path]::Combine('$(MSBuildStartupDirectory)', '$(AceDirectory)'))'))</AceFolder>
+  </PropertyGroup>
   <ItemGroup>
-    <Reference Include="ACE.Server"><HintPath>$(AceDirectory)/ACE.Server.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="ACE.Common"><HintPath>$(AceDirectory)/ACE.Common.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="ACE.Entity"><HintPath>$(AceDirectory)/ACE.Entity.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="ACE.Database"><HintPath>$(AceDirectory)/ACE.Database.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="0Harmony"><HintPath>$(AceDirectory)/0Harmony.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="log4net"><HintPath>$(AceDirectory)/log4net.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Server"><HintPath>$(AceFolder)/ACE.Server.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Common"><HintPath>$(AceFolder)/ACE.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Entity"><HintPath>$(AceFolder)/ACE.Entity.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ACE.Database"><HintPath>$(AceFolder)/ACE.Database.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(AceFolder)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="log4net"><HintPath>$(AceFolder)/log4net.dll</HintPath><Private>false</Private></Reference>
     <None Update="Meta.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Settings.json.example" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CheckAceDirectory" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('$(AceDirectory)/ACE.Server.dll')" Text="Set -p:AceDirectory to the folder that holds your server's ACE.Server.dll." />
+    <Error Condition="!Exists('$(AceFolder)/ACE.Server.dll')" Text="Set -p:AceDirectory to the folder that holds your server's ACE.Server.dll." />
   </Target>
 </Project>
