@@ -19,7 +19,7 @@
 //! API on it; [`fetch`] makes the hub's own outbound requests, held to the addresses they may
 //! reach; [`discord`] signs operators in; [`forwarded`] finds a client's address behind trusted
 //! proxies; [`resolver`] looks host names up, bounded; [`text`] is the rule for the text the
-//! hub keeps.
+//! hub keeps; [`self_update`] installs the hub's own releases over its binary.
 
 pub mod api;
 pub mod challenge;
@@ -33,5 +33,6 @@ pub mod operators;
 pub mod persons;
 pub mod registry;
 pub mod resolver;
+pub mod self_update;
 pub mod server;
 pub mod text;

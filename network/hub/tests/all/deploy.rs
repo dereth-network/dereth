@@ -1,7 +1,8 @@
 //! The deployment guide and the container image hold to what a public hub needs: a service
 //! confined as tightly as it can run, its secret handed over by systemd, one refresh of
 //! Cloudflare's ranges that never leaves a bad list behind, a container that trusts its proxy's one
-//! address, a restore that says what it brings back, and a daily import of the community list.
+//! address, a restore that says what it brings back, a daily import of the community list, and
+//! automatic updates that root installs and only patch releases reach.
 //! Fixture: `network/hub/DEPLOY.md` and `network/hub/Dockerfile`, read as text.
 
 fn read(name: &str) -> String {
@@ -179,4 +180,50 @@ fn the_community_list_is_imported_daily_as_the_hubs_user() {
         .find("**A reverse proxy of your own")
         .expect("the proxy");
     assert!(tunnel < proxy, "the tunnel comes first");
+}
+
+/// Spec: hub: the guide's automatic updates are root's daily `self-update --apply --policy patch`,
+/// restarting the hub only when a release was installed and failing only when the update did; the
+/// hub's own service never runs `self-update`.
+#[test]
+fn automatic_updates_install_patch_releases_as_root_and_restart_only_after_one() {
+    let guide = read("DEPLOY.md");
+    let unit = block_after(
+        &guide,
+        "`/etc/systemd/system/dereth-network-hub-update.service`:",
+        "ini",
+    );
+    assert!(!unit.contains("User="), "root replaces the binary");
+    for line in [
+        "Type=oneshot",
+        "Environment=DERETH_HUB_DB=/var/lib/dereth-network-hub/hub.sqlite",
+        "ReadWritePaths=/usr/local/bin /var/lib/dereth-network-hub",
+        "UMask=0077",
+    ] {
+        assert!(unit.contains(line), "{line:?} in the unit");
+    }
+    let start = unit
+        .lines()
+        .find(|l| l.starts_with("ExecStart="))
+        .expect("the command");
+    assert!(
+        start.contains(
+            "if /usr/local/bin/dereth-network-hub self-update --apply --policy patch; then systemctl try-restart dereth-network-hub; else test $$? -eq 3; fi"
+        ),
+        "{start}"
+    );
+    assert!(!unit.contains("--policy minor"));
+    let timer = block_after(
+        &guide,
+        "`/etc/systemd/system/dereth-network-hub-update.timer`:",
+        "ini",
+    );
+    assert!(timer.contains("OnCalendar=daily") && timer.contains("Persistent=true"));
+    let hub = block_after(
+        &guide,
+        "`/etc/systemd/system/dereth-network-hub.service`:",
+        "ini",
+    );
+    assert!(hub.contains("User=dereth-hub") && !hub.contains("self-update"));
+    assert!(guide.contains("dereth-network-hub.previous-v0.1.1 /usr/local/bin/dereth-network-hub"));
 }

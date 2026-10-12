@@ -23,6 +23,9 @@ dereth-network-hub -- the Dereth Network's hub and world registry
                            [--pending-days <n>]
                            [--wire-log <file>]    one line per link frame: its type, never its body
   dereth-network-hub --version
+  dereth-network-hub --registry-schema            the registry schema this build reads
+  dereth-network-hub self-update --check|--apply [--policy patch|minor] [--source <url>]
+                                                  install a newer release over this binary
   dereth-network-hub register <server.json>       print the new world and its key (once)
   dereth-network-hub update <server.json>         replace a managed world's registration
   dereth-network-hub list                         every world, pending ones included
@@ -91,12 +94,24 @@ and names them. An applied import counts, for each unclaimed listing the list no
 the imports in a row it has been missing from, and after --retire-after of them (3) takes it out
 of the public lists; it is listed again when it returns. --summary prints one line of counts in
 place of the plan.
+`self-update` lists the hub's releases (the GitHub repository this build came from, or --source:
+https://github.com/<owner>/<name>, or a mirror of its releases API) and takes the newest its
+--policy allows: patch (this build's major and minor version, and only a release whose binary
+reads the same registry schema) or minor (this major version; the default). A major release, a
+pre-release and one that failed here before are never installed. --check says what would be
+installed and why the others would not be; --apply downloads this platform's archive, refuses it
+unless its SHA-256 is the one the release's SHA256SUMS lists (the only check: releases are not
+signed), runs the new binary, which must name the release's version and read this registry, backs
+the registry up beside it, and moves this binary aside as <name>.previous-v<version> and the new one
+into its place. It needs write access to the binary's folder, and starts or stops nothing: restart
+the hub to run the new binary. It exits 0 when a release was (or, with --check, would be)
+installed, 3 when none is to be, and 1 when it refused or failed.
 For development only: --allow-loopback (loopback endpoints, pages and community lists), --discord-api,
 --discord-authorize (a stand-in for Discord).";
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(e) => {
             eprintln!("dereth-network-hub: {e}");
             ExitCode::FAILURE
@@ -272,14 +287,18 @@ fn pretty(v: &serde_json::Value) -> String {
 }
 
 #[allow(clippy::too_many_lines)]
-fn run(mut args: Vec<String>) -> Result<(), String> {
+fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
     if args.is_empty() || args.iter().any(|a| a == "-h" || a == "--help") {
         println!("{USAGE}");
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     if args == ["--version"] {
         println!("{}", version_line());
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
+    }
+    if args == ["--registry-schema"] {
+        println!("{}", dereth_network_hub::registry::SCHEMA_VERSION);
+        return Ok(ExitCode::SUCCESS);
     }
     let db = take(&mut args, "--db")?
         .or_else(|| std::env::var("DERETH_HUB_DB").ok())
@@ -364,7 +383,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
             }
             server::log("info", "stopping");
             running.shutdown();
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "register" => {
             let r = Registration::from_json(&read_json(&arg(0)?)?).map_err(|e| e.message)?;
@@ -374,12 +393,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 pretty(&serde_json::json!({ "server": server, "key": key }))
             );
             eprintln!("Save the key securely; it cannot be retrieved later.");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "update" => {
             let r = Registration::from_json(&read_json(&arg(0)?)?).map_err(|e| e.message)?;
             println!("{}", pretty(&open()?.update(&r).map_err(|e| e.message)?));
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "list" => {
             println!(
@@ -388,12 +407,12 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                     open()?.everything().map_err(|e| e.message)?
                 ))
             );
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "reports" => {
             let all = take_flag(&mut args, "--all");
             println!("{}", pretty(&open()?.reports(all).map_err(|e| e.message)?));
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "report" => {
             let out = open()?
@@ -405,17 +424,17 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 )
                 .map_err(|e| e.message)?;
             println!("{}", pretty(&out));
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "unlock" => {
             open()?.unlock(&arg(0)?).map_err(|e| e.message)?;
             println!("{}: unlocked", arg(0)?);
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "remove" => {
             open()?.remove(&arg(0)?).map_err(|e| e.message)?;
             println!("{}: removed", arg(0)?);
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "unlist" | "relist" => {
             let listed = command == "relist";
@@ -423,7 +442,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 .set_listed(&arg(0)?, listed)
                 .map_err(|e| e.message)?;
             println!("{}: {command}ed", arg(0)?);
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "assign" => {
             open()?.assign(&arg(0)?, &arg(1)?).map_err(|e| e.message)?;
@@ -432,16 +451,16 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 arg(0)?,
                 arg(1)?
             );
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "operators" => {
             println!("{}", pretty(&open()?.operators().map_err(|e| e.message)?));
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "end-sessions" => {
             let n = open()?.end_all_sessions().map_err(|e| e.message)?;
             println!("{n} session(s) ended; every operator and person signs in again");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "disable-operator" | "enable-operator" => {
             let disable = command == "disable-operator";
@@ -457,7 +476,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                     "enabled"
                 }
             );
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "federation" => {
             let flag: Federation = arg(1)?
@@ -467,7 +486,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 .set_federation(&arg(0)?, flag)
                 .map_err(|e| e.message)?;
             println!("{}: federation {flag}", arg(0)?);
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "claim" => {
             let (server, key) = open()?.claim(&arg(0)?, &arg(1)?).map_err(|e| e.message)?;
@@ -476,7 +495,7 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 pretty(&serde_json::json!({ "server": server, "key": key }))
             );
             eprintln!("Save the key securely. The review is recorded in the audit log.");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "verify" => {
             let slug = arg(0)?;
@@ -491,17 +510,17 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 ),
             }
             eprintln!("The evidence is recorded in the audit log.");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "rotate-key" => {
             println!("{}", open()?.rotate_key(&arg(0)?).map_err(|e| e.message)?);
             eprintln!("The previous key no longer works. Save the new key securely.");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "revoke-key" => {
             open()?.revoke_key(&arg(0)?).map_err(|e| e.message)?;
             println!("Key revoked.");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "import-community" => {
             let apply = take_flag(&mut args, "--apply");
@@ -575,27 +594,79 @@ fn run(mut args: Vec<String>) -> Result<(), String> {
                 );
                 eprintln!("{line}");
             }
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "export-community" => {
             let all = open()?.all().map_err(|e| e.message)?;
             print!("{}", dereth_network_hub::community::thwarg_xml(&all));
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         "audit" => {
             println!(
                 "{}",
                 pretty(&open()?.audit(&arg(0)?).map_err(|e| e.message)?)
             );
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
+        "self-update" => self_update(&mut args, &db),
         "backup" => {
             let to = arg(0)?;
             open()?.backup(&to).map_err(|e| e.message)?;
             println!("{db} copied to {to}");
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
+    }
+}
+
+/// `self-update --check|--apply [--policy patch|minor] [--source <url>]`, for the registry `db`.
+fn self_update(args: &mut Vec<String>, db: &str) -> Result<ExitCode, String> {
+    use dereth_network_hub::self_update::{self as update, Policy, Source, Updater};
+    let usage = "self-update --check|--apply [--policy patch|minor] [--source <url>]";
+    let apply = match (take_flag(args, "--check"), take_flag(args, "--apply")) {
+        (true, false) => false,
+        (false, true) => true,
+        _ => return Err(format!("{usage}: give --check or --apply")),
+    };
+    let policy = match take(args, "--policy")? {
+        None => Policy::Minor,
+        Some(p) => Policy::parse(&p).ok_or_else(|| format!("--policy {p}: patch or minor"))?,
+    };
+    let source = Source::parse(
+        take(args, "--source")?
+            .as_deref()
+            .unwrap_or(update::SOURCE_URL),
+    )?;
+    if !args.is_empty() {
+        return Err(format!("{usage}: unexpected {args:?}"));
+    }
+    let updater = Updater::for_this_binary(source, std::path::Path::new(db))?;
+    let check = updater.check(policy)?;
+    for line in update::describe(&updater, &check) {
+        println!("{line}");
+    }
+    let nothing = ExitCode::from(update::NOTHING_TO_INSTALL);
+    if !apply {
+        return Ok(if check.selection.take.is_some() {
+            ExitCode::SUCCESS
+        } else {
+            nothing
+        });
+    }
+    match updater.apply(&check, &mut |line| println!("{line}"))? {
+        None => Ok(nothing),
+        Some(installed) => {
+            println!(
+                "Installed {} {} as {}; the previous binary is {}, and the registry's copy {}.",
+                update::PROGRAM,
+                installed.version,
+                updater.binary.display(),
+                installed.previous.display(),
+                installed.backup.display()
+            );
+            println!("Restart the hub to run it.");
+            Ok(ExitCode::SUCCESS)
+        }
     }
 }
 
@@ -841,5 +912,88 @@ mod tests {
         assert!(check_listen(any, false, false).is_err());
         assert!(check_listen(any, true, false).is_ok());
         assert!(check_listen(any, false, true).is_ok());
+    }
+
+    /// Spec: hub: a hub refuses to start on a registry whose schema is newer than the one it
+    /// reads, so a binary put back after an update that moved the schema forward does not run on
+    /// it.
+    #[test]
+    fn serve_refuses_a_registry_newer_than_it() {
+        let dir = std::env::temp_dir().join(format!("dereth-hub-cli-newer-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let db = dir.join("hub.sqlite").to_str().expect("a path").to_owned();
+        drop(
+            Registry::open(&db, "dereth.network", Box::new(std::time::SystemTime::now))
+                .expect("a registry"),
+        );
+        let c = rusqlite::Connection::open(&db).expect("opened");
+        c.pragma_update(
+            None,
+            "user_version",
+            dereth_network_hub::registry::SCHEMA_VERSION + 1,
+        )
+        .expect("a newer schema");
+        drop(c);
+        let s = |v: &[&str]| v.iter().map(|a| (*a).to_owned()).collect::<Vec<String>>();
+        let e = run(s(&[
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--run-for",
+            "0",
+            "--db",
+            &db,
+        ]))
+        .expect_err("refused");
+        assert!(e.contains("newer than this hub"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec: hub: `self-update` exits 3 when no release is to be installed, with `--check` and
+    /// with `--apply` alike, and refuses a command without exactly one of them or with a policy
+    /// other than `patch` or `minor`.
+    #[test]
+    fn self_update_exits_3_when_there_is_nothing_to_install() {
+        let s = |v: &[&str]| v.iter().map(|a| (*a).to_owned()).collect::<Vec<String>>();
+        for bad in [
+            &["self-update"][..],
+            &["self-update", "--check", "--apply"],
+            &["self-update", "--check", "--policy", "major"],
+            &[
+                "self-update",
+                "--check",
+                "--source",
+                "https://gitlab.com/a/b",
+            ],
+        ] {
+            assert!(run(s(bad)).is_err(), "{bad:?}");
+        }
+        let dir =
+            std::env::temp_dir().join(format!("dereth-hub-cli-update-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let db = dir.join("hub.sqlite").to_str().expect("a path").to_owned();
+        for mode in ["--check", "--apply"] {
+            let older = format!(
+                r#"[{{"tag_name": "network-hub-v0.0.1", "assets": []}}, {{"tag_name": "network-hub-v{}", "assets": []}}]"#,
+                env!("CARGO_PKG_VERSION")
+            );
+            let url = serve_once(200, older.into_bytes());
+            let mirror = url.replace("/Servers.xml", "/repos/someone/hub");
+            let code = run(s(&[
+                "self-update",
+                mode,
+                "--policy",
+                "patch",
+                "--source",
+                &mirror,
+                "--db",
+                &db,
+            ]))
+            .expect("checked");
+            assert_eq!(code, ExitCode::from(3), "{mode}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

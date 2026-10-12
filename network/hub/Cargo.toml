@@ -30,6 +30,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "1"
 # Ctrl-C stops `serve` cleanly.
 ctrlc = { version = "3.5", features = ["termination"] }
+# `self-update`: the release archives (.tar.gz, and .zip on Windows), unpacked with zlib-rs.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 # The hub runs the conformance suite's hub checks against itself.

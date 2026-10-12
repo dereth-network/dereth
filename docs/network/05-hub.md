@@ -7,8 +7,8 @@ One implementation: `network/hub/` (`dereth-network-hub`): `registry.rs` (the re
 `community.rs` (the community list), `persons.rs` (persons: links, codes, the alts setting and
 person friends), `core.rs` (the routing, with no I/O), `server.rs` (the listener), `api.rs` (the
 operator API and the person routes), `challenge.rs` (the challenges verification in game sends),
-`fetch.rs` (the hub's own outbound requests) and `forwarded.rs` (client addresses behind a
-proxy). The challenge datagram itself is `dereth_network_protocol::challenge`. `network/hub/DEPLOY.md` is the deployment guide.
+`fetch.rs` (the hub's own outbound requests), `forwarded.rs` (client addresses behind a
+proxy) and `self_update.rs` (installing the hub's own releases). The challenge datagram itself is `dereth_network_protocol::challenge`. `network/hub/DEPLOY.md` is the deployment guide.
 
 The hub is one service: the **world registry** that the network's addresses, keys and federation
 flags come from, and the **router** that the worlds' links meet at. It listens on loopback unless
@@ -657,6 +657,49 @@ sessions end, and it can sign in no more until enabled; its open verifications a
 closed, its worlds leave the network (federation `off`), and their keys work for nothing, a link
 or a heartbeat included, until it is enabled again. Enabling it gives the keys back; the network
 stays off until its operator turns it on.
+
+### 2.13 Updating the hub
+
+`self-update --check|--apply [--policy patch|minor] [--source <url>]` installs a newer release of
+the reference hub over the binary it runs from. It starts and stops nothing, and a running hub never
+replaces itself.
+
+- **Releases** are the published GitHub releases tagged `network-hub-v<version>` of the repository
+  the binary was built from, or of `--source` (a GitHub repository, or a mirror of GitHub's releases
+  API at `http(s)://<host>/.../repos/<owner>/<name>`). A release has, for each target it is built
+  for, `dereth-network-hub-<version>-<target>.tar.gz` (`.zip` for Windows) holding
+  `dereth-network-hub-<version>-<target>/dereth-network-hub` (`.exe` for Windows), and a
+  `SHA256SUMS` listing every file.
+- **Which release.** The newest the policy allows. `patch` takes releases of this build's major and
+  minor version, and installs one only when its binary reads this build's registry schema, so that
+  nothing but the binary changes. `minor` (the default) takes releases of this build's major version.
+  Never taken: a major release, a pre-release (published as one, or a version with a `-` suffix), a
+  release with no archive for this build's target or no `SHA256SUMS`, and a release that failed
+  here. `--check` names each newer release with why it would not be installed, and the one that
+  would.
+- **Installing** (`--apply`) stops at the first check that fails, with the binary unchanged:
+  1. before anything is downloaded, the binary's folder must be writable by this account (a refusal
+     names the folder) and the registry (`--db`) must exist;
+  2. the archive's SHA-256 must be the one `SHA256SUMS` lists. Releases are not signed: this check,
+     by SHA-256 only, catches a damaged or altered download, not a release published by someone else;
+  3. the new binary, run from the binary's folder, must print `dereth-network-hub <version>` for
+     `--version`, and for `--registry-schema` a schema no older than the registry's;
+  4. the registry is copied as `backup` copies it, read without being opened as a registry (nothing
+     is created or moved forward), to `<registry>.backup-update-v<old>-v<new>-<UTC time>` beside it,
+     owned by the registry's owner and readable by it alone; the newest three such copies are kept;
+  5. the binary is moved aside as `<name>.previous-v<old>` (the one an earlier update left is
+     removed) and the new one moved into its place.
+- **A release that failed here**: one whose binary does not run, names another version, does not
+  say its registry schema, or reads an older schema than the registry's. It is recorded beside the
+  binary (`.dereth-network-hub-update.json`) and not taken again while the record stands; a
+  successful update clears the record. A download that does not match its checksum, and a release
+  `patch` refuses for its schema, are not recorded.
+- **Exit status:** 0 when a release was installed (with `--check`, when one would be), 3 when none
+  is to be, 1 when it refused or failed.
+- **Going back.** A hub refuses to start on a registry whose schema is newer than the one it reads
+  (`--registry-schema` names it), so the binary moved aside runs again only on a registry it reads:
+  after a `patch` release always, after a `minor` one that moved the schema forward only with the
+  update's copy of the registry put back.
 
 ## 3. Routing
 

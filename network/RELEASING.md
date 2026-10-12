@@ -25,6 +25,24 @@ client's:
 Running either workflow by hand (workflow_dispatch) is a dry run: the same builds and checks, the
 files kept as a workflow artifact for 7 days, nothing published.
 
+## What a hub release promises the hubs that install it
+
+Running hubs install releases themselves (`dereth-network-hub self-update`,
+[`hub/DEPLOY.md`](hub/DEPLOY.md) section 9), many of them unattended with `--policy patch`. They
+rely on:
+
+- **A patch release never changes the registry's schema** (`SCHEMA_VERSION` in
+  `network/hub/src/registry.rs`). A change to it is a minor release at least. `self-update
+  --policy patch` refuses a release whose binary reads another schema, so a slip here stops the
+  automatic updates rather than migrating registries unattended.
+- **The files and the answers `self-update` reads:** the tag `network-hub-v<version>`; the archive
+  `dereth-network-hub-<version>-<target>.tar.gz` (`.zip` for Windows) with the binary in a folder of
+  the archive's name; `SHA256SUMS`; and the binary's answers to `--version`
+  (`dereth-network-hub <version>`) and `--registry-schema` (the schema it reads).
+- **The source:** the workflow builds with `DERETH_HUB_BUILD_SOURCE_URL` set to the repository it
+  runs in, which is where a release's binary later looks for newer releases. A fork's releases
+  point at the fork.
+
 ## `cargo xtask release network-hub|network-ace <version>`
 
 ```

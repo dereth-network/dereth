@@ -1214,6 +1214,7 @@ dependencies = [
  "ctrlc",
  "dereth-network-conformance",
  "dereth-network-protocol",
+ "flate2",
  "getrandom 0.4.3",
  "httparse",
  "rusqlite",
@@ -1223,6 +1224,7 @@ dependencies = [
  "sha2",
  "tungstenite",
  "webpki-roots",
+ "zip",
 ]
 
 [[package]]

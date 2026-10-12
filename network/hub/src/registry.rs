@@ -731,6 +731,50 @@ pub fn parse_iso(s: &str) -> Option<SystemTime> {
     Some(UNIX_EPOCH + Duration::from_secs(secs) + Duration::from_millis(u64::try_from(ms).ok()?))
 }
 
+/// The registry file at `path`, opened read-only: nothing is created, nothing is moved forward to
+/// this build's schema, and nothing is written but what SQLite's readers share.
+fn open_existing(path: &std::path::Path) -> Result<Connection> {
+    if !path.is_file() {
+        return Err(RegistryError::new(
+            404,
+            format!("there is no registry at {}", path.display()),
+        ));
+    }
+    let db = Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    db.busy_timeout(Duration::from_secs(5))?;
+    Ok(db)
+}
+
+/// The schema version of the registry file at `path`, read without opening it as a registry.
+///
+/// # Errors
+/// 404 when there is no file at `path`; database errors.
+pub fn schema_of_file(path: &std::path::Path) -> Result<i64> {
+    Ok(open_existing(path)?.query_row("PRAGMA user_version", [], |r| r.get(0))?)
+}
+
+/// Writes the consistent copy [`Registry::backup`] writes, of the registry file at `path`, to `to`
+/// (a new file), without opening it as a registry (it is only read, whatever its schema), while a
+/// hub runs on it or not. The schema version of the copy.
+///
+/// # Errors
+/// 404 when there is no file at `path`; 409 when `to` exists; database errors.
+pub fn backup_file(path: &std::path::Path, to: &std::path::Path) -> Result<i64> {
+    if to.exists() {
+        return Err(RegistryError::conflict(format!(
+            "{} exists: name a new file",
+            to.display()
+        )));
+    }
+    let db = open_existing(path)?;
+    db.execute("VACUUM INTO ?", [to.to_string_lossy()])?;
+    drop(db);
+    schema_of_file(to)
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Row {
     pub(crate) id: String,

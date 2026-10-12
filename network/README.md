@@ -28,8 +28,9 @@ dereth-network-hub --db hub.sqlite serve                        # http and ws on
 
 `dereth-network-hub --help` lists the rest: `update`, `list`, `claim`, `rotate-key`, `revoke-key`,
 `import-community` (from a file or `--fetch`ed; a dry run unless `--apply`), `export-community`,
-`audit`, `backup`, vouching for a world its operator cannot verify (`verify`), and the report
-queue and operators (`reports`, `report`, `unlock`, `assign`, `operators`, `disable-operator`). The hub listens on loopback unless `--listen` names another address; put TLS
+`audit`, `backup`, vouching for a world its operator cannot verify (`verify`), the report
+queue and operators (`reports`, `report`, `unlock`, `assign`, `operators`, `disable-operator`), and
+`self-update`, which installs a newer release over the binary. The hub listens on loopback unless `--listen` names another address; put TLS
 in front of it with a reverse proxy.
 
 World operators can register, verify and manage their worlds themselves through the hub's operator
@@ -38,7 +39,7 @@ API once it is given a Discord application (`--public-url`, `--site-origin`,
 from the browser. The same sign-in lets players link their characters: a world asks the hub for a
 one-time code with `/dn link`, and the player enters it on the first site origin's `/characters/` page.
 A hub without sign-in links no character. [`hub/DEPLOY.md`](hub/DEPLOY.md) is the guide to running a public hub: the
-reverse proxy, Cloudflare, systemd, the container and backups. [`RELEASING.md`](RELEASING.md) says
+reverse proxy, Cloudflare, systemd, the container, backups and updates. [`RELEASING.md`](RELEASING.md) says
 how the hub and the ACE mod are released, on tags of their own.
 
 ## Linking an Empyrean world

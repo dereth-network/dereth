@@ -9,3 +9,4 @@ mod links;
 mod operators;
 mod persons;
 mod registry_api;
+mod self_update;

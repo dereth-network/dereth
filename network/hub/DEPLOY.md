@@ -1,7 +1,8 @@
 # Deploying the hub
 
 How to run `dereth-network-hub` as a public service: behind a reverse proxy that holds TLS, behind
-Cloudflare, under systemd or in a container, with its registry backed up. The behaviour this
+Cloudflare, under systemd or in a container, with its registry backed up and its releases installed
+as they come. The behaviour this
 relies on is specified in [`docs/network/05-hub.md`](../../docs/network/05-hub.md) (the operator
 API, client addresses behind proxies, the link's keep-alive).
 
@@ -41,7 +42,8 @@ cargo build --release --locked -p dereth-network-hub
 install -m 0755 target/release/dereth-network-hub /usr/local/bin/
 ```
 
-`dereth-network-hub --help` lists every command and flag.
+`dereth-network-hub --help` lists every command and flag. Later releases can install themselves
+over this binary (section 9).
 
 ## 2. Discord, for operators signing in
 
@@ -194,7 +196,8 @@ journalctl -u dereth-network-hub -f
   and `https://dereth.network` without them.
 - **The command line** (`reports`, `unlock`, `remove`, `backup`, and the rest) works on the same
   registry file, so run it as the hub's user, never as root: a file root makes beside the registry
-  (its write-ahead log) would lock the hub out of it.
+  (its write-ahead log) would lock the hub out of it. `self-update`, which replaces the binary and
+  only reads the registry, is root's (section 9).
 
   ```sh
   sudo -u dereth-hub DERETH_HUB_DB=/var/lib/dereth-network-hub/hub.sqlite dereth-network-hub reports
@@ -457,8 +460,9 @@ the old ranges in place and says so in its log (`journalctl -u dereth-hub-cloudf
     again (`report`, `unlock`, `disable-operator`, `enable-operator`), from your own notes or the
     old file's audit log, before anyone else is let back in;
   - worlds registered, removed or lapsed since the backup are as they were then.
-- **Upgrading:** take a backup first. A newer hub moves the registry's schema forward when it
-  opens it; an older hub refuses a registry newer than itself, so a downgrade needs the backup.
+- **Upgrading:** take a backup first (`self-update --apply`, section 9, takes one itself). A newer
+  hub moves the registry's schema forward when it opens it; an older hub refuses to start on a
+  registry newer than itself, so a downgrade needs the backup.
 
 ### The community list, daily
 
@@ -581,3 +585,119 @@ curl -fsS https://hub.dereth.network/v1/network          # the worlds on the net
 
 On a world, the ACE mod's log shows `connected to the hub` and `welcomed`; Empyrean's shows
 `Dereth Network: connected to the hub`.
+
+## 9. Updating
+
+`dereth-network-hub self-update` replaces the binary it runs from with a newer release of the hub,
+and nothing else: it starts and stops no service, so restart the hub afterwards. Run it as root,
+who owns `/usr/local/bin`. The hub's own user cannot replace its binary, and the running hub never
+replaces itself.
+
+```sh
+export DERETH_HUB_DB=/var/lib/dereth-network-hub/hub.sqlite
+dereth-network-hub self-update --check       # what would be installed, and why not the others
+dereth-network-hub self-update --apply
+systemctl restart dereth-network-hub
+```
+
+- **Which release.** The newest `network-hub-v<version>` release of the repository the binary was
+  built from (`--source` names another, or a mirror of GitHub's releases API) that `--policy`
+  allows:
+  - **`--policy patch`**: this version's major and minor (`0.1.x` for `0.1.1`), and only a release
+    whose binary reads the same registry schema as this one. Only the binary changes; the registry
+    is left as it is, so going back is putting the old binary back. This is the one to automate.
+  - **`--policy minor`** (the default): any release of this major version. The new hub moves the
+    registry's schema forward when it first opens it, and an older hub then refuses to start on
+    it, so going back needs the registry's copy as well. Run it by hand, after reading the
+    release's notes.
+  - Never a major release, a pre-release, or a release that failed here (below): install those by
+    hand, as section 1 does.
+- **What `--apply` does**, stopping at the first thing that fails, with the binary unchanged:
+  1. downloads this platform's archive and the release's `SHA256SUMS`, and refuses the archive
+     unless its SHA-256 is the one listed. That is the only check: releases are not signed, so it
+     catches a damaged or altered download, not a release someone else published;
+  2. runs the new binary, which must name the release's version (`--version`) and read a registry
+     schema no older than the registry's (`--registry-schema`);
+  3. copies the registry, as `backup` does, to `hub.sqlite.backup-update-v<old>-v<new>-<UTC time>`
+     beside it, owned by the registry's owner and readable by it alone, and keeps the newest three
+     such copies;
+  4. moves the binary aside as `dereth-network-hub.previous-v<old>` (removing the one an earlier
+     update left) and the new one into its place.
+
+  It refuses before downloading anything when it cannot write in the binary's folder (naming the
+  folder) or finds no registry (`--db`, or `DERETH_HUB_DB`, as for every command). It only reads
+  the registry, and SQLite gives the files it makes beside it to the registry's owner, so running
+  it as root never locks the hub out.
+- **Exit status:** 0 when it installed a release (with `--check`, when one would be), 3 when there
+  was none to install, 1 when it refused or failed.
+- **A release that failed here** (its binary does not run on this machine, names another version,
+  or reads an older schema than the registry's) is recorded in
+  `/usr/local/bin/.dereth-network-hub-update.json` and not tried again until that file is removed.
+  A download that does not match its checksum is not recorded; the next run downloads it again.
+- **Going back:**
+
+  ```sh
+  systemctl stop dereth-network-hub
+  mv /usr/local/bin/dereth-network-hub.previous-v0.1.1 /usr/local/bin/dereth-network-hub
+  systemctl start dereth-network-hub
+  ```
+
+  After a patch release that is all. After a minor release that moved the registry's schema
+  forward, the older hub refuses to start ("The registry's schema is newer than this hub"):
+  restore the update's copy of the registry first, as section 6 restores a backup, and everything
+  since the copy is lost.
+- **In a container** the binary is the image's: run the new release's image instead.
+  `self-update` cannot write in the image's folder, and says so.
+
+### Automatic updates
+
+Off until you turn them on. A daily timer runs `self-update --apply --policy patch` as root and,
+when it has installed a release, restarts the hub if it is running. Use `patch` only: a patch
+release changes the binary alone, and going back from it is moving the old binary back. A minor
+release can move the registry's schema forward and is for an operator to install and watch.
+
+`/etc/systemd/system/dereth-network-hub-update.service`:
+
+```ini
+[Unit]
+Description=Dereth Network hub: install a new patch release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=DERETH_HUB_DB=/var/lib/dereth-network-hub/hub.sqlite
+# Root replaces the binary; the hub's own user cannot. Exit status 0: a release was installed, so
+# the hub restarts into it; 3: there was none to install.
+ExecStart=/bin/sh -c 'if /usr/local/bin/dereth-network-hub self-update --apply --policy patch; then systemctl try-restart dereth-network-hub; else test $$? -eq 3; fi'
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /var/lib/dereth-network-hub
+ProtectHome=true
+PrivateTmp=true
+```
+
+`/etc/systemd/system/dereth-network-hub-update.timer`:
+
+```ini
+[Unit]
+Description=Dereth Network hub: install a new patch release daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```sh
+systemctl daemon-reload
+systemctl enable --now dereth-network-hub-update.timer
+journalctl -u dereth-network-hub-update
+```
+
+Each run logs what it found and why it took or left each newer release; a refused release leaves
+the unit failed (`systemctl --failed`), and the hub running as it was.
