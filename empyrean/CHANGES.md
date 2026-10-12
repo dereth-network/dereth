@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.0 (2026-10-12)
+
 - The Dereth Network: with `[federation]` on, players tell, befriend and chat with characters on other worlds, speak in the Global room with `/dng`, and link their characters to one Discord account (`/dn` lists the commands).
 - A `[federation]` setting the world cannot serve stops start-up, saying which and why.
 
