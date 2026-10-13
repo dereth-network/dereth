@@ -3986,7 +3986,9 @@ mod bridge {
         /// is answered `429` once it is spent, as the address's other requests are then.
         #[test]
         fn signed_interactions_take_nothing_from_the_addresss_allowance_and_others_do() {
-            let mut n = Net::with_allowance(180);
+            // An allowance that gives back a request only every second, so that a slow machine is
+            // not given one back while the test spends it.
+            let mut n = Net::with_allowance(60);
             for _ in 0..200 {
                 let id = n.id();
                 let r =
@@ -4019,8 +4021,7 @@ mod bridge {
                 first > 0 && statuses[..first].iter().all(|s| *s == 401),
                 "{statuses:?}"
             );
-            // The allowance gives back a request every third of a second, so one may be answered
-            // before the next refusal; five in a row can't all be.
+            // One may yet be given back before the next refusal; five in a row can't all be.
             assert!(
                 (0..5).any(|_| call(n.f.addr(), "GET", "/v1/config", &[], "").status == 429),
                 "the address's allowance is spent"

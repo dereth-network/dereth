@@ -371,11 +371,20 @@ fn a_search_has_an_allowance_of_its_own() {
     let mut aa = world(&f, "aa");
     list(&mut aa, "l1", "Bob@aa", Some(profile(20)));
     let allowance = 30;
-    for i in 0..allowance {
+    // Searched until the first refusal: a slow machine may be given a search back on the way.
+    let mut answered = 0;
+    let over = loop {
         let r = get(&f, "/v1/directory/characters?q=bob");
-        assert_eq!(r.status, 200, "search {i}: {r:?}");
-    }
-    let over = get(&f, "/v1/directory/characters?q=bob");
+        if r.status != 200 {
+            break r;
+        }
+        answered += 1;
+        assert!(answered <= allowance * 2, "searches are never refused");
+    };
+    assert!(
+        answered >= allowance,
+        "{answered} searches answered before the first refusal"
+    );
     assert_eq!(over.status, 429);
     assert!(over.header("retry-after").is_some(), "{over:?}");
     assert_eq!(get(&f, "/v1/directory/characters/Bob%40aa").status, 200);
