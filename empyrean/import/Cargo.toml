@@ -13,6 +13,8 @@ publish.workspace = true
 [dependencies]
 empyrean-common.workspace = true
 empyrean-content.workspace = true
+# `spawns`: the weenie types and property ids a spawn's setup and type are read with.
+empyrean-entity.workspace = true
 # `dat-overlay`: the data files, compared and written as an overlay.
 dereth-dat.workspace = true
 dereth-primitives.workspace = true
@@ -26,9 +28,6 @@ sha2.workspace = true
 
 [features]
 real-content = ["empyrean-content/real-content"]
-
-[dev-dependencies]
-empyrean-entity.workspace = true
 
 [[bin]]
 name = "empyrean-import"

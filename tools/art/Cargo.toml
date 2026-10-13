@@ -1,0 +1,40 @@
+[package]
+name = "dereth-art"
+description = "Surveys the models the world is built from: where each one is used, how often, what it is made of, and a picture of it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[features]
+# Tier switch only: no code is gated on it. It un-ignores the unit test that surveys real
+# landblocks from the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
+[dependencies]
+dereth-primitives.workspace = true
+# The retail files and their records.
+dereth-dat.workspace = true
+dereth-assets.workspace = true
+# The interior cells, their statics and the buildings they belong to.
+dereth-world-data.workspace = true
+# The landblock mesh the scenery is placed on.
+dereth-terrain.workspace = true
+# The landblock's outdoor contents, placed as the client places them, and the models' parts and
+# triangles.
+dereth-client-runtime.workspace = true
+# The pictures, decoded as the client decodes them (no device: the scene builds without a backend).
+dereth-scene.workspace = true
+# The surface record's type bits.
+dereth-render-cpu.workspace = true
+png.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# `dereth_dat::testing`: where the retail-data test finds the dats.
+dereth-dat = { workspace = true, features = ["test-support"] }
+
+[lints]
+workspace = true

@@ -127,6 +127,9 @@ pub struct PlacedScenery {
     pub scale: f32,
     /// The outdoor cell the object was added to.
     pub cell: CellId,
+    /// The grid vertex whose scene placed the object, as an index into the landblock's terrain
+    /// words (`i * 9 + j`): that word's terrain type and scene type chose the scene.
+    pub vertex: usize,
 }
 
 /// The slope check for a scenery object.
@@ -512,6 +515,7 @@ pub fn generate_scenery(
                     frame,
                     scale: scale_obj(obj, gx, gy, k),
                     cell: block_id.cell(cell_index),
+                    vertex: i * SIDE_VERTEX_COUNT + j,
                 });
             }
         }

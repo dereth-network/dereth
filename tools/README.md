@@ -1,6 +1,6 @@
 # Tools
 
-The workspace's programs include `xtask/`, `corpus/`, `pack/` and `pcap/`. They are crates like any
+The workspace's programs include `xtask/`, `corpus/`, `pack/`, `art/` and `pcap/`. They are crates like any
 other, but they are things people run, so each has
 its own page. The workspace carries no scripts: every check and runner is Rust, reached through
 `cargo xtask`. `sweep-timings/` holds the recorded per-test times the sweep deals shards by.
@@ -47,6 +47,29 @@ cargo run -p dereth-pack -- <manifest> --check
 The client builds in the classic portal's layer from `core/client-runtime/assets/classic-portal/`;
 `cargo test -p dereth-pack` fails while that container is not what its manifest makes. The
 library (`dereth_pack`) is the start of an editor for these records.
+
+## `dereth-art` — the art survey
+
+Surveys every model the world is built from, over your own dats: the scenery the client grows on
+every landblock (placed as the client places it), each landblock's statics and buildings, the
+environment pieces of every building interior and dungeon cell and the statics inside them, the
+player bodies and the clothing tables' part swaps, and what the server spawns, from a table the
+server's importer writes. For each model it records where it is used and how often, its size,
+triangles, parts, textures and collision, and draws a 128-pixel picture of it on the CPU; it ranks
+the models by how much of each use they cover.
+
+```text
+cargo run --profile test-release -p empyrean-import -- spawns --out <folder>/spawns.tsv
+cargo run --profile test-release -p dereth-art -- survey --dat-dir <dats> --out <folder> --spawns <folder>/spawns.tsv
+```
+
+`--dat-dir` defaults to `DERETH_TEST_DAT_DIR` and `--out` to `target/art-survey`; `--landblocks
+XXYY,...` surveys only those, `--threads` sets the thread count and `--no-thumbnails` skips the
+pictures. It writes only into the output folder: `models.tsv` (one row per model), `uses.tsv` (one
+row per model and use), `summary.md` (the headline numbers and the rankings), `report.html` (a
+sortable, filterable page that needs only the files beside it) and `thumbs/`. A `tags.tsv` there
+(`id<TAB>tags`, or `--tags <file>`) fills the report's tags column. The pictures and tables
+describe your retail data: keep them to yourself.
 
 ## `dereth-pcap` — the community-capture index
 

@@ -158,8 +158,9 @@ pub const GATES: &[Gate] = &[
         // byte, so the committed files are a checked cache; `xtask`'s own tests are the
         // repository-wide gates (line endings, skip claims, corpus claims). `dereth-pcap`'s tests
         // build their captures in memory; its one corpus test is a printed, counted skip when
-        // `DERETH_RETAIL_PCAPS` is unset.
-        crates: &["dereth-corpus", "dereth-pcap", "xtask"],
+        // `DERETH_RETAIL_PCAPS` is unset. `dereth-art`'s survey reads every model in the retail
+        // dats under `retail-dats`.
+        crates: &["dereth-corpus", "dereth-pcap", "xtask", "dereth-art"],
         harnesses: &[],
     },
     Gate {
@@ -284,6 +285,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         // dereth-physics's `dat` binary includes the recorded-trace comparison.
         "dereth-physics" => &["retail-dats", "trace"],
         "dereth-animation"
+        | "dereth-art"
         | "dereth-assets"
         | "dereth-audio"
         | "dereth-clipboard"

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Art survey</title>
+<style>
+:root {
+  --bg: #f7f6f3; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e2e0da;
+  --accent: #2f5d8a; --chip: #eef2f6; --thumb: #e9e7e1;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a; --panel: #1f2023; --text: #e8e8ea; --muted: #9a9aa2; --line: #33343a;
+    --accent: #8db4dc; --chip: #2a2d33; --thumb: #2a2b2f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header, main { max-width: 1500px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 22px; margin: 8px 0 4px; }
+.muted { color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; white-space: nowrap; }
+th.sort { cursor: pointer; user-select: none; }
+th.sort:hover { color: var(--accent); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.uses { overflow-x: auto; margin: 12px 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 12px 0; }
+.controls label { display: flex; gap: 6px; align-items: center; }
+input[type=search], select { font: inherit; padding: 4px 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel); color: var(--text); }
+input[type=search] { min-width: 260px; }
+.models { overflow-x: auto; }
+.thumb { width: 64px; height: 64px; background: var(--thumb); border-radius: 6px; display: block; }
+img.thumb { object-fit: contain; cursor: zoom-in; }
+img.thumb.big { width: 128px; height: 128px; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.chip { display: inline-block; background: var(--chip); border-radius: 10px; padding: 0 8px;
+  margin: 1px 2px; white-space: nowrap; font-size: 12px; }
+details summary { cursor: pointer; color: var(--accent); }
+details ul { margin: 4px 0; padding-left: 18px; max-width: 520px; }
+.pager { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+button { font: inherit; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--panel); color: var(--text); cursor: pointer; }
+button:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Art survey</h1>
+  <div class="muted" id="world"></div>
+  <div class="panel uses"><table id="uses"></table></div>
+</header>
+<main>
+  <div class="controls">
+    <label>Find <input type="search" id="q" placeholder="id, tag, kind, collision"></label>
+    <label>Use <select id="use"></select></label>
+    <label>Kind <select id="kind">
+      <option value="">any</option><option>gfxobj</option><option>setup</option>
+      <option>environment</option><option>other</option></select></label>
+    <label>Collision <select id="coll">
+      <option value="">any</option><option>none</option><option>cylinder</option>
+      <option>sphere</option><option>bsp</option><option>missing</option></select></label>
+    <label><input type="checkbox" id="pics"> with a picture</label>
+  </div>
+  <div class="pager"><button id="prev">Previous</button><span id="page"></span><button id="next">Next</button></div>
+  <div class="panel models"><table id="models"></table></div>
+  <div class="pager"><button id="prev2">Previous</button><span id="page2"></span><button id="next2">Next</button></div>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const PAGE = 150;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+const pct = (x) => (x * 100).toFixed(1) + "%";
+const w = DATA.world;
+$("world").textContent = `${w.landblocks} landblocks (${w.sceneryLandblocks} with scenery), ` +
+  `${w.buildings} buildings, ${w.interiorCells} interior cells, ${w.dungeons} dungeons with ` +
+  `${w.dungeonCells} cells; ${DATA.models.length} models; surveyed in ${DATA.seconds.toFixed(0)} s.`;
+{
+  let h = "<tr><th>use</th><th class=num>distinct ids</th><th class=num>instances</th>" +
+    DATA.thresholds.map((t) => `<th class=num>ids for ${t}%</th>`).join("") + "</tr>";
+  for (const u of DATA.uses) {
+    h += `<tr><td>${esc(u.label)}</td><td class=num>${u.ids}</td><td class=num>${u.instances}</td>` +
+      u.cover.map((c) => `<td class=num>${c}</td>`).join("") + "</tr>";
+  }
+  $("uses").innerHTML = h;
+  let o = "<option value=''>all uses (total)</option>";
+  for (const u of DATA.uses) o += `<option value="${u.name}">${esc(u.label)}</option>`;
+  $("use").innerHTML = o;
+}
+let sortKey = "count", sortDir = -1, page = 0, rows = [];
+const useOf = (m) => $("use").value;
+function count(m) { const u = useOf(m); return u ? (m.uses[u] ? m.uses[u].n : 0) : m.total; }
+const keys = {
+  id: (m) => m.id, kind: (m) => m.kind, tags: (m) => m.tags, count: count,
+  tris: (m) => m.tris, parts: (m) => m.parts, tex: (m) => m.tex, coll: (m) => m.coll,
+  size: (m) => (m.size ? Math.max(...m.size) : -1),
+  lb: (m) => { const u = useOf(m); return u && m.uses[u] ? m.uses[u].lb : 0; },
+};
+function refresh() {
+  const q = $("q").value.trim().toLowerCase(), u = $("use").value, k = $("kind").value,
+    c = $("coll").value, pics = $("pics").checked;
+  rows = DATA.models.filter((m) => (!u || m.uses[u]) && (!k || m.kind === k) &&
+    (!c || m.collKind === c) && (!pics || m.thumb) &&
+    (!q || (m.id + " " + m.tags + " " + m.kind + " " + m.coll + " " + Object.keys(m.uses).join(" "))
+      .toLowerCase().includes(q)));
+  const key = keys[sortKey];
+  rows.sort((a, b) => { const x = key(a), y = key(b);
+    return (x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : 1) * sortDir; });
+  page = Math.min(page, Math.max(0, Math.ceil(rows.length / PAGE) - 1));
+  draw();
+}
+function th(label, key, num) {
+  const mark = sortKey === key ? (sortDir < 0 ? " ▾" : " ▴") : "";
+  return `<th class="sort${num ? " num" : ""}" data-key="${key}">${label}${mark}</th>`;
+}
+function where(m) {
+  let h = "";
+  for (const [name, s] of Object.entries(m.uses)) {
+    h += `<li><b>${esc(name)}</b>: ${s.n} instances, ${s.lb} landblocks` +
+      (s.rank ? `, rank ${s.rank} (${pct(s.share)}, cumulative ${pct(s.cum)})` : "") +
+      (s.where.length ? "<ul>" + s.where.map((x) => `<li>${esc(x)}</li>`).join("") + "</ul>" : "") + "</li>";
+  }
+  return `<details><summary>where</summary><ul>${h}</ul>` +
+    (m.texList ? `<div class=muted>textures: ${esc(m.texList)}</div>` : "") + "</details>";
+}
+function draw() {
+  const u = $("use").value;
+  let h = "<tr><th>picture</th>" + th("id", "id") + th("kind", "kind") + th("tags", "tags") +
+    th(u ? "instances" : "total", "count", true) + (u ? "<th class=num>share</th><th class=num>cumulative</th>" +
+    th("landblocks", "lb", true) : "<th class=num>rank</th>") + "<th>uses</th>" +
+    th("size (m)", "size", true) + th("triangles", "tris", true) + th("parts", "parts", true) +
+    th("textures", "tex", true) + th("collision", "coll") + "<th>where</th></tr>";
+  for (const m of rows.slice(page * PAGE, (page + 1) * PAGE)) {
+    const s = u ? m.uses[u] : null;
+    h += "<tr><td>" + (m.thumb ? `<img class=thumb loading=lazy src="${esc(m.thumb)}" alt="">` : "<span class=thumb></span>") +
+      `</td><td><code>${esc(m.id)}</code></td><td>${esc(m.kind)}</td><td>${esc(m.tags)}</td>` +
+      `<td class=num>${count(m)}</td>` +
+      (u ? `<td class=num>${pct(s.share)}</td><td class=num>${pct(s.cum)}</td><td class=num>${s.lb}</td>`
+         : `<td class=num>${m.rank}</td>`) +
+      "<td>" + Object.entries(m.uses).map(([n, x]) => `<span class=chip>${esc(n)} ${x.n}</span>`).join("") + "</td>" +
+      `<td class=num>${m.size ? m.size.map((x) => x.toFixed(1)).join(" × ") : ""}</td>` +
+      `<td class=num>${m.tris}</td><td class=num>${m.parts}</td><td class=num>${m.tex}</td>` +
+      `<td>${esc(m.coll)}</td><td>${where(m)}</td></tr>`;
+  }
+  $("models").innerHTML = h;
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  for (const [p, a, b] of [["page", "prev", "next"], ["page2", "prev2", "next2"]]) {
+    $(p).textContent = `page ${page + 1} of ${pages} (${rows.length} models)`;
+    $(a).disabled = page === 0;
+    $(b).disabled = page + 1 >= pages;
+  }
+}
+$("models").addEventListener("click", (e) => {
+  const t = e.target.closest("th.sort");
+  if (t) {
+    const k = t.dataset.key;
+    if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = (k === "id" || k === "kind" || k === "tags" || k === "coll") ? 1 : -1; }
+    refresh();
+    return;
+  }
+  if (e.target.matches("img.thumb")) e.target.classList.toggle("big");
+});
+for (const id of ["q", "use", "kind", "coll", "pics"]) $(id).addEventListener("input", () => { page = 0; refresh(); });
+for (const [a, d] of [["prev", -1], ["next", 1], ["prev2", -1], ["next2", 1]])
+  $(a).addEventListener("click", () => { page += d; draw(); window.scrollTo(0, 0); });
+refresh();
+</script>
+</body>
+</html>

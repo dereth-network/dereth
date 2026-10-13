@@ -2,8 +2,9 @@
 //! and reports what the server's corrections do to one.
 //!
 //! **Depends on** `empyrean-common` and the content crate (`empyrean-content`), whose importer it
-//! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), and for
-//! `fetch` on an HTTP client (`ureq`, over rustls), `zip` and `sha2`. **Used by**
+//! runs, for `dat-overlay` on the data-file container (`dereth-dat`, `dereth-primitives`), for
+//! `spawns` on the entity enums (`empyrean-entity`), and for `fetch` on an HTTP client (`ureq`,
+//! over rustls), `zip` and `sha2`. **Used by**
 //! nothing: it is the `empyrean-import` binary.
 //!
 //! **Must never** read the wall clock or overwrite the pack an overlay sits on: `--now` (default
@@ -22,6 +23,7 @@
 //! empyrean-import --corrections <world.pack> [--report <corrections.json>]
 //! empyrean-import --version
 //! empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era <era>]
+//! empyrean-import spawns [--world <world>] [--sql <dump.sql>] [--out <spawns.tsv>]
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
 //! ```
@@ -69,6 +71,9 @@
 //!
 //! `dat-overlay` writes a world's data overlay: see [`dat_overlay`].
 //!
+//! `spawns` writes the table of what the world's spawned objects are drawn with, how many there
+//! are and where, which the art survey reads: see [`spawns`].
+//!
 //! `--corrections` lists every correction entry of this build (applies, stale or absent, with the
 //! stored and corrected values and the divergence row), every value each correction rule changes,
 //! and the corrections digest the server logs at start-up. Exit status 0 means every entry applies,
@@ -76,6 +81,7 @@
 
 mod dat_overlay;
 mod fetch;
+mod spawns;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -108,6 +114,8 @@ fn usage() -> ExitCode {
          \x20      empyrean-import --version\n\
          \x20      empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era eor|infiltration]\n\
          \x20                  (a world's data files taken apart against their base, as the overlay the server serves)\n\
+         \x20      empyrean-import spawns [--world patches|16py] [--sql <dump.sql>] [--out <spawns.tsv>]\n\
+         \x20                  (the setups the world's spawns are drawn with, how many and where, for the art survey)\n\
          \x20      empyrean-import --sql <dump.sql> [--patches ...] [--json ...] [--era ...] --overlay <overlay.sqlite> [--overlay-journal <dir>]\n\
          \x20                  --out <world.pack> [--report <report.json>]\n\
          \x20  --era      the era the pack is for, recorded in it: eor (default, the end of retail) or infiltration\n\
@@ -181,6 +189,9 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "dat-overlay") {
         return dat_overlay::run(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "spawns") {
+        return run_spawns(&argv[1..]);
     }
     let mut args = argv.into_iter().peekable();
     while let Some(a) = args.next() {
@@ -353,6 +364,26 @@ fn run_fetch(args: &[String]) -> ExitCode {
             report.as_deref(),
         ),
         None => ExitCode::SUCCESS,
+    }
+}
+
+fn run_spawns(args: &[String]) -> ExitCode {
+    let opts = match spawns::parse_args(args) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("empyrean-import spawns: {e}");
+            return usage();
+        }
+    };
+    match spawns::run(&opts) {
+        Ok(done) => {
+            println!("{done}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("empyrean-import spawns: {e}");
+            ExitCode::FAILURE
+        }
     }
 }
 

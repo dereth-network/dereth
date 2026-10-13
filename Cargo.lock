@@ -823,6 +823,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dereth-art"
+version = "0.0.0"
+dependencies = [
+ "dereth-assets",
+ "dereth-client-runtime",
+ "dereth-dat",
+ "dereth-primitives",
+ "dereth-render-cpu",
+ "dereth-scene",
+ "dereth-terrain",
+ "dereth-world-data",
+ "png",
+ "serde_json",
+]
+
+[[package]]
 name = "dereth-assets"
 version = "0.0.0"
 dependencies = [
