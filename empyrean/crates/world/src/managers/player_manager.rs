@@ -550,6 +550,9 @@ pub fn switch_player_from_online_to_offline(w: &mut World, player: ObjectGuid) -
 // ACE: PlayerManager.HandlePlayerDelete
 /// Called when a character is initially deleted on the character select screen.
 pub fn handle_player_delete(w: &mut World, character_guid: u32) {
+    // Not ACE (V451): a character in the Dereth Network's directory is taken out of it.
+    crate::federation::deleted(w, character_guid);
+
     crate::managers::allegiance_manager::handle_player_delete(w, character_guid);
 
     crate::managers::house_manager::handle_player_delete(w, character_guid);

@@ -1,17 +1,23 @@
-//! The hub checks: what any hub must do, run against a real one over its WebSocket.
+//! The hub checks: what any hub must do, run against a real one over its WebSocket and, for the
+//! directory, its public HTTP routes at the same address.
 //!
 //! The suite plays two or three worlds. It needs the hub's address and, for each world, a slug
 //! and key the hub's registry accepts with the federation flag on; optionally one more world whose
 //! flag is not on. Each check opens its own links and names its own characters and channel, so the
 //! checks can run in any order against a hub that is also carrying other traffic.
 
+mod directory;
+mod http;
+
 use std::net::TcpStream;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dereth_network_protocol::person::is_link_code;
 use dereth_network_protocol::wire::PROTOCOL;
 use dereth_network_protocol::{
-    Address, Alts, ChannelOp, ChannelOutcome, Message, Outcome, PersonOp, PersonOutcome,
+    Address, ChannelOp, ChannelOutcome, DirectoryMessage, ListingOutcome, Message, Outcome,
+    PersonOp, PersonOutcome, Profile, ReachMessage, RoomsMessage, SayMessage,
 };
 use tungstenite::client::IntoClientRequest as _;
 use tungstenite::WebSocket;
@@ -30,6 +36,33 @@ pub struct HubTarget {
     pub off: Option<(String, String)>,
     /// Run the checks that wait out the hub's timers (about half a minute).
     pub slow: bool,
+    /// The hub's clock, when the suite may let its time pass: the directory keeps the hour a
+    /// profile last changed, which only hours passing show. Without it those checks hold what one
+    /// hour shows.
+    pub clock: Option<HubClock>,
+}
+
+/// Lets a hub's time pass, as a hub's own tests can: the hour of the directory's listings, by the
+/// hub's clock, moves on by the time given.
+#[derive(Clone)]
+pub struct HubClock(Arc<dyn Fn(Duration) + Send + Sync>);
+
+impl HubClock {
+    /// A clock that `advance` moves on.
+    pub fn new(advance: impl Fn(Duration) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(advance))
+    }
+
+    /// Lets `by` pass on the hub's clock.
+    pub fn advance(&self, by: Duration) {
+        (self.0)(by);
+    }
+}
+
+impl std::fmt::Debug for HubClock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("HubClock")
+    }
 }
 
 /// How opening a link went.
@@ -40,10 +73,26 @@ pub enum Open {
     Failed(String),
 }
 
+/// One frame a link carried: a link message, or one of the directory's.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Frame {
+    Link(Message),
+    Directory(DirectoryMessage),
+}
+
 /// One link, as a world holds it.
 pub struct Link {
     ws: WebSocket<TcpStream>,
     pub slug: String,
+    /// The reach messages read while looking for something else, oldest first, for
+    /// [`Link::expect_reach`].
+    reach: std::collections::VecDeque<ReachMessage>,
+    /// The say messages read while looking for something else, oldest first, for
+    /// [`Link::expect_say`].
+    says: std::collections::VecDeque<SayMessage>,
+    /// The rooms messages read while looking for something else, oldest first, for
+    /// [`Link::expect_rooms`].
+    rooms: std::collections::VecDeque<RoomsMessage>,
 }
 
 impl std::fmt::Debug for Link {
@@ -86,6 +135,9 @@ impl Link {
                 Ok(Self {
                     ws,
                     slug: slug.to_owned(),
+                    reach: std::collections::VecDeque::new(),
+                    says: std::collections::VecDeque::new(),
+                    rooms: std::collections::VecDeque::new(),
                 })
             }
             Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r))) => {
@@ -124,16 +176,174 @@ impl Link {
     }
 
     /// The next message within `within`; `Ok(None)` when none came, `Err` when the link closed.
+    /// The directory's messages are let by.
     ///
     /// # Errors
     /// When the link closed or failed.
     pub fn recv(&mut self, within: Duration) -> Result<Option<Message>, String> {
         let until = Instant::now() + within;
         loop {
+            let left = until.saturating_duration_since(Instant::now());
+            match self.recv_frame(left)? {
+                Some(Frame::Link(m)) => return Ok(Some(m)),
+                Some(Frame::Directory(_)) => {}
+                None => return Ok(None),
+            }
+        }
+    }
+
+    /// Reads until a directory message `pick` takes, within `within` (link messages are let by).
+    ///
+    /// # Errors
+    /// When none came, or the link closed first.
+    pub fn expect_directory<T>(
+        &mut self,
+        within: Duration,
+        what: &str,
+        mut pick: impl FnMut(&DirectoryMessage) -> Option<T>,
+    ) -> Result<T, String> {
+        let until = Instant::now() + within;
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            match self.recv_frame(left)? {
+                Some(Frame::Directory(m)) => {
+                    if let Some(t) = pick(&m) {
+                        return Ok(t);
+                    }
+                }
+                Some(Frame::Link(_)) => {}
+                None => return Err(format!("{}: no {what} within {within:?}", self.slug)),
+            }
+        }
+    }
+
+    /// Reads until a reach message `pick` takes, within `within` (other frames are let by), the
+    /// reach messages read while looking for other frames first.
+    ///
+    /// # Errors
+    /// When none came, or the link closed first.
+    pub fn expect_reach<T>(
+        &mut self,
+        within: Duration,
+        what: &str,
+        mut pick: impl FnMut(&ReachMessage) -> Option<T>,
+    ) -> Result<T, String> {
+        let until = Instant::now() + within;
+        loop {
+            while let Some(m) = self.reach.pop_front() {
+                if let Some(t) = pick(&m) {
+                    return Ok(t);
+                }
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(format!("{}: no {what} within {within:?}", self.slug));
+            }
+            self.recv_frame(left.min(Duration::from_millis(50)))?;
+        }
+    }
+
+    /// The reach messages read so far and not yet taken, oldest first; none are kept after.
+    pub fn take_reach(&mut self) -> Vec<ReachMessage> {
+        self.reach.drain(..).collect()
+    }
+
+    /// Reads until a say message `pick` takes, within `within` (other frames are let by), the say
+    /// messages read while looking for other frames first.
+    ///
+    /// # Errors
+    /// When none came, or the link closed first.
+    pub fn expect_say<T>(
+        &mut self,
+        within: Duration,
+        what: &str,
+        mut pick: impl FnMut(&SayMessage) -> Option<T>,
+    ) -> Result<T, String> {
+        let until = Instant::now() + within;
+        loop {
+            while let Some(m) = self.says.pop_front() {
+                if let Some(t) = pick(&m) {
+                    return Ok(t);
+                }
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(format!("{}: no {what} within {within:?}", self.slug));
+            }
+            self.recv_frame(left.min(Duration::from_millis(50)))?;
+        }
+    }
+
+    /// The say messages read so far and not yet taken, oldest first; none are kept after.
+    pub fn take_say(&mut self) -> Vec<SayMessage> {
+        self.says.drain(..).collect()
+    }
+
+    /// Reads until a rooms message `pick` takes, within `within` (other frames are let by), the
+    /// rooms messages read while looking for other frames first.
+    ///
+    /// # Errors
+    /// When none came, or the link closed first.
+    pub fn expect_rooms<T>(
+        &mut self,
+        within: Duration,
+        what: &str,
+        mut pick: impl FnMut(&RoomsMessage) -> Option<T>,
+    ) -> Result<T, String> {
+        let until = Instant::now() + within;
+        loop {
+            while let Some(m) = self.rooms.pop_front() {
+                if let Some(t) = pick(&m) {
+                    return Ok(t);
+                }
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(format!("{}: no {what} within {within:?}", self.slug));
+            }
+            self.recv_frame(left.min(Duration::from_millis(50)))?;
+        }
+    }
+
+    /// The rooms messages read so far and not yet taken, oldest first; none are kept after.
+    pub fn take_rooms(&mut self) -> Vec<RoomsMessage> {
+        self.rooms.drain(..).collect()
+    }
+
+    /// The next frame of any kind within `within`; `Ok(None)` when none came. A reach message is
+    /// kept for [`Link::expect_reach`], a say message for [`Link::expect_say`], and a rooms
+    /// message for [`Link::expect_rooms`], at most 1,000 of each, the oldest let go past that.
+    ///
+    /// # Errors
+    /// When the link closed or failed.
+    pub fn recv_frame(&mut self, within: Duration) -> Result<Option<Frame>, String> {
+        let until = Instant::now() + within;
+        loop {
             match self.ws.read() {
                 Ok(tungstenite::Message::Text(t)) => {
                     if let Ok(m) = Message::from_json(&t) {
-                        return Ok(Some(m));
+                        return Ok(Some(Frame::Link(m)));
+                    }
+                    if let Ok(m) = DirectoryMessage::from_json(&t) {
+                        return Ok(Some(Frame::Directory(m)));
+                    }
+                    if let Ok(m) = ReachMessage::from_json(&t) {
+                        if self.reach.len() >= 1_000 {
+                            self.reach.pop_front();
+                        }
+                        self.reach.push_back(m);
+                    }
+                    if let Ok(m) = SayMessage::from_json(&t) {
+                        if self.says.len() >= 1_000 {
+                            self.says.pop_front();
+                        }
+                        self.says.push_back(m);
+                    }
+                    if let Ok(m) = RoomsMessage::from_json(&t) {
+                        if self.rooms.len() >= 1_000 {
+                            self.rooms.pop_front();
+                        }
+                        self.rooms.push_back(m);
                     }
                 }
                 Ok(tungstenite::Message::Close(_)) => return Err("closed".into()),
@@ -258,6 +468,23 @@ fn open_greeted(t: &HubTarget, i: usize) -> Result<Link, String> {
     Ok(l)
 }
 
+/// A listing of `who`, with the smallest profile when it is `on`.
+fn listing(id: &str, who: &Address, on: bool) -> DirectoryMessage {
+    DirectoryMessage::Listing {
+        id: id.to_owned(),
+        who: who.clone(),
+        on,
+        profile: on.then(|| {
+            Box::new(Profile {
+                level: 1,
+                heritage: 1,
+                gender: 1,
+                ..Profile::default()
+            })
+        }),
+    }
+}
+
 fn result_of(m: &Message, id: &str) -> Option<Outcome> {
     match m {
         Message::TellResult { id: i, outcome, .. } if i == id => Some(*outcome),
@@ -371,6 +598,66 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
         lb.close();
         Ok(())
     });
+    check(
+        "rooms.a_world_is_told_its_rooms_after_its_welcome",
+        &mut || {
+            let mut l = open_greeted(t, 0)?;
+            l.expect_rooms(WAIT, "its rooms", |m| {
+                matches!(m, RoomsMessage::Setup { id: None, .. }).then_some(())
+            })?;
+            l.close();
+            Ok(())
+        },
+    );
+    check(
+        "rooms.a_worlds_global_room_is_set_and_a_seed_taken_only_while_none_is_held",
+        &mut || {
+            let mut l = open_greeted(t, 0)?;
+            let answer = |l: &mut Link, id: &str, room: &str, seed: bool| {
+                l.send_raw(
+                    &RoomsMessage::Global {
+                        id: id.to_owned(),
+                        room: room.to_owned(),
+                        seed,
+                    }
+                    .to_json(),
+                )?;
+                l.expect_rooms(WAIT, "the answer", |m| match m {
+                    RoomsMessage::Setup {
+                        id: Some(i),
+                        global,
+                        mirrored,
+                    } if i == id => Some((global.clone(), mirrored.clone())),
+                    _ => None,
+                })
+            };
+            let (global, mirrored) = answer(&mut l, &format!("g{tg}"), "lfg", false)?;
+            if global.as_deref() != Some("lfg") || mirrored.iter().any(|r| r == "lfg") {
+                return Err(format!("set: {global:?} {mirrored:?}"));
+            }
+            let (global, _) = answer(&mut l, &format!("s{tg}"), "trade", true)?;
+            if global.as_deref() != Some("lfg") {
+                return Err(format!("a seed changed the room held: {global:?}"));
+            }
+            l.close();
+            Ok(())
+        },
+    );
+    check(
+        "rooms.a_worlds_rooms_message_is_refused_as_the_hubs_own",
+        &mut || {
+            let mut l = open_greeted(t, 0)?;
+            l.send_raw(r#"{"type":"rooms","global":"trade","mirrored":[]}"#)?;
+            let code = l.expect(WAIT, "error", |m| match m {
+                Message::Error { code, .. } => Some(code.clone()),
+                _ => None,
+            })?;
+            l.close();
+            (code == "malformed")
+                .then_some(())
+                .ok_or_else(|| format!("code {code}"))
+        },
+    );
     check("world.a_link_up_and_down_is_announced", &mut || {
         let mut la = open_greeted(t, 0)?;
         let lb = open_greeted(t, 1)?;
@@ -654,6 +941,7 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
                     room: "global".into(),
                     from: spoofed.clone(),
                     text: "spoofed".into(),
+                    via: None,
                 },
                 Message::Channel {
                     id: format!("ic{tg}"),
@@ -738,6 +1026,7 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
                 room: "global".into(),
                 from: addr(&ann, &a),
                 text: "dance at 8".into(),
+                via: None,
             })?;
             lb.expect(WAIT, "the room line", |m| match m {
                 Message::RoomLine { from, text, .. }
@@ -778,6 +1067,7 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
                     room: "global".into(),
                     from: addr("Cid", &t.worlds[2].0),
                     text: "not carried".into(),
+                    via: None,
                 })?;
                 let o = lc.expect(WAIT, "the room result", |m| match m {
                     Message::RoomResult { id: i, outcome } if *i == id => Some(*outcome),
@@ -931,12 +1221,12 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
                 Message::PersonFriends {
                     to,
                     linked,
-                    alts,
                     persons,
-                } if to.same(&who) => Some((*linked, *alts, persons.len())),
+                    ..
+                } if to.same(&who) => Some((*linked, persons.len())),
                 _ => None,
             })?;
-            if view != (false, Alts::Hidden, 0) {
+            if view != (false, 0) {
                 return Err(format!("its view: {view:?}"));
             }
             let asks = [
@@ -1031,6 +1321,53 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
             }
         },
     );
+    check(
+        "listing.a_world_cannot_list_another_worlds_character",
+        &mut || {
+            let mut la = open_greeted(t, 0)?;
+            la.send_raw(&listing(&format!("li{tg}"), &addr(&bob, &b), true).to_json())?;
+            let until = Instant::now() + WAIT;
+            loop {
+                let left = until.saturating_duration_since(Instant::now());
+                match la.recv_frame(left)? {
+                    Some(Frame::Link(Message::Error { code, .. })) if code == "identity" => break,
+                    Some(Frame::Link(Message::Error { code, .. })) => return Err(code),
+                    Some(Frame::Directory(m)) => return Err(format!("an answer: {m:?}")),
+                    Some(Frame::Link(_)) => {}
+                    None => return Err("no identity error".into()),
+                }
+            }
+            la.close();
+            Ok(())
+        },
+    );
+    check(
+        "listing.a_listing_is_answered_and_taking_it_out_is_ok",
+        &mut || {
+            let mut la = open_greeted(t, 0)?;
+            let who = addr(&format!("Lis{tg}"), &a);
+            let answer = |la: &mut Link, id: String, on: bool| {
+                la.send_raw(&listing(&id, &who, on).to_json())?;
+                la.expect_directory(WAIT, "the listing's answer", |m| match m {
+                    DirectoryMessage::ListingResult {
+                        id: i,
+                        outcome,
+                        url,
+                        ..
+                    } if *i == id => Some((*outcome, url.is_some())),
+                    _ => None,
+                })
+            };
+            let on = answer(&mut la, format!("lo{tg}"), true)?;
+            let off = answer(&mut la, format!("lf{tg}"), false)?;
+            la.close();
+            match (on, off) {
+                ((ListingOutcome::Ok, true), (ListingOutcome::Ok, _))
+                | ((ListingOutcome::Unavailable, _), (ListingOutcome::Unavailable, _)) => Ok(()),
+                other => Err(format!("{other:?}")),
+            }
+        },
+    );
     if t.slow {
         check(
             "tell.an_unanswered_tell_is_answered_unavailable",
@@ -1086,5 +1423,6 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
                 .ok_or_else(|| format!("{o:?}"))
         });
     }
+    out.extend(directory::checks(t, &tg));
     out
 }

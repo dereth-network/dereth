@@ -11,16 +11,26 @@
 //!   a write to it has waited [`LINK_WRITE_TIMEOUT`], or at once when the frames waiting for it
 //!   pass [`LINK_QUEUE_BYTES`]; the other worlds are told it is offline, as for any lost link.
 //! - **The HTTP API** is the registry's: worlds, status, resolution, heartbeats and the two
-//!   compatibility feeds; and the operator API ([`crate::api`]). Each request gets its own
-//!   short-lived thread.
+//!   compatibility feeds; the character directory's public routes ([`crate::directory`]); and the
+//!   operator API ([`crate::api`]). Each request gets its own short-lived thread.
 //! - **Limits on the listener.** Every request and every link attempt takes from its client
-//!   address's allowance ([`HubConfig::http_per_minute`]); at most [`MAX_CONNECTIONS`] connections
+//!   address's allowance ([`HubConfig::http_per_minute`]), but for Discord's interactions, which
+//!   all come from Discord's own addresses: one takes from it only when it fails Discord's
+//!   signature ([`crate::interactions::handle`]); at most [`MAX_CONNECTIONS`] connections
 //!   are open at once, and at most [`MAX_CONNECTIONS_PER_ADDRESS`] from one address that is not a
 //!   trusted proxy (an IPv6 client counted by its /64); a request's head is given less time while
-//!   half the connections are still sending theirs. A link stays up only while the key it was
-//!   opened with is the world's key.
+//!   half the connections are still sending theirs. A head over [`MAX_HEAD_BYTES`] or
+//!   [`MAX_HEAD_LINES`] lines, or one that is not HTTP, is answered and logged, never dropped
+//!   unanswered. A link stays up only while the key it was opened with is the world's key.
 //! - **Channels** are saved one row each, the changed ones together in one transaction, at most
 //!   once a second, after they change.
+//! - **The Discord broker**, on a hub given the application's bot token ([`crate::broker`]),
+//!   mirrors rooms into Discord servers' channels on threads of its own ([`crate::bridge`]): the
+//!   routing hands them the lines said in a mirrored room, so it never waits on Discord. Tells
+//!   into persons' Discord, and their replies, go the same way, on two threads more
+//!   ([`crate::dms`]). The bot's `/dn` command reaches the hub at its interactions route, signed by
+//!   Discord ([`crate::interactions`]): a line a person says there goes to the routing for its
+//!   character's world, and the world's answer back to the person, on a thread of its own.
 //!
 //! Nothing here writes a message body or a key to the log.
 
@@ -35,7 +45,9 @@ use std::time::{Duration, Instant};
 
 use dereth_network_protocol::limits::{Bucket, Limits, Rate};
 use dereth_network_protocol::wire::{WireError, MAX_MESSAGE_BYTES};
-use dereth_network_protocol::{Federation, Message};
+use dereth_network_protocol::{
+    DirectoryMessage, Federation, Message, ReachMessage, RoomsMessage, SayMessage,
+};
 use serde_json::{json, Value};
 use tungstenite::handshake::server::{Request, Response};
 
@@ -50,6 +62,12 @@ pub const SOFTWARE: &str = concat!("dereth-network-hub ", env!("CARGO_PKG_VERSIO
 pub const PING_EVERY: Duration = Duration::from_secs(20);
 /// See [`PING_EVERY`].
 pub const IDLE_AFTER: Duration = Duration::from_secs(70);
+
+/// The most a request's head may be, in bytes, and the most header lines it may have: what
+/// Cloudflare passes on. A head past either is answered `431`.
+pub const MAX_HEAD_BYTES: usize = 32 * 1024;
+/// See [`MAX_HEAD_BYTES`].
+pub const MAX_HEAD_LINES: usize = 128;
 
 /// How long a request's head may take to arrive.
 const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
@@ -99,14 +117,20 @@ pub struct HubConfig {
     /// The Discord application operators sign in with. Without it, and a public URL and a site
     /// origin, the operator API answers 503.
     pub discord: Option<crate::discord::Discord>,
+    /// The Discord broker: the application's bot token. Without it, mirrors, tells into Discord and
+    /// lines said from Discord are off, and sign-in works as it does without them.
+    pub broker: Option<crate::broker::Broker>,
     /// The Discord ids of the operators who may use the admin routes.
     pub admins: Vec<String>,
-    /// Worlds approved onto the network a day, for every operator together.
-    pub approvals_per_day: usize,
-    /// How old a Discord account must be, in days, to register or claim a world.
-    pub min_account_age_days: u64,
-    /// How long a registered world may stay `pending`, in days, before it is removed.
-    pub pending_days: u64,
+    /// The hub's settings as flags gave them at start (`--approvals-per-day`,
+    /// `--min-account-age-days`, `--pending-days`): each seeds the registry's own while the
+    /// registry holds none, and is ignored, with a line in the log, once it does
+    /// ([`crate::settings`]).
+    pub approvals_per_day: Option<u64>,
+    /// See [`HubConfig::approvals_per_day`].
+    pub min_account_age_days: Option<u64>,
+    /// See [`HubConfig::approvals_per_day`].
+    pub pending_days: Option<u64>,
     /// Whether loopback addresses count as public (for endpoints and verification pages): for
     /// tests and a hub developed on one machine, never a public hub.
     pub loopback_allowed: bool,
@@ -154,10 +178,11 @@ impl Default for HubConfig {
             public_url: None,
             site_origins: Vec::new(),
             discord: None,
+            broker: None,
             admins: Vec::new(),
-            approvals_per_day: 500,
-            min_account_age_days: 30,
-            pending_days: 14,
+            approvals_per_day: None,
+            min_account_age_days: None,
+            pending_days: None,
             loopback_allowed: false,
             fetch_timeout: Duration::from_secs(10),
             deny_fetch: Vec::new(),
@@ -176,11 +201,34 @@ impl Default for HubConfig {
     }
 }
 
+impl HubConfig {
+    /// The hub's settings that flags gave at start, each with its value.
+    #[must_use]
+    pub fn given_settings(&self) -> Vec<(crate::settings::Setting, u64)> {
+        use crate::settings::Setting;
+        [
+            (Setting::ApprovalsPerDay, self.approvals_per_day),
+            (Setting::MinAccountAgeDays, self.min_account_age_days),
+            (Setting::PendingDays, self.pending_days),
+        ]
+        .into_iter()
+        .filter_map(|(s, v)| Some((s, v?)))
+        .collect()
+    }
+}
+
 /// How old the public lists' snapshot may be before it is built again.
 const PUBLIC_EVERY: Duration = Duration::from_secs(1);
 
 /// How long a cache in front of the hub may keep a public list.
 const PUBLIC_CACHE: &str = "public, max-age=10";
+
+/// How long a cache in front of the hub may keep a directory answer: a character taken out of the
+/// directory may linger there this long.
+const DIRECTORY_CACHE: &str = "public, max-age=60";
+
+/// Directory searches a minute from one address, beside every request's allowance.
+pub const SEARCHES_PER_MINUTE: f64 = 30.0;
 
 /// The public lists, built from the registry at one moment.
 struct Public {
@@ -219,6 +267,19 @@ enum Event {
     /// A person changed on the site: the watched views of these characters, all of the person's,
     /// and those naming one of them, are looked at again.
     PersonsChanged(Vec<dereth_network_protocol::Address>),
+    /// The rooms mirrored into Discord changed.
+    Bridged(BTreeSet<crate::bridge::Bridged>),
+    /// Where a world carries the Global room changed on the site.
+    Rooms,
+    /// A person answered from Discord, as its character `from`, a tell `to` sent it.
+    TellFromDiscord {
+        person: String,
+        from: dereth_network_protocol::Address,
+        to: dereth_network_protocol::Address,
+        text: String,
+    },
+    /// A person said a line in a mirror from Discord, for its character's world to say.
+    Say(crate::core::SayAsk),
 }
 
 /// What a link's thread and the routing share besides the frames themselves: how many bytes of
@@ -313,6 +374,8 @@ pub(crate) struct Shared {
         std::collections::HashSet<String>,
     )>,
     http_buckets: Mutex<HashMap<IpAddr, Bucket>>,
+    /// Directory searches by client address ([`SEARCHES_PER_MINUTE`]).
+    search_buckets: Mutex<HashMap<IpAddr, Bucket>>,
     /// Open connections by the address they are counted under ([`counted_as`]).
     open: Mutex<HashMap<IpAddr, usize>>,
     /// Connections still sending their request's head.
@@ -325,6 +388,8 @@ pub(crate) struct Shared {
     pub(crate) resolver: crate::resolver::Resolver,
     /// The challenges of verifications in game waiting for the world's answer.
     pub(crate) challenges: crate::challenge::Waiting,
+    /// The Discord broker, on a hub given the bot token.
+    pub(crate) broker: Option<crate::broker::Service>,
     started: Instant,
     next_conn: AtomicU64,
     stop: AtomicBool,
@@ -349,6 +414,58 @@ impl Shared {
         if !characters.is_empty() {
             self.send(Event::PersonsChanged(characters));
         }
+    }
+
+    /// The rooms mirrored into Discord changed: the routing mirrors these from now on.
+    pub(crate) fn bridged_changed(&self, rooms: BTreeSet<crate::bridge::Bridged>) {
+        self.send(Event::Bridged(rooms));
+    }
+
+    /// Where a world carries the Global room changed on the site: the routing tells each linked
+    /// world its rooms where they changed.
+    pub(crate) fn rooms_changed(&self) {
+        self.send(Event::Rooms);
+    }
+
+    /// A person answered from Discord, as its character `from`, a tell `to` sent it: for the
+    /// routing to hand `to`'s world as a tell from `from`.
+    pub(crate) fn tell_from_discord(
+        &self,
+        person: String,
+        from: dereth_network_protocol::Address,
+        to: dereth_network_protocol::Address,
+        text: String,
+    ) {
+        self.send(Event::TellFromDiscord {
+            person,
+            from,
+            to,
+            text,
+        });
+    }
+
+    /// A person said a line in a mirror from Discord: for the routing to ask its character's world
+    /// to say it.
+    pub(crate) fn say(&self, ask: crate::core::SayAsk) {
+        self.send(Event::Say(ask));
+    }
+
+    /// Whether operators and persons can sign in on this hub.
+    pub(crate) fn sign_in_on(&self) -> bool {
+        self.config.discord.is_some()
+            && self.config.public_url.is_some()
+            && !self.config.site_origins.is_empty()
+    }
+
+    /// Whether persons reach Discord through this hub (tells into Discord, and lines said from
+    /// it): it signs persons in, and its broker is on.
+    pub(crate) fn discord_persons_on(&self) -> bool {
+        self.broker.is_some() && self.sign_in_on()
+    }
+
+    /// Whether the hub is stopping.
+    pub(crate) fn stopping(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
     }
 
     /// Whether Discord's last `429` still asks the hub to wait.
@@ -451,11 +568,28 @@ impl Shared {
 
     /// Takes one request from `ip`'s allowance (an IPv6 client's by its /64, as connections are
     /// counted); when it is spent, how many seconds until it is not.
-    fn allowed(&self, ip: IpAddr) -> Result<(), u64> {
-        let per_min = f64::from(self.config.http_per_minute);
+    pub(crate) fn allowed(&self, ip: IpAddr) -> Result<(), u64> {
+        self.take_from(
+            &self.http_buckets,
+            f64::from(self.config.http_per_minute),
+            ip,
+        )
+    }
+
+    /// Takes one directory search from `ip`'s allowance of them.
+    fn search_allowed(&self, ip: IpAddr) -> Result<(), u64> {
+        self.take_from(&self.search_buckets, SEARCHES_PER_MINUTE, ip)
+    }
+
+    /// Takes one from `ip`'s bucket of `buckets`, `per_min` a minute.
+    fn take_from(
+        &self,
+        buckets: &Mutex<HashMap<IpAddr, Bucket>>,
+        per_min: f64,
+        ip: IpAddr,
+    ) -> Result<(), u64> {
         let now = self.started.elapsed().as_secs_f64();
-        let mut b = self
-            .http_buckets
+        let mut b = buckets
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if b.len() > 10_000 {
@@ -652,11 +786,14 @@ pub fn start(config: HubConfig) -> io::Result<Running> {
 pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Running> {
     let channels = load_channels(&registry)?;
     registry.policy = crate::operators::Policy {
-        approvals_per_day: config.approvals_per_day,
         loopback_allowed: config.loopback_allowed,
-        min_account_age_days: config.min_account_age_days,
-        pending_days: config.pending_days,
     };
+    let seeded = registry
+        .seed_settings(&config.given_settings())
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    for (level, line) in seeded {
+        log(level, &line);
+    }
     registry.admins.clone_from(&config.admins);
     registry.set_web(config.public_url.as_deref(), &config.site_origins);
     let listener = TcpListener::bind(config.listen)?;
@@ -670,6 +807,7 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         crate::resolver::WORKERS,
         crate::resolver::REMEMBER,
     );
+    let broker = config.broker.clone().map(crate::broker::Service::new);
     let shared = Arc::new(Shared {
         registry: Mutex::new(registry),
         linked: Mutex::new(BTreeSet::new()),
@@ -679,19 +817,24 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
         discord_wait: Mutex::new(None),
         spent_states: Mutex::new(Default::default()),
         http_buckets: Mutex::new(HashMap::new()),
+        search_buckets: Mutex::new(HashMap::new()),
         open: Mutex::new(HashMap::new()),
         heads: AtomicUsize::new(0),
         refusals: Mutex::new(HashMap::new()),
         public: Mutex::new(None),
         resolver,
         challenges: crate::challenge::Waiting::default(),
+        broker,
         started: Instant::now(),
         next_conn: AtomicU64::new(1),
         stop: AtomicBool::new(false),
     });
     let mut hub = Hub::new(SOFTWARE, channels, limits);
-    hub.set_link_url(site_page(&shared.config, "characters"));
+    hub.set_link_url(site_page(&shared.config, "link"));
     hub.set_person_url(site_page(&shared.config, "characters"));
+    // Tells reach a person's Discord on a hub that signs persons in and brokers Discord.
+    hub.set_discord_tells(shared.discord_persons_on());
+    hub.set_bridged(crate::bridge::first_mirrored(&shared));
     let s1 = Arc::clone(&shared);
     let router = std::thread::Builder::new()
         .name("hub-router".into())
@@ -700,6 +843,25 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
     let accept = std::thread::Builder::new()
         .name("hub-accept".into())
         .spawn(move || accept_loop(&s2, &listener))?;
+    let mut threads = vec![accept, router];
+    if let Some(broker) = shared.broker.as_ref() {
+        let mirrors = broker.bridge.mirrors().len();
+        log(
+            "info",
+            &format!(
+                "Discord broker on: tells into Discord {}; {mirrors} mirror{} into Discord",
+                if shared.discord_persons_on() {
+                    "on"
+                } else {
+                    "off (no sign-in)"
+                },
+                if mirrors == 1 { "" } else { "s" },
+            ),
+        );
+        threads.extend(crate::bridge::start(&shared)?);
+        threads.extend(crate::dms::start(&shared)?);
+        threads.extend(crate::interactions::start(&shared)?);
+    }
     log(
         "info",
         &format!("listening on http://{addr} (links at ws://{addr}/v1/servers/<slug>/link)"),
@@ -707,14 +869,14 @@ pub fn start_with(config: HubConfig, mut registry: Registry) -> io::Result<Runni
     Ok(Running {
         addr,
         shared,
-        threads: vec![accept, router],
+        threads,
     })
 }
 
-/// A page of the site for persons, on a hub whose sign-in is configured (none otherwise): the first
-/// site origin's `/characters/`, where a link code is entered and a person shows or hides its
-/// characters.
-fn site_page(config: &HubConfig, page: &str) -> Option<String> {
+/// A page of the site for persons, on a hub whose sign-in is configured (none otherwise), on the
+/// first site origin: `/link/`, which links a character with the code a link carries, or
+/// `/characters/`, the person's own page.
+pub(crate) fn site_page(config: &HubConfig, page: &str) -> Option<String> {
     let site = config.site_origins.first()?;
     (config.discord.is_some() && config.public_url.is_some())
         .then(|| format!("{}/{page}/", site.trim_end_matches('/')))
@@ -830,7 +992,7 @@ fn route(shared: &Arc<Shared>, mut hub: Hub, rx: &Receiver<Event>) {
                 let out = hub.connect_keyed(&slug, &name, &key);
                 // A replaced link is told to close by the outs; the new one takes its place after.
                 let mut out = out;
-                apply(shared, &mut hub, &mut links, &mut out);
+                apply(shared, &mut hub, &mut links, &mut out, Queued::default());
                 links.insert(slug.clone(), Routed { conn, tx, queue });
                 set_linked(shared, &links);
                 Vec::new()
@@ -844,6 +1006,84 @@ fn route(shared: &Arc<Shared>, mut hub: Hub, rx: &Receiver<Event>) {
                             }
                             let reg = shared.registry();
                             hub.receive(&*reg, &slug, m, now)
+                        }
+                        Err(WireError::Unknown(t))
+                            if dereth_network_protocol::directory::TYPES.contains(&t.as_str()) =>
+                        {
+                            match DirectoryMessage::from_json(&text) {
+                                Ok(d) => {
+                                    if let Some(f) = wire.as_mut() {
+                                        wire_line(f, &format!("{slug} -> hub"), d.kind());
+                                    }
+                                    let reg = shared.registry();
+                                    hub.receive_listing(&*reg, &slug, d, now)
+                                }
+                                Err(_) => vec![Out::Send(
+                                    slug.clone(),
+                                    Message::Error {
+                                        code: "malformed".into(),
+                                        message: "a frame that is not a message".into(),
+                                    },
+                                )],
+                            }
+                        }
+                        Err(WireError::Unknown(t))
+                            if dereth_network_protocol::reach::TYPES.contains(&t.as_str()) =>
+                        {
+                            match ReachMessage::from_json(&text) {
+                                Ok(m) => {
+                                    if let Some(f) = wire.as_mut() {
+                                        wire_line(f, &format!("{slug} -> hub"), m.kind());
+                                    }
+                                    hub.receive_reach(&slug, m, now)
+                                }
+                                Err(_) => vec![Out::Send(
+                                    slug.clone(),
+                                    Message::Error {
+                                        code: "malformed".into(),
+                                        message: "a frame that is not a message".into(),
+                                    },
+                                )],
+                            }
+                        }
+                        Err(WireError::Unknown(t))
+                            if dereth_network_protocol::say::TYPES.contains(&t.as_str()) =>
+                        {
+                            match SayMessage::from_json(&text) {
+                                Ok(m) => {
+                                    if let Some(f) = wire.as_mut() {
+                                        wire_line(f, &format!("{slug} -> hub"), m.kind());
+                                    }
+                                    hub.receive_say(&slug, m, now)
+                                }
+                                Err(_) => vec![Out::Send(
+                                    slug.clone(),
+                                    Message::Error {
+                                        code: "malformed".into(),
+                                        message: "a frame that is not a message".into(),
+                                    },
+                                )],
+                            }
+                        }
+                        Err(WireError::Unknown(t))
+                            if dereth_network_protocol::rooms::TYPES.contains(&t.as_str()) =>
+                        {
+                            match RoomsMessage::from_json(&text) {
+                                Ok(m) => {
+                                    if let Some(f) = wire.as_mut() {
+                                        wire_line(f, &format!("{slug} -> hub"), m.kind());
+                                    }
+                                    let reg = shared.registry();
+                                    hub.receive_rooms(&*reg, &slug, m, now)
+                                }
+                                Err(_) => vec![Out::Send(
+                                    slug.clone(),
+                                    Message::Error {
+                                        code: "malformed".into(),
+                                        message: "a frame that is not a message".into(),
+                                    },
+                                )],
+                            }
                         }
                         Err(WireError::Unknown(t)) => {
                             log(
@@ -868,6 +1108,33 @@ fn route(shared: &Arc<Shared>, mut hub: Hub, rx: &Receiver<Event>) {
                 hub.persons_changed(&characters);
                 Vec::new()
             }
+            Ok(Event::Bridged(rooms)) => {
+                hub.set_bridged(rooms);
+                Vec::new()
+            }
+            Ok(Event::Rooms) => {
+                hub.rooms_changed();
+                Vec::new()
+            }
+            Ok(Event::TellFromDiscord {
+                person,
+                from,
+                to,
+                text,
+            }) => {
+                let reg = shared.registry();
+                let (outs, carry) = hub.tell_from_discord(&*reg, &person, &from, &to, &text, now);
+                drop(reg);
+                if let Some(b) = shared.broker.as_ref() {
+                    b.tells.taken(carry);
+                }
+                outs
+            }
+            Ok(Event::Say(ask)) => {
+                let reg = shared.registry();
+                hub.ask_say(&*reg, ask, now);
+                Vec::new()
+            }
             Ok(Event::Closed { slug, conn }) => {
                 if links.get(&slug).is_some_and(|l| l.conn == conn) {
                     links.remove(&slug);
@@ -887,12 +1154,28 @@ fn route(shared: &Arc<Shared>, mut hub: Hub, rx: &Receiver<Event>) {
             let reg = shared.registry();
             outs.extend(hub.tick(&*reg, now));
         }
+        let listings = hub.take_listings();
+        let reach = hub.take_reach();
+        let says = hub.take_say();
+        let rooms = hub.take_rooms();
+        // A world's mirrors that changed with where it carries the Global room are read again.
+        if hub.take_mirrors_changed() {
+            crate::bridge::refresh(shared);
+        }
         if let Some(f) = wire.as_mut() {
-            for o in &outs {
-                if let Out::Send(slug, m) = o {
-                    if links.contains_key(slug) {
-                        wire_line(f, &format!("hub -> {slug}"), m.kind());
-                    }
+            let sent = outs
+                .iter()
+                .filter_map(|o| match o {
+                    Out::Send(slug, m) => Some((slug, m.kind())),
+                    _ => None,
+                })
+                .chain(listings.iter().map(|(slug, m)| (slug, m.kind())))
+                .chain(reach.iter().map(|(slug, m)| (slug, m.kind())))
+                .chain(says.iter().map(|(slug, m)| (slug, m.kind())))
+                .chain(rooms.iter().map(|(slug, m)| (slug, m.kind())));
+            for (slug, kind) in sent {
+                if links.contains_key(slug) {
+                    wire_line(f, &format!("hub -> {slug}"), kind);
                 }
             }
         }
@@ -900,7 +1183,31 @@ fn route(shared: &Arc<Shared>, mut hub: Hub, rx: &Receiver<Event>) {
         if outs.iter().any(|o| matches!(o, Out::ChannelsChanged)) && save_at.is_none() {
             save_at = Some(Instant::now() + SAVE_CHANNELS_EVERY);
         }
-        apply(shared, &mut hub, &mut links, &mut outs);
+        apply(
+            shared,
+            &mut hub,
+            &mut links,
+            &mut outs,
+            Queued {
+                listings,
+                reach,
+                says,
+                rooms,
+            },
+        );
+        // The lines for Discord wait for the mirrors' own threads, never holding the routing up,
+        // and so do the tells for persons' Discord and the answers to their replies.
+        let bridged = hub.take_bridged();
+        if let Some(b) = shared.broker.as_ref().filter(|_| !bridged.is_empty()) {
+            b.bridge.hand(bridged);
+        }
+        let (tells, answers) = (hub.take_discord_tells(), hub.take_discord_answers());
+        let said = hub.take_say_answers();
+        if let Some(b) = shared.broker.as_ref() {
+            b.tells.hand(tells);
+            b.tells.answered(answers);
+            b.speak.answered(shared, said);
+        }
         if save_at.is_some_and(|t| Instant::now() >= t) {
             save_at = None;
             save_channels(shared, &mut hub);
@@ -919,47 +1226,69 @@ fn set_linked(shared: &Shared, links: &BTreeMap<String, Routed>) {
     }
 }
 
-/// Does what the routing returned. A link whose waiting frames would pass
-/// [`HubConfig::link_queue_bytes`] is dropped there and then: its socket is shut, and the hub
-/// treats it as a link gone down (the other worlds are told it is offline).
+/// One thing for the I/O to do: what the routing returned, or one of the directory's, the reach,
+/// the say or the rooms messages for a world's link.
+enum Work {
+    Routed(Out),
+    Listing(String, DirectoryMessage),
+    Reach(String, ReachMessage),
+    Say(String, SayMessage),
+    Rooms(String, RoomsMessage),
+}
+
+/// The messages of the other families the routing queued, each with its world.
+#[derive(Default)]
+struct Queued {
+    listings: Vec<(String, DirectoryMessage)>,
+    reach: Vec<(String, ReachMessage)>,
+    says: Vec<(String, SayMessage)>,
+    rooms: Vec<(String, RoomsMessage)>,
+}
+
+/// Does what the routing returned, then sends the directory's, the reach, the say and the rooms
+/// messages it queued. A link whose
+/// waiting frames would pass [`HubConfig::link_queue_bytes`] is dropped there and then: its socket
+/// is shut, and the hub treats it as a link gone down (the other worlds are told it is offline).
 fn apply(
     shared: &Shared,
     hub: &mut Hub,
     links: &mut BTreeMap<String, Routed>,
     outs: &mut Vec<Out>,
+    queued: Queued,
 ) {
-    let mut work: std::collections::VecDeque<Out> = outs.drain(..).collect();
-    while let Some(o) = work.pop_front() {
-        match o {
-            Out::Send(slug, m) => {
-                let Some(l) = links.get(&slug) else {
-                    continue;
-                };
-                let frame = m.to_json();
-                if l.queue.offer(frame.len(), shared.config.link_queue_bytes) {
-                    let _ = l.tx.send(frame);
-                } else if let Some(l) = links.remove(&slug) {
-                    log(
-                        "info",
-                        &format!("dropping {slug}'s link: it is not taking its frames"),
-                    );
-                    l.queue.cut();
-                    set_linked(shared, links);
-                    work.extend(hub.disconnect(&slug));
-                }
-            }
-            Out::Close(slug, why) => {
+    let mut work: std::collections::VecDeque<Work> = outs
+        .drain(..)
+        .map(Work::Routed)
+        .chain(
+            queued
+                .listings
+                .into_iter()
+                .map(|(s, m)| Work::Listing(s, m)),
+        )
+        .chain(queued.reach.into_iter().map(|(s, m)| Work::Reach(s, m)))
+        .chain(queued.says.into_iter().map(|(s, m)| Work::Say(s, m)))
+        .chain(queued.rooms.into_iter().map(|(s, m)| Work::Rooms(s, m)))
+        .collect();
+    while let Some(w) = work.pop_front() {
+        let (slug, frame) = match w {
+            Work::Routed(Out::Send(slug, m)) => (slug, m.to_json()),
+            Work::Listing(slug, m) => (slug, m.to_json()),
+            Work::Reach(slug, m) => (slug, m.to_json()),
+            Work::Say(slug, m) => (slug, m.to_json()),
+            Work::Rooms(slug, m) => (slug, m.to_json()),
+            Work::Routed(Out::Close(slug, why)) => {
                 if let Some(l) = links.remove(&slug) {
                     log("info", &format!("closing {slug}'s link: {why}"));
                     l.queue.close(why);
                 }
                 set_linked(shared, links);
+                continue;
             }
-            Out::Heartbeat {
+            Work::Routed(Out::Heartbeat {
                 slug,
                 state,
                 players_online,
-            } => {
+            }) => {
                 let h = Heartbeat {
                     state,
                     players_online,
@@ -975,8 +1304,23 @@ fn apply(
                         &format!("{slug}: link heartbeat refused: {}", e.message),
                     );
                 }
+                continue;
             }
-            Out::ChannelsChanged => {}
+            Work::Routed(Out::ChannelsChanged) => continue,
+        };
+        let Some(l) = links.get(&slug) else {
+            continue;
+        };
+        if l.queue.offer(frame.len(), shared.config.link_queue_bytes) {
+            let _ = l.tx.send(frame);
+        } else if let Some(l) = links.remove(&slug) {
+            log(
+                "info",
+                &format!("dropping {slug}'s link: it is not taking its frames"),
+            );
+            l.queue.cut();
+            set_linked(shared, links);
+            work.extend(hub.disconnect(&slug).into_iter().map(Work::Routed));
         }
     }
 }
@@ -998,10 +1342,29 @@ impl Head {
     }
 }
 
-fn peek_head(shared: &Shared, stream: &TcpStream) -> io::Result<Head> {
+/// Why the hub does not read a request's head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadRefusal {
+    /// Over [`MAX_HEAD_BYTES`].
+    TooBig,
+    /// Over [`MAX_HEAD_LINES`] header lines.
+    TooManyLines,
+    /// Not HTTP.
+    NotHttp,
+}
+
+/// A request's head the hub does not read: why, and what was peeked of it, never more than
+/// [`MAX_HEAD_BYTES`].
+struct Unread {
+    why: HeadRefusal,
+    peeked: Vec<u8>,
+}
+
+/// A request's head once it has arrived, or why the hub does not read it.
+fn peek_head(shared: &Shared, stream: &TcpStream) -> io::Result<Result<Head, Unread>> {
     let _heading = Heading::new(&shared.heads);
     let started = Instant::now();
-    let mut buf = vec![0u8; 16 * 1024];
+    let mut buf = vec![0u8; MAX_HEAD_BYTES];
     stream.set_read_timeout(Some(Duration::from_millis(200)))?;
     loop {
         let n = match stream.peek(&mut buf) {
@@ -1018,11 +1381,11 @@ fn peek_head(shared: &Shared, stream: &TcpStream) -> io::Result<Head> {
             Err(e) => return Err(e),
         };
         if n > 0 {
-            let mut headers = [httparse::EMPTY_HEADER; 64];
+            let mut headers = [httparse::EMPTY_HEADER; MAX_HEAD_LINES];
             let mut req = httparse::Request::new(&mut headers);
-            match req.parse(&buf[..n]) {
+            let why = match req.parse(&buf[..n]) {
                 Ok(httparse::Status::Complete(len)) => {
-                    return Ok(Head {
+                    return Ok(Ok(Head {
                         method: req.method.unwrap_or("").to_owned(),
                         path: req.path.unwrap_or("").to_owned(),
                         headers: req
@@ -1036,13 +1399,16 @@ fn peek_head(shared: &Shared, stream: &TcpStream) -> io::Result<Head> {
                             })
                             .collect(),
                         len,
-                    })
+                    }))
                 }
-                Ok(httparse::Status::Partial) if n == buf.len() => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "head too long"))
-                }
-                Ok(httparse::Status::Partial) => {}
-                Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string())),
+                Ok(httparse::Status::Partial) if n == buf.len() => Some(HeadRefusal::TooBig),
+                Ok(httparse::Status::Partial) => None,
+                Err(httparse::Error::TooManyHeaders) => Some(HeadRefusal::TooManyLines),
+                Err(_) => Some(HeadRefusal::NotHttp),
+            };
+            if let Some(why) = why {
+                buf.truncate(n);
+                return Ok(Err(Unread { why, peeked: buf }));
             }
         }
         if started.elapsed() > head_timeout(shared.heads.load(Ordering::SeqCst)) {
@@ -1138,20 +1504,29 @@ fn bearer(head: &Head) -> Option<String> {
         .then(|| key.trim().to_owned())
 }
 
+/// The header a trusted proxy names the client in.
+fn client_header_name(shared: &Shared) -> &'static str {
+    match shared.config.client_header {
+        ClientHeader::XForwardedFor => "x-forwarded-for",
+        ClientHeader::CfConnectingIp => "cf-connecting-ip",
+    }
+}
+
 /// A request's client address; none for a forwarded header from a trusted proxy that does not
 /// read, which is refused.
 fn client_ip(shared: &Shared, peer: SocketAddr, head: &Head) -> Option<IpAddr> {
-    let name = match shared.config.client_header {
-        ClientHeader::XForwardedFor => "x-forwarded-for",
-        ClientHeader::CfConnectingIp => "cf-connecting-ip",
-    };
-    // Every line of the header, joined as one list.
+    let name = client_header_name(shared);
     let values: Vec<&str> = head
         .headers
         .iter()
         .filter(|(k, _)| k.eq_ignore_ascii_case(name))
         .map(|(_, v)| v.as_str())
         .collect();
+    client_ip_of(shared, peer, &values)
+}
+
+/// The client address from every line of the forwarded header, joined as one list.
+fn client_ip_of(shared: &Shared, peer: SocketAddr, values: &[&str]) -> Option<IpAddr> {
     let joined = (!values.is_empty()).then(|| values.join(","));
     crate::forwarded::client_address(
         peer.ip(),
@@ -1163,9 +1538,84 @@ fn client_ip(shared: &Shared, peer: SocketAddr, head: &Head) -> Option<IpAddr> {
     .ok()
 }
 
+/// The values of the `name` lines among the whole lines of `peeked`, the start of a head the hub
+/// did not read: a line cut off at its end, a line that is not text, and anything after the head's
+/// blank line are not read.
+fn lines_named<'a>(peeked: &'a [u8], name: &str) -> Vec<&'a str> {
+    let Some(end) = peeked.iter().rposition(|b| *b == b'\n') else {
+        return Vec::new();
+    };
+    peeked[..end]
+        .split(|b| *b == b'\n')
+        .skip(1)
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| std::str::from_utf8(line).ok())
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.trim())
+        .collect()
+}
+
+/// Answers a request whose head the hub does not read: `431` for one too big or with too many
+/// lines, `400` for one that is not HTTP. It is logged, with why and its client address as far as
+/// what was read of it gives one, at most once a minute for each address. The answer carries CORS
+/// only when the head's one `Origin` line was read and names a site origin.
+fn refuse_head(
+    shared: &Shared,
+    stream: &mut TcpStream,
+    peer: SocketAddr,
+    unread: &Unread,
+) -> io::Result<()> {
+    let forwarded = lines_named(&unread.peeked, client_header_name(shared));
+    let client = client_ip_of(shared, peer, &forwarded).map_or_else(
+        || format!("{} (its forwarded address does not read)", peer.ip()),
+        |ip| ip.to_string(),
+    );
+    let (kib, lines) = (MAX_HEAD_BYTES / 1024, MAX_HEAD_LINES);
+    let (status, message, why) = match unread.why {
+        HeadRefusal::TooBig => (
+            431,
+            format!(
+                "The request's headers are over {kib} KiB: clearing the site's cookies may help"
+            ),
+            format!("its head is over {kib} KiB"),
+        ),
+        HeadRefusal::TooManyLines => (
+            431,
+            format!("The request has over {lines} header lines"),
+            format!("its head has over {lines} header lines"),
+        ),
+        HeadRefusal::NotHttp => (
+            400,
+            "The request does not read as HTTP".to_owned(),
+            "it does not read as HTTP".to_owned(),
+        ),
+    };
+    shared.log_refusal(
+        &format!("head {client}"),
+        &format!("refused a request from {client}: {why} (logged once a minute)"),
+    );
+    let origins = lines_named(&unread.peeked, "origin");
+    let origin = match origins.as_slice() {
+        [one] => Some(*one),
+        _ => None,
+    };
+    refuse(
+        stream,
+        &crate::api::Reply {
+            cors: crate::api::cors_for(shared, origin),
+            ..plain_error(status, &message)
+        },
+    )
+}
+
 fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> io::Result<()> {
     stream.set_nonblocking(false)?;
-    let head = peek_head(shared, &stream)?;
+    let head = match peek_head(shared, &stream)? {
+        Ok(head) => head,
+        Err(unread) => return refuse_head(shared, &mut stream, peer, &unread),
+    };
     if let Some(slug) = link_slug(&head.path).map(str::to_ascii_lowercase) {
         if head
             .header("upgrade")
@@ -1197,7 +1647,16 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
             &plain_error(400, "The forwarded client address does not read"),
         );
     };
-    if head.path != "/healthz" {
+    if head.path.split('?').next() == Some("/v1/directory/characters") {
+        // A search reads more of the directory than a page does: it has an allowance of its own.
+        if let Err(wait) = shared.search_allowed(ip) {
+            return refuse(&mut stream, &too_many(wait, crate::api::Cors::Any));
+        }
+    }
+    // Discord's interactions all come from Discord's own addresses: the route takes from the
+    // allowance only a request that fails Discord's signature, once its body is read.
+    let interactions = head.path.split('?').next() == Some(crate::interactions::PATH);
+    if head.path != "/healthz" && !interactions {
         if let Err(wait) = shared.allowed(ip) {
             // An operator route's answer is readable by the site that asked, as any of its others.
             let cors = if crate::api::is_api(&head.path) {
@@ -1228,6 +1687,10 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
             &plain_error(408, "The request's body took too long"),
         );
     };
+    if interactions {
+        let reply = crate::interactions::handle(shared, &head.method, &head.headers, &body, ip);
+        return write_reply(&mut stream, &reply);
+    }
     if crate::api::is_api(&head.path) {
         let req = crate::api::Req {
             method: &head.method,
@@ -1240,7 +1703,8 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
         return write_reply(&mut stream, &reply);
     }
     let (status, body, kind) = http(shared, &head, &body, ip);
-    // The public lists may be kept a moment by a cache in front of the hub.
+    // The public lists, and the directory's answers, may be kept a moment by a cache in front of
+    // the hub.
     let path = head.path.split('?').next().unwrap_or("");
     let listed = status == 200
         && matches!(
@@ -1251,24 +1715,29 @@ fn connection(shared: &Arc<Shared>, mut stream: TcpStream, peer: SocketAddr) -> 
                 | "/compat/thwarg/Servers.xml"
                 | "/compat/treestats/player_counts-latest.json"
         );
+    let cache = if listed {
+        Some(PUBLIC_CACHE)
+    } else if status == 200 && path.starts_with("/v1/directory/") {
+        Some(DIRECTORY_CACHE)
+    } else {
+        None
+    };
     write_reply(
         &mut stream,
         &crate::api::Reply {
             status,
             body,
             kind,
-            headers: if listed {
-                vec![("Cache-Control".into(), PUBLIC_CACHE.into())]
-            } else {
-                Vec::new()
-            },
+            headers: cache
+                .map(|c| vec![("Cache-Control".into(), c.into())])
+                .unwrap_or_default(),
             cors: crate::api::Cors::Any,
         },
     )
 }
 
 /// A request over the client's allowance, and when to try again.
-fn too_many(wait: u64, cors: crate::api::Cors) -> crate::api::Reply {
+pub(crate) fn too_many(wait: u64, cors: crate::api::Cors) -> crate::api::Reply {
     crate::api::Reply {
         status: 429,
         body: json!({ "error": { "code": crate::api::code(429), "message": "Too many requests",
@@ -1325,6 +1794,7 @@ fn write_reply(stream: &mut TcpStream, r: &crate::api::Reply) -> io::Result<()> 
         413 => "Payload Too Large",
         422 => "Unprocessable Content",
         429 => "Too Many Requests",
+        431 => "Request Header Fields Too Large",
         503 => "Service Unavailable",
         _ => "Internal Server Error",
     };
@@ -1416,6 +1886,9 @@ fn reg_result(r: Result<Value, RegistryError>) -> (u16, String) {
     }
 }
 
+/// The one answer for a character the directory does not show, whatever the reason.
+const NOT_LISTED: &str = "No such character in the directory";
+
 fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, &'static str) {
     const JSON: &str = "application/json; charset=utf-8";
     let path = head.path.split('?').next().unwrap_or("");
@@ -1427,10 +1900,13 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
             200,
             json!({
                 "baseDomain": shared.config.domain,
-                "authEnabled": shared.config.discord.is_some()
-                    && shared.config.public_url.is_some()
-                    && !shared.config.site_origins.is_empty(),
+                "authEnabled": shared.sign_in_on(),
                 "signIn": "/v1/auth/discord",
+                "broker": {
+                    "discordTells": shared.discord_persons_on(),
+                    "mirrors": shared.broker.is_some(),
+                    "speak": shared.discord_persons_on(),
+                },
                 "heartbeatTtlSeconds": crate::registry::HEARTBEAT_TTL_SECS,
             })
             .to_string(),
@@ -1537,6 +2013,45 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
                 crate::community::treestats_counts(&p.worlds, std::time::SystemTime::now())
             }))
         }
+        (_, ["v1", "directory", "characters"]) if get => {
+            match crate::directory::Search::from_query(&query(&head.path)) {
+                Ok(search) => reg_result(shared.registry().directory_search(&search)),
+                Err(e) => reg_result(Err(e)),
+            }
+        }
+        // Every kind of absence is the one answer: nobody listed it, it was unlisted or taken
+        // down, or the address names no character.
+        (_, ["v1", "directory", "characters", address]) if get => {
+            match shared
+                .registry()
+                .directory_character(&percent_decode(address))
+            {
+                Ok(Some(v)) => (200, v.to_string()),
+                Ok(None) => (404, error_json(404, NOT_LISTED)),
+                Err(e) => reg_result(Err(e)),
+            }
+        }
+        (_, ["v1", "directory", "allegiances", world, key]) if get => {
+            let q = query(&head.path);
+            let limit = q
+                .get("limit")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(crate::directory::MAX_PAGE)
+                .clamp(1, crate::directory::MAX_PAGE);
+            let offset = q
+                .get("offset")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0usize)
+                .min(crate::directory::MAX_RESULTS - limit);
+            match shared
+                .registry()
+                .directory_allegiance(world, key, limit, offset)
+            {
+                Ok(Some(v)) => (200, v.to_string()),
+                Ok(None) => (404, error_json(404, "No listed member of that allegiance")),
+                Err(e) => reg_result(Err(e)),
+            }
+        }
         _ => (404, error_json(404, "Route not found")),
     };
     (status, body, JSON)
@@ -1569,11 +2084,8 @@ fn resolve(
                 found
                     .iter()
                     .filter(|a| {
-                        crate::operators::Policy {
-                            loopback_allowed,
-                            ..crate::operators::Policy::default()
-                        }
-                        .allows(crate::forwarded::canonical(**a))
+                        crate::operators::Policy { loopback_allowed }
+                            .allows(crate::forwarded::canonical(**a))
                     })
                     .map(|a| json!({ "address": a.to_string(), "family": if a.is_ipv4() { 4 } else { 6 } }))
                     .collect(),
@@ -1824,5 +2336,89 @@ mod tests {
         assert_eq!(head_timeout(MAX_CONNECTIONS / 2 - 1), HEAD_TIMEOUT);
         assert_eq!(head_timeout(MAX_CONNECTIONS / 2), HEAD_TIMEOUT_BUSY);
         assert!(HEAD_TIMEOUT_BUSY < HEAD_TIMEOUT);
+    }
+
+    /// A hub on loopback over an in-memory registry, with `tweak` applied to its configuration.
+    fn running(tweak: impl FnOnce(&mut HubConfig)) -> Running {
+        let mut config = HubConfig {
+            listen: SocketAddr::from(([127, 0, 0, 1], 0)),
+            ..HubConfig::default()
+        };
+        tweak(&mut config);
+        let registry = Registry::open(
+            ":memory:",
+            "dereth.network",
+            Box::new(std::time::SystemTime::now),
+        )
+        .expect("a registry");
+        start_with(config, registry).expect("the hub starts")
+    }
+
+    /// Writes `bytes` to a fresh connection to `hub`: its answer's status.
+    fn status_of(hub: &Running, bytes: &[u8]) -> Option<u16> {
+        let mut s = TcpStream::connect(hub.local_addr()).expect("connect");
+        s.write_all(bytes).expect("write");
+        let mut out = Vec::new();
+        s.read_to_end(&mut out).expect("read");
+        std::str::from_utf8(&out)
+            .ok()?
+            .split(' ')
+            .nth(1)?
+            .parse()
+            .ok()
+    }
+
+    /// When the hub last logged a refusal of `what`.
+    fn logged(hub: &Running, what: &str) -> Option<Instant> {
+        hub.shared
+            .refusals
+            .lock()
+            .expect("the refusals")
+            .get(what)
+            .copied()
+    }
+
+    /// Spec: hub: a request whose head the hub does not read is logged, with its client address as
+    /// the hub reads it (behind a trusted proxy, the forwarded one), at most once a minute for each
+    /// address.
+    #[test]
+    fn a_refused_head_is_logged_once_a_minute_for_its_client_address() {
+        let hub = running(|c| c.trusted_proxies = vec!["127.0.0.1".parse().expect("a range")]);
+        let big = |client: &str| {
+            format!(
+                "GET /v1/status HTTP/1.1\r\nHost: hub.test\r\nX-Forwarded-For: {client}\r\n\
+                 Cookie: stale={}\r\n\r\n",
+                "c".repeat(40 * 1024)
+            )
+        };
+        assert_eq!(status_of(&hub, big("198.51.100.9").as_bytes()), Some(431));
+        let first = logged(&hub, "head 198.51.100.9").expect("logged");
+        let garbage = b"NOT HTTP AT ALL\r\nX-Forwarded-For: 198.51.100.9\r\n\r\n";
+        assert_eq!(status_of(&hub, garbage), Some(400));
+        assert_eq!(
+            logged(&hub, "head 198.51.100.9"),
+            Some(first),
+            "not logged again within the minute"
+        );
+        assert_eq!(status_of(&hub, big("198.51.100.10").as_bytes()), Some(431));
+        assert!(
+            logged(&hub, "head 198.51.100.10").is_some(),
+            "another address is logged on its own"
+        );
+        assert!(logged(&hub, "head 127.0.0.1").is_none(), "never the proxy");
+        hub.shutdown();
+    }
+
+    /// Spec: hub: what is read of a head the hub does not read is its whole lines before its blank
+    /// line, never one cut off at the end.
+    #[test]
+    fn only_whole_lines_of_an_unread_head_are_read() {
+        let peeked = b"GET / HTTP/1.1\r\nOrigin: https://a.test\r\nX-Forwarded-For: 192.0.2.1\r\n\r\nOrigin: https://body.test\r\nOrigin: https://cut";
+        assert_eq!(lines_named(peeked, "origin"), ["https://a.test"]);
+        assert_eq!(lines_named(peeked, "x-forwarded-for"), ["192.0.2.1"]);
+        let cut = b"GET / HTTP/1.1\r\nCookie: a\r\nOrigin: https://cut.te";
+        assert!(lines_named(cut, "origin").is_empty());
+        assert!(lines_named(b"\xff\xfe\r\nOrigin: \xff\r\n", "origin").is_empty());
+        assert!(lines_named(b"", "origin").is_empty());
     }
 }

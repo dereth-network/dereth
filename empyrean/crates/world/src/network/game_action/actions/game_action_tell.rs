@@ -35,7 +35,9 @@ pub fn handle(w: &mut World, message: &mut Payload<'_>, session: SessionId) -> H
         return Ok(());
     }
 
-    let target = target.trim();
+    // Not ACE (V447): with the Dereth Network on, a name given with the mark a line said from
+    // Discord shows beside its speaker (`Ann (Discord)`) names the character without it.
+    let target = crate::federation::given_name(w, target.trim());
     // Not ACE (V447): a name holding `@` is an address on the Dereth Network, which takes the
     // tell; this world's own address for a local character is that character's name.
     let local;

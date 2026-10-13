@@ -22,10 +22,12 @@ pub struct FederationConfiguration {
     /// The file holding the world's registry key (`drth_...`), relative to this file's folder.
     #[serde(rename = "KeyFile")]
     pub key_file: String,
-    /// The TurbineChat room that carries the network's Global room: `general`, `trade`, `lfg`,
-    /// `roleplay`, or empty for none.
+    /// The TurbineChat room that carries the network's Global room (`general`, `trade`, `lfg`,
+    /// `roleplay`, or empty for none) until the hub keeps one for the world: a hub that holds none
+    /// is told this one, once, and keeps it; after that the hub's holds, set on its operator page
+    /// or with `/dn admin global`. Not set: `roleplay`. To go in a later release.
     #[serde(rename = "GlobalRoom")]
-    pub global_room: String,
+    pub global_room: Option<String>,
     /// Where the network's records are kept (stand-in ids, characters' settings, remote friends
     /// and squelches, blocks), relative to this file's folder.
     #[serde(rename = "StorePath")]
@@ -42,7 +44,7 @@ impl Default for FederationConfiguration {
             hub_url: "wss://hub.dereth.network".to_owned(),
             slug: String::new(),
             key_file: "network.key".to_owned(),
-            global_room: "roleplay".to_owned(),
+            global_room: None,
             store_path: "network.json".to_owned(),
             min_character_age_seconds: 0,
         }

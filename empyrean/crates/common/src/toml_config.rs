@@ -39,6 +39,9 @@ pub struct Key {
     pub help: &'static str,
     /// The value the writer shows, commented out, for a key that is not set.
     pub unset: &'static str,
+    /// Whether the writer writes the key whatever its value: one kept only to be read from files
+    /// that set it, until a later release drops it, is written only when set.
+    pub written: bool,
 }
 
 /// One TOML table: its dotted path, the serde object it stands for, and its keys.
@@ -64,6 +67,7 @@ const fn k(toml: &'static str, ace: &'static str, help: &'static str) -> Key {
         in_ace: true,
         help,
         unset: "\"\"",
+        written: true,
     }
 }
 
@@ -75,6 +79,7 @@ const fn e(toml: &'static str, ace: &'static str, help: &'static str) -> Key {
         in_ace: false,
         help,
         unset: "\"\"",
+        written: true,
     }
 }
 
@@ -87,6 +92,7 @@ const fn system(toml: &'static str, ace: &'static str, help: &'static str) -> Ke
         in_ace: false,
         help,
         unset: "true",
+        written: true,
     }
 }
 
@@ -562,12 +568,14 @@ pub const SECTIONS: &[Section] = &[
             },
             Key {
                 unset: "\"roleplay\"",
+                written: false,
                 ..e(
                     "global_room",
                     "GlobalRoom",
-                    "The chat room that carries the network's Global room: \"general\", \"trade\", \"lfg\" or\n\
-                     \"roleplay\", or empty for none. Its lines from other worlds reach everyone who listens\n\
-                     to that room here.",
+                    "The chat room that carries the network's Global room until the hub keeps one for\n\
+                     this world: \"general\", \"trade\", \"lfg\" or \"roleplay\", or empty for none. A hub that\n\
+                     keeps none is told this one, once; after that the hub's holds, moved on its operator\n\
+                     page or with @dn admin global. To go in a later release.",
                 )
             },
             Key {
@@ -757,6 +765,11 @@ pub const REMOVED: &[Removed] = &[
         toml: "offline.auto_apply_database_updates",
         ace: "Offline.AutoApplyDatabaseUpdates",
         why: "ACE's SQL update scripts are not ported; the store creates and migrates its own schema",
+    },
+    Removed {
+        toml: "federation.discord_mirrors",
+        ace: "Federation.DiscordMirrors",
+        why: "the world's own rooms are mirrored into Discord as its operator sets them on the hub's operator page",
     },
 ];
 
@@ -1175,6 +1188,8 @@ fn push_key(
             "default: {} ({})",
             if key.unset == "\"\"" || default.is_some_and(|d| !d.is_null()) {
                 default_text(default)
+            } else if !key.written {
+                key.unset.to_owned()
             } else {
                 "the profile's".to_owned()
             },
@@ -1276,6 +1291,10 @@ pub fn to_toml_string_with_note(config: &MasterConfiguration, note: Option<&str>
         out.push_str(&format!("\n# {}\n[{}]\n", "-".repeat(94), s.toml.join(".")));
         push_comment(&mut out, s.help);
         for key in s.keys {
+            let set = items.and_then(|v| v.get(key.ace));
+            if !key.written && set == default_items.and_then(|v| v.get(key.ace)) {
+                continue;
+            }
             push_key(
                 &mut out,
                 key,

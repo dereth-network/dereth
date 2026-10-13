@@ -3,19 +3,20 @@
 //! A remote friend is kept in the character's network record (ACE's friend list holds local
 //! characters only) and shown in the friends panel as a `Social_FriendsUpdate` (`0x0021`) row under
 //! its stand-in id. Its status is its home world's to give: this world asks with a `watch` while
-//! the character is online, the home world answers with `presence` as its own settings allow, and
-//! each change is a status row and an online or offline line. A watch from another world for one
-//! of this world's characters is answered the same way, from this side.
+//! the character is online, the home world answers with `presence` (online while the friend is on
+//! the network and online, to anyone its operator does not block), and each change is a status
+//! row and an online or offline line. A watch from another world for one of this world's
+//! characters is answered the same way, from this side.
 
-use dereth_network_protocol::{Address, Message, Visible};
+use dereth_network_protocol::{Address, Message};
 use empyrean_entity::enums::{ChatMessageType, WeenieError};
 use empyrean_entity::ObjectGuid;
 
 use super::{
     answer_if_up, blocked, enabled, existing_record_mut, is_on, may_receive, now, own_address,
     presence_line, record_mut, send_if_up, stand_in, stand_in_for, tell_player, Status,
-    MAX_REMOTE_FRIENDS, MAX_REMOTE_SQUELCHES, MAX_WATCHERS, MAX_WATCHERS_PER_WORLD, PRESENCE_PACE,
-    WATCHES,
+    MAX_REMOTE_FRIENDS, MAX_REMOTE_SQUELCHES, MAX_WATCHERS, MAX_WATCHERS_PER_WORLD, NOT_ON,
+    PRESENCE_PACE, WATCHES,
 };
 use crate::managers::player_manager;
 use crate::network::game_event::events::game_event_friends_list_update::{
@@ -101,11 +102,7 @@ pub fn add_friend(w: &mut World, player: ObjectGuid, name: &str) -> bool {
     }
     let character = player.full();
     if !is_on(w, character) {
-        tell_player(
-            w,
-            player,
-            "You are not on the Dereth Network. Type /dn on to join it.",
-        );
+        tell_player(w, player, NOT_ON);
         return true;
     }
     if w.federation
@@ -155,8 +152,6 @@ pub fn add_friend(w: &mut World, player: ObjectGuid, name: &str) -> bool {
         player,
         &format!("{friend} has been added to your friends list."),
     );
-    // Listing a watcher can make the two mutual friends: the watchers see what they may now.
-    tell_watchers(w, player, None);
     if let Some(owner) = own_address(w, player) {
         send_if_up(
             w,
@@ -178,10 +173,8 @@ pub(super) fn friends_full(w: &mut World, player: ObjectGuid) {
     }
 }
 
-/// `player` lists `added` now, through its person friends: its watchers see what they may now, and
-/// it watches them.
+/// `player` lists `added` now, through its person friends: it watches them.
 pub(super) fn listed_more(w: &mut World, player: ObjectGuid, added: &[Address]) {
-    tell_watchers(w, player, None);
     if let Some(owner) = own_address(w, player) {
         for f in added {
             send_if_up(
@@ -263,32 +256,13 @@ pub fn remove_all_friends(w: &mut World, player: ObjectGuid) {
     friendship_ended(w, player, &friends);
 }
 
-/// `player` no longer lists `former`: everyone watching it sees what they may now (ending a
-/// mutual friendship can hide it), each former friend is told even if its watch was not kept, and
-/// the character stops watching them.
+/// `player` no longer lists `former`: it stops watching them. What they see of it is unchanged,
+/// since it is seen online by anyone.
 pub(super) fn friendship_ended(w: &mut World, player: ObjectGuid, former: &[Address]) {
-    tell_watchers(w, player, None);
     let Some(owner) = own_address(w, player) else {
         return;
     };
-    let watched: Vec<String> = w
-        .federation
-        .watchers
-        .get(&player.full())
-        .map(|m| m.keys().cloned().collect())
-        .unwrap_or_default();
     for f in former {
-        if !watched.contains(&f.key()) && is_on(w, player.full()) {
-            let online = visible_to(w, player, f);
-            send_if_up(
-                w,
-                Message::Presence {
-                    to: f.clone(),
-                    of: owner.clone(),
-                    online,
-                },
-            );
-        }
         send_if_up(
             w,
             Message::Watch {
@@ -298,53 +272,15 @@ pub(super) fn friendship_ended(w: &mut World, player: ObjectGuid, former: &[Addr
             },
         );
     }
-    // A former friend's watch is kept only while the character could still show to it.
-    let character = player.full();
-    let hidden: Vec<String> = former
-        .iter()
-        .filter(|f| !could_show(w, character, f))
-        .map(Address::key)
-        .collect();
-    if let Some(m) = w.federation.watchers.get_mut(&character) {
-        m.retain(|k, _| !hidden.contains(k));
-    }
 }
 
-/// Whether `watcher` may see `character` online now, by the character's Visible setting and the
-/// operator's blocks.
+/// Whether `watcher` may see `character` online now: the character is on the network, online and
+/// not appearing offline, and the operator does not block the watcher.
 fn visible_to(w: &World, character: ObjectGuid, watcher: &Address) -> bool {
-    let Some(r) = w.federation.store.characters.get(&character.full()) else {
-        return false;
-    };
-    if !r.settings.on || player_manager::get_online_player(w, character.full()).is_none() {
-        return false;
-    }
-    if blocked(w, watcher) {
-        return false;
-    }
-    if crate::world_objects::player_character::get_appear_offline(w, character) {
-        return false;
-    }
-    match r.settings.visible {
-        Visible::Anyone => true,
-        // A watch says the watcher lists this character; listing the watcher makes it mutual.
-        // A channel's members are not known to the world, so `channels` shows to mutual friends.
-        Visible::Friends | Visible::Channels => r.friends.contains_key(&watcher.key()),
-        Visible::Nobody => false,
-    }
-}
-
-/// Whether `character` could ever show to `watcher` by its settings now: it lists the watcher,
-/// or it is visible to anyone.
-fn could_show(w: &World, character: u32, watcher: &Address) -> bool {
-    w.federation
-        .store
-        .characters
-        .get(&character)
-        .is_some_and(|r| {
-            r.settings.on
-                && (r.settings.visible == Visible::Anyone || r.friends.contains_key(&watcher.key()))
-        })
+    is_on(w, character.full())
+        && player_manager::get_online_player(w, character.full()).is_some()
+        && !blocked(w, watcher)
+        && !crate::world_objects::player_character::get_appear_offline(w, character)
 }
 
 /// Keeps `owner` as a watcher of `character`, within the caps (a watcher the character lists is
@@ -371,12 +307,12 @@ fn keep_watcher(w: &mut World, character: u32, owner: &Address) {
 }
 
 /// A watch from another world for an address of this one. Every watch within the other world's
-/// pace is answered, and alike: online only for a character on the network, online, and visible
-/// to the watcher (who is not blocked); `offline` for anything else, a name this world does not
+/// pace is answered, and alike: online only for a character on the network, online, not appearing
+/// offline, and the watcher not blocked; `offline` for anything else, a name this world does not
 /// have, a character off the network and a blocked watcher included, named as the watch named it.
-/// So a watch tells another world nothing a tell would not. A watcher the character could show to
-/// is kept, a blocked one too (told nothing while the block lasts, so lifting it can show it what
-/// it may see).
+/// So a watch tells another world nothing a tell would not. A watcher of a character on the
+/// network is kept, a blocked one too (told nothing while the block lasts, so lifting it can show
+/// it what it may see).
 pub(super) fn on_watch(w: &mut World, owner: Address, target: &Address, on: bool) {
     if target.world() != w.federation.settings.slug {
         return;
@@ -400,9 +336,7 @@ pub(super) fn on_watch(w: &mut World, owner: Address, target: &Address, on: bool
     let mut online = false;
     if let Some(found) = found.filter(|f| is_on(w, f.guid().full())) {
         let character = found.guid();
-        if could_show(w, character.full(), &owner) {
-            keep_watcher(w, character.full(), &owner);
-        }
+        keep_watcher(w, character.full(), &owner);
         online = found.is_online() && visible_to(w, character, &owner);
     }
     answer_if_up(
@@ -639,7 +573,11 @@ fn tell_watchers(w: &mut World, player: ObjectGuid, online: Option<bool>) {
 /// A character entered the world (`PlayerManager.SwitchPlayerFromOfflineToOnline`'s friend
 /// updates): its watchers are told, and it watches its remote friends.
 pub fn on_login(w: &mut World, player: ObjectGuid) {
-    if !enabled(w) || !is_on(w, player.full()) {
+    if !enabled(w) {
+        return;
+    }
+    super::directory::told_at_login(w, player);
+    if !is_on(w, player.full()) {
         return;
     }
     tell_watchers(w, player, None);
@@ -663,11 +601,16 @@ pub fn on_login(w: &mut World, player: ObjectGuid) {
         }
     }
     super::persons::arrived(w, player);
+    super::directory::arrived(w, player);
 }
 
 /// A character left the world: its watchers see it offline, it stops watching, and what its
-/// friends' worlds told it is forgotten, with the friends its person friends listed.
+/// friends' worlds told it is forgotten, with the friends its person friends listed. A listed
+/// one's profile goes to the directory if it changed.
 pub fn on_logout(w: &mut World, player: ObjectGuid) {
+    if enabled(w) {
+        super::directory::left(w, player);
+    }
     leave(w, player, false);
 }
 
@@ -929,7 +872,7 @@ pub fn squelch(w: &mut World, player: ObjectGuid, add: bool, id: u32, name: &str
                     w,
                     player,
                     &format!(
-                        "You squelch {MAX_REMOTE_SQUELCHES} characters on other worlds already; unsquelch one first."
+                        "You squelch {MAX_REMOTE_SQUELCHES} characters on other worlds already. Unsquelch one first."
                     ),
                 );
                 return true;

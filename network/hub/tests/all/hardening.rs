@@ -2,7 +2,7 @@
 //! worlds, claims one account cannot block, client addresses through proxies, allowances an
 //! attacker cannot spend for everyone, what a verification may reach and say, text that cannot
 //! break a listing, verification tied to the endpoint it checked, revoked and abandoned worlds,
-//! slow requests, and odd URLs.
+//! slow requests, heads past the limits, and odd URLs.
 //! Fixture: the operator tests' hub (loopback, an in-memory registry on a clock the test turns, a
 //! stand-in for Discord), with its worlds linked through the conformance suite's links.
 
@@ -14,10 +14,11 @@ use serde_json::{json, Value};
 
 use super::operators::{
     call, federation, game_verify, hub, hub_with, op, register, sign_in, world, Answer, Fixture,
+    SITE,
 };
 
 /// A community listing, imported: its endpoint `address`.
-fn listing(f: &Fixture, slug: &str, address: &str) {
+pub(super) fn listing(f: &Fixture, slug: &str, address: &str) {
     let entry = CommunityEntry {
         external_id: format!("00000000-0000-4000-8000-{:012}", slug.len() * 7919),
         registration: Registration::from_json(&world(slug, address)).expect("a registration"),
@@ -328,7 +329,7 @@ fn the_hubs_approval_ceiling_never_holds_back_an_operator_within_its_own() {
 }
 
 /// A Discord account's id, made `days` ago.
-fn snowflake(days: u64) -> String {
+pub(super) fn snowflake(days: u64) -> String {
     let made = std::time::SystemTime::now() - Duration::from_secs(days * 86_400);
     let ms = made
         .duration_since(std::time::UNIX_EPOCH)
@@ -338,7 +339,7 @@ fn snowflake(days: u64) -> String {
     (since_2015 << 22).to_string()
 }
 
-/// Spec: hub: a Discord account younger than the minimum age (30 days unless the hub's operator
+/// Spec: hub: a Discord account younger than the minimum age (30 days unless the hub's setting
 /// says otherwise) may not register or claim a world.
 #[test]
 fn a_new_discord_account_may_not_register_or_claim_a_world() {
@@ -1114,7 +1115,7 @@ fn the_hubs_operator_removes_or_unlists_a_world() {
     f.running.shutdown();
 }
 
-/// Spec: hub: a world left `pending` past its days (14 unless the hub's operator says otherwise)
+/// Spec: hub: a world left `pending` past its days (14 unless the hub's setting says otherwise)
 /// is removed, and its slug is free for another operator.
 #[test]
 fn a_pending_world_expires_and_frees_its_slug() {
@@ -1150,7 +1151,7 @@ fn a_pending_world_expires_and_frees_its_slug() {
     f.running.shutdown();
 
     // Two days, here: the first world lapses a day before the second.
-    let f = hub_with(|c| c.pending_days = 2);
+    let f = hub_with(|c| c.pending_days = Some(2));
     let ann = sign_in(&f, "2123");
     register(&f, &ann, "brief", "127.0.0.1");
     f.advance(Duration::from_secs(86_400));
@@ -1169,7 +1170,7 @@ fn a_pending_world_expires_and_frees_its_slug() {
 /// Spec: hub: an operator's lapsed worlds no longer count against the worlds it may hold.
 #[test]
 fn lapsed_worlds_do_not_count_against_what_an_operator_holds() {
-    let f = hub_with(|c| c.pending_days = 5);
+    let f = hub_with(|c| c.pending_days = Some(5));
     let ann = sign_in(&f, "2131");
     let mut n = 0;
     for _day in 0..4 {
@@ -1275,6 +1276,110 @@ fn the_allowance_is_taken_before_the_body_is_read() {
     let (status, took) = trickle(&f, head, &[], Duration::from_millis(100));
     assert_eq!(status, Some(429));
     assert!(took < Duration::from_secs(2), "{took:?}");
+    f.running.shutdown();
+}
+
+/// Writes `bytes` to a fresh connection to the hub and reads its whole answer.
+fn send_raw(f: &Fixture, bytes: &[u8]) -> Answer {
+    use std::io::{Read as _, Write as _};
+    let mut s = std::net::TcpStream::connect(f.addr()).expect("connect");
+    s.write_all(bytes).expect("write");
+    let mut out = String::new();
+    s.read_to_string(&mut out).expect("read");
+    let (head, body) = out.split_once("\r\n\r\n").unwrap_or((&out, ""));
+    let mut lines = head.split("\r\n");
+    Answer {
+        status: lines
+            .next()
+            .and_then(|l| l.split(' ').nth(1))
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(0),
+        headers: lines
+            .filter_map(|l| l.split_once(':'))
+            .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+            .collect(),
+        body: body.to_owned(),
+    }
+}
+
+/// Spec: hub: a request's head may be 32 KiB and 128 header lines, what Cloudflare passes on; one
+/// past either is answered `431`, and one that is not HTTP `400`, never dropped unanswered.
+#[test]
+fn a_head_within_cloudflares_limits_is_read_and_one_past_them_is_answered() {
+    let f = hub();
+    let get = |headers: &[(String, String)]| {
+        let headers: Vec<(&str, &str)> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        call(f.addr(), "GET", "/v1/status", &headers, "")
+    };
+    let cookie = |kib: usize| {
+        vec![(
+            "Cookie".to_owned(),
+            format!("stale={}", "c".repeat(kib * 1024)),
+        )]
+    };
+    assert_eq!(get(&cookie(20)).status, 200, "a head of 20 KiB");
+    let big = get(&cookie(40));
+    assert_eq!(big.status, 431, "a head of 40 KiB: {big:?}");
+    assert_eq!(big.json()["error"]["code"], "HEADERS_TOO_LARGE");
+    // `call` writes two lines of its own, Host and Content-Length.
+    let lines = |n: usize| -> Vec<(String, String)> {
+        (2..n)
+            .map(|i| (format!("X-Line-{i}"), "1".into()))
+            .collect()
+    };
+    assert_eq!(get(&lines(100)).status, 200, "100 header lines");
+    let many = get(&lines(200));
+    assert_eq!(many.status, 431, "200 header lines: {many:?}");
+    for garbage in [
+        &b"NOT HTTP AT ALL\r\n\r\n"[..],
+        &b"\x16\x03\x01\x02\x00\x01\x00\x01\xfc\x03\x03\r\n\r\n"[..],
+    ] {
+        let a = send_raw(&f, garbage);
+        assert_eq!(a.status, 400, "{a:?}");
+        assert_eq!(a.json()["error"]["code"], "INVALID_REQUEST");
+    }
+    f.running.shutdown();
+}
+
+/// Spec: hub: an answer to a head the hub does not read carries the site's CORS when the head's
+/// `Origin` was read and is a site origin, so the site can say why; otherwise it carries none.
+#[test]
+fn a_large_cookie_from_the_site_is_answered_431_where_the_site_reads_it() {
+    let f = hub();
+    let cookie = format!("__Host-dn_session={}", "c".repeat(40 * 1024));
+    let from_site = call(
+        f.addr(),
+        "GET",
+        "/v1/operator",
+        &[("Origin", SITE), ("Cookie", &cookie)],
+        "",
+    );
+    assert_eq!(from_site.status, 431, "{from_site:?}");
+    assert_eq!(from_site.header("access-control-allow-origin"), Some(SITE));
+    assert_eq!(
+        from_site.header("access-control-allow-credentials"),
+        Some("true")
+    );
+    for (why, headers) in [
+        (
+            "another origin",
+            [
+                ("Origin", "https://elsewhere.test"),
+                ("Cookie", cookie.as_str()),
+            ],
+        ),
+        (
+            "an origin past what was read",
+            [("Cookie", cookie.as_str()), ("Origin", SITE)],
+        ),
+    ] {
+        let a = call(f.addr(), "GET", "/v1/operator", &headers, "");
+        assert_eq!(a.status, 431, "{why}: {a:?}");
+        assert_eq!(a.header("access-control-allow-origin"), None, "{why}");
+    }
     f.running.shutdown();
 }
 

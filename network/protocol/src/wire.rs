@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::address::Address;
 use crate::limits::Limits;
 use crate::person::{
-    is_link_code, is_page_url, is_within_view_limits, within_view_limits, Alts, PersonFriend,
-    PersonOp, PersonOutcome, MAX_CARRIED, MAX_CODE_SECS, MAX_PERSON_CHARACTERS,
+    is_link_code, is_page_url, is_within_view_limits, within_view_limits, EarlierAlts,
+    PersonFriend, PersonOp, PersonOutcome, MAX_CARRIED, MAX_CODE_SECS, MAX_PERSON_CHARACTERS,
 };
 
 /// The link protocol's version.
@@ -167,20 +167,26 @@ pub enum Message {
     /// World to hub: the world carries a room (`on`) or no longer does.
     #[serde(rename = "room.join")]
     RoomJoin { room: String, on: bool },
-    /// World to hub: a line one of its characters said in a room.
+    /// World to hub: a line one of its characters said in a room. `via` marks a line its person
+    /// said elsewhere, which the hub asked the world to say ([`crate::say`]): `discord`.
     #[serde(rename = "room.say")]
     RoomSay {
         id: String,
         room: String,
         from: Address,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        via: Option<String>,
     },
-    /// Hub to world: a line from another world's character, for every world carrying the room.
+    /// Hub to world: a line from another world's character, for every world carrying the room,
+    /// with the mark its world gave it.
     #[serde(rename = "room.line")]
     RoomLine {
         room: String,
         from: Address,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        via: Option<String>,
     },
     /// Hub to world: how a `room.say` ended.
     #[serde(rename = "room.result")]
@@ -222,6 +228,7 @@ pub enum Message {
         text: String,
     },
     /// World to hub: a request about the person layer, for one of the world's characters.
+    /// `shown` goes only with [`PersonOp::Alts`], which worlds of the first version alone send.
     #[serde(rename = "person")]
     Person {
         id: String,
@@ -234,8 +241,8 @@ pub enum Message {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shown: Option<bool>,
     },
-    /// Hub to world: how a person request ended; a code, how long it lasts and the page to enter
-    /// it on, or the characters of a person that shows them.
+    /// Hub to world: how a person request ended; a code, how long it lasts and the page that
+    /// links the character with it, or the characters of a person.
     #[serde(rename = "person.result")]
     PersonResult {
         id: String,
@@ -253,13 +260,15 @@ pub enum Message {
     /// now and whenever it changes; or it stops.
     #[serde(rename = "person.watch")]
     PersonWatch { who: Address, on: bool },
-    /// Hub to world: `to`'s person view: whether it is linked, its person's alts setting, and the
-    /// person friends that hold for it, each with the characters it lists.
+    /// Hub to world: `to`'s person view: whether it is linked, and the person friends that hold
+    /// for it, each with the characters it lists. `alts` is for worlds of the first version
+    /// ([`EarlierAlts`]).
     #[serde(rename = "person.friends")]
     PersonFriends {
         to: Address,
         linked: bool,
-        alts: Alts,
+        #[serde(default)]
+        alts: EarlierAlts,
         #[serde(default)]
         persons: Vec<PersonFriend>,
     },
@@ -368,11 +377,11 @@ impl Message {
     /// while it is longer than [`MAX_MESSAGE_BYTES`], the last person friend that lists more than
     /// its handle loses its last character, and once none does, the last person friend goes.
     #[must_use]
-    pub fn person_view(to: Address, linked: bool, alts: Alts, persons: Vec<PersonFriend>) -> Self {
+    pub fn person_view(to: Address, linked: bool, persons: Vec<PersonFriend>) -> Self {
         let mut view = Self::PersonFriends {
             to,
             linked,
-            alts,
+            alts: EarlierAlts,
             persons: within_view_limits(persons),
         };
         while view.to_json().len() > MAX_MESSAGE_BYTES {
@@ -470,6 +479,11 @@ impl Message {
                 if !is_room_name(room) =>
             {
                 return bad("room");
+            }
+            Self::RoomSay { via: Some(via), .. } | Self::RoomLine { via: Some(via), .. }
+                if !crate::say::is_via(via) =>
+            {
+                return bad("via");
             }
             Self::Channel { channel, .. }
             | Self::ChannelInvite { channel, .. }
@@ -653,11 +667,13 @@ mod tests {
                 room: GLOBAL_ROOM.into(),
                 from: a("Ann@aa"),
                 text: "event at 8".into(),
+                via: Some(crate::say::VIA_DISCORD.into()),
             },
             Message::RoomLine {
                 room: GLOBAL_ROOM.into(),
                 from: a("Ann@aa"),
                 text: "event at 8".into(),
+                via: None,
             },
             Message::RoomResult {
                 id: "r1".into(),
@@ -711,7 +727,7 @@ mod tests {
             Message::PersonFriends {
                 to: a("Ann@aa"),
                 linked: true,
-                alts: Alts::Shown,
+                alts: EarlierAlts,
                 persons: vec![PersonFriend {
                     handle: a("Bob@coldeve"),
                     characters: vec![a("Bob@coldeve"), a("Bob@dreamweave")],
@@ -828,8 +844,63 @@ mod tests {
         ));
     }
 
+    /// Spec: link messages: a room line marks where it was said only when it was said elsewhere,
+    /// so every other line is the frame it was before the mark; a mark is a word, as a room's
+    /// name is.
+    #[test]
+    fn a_room_line_carries_its_mark_only_when_it_was_said_elsewhere() {
+        let line = |via: Option<&str>| Message::RoomLine {
+            room: GLOBAL_ROOM.into(),
+            from: a("Ann@aa"),
+            text: "hi".into(),
+            via: via.map(str::to_owned),
+        };
+        assert_eq!(
+            line(None).to_json(),
+            r#"{"type":"room.line","room":"global","from":"Ann@aa","text":"hi"}"#
+        );
+        assert_eq!(
+            line(Some("discord")).to_json(),
+            r#"{"type":"room.line","room":"global","from":"Ann@aa","text":"hi","via":"discord"}"#
+        );
+        for bad in [
+            r#"{"type":"room.say","id":"r","room":"global","from":"Ann@aa","text":"x","via":"Discord"}"#,
+            r#"{"type":"room.say","id":"r","room":"global","from":"Ann@aa","text":"x","via":""}"#,
+            r#"{"type":"room.line","room":"global","from":"Ann@aa","text":"x","via":true}"#,
+        ] {
+            assert!(
+                matches!(Message::from_json(bad), Err(WireError::Malformed(_))),
+                "{bad} is malformed"
+            );
+        }
+    }
+
+    /// Spec: link messages: a person view carries `alts` `shown` for the worlds of the first
+    /// version, which read it, and a world reads a view with any word there, or none.
+    #[test]
+    fn a_person_view_says_shown_to_the_worlds_that_read_it() {
+        let view = Message::person_view(a("Ann@aa"), false, Vec::new());
+        assert_eq!(
+            view.to_json(),
+            r#"{"type":"person.friends","to":"Ann@aa","linked":false,"alts":"shown","persons":[]}"#
+        );
+        for frame in [
+            r#"{"type":"person.friends","to":"Ann@aa","linked":true,"alts":"hidden"}"#,
+            r#"{"type":"person.friends","to":"Ann@aa","linked":true}"#,
+        ] {
+            assert!(
+                matches!(
+                    Message::from_json(frame),
+                    Ok(Message::PersonFriends { linked: true, .. })
+                ),
+                "{frame}"
+            );
+        }
+    }
+
     /// Spec: link messages: a person request names a character, never a channel; the requests
-    /// about another character name it, and `alts` says which way.
+    /// about another character name it, and `alts`, which worlds of the first version send, says
+    /// which way.
     #[test]
     fn a_person_request_missing_what_its_op_needs_is_malformed() {
         for bad in [
@@ -929,7 +1000,7 @@ mod tests {
                 characters: vec![longest(i), longest(i + 1000)],
             })
             .collect();
-        let view = Message::person_view(longest(5000), true, Alts::Shown, persons);
+        let view = Message::person_view(longest(5000), true, persons);
         let json = view.to_json();
         assert!(json.len() <= MAX_MESSAGE_BYTES, "{} bytes", json.len());
         assert_eq!(Message::from_json(&json), Ok(view.clone()));
@@ -944,7 +1015,6 @@ mod tests {
         let short = Message::person_view(
             a("Ann@aa"),
             true,
-            Alts::Hidden,
             vec![PersonFriend {
                 handle: a("Bob@bb"),
                 characters: vec![a("Bob@bb"), a("Rob@cc")],

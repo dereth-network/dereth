@@ -21,8 +21,13 @@ public sealed class ModSettings
     /// <summary>The environment variable that holds the world's registry key (`drth_...`).</summary>
     public string KeyEnvironmentVariable { get; set; } = "DERETH_NETWORK_KEY";
 
-    /// <summary>The TurbineChat room that carries the Global room: General, Trade, LFG, Roleplay, or empty for none.</summary>
-    public string GlobalRoom { get; set; } = "Roleplay";
+    /// <summary>
+    /// The TurbineChat room that carries the Global room (General, Trade, LFG, Roleplay, or empty for
+    /// none) until the hub keeps one for the world: a hub that holds none is told this one, once, and
+    /// keeps it; after that the hub's holds, set on its operator page or with `/dn admin global`.
+    /// Null (not in the file): Roleplay. To go in a later release.
+    /// </summary>
+    public string? GlobalRoom { get; set; }
 
     /// <summary>Seconds a character must have played before it may send to the network.</summary>
     public uint MinCharacterAgeSeconds { get; set; }
@@ -49,6 +54,33 @@ public sealed class ModSettings
     private static readonly (string Old, string New)[] Refused = [("EventsRoom", "GlobalRoom")];
 
     /// <summary>
+    /// Settings no longer read, and why: a file that still has one is used without it, and the log
+    /// says so once.
+    /// </summary>
+    private static readonly (string Name, string Why)[] Retired =
+    [
+        ("DiscordMirrors", "the world's own rooms are mirrored into Discord as its operator sets them on the hub's operator page"),
+    ];
+
+    /// <summary>The lines the log says once of a file that has settings no longer read.</summary>
+    public static IReadOnlyList<string> Notes(string text)
+    {
+        using var doc = JsonDocument.Parse(text, new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        });
+        var notes = new List<string>();
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            return notes;
+        foreach (var p in doc.RootElement.EnumerateObject())
+            foreach (var (name, why) in Retired)
+                if (p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    notes.Add($"{name} in Settings.json is not read: {why}");
+        return notes;
+    }
+
+    /// <summary>
     /// Why the file cannot be used as it is: a refused old setting name, or a character screen
     /// message that is not text the client can show; else null.
     /// </summary>
@@ -66,6 +98,7 @@ public sealed class ModSettings
             foreach (var (old, now) in Refused)
                 if (p.Name.Equals(old, StringComparison.OrdinalIgnoreCase))
                     return $"unknown setting {p.Name} in Settings.json: it is now {now}; rename it (the old name is not read)";
+
             if (!p.Name.Equals(nameof(CharacterScreenMessage), StringComparison.OrdinalIgnoreCase)
                 || p.Value.ValueKind == JsonValueKind.Null)
                 continue;
@@ -76,6 +109,7 @@ public sealed class ModSettings
         }
         return null;
     }
+
 
     /// <summary>
     /// Why `text` cannot be the character screen's message, or null: the client shows Windows-1252
@@ -109,7 +143,7 @@ public sealed class ModSettings
         }) ?? new ModSettings();
 }
 
-/// <summary>The room slot the Global room is carried in.</summary>
+/// <summary>The room slots the Global room may be carried in, and the world's own rooms that may be mirrored into Discord.</summary>
 public enum RoomSlot
 {
     General,
@@ -139,6 +173,15 @@ public static class RoomSlots
         RoomSlot.Trade => 3,
         RoomSlot.Lfg => 4,
         _ => 5,
+    };
+
+    /// <summary>The name the world carries the room under on the link, as one of its own rooms.</summary>
+    public static string Room(RoomSlot s) => s switch
+    {
+        RoomSlot.General => "general",
+        RoomSlot.Trade => "trade",
+        RoomSlot.Lfg => "lfg",
+        _ => "roleplay",
     };
 
     public static string Name(RoomSlot s) => s switch

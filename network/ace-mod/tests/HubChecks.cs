@@ -68,6 +68,12 @@ internal sealed class HubProcess : IDisposable
 
     public void Federation(string slug, string flag) => Run("federation", slug, flag);
 
+    /// <summary>The hub's operator hands a managed world to the operator with Discord id `discordId`, signed in once already.</summary>
+    public void Assign(string slug, string discordId) => Run("assign", slug, discordId);
+
+    /// <summary>The hub's operator takes a character out of the directory, from the command line, while the hub runs.</summary>
+    public void DirectoryRemove(string address) => Run("directory", "remove", address);
+
     /// <summary>Serves on a port of 127.0.0.1 (the same one again after a restart), with the options `extra` gives for it.</summary>
     public void Serve(Func<int, IEnumerable<string>>? extra = null)
     {
@@ -326,7 +332,7 @@ internal static class HubChecks
 
         // Persons, on a hub with no sign-in: a character nobody linked has no person, and no code is given.
         ra.Send(new PersonWatch(A("Ann@alpha"), true));
-        c.Check(s, await ra.Next<PersonFriends>(v => v.To.ToString() == "Ann@alpha") is { Linked: false, Alts: Alts.Hidden, Persons.Count: 0 },
+        c.Check(s, await ra.Next<PersonFriends>(v => v.To.ToString() == "Ann@alpha") is { Linked: false, Persons.Count: 0 },
             "a character nobody linked has an empty person view");
         ra.Send(new PersonRequest("p-alpha-1", PersonOp.Characters, A("Ann@alpha"), A("Bob@bravo"), null));
         c.Check(s, await ra.Next<PersonResult>(r => r.Id == "p-alpha-1") is { Outcome: PersonOutcome.Ok, Characters.Count: 0 },
@@ -365,7 +371,6 @@ internal static class HubChecks
         var bob = b.Host.Add(0x5000_0001, "Bob").Id;
         a.World.Dn(ann, ["on"]);
         b.World.Dn(bob, ["on"]);
-        b.World.Dn(bob, ["reachable", "anyone"]);
 
         var t1 = Body("hello");
         a.World.TellByName(ann, "Bob@bravo", t1);
@@ -404,17 +409,14 @@ internal static class HubChecks
         b.World.Squelch(bob, false, 0, "Ann@alpha");
 
         a.World.AddFriend(ann, "Bob@bravo");
-        // Bob does not list Ann yet: she is told he is offline, the state a later change is news to.
+        // Bob does not list Ann: on the network, he shows online to her all the same.
         c.Check(w, await Until(() =>
-                a.Host.To(ann).Any(x => x is { Kind: "friend", Row: FriendRowKind.Status, Name: "Bob@bravo", Online: false }), 10, a, b),
-            "a friend who does not list the character back shows offline");
+                a.Host.To(ann).Any(x => x is { Kind: "friend", Row: FriendRowKind.Status, Name: "Bob@bravo", Online: true }), 10, a, b),
+            "a friend on the network shows online to anyone who lists it, listed back or not");
         b.World.AddFriend(bob, "Ann@alpha");
         c.Check(w, await Until(() =>
-                a.Host.To(ann).Any(x => x is { Kind: "friend", Row: FriendRowKind.Status, Name: "Bob@bravo", Online: true })
-                && b.Host.To(bob).Any(x => x is { Kind: "friend", Row: FriendRowKind.Status, Name: "Ann@alpha", Online: true }), 10, a, b),
-            "mutual friends on two worlds see each other online");
-        c.Check(w, a.Host.To(ann).Any(x => x.Text.EndsWith("Bob@bravo<\\Tell> has come online.", StringComparison.Ordinal)),
-            "with the online line, the name a link");
+                b.Host.To(bob).Any(x => x is { Kind: "friend", Row: FriendRowKind.Status, Name: "Ann@alpha", Online: true }), 10, a, b),
+            "and the other way, on two worlds");
         b.Host.Characters[bob].Online = false;
         b.World.OnLogout(bob, "Bob");
         c.Check(w, await Until(() => a.Host.To(ann).Any(x => x.Text.EndsWith("Bob@bravo<\\Tell> has gone offline.", StringComparison.Ordinal)), 10, a, b),
@@ -424,6 +426,8 @@ internal static class HubChecks
         var comeOnline = a.Host.To(ann).Count(x => x.Text.EndsWith("has come online.", StringComparison.Ordinal));
         c.Check(w, await Until(() => a.Host.To(ann).Count(x => x.Text.EndsWith("has come online.", StringComparison.Ordinal)) == comeOnline + 1, 10, a, b),
             "and logging on again");
+        c.Check(w, a.Host.To(ann).Any(x => x.Text.EndsWith("Bob@bravo<\\Tell> has come online.", StringComparison.Ordinal)),
+            "with the online line, the name a link");
 
         var t5 = Body("global");
         a.World.RoomSaid(ann, RoomSlots.Channel(RoomSlot.Roleplay), t5);
@@ -436,12 +440,12 @@ internal static class HubChecks
             "/dng reaches the other world's listeners, and is shown here in the carrying room as the speaker's own line");
 
         a.World.Dn(ann, ["channel", "create", "guild"]);
-        c.Check(w, await Until(() => a.Host.To(ann).Any(x => x.Text == "Done. Tell the channel with @tell guild@channel, text."), 10, a, b), "/dn channel create");
+        c.Check(w, await Until(() => a.Host.To(ann).Any(x => x.Text == "You have made the channel guild@channel. Invite someone with @dn channel invite guild Name@world."), 10, a, b), "/dn channel create");
         a.World.Dn(ann, ["channel", "invite", "guild", "Bob@bravo"]);
-        c.Check(w, await Until(() => b.Host.To(bob).Any(x => x.Text == "Ann@alpha invites you to the channel guild@channel. Type /dn channel join guild to join it."), 10, a, b),
+        c.Check(w, await Until(() => b.Host.To(bob).Any(x => x.Text == "Ann@alpha invites you to the channel guild@channel. Type @dn channel join guild to join it."), 10, a, b),
             "/dn channel invite tells the invitee on the other world");
         b.World.Dn(bob, ["channel", "join", "guild"]);
-        c.Check(w, await Until(() => b.Host.To(bob).Any(x => x.Text == "Done. Tell the channel with @tell guild@channel, text."), 10, a, b), "/dn channel join");
+        c.Check(w, await Until(() => b.Host.To(bob).Any(x => x.Text == "You have joined guild@channel. Talk in it with @tell guild@channel, text."), 10, a, b), "/dn channel join");
         var t6 = Body("guild");
         a.World.TellByName(ann, "guild@channel", t6);
         c.Check(w, await Until(() => b.Host.To(bob).Any(x => x.Kind == "tell" && x.Name == "guild@channel" && x.Text == "Ann@alpha: " + t6)

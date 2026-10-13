@@ -1,0 +1,60 @@
+{
+  "about": "The reach messages (docs/network/02-link-protocol.md section 8): the hub's question whether a tell's recipient, not online, would have been shown it, and the world's answer. Every `ok` frame must read as its type, and a write of what was read must hold every field of the frame with the same value and read back unchanged; where an `ok` case gives `expect`, the message read must have those field values. Every `later` frame must read, leaving out what it adds, as a later version may add fields. A reader of the reach messages alone skips every `unknown` frame, the other link messages, the directory's among them; every `malformed` frame is refused. In a frame, `${c*N}` stands for the character c written N times.",
+  "ok": [
+    {
+      "type": "reach",
+      "frame": "{\"type\":\"reach\",\"id\":\"h7\",\"from\":\"Bob@coldeve\",\"to\":\"Ann@frost\"}",
+      "expect": {
+        "id": "h7",
+        "from": "Bob@coldeve",
+        "to": "Ann@frost"
+      }
+    },
+    {
+      "type": "reach",
+      "frame": "{\"type\":\"reach\",\"id\":\"h8\",\"from\":\"Sir Bob@coldeve\",\"to\":\"Ann@frost\"}",
+      "expect": {
+        "from": "Sir Bob@coldeve"
+      }
+    },
+    {
+      "type": "reach.result",
+      "frame": "{\"type\":\"reach.result\",\"id\":\"h7\",\"reachable\":true}",
+      "expect": {
+        "id": "h7",
+        "reachable": true
+      }
+    },
+    {
+      "type": "reach.result",
+      "frame": "{\"type\":\"reach.result\",\"id\":\"${i*64}\",\"reachable\":false}",
+      "expect": {
+        "reachable": false
+      },
+      "note": "the longest id"
+    }
+  ],
+  "later": [
+    "{\"type\":\"reach\",\"id\":\"h7\",\"from\":\"Bob@coldeve\",\"to\":\"Ann@frost\",\"via\":\"discord\"}",
+    "{\"type\":\"reach\",\"id\":\"h9\",\"from\":\"Bob@dreamweave\",\"to\":\"Ann@frost\",\"friend\":true,\"person_friend\":true}",
+    "{\"type\":\"reach.result\",\"id\":\"h7\",\"reachable\":true,\"since\":\"2026-10-12\"}"
+  ],
+  "unknown": [
+    "{\"type\":\"reach.ask\",\"id\":\"h7\"}",
+    "{\"type\":\"tell.result\",\"id\":\"t1\",\"outcome\":\"offline\"}",
+    "{\"type\":\"listing.off\",\"who\":\"Ann@frost\",\"by\":\"operator\"}"
+  ],
+  "malformed": [
+    "{\"type\":\"reach\",\"id\":\"h7\",\"from\":\"Bob@coldeve\"}",
+    "{\"type\":\"reach\",\"id\":\"h7\",\"to\":\"Ann@frost\"}",
+    "{\"type\":\"reach\",\"id\":\"\",\"from\":\"Bob@coldeve\",\"to\":\"Ann@frost\"}",
+    "{\"type\":\"reach\",\"id\":\"${i*65}\",\"from\":\"Bob@coldeve\",\"to\":\"Ann@frost\"}",
+    "{\"type\":\"reach\",\"id\":\"h7\",\"from\":\"Bob@coldeve\",\"to\":\"oldguard@channel\"}",
+    "{\"type\":\"reach\",\"id\":\"h7\",\"from\":\"oldguard@channel\",\"to\":\"Ann@frost\"}",
+    "{\"type\":\"reach\",\"id\":\"h7\",\"from\":\"Bob\",\"to\":\"Ann@frost\"}",
+    "{\"type\":\"reach.result\",\"id\":\"h7\"}",
+    "{\"type\":\"reach.result\",\"id\":\"h7\",\"reachable\":1}",
+    "{\"type\":\"reach.result\",\"reachable\":true}",
+    "{\"type\":\"reach.result\",\"id\":\"\",\"reachable\":true}"
+  ]
+}

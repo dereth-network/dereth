@@ -566,8 +566,8 @@ pub fn turbine_chat_received(
             }
 
             enqueue_send(w, session, response(context_id, adjusted_chat_type));
-            // Not ACE (V449): the room that carries the Dereth Network's Global room passes an
-            // opted-in speaker's line on to the other worlds.
+            // Not ACE (V449): the room that carries the Dereth Network's Global room, or one the
+            // operator names for Discord, passes an opted-in speaker's line on to the hub.
             crate::federation::room_said(w, player, adjusted_channel_id, &text);
         }
 
@@ -623,7 +623,7 @@ fn handle_chat_reject(
 }
 
 // ACE: TurbineChatHandler.LogTurbineChat
-fn log_turbine_chat(
+pub(crate) fn log_turbine_chat(
     w: &World,
     channel_id: u32,
     name: &str,

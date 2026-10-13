@@ -51,7 +51,7 @@ is one that is empty. A conformant address cannot hold either mark at all
 impersonating Olthoi speech.
 
 The same rules apply to anything else another world or the hub names that a world shows its
-players: a world's name in `/dn worlds`, and the away text of a tell's answer (the sending world
-writes the *... is away:* line around it itself).
+players, such as the away text of a tell's answer (the sending world writes the *... is away:*
+line around it itself).
 
 The rules are idempotent: a line or a name that has passed them passes them unchanged.

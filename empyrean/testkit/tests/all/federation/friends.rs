@@ -23,7 +23,7 @@ fn updates(net: &mut Net, slug: &str, who: &str, mark: usize) -> Vec<SocialFrien
 
 /// Divergence: V448
 #[test]
-fn a_remote_friend_is_a_row_under_its_stand_in_id_and_mutual_friends_see_each_other_online() {
+fn a_remote_friend_is_a_row_under_its_stand_in_id_shown_online_as_its_world_says() {
     let mut net = two_worlds(false);
     let ma = net.mark("aa", "Ann");
     add_friend(&mut net, "aa", "Ann", "Bob@bb");
@@ -32,27 +32,26 @@ fn a_remote_friend_is_a_row_under_its_stand_in_id_and_mutual_friends_see_each_ot
     let row = &ups[0].friends[0];
     assert_eq!(row.name, "Bob@bb");
     assert!(is_stand_in(row.id.0));
-    assert_eq!(
-        row.online, 0,
-        "Bob lists nobody, so Ann does not see him online yet"
-    );
-    assert_eq!(
-        Net::lines(&net.since("aa", "Ann", ma))[0],
-        "Bob@bb has been added to your friends list."
-    );
-
-    // Bob lists Ann back: now they are mutual friends and each sees the other.
-    let ma = net.mark("aa", "Ann");
-    add_friend(&mut net, "bb", "Bob", "Ann@aa");
-    let ups = updates(&mut net, "aa", "Ann", ma);
+    assert_eq!(row.online, 0, "offline until its world says otherwise");
     let status = ups
         .iter()
         .find(|u| u.update_type == 4)
-        .expect("a status row for Ann");
+        .expect("a status row for Bob");
     assert_eq!(
         (status.friends[0].name.as_str(), status.friends[0].online),
-        ("Bob@bb", 1)
+        ("Bob@bb", 1),
+        "Bob lists nobody, and shows online to anyone who lists him"
     );
+    assert_eq!(
+        Net::lines(&net.since("aa", "Ann", ma)),
+        ["Bob@bb has been added to your friends list."],
+        "the first report is a state, not news"
+    );
+
+    // Bob goes off the network and comes back: each change is a line, the name a link.
+    net.say("bb", "Bob", "@dn off");
+    let ma = net.mark("aa", "Ann");
+    net.say("bb", "Bob", "@dn on");
     let line = &Net::lines(&net.since("aa", "Ann", ma))[0];
     assert!(
         line.ends_with("Bob@bb<\\Tell> has come online."),
@@ -95,7 +94,7 @@ fn dn_friends_add_and_remove_do_what_the_friends_panel_does() {
     net.say("aa", "Ann", "@dn friends add Bob");
     assert_eq!(
         Net::lines(&net.since("aa", "Ann", ma)),
-        ["/dn friends add Name@world: a character on another world."]
+        ["@dn friends add <Name@world> - add a friend on another world"]
     );
 }
 
@@ -120,14 +119,25 @@ fn a_friend_logging_off_and_on_again_is_seen_by_the_other_world() {
 
 /// Divergence: V448
 #[test]
-fn a_friend_visible_to_nobody_shows_offline_even_to_mutual_friends() {
-    let mut net = two_worlds(true);
+fn a_character_on_the_network_shows_online_to_anyone_who_lists_it() {
+    let mut net = two_worlds(false);
     let ma = net.mark("aa", "Ann");
-    net.say("bb", "Bob", "@dn visible nobody");
+    add_friend(&mut net, "aa", "Ann", "Bob@bb");
+    net.advance(0.5);
     let ups = updates(&mut net, "aa", "Ann", ma);
-    assert!(ups
-        .iter()
-        .any(|u| u.update_type == 4 && u.friends[0].online == 0));
+    assert!(
+        ups.iter()
+            .any(|u| u.update_type == 4 && u.friends[0].online == 1),
+        "Bob does not list Ann, and shows online to her: {ups:?}"
+    );
+    let ma = net.mark("aa", "Ann");
+    net.say("bb", "Bob", "@dn off");
+    let ups = updates(&mut net, "aa", "Ann", ma);
+    assert!(
+        ups.iter()
+            .any(|u| u.update_type == 4 && u.friends[0].online == 0),
+        "off the network, offline to everyone: {ups:?}"
+    );
 }
 
 /// Divergence: V448
@@ -247,7 +257,7 @@ fn a_friend_who_is_logged_off_or_has_never_logged_in_is_watched_and_the_world_ru
 
 /// Divergence: V448
 #[test]
-fn each_watcher_sees_only_what_the_home_world_shows_it() {
+fn each_watcher_sees_only_what_the_home_world_shows_it_and_its_answer_to_one_is_not_anothers() {
     let ann = seed("ann", 0x5000_0001, "Ann");
     let cat = seed("cat", 0x5000_0002, "Cat");
     let bob = seed("bob", 0x5000_0001, "Bob");
@@ -260,8 +270,11 @@ fn each_watcher_sees_only_what_the_home_world_shows_it() {
     for (w, who) in [("aa", "Ann"), ("aa", "Cat"), ("bb", "Bob")] {
         net.say(w, who, "@dn on");
     }
-    // Bob shows to mutual friends only, and lists Ann but not Cat.
-    add_friend(&mut net, "bb", "Bob", "Ann@aa");
+    // Bob's world blocks Cat alone: Ann sees him online, Cat never does.
+    let _ = federation::commands::admin(
+        &mut net.world("bb").ts.world,
+        &["block".to_owned(), "Cat@aa".to_owned()],
+    );
     add_friend(&mut net, "aa", "Ann", "Bob@bb");
     let mc = net.mark("aa", "Cat");
     add_friend(&mut net, "aa", "Cat", "Bob@bb");
@@ -338,7 +351,6 @@ fn one_character_with_a_crowd_of_watchers_cannot_push_out_anothers_presence() {
     net.enter("bb", bot);
     for who in ["Bob", "Bot"] {
         net.say("bb", who, "@dn on");
-        net.say("bb", who, "@dn visible anyone");
     }
     let mark = net.sent.0.len();
     // Ann's watch of Bob is answered first; then a crowd watches Bot, more answers than the lane
@@ -419,9 +431,9 @@ fn a_watch_is_answered_alike_for_a_character_off_the_network_a_blocked_watcher_a
         &["block".to_owned(), "Mal@aa".to_owned()],
     );
     let mark = net.sent.0.len();
-    // Cid is in the world but never joined the network; Nobody does not exist; Bob is on the
-    // network but shows only to mutual friends; Mal is blocked. Spelled as a watcher may spell
-    // them.
+    // Cid is in the world but never joined the network; Nobody does not exist; Mal is blocked.
+    // Spelled as a watcher may spell them. Bob, on the network, shows online to Eve, whom he does
+    // not list.
     let watches = [
         ("Eve@aa", "cID@bb"),
         ("Eve@aa", "Nobody@bb"),
@@ -450,28 +462,39 @@ fn a_watch_is_answered_alike_for_a_character_off_the_network_a_blocked_watcher_a
         answered,
         watches
             .iter()
-            .map(|(o, t)| ((*o).to_owned(), (*t).to_owned(), false))
+            .map(|(o, t)| (
+                (*o).to_owned(),
+                (*t).to_owned(),
+                *o == "Eve@aa" && *t == "bOB@bb"
+            ))
             .collect::<Vec<_>>(),
-        "each is answered offline, named as the watch named it"
+        "the three are answered offline alike, named as the watch named them"
     );
 }
 
 /// Divergence: V448
 #[test]
-fn clearing_the_friends_list_shows_a_former_mutual_friend_offline_to_it() {
+fn clearing_the_friends_list_stops_watching_and_changes_nothing_a_former_friend_sees() {
     let mut net = two_worlds(true);
     let mb = net.mark("bb", "Bob");
+    let mark = net.sent.0.len();
     let ann = net.world("aa").clients["Ann"];
     net.world("aa")
         .ts
         .send_game_action(ann, &dereth_protocol::social::SocialClearFriends);
     net.advance(0.3);
+    assert!(
+        net.sent_since("aa", mark).iter().any(|m| matches!(m,
+            Message::Watch { owner, target, on: false }
+                if owner.to_string() == "Ann@aa" && target.to_string() == "Bob@bb")),
+        "Ann stops watching Bob"
+    );
     let ups = updates(&mut net, "bb", "Bob", mb);
     assert!(
-        ups.iter().any(|u| u.update_type == 4
+        !ups.iter().any(|u| u.update_type == 4
             && u.friends[0].name == "Ann@aa"
             && u.friends[0].online == 0),
-        "Ann no longer lists Bob, so she no longer shows to him: {ups:?}"
+        "Ann shows online to anyone who lists her, Bob still among them: {ups:?}"
     );
 }
 
@@ -479,7 +502,6 @@ fn clearing_the_friends_list_shows_a_former_mutual_friend_offline_to_it() {
 #[test]
 fn another_world_cannot_make_this_one_keep_watchers_or_presence_without_end() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn visible anyone");
     for i in 0..500u32 {
         // Within aa's share of bb's pace for watches.
         if i % 10 == 9 {
@@ -522,8 +544,6 @@ fn another_world_cannot_make_this_one_keep_watchers_or_presence_without_end() {
 #[test]
 fn a_flood_of_presence_answers_does_not_hold_up_a_tell() {
     let mut net = two_worlds(false);
-    net.say("aa", "Ann", "@dn reachable anyone");
-    net.say("bb", "Bob", "@dn visible anyone");
     // Every watch is answered, kept or not: 2,000 answers for bb to send.
     for i in 0..2_000u32 {
         let w = net.world("bb");
@@ -625,7 +645,6 @@ fn a_friends_world_flipping_its_answer_is_shown_at_a_pace_and_then_its_latest_st
 #[test]
 fn a_world_sending_watches_past_its_share_is_answered_only_its_share() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn visible anyone");
     let mark = net.sent.0.len();
     // A hub that hands on whatever aa writes: 300 watches at once.
     for i in 0..300u32 {

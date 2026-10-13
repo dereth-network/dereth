@@ -1,13 +1,15 @@
 //! `dn` and `derethnetwork`: the Dereth Network's command. Not ACE.
 //!
 //! `@dn` (typed `/dn` too: the retail client forwards a command it does not know, rewriting `/`
-//! to `@`) is every player's: it puts a character on the network and sets who sees and reaches
-//! it, lists and adds its friends on other worlds, links it to its player's Discord account and
-//! lists persons as friends, squelches a whole world and runs channels.
+//! to `@`) is every player's: it puts a character on the network and takes it off, lists and adds
+//! its friends on other worlds, links it to its player's Discord account, squelches a whole world
+//! and runs channels.
 //! `@derethnetwork` is the same command spelled out, and `@dng <text>` is `@dn global <text>`
 //! made short: a line in the Global room. Two of its words are the operator's:
 //! `@dn admin` (Sentinel and above, and the server console) blocks a world or one remote
-//! character for everyone here, and `@dn verify <token>` (Admin, and the console) proves to the
+//! character for everyone here (bare, `@dn admin block` shows the blocks and the network's
+//! state), and moves the Global room to another of the world's rooms
+//! (`@dn admin global <room>`), and `@dn verify <token>` (Admin, and the console) proves to the
 //! hub that this world is the one its operator registered. The rows are no more than their
 //! parsing; what they do is `empyrean_world::federation::commands`.
 
@@ -43,7 +45,7 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
                     AccessLevel::Player,
                     CommandHandlerFlag::None,
                     "The Dereth Network: tells, friends and channels with other worlds.",
-                    "on | off | visible <who> | reachable <who> | listed on|off | friends [add|remove <Name@world>] | link | unlink | alts [shown|hidden|<Name@world>] | worlds | global <text> | channel ... | help",
+                    "on | off | friends [add|remove <Name@world>] | global <text> | squelch|unsquelch <world> | channel ... | link | unlink | help",
                 ),
             }
         })
@@ -91,7 +93,8 @@ fn is_admin(w: &World, session: Option<SessionId>) -> bool {
 pub fn handle_dn(w: &mut World, session: Option<SessionId>, parameters: &[String]) {
     let first = parameters.first().map(|p| p.to_ascii_lowercase());
     if first.as_deref() == Some("admin") && is_sentinel(w, session) {
-        let out = commands::admin(w, &parameters[1..]);
+        let player = session.and_then(|s| w.sessions.player(s));
+        let out = commands::admin_by(w, player, &parameters[1..]);
         write_output_info(w, session, &out, ChatMessageType::Broadcast);
         return;
     }
@@ -109,7 +112,7 @@ pub fn handle_dn(w: &mut World, session: Option<SessionId>, parameters: &[String
         write_output_info(
             w,
             None,
-            "dn admin status | blocks | block <world or Name@world> | unblock <...>; dn verify <token>",
+            &commands::admin_help("dn"),
             ChatMessageType::Broadcast,
         );
         return;

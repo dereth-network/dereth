@@ -6,10 +6,13 @@
 //! its characters' clients were shown. Empyrean runs them in process; another implementation can
 //! wrap a real world and its clients the same way.
 
+use dereth_network_protocol::directory::{OthersSee, Refusal, Seeable};
+use dereth_network_protocol::person::EarlierAlts;
 use dereth_network_protocol::standin::is_stand_in;
 use dereth_network_protocol::wire::PROTOCOL;
 use dereth_network_protocol::{
-    Address, Alts, Message, Outcome, PersonFriend, PersonOp, PersonOutcome, WorldInfo,
+    Address, DirectoryMessage, ListingOutcome, Message, OffBy, Outcome, PersonFriend, PersonOp,
+    PersonOutcome, Profile, WorldInfo,
 };
 
 use crate::Check;
@@ -52,7 +55,7 @@ pub trait WorldUnderTest {
     fn take(&mut self) -> Vec<Message>;
     /// Lets `secs` of the world's time pass.
     fn advance(&mut self, secs: f64);
-    /// A chat command typed by `who` (`/dn on`, `/dn reachable anyone`, ...).
+    /// A chat command typed by `who` (`@dn on`, `@dn link`, ...).
     fn command(&mut self, who: &str, line: &str);
     /// `@tell <to>, <text>` typed by `who`.
     fn tell(&mut self, who: &str, to: &str, text: &str);
@@ -67,6 +70,38 @@ pub trait WorldUnderTest {
     /// Whether the world carries the Global room (its operator chose a room for it).
     fn carries_global_room(&self) -> bool {
         true
+    }
+    /// Hands the world one of the directory's frames from the hub. The directory's messages are
+    /// a family of their own: [`WorldUnderTest::take`] carries the link's, and
+    /// [`WorldUnderTest::take_directory`] these, neither losing the other's.
+    fn give_directory(&mut self, m: &DirectoryMessage) {
+        let _ = m;
+    }
+    /// The directory's messages the world has sent the hub since the last call.
+    fn take_directory(&mut self) -> Vec<DirectoryMessage> {
+        Vec::new()
+    }
+    /// `who` leaves the world, as a player logging off.
+    fn log_out(&mut self, who: &str) {
+        let _ = who;
+    }
+    /// `who` enters the world again.
+    fn log_in(&mut self, who: &str) {
+        let _ = who;
+    }
+    /// `who` gains levels: its level is `level` from now on.
+    fn set_level(&mut self, who: &str, level: u32) {
+        let _ = (who, level);
+    }
+    /// `who`'s date of birth, age, deaths, chess rank, fishing skill and number of titles are
+    /// `values`, and its "Allow others to see your ..." options for them are `allowed`.
+    fn set_seeable(&mut self, who: &str, values: Seeable, allowed: OthersSee) {
+        let _ = (who, values, allowed);
+    }
+    /// `vassal` swears allegiance to `patron`, both this world's characters and in the world:
+    /// `patron` becomes its patron and monarch, of an allegiance its monarch has not named.
+    fn swear(&mut self, vassal: &str, patron: &str) {
+        let _ = (vassal, patron);
     }
 }
 
@@ -100,7 +135,11 @@ fn a(s: &str) -> Address {
     Address::parse(s).expect("the suite's own addresses are valid")
 }
 
-/// Brings `w`'s link up and welcomes it, and opts `who` in with the given settings.
+/// The page the suite's hub links characters on, and the link its code request is answered with.
+const LINK_PAGE: &str = "https://example.org/link/";
+
+/// Brings `w`'s link up and welcomes it, and puts `who` on the network (the listing each sends is
+/// left unanswered).
 fn ready(w: &mut dyn WorldUnderTest, who: &[&str]) -> Result<(), String> {
     w.link_up();
     w.advance(0.2);
@@ -116,6 +155,7 @@ fn ready(w: &mut dyn WorldUnderTest, who: &[&str]) -> Result<(), String> {
     }
     w.advance(0.2);
     let _ = w.take();
+    let _ = w.take_directory();
     Ok(())
 }
 
@@ -145,7 +185,7 @@ fn view(to: &str, persons: &[(&str, &[&str])]) -> Message {
     Message::PersonFriends {
         to: a(to),
         linked: true,
-        alts: Alts::Shown,
+        alts: EarlierAlts,
         persons: persons
             .iter()
             .map(|(handle, characters)| PersonFriend {
@@ -189,7 +229,7 @@ fn asks_to_link(w: &mut dyn WorldUnderTest, who: &str) -> Result<(), String> {
         outcome: PersonOutcome::Ok,
         code: Some("K7QD-2MXP".into()),
         expires_secs: Some(600),
-        url: Some("https://example.org/characters/".into()),
+        url: Some(format!("{LINK_PAGE}#K7QD-2MXP")),
         characters: Vec::new(),
     });
     w.advance(0.2);
@@ -313,11 +353,10 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         },
     );
     check(
-        "tell.a_reachable_character_is_shown_it_from_a_stand_in_id",
+        "tell.a_character_on_the_network_is_shown_it_from_a_stand_in_id",
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
-            w.command(&c, "@dn reachable anyone");
             w.shown(&c);
             let s = w.slug();
             let from = format!("Ann@{REMOTE}");
@@ -353,7 +392,7 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         },
     );
     check(
-        "tell.an_opted_in_character_is_reachable_by_anyone",
+        "tell.a_character_on_the_network_is_reachable_by_anyone",
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
@@ -380,75 +419,38 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         },
     );
     check(
-        "tell.a_stranger_cannot_reach_a_mutual_friends_only_character",
+        "presence.a_character_on_the_network_shows_online_to_anyone_who_watches",
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
-            w.command(&c, "@dn reachable friends");
-            let s = w.slug();
-            w.give(&incoming(
-                "h1",
-                &format!("Eve@{REMOTE}"),
-                &format!("{c}@{s}"),
-                "hi",
-                true,
-            ));
-            w.advance(0.3);
-            match answer_of(&w.take(), "h1") {
-                Some((Outcome::Offline, _)) => Ok(()),
-                other => Err(format!("{other:?}")),
-            }
-        },
-    );
-    check(
-        "tell.a_stranger_told_first_may_answer_in_the_reply_window",
-        &mut |w| {
-            let (c, _) = w.characters();
-            ready(w, &[&c])?;
-            w.command(&c, "@dn reachable nobody");
             let stranger = format!("Eve@{REMOTE}");
-            w.tell(&c, &stranger, "are you selling?");
-            w.advance(0.3);
-            let _ = w.take();
-            w.shown(&c);
-            let s = w.slug();
-            w.give(&incoming(
-                "h1",
-                &stranger,
-                &format!("{c}@{s}"),
-                "yes!",
-                false,
-            ));
-            w.advance(0.3);
-            match answer_of(&w.take(), "h1") {
-                Some((Outcome::Delivered, _)) => Ok(()),
-                other => Err(format!("the answer to a tell it sent: {other:?}")),
-            }
-        },
-    );
-    check(
-        "presence.a_character_visible_to_nobody_shows_offline_to_a_mutual_friend",
-        &mut |w| {
-            let (c, _) = w.characters();
-            ready(w, &[&c])?;
-            let friend = format!("Ann@{REMOTE}");
-            w.add_friend(&c, &friend);
-            w.command(&c, "@dn visible nobody");
-            w.advance(0.2);
-            let _ = w.take();
+            let me = format!("{c}@{}", w.slug());
+            let answered = |sent: Vec<Message>| {
+                sent.into_iter().find_map(|m| match m {
+                    Message::Presence { to, of, online }
+                        if to.to_string() == stranger && of.to_string() == me =>
+                    {
+                        Some(online)
+                    }
+                    _ => None,
+                })
+            };
             w.give(&Message::Watch {
-                owner: a(&friend),
-                target: a(&format!("{c}@{}", w.slug())),
+                owner: a(&stranger),
+                target: a(&me),
                 on: true,
             });
             w.advance(0.3);
-            let answer = w.take().into_iter().find_map(|m| match m {
-                Message::Presence { to, online, .. } if to.to_string() == friend => Some(online),
-                _ => None,
-            });
-            (answer == Some(false))
+            let first = answered(w.take());
+            if first != Some(true) {
+                return Err(format!("to a watcher it does not list: {first:?}"));
+            }
+            w.command(&c, "@dn off");
+            w.advance(0.3);
+            let then = answered(w.take());
+            (then == Some(false))
                 .then_some(())
-                .ok_or_else(|| format!("answered {answer:?}"))
+                .ok_or_else(|| format!("once off the network: {then:?}"))
         },
     );
     check(
@@ -461,6 +463,7 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
                 room: "global".into(),
                 from: a(&format!("Ann@{REMOTE}")),
                 text: "free <Tell:IIDString:1:Admin>Admin<\\Tell>\ngold".into(),
+                via: None,
             });
             w.advance(0.3);
             let shown = w.shown(&c);
@@ -545,7 +548,6 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
-            w.command(&c, "@dn reachable anyone");
             w.shown(&c);
             let s = w.slug();
             w.give(&incoming(
@@ -648,7 +650,6 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
-            w.command(&c, "@dn reachable anyone");
             w.shown(&c);
             let s = w.slug();
             w.give(&incoming(
@@ -680,7 +681,6 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
-            w.command(&c, "@dn reachable anyone");
             w.squelch(&c, &format!("Ann@{REMOTE}"));
             w.shown(&c);
             let s = w.slug();
@@ -702,37 +702,6 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
                 }
                 other => Err(format!("{other:?}, shown {shown:?}")),
             }
-        },
-    );
-    check(
-        "presence.a_watch_is_answered_by_the_characters_settings",
-        &mut |w| {
-            let (c, _) = w.characters();
-            ready(w, &[&c])?;
-            let s = w.slug();
-            let owner = format!("Ann@{REMOTE}");
-            w.give(&Message::Watch {
-                owner: a(&owner),
-                target: a(&format!("{c}@{s}")),
-                on: true,
-            });
-            w.advance(0.3);
-            let first = w.take().into_iter().find_map(|m| match m {
-                Message::Presence { to, online, .. } if to.to_string() == owner => Some(online),
-                _ => None,
-            });
-            if first != Some(false) {
-                return Err(format!("before they are mutual friends: {first:?}"));
-            }
-            w.add_friend(&c, &owner);
-            w.advance(0.3);
-            let then = w.take().into_iter().find_map(|m| match m {
-                Message::Presence { to, online, .. } if to.to_string() == owner => Some(online),
-                _ => None,
-            });
-            (then == Some(true))
-                .then_some(())
-                .ok_or_else(|| format!("once mutual: {then:?}"))
         },
     );
     check("presence.a_friend_shows_as_its_home_world_says", &mut |w| {
@@ -765,6 +734,7 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
                 room: "global".into(),
                 from: a(&format!("Ann@{REMOTE}")),
                 text: "dance at 8".into(),
+                via: None,
             });
             w.advance(0.3);
             let shown = w.shown(&c);
@@ -825,7 +795,7 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         },
     );
     check(
-        "person.a_link_code_is_asked_for_the_character_and_shown",
+        "person.a_link_is_asked_for_the_character_and_shown",
         &mut |w| {
             let (c, _) = w.characters();
             ready(w, &[&c])?;
@@ -845,24 +815,29 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
             }) else {
                 return Err(format!("no code asked for: {sent:?}"));
             };
+            let link = format!("{LINK_PAGE}#K7QD-2MXP");
             w.give(&Message::PersonResult {
                 id,
                 outcome: PersonOutcome::Ok,
                 code: Some("K7QD-2MXP".into()),
                 expires_secs: Some(600),
-                url: Some("https://example.org/characters/".into()),
+                url: Some(link.clone()),
                 characters: Vec::new(),
             });
             w.advance(0.2);
             let shown = w.shown(&c);
-            shown
+            // One line, the link whole in it, a word of its own.
+            let lines: Vec<&String> = shown
                 .iter()
-                .any(|x| {
-                    matches!(x, Shown::Line(l)
-                        if l.contains("K7QD-2MXP") && l.contains("https://example.org/characters/"))
+                .filter_map(|x| match x {
+                    Shown::Line(l) => Some(l),
+                    _ => None,
                 })
-                .then_some(())
-                .ok_or_else(|| format!("shown {shown:?}"))
+                .collect();
+            match lines.as_slice() {
+                [l] if l.split_whitespace().any(|w| w == link) && !l.contains('\n') => Ok(()),
+                other => Err(format!("shown {other:?}")),
+            }
         },
     );
     check(
@@ -909,37 +884,6 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
             (watches(&sent, &bob, true) && watches(&sent, &alt, true))
                 .then_some(())
                 .ok_or_else(|| format!("not both watched: {sent:?}"))
-        },
-    );
-    check(
-        "person.a_character_listed_through_a_person_friend_is_a_mutual_friend",
-        &mut |w| {
-            let (c, _) = w.characters();
-            ready(w, &[&c])?;
-            asks_to_link(w, &c)?;
-            let s = w.slug();
-            let (bob, alt, me) = (
-                format!("Bob@{REMOTE}"),
-                format!("Alt@{REMOTE}"),
-                format!("{c}@{s}"),
-            );
-            w.give(&view(&me, &[(&bob, &[&bob, &alt])]));
-            w.advance(0.3);
-            let _ = w.take();
-            w.give(&Message::Watch {
-                owner: a(&alt),
-                target: a(&me),
-                on: true,
-            });
-            w.advance(0.3);
-            let sent = w.take();
-            sent.iter()
-                .any(|m| {
-                    matches!(m, Message::Presence { to, of, online: true }
-                        if to.to_string() == alt && of.to_string() == me)
-                })
-                .then_some(())
-                .ok_or_else(|| format!("not answered online: {sent:?}"))
         },
     );
     check(
@@ -1055,7 +999,7 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
                 Message::PersonFriends { to, persons, .. } => Message::PersonFriends {
                     to,
                     linked: false,
-                    alts: Alts::Hidden,
+                    alts: EarlierAlts,
                     persons,
                 },
                 other => other,
@@ -1099,5 +1043,526 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
                 .ok_or_else(|| format!("still watched: {sent:?}"))
         },
     );
+    directory_checks(&mut check);
     out
+}
+
+// ---- the directory -------------------------------------------------------------------------------
+
+/// The listings among what the world sent: each as its address, whether it lists, and its
+/// profile.
+fn listings(sent: &[DirectoryMessage]) -> Vec<(String, String, bool, Option<Profile>)> {
+    sent.iter()
+        .filter_map(|m| match m {
+            DirectoryMessage::Listing {
+                id,
+                who,
+                on,
+                profile,
+            } => Some((
+                id.clone(),
+                who.to_string(),
+                *on,
+                profile.as_deref().cloned(),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The hub's answer to a listing.
+fn answer(id: &str, outcome: ListingOutcome, reason: Option<Refusal>) -> DirectoryMessage {
+    DirectoryMessage::ListingResult {
+        id: id.to_owned(),
+        outcome,
+        reason,
+        url: (outcome == ListingOutcome::Ok)
+            .then(|| "https://example.org/directory/character/".to_owned()),
+    }
+}
+
+/// `who` goes on the network: the listing it sends (its id and profile), not yet answered.
+fn list(w: &mut dyn WorldUnderTest, who: &str) -> Result<(String, Profile), String> {
+    w.command(who, "@dn on");
+    w.advance(0.3);
+    let _ = w.take();
+    let sent = listings(&w.take_directory());
+    let me = format!("{who}@{}", w.slug());
+    match sent.as_slice() {
+        [(id, a, true, Some(p))] if *a == me => Ok((id.clone(), p.clone())),
+        other => Err(format!("going on the network sent {other:?}")),
+    }
+}
+
+/// `who` goes on the network, and the hub lists it.
+fn listed(w: &mut dyn WorldUnderTest, who: &str) -> Result<Profile, String> {
+    let (id, p) = list(w, who)?;
+    w.give_directory(&answer(&id, ListingOutcome::Ok, None));
+    w.advance(0.2);
+    let _ = w.take_directory();
+    let _ = w.shown(who);
+    Ok(p)
+}
+
+/// Whether `shown` holds a line starting with `start`.
+fn shows(shown: &[Shown], start: &str) -> bool {
+    shown
+        .iter()
+        .any(|x| matches!(x, Shown::Line(l) if l.starts_with(start)))
+}
+
+/// The six option-governed values the checks give a character.
+const SEEABLE: Seeable = Seeable {
+    birth: Some(1_083_412_800),
+    age: Some(3_600_000),
+    chess: Some(1_400),
+    fishing: Some(10),
+    deaths: Some(12),
+    titles: Some(37),
+};
+
+/// The six fields as a profile carries them.
+fn seeable_of(p: &Profile) -> Seeable {
+    Seeable {
+        birth: p.birth,
+        age: p.age,
+        chess: p.chess,
+        fishing: p.fishing,
+        deaths: p.deaths,
+        titles: p.titles,
+    }
+}
+
+/// Whether `p` carries the six fields exactly as `allowed` lets others see [`SEEABLE`]: each
+/// present only while its option allows, with its value (the age, which grows as the character
+/// plays, at least its value).
+fn as_allowed(p: &Profile, allowed: OthersSee) -> bool {
+    let mut want = Profile::default();
+    want.set_seeable(SEEABLE, allowed);
+    let (got, want) = (seeable_of(p), seeable_of(&want));
+    let age_ok = match (got.age, want.age) {
+        (Some(g), Some(w)) => g >= w,
+        (g, w) => g == w,
+    };
+    age_ok && Seeable { age: None, ..got } == Seeable { age: None, ..want }
+}
+
+/// The directory's world checks (`docs/network/03-world-behaviour.md` section 10). `check` runs
+/// one, by name, on a fresh world.
+#[allow(clippy::too_many_lines, clippy::type_complexity)]
+fn directory_checks(
+    check: &mut dyn FnMut(
+        &'static str,
+        &mut dyn FnMut(&mut dyn WorldUnderTest) -> Result<(), String>,
+    ),
+) {
+    check("listing.nothing_is_sent_while_off_the_network", &mut |w| {
+        let (c, _) = w.characters();
+        ready(w, &[])?;
+        w.set_level(&c, 20);
+        w.advance(400.0);
+        w.log_out(&c);
+        w.advance(1.0);
+        w.log_in(&c);
+        w.advance(1.0);
+        let sent = w.take_directory();
+        sent.is_empty()
+            .then_some(())
+            .ok_or_else(|| format!("sent {sent:?}"))
+    });
+    check(
+        "listing.going_on_the_network_sends_the_characters_own_profile",
+        &mut |w| {
+            let (c, _) = w.characters();
+            ready(w, &[])?;
+            w.set_level(&c, 42);
+            let _ = w.shown(&c);
+            let (id, p) = list(w, &c)?;
+            let me = a(&format!("{c}@{}", w.slug()));
+            if p.level != 42 || p.check(&me).is_err() {
+                return Err(format!("profile {p:?}"));
+            }
+            if !shows(
+                &w.shown(&c),
+                &format!("You are on the Dereth Network as {me}."),
+            ) {
+                return Err("no line saying it is on the network".into());
+            }
+            w.give_directory(&answer(&id, ListingOutcome::Ok, None));
+            w.advance(0.2);
+            let shown = w.shown(&c);
+            shows(
+                &shown,
+                "Your directory page: https://example.org/directory/character/",
+            )
+            .then_some(())
+            .ok_or_else(|| format!("no page shown: {shown:?}"))
+        },
+    );
+    check("listing.a_field_its_option_hides_is_never_sent", &mut |w| {
+        let (c, _) = w.characters();
+        ready(w, &[])?;
+        // Each option's field is checked hidden, then shown, in two halves: one option of each
+        // pair is on at a time, so a field following another's option shows.
+        let first = OthersSee {
+            date_of_birth: true,
+            chess_rank: true,
+            number_of_deaths: true,
+            ..OthersSee::default()
+        };
+        let second = OthersSee {
+            age: true,
+            fishing_skill: true,
+            number_of_titles: true,
+            ..OthersSee::default()
+        };
+        w.set_seeable(&c, SEEABLE, first);
+        let p = listed(w, &c)?;
+        if !as_allowed(&p, first) {
+            return Err(format!(
+                "with the first half shown, sent {:?}",
+                seeable_of(&p)
+            ));
+        }
+        w.set_seeable(&c, SEEABLE, second);
+        w.advance(400.0);
+        let sent = listings(&w.take_directory());
+        match sent.as_slice() {
+            [(_, _, true, Some(p))] if as_allowed(p, second) => Ok(()),
+            other => Err(format!("with the second half shown, sent {other:?}")),
+        }
+    });
+    check(
+        "listing.changes_go_at_most_every_five_minutes_and_at_once_at_logout",
+        &mut |w| {
+            let (c, _) = w.characters();
+            ready(w, &[])?;
+            w.set_level(&c, 10);
+            let _ = listed(w, &c)?;
+            w.set_level(&c, 11);
+            w.advance(60.0);
+            w.set_level(&c, 12);
+            w.advance(120.0);
+            let early = w.take_directory();
+            if !early.is_empty() {
+                return Err(format!("within five minutes: {early:?}"));
+            }
+            w.advance(200.0);
+            let sent = listings(&w.take_directory());
+            let id = match sent.as_slice() {
+                [(id, _, true, Some(p))] if p.level == 12 => id.clone(),
+                other => return Err(format!("after five minutes: {other:?}")),
+            };
+            w.give_directory(&answer(&id, ListingOutcome::Ok, None));
+            w.set_level(&c, 13);
+            w.advance(1.0);
+            if !w.take_directory().is_empty() {
+                return Err("a change went within five minutes of the last".into());
+            }
+            w.log_out(&c);
+            w.advance(0.5);
+            let sent = listings(&w.take_directory());
+            match sent.as_slice() {
+                [(_, _, true, Some(p))] if p.level == 13 => Ok(()),
+                other => Err(format!("at logout: {other:?}")),
+            }
+        },
+    );
+    check(
+        "listing.taking_out_goes_at_once_and_is_kept_until_answered",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[])?;
+            let s = w.slug();
+            let (cc, dd) = (format!("{c}@{s}"), format!("{d}@{s}"));
+            let _ = listed(w, &c)?;
+            let _ = listed(w, &d)?;
+            let out_of = |sent: &[DirectoryMessage], who: &str| {
+                listings(sent)
+                    .into_iter()
+                    .find(|(_, a, on, _)| a == who && !on)
+                    .map(|(id, ..)| id)
+            };
+            w.command(&c, "@dn off");
+            w.command(&d, "@dn off");
+            w.advance(0.2);
+            let sent = w.take_directory();
+            if out_of(&sent, &cc).is_none() || out_of(&sent, &dd).is_none() {
+                return Err(format!("not taken out at once: {sent:?}"));
+            }
+            // Unanswered: both go again on the next link, after its welcome.
+            w.link_down();
+            w.link_up();
+            w.advance(0.2);
+            let _ = w.take();
+            if !w.take_directory().is_empty() {
+                return Err("a listing went before the welcome".into());
+            }
+            w.give(&welcome(&s, &[REMOTE]));
+            w.advance(0.3);
+            let sent = w.take_directory();
+            let (Some(ic), Some(id)) = (out_of(&sent, &cc), out_of(&sent, &dd)) else {
+                return Err(format!("not sent again on the next link: {sent:?}"));
+            };
+            w.give_directory(&answer(&ic, ListingOutcome::Ok, None));
+            w.give_directory(&answer(&id, ListingOutcome::Ok, None));
+            w.advance(0.2);
+            // Answered: never again.
+            w.link_down();
+            w.link_up();
+            w.advance(0.2);
+            let _ = w.take();
+            w.give(&welcome(&s, &[REMOTE]));
+            w.advance(0.3);
+            let sent = w.take_directory();
+            sent.is_empty()
+                .then_some(())
+                .ok_or_else(|| format!("sent again once answered: {sent:?}"))
+        },
+    );
+    check(
+        "listing.an_off_from_the_hub_holds_the_character_out_until_its_next_login",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[])?;
+            let s = w.slug();
+            let _ = listed(w, &c)?;
+            let _ = listed(w, &d)?;
+            w.give_directory(&DirectoryMessage::ListingOff {
+                who: a(&format!("{c}@{s}")),
+                by: OffBy::Operator,
+            });
+            w.advance(0.3);
+            let sent = listings(&w.take_directory());
+            if !sent
+                .iter()
+                .any(|(_, who, on, _)| *who == format!("{c}@{s}") && !on)
+            {
+                return Err(format!("not confirmed off: {sent:?}"));
+            }
+            let taken = "The Dereth Network's operator has taken this character out of the directory for now.";
+            if !shows(&w.shown(&c), taken) {
+                return Err("the player was not told".into());
+            }
+            w.set_level(&c, 30);
+            w.advance(400.0);
+            if !w.take_directory().is_empty() {
+                return Err("listed again after the off".into());
+            }
+            // At its next login it is listed again, and the hub refuses it while it holds it out.
+            w.log_out(&c);
+            w.advance(1.0);
+            let _ = w.take_directory();
+            w.log_in(&c);
+            w.advance(0.5);
+            let sent = listings(&w.take_directory());
+            if !sent
+                .iter()
+                .any(|(_, who, on, _)| *who == format!("{c}@{s}") && *on)
+            {
+                return Err(format!("not listed again at its next login: {sent:?}"));
+            }
+            // One away is told at its next login.
+            w.log_out(&d);
+            w.advance(1.0);
+            let _ = w.take_directory();
+            w.give_directory(&DirectoryMessage::ListingOff {
+                who: a(&format!("{d}@{s}")),
+                by: OffBy::Operator,
+            });
+            w.advance(0.3);
+            let sent = listings(&w.take_directory());
+            if !sent
+                .iter()
+                .any(|(_, who, on, _)| *who == format!("{d}@{s}") && !on)
+            {
+                return Err(format!("not confirmed off while away: {sent:?}"));
+            }
+            w.log_in(&d);
+            w.advance(0.5);
+            let shown = w.shown(&d);
+            shows(&shown, taken)
+                .then_some(())
+                .ok_or_else(|| format!("not told at the next login: {shown:?}"))
+        },
+    );
+    check(
+        "listing.an_off_by_its_person_takes_the_character_off_the_network",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[])?;
+            let s = w.slug();
+            let _ = listed(w, &c)?;
+            let _ = listed(w, &d)?;
+            let forgotten =
+                "You asked the Dereth Network to forget you, so this character is off the network now. Type @dn on to join it again.";
+            w.give_directory(&DirectoryMessage::ListingOff {
+                who: a(&format!("{c}@{s}")),
+                by: OffBy::Person,
+            });
+            w.advance(0.3);
+            let sent = listings(&w.take_directory());
+            if !sent
+                .iter()
+                .any(|(_, who, on, _)| *who == format!("{c}@{s}") && !on)
+            {
+                return Err(format!("not confirmed off: {sent:?}"));
+            }
+            if !shows(&w.shown(&c), forgotten) {
+                return Err("the player was not told".into());
+            }
+            // Off the network: a tell to it is answered as to any character off it.
+            w.give(&incoming(
+                "t1",
+                &format!("Bob@{REMOTE}"),
+                &format!("{c}@{s}"),
+                "still there?",
+                false,
+            ));
+            w.advance(0.3);
+            match answer_of(&w.take(), "t1") {
+                Some((Outcome::Offline, _)) => {}
+                other => return Err(format!("a tell to it was answered {other:?}")),
+            }
+            w.command(&c, "@dn");
+            w.advance(0.2);
+            if !shows(&w.shown(&c), "You are not on the Dereth Network.") {
+                return Err("its status does not say it is off".into());
+            }
+            // One away is told at its next login, and is off the network then.
+            w.log_out(&d);
+            w.advance(1.0);
+            let _ = w.take_directory();
+            w.give_directory(&DirectoryMessage::ListingOff {
+                who: a(&format!("{d}@{s}")),
+                by: OffBy::Person,
+            });
+            w.advance(0.3);
+            let sent = listings(&w.take_directory());
+            if !sent
+                .iter()
+                .any(|(_, who, on, _)| *who == format!("{d}@{s}") && !on)
+            {
+                return Err(format!("not confirmed off while away: {sent:?}"));
+            }
+            w.log_in(&d);
+            w.advance(0.5);
+            if !w.take_directory().is_empty() {
+                return Err("listed at its next login, off the network".into());
+            }
+            let shown = w.shown(&d);
+            shows(&shown, forgotten)
+                .then_some(())
+                .ok_or_else(|| format!("not told at the next login: {shown:?}"))
+        },
+    );
+    check(
+        "listing.only_listed_patrons_and_monarchs_are_named",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[])?;
+            let s = w.slug();
+            let dd = a(&format!("{d}@{s}"));
+            w.set_level(&d, 50);
+            w.set_level(&c, 20);
+            w.swear(&c, &d);
+            w.advance(0.5);
+            let p = listed(w, &c)?;
+            let Some(al) = p.allegiance else {
+                return Err("no allegiance sent".into());
+            };
+            if al.patron.is_some() || al.monarch.is_some() {
+                return Err(format!("an unlisted patron or monarch named: {al:?}"));
+            }
+            if al.name.is_some() {
+                return Err(format!(
+                    "an allegiance its monarch did not name sent a name: {al:?}"
+                ));
+            }
+            // The patron lists itself: its vassal's listing names it from then on.
+            let _ = listed(w, &d)?;
+            w.advance(400.0);
+            let sent = listings(&w.take_directory());
+            let named = sent.iter().any(|(_, who, on, p)| {
+                *who == format!("{c}@{s}")
+                    && *on
+                    && p.as_ref()
+                        .and_then(|p| p.allegiance.as_ref())
+                        .is_some_and(|a| {
+                            a.patron.as_ref().is_some_and(|x| x.same(&dd))
+                                && a.monarch.as_ref().is_some_and(|x| x.same(&dd))
+                        })
+            });
+            if !named {
+                return Err(format!("a listed patron not named: {sent:?}"));
+            }
+            // And leaves the network: the vassal's listing names it no more.
+            w.command(&d, "@dn off");
+            w.advance(400.0);
+            let sent = listings(&w.take_directory());
+            let unnamed = sent.iter().any(|(_, who, on, p)| {
+                *who == format!("{c}@{s}")
+                    && *on
+                    && p.as_ref()
+                        .and_then(|p| p.allegiance.as_ref())
+                        .is_some_and(|a| a.patron.is_none() && a.monarch.is_none())
+            });
+            unnamed
+                .then_some(())
+                .ok_or_else(|| format!("an unlisted patron still named: {sent:?}"))
+        },
+    );
+    check(
+        "listing.a_refusal_holds_the_character_out_until_its_next_login",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[])?;
+            let (id, _) = list(w, &c)?;
+            let _ = w.shown(&c);
+            w.give_directory(&answer(
+                &id,
+                ListingOutcome::Refused,
+                Some(Refusal::TakenDown),
+            ));
+            w.advance(0.2);
+            if !shows(
+            &w.shown(&c),
+            "The Dereth Network's operator has taken this character out of the directory for now.",
+        ) {
+            return Err("taken_down not shown".into());
+        }
+            let (id, _) = list(w, &d)?;
+            let _ = w.shown(&d);
+            w.give_directory(&answer(&id, ListingOutcome::Refused, Some(Refusal::Full)));
+            w.advance(0.2);
+            if !shows(
+            &w.shown(&d),
+            "The Dereth Network's directory holds as many of this world's characters as it may.",
+        ) {
+            return Err("full not shown".into());
+        }
+            w.set_level(&c, 30);
+            w.advance(400.0);
+            if !w.take_directory().is_empty() {
+                return Err("listed again after a refusal".into());
+            }
+            // Held back: the latest profile goes again a minute later.
+            w.command(&c, "@dn off");
+            w.advance(0.2);
+            let _ = w.take_directory();
+            let (id, _) = list(w, &c)?;
+            w.give_directory(&answer(&id, ListingOutcome::RateLimited, None));
+            w.set_level(&c, 31);
+            w.advance(30.0);
+            if !w.take_directory().is_empty() {
+                return Err("sent again within the minute".into());
+            }
+            w.advance(40.0);
+            let sent = listings(&w.take_directory());
+            match sent.as_slice() {
+                [(_, _, true, Some(p))] if p.level == 31 => Ok(()),
+                other => Err(format!("a minute after rate_limited: {other:?}")),
+            }
+        },
+    );
 }

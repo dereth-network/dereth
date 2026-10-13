@@ -28,6 +28,9 @@ tungstenite = { version = "0.30", default-features = false, features = ["handsha
 # rustls on its ring provider, with the web's root certificates.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 webpki-roots = "1"
+# Discord's signatures on the interactions it sends the hub: Ed25519, with the ring the TLS
+# above already builds.
+ring = { version = "0.17", default-features = false }
 # Ctrl-C stops `serve` cleanly.
 ctrlc = { version = "3.5", features = ["termination"] }
 # `self-update`: the release archives (.tar.gz, and .zip on Windows), unpacked with zlib-rs.

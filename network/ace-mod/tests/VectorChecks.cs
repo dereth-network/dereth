@@ -17,6 +17,339 @@ internal static class VectorChecks
         TextRulesVectors(c, Path.Combine(dir, "text.json"));
         Messages(c, Path.Combine(dir, "messages.json"));
         Challenges(c, Path.Combine(dir, "challenge.json"));
+        Directory(c, Path.Combine(dir, "directory.json"));
+        Reach(c, Path.Combine(dir, "reach.json"));
+        Say(c, Path.Combine(dir, "say.json"));
+        Rooms(c, Path.Combine(dir, "rooms.json"));
+    }
+
+    /// <summary>One field of a rooms message, by its name.</summary>
+    private static object? RoomsField(RoomsMessage m, string name) => (m, name) switch
+    {
+        (RoomsSetup r, "id") => r.Id,
+        (RoomsSetup r, "global") => r.Global,
+        (RoomsSetup r, "mirrored") => Parse("[" + string.Join(",", r.Mirrored.Select(Json.Str)) + "]"),
+        (RoomsGlobal g, "id") => g.Id,
+        (RoomsGlobal g, "room") => g.Room,
+        (RoomsGlobal g, "seed") => g.Seed,
+        _ => "(no such field)",
+    };
+
+    /// <summary>
+    /// The rooms messages, as <see cref="Say"/> holds the say messages: each `ok` frame reads as its
+    /// type, is written back holding every field it had and reads back unchanged, with the values
+    /// `expect` gives; each `later` frame reads, leaving out what it adds; a reader of the rooms
+    /// messages alone skips each `unknown` frame, and the other families' readers skip the rooms
+    /// messages; and each `malformed` frame is refused.
+    /// </summary>
+    private static void Rooms(Checks c, string path)
+    {
+        const string s = "vectors/rooms";
+        using var doc = Load(c, s, path);
+        var root = doc.RootElement;
+        var count = 0;
+        foreach (var v in root.GetProperty("ok").EnumerateArray())
+        {
+            count++;
+            var type = v.GetProperty("type").GetString()!;
+            var frame = Expand(v.GetProperty("frame").GetString()!);
+            var r = RoomsWire.Read(frame);
+            if (r.Status != ReadStatus.Ok)
+            {
+                c.Fail(s, $"{type} frame reads ({r.Status}: {r.Why}): {(frame.Length > 200 ? frame[..200] + "..." : frame)}");
+                continue;
+            }
+            c.Check(s, r.Message!.Type == type, $"{type} frame reads as {type} (got {r.Message!.Type})");
+            var written = RoomsWire.Write(r.Message!);
+            var again = RoomsWire.Read(written);
+            c.Check(s, again.Status == ReadStatus.Ok && RoomsWire.Write(again.Message!) == written,
+                $"{type} survives a write and a read: {written}");
+            c.Check(s, Covers(Parse(written), Parse(frame)), $"{type}: every field of the vector is written with its value: {written}");
+            if (v.TryGetProperty("expect", out var expect))
+                foreach (var want in expect.EnumerateObject())
+                {
+                    var got = RoomsField(r.Message!, want.Name);
+                    c.Check(s, Same(got, want.Value), $"{type}: {want.Name} reads as {want.Value} (got {got})");
+                }
+            c.Check(s, Wire.Read(frame).Status == ReadStatus.Unknown && DirectoryWire.Read(frame).Status == ReadStatus.Unknown
+                && ReachWire.Read(frame).Status == ReadStatus.Unknown && SayWire.Read(frame).Status == ReadStatus.Unknown,
+                $"the link's, the directory's, the reach and the say messages' readers skip {type}");
+        }
+        foreach (var v in root.GetProperty("later").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = RoomsWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Ok && RoomsWire.Write(r.Message!).Length < frame.Length,
+                $"a later version's frame reads, leaving out what it adds: {frame} ({r.Status}: {r.Why})");
+        }
+        foreach (var v in root.GetProperty("unknown").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            c.Check(s, RoomsWire.Read(frame).Status == ReadStatus.Unknown, $"{frame} is skipped as unknown");
+        }
+        foreach (var v in root.GetProperty("malformed").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = RoomsWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Malformed, $"{(frame.Length > 200 ? frame[..200] + "..." : frame)} is malformed (got {r.Status})");
+        }
+        c.Check(s, count > 0, $"{count} rooms vectors ran");
+    }
+
+    /// <summary>One field of a say message, by its name.</summary>
+    private static object? SayField(SayMessage m, string name) => (m, name) switch
+    {
+        (SayAsk a, "id") => a.Id,
+        (SayAsk a, "room") => a.Room,
+        (SayAsk a, "who") => a.Who.ToString(),
+        (SayAsk a, "text") => a.Text,
+        (SayAsk a, "via") => a.Via,
+        (SayResult r, "id") => r.Id,
+        (SayResult r, "outcome") => r.Outcome == SayOutcome.Said ? "said" : "refused",
+        (SayResult r, "reason") => r.Reason,
+        _ => "(no such field)",
+    };
+
+    /// <summary>
+    /// The say messages: each `ok` frame reads as its type, is written back holding every field it
+    /// had and reads back unchanged, with the values `expect` gives; each `later` frame reads, leaving
+    /// out what it adds; a reader of the say messages alone skips each `unknown` frame, and the
+    /// link's, the directory's and the reach messages' readers skip the say messages; and each
+    /// `malformed` frame is refused.
+    /// </summary>
+    private static void Say(Checks c, string path)
+    {
+        const string s = "vectors/say";
+        using var doc = Load(c, s, path);
+        var root = doc.RootElement;
+        var count = 0;
+        foreach (var v in root.GetProperty("ok").EnumerateArray())
+        {
+            count++;
+            var type = v.GetProperty("type").GetString()!;
+            var frame = Expand(v.GetProperty("frame").GetString()!);
+            var r = SayWire.Read(frame);
+            if (r.Status != ReadStatus.Ok)
+            {
+                c.Fail(s, $"{type} frame reads ({r.Status}: {r.Why}): {(frame.Length > 200 ? frame[..200] + "..." : frame)}");
+                continue;
+            }
+            c.Check(s, r.Message!.Type == type, $"{type} frame reads as {type} (got {r.Message!.Type})");
+            var written = SayWire.Write(r.Message!);
+            var again = SayWire.Read(written);
+            c.Check(s, again.Status == ReadStatus.Ok && SayWire.Write(again.Message!) == written,
+                $"{type} survives a write and a read: {written}");
+            c.Check(s, Covers(Parse(written), Parse(frame)), $"{type}: every field of the vector is written with its value: {written}");
+            if (v.TryGetProperty("expect", out var expect))
+                foreach (var want in expect.EnumerateObject())
+                {
+                    var got = SayField(r.Message!, want.Name);
+                    c.Check(s, Same(got, want.Value), $"{type}: {want.Name} reads as {want.Value} (got {got})");
+                }
+            c.Check(s, Wire.Read(frame).Status == ReadStatus.Unknown && DirectoryWire.Read(frame).Status == ReadStatus.Unknown
+                && ReachWire.Read(frame).Status == ReadStatus.Unknown,
+                $"the link's, the directory's and the reach messages' readers skip {type}");
+        }
+        foreach (var v in root.GetProperty("later").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = SayWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Ok && SayWire.Write(r.Message!).Length < frame.Length,
+                $"a later version's frame reads, leaving out what it adds: {frame} ({r.Status}: {r.Why})");
+        }
+        foreach (var v in root.GetProperty("unknown").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            c.Check(s, SayWire.Read(frame).Status == ReadStatus.Unknown, $"{frame} is skipped as unknown");
+        }
+        foreach (var v in root.GetProperty("malformed").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = SayWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Malformed, $"{(frame.Length > 200 ? frame[..200] + "..." : frame)} is malformed (got {r.Status})");
+        }
+        foreach (var v in root.GetProperty("names").EnumerateArray())
+        {
+            count++;
+            var (given, want) = (v.GetProperty("given").GetString()!, v.GetProperty("names").GetString()!);
+            var got = SayWire.WithoutMark(given);
+            c.Check(s, got == want, $"\"{given}\" names \"{got}\", not \"{want}\"");
+        }
+        c.Check(s, count > 0, $"{count} say vectors ran");
+    }
+
+    /// <summary>One field of a reach message, by its name.</summary>
+    private static object? ReachField(ReachMessage m, string name) => (m, name) switch
+    {
+        (ReachAsk a, "id") => a.Id,
+        (ReachAsk a, "from") => a.From.ToString(),
+        (ReachAsk a, "to") => a.To.ToString(),
+        (ReachResult r, "id") => r.Id,
+        (ReachResult r, "reachable") => r.Reachable,
+        _ => "(no such field)",
+    };
+
+    /// <summary>
+    /// The reach messages: each `ok` frame reads as its type, is written back holding every field it
+    /// had and reads back unchanged, with the values `expect` gives; each `later` frame reads, leaving
+    /// out what it adds; a reader of the reach messages alone skips each `unknown` frame, and the
+    /// link's and the directory's readers skip the reach messages; and each `malformed` frame is
+    /// refused.
+    /// </summary>
+    private static void Reach(Checks c, string path)
+    {
+        const string s = "vectors/reach";
+        using var doc = Load(c, s, path);
+        var root = doc.RootElement;
+        var count = 0;
+        foreach (var v in root.GetProperty("ok").EnumerateArray())
+        {
+            count++;
+            var type = v.GetProperty("type").GetString()!;
+            var frame = Expand(v.GetProperty("frame").GetString()!);
+            var r = ReachWire.Read(frame);
+            if (r.Status != ReadStatus.Ok)
+            {
+                c.Fail(s, $"{type} frame reads ({r.Status}: {r.Why}): {frame}");
+                continue;
+            }
+            c.Check(s, r.Message!.Type == type, $"{type} frame reads as {type} (got {r.Message!.Type})");
+            var written = ReachWire.Write(r.Message!);
+            var again = ReachWire.Read(written);
+            c.Check(s, again.Status == ReadStatus.Ok && ReachWire.Write(again.Message!) == written,
+                $"{type} survives a write and a read: {written}");
+            c.Check(s, Covers(Parse(written), Parse(frame)), $"{type}: every field of the vector is written with its value: {written}");
+            if (v.TryGetProperty("expect", out var expect))
+                foreach (var want in expect.EnumerateObject())
+                {
+                    var got = ReachField(r.Message!, want.Name);
+                    c.Check(s, Same(got, want.Value), $"{type}: {want.Name} reads as {want.Value} (got {got})");
+                }
+            c.Check(s, Wire.Read(frame).Status == ReadStatus.Unknown && DirectoryWire.Read(frame).Status == ReadStatus.Unknown,
+                $"the link's and the directory's readers skip {type}");
+        }
+        foreach (var v in root.GetProperty("later").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = ReachWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Ok && ReachWire.Write(r.Message!).Length < frame.Length,
+                $"a later version's frame reads, leaving out what it adds: {frame} ({r.Status}: {r.Why})");
+        }
+        foreach (var v in root.GetProperty("unknown").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            c.Check(s, ReachWire.Read(frame).Status == ReadStatus.Unknown, $"{frame} is skipped as unknown");
+        }
+        foreach (var v in root.GetProperty("malformed").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = ReachWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Malformed, $"{(frame.Length > 200 ? frame[..200] + "..." : frame)} is malformed (got {r.Status})");
+        }
+        c.Check(s, count > 0, $"{count} reach vectors ran");
+    }
+
+    /// <summary>One field of a directory message, by what the field means: a profile's by its path, a list's by its length.</summary>
+    private static object? DirectoryField(DirectoryMessage m, string name) => (m, name) switch
+    {
+        (Listing l, "id") => l.Id,
+        (Listing l, "who") => l.Who.ToString(),
+        (Listing l, "on") => l.On,
+        (Listing { Profile: null }, "profile") => null,
+        (Listing { Profile: { } p }, "level") => (double)p.Level,
+        (Listing { Profile: { } p }, "heritage") => (double)p.Heritage,
+        (Listing { Profile: { } p }, "gender") => (double)p.Gender,
+        (Listing { Profile: { } p }, "title") => p.Title,
+        (Listing { Profile: { } p }, "skills") => (double)p.Skills.Count,
+        (Listing { Profile: { } p }, "augmentations") => (double)p.Augmentations.Count,
+        (Listing { Profile: { } p }, "deaths") => (double?)p.Deaths,
+        (Listing { Profile: { } p }, "birth") => (double?)p.Birth,
+        (Listing { Profile: { } p }, "attributes.self.base") => (double?)p.Attributes?.Self.Base,
+        (Listing { Profile: { } p }, "allegiance.name") => p.Allegiance?.Name,
+        (Listing { Profile: { } p }, "allegiance.patron") => p.Allegiance?.Patron?.ToString(),
+        (ListingResult r, "id") => r.Id,
+        (ListingResult r, "outcome") => DirectoryWire.Word(r.Outcome),
+        (ListingResult r, "reason") => r.Reason is { } x ? DirectoryWire.Word(x) : null,
+        (ListingResult r, "url") => r.Url,
+        (ListingOff o, "who") => o.Who.ToString(),
+        (ListingOff o, "by") => DirectoryWire.Word(o.By),
+        _ => "(no such field)",
+    };
+
+    /// <summary>
+    /// The directory's messages: each `ok` frame reads as its type, is written back holding every
+    /// field it had and reads back unchanged, with the values `expect` gives; each `later` frame
+    /// reads, leaving out what it adds; a reader of the directory's messages alone skips each
+    /// `unknown` frame; and each `malformed` frame is refused.
+    /// </summary>
+    private static void Directory(Checks c, string path)
+    {
+        const string s = "vectors/directory";
+        using var doc = Load(c, s, path);
+        var root = doc.RootElement;
+        c.Check(s, root.GetProperty("max_frame_bytes").GetInt32() == Wire.MaxMessageBytes, "the longest frame is the link's");
+        var count = 0;
+        foreach (var v in root.GetProperty("ok").EnumerateArray())
+        {
+            count++;
+            var type = v.GetProperty("type").GetString()!;
+            var frame = Expand(v.GetProperty("frame").GetString()!);
+            var r = DirectoryWire.Read(frame);
+            if (r.Status != ReadStatus.Ok)
+            {
+                c.Fail(s, $"{type} frame reads ({r.Status}: {r.Why}): {frame}");
+                continue;
+            }
+            c.Check(s, r.Message!.Type == type, $"{type} frame reads as {type} (got {r.Message!.Type})");
+            var written = DirectoryWire.Write(r.Message!);
+            var again = DirectoryWire.Read(written);
+            c.Check(s, again.Status == ReadStatus.Ok && DirectoryWire.Write(again.Message!) == written,
+                $"{type} survives a write and a read: {written}");
+            c.Check(s, Covers(Parse(written), Parse(frame)), $"{type}: every field of the vector is written with its value: {written}");
+            if (v.TryGetProperty("expect", out var expect))
+                foreach (var want in expect.EnumerateObject())
+                {
+                    var got = DirectoryField(r.Message!, want.Name);
+                    c.Check(s, Same(got, want.Value), $"{type}: {want.Name} reads as {want.Value} (got {got})");
+                }
+        }
+        foreach (var v in root.GetProperty("later").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = DirectoryWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Ok && DirectoryWire.Write(r.Message!).Length < frame.Length,
+                $"a later version's frame reads, leaving out what it adds: {frame} ({r.Status}: {r.Why})");
+        }
+        foreach (var v in root.GetProperty("unknown").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            c.Check(s, DirectoryWire.Read(frame).Status == ReadStatus.Unknown, $"{frame} is skipped as unknown");
+        }
+        foreach (var v in root.GetProperty("malformed").EnumerateArray())
+        {
+            count++;
+            var frame = Expand(v.GetString()!);
+            var r = DirectoryWire.Read(frame);
+            c.Check(s, r.Status == ReadStatus.Malformed, $"{(frame.Length > 200 ? frame[..200] + "..." : frame)} is malformed (got {r.Status})");
+        }
+        c.Check(s, count > 0, $"{count} directory vectors ran");
+        // A reader of the link's messages alone skips every directory message as a type it does not know.
+        foreach (var v in root.GetProperty("ok").EnumerateArray())
+        {
+            var frame = Expand(v.GetProperty("frame").GetString()!);
+            c.Check(s, Wire.Read(frame).Status == ReadStatus.Unknown, $"the link's own reader skips {v.GetProperty("type").GetString()}");
+        }
     }
 
     /// <summary>
@@ -191,6 +524,15 @@ internal static class VectorChecks
         (TellResult r, "id") => r.Id,
         (TellResult r, "outcome") => Wire.Word(r.Outcome),
         (TellResult r, "message") => r.Message,
+        (RoomSay r, "id") => r.Id,
+        (RoomSay r, "room") => r.Room,
+        (RoomSay r, "from") => r.From.ToString(),
+        (RoomSay r, "text") => r.Text,
+        (RoomSay r, "via") => r.Via,
+        (RoomLine r, "room") => r.Room,
+        (RoomLine r, "from") => r.From.ToString(),
+        (RoomLine r, "text") => r.Text,
+        (RoomLine r, "via") => r.Via,
         (ChannelLine l, "channel") => l.Channel,
         (ChannelLine l, "from") => l.From.ToString(),
         (ChannelLine l, "to") => l.To.ToString(),
@@ -211,7 +553,7 @@ internal static class VectorChecks
         (PersonWatch w, "on") => w.On,
         (PersonFriends v, "to") => v.To.ToString(),
         (PersonFriends v, "linked") => v.Linked,
-        (PersonFriends v, "alts") => Wire.Word(v.Alts),
+        (PersonFriends v, "alts") => PersonFriends.EarlierAlts,
         (PersonFriends v, "persons") => Parse(Json.Array(v.Persons.Select(p =>
             "{\"handle\":" + Json.Str(p.Handle.ToString()) + ",\"characters\":"
             + Json.Array(p.Characters.Select(a => Json.Str(a.ToString()))) + "}"))),

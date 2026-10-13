@@ -376,16 +376,24 @@ impl Fetch<'_> {
             Stream::Plain(tcp)
         };
         let mut head = format!(
-            "{} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: {}\r\nConnection: close\r\n",
+            "{} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
             self.method,
             url.target,
             url.host_header(),
-            crate::server::SOFTWARE
         );
+        // The hub names itself, unless the request names its client otherwise (Discord's bot API
+        // asks for a form of its own).
+        if !self
+            .headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+        {
+            head.push_str(&format!("User-Agent: {}\r\n", crate::server::SOFTWARE));
+        }
         for (k, v) in &self.headers {
             head.push_str(&format!("{k}: {v}\r\n"));
         }
-        if !self.body.is_empty() || self.method == "POST" {
+        if !self.body.is_empty() || matches!(self.method, "POST" | "PUT") {
             head.push_str(&format!("Content-Length: {}\r\n", self.body.len()));
         }
         head.push_str("\r\n");

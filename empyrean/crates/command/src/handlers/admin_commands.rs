@@ -6173,6 +6173,9 @@ pub fn handle_rename(w: &mut World, session: Option<SessionId>, parameters: &[St
                     w,
                     online_player,
                 );
+                // Not ACE (V451): a character in the Dereth Network's directory is taken out
+                // of it under its old name.
+                empyrean_world::federation::renamed(w, online_player.full(), &old_name);
 
                 write_output_info(
                     w,
@@ -6246,6 +6249,9 @@ pub fn handle_rename(w: &mut World, session: Option<SessionId>, parameters: &[St
                     true,
                 );
                 let _ = now;
+                // Not ACE (V451): a character in the Dereth Network's directory is taken out
+                // of it under its old name.
+                empyrean_world::federation::renamed(w, offline_player.full(), &old_name);
 
                 write_output_info(
                     w,

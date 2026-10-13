@@ -52,7 +52,7 @@ public sealed class Mod : IHarmonyMod
 
     private static string? offReason;
 
-    /// <summary>The error that kept the network off, for `/dn admin status`; null when none was logged.</summary>
+    /// <summary>The error that kept the network off, for `/dn admin`; null when none was logged.</summary>
     internal static string? OffReason => Volatile.Read(ref offReason);
 
     private static string? screenMessage;
@@ -147,6 +147,8 @@ public sealed class Mod : IHarmonyMod
             Log(LogLevel.Error, problem + "; the network is off");
             return;
         }
+        foreach (var note in ModSettings.Notes(settingsText))
+            Log(LogLevel.Info, note);
         var settings = ModSettings.FromJson(settingsText);
         StartScreenMessage(settings.ScreenMessage());
         var slug = Text.AsciiLower(settings.Slug.Trim());
@@ -166,15 +168,21 @@ public sealed class Mod : IHarmonyMod
             Log(LogLevel.Error, $"the environment variable {settings.KeyEnvironmentVariable} holds no registry key (drth_...); the network is off");
             return;
         }
-        RoomSlot? room = null;
-        if (!string.IsNullOrWhiteSpace(settings.GlobalRoom))
+        // Where the Global room is carried until the hub keeps a room for the world, and what a hub
+        // that keeps none is told: Roleplay unless the file names another, or none.
+        RoomSlot? room = RoomSlot.Roleplay;
+        if (settings.GlobalRoom is { } named)
         {
-            if (!RoomSlots.TryParse(settings.GlobalRoom, out var slot))
+            room = null;
+            if (!string.IsNullOrWhiteSpace(named))
             {
-                Log(LogLevel.Error, $"GlobalRoom \"{settings.GlobalRoom}\": General, Trade, LFG, Roleplay or empty; the network is off");
-                return;
+                if (!RoomSlots.TryParse(named, out var slot))
+                {
+                    Log(LogLevel.Error, $"GlobalRoom \"{named}\": General, Trade, LFG, Roleplay or empty; the network is off");
+                    return;
+                }
+                room = slot;
             }
-            room = slot;
         }
         var storePath = Path.IsPathRooted(settings.StorePath) ? settings.StorePath : Path.Combine(folder, settings.StorePath);
         NetworkStore store;
@@ -233,6 +241,7 @@ public sealed class Mod : IHarmonyMod
             {
                 Slug = slug,
                 GlobalRoom = room,
+                GlobalRoomNamed = settings.GlobalRoom is not null,
                 MinCharacterAgeSeconds = settings.MinCharacterAgeSeconds,
                 Software = software,
             },
@@ -247,8 +256,6 @@ public sealed class Mod : IHarmonyMod
         var on = new List<string>();
         foreach (var (feature, targets) in resolved)
         {
-            if (feature == PatchTargets.GlobalRoom && room is null)
-                continue;
             if (Apply(harmony, feature, targets))
                 on.Add(feature);
             else if (feature is PatchTargets.Core or PatchTargets.Names)
@@ -265,16 +272,16 @@ public sealed class Mod : IHarmonyMod
             world.Answerer = nonce => HubVerify.AnswerAsync(VerifyHttp, answerRoute, key!, nonce, CancellationToken.None);
         }
         else
-            Log(LogLevel.Warn, "the hub's challenge cannot be heard on this server's game port: /dn verify cannot verify this world in game");
-        if (room is not null && !on.Contains(PatchTargets.GlobalRoom))
+            Log(LogLevel.Warn, "the hub's challenge cannot be heard on this server's game port: @dn verify cannot verify this world in game");
+        if (!on.Contains(PatchTargets.GlobalRoom))
         {
-            // A room this world could hear but not speak in is not carried at all.
-            Log(LogLevel.Warn, "the Global room is not carried: its lines cannot be taken from this server's chat");
-            world.Config.GlobalRoom = null;
-            room = null;
+            // A room this world could hear but not speak in is not carried at all, whatever the hub says.
+            Log(LogLevel.Warn, "neither the Global room nor a room for Discord is carried: their lines cannot be taken from this server's chat");
+            world.Config.RoomsOff = true;
         }
         Log(LogLevel.Info, $"on as {slug}, linking to {link.GetLeftPart(UriPartial.Authority)} once the world runs; features: {string.Join(", ", on)}; " +
-            $"global room: {(room is RoomSlot s ? RoomSlots.Name(s) : "none")}");
+            $"the Global room carried in {(world.GlobalSlot is RoomSlot s ? RoomSlots.Name(s) : "no room")} until the hub says otherwise; " +
+            $"rooms mirrored into Discord as the hub says: {(world.MirroredSlots.Count == 0 ? "none yet" : string.Join(", ", world.MirroredSlots.Select(RoomSlots.Name)))}");
     }
 
     /// <summary>

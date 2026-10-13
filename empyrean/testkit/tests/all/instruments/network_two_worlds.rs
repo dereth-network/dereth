@@ -214,7 +214,7 @@ mod run {
         c.federation.key_file = "network.key".to_owned();
         // New characters listen to General but not Roleplay, so the run carries the Global room
         // in General; a world would usually pick a room it does not otherwise use.
-        c.federation.global_room = "general".to_owned();
+        c.federation.global_room = Some("general".to_owned());
         let config = wdir.join("empyrean.toml");
         std::fs::write(&config, empyrean_common::toml_config::to_toml_string(&c))
             .expect("empyrean.toml");

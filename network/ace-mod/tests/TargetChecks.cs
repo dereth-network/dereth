@@ -175,7 +175,9 @@ internal static class TargetChecks
             {
                 if (i >= ps.Length)
                     return $"{n}: the target has {ps.Length} argument(s)";
-                if (ps[i].ParameterType != p.ParameterType)
+                // A hook may take an argument by reference, to change it for the method.
+                var type = p.ParameterType.IsByRef ? p.ParameterType.GetElementType() : p.ParameterType;
+                if (ps[i].ParameterType != type)
                     return $"{n} is {p.ParameterType}, the target's is {ps[i].ParameterType}";
                 continue;
             }

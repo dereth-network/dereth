@@ -109,7 +109,7 @@ fn every_kept_key_parses() {
         hub_url = "wss://hub.example.org"
         slug = "kept"
         key_file = "keys/kept.key"
-        global_room = "roleplay"
+        global_room = "trade"
         store_path = "net/network.json"
         min_character_age_seconds = 600
         "#,
@@ -147,11 +147,16 @@ fn every_kept_key_parses() {
     );
     assert_eq!(
         (
-            f.global_room.as_str(),
+            f.global_room.as_deref(),
             f.store_path.as_str(),
             f.min_character_age_seconds
         ),
-        ("roleplay", "net/network.json", 600)
+        (Some("trade"), "net/network.json", 600)
+    );
+    assert_eq!(
+        MasterConfiguration::default().federation.global_room,
+        None,
+        "not named unless the file names it"
     );
     assert!(
         !MasterConfiguration::default().federation.enabled,
@@ -402,6 +407,8 @@ fn removed_keys_and_sections_warn_once_and_load() {
         world_customization_added_paths = ["x"]
         recurse_world_customization_paths = true
         auto_apply_database_updates = true
+        [federation]
+        discord_mirrors = ["general"]
         "#,
     );
     assert!(parsed.unknown_keys.is_empty(), "{:?}", parsed.unknown_keys);
@@ -422,6 +429,7 @@ fn removed_keys_and_sections_warn_once_and_load() {
             "offline.world_customization_added_paths",
             "offline.recurse_world_customization_paths",
             "offline.auto_apply_database_updates",
+            "federation.discord_mirrors",
         ]
     );
     // Every removed setting is covered, each with its reason.
@@ -709,7 +717,10 @@ fn the_global_rooms_old_setting_name_is_an_error_naming_the_new_one() {
     );
     let parsed = toml_config::from_toml_str("[federation]\nglobal_room = \"roleplay\"\n")
         .expect("the new name");
-    assert_eq!(parsed.config.federation.global_room, "roleplay");
+    assert_eq!(
+        parsed.config.federation.global_room.as_deref(),
+        Some("roleplay")
+    );
     for r in toml_config::REFUSED {
         let (section, key) = r.new.rsplit_once('.').unwrap_or(("", r.new));
         let parsed = toml_config::from_toml_str(&format!("[{section}]\n{key} = \"\"\n"));
@@ -719,6 +730,34 @@ fn the_global_rooms_old_setting_name_is_an_error_naming_the_new_one() {
             r.new
         );
     }
+}
+
+/// Divergence: V449
+/// The Global room's setting is read from a file that sets it, until the hub keeps the world's
+/// room, and written only when set: the example and a file of defaults leave it out. The world's
+/// own rooms for Discord are no setting any more: a file that names them loads, and says once that
+/// they are set on the hub's operator page.
+#[test]
+fn the_global_rooms_setting_is_written_only_when_set_and_discord_mirrors_is_not_read() {
+    let defaults = toml_config::to_toml_string(&MasterConfiguration::default());
+    assert!(!defaults.contains("global_room"), "left out when not set");
+    assert!(!defaults.contains("discord_mirrors"));
+    let mut c = MasterConfiguration::default();
+    c.federation.global_room = Some("lfg".into());
+    let text = toml_config::to_toml_string(&c);
+    assert!(
+        text.contains("# default: \"roleplay\" (Empyrean only)\n")
+            && text.contains("\nglobal_room = \"lfg\"\n"),
+        "{text}"
+    );
+    assert_eq!(via_toml(&c), c);
+    let parsed = toml("[federation]\nenabled = true\ndiscord_mirrors = [\"general\", \"trade\"]\n");
+    assert!(parsed.config.federation.enabled, "the file loads");
+    let lines = toml_config::warnings(&parsed, std::path::Path::new("empyrean.toml"));
+    assert_eq!(
+        lines,
+        ["Configuration: `federation.discord_mirrors` in empyrean.toml is not read: the world's own rooms are mirrored into Discord as its operator sets them on the hub's operator page"]
+    );
 }
 
 /// Unknown keys are warnings, one line each naming the key and the file.

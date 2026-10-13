@@ -1,6 +1,5 @@
 //! The person layer's words: what a world may ask the hub about persons, how the hub answers, a
-//! person's alts setting, a person view's person friends and their limits, and the shape of a link
-//! code.
+//! person view's person friends and their limits, and the shape of a link code.
 //!
 //! A person is a Discord account, as the hub knows it; a player links characters to it on the
 //! site, with a one-time code its world asks the hub for. The hub keeps persons; a world only asks,
@@ -42,13 +41,15 @@ pub enum PersonOp {
     Code,
     /// Unlink `who` from its person.
     Unlink,
-    /// Set the alts setting of `who`'s person (`shown`).
+    /// Sent by worlds of the network's first version alone, which kept a setting of the person's
+    /// that hid its characters from each other (`shown`): nothing of a person is hidden now, and
+    /// the hub changes nothing and refuses it, naming the site's page.
     Alts,
     /// List `target`'s person as a person friend of `who`'s person.
     Befriend,
     /// Remove the person friend whose handle is `target`.
     Unfriend,
-    /// The characters of `target`'s person, when it shows them.
+    /// The characters of `target`'s person. Sent by worlds of the network's first version alone.
     Characters,
     /// List each of `targets`' persons as a person friend of `who`'s person, as `befriend` does,
     /// until the limit: the friends `who` had before it was linked.
@@ -78,25 +79,25 @@ pub enum PersonOutcome {
     Refused,
 }
 
-/// A person's alts setting: whether anyone else may learn that its characters are one person.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Alts {
-    /// Nobody learns it: the default.
-    #[default]
-    Hidden,
-    /// Anyone may learn which characters are the person's.
-    Shown,
+/// The `alts` word a person view carries for worlds of the network's first version, which read it:
+/// always `shown`, since nothing of a person is hidden. A reader takes any word, or none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct EarlierAlts;
+
+impl EarlierAlts {
+    /// The word the hub writes.
+    pub const WORD: &'static str = "shown";
 }
 
-impl Alts {
-    /// The setting's word.
-    #[must_use]
-    pub fn word(self) -> &'static str {
-        match self {
-            Self::Hidden => "hidden",
-            Self::Shown => "shown",
-        }
+impl Serialize for EarlierAlts {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(Self::WORD)
+    }
+}
+
+impl<'de> Deserialize<'de> for EarlierAlts {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d).map(|_| Self)
     }
 }
 

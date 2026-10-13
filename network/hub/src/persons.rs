@@ -1,39 +1,41 @@
-//! Persons: characters linked to a Discord account, the alts setting, and person friends
-//! (`docs/network/05-hub.md` section 5).
+//! Persons: characters linked to a Discord account, and person friends (`docs/network/05-hub.md`
+//! section 5).
 //!
 //! A person is an account of [`crate::operators`]: whoever signs in with Discord. A world asks for a
-//! one-time code for one of its own characters; the player enters it on the site, signed in, and
-//! the character is linked to that person. The person's alts setting says whether anyone else may
-//! learn that its characters are one person, and it is `hidden` until the person changes it.
+//! one-time code for one of its own characters; the player opens the link it gives on the site,
+//! signed in, and the character is linked to that person. Nothing of a person is hidden from
+//! another player: a person friend lists every character of its person, on any world on the
+//! network.
 //!
 //! **What is answered to whom** is decided here and nowhere else:
 //!
-//! - [`Registry::person_characters`] names a person's characters only while it shows its alts;
-//!   for every other character (nobody linked it, its person hides its alts, it does not exist) it
-//!   names none, alike.
-//! - [`Registry::person_view`] is what one character's world hears: whether it is linked, the
-//!   setting, and the person friends that hold for it (the ones added from it, and, while its person
-//!   shows its alts, all of its person's), each listing its handle and, while the handle's person
-//!   shows its alts, that person's other characters. A hidden person's other characters are never
-//!   in it. The view of a character nobody links names the friends handed back to it when it was
-//!   unlinked, until it has been sent once.
+//! - [`Registry::person_characters`] names a person's characters, for any one of them; for every
+//!   other character (nobody linked it, it does not exist) it names none, alike.
+//! - [`Registry::person_view`] is what one character's world hears: whether it is linked, and the
+//!   person friends of its person, each listing its handle and that handle's person's other
+//!   characters. The view of a character nobody links names the friends handed back to it when it
+//!   was unlinked, until it has been sent once.
 //! - The site's routes show a person only itself.
-//! - A world may hide a person's characters, never show them; and what it is refused for one
-//!   character counts nothing of the person's others while they are hidden.
+//!
+//! **A link pauses** while its character is off the network, as the hub takes it from the
+//! directory ([`Registry::on_network`]): the person's friends' views do not name the character,
+//! tells to it do not reach the person's Discord, and the person does not speak as it from
+//! Discord. Its world's `listing` that puts it back on resumes it, with nothing to redo.
 //!
 //! A code is kept as its SHA-256; a person's events (kept for the limits) never name a character.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use dereth_network_protocol::person::{
-    link_code_from, read_link_code, within_view_limits, Alts, PersonFriend, PersonOutcome,
-    MAX_CARRIED, MAX_PERSON_CHARACTERS, MAX_PERSON_FRIENDS, MAX_VIEW_CHARACTERS,
+    link_code_from, read_link_code, PersonFriend, PersonOutcome, MAX_CARRIED,
+    MAX_PERSON_CHARACTERS, MAX_PERSON_FRIENDS,
 };
-use dereth_network_protocol::{Address, Federation};
+use dereth_network_protocol::Address;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
+use crate::directory::on_network_sql;
 use crate::operators::{within, Operator};
 use crate::registry::{digest, hex, iso, random_bytes, Registry, RegistryError};
 
@@ -56,11 +58,10 @@ pub mod limits {
     pub const WRONG_CODES_PER_HOUR: usize = 10;
     /// Characters one person may link.
     pub const CHARACTERS: usize = dereth_network_protocol::person::MAX_PERSON_CHARACTERS;
-    /// Person friends that may hold for one character: those added from it while its person hides
-    /// its alts, all of the person's while it shows them.
-    pub const FRIENDS: usize = dereth_network_protocol::person::MAX_PERSON_FRIENDS;
-    /// Changes of the alts setting one person may make a day.
-    pub const ALTS_CHANGES_PER_DAY: usize = 20;
+    /// Person friends one person may list, from all of its characters together, across the
+    /// network. A view names at most [`dereth_network_protocol::person::MAX_PERSON_FRIENDS`] of
+    /// them, as many as the final retail client's friends list holds.
+    pub const FRIENDS: usize = 1_000;
 }
 
 pub use crate::core::{PersonAnswer, PersonView};
@@ -73,7 +74,6 @@ const COUNTED: &[&str] = &[
     "page-fetched",
     "approved",
     "reported",
-    "alts",
     "wrong-code",
 ];
 
@@ -83,7 +83,8 @@ pub(crate) fn forgotten_as(discord_id: &str) -> String {
     format!("gone_{}", &hex(&digest(discord_id))[..32])
 }
 
-/// The schema the person layer adds to the registry (its version 5).
+/// The schema the person layer adds to the registry (its version 5). Its `alts` column, a setting
+/// the network no longer has, goes in version 10 ([`schema_10`]).
 pub(crate) const SCHEMA: &str = "
     ALTER TABLE operators ADD COLUMN alts TEXT NOT NULL DEFAULT 'hidden';
     CREATE TABLE person_characters (
@@ -132,16 +133,26 @@ pub(crate) const SCHEMA_7: &str = "
     CREATE INDEX person_returns_by_time ON person_returns(at);
 ";
 
+/// The person layer's fourth step (the registry's version 10): a person's setting that hid its
+/// characters from each other, and the one that took tells on Discord, go; nothing of a person is
+/// hidden, and a linked character's tells reach its person's Discord without a setting. A hold a
+/// person put on one of its characters' listings goes too: a character is listed while it is on
+/// the network. Each statement is one the registry's own code builds, so the step runs on a
+/// registry that never had the second column.
+pub(crate) fn schema_10(has_discord_tells: bool) -> String {
+    let mut s = String::from(
+        "ALTER TABLE operators DROP COLUMN alts;
+         DELETE FROM directory_holds WHERE by = 'person';
+         DELETE FROM operator_events WHERE kind = 'alts';",
+    );
+    if has_discord_tells {
+        s.push_str("ALTER TABLE operators DROP COLUMN discord_tells;");
+    }
+    s
+}
+
 /// How long friends handed back to an unlinked character wait for it to come online.
 const RETURNS_SECS: u64 = 30 * DAY;
-
-fn alts_of(word: &str) -> Alts {
-    if word == "shown" {
-        Alts::Shown
-    } else {
-        Alts::Hidden
-    }
-}
 
 fn address(s: &str) -> Option<Address> {
     Address::parse(s).ok()
@@ -172,22 +183,20 @@ impl Registry {
             .unwrap_or(std::time::UNIX_EPOCH))
     }
 
-    /// The person a character is linked to, and its alts setting.
-    fn person_of(&self, key: &str) -> Result<Option<(String, Alts)>> {
+    /// The person a character is linked to.
+    fn person_of(&self, key: &str) -> Result<Option<String>> {
         Ok(self
             .db
             .query_row(
-                "SELECT o.id, o.alts FROM person_characters c JOIN operators o ON o.id = c.person_id
-                 WHERE c.address_key = ?",
+                "SELECT person_id FROM person_characters WHERE address_key = ?",
                 [key],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+                |r| r.get::<_, String>(0),
             )
-            .optional()?
-            .map(|(id, alts)| (id, alts_of(&alts))))
+            .optional()?)
     }
 
-    /// The characters linked to the person signed in, whatever its alts setting: for the routing,
-    /// to find the views a change of the person's may have changed. Never answered to a world.
+    /// The characters linked to the person signed in: for the routing, to find the views a change
+    /// of the person's may have changed.
     ///
     /// # Errors
     /// Database errors only.
@@ -196,7 +205,7 @@ impl Registry {
     }
 
     /// A person's characters, in the order they were linked.
-    fn characters_of_person(&self, person: &str) -> Result<Vec<Address>> {
+    pub(crate) fn characters_of_person(&self, person: &str) -> Result<Vec<Address>> {
         let mut q = self.db.prepare_cached(
             "SELECT address FROM person_characters WHERE person_id = ? ORDER BY linked_at, rowid",
         )?;
@@ -206,105 +215,111 @@ impl Registry {
         Ok(rows.iter().filter_map(|a| address(a)).collect())
     }
 
-    /// Whether a world is on the network.
-    fn on_network(&self, world: &str, seen: &mut HashMap<String, bool>) -> bool {
-        if let Some(&on) = seen.get(world) {
-            return on;
-        }
-        let on = self
-            .federation(world)
-            .ok()
-            .flatten()
-            .is_some_and(|(_, f)| f == Federation::On);
-        seen.insert(world.to_owned(), on);
-        on
-    }
-
-    /// What `handle` lists as a person friend: itself, then, while its person shows its alts, that
-    /// person's other characters on worlds on the network.
-    fn listed_by(
-        &self,
-        handle: &Address,
-        seen: &mut HashMap<String, bool>,
-    ) -> Result<Vec<Address>> {
+    /// What `handle` lists as a person friend: itself, then its person's other characters on worlds
+    /// on the network, while each is on the network itself (a link pauses while its character is
+    /// off), in the order they were linked.
+    fn listed_by(&self, handle: &Address) -> Result<Vec<Address>> {
+        let mut q = self.db.prepare_cached(&format!(
+            "SELECT c.address FROM person_characters h
+               JOIN person_characters c ON c.person_id = h.person_id
+                 AND c.address_key != h.address_key
+             WHERE h.address_key = ?1
+               AND c.world IN (SELECT slug FROM servers WHERE federation = 'on') AND {}
+             ORDER BY c.linked_at, c.rowid",
+            on_network_sql("c.address_key", "?2")
+        ))?;
+        let others = q
+            .query_map(params![handle.key(), iso(self.now())], |r| {
+                r.get::<_, String>(0)
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         let mut out = vec![handle.clone()];
-        if let Some((person, Alts::Shown)) = self.person_of(&handle.key())? {
-            for c in self.characters_of_person(&person)? {
-                if c.key() != handle.key() && self.on_network(c.world(), seen) {
-                    out.push(c);
-                }
-            }
-        }
+        out.extend(others.iter().filter_map(|a| address(a)));
         out.truncate(MAX_PERSON_CHARACTERS);
         Ok(out)
     }
 
     // ---- what worlds hear ------------------------------------------------------------------------
 
-    /// The characters of `target`'s person on worlds on the network, `target` first, while that
-    /// person shows its alts; none otherwise, alike for a character nobody linked, one whose person
-    /// hides its alts, and one that does not exist.
+    /// The characters of `target`'s person on worlds on the network, `target` first; none for a
+    /// character nobody linked and one that does not exist, alike.
     ///
     /// # Errors
     /// Database errors only.
     pub fn person_characters(&self, target: &Address) -> Result<Vec<Address>> {
         match self.person_of(&target.key())? {
-            Some((_, Alts::Shown)) => self.listed_by(target, &mut HashMap::new()),
-            _ => Ok(Vec::new()),
+            Some(_) => self.listed_by(target),
+            None => Ok(Vec::new()),
         }
     }
 
-    /// `who`'s person view: whether it is linked, its person's setting, and the person friends that
-    /// hold for it (the ones added from it, and, while its person shows its alts, all of the
-    /// person's), each with the characters it lists.
+    /// `who`'s person view, whole: whether it is linked, and every person friend of its person,
+    /// from whichever of its characters each was added, in the order they were added, each with the
+    /// characters it lists. A person may list more person friends than a view names: the routing
+    /// cuts the view to its limits as it sends it, by what it knows of who is online
+    /// ([`crate::core::cut_view`]).
     ///
     /// # Errors
     /// Database errors only.
     pub fn person_view(&self, who: &Address) -> Result<PersonView> {
-        let Some((person, alts)) = self.person_of(&who.key())? else {
+        let Some(person) = self.person_of(&who.key())? else {
             return Ok(PersonView {
                 persons: self.returns_of(who)?,
                 ..PersonView::default()
             });
         };
-        let mut q = self.db.prepare_cached(
-            "SELECT handle_key, handle FROM person_friends
-             WHERE person_id = ?1 AND (?2 OR added_from = ?3)
-             ORDER BY added_at, rowid",
-        )?;
-        let rows = q.query_map(params![person, alts == Alts::Shown, who.key()], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        // One read for every person friend: its handle, and each other character of the handle's
+        // person that it lists.
+        let mut q = self.db.prepare_cached(&format!(
+            "SELECT f.rowid, f.handle_key, f.handle, c.address FROM person_friends f
+               LEFT JOIN person_characters h ON h.address_key = f.handle_key
+               LEFT JOIN person_characters c ON c.person_id = h.person_id
+                 AND c.address_key != f.handle_key
+                 AND c.world IN (SELECT slug FROM servers WHERE federation = 'on')
+                 AND {}
+             WHERE f.person_id = ?1
+             ORDER BY f.added_at, f.rowid, c.linked_at, c.rowid",
+            on_network_sql("c.address_key", "?2")
+        ))?;
+        let rows = q.query_map(params![person, iso(self.now())], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
         })?;
-        let mut seen = HashMap::new();
         let mut handles = BTreeSet::new();
-        let mut persons = Vec::new();
-        let mut named = 0;
+        let mut persons: Vec<PersonFriend> = Vec::new();
+        // The person friend the rows are of now, while it is the first of its handle.
+        let mut current: Option<(i64, bool)> = None;
         for row in rows {
-            // The view is cut in order at its limits, so nothing past them is read: a person may
-            // list many more person friends than one view holds. Each person friend's handle
-            // stays in the view however many characters those before it list.
-            if persons.len() >= MAX_PERSON_FRIENDS {
-                break;
+            let (rowid, key, handle, other) = row?;
+            if current.is_none_or(|(r, _)| r != rowid) {
+                // Each handle once, the first time it was added.
+                let first = match address(&handle) {
+                    Some(handle) if handles.insert(key) => {
+                        persons.push(PersonFriend {
+                            characters: vec![handle.clone()],
+                            handle,
+                        });
+                        true
+                    }
+                    _ => false,
+                };
+                current = Some((rowid, first));
             }
-            let (key, handle) = row?;
-            let Some(handle) = address(&handle) else {
-                continue;
-            };
-            if !handles.insert(key) {
-                continue;
+            if let (Some((_, true)), Some(c)) = (current, other.as_deref().and_then(address)) {
+                if let Some(p) = persons.last_mut() {
+                    if p.characters.len() < MAX_PERSON_CHARACTERS {
+                        p.characters.push(c);
+                    }
+                }
             }
-            let characters = if named >= MAX_VIEW_CHARACTERS {
-                vec![handle.clone()]
-            } else {
-                self.listed_by(&handle, &mut seen)?
-            };
-            named += characters.len();
-            persons.push(PersonFriend { handle, characters });
         }
         Ok(PersonView {
             linked: true,
-            alts,
-            persons: within_view_limits(persons),
+            persons,
         })
     }
 
@@ -347,16 +362,15 @@ impl Registry {
         Ok(())
     }
 
-    /// The handles of the person friends that hold for the character `key` of `person`, whose
-    /// setting is `alts`, in the order they were added, each once.
-    fn held_for(&self, person: &str, alts: Alts, key: &str) -> Result<Vec<(String, String)>> {
+    /// The handles of `person`'s person friends, in the order they were added, each once: those
+    /// that hold for each of its characters.
+    fn held_for(&self, person: &str) -> Result<Vec<(String, String)>> {
         let mut q = self.db.prepare_cached(
-            "SELECT handle_key, handle FROM person_friends
-             WHERE person_id = ?1 AND (?2 OR added_from = ?3)
+            "SELECT handle_key, handle FROM person_friends WHERE person_id = ?
              ORDER BY added_at, rowid",
         )?;
         let rows = q
-            .query_map(params![person, alts == Alts::Shown, key], |r| {
+            .query_map([person], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -367,10 +381,10 @@ impl Registry {
             .collect())
     }
 
-    /// The character `key` of `person`, whose setting is `alts`, is being unlinked: the friends
-    /// that hold for it now are handed back to it, to become its own friends on its world when its
-    /// world is next sent its view. Friends handed back long ago and never sent are forgotten.
-    fn hand_back(&self, person: &str, alts: Alts, key: &str) -> Result<()> {
+    /// The character `key` of `person` is being unlinked: the friends that hold for it now are
+    /// handed back to it, to become its own friends on its world when its world is next sent its
+    /// view. Friends handed back long ago and never sent are forgotten.
+    fn hand_back(&self, person: &str, key: &str) -> Result<()> {
         self.db.execute(
             "DELETE FROM person_returns WHERE at < ?",
             [self.since(RETURNS_SECS)],
@@ -387,11 +401,7 @@ impl Registry {
             return Ok(());
         };
         let now = iso(self.now());
-        for (handle_key, handle) in self
-            .held_for(person, alts, key)?
-            .into_iter()
-            .take(MAX_PERSON_FRIENDS)
-        {
+        for (handle_key, handle) in self.held_for(person)?.into_iter().take(MAX_PERSON_FRIENDS) {
             self.db.execute(
                 "INSERT INTO person_returns(address_key, world, handle_key, handle, at)
                  VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
@@ -401,13 +411,11 @@ impl Registry {
         Ok(())
     }
 
-    /// Lists `handle` as a person friend of `person`, whose setting is `alts`, added from the
-    /// character `who`, unless it is listed from there already or as many person friends as a
-    /// person may list hold for `who` already.
+    /// Lists `handle` as a person friend of `person`, added from the character `who`, unless it is
+    /// listed from there already or the person lists as many person friends as it may.
     fn add_friend(
         &self,
         person: &str,
-        alts: Alts,
         who: &Address,
         handle_key: &str,
         handle: &str,
@@ -422,8 +430,8 @@ impl Registry {
         }
         let held: i64 = self.db.query_row(
             "SELECT count(DISTINCT handle_key) FROM person_friends
-             WHERE person_id = ?1 AND handle_key != ?2 AND (?3 OR added_from = ?4)",
-            params![person, handle_key, alts == Alts::Shown, who.key()],
+             WHERE person_id = ?1 AND handle_key != ?2",
+            params![person, handle_key],
             |r| r.get(0),
         )?;
         if usize::try_from(held).unwrap_or(usize::MAX) >= limits::FRIENDS {
@@ -518,8 +526,8 @@ impl Registry {
         Ok((code, CODE_SECS))
     }
 
-    /// Forgets a world's characters' links to persons and their codes, as the world leaves the
-    /// registry: a world registered later under its slug inherits no link.
+    /// Forgets a world's characters' links to persons and their codes, and their listings, as the
+    /// world leaves the registry: a world registered later under its slug inherits none of them.
     ///
     /// # Errors
     /// Database errors only.
@@ -530,6 +538,9 @@ impl Registry {
             .execute("DELETE FROM person_codes WHERE world = ?", [slug])?;
         self.db
             .execute("DELETE FROM person_returns WHERE world = ?", [slug])?;
+        self.forget_worlds_listings(slug)?;
+        self.db
+            .execute("DELETE FROM directory_holds WHERE world = ?", [slug])?;
         Ok(())
     }
 
@@ -541,11 +552,11 @@ impl Registry {
         let key = who.key();
         self.db
             .execute("DELETE FROM person_codes WHERE address_key = ?", [&key])?;
-        let Some((person, alts)) = self.person_of(&key)? else {
+        let Some(person) = self.person_of(&key)? else {
             return Ok(PersonAnswer::unchanged(PersonOutcome::NotLinked));
         };
         let changed = self.characters_of_person(&person)?;
-        self.hand_back(&person, alts, &key)?;
+        self.hand_back(&person, &key)?;
         self.db.execute(
             "DELETE FROM person_characters WHERE address_key = ?",
             [&key],
@@ -554,70 +565,34 @@ impl Registry {
         Ok(ok_changing(changed))
     }
 
-    /// Hides the characters of `who`'s person, as `who`'s world asks: `refused` for `shown`. A world
-    /// speaks for its characters, so it may hide a person's characters but never show them: showing
-    /// them is the person's own choice, signed in on the site ([`Self::set_alts_for`]).
+    /// What a world of the network's first version is answered when it asks to hide or show its
+    /// character's person's characters: nothing of a person is hidden, so nothing changes, and it is
+    /// refused (`not_linked` for a character nobody links).
     ///
     /// # Errors
     /// Database errors only.
-    pub fn person_alts(&self, who: &Address, shown: bool) -> Result<PersonAnswer> {
-        let Some((person, _)) = self.person_of(&who.key())? else {
-            return Ok(PersonAnswer::unchanged(PersonOutcome::NotLinked));
-        };
-        if shown {
-            return Ok(PersonAnswer::unchanged(PersonOutcome::Refused));
-        }
-        Ok(match self.set_alts(&person, false) {
-            Ok(true) => ok_changing(self.characters_of_person(&person)?),
-            Ok(false) => PersonAnswer::unchanged(PersonOutcome::Ok),
-            Err(e) if e.status == 429 => PersonAnswer::unchanged(PersonOutcome::RateLimited),
-            Err(e) => return Err(e),
-        })
-    }
-
-    /// Sets a person's alts setting: true when that changed it.
-    fn set_alts(&self, person: &str, shown: bool) -> Result<bool> {
-        let word = if shown { "shown" } else { "hidden" };
-        let now: String = self
-            .db
-            .query_row("SELECT alts FROM operators WHERE id = ?", [person], |r| {
-                r.get(0)
-            })
-            .optional()?
-            .ok_or_else(|| RegistryError::new(404, "No such person"))?;
-        if now == word {
-            return Ok(false);
-        }
-        let times = self.operator_event_times(Some(person), "alts", DAY)?;
-        within(
-            &times,
-            limits::ALTS_CHANGES_PER_DAY,
-            DAY,
-            self.now(),
-            "Too many changes of the setting today",
-        )?;
-        self.db.execute(
-            "UPDATE operators SET alts = ? WHERE id = ?",
-            params![word, person],
-        )?;
-        self.operator_event(person, "alts", &json!({}))?;
-        Ok(true)
+    pub fn person_alts(&self, who: &Address) -> Result<PersonAnswer> {
+        Ok(PersonAnswer::unchanged(
+            if self.person_of(&who.key())?.is_some() {
+                PersonOutcome::Refused
+            } else {
+                PersonOutcome::NotLinked
+            },
+        ))
     }
 
     /// Lists `target`'s person as a person friend of `who`'s person, added from `who`. `ok` for any
-    /// character's address, whether anyone linked it or not; `refused` when the person friends that
-    /// hold for `who` (the ones added from it, and, while its person shows its alts, all of the
-    /// person's) are as many as a person may list. So while the person hides its alts, the answer
-    /// counts nothing added from its other characters, and says nothing of them.
+    /// character's address, whether anyone linked it or not; `refused` when the person lists as many
+    /// person friends as it may, from all of its characters together.
     ///
     /// # Errors
     /// Database errors only.
     pub fn person_befriend(&self, who: &Address, target: &Address) -> Result<PersonAnswer> {
-        let Some((person, alts)) = self.person_of(&who.key())? else {
+        let Some(person) = self.person_of(&who.key())? else {
             return Ok(PersonAnswer::unchanged(PersonOutcome::NotLinked));
         };
         Ok(
-            match self.add_friend(&person, alts, who, &target.key(), &target.to_string())? {
+            match self.add_friend(&person, who, &target.key(), &target.to_string())? {
                 Added::Already => PersonAnswer::unchanged(PersonOutcome::Ok),
                 Added::Full => PersonAnswer::unchanged(PersonOutcome::Refused),
                 Added::Yes => ok_changing(self.characters_of_person(&person)?),
@@ -627,18 +602,17 @@ impl Registry {
 
     /// Lists each of `targets`' persons as a person friend of `who`'s person, added from `who`, in
     /// order, as [`Self::person_befriend`] does, until as many hold for `who` as a person may list:
-    /// the friends `who` had before it was linked. `ok` however many were listed, so the answer
-    /// says nothing of the person's other characters.
+    /// the friends `who` had before it was linked. `ok` however many were listed.
     ///
     /// # Errors
     /// Database errors only.
     pub fn person_carry(&self, who: &Address, targets: &[Address]) -> Result<PersonAnswer> {
-        let Some((person, alts)) = self.person_of(&who.key())? else {
+        let Some(person) = self.person_of(&who.key())? else {
             return Ok(PersonAnswer::unchanged(PersonOutcome::NotLinked));
         };
         let mut changed = false;
         for t in targets.iter().take(MAX_CARRIED) {
-            match self.add_friend(&person, alts, who, &t.key(), &t.to_string())? {
+            match self.add_friend(&person, who, &t.key(), &t.to_string())? {
                 Added::Yes => changed = true,
                 Added::Already => {}
                 Added::Full => break,
@@ -651,18 +625,18 @@ impl Registry {
         })
     }
 
-    /// Removes the person friend whose handle is `target`, where it holds for `who`: the one added
-    /// from `who`, or, while its person shows its alts, every one of the person's.
+    /// Removes the person friend whose handle is `target` from `who`'s person, from whichever of
+    /// its characters it was added.
     ///
     /// # Errors
     /// Database errors only.
     pub fn person_unfriend(&self, who: &Address, target: &Address) -> Result<PersonAnswer> {
-        let Some((person, alts)) = self.person_of(&who.key())? else {
+        let Some(person) = self.person_of(&who.key())? else {
             return Ok(PersonAnswer::unchanged(PersonOutcome::NotLinked));
         };
         let removed = self.db.execute(
-            "DELETE FROM person_friends WHERE person_id = ?1 AND handle_key = ?2 AND (?3 OR added_from = ?4)",
-            params![person, target.key(), alts == Alts::Shown, who.key()],
+            "DELETE FROM person_friends WHERE person_id = ?1 AND handle_key = ?2",
+            params![person, target.key()],
         )?;
         if removed == 0 {
             return Ok(PersonAnswer::unchanged(PersonOutcome::Ok));
@@ -677,13 +651,6 @@ impl Registry {
     /// # Errors
     /// Database errors only.
     pub fn person_json(&self, op: &Operator) -> Result<Value> {
-        let alts: String = self
-            .db
-            .query_row("SELECT alts FROM operators WHERE id = ?", [&op.id], |r| {
-                r.get(0)
-            })
-            .optional()?
-            .unwrap_or_else(|| "hidden".into());
         let mut q = self.db.prepare_cached(
             "SELECT address, world, linked_at FROM person_characters WHERE person_id = ? ORDER BY linked_at, rowid",
         )?;
@@ -699,8 +666,13 @@ impl Registry {
         let mut characters = Vec::new();
         for (address, world, linked_at) in rows {
             let name = self.federation(&world)?.map(|(n, _)| n);
+            let listing = match Address::parse(&address) {
+                Ok(a) => self.listing_state(&a.key())?,
+                Err(_) => "off",
+            };
             characters.push(json!({
                 "address": address, "world": { "slug": world, "name": name }, "linkedAt": linked_at,
+                "listing": listing,
             }));
         }
         let mut q = self.db.prepare_cached(
@@ -714,14 +686,11 @@ impl Registry {
                 }))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(json!({
-            "name": op.name, "alts": alts_of(&alts).word(),
-            "characters": characters, "friends": friends,
-        }))
+        Ok(json!({ "name": op.name, "characters": characters, "friends": friends }))
     }
 
-    /// The person enters a code: the code's character is linked to it (moved from any other
-    /// person), and the code is spent.
+    /// The person opens a link, or enters its code: the code's character is linked to it (moved
+    /// from any other person), and the code is spent.
     ///
     /// # Errors
     /// 422 `no_such_code` for a code the hub never gave, a spent one and a lapsed one alike; 409
@@ -778,7 +747,7 @@ impl Registry {
         // person it moves from, and those handed back to it by an unlink its world has not yet
         // been sent.
         let mut friends = match self.person_of(&key)? {
-            Some((other, alts)) if other != op.id => self.held_for(&other, alts, &key)?,
+            Some(other) if other != op.id => self.held_for(&other)?,
             _ => Vec::new(),
         };
         friends.extend(
@@ -794,17 +763,18 @@ impl Registry {
                person_id = excluded.person_id, linked_at = excluded.linked_at",
             params![key, address, world, op.id, now],
         )?;
-        if let (Some(who), Some((_, alts))) = (Address::parse(&address).ok(), self.person_of(&key)?)
-        {
+        if let Ok(who) = Address::parse(&address) {
             for (handle_key, handle) in friends {
                 if matches!(
-                    self.add_friend(&op.id, alts, &who, &handle_key, &handle)?,
+                    self.add_friend(&op.id, &who, &handle_key, &handle)?,
                     Added::Full
                 ) {
                     break;
                 }
             }
         }
+        // A character moved from another person is no longer that person's to speak as.
+        self.identities_moved(&key, &op.id)?;
         self.operator_event(&op.id, "linked", &json!({}))?;
         let name = self.federation(&world)?.map(|(n, _)| n);
         Ok(json!({
@@ -821,8 +791,8 @@ impl Registry {
     pub fn unlink_for(&self, op: &Operator, address: &str) -> Result<()> {
         let not_yours = || RegistryError::new(404, "That is not one of your characters");
         let key = Address::parse(address).map_err(|_| not_yours())?.key();
-        if let Some((person, alts)) = self.person_of(&key)?.filter(|(p, _)| *p == op.id) {
-            self.hand_back(&person, alts, &key)?;
+        if let Some(person) = self.person_of(&key)?.filter(|p| *p == op.id) {
+            self.hand_back(&person, &key)?;
         }
         let n = self.db.execute(
             "DELETE FROM person_characters WHERE address_key = ? AND person_id = ?",
@@ -835,16 +805,6 @@ impl Registry {
             .execute("DELETE FROM person_codes WHERE address_key = ?", [&key])?;
         self.operator_event(&op.id, "unlinked", &json!({}))?;
         Ok(())
-    }
-
-    /// The person's alts setting, from the site: the person as [`Self::person_json`] shows it, and
-    /// whether that changed the setting.
-    ///
-    /// # Errors
-    /// 429 past the changes a person may make a day.
-    pub fn set_alts_for(&self, op: &Operator, shown: bool) -> Result<(Value, bool)> {
-        let changed = self.set_alts(&op.id, shown)?;
-        Ok((self.person_json(op)?, changed))
     }
 
     /// Removes a person friend of the person's, whichever character it was added from.
@@ -888,27 +848,28 @@ impl Registry {
         Ok(())
     }
 
-    /// Forgets the person: its links, its person friends and its setting, each of its characters
-    /// keeping the friends that held for it, handed back to it as an unlink does. An account that is
-    /// not an operator (it holds no world and no open claim) goes with it, and its sessions, its
-    /// reports and its claims: true when it went. The worlds' logs then name it as their owners
-    /// read it, `earlier-claimant` or `hub-admin`, so nothing names the account any more. What the
-    /// limits count of an account that goes stays for a day, under a digest of its Discord id
-    /// ([`forgotten_as`]), so that signing in again starts none of them over.
+    /// Forgets the person, as `@dn off` on every character it links and more. Each of its
+    /// characters goes off the network: out of the directory at once, and its world is told to take
+    /// it off (`listing.off`, by its person), over its link now or at its next link
+    /// ([`Registry::owe_person_off`]). Then every link goes, each character keeping the friends that
+    /// held for it, handed back to it as an unlink does, with its link code; the person friends
+    /// go, and every session of the account ends. An account that is not an operator (it holds no
+    /// world and no open claim) goes with it, and its reports and its claims: true when it went.
+    /// The worlds' logs then name it as their owners read it, `earlier-claimant` or `hub-admin`,
+    /// so nothing names the account any more. What the limits count of an account that goes stays
+    /// for a day, under a digest of its Discord id ([`forgotten_as`]), so that signing in again
+    /// starts none of them over. An operator keeps its account and its reports, and loses the
+    /// events of its links.
     ///
     /// # Errors
     /// Database errors only.
     pub fn forget_person(&self, op: &Operator) -> Result<bool> {
-        // Each character keeps its friends, as its world's own.
-        let alts: Option<String> = self
-            .db
-            .query_row("SELECT alts FROM operators WHERE id = ?", [&op.id], |r| {
-                r.get(0)
-            })
-            .optional()?;
-        let alts = alts_of(alts.as_deref().unwrap_or("hidden"));
         for c in self.characters_of_person(&op.id)? {
-            self.hand_back(&op.id, alts, &c.key())?;
+            self.owe_person_off(&c)?;
+            // Each character keeps its friends, as its world's own.
+            self.hand_back(&op.id, &c.key())?;
+            self.db
+                .execute("DELETE FROM person_codes WHERE address_key = ?", [c.key()])?;
         }
         self.db.execute(
             "DELETE FROM person_characters WHERE person_id = ?",
@@ -917,7 +878,7 @@ impl Registry {
         self.db
             .execute("DELETE FROM person_friends WHERE person_id = ?", [&op.id])?;
         self.db.execute(
-            "UPDATE operators SET alts = 'hidden' WHERE id = ?",
+            "DELETE FROM operator_sessions WHERE operator_id = ?",
             [&op.id],
         )?;
         // An operator keeps its account, and with it its reports; a `pending` world past its days is
@@ -925,6 +886,10 @@ impl Registry {
         self.expire_pending()?;
         let (worlds, claims) = self.held(&op.id)?;
         if worlds + claims > 0 {
+            self.db.execute(
+                "DELETE FROM operator_events WHERE operator_id = ? AND kind IN ('linked', 'unlinked')",
+                [&op.id],
+            )?;
             self.operator_event(&op.id, "forgotten", &json!({}))?;
             return Ok(false);
         }
@@ -946,12 +911,13 @@ impl Registry {
              WHERE kind = 'assigned' AND json_extract(details, '$.operator') = ?1",
             [&op.id],
         )?;
-        self.db
-            .execute("DELETE FROM verifications WHERE operator_id = ?", [&op.id])?;
+        // The hub's own Discord log names only its admins, who act for the hub.
         self.db.execute(
-            "DELETE FROM operator_sessions WHERE operator_id = ?",
+            "UPDATE discord_events SET actor = 'hub-admin' WHERE actor = ?",
             [&op.id],
         )?;
+        self.db
+            .execute("DELETE FROM verifications WHERE operator_id = ?", [&op.id])?;
         let gone = forgotten_as(&op.discord_id);
         for kind in COUNTED {
             self.db.execute(
@@ -976,7 +942,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use dereth_network_protocol::{Address, Alts, Federation, PersonOutcome};
+    use dereth_network_protocol::person::{MAX_CARRIED, MAX_PERSON_FRIENDS};
+    use dereth_network_protocol::{Address, Federation, PersonOutcome};
     use serde_json::json;
 
     use super::{limits, PersonAnswer, PersonView, CODE_SECS};
@@ -1028,37 +995,43 @@ mod tests {
             .expect("signed in")
     }
 
-    /// Links `who` to `op` the way a player does: its world asks for a code, the player enters it.
-    fn link(f: &Fixture, op: &Operator, who: &str) {
-        let (code, _) = f.r.person_code(&a(who)).expect("a code");
-        f.r.redeem_link_code(op, &code).expect("linked");
+    /// `who`'s world puts it on the network, and so lists it in the directory.
+    fn on(f: &Fixture, who: &str) {
+        let profile = dereth_network_protocol::Profile {
+            level: 20,
+            heritage: 1,
+            gender: 1,
+            ..dereth_network_protocol::Profile::default()
+        };
+        f.r.listing(&a(who), Some(&profile)).expect("listed");
     }
 
-    /// The person of `who` shows its alts, or hides them, from the site.
-    fn shown(f: &Fixture, who: &str, on: bool) {
-        let (person, _) =
-            f.r.person_of(&a(who).key())
-                .expect("asked")
-                .expect("linked");
-        f.r.set_alts(&person, on).expect("set");
+    /// `who`'s world takes it off the network, and so out of the directory.
+    fn off(f: &Fixture, who: &str) {
+        f.r.listing(&a(who), None).expect("taken out");
+    }
+
+    /// Links `who` to `op` the way a player does: its world, which has it on the network, asks for
+    /// a code, and the player enters it.
+    fn link(f: &Fixture, op: &Operator, who: &str) {
+        on(f, who);
+        let (code, _) = f.r.person_code(&a(who)).expect("a code");
+        f.r.redeem_link_code(op, &code).expect("linked");
     }
 
     fn names(list: &[Address]) -> Vec<String> {
         list.iter().map(ToString::to_string).collect()
     }
 
+    /// `who`'s view, cut as the routing cuts it while nobody is online and nobody seen.
     fn view(f: &Fixture, who: &str) -> PersonView {
-        f.r.person_view(&a(who)).expect("a view")
+        crate::core::cut_view(f.r.person_view(&a(who)).expect("a view"), |_| None)
     }
 
-    /// A name for the number `n`, below 676, in two letters.
+    /// A name for the number `n`, below 17,576, in three letters.
     fn letters(n: usize) -> String {
-        let (x, y) = (n / 26, n % 26);
-        format!(
-            "{}{}",
-            char::from(b'a' + u8::try_from(x).expect("small")),
-            char::from(b'a' + u8::try_from(y).expect("small"))
-        )
+        let letter = |d: usize| char::from(b'a' + u8::try_from(d % 26).expect("small"));
+        [n / 676, n / 26, n].iter().map(|&d| letter(d)).collect()
     }
 
     /// The handles of a view's person friends.
@@ -1075,26 +1048,14 @@ mod tests {
             .collect()
     }
 
-    /// Spec: hub: while a person hides its alts, `characters` names none of its characters, alike
-    /// for a character nobody linked and one that does not exist; shown, it names them all, the
-    /// asked one first.
+    /// Spec: hub: `characters` names a person's characters for any one of them, the asked one
+    /// first, and none for a character nobody linked or one that does not exist, alike.
     #[test]
-    fn a_hidden_persons_characters_are_answered_as_a_character_nobody_linked() {
+    fn a_persons_characters_are_named_for_any_one_of_them() {
         let f = fixture();
         let bob = person(&f, "200");
         link(&f, &bob, "Bob@aa");
         link(&f, &bob, "Bob@bb");
-        let hidden = f.r.person_characters(&a("Bob@aa")).expect("asked");
-        assert!(hidden.is_empty(), "{hidden:?}");
-        assert_eq!(
-            hidden,
-            f.r.person_characters(&a("Nobody@aa")).expect("asked")
-        );
-        assert_eq!(
-            hidden,
-            f.r.person_characters(&a("Ghost@cc")).expect("asked")
-        );
-        shown(&f, "Bob@bb", true);
         assert_eq!(
             names(&f.r.person_characters(&a("Bob@aa")).expect("asked")),
             ["Bob@aa", "Bob@bb"]
@@ -1103,19 +1064,18 @@ mod tests {
             names(&f.r.person_characters(&a("Bob@bb")).expect("asked")),
             ["Bob@bb", "Bob@aa"]
         );
-        shown(&f, "Bob@aa", false);
-        assert!(f
-            .r
-            .person_characters(&a("Bob@bb"))
-            .expect("asked")
-            .is_empty());
+        let nobody = f.r.person_characters(&a("Nobody@aa")).expect("asked");
+        assert!(nobody.is_empty());
+        assert_eq!(
+            nobody,
+            f.r.person_characters(&a("Ghost@cc")).expect("asked")
+        );
     }
 
-    /// Spec: hub: the view of a character whose person hides its alts names none of the person's
-    /// other characters, and no person friend added from one of them; shown, every one of the
-    /// person's person friends holds for each of its characters.
+    /// Spec: hub: every person friend of a person holds for each of its characters, from whichever
+    /// of them it was added.
     #[test]
-    fn a_hidden_persons_view_holds_only_what_was_added_from_that_character() {
+    fn every_person_friend_holds_for_each_of_the_persons_characters() {
         let f = fixture();
         let ann = person(&f, "100");
         link(&f, &ann, "Ann@aa");
@@ -1132,29 +1092,18 @@ mod tests {
                 .outcome,
             PersonOutcome::Ok
         );
-        let on_aa = view(&f, "Ann@aa");
-        assert!(on_aa.linked);
-        assert_eq!(on_aa.alts, Alts::Hidden);
-        assert_eq!(named(&on_aa), ["bob@cc", "bob@cc"]);
-        assert_eq!(named(&view(&f, "Ann@bb")), ["cat@cc", "cat@cc"]);
-        for v in [&on_aa, &view(&f, "Ann@bb")] {
-            let all = format!("{v:?}").to_lowercase();
-            assert!(
-                !(all.contains("ann@aa") && all.contains("ann@bb")),
-                "one character's view never names the other: {all}"
-            );
-        }
-        shown(&f, "Ann@aa", true);
         let both = ["bob@cc", "bob@cc", "cat@cc", "cat@cc"];
-        assert_eq!(named(&view(&f, "Ann@aa")), both);
-        assert_eq!(named(&view(&f, "Ann@bb")), both);
-        assert_eq!(view(&f, "Ann@bb").alts, Alts::Shown);
+        for who in ["Ann@aa", "Ann@bb"] {
+            let v = view(&f, who);
+            assert!(v.linked);
+            assert_eq!(named(&v), both, "{who}");
+        }
     }
 
-    /// Spec: hub: another person's view lists a character of a person that hides its alts as its
-    /// handle alone, and its person's characters while it shows them.
+    /// Spec: hub: a person friend lists its handle and every other character of the handle's
+    /// person; a character nobody linked, its handle alone.
     #[test]
-    fn another_persons_view_lists_a_hidden_persons_character_as_its_handle_alone() {
+    fn a_person_friend_lists_every_character_of_its_person() {
         let f = fixture();
         let (ann, bob) = (person(&f, "100"), person(&f, "200"));
         link(&f, &ann, "Ann@cc");
@@ -1162,22 +1111,49 @@ mod tests {
         link(&f, &bob, "Bob@bb");
         f.r.person_befriend(&a("Ann@cc"), &a("Bob@aa"))
             .expect("befriended");
-        let handle_alone = view(&f, "Ann@cc");
-        assert_eq!(names(&handle_alone.persons[0].characters), ["Bob@aa"]);
-        // Exactly what a character nobody linked gives.
         f.r.person_befriend(&a("Ann@cc"), &a("Nobody@bb"))
             .expect("befriended");
+        let v = view(&f, "Ann@cc");
+        assert_eq!(names(&v.persons[0].characters), ["Bob@aa", "Bob@bb"]);
+        assert_eq!(names(&v.persons[1].characters), ["Nobody@bb"]);
+    }
+
+    /// Spec: hub: a linked character off the network pauses its link: its person's friends' views
+    /// name it no more, but as the handle a friend added, and its person's other characters' views
+    /// keep their friends. Back on the network it is named again, with nothing to redo; held out
+    /// of the directory by the hub's operator it stays on the network.
+    #[test]
+    fn a_character_off_the_network_pauses_its_link_until_it_is_back_on() {
+        let f = fixture();
+        let (ann, bob) = (person(&f, "100"), person(&f, "200"));
+        link(&f, &ann, "Ann@cc");
+        link(&f, &bob, "Bob@aa");
+        link(&f, &bob, "Bob@bb");
+        f.r.person_befriend(&a("Ann@cc"), &a("Bob@aa"))
+            .expect("befriended");
+        f.r.person_befriend(&a("Bob@bb"), &a("Ann@cc"))
+            .expect("befriended");
+        let of_ann = |f: &Fixture| names(&view(f, "Ann@cc").persons[0].characters);
+        assert_eq!(of_ann(&f), ["Bob@aa", "Bob@bb"]);
+        off(&f, "Bob@bb");
+        assert_eq!(of_ann(&f), ["Bob@aa"], "off the network: not named");
+        assert!(view(&f, "Bob@aa").linked, "still linked");
+        assert_eq!(handles(&view(&f, "Bob@aa")), ["Ann@cc"]);
         assert_eq!(
-            names(&view(&f, "Ann@cc").persons[1].characters),
-            ["Nobody@bb"]
+            names(&f.r.person_characters(&a("Bob@aa")).expect("asked")),
+            ["Bob@aa"]
         );
-        shown(&f, "Bob@aa", true);
+        off(&f, "Bob@aa");
+        assert_eq!(of_ann(&f), ["Bob@aa"], "a handle is named always");
+        on(&f, "Bob@bb");
+        on(&f, "Bob@aa");
+        assert_eq!(of_ann(&f), ["Bob@aa", "Bob@bb"], "back on: named again");
+        f.r.take_down("Bob@bb").expect("taken down");
+        assert_eq!(of_ann(&f), ["Bob@aa", "Bob@bb"], "held out: still on");
         assert_eq!(
-            names(&view(&f, "Ann@cc").persons[0].characters),
+            names(&f.r.characters_of(&bob).expect("asked")),
             ["Bob@aa", "Bob@bb"]
         );
-        shown(&f, "Bob@bb", false);
-        assert_eq!(names(&view(&f, "Ann@cc").persons[0].characters), ["Bob@aa"]);
     }
 
     /// Spec: hub: an unlinked character is at once, to every answer, a character nobody linked,
@@ -1189,7 +1165,6 @@ mod tests {
         link(&f, &ann, "Ann@cc");
         link(&f, &bob, "Bob@aa");
         link(&f, &bob, "Bob@bb");
-        shown(&f, "Bob@aa", true);
         f.r.person_befriend(&a("Ann@cc"), &a("Bob@aa"))
             .expect("befriended");
         f.r.person_befriend(&a("Bob@bb"), &a("Ann@cc"))
@@ -1199,7 +1174,7 @@ mod tests {
             PersonOutcome::Ok
         );
         let handed_back = view(&f, "Bob@bb");
-        assert!(!handed_back.linked && handed_back.alts == Alts::Hidden);
+        assert!(!handed_back.linked);
         assert_eq!(
             handles(&handed_back),
             ["Ann@cc"],
@@ -1232,7 +1207,6 @@ mod tests {
         let bob = person(&f, "200");
         link(&f, &bob, "Bob@aa");
         link(&f, &bob, "Bob@dd");
-        shown(&f, "Bob@aa", true);
         assert_eq!(
             names(&f.r.person_characters(&a("Bob@aa")).expect("asked")),
             ["Bob@aa"]
@@ -1266,14 +1240,6 @@ mod tests {
                 "{target}"
             );
         }
-        let letters = |n: usize| {
-            let (x, y) = (n / 26, n % 26);
-            format!(
-                "{}{}",
-                char::from(b'a' + u8::try_from(x).expect("small")),
-                char::from(b'a' + u8::try_from(y).expect("small"))
-            )
-        };
         for i in 3..limits::FRIENDS {
             f.r.person_befriend(&a("Ann@aa"), &a(&format!("Friend {}@cc", letters(i))))
                 .expect("asked");
@@ -1293,10 +1259,10 @@ mod tests {
         );
     }
 
-    /// Spec: hub: with alts hidden, `unfriend` from one character removes the person friend added
-    /// from it alone; shown, it removes the person's.
+    /// Spec: hub: `unfriend` from any of a person's characters removes the person friend, from
+    /// whichever of them it was added.
     #[test]
-    fn unfriending_removes_what_holds_for_the_asker() {
+    fn unfriending_from_any_character_removes_the_persons_friend() {
         let f = fixture();
         let ann = person(&f, "100");
         link(&f, &ann, "Ann@aa");
@@ -1305,15 +1271,9 @@ mod tests {
             .expect("befriended");
         f.r.person_befriend(&a("Ann@bb"), &a("Bob@cc"))
             .expect("befriended");
-        f.r.person_unfriend(&a("Ann@aa"), &a("Bob@cc"))
+        f.r.person_unfriend(&a("Ann@bb"), &a("Bob@cc"))
             .expect("unfriended");
         assert!(view(&f, "Ann@aa").persons.is_empty());
-        assert_eq!(named(&view(&f, "Ann@bb")), ["bob@cc", "bob@cc"]);
-        f.r.person_befriend(&a("Ann@aa"), &a("Bob@cc"))
-            .expect("befriended");
-        shown(&f, "Ann@aa", true);
-        f.r.person_unfriend(&a("Ann@aa"), &a("Bob@cc"))
-            .expect("unfriended");
         assert!(view(&f, "Ann@bb").persons.is_empty());
     }
 
@@ -1458,7 +1418,6 @@ mod tests {
         let ann = person(&f, "100");
         link(&f, &ann, "Ann@aa");
         link(&f, &ann, "Ann@bb");
-        shown(&f, "Ann@bb", true);
         let (code, _) = f.r.person_code(&a("Bob@aa")).expect("a code");
         f.r.remove("aa").expect("removed");
         let reg = Registration::from_json(&json!({
@@ -1519,7 +1478,6 @@ mod tests {
         let ann = person(&f, "100");
         let before = f.r.audit("aa").expect("the audit");
         link(&f, &ann, "Ann@aa");
-        shown(&f, "Ann@aa", true);
         f.r.person_befriend(&a("Ann@aa"), &a("Bob@aa"))
             .expect("befriended");
         f.r.person_unlink(&a("Ann@aa")).expect("unlinked");
@@ -1587,17 +1545,17 @@ mod tests {
             .expect("her own, in any case");
     }
 
-    /// Spec: hub: forgetting a person removes its links, its person friends and its setting, and
-    /// an account that holds nothing else.
+    /// Spec: hub: forgetting a person removes its links and its person friends, and an account
+    /// that holds nothing else.
     #[test]
     fn forgetting_a_person_leaves_nothing_of_it() {
         let f = fixture();
         let ann = person(&f, "100");
         link(&f, &ann, "Ann@aa");
         link(&f, &ann, "Ann@bb");
-        shown(&f, "Ann@aa", true);
         f.r.person_befriend(&a("Ann@aa"), &a("Bob@cc"))
             .expect("befriended");
+        assert!(f.r.redeem_link_code(&ann, "0000-0000").is_err());
         f.r.new_session(&ann).expect("a session");
         assert!(f.r.forget_person(&ann).expect("forgotten"));
         for c in ["Ann@aa", "Ann@bb"] {
@@ -1632,7 +1590,10 @@ mod tests {
             assert_eq!(who, &super::forgotten_as(&ann.discord_id));
             assert_eq!(details, "{}", "{kind}");
         }
-        assert!(kept.iter().all(|(_, kind, _)| kind == "alts"), "{kept:?}");
+        assert!(
+            !kept.is_empty() && kept.iter().all(|(_, kind, _)| kind == "wrong-code"),
+            "{kept:?}"
+        );
     }
 
     /// Spec: hub: forgetting a person and signing in again with the same Discord account starts
@@ -1764,88 +1725,38 @@ mod tests {
         assert_eq!(reports(&again), 1);
     }
 
-    /// Spec: hub: a person changes its alts setting at most 20 times a day, a world's hiding of
-    /// them counted with the site's changes.
+    /// Spec: hub: a world of the network's first version asking to hide or show its character's
+    /// person's characters changes nothing, and is refused.
     #[test]
-    fn the_alts_setting_changes_at_most_twenty_times_a_day() {
-        let f = fixture();
-        let ann = person(&f, "100");
-        link(&f, &ann, "Ann@aa");
-        for _ in 0..limits::ALTS_CHANGES_PER_DAY / 2 - 1 {
-            f.r.set_alts_for(&ann, true).expect("shown");
-            assert_eq!(
-                f.r.person_alts(&a("Ann@aa"), false).expect("asked").outcome,
-                PersonOutcome::Ok
-            );
-        }
-        f.r.set_alts_for(&ann, true).expect("shown");
-        f.r.set_alts_for(&ann, false).expect("hidden");
-        assert_eq!(f.r.set_alts_for(&ann, true).map_err(|e| e.status), Err(429));
-        f.r.set_alts_for(&ann, false)
-            .expect("no change is no change");
-        f.advance(86_401);
-        assert_eq!(
-            f.r.set_alts_for(&ann, true).expect("shown").0["alts"],
-            "shown"
-        );
-        assert_eq!(
-            f.r.person_alts(&a("Nobody@aa"), false)
-                .expect("asked")
-                .outcome,
-            PersonOutcome::NotLinked
-        );
-    }
-
-    /// Spec: hub: a world may hide its character's person's characters, never show them; showing
-    /// them is the person's own, on the site.
-    #[test]
-    fn a_world_may_hide_a_persons_characters_but_never_show_them() {
+    fn a_worlds_request_to_hide_or_show_a_persons_characters_changes_nothing() {
         let f = fixture();
         let bob = person(&f, "200");
         link(&f, &bob, "Bob@aa");
         link(&f, &bob, "Bob@bb");
         assert_eq!(
-            f.r.person_alts(&a("Bob@aa"), true).expect("asked").outcome,
-            PersonOutcome::Refused
+            f.r.person_alts(&a("Bob@aa")).expect("asked"),
+            PersonAnswer::unchanged(PersonOutcome::Refused)
         );
-        assert_eq!(view(&f, "Bob@bb").alts, Alts::Hidden, "still hidden");
-        assert!(f
-            .r
-            .person_characters(&a("Bob@bb"))
-            .expect("asked")
-            .is_empty());
         assert_eq!(
-            f.r.person_alts(&a("Nobody@aa"), true)
-                .expect("asked")
-                .outcome,
+            names(&f.r.person_characters(&a("Bob@bb")).expect("asked")),
+            ["Bob@bb", "Bob@aa"],
+            "nothing hidden"
+        );
+        assert_eq!(
+            f.r.person_alts(&a("Nobody@aa")).expect("asked").outcome,
             PersonOutcome::NotLinked
         );
-        f.r.set_alts_for(&bob, true).expect("shown on the site");
-        assert_eq!(view(&f, "Bob@bb").alts, Alts::Shown);
-        assert_eq!(
-            f.r.person_alts(&a("Bob@aa"), false).expect("asked").outcome,
-            PersonOutcome::Ok
-        );
-        assert_eq!(view(&f, "Bob@bb").alts, Alts::Hidden, "hidden from a world");
     }
 
-    /// Spec: hub: while a person hides its alts, `befriend` from one of its characters counts only
-    /// the person friends added from it, so its answer is the same whatever its other characters
-    /// list; shown, it counts all of the person's.
+    /// Spec: hub: `befriend` counts every person friend of the person, from all of its characters
+    /// together, and another person's are its own.
     #[test]
-    fn a_hidden_persons_friend_limit_says_nothing_of_its_other_characters() {
+    fn the_friend_limit_counts_every_person_friend_of_the_person() {
         let f = fixture();
         let (bob, cat) = (person(&f, "200"), person(&f, "300"));
         link(&f, &bob, "Bob@aa");
         link(&f, &bob, "Bob@bb");
         link(&f, &cat, "Cat@bb");
-        let letters = |n: usize| {
-            format!(
-                "{}{}",
-                char::from(b'a' + u8::try_from(n / 26).expect("small")),
-                char::from(b'a' + u8::try_from(n % 26).expect("small"))
-            )
-        };
         for i in 0..limits::FRIENDS {
             assert_eq!(
                 f.r.person_befriend(&a("Bob@aa"), &a(&format!("Friend {}@cc", letters(i))))
@@ -1854,36 +1765,28 @@ mod tests {
                 PersonOutcome::Ok
             );
         }
-        assert_eq!(
-            f.r.person_befriend(&a("Bob@aa"), &a("One More@cc"))
-                .expect("asked")
-                .outcome,
-            PersonOutcome::Refused,
-            "the character that added them"
-        );
-        for who in ["Bob@bb", "Cat@bb"] {
+        for who in ["Bob@aa", "Bob@bb"] {
             assert_eq!(
-                f.r.person_befriend(&a(who), &a("Dan@cc"))
+                f.r.person_befriend(&a(who), &a("One More@cc"))
                     .expect("asked")
                     .outcome,
-                PersonOutcome::Ok,
-                "{who}: Bob's other character is answered as another person's"
+                PersonOutcome::Refused,
+                "{who}"
             );
         }
-        shown(&f, "Bob@aa", true);
         assert_eq!(
-            f.r.person_befriend(&a("Bob@bb"), &a("Eve@cc"))
+            f.r.person_befriend(&a("Cat@bb"), &a("Dan@cc"))
                 .expect("asked")
                 .outcome,
-            PersonOutcome::Refused,
-            "shown, the person's all count"
+            PersonOutcome::Ok,
+            "another person's"
         );
     }
 
-    /// Spec: hub: a person request that changes nothing (hiding characters already hidden,
-    /// removing a person friend that does not hold, listing one again) names no character whose
-    /// views to send again; one that changes a person names all of its characters, an unlinked
-    /// one among them.
+    /// Spec: hub: a person request that changes nothing (a world's asking to hide its person's
+    /// characters, removing a person friend that does not hold, listing one again) names no
+    /// character whose views to send again; one that changes a person names all of its
+    /// characters, an unlinked one among them.
     #[test]
     fn a_request_that_changes_nothing_names_no_view_to_send_again() {
         let f = fixture();
@@ -1901,7 +1804,10 @@ mod tests {
                 vec!["Ann@aa".to_owned(), "Ann@bb".to_owned()],
             )
         };
-        assert_eq!(answer(f.r.person_alts(&a("Ann@aa"), false)), none());
+        assert_eq!(
+            answer(f.r.person_alts(&a("Ann@aa"))),
+            (PersonOutcome::Refused, vec![])
+        );
         assert_eq!(
             answer(f.r.person_unfriend(&a("Ann@aa"), &a("Nobody@cc"))),
             none()
@@ -1917,23 +1823,14 @@ mod tests {
         );
         assert_eq!(
             answer(f.r.person_unfriend(&a("Ann@bb"), &a("Bob@cc"))),
-            none(),
-            "hidden, it holds for Ann@aa alone"
+            both(),
+            "from either character"
         );
         assert_eq!(
             answer(f.r.person_unfriend(&a("Ann@aa"), &a("Bob@cc"))),
-            both()
+            none(),
+            "gone already"
         );
-        assert_eq!(
-            answer(f.r.person_alts(&a("Ann@aa"), true)),
-            (PersonOutcome::Refused, vec![])
-        );
-        assert!(f.r.set_alts_for(&ann, true).expect("shown").1);
-        assert!(
-            !f.r.set_alts_for(&ann, true).expect("shown").1,
-            "shown already"
-        );
-        assert_eq!(answer(f.r.person_alts(&a("Ann@bb"), false)), both());
         assert_eq!(
             answer(f.r.person_unlink(&a("Ann@bb"))),
             both(),
@@ -1946,40 +1843,42 @@ mod tests {
         assert_eq!(names(&f.r.characters_of(&ann).expect("asked")), ["Ann@aa"]);
     }
 
-    /// Spec: hub: a view holds the first 100 person friends, each with its handle, and the first
-    /// 100 characters in all, however many more its person lists.
+    /// Spec: hub: a person's whole view names every person friend it lists, in the order they were
+    /// added; the view sent holds 100 of them, and the first 100 characters in all.
     #[test]
     fn a_view_holds_the_first_person_friends_within_its_limits_however_many_are_listed() {
         let f = fixture();
-        let letters = |n: usize| {
-            format!(
-                "{}{}",
-                char::from(b'a' + u8::try_from(n / 26).expect("small")),
-                char::from(b'a' + u8::try_from(n % 26).expect("small"))
-            )
-        };
-        // Ann lists 50 from each of three characters while she hides her alts: 150 hold once she
-        // shows them.
+        // Ann lists 150 person friends: her whole view names them all, the view sent 100.
         let ann = person(&f, "100");
         let anns = ["Ann@aa", "Ann@bb", "Ann@cc"];
         for c in anns {
             link(&f, &ann, c);
         }
-        for (i, c) in anns.iter().enumerate() {
-            for j in 0..limits::FRIENDS {
-                let friend = format!("Friend {}@cc", letters(i * limits::FRIENDS + j));
-                f.r.person_befriend(&a(c), &a(&friend)).expect("asked");
-            }
+        let listed = MAX_PERSON_FRIENDS * 3 / 2;
+        for i in 0..listed {
+            let friend = a(&format!("Friend {}@cc", letters(i)));
+            f.r.db
+                .execute(
+                    "INSERT INTO person_friends(person_id, handle_key, handle, added_from,
+                       added_from_address, added_at) VALUES (?, ?, ?, 'ann@aa', 'Ann@aa', ?)",
+                    rusqlite::params![
+                        ann.id,
+                        friend.key(),
+                        friend.to_string(),
+                        format!("2026-10-12T00:{:02}:{:02}.000Z", i / 60, i % 60)
+                    ],
+                )
+                .expect("listed");
         }
-        shown(&f, "Ann@aa", true);
-        let v = view(&f, "Ann@bb");
-        assert_eq!(v.persons.len(), limits::FRIENDS);
-        let handles: Vec<String> = v.persons.iter().map(|p| p.handle.to_string()).collect();
-        let first: Vec<String> = (0..limits::FRIENDS)
+        let whole = f.r.person_view(&a("Ann@bb")).expect("a view");
+        let all: Vec<String> = (0..listed)
             .map(|j| format!("Friend {}@cc", letters(j)))
             .collect();
-        assert_eq!(handles, first, "the first added, in order");
-        // Six persons of 20 shown characters each: each keeps its handle, and the others take
+        assert_eq!(handles(&whole), all, "every one, in the order added");
+        // Nobody seen online: the view sent holds the latest added, in the order they were added.
+        let v = view(&f, "Ann@bb");
+        assert_eq!(handles(&v), all[listed - MAX_PERSON_FRIENDS..]);
+        // Six persons of 20 characters each: each keeps its handle, and the others take
         // what is left of the view's 100 in order.
         let cat = person(&f, "300");
         link(&f, &cat, "Cat@aa");
@@ -1990,8 +1889,7 @@ mod tests {
                 let world = ["aa", "bb", "cc"][c % 3];
                 link(&f, &op, &format!("P{} {}@{world}", letters(p), letters(c)));
             }
-            f.r.set_alts_for(&op, true).expect("shown");
-            let handle = format!("P{} aa@aa", letters(p));
+            let handle = format!("P{} {}@aa", letters(p), letters(0));
             f.r.person_befriend(&a("Cat@aa"), &a(&handle))
                 .expect("asked");
             handles.push(handle);
@@ -2038,9 +1936,17 @@ mod tests {
         let many: Vec<Address> = (0..limits::FRIENDS)
             .map(|i| a(&format!("Friend {}@cc", letters(i))))
             .collect();
-        let full = f.r.person_carry(&a("Ann@aa"), &many).expect("carried");
-        assert_eq!(full.outcome, PersonOutcome::Ok, "a full list is not told");
-        assert_eq!(view(&f, "Ann@aa").persons.len(), limits::FRIENDS);
+        for some in many.chunks(MAX_CARRIED) {
+            let full = f.r.person_carry(&a("Ann@aa"), some).expect("carried");
+            assert_eq!(full.outcome, PersonOutcome::Ok, "a full list is not told");
+        }
+        let me = f.r.person_json(&ann).expect("shown");
+        assert_eq!(
+            me["friends"].as_array().map(Vec::len),
+            Some(limits::FRIENDS),
+            "listed until the person's limit"
+        );
+        assert_eq!(view(&f, "Ann@aa").persons.len(), MAX_PERSON_FRIENDS);
     }
 
     /// Spec: hub: unlinking a character, in game or on the site, hands back to it the friends that
@@ -2058,17 +1964,12 @@ mod tests {
         f.r.person_unlink(&a("Ann@aa")).expect("unlinked");
         assert_eq!(
             handles(&view(&f, "Ann@aa")),
-            ["Bob@cc"],
-            "alts hidden: only what held for it"
-        );
-        assert_eq!(handles(&view(&f, "Ann@bb")), ["Cat@cc"]);
-        shown(&f, "Ann@bb", true);
-        f.r.unlink_for(&ann, "Ann@bb").expect("unlinked");
-        assert_eq!(
-            handles(&view(&f, "Ann@bb")),
             ["Bob@cc", "Cat@cc"],
-            "alts shown: every friend it showed"
+            "every friend of its person's"
         );
+        assert_eq!(handles(&view(&f, "Ann@bb")), ["Bob@cc", "Cat@cc"]);
+        f.r.unlink_for(&ann, "Ann@bb").expect("unlinked");
+        assert_eq!(handles(&view(&f, "Ann@bb")), ["Bob@cc", "Cat@cc"]);
         let me = f.r.person_json(&ann).expect("shown");
         assert_eq!(
             me["friends"].as_array().map(Vec::len),

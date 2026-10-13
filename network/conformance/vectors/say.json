@@ -1,0 +1,101 @@
+{
+  "about": "The say messages (docs/network/02-link-protocol.md section 9): the hub asks a world to say a line as one of its characters, a line the character's person said elsewhere, and the world's answer. Every `ok` frame must read as its type, and a write of what was read must hold every field of the frame with the same value and read back unchanged; where an `ok` case gives `expect`, the message read must have those field values (`reason` null when left out). Every `later` frame must read, leaving out what it adds, as a later version may add fields. A reader of the say messages alone skips every `unknown` frame, the other link messages, the room's and the reach messages among them; every `malformed` frame is refused. Each of `names` is a name as a player gives it (typed, or sent by the client when a marked speaker's name is clicked), and `names` the name it gives once the mark a line said from Discord shows beside its speaker is taken off. In a frame, `${c*N}` stands for the character c written N times.",
+  "ok": [
+    {
+      "type": "say",
+      "frame": "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"evening all\",\"via\":\"discord\"}",
+      "expect": {
+        "id": "h12",
+        "room": "global",
+        "who": "Ann@coldeve",
+        "text": "evening all",
+        "via": "discord"
+      }
+    },
+    {
+      "type": "say",
+      "frame": "{\"type\":\"say\",\"id\":\"h13\",\"room\":\"roleplay\",\"who\":\"Sir Bob@coldeve\",\"text\":\"${x*1024}\",\"via\":\"discord\"}",
+      "expect": {
+        "room": "roleplay",
+        "who": "Sir Bob@coldeve"
+      },
+      "note": "one of the world's own rooms, and the longest text"
+    },
+    {
+      "type": "say.result",
+      "frame": "{\"type\":\"say.result\",\"id\":\"h12\",\"outcome\":\"said\"}",
+      "expect": {
+        "id": "h12",
+        "outcome": "said",
+        "reason": null
+      }
+    },
+    {
+      "type": "say.result",
+      "frame": "{\"type\":\"say.result\",\"id\":\"h13\",\"outcome\":\"refused\",\"reason\":\"gagged\"}",
+      "expect": {
+        "outcome": "refused",
+        "reason": "gagged"
+      }
+    },
+    {
+      "type": "say.result",
+      "frame": "{\"type\":\"say.result\",\"id\":\"h14\",\"outcome\":\"refused\",\"reason\":\"a_reason_named_later\"}",
+      "expect": {
+        "outcome": "refused",
+        "reason": "a_reason_named_later"
+      },
+      "note": "a reason this version does not name still reads"
+    },
+    {
+      "type": "say.result",
+      "frame": "{\"type\":\"say.result\",\"id\":\"${i*64}\",\"outcome\":\"refused\"}",
+      "expect": {
+        "outcome": "refused",
+        "reason": null
+      },
+      "note": "the longest id, and a refusal without a reason"
+    }
+  ],
+  "later": [
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\",\"person\":\"p1\"}",
+    "{\"type\":\"say.result\",\"id\":\"h12\",\"outcome\":\"said\",\"at\":\"2026-10-12\"}"
+  ],
+  "unknown": [
+    "{\"type\":\"say.ask\",\"id\":\"h12\"}",
+    "{\"type\":\"room.say\",\"id\":\"r1\",\"room\":\"global\",\"from\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"room.line\",\"room\":\"global\",\"from\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"reach.result\",\"id\":\"h7\",\"reachable\":true}"
+  ],
+  "malformed": [
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"${i*65}\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"Global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"oldguard@channel\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"${x*1025}\",\"via\":\"discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"Discord\"}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"\"}",
+    "{\"type\":\"say.result\",\"id\":\"h12\"}",
+    "{\"type\":\"say.result\",\"id\":\"h12\",\"outcome\":\"ok\"}",
+    "{\"type\":\"say.result\",\"outcome\":\"said\"}",
+    "{\"type\":\"say.result\",\"id\":\"h12\",\"outcome\":\"said\",\"reason\":\"gagged\"}",
+    "{\"type\":\"say.result\",\"id\":\"h12\",\"outcome\":\"refused\",\"reason\":\"Gagged!\"}",
+    "{\"type\":\"say.result\",\"id\":\"h12\",\"outcome\":\"refused\",\"reason\":\"${r*33}\"}"
+  ],
+  "names": [
+    { "given": "Ann (Discord)", "names": "Ann" },
+    { "given": "Sir Bob (DISCORD) ", "names": "Sir Bob" },
+    { "given": "Ann@coldeve (discord)", "names": "Ann@coldeve" },
+    { "given": "Ann(Discord)", "names": "Ann" },
+    { "given": "Ann", "names": "Ann" },
+    { "given": "Ann (Discordia)", "names": "Ann (Discordia)" },
+    { "given": "Ann (Site)", "names": "Ann (Site)" },
+    { "given": "(Discord)", "names": "(Discord)" },
+    { "given": "Ann (Discord) (Discord)", "names": "Ann (Discord)" }
+  ]
+}

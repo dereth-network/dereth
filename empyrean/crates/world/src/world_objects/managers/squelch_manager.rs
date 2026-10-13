@@ -201,8 +201,10 @@ pub fn handle_action_modify_character_squelch(
         return;
     }
 
-    // Not ACE (V450): a name holding `@`, or a stand-in id, is a character (or channel) on another
-    // world; the Dereth Network keeps that squelch.
+    // Not ACE (V450): with the Dereth Network on, a name given with the mark a line said from
+    // Discord shows beside its speaker names the character without it; a name holding `@`, or a
+    // stand-in id, is a character (or channel) on another world, whose squelch the network keeps.
+    let player_name = crate::federation::given_name(w, player_name);
     if crate::federation::squelch(w, this, squelch, player_guid, player_name) {
         return;
     }

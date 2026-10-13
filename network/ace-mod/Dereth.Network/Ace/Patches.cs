@@ -54,7 +54,7 @@ internal static class Patches
         }
         catch (Exception e)
         {
-            // Not the network's, so never the reason `/dn admin status` gives for it being off.
+            // Not the network's, so never the reason `/dn admin` gives for it being off.
             Mod.Fault("the character screen's message", e, LogLevel.Warn);
         }
     }
@@ -92,8 +92,9 @@ internal static class Patches
 
     /// <summary>
     /// Before `GameActionTell.Handle` (`Communication_TalkDirectByName`, `0x005D`): a target holding
-    /// `@` is a network address. The payload is read and put back, so ACE reads it again when the
-    /// tell is not the network's.
+    /// `@` is a network address, and one given with the mark a line said from Discord shows beside
+    /// its speaker (`Ann (Discord)`) names the character without it. The payload is read and put
+    /// back, so ACE reads it again when the tell is not the network's.
     /// </summary>
     public static bool TellPrefix(ClientMessage __0, Session __1)
     {
@@ -114,7 +115,7 @@ internal static class Patches
             {
                 reader.BaseStream.Position = start;
             }
-            if (!Address.LooksRemote(target) || player.IsGagged)
+            if (player.IsGagged)
                 return true;
             var routed = r.World.TellByName(player.Guid.Full, target, text);
             switch (routed.Kind)
@@ -179,7 +180,8 @@ internal static class Patches
 
     /// <summary>
     /// Before `GameActionAddFriend.Handle` (`Social_AddFriend`, `0x0018`, which carries the name
-    /// only): an address is a remote friend.
+    /// only): an address is a remote friend, and a name given with the mark a line said from Discord
+    /// shows names the character without it.
     /// </summary>
     public static bool AddFriendPrefix(ClientMessage __0, Session __1)
     {
@@ -199,7 +201,7 @@ internal static class Patches
             {
                 reader.BaseStream.Position = start;
             }
-            return !Address.LooksRemote(name) || !r.World.AddFriend(player.Guid.Full, name);
+            return !r.World.AddFriend(player.Guid.Full, name);
         }
         catch (Exception e)
         {
@@ -294,19 +296,50 @@ internal static class Patches
         }
     }
 
-    /// <summary>After `PlayerManager.SwitchPlayerFromOnlineToOffline`: a character left the world.</summary>
+    /// <summary>
+    /// After `PlayerManager.SwitchPlayerFromOnlineToOffline`: a character left the world, with its
+    /// profile for the directory as it left.
+    /// </summary>
     public static void LogoutPostfix(Player __0, bool __result)
     {
         var r = R;
         if (r is null || !__result || __0 is null)
             return;
+        CharacterFacts? facts = null;
         try
         {
-            r.World.OnLogout(__0.Guid.Full, __0.Name);
+            facts = AceHost.FactsOf(__0);
+        }
+        catch (Exception e)
+        {
+            Mod.Fault("a profile for the directory", e, LogLevel.Warn);
+        }
+        try
+        {
+            r.World.OnLogout(__0.Guid.Full, __0.Name, facts);
         }
         catch (Exception e)
         {
             r.Fault("a logout", e);
+        }
+    }
+
+    /// <summary>
+    /// After `PlayerManager.HandlePlayerDelete`, when a character is deleted on the character screen:
+    /// a listed one leaves the directory.
+    /// </summary>
+    public static void PlayerDeletePostfix(uint __0)
+    {
+        var r = R;
+        if (r is null)
+            return;
+        try
+        {
+            r.World.OnDeleted(__0);
+        }
+        catch (Exception e)
+        {
+            r.Fault("a deletion", e);
         }
     }
 
@@ -362,14 +395,17 @@ internal static class Patches
 
     /// <summary>
     /// Before `SquelchManager.HandleActionModifyCharacterSquelch`
-    /// (`Communication_ModifyCharacterSquelch`, `0x0058`): an address or a stand-in id is a remote
-    /// squelch.
+    /// (`Communication_ModifyCharacterSquelch`, `0x0058`): a name given with the mark a line said from
+    /// Discord shows names the character without it, for ACE too; an address or a stand-in id is a
+    /// remote squelch.
     /// </summary>
-    public static bool SquelchPrefix(SquelchManager __instance, bool __0, uint __1, string __2, ChatMessageType __3)
+    public static bool SquelchPrefix(SquelchManager __instance, bool __0, uint __1, ref string __2, ChatMessageType __3)
     {
         var r = R;
         if (r is null || __instance?.Player is not { } player)
             return true;
+        if (__2 is not null)
+            __2 = NetworkWorld.GivenName(__2);
         if (!StandIns.IsStandIn(__1) && !Address.LooksRemote(__2))
             return true;
         try

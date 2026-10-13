@@ -78,6 +78,29 @@ fn is_control(c: char) -> bool {
     matches!(u32::from(c), 0x00..=0x1F | 0x7F..=0x9F)
 }
 
+/// Whether `c` is a character the hub refuses in any text it keeps or publishes: a control
+/// character, a line or paragraph separator, a bidirectional control, a zero-width or invisible
+/// formatting character, or one of the two noncharacters XML 1.0 forbids. Text holding one could
+/// hide what it says, or make two names look one.
+#[must_use]
+pub fn is_hidden(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x00..=0x1F
+            | 0x7F..=0x9F
+            | 0x061C
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x2028..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x2069
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0xFFFE
+            | 0xFFFF
+    )
+}
+
 /// Every character of `s` narrowed to one Windows-1252 can hold: kept, best-fitted, or `?`.
 /// Control characters are dropped, except that a line break or tab becomes one space.
 fn narrow(s: &str) -> String {

@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 pub const HEARTBEAT_TTL_SECS: u64 = 180;
 
 /// The registry's schema version (`PRAGMA user_version`). A hub refuses a registry newer than it.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// Registry slugs: the platform's own words, never a world's.
 pub const RESERVED_SLUGS: &[&str] = &[
@@ -93,6 +93,8 @@ pub const RESERVED_SLUGS: &[&str] = &[
     "id",
     "identity",
     "console",
+    // Kept for Discord itself, so that no world can pass for it.
+    "discord",
 ];
 
 /// An error the registry answers with: a status code and a message.
@@ -599,11 +601,12 @@ pub struct Registry {
     domain: String,
     /// The hub's own address, where a world's status and resolution are read.
     public_url: String,
-    /// The site's origin, whose world list a world's web link opens.
-    site: String,
+    /// The site's origin, whose world list a world's web link opens, and whose directory a listed
+    /// character's page is in.
+    pub(crate) site: String,
     /// The host names the hub and its site answer on: never a world's endpoint, whoever asks.
     reserved_hosts: Vec<String>,
-    /// How the operator API approves and checks (set by the server from its configuration).
+    /// Which addresses an endpoint or a page may be at (set by the server from its configuration).
     pub(crate) policy: crate::operators::Policy,
     /// The Discord ids of the hub's admins, who register under the hub's own domain as its
     /// operator does (set by the server from its configuration).
@@ -957,6 +960,39 @@ impl Registry {
                 crate::persons::SCHEMA_7
             ))?;
         }
+        if version < 8 {
+            // The character directory (listed characters' profiles, and the holds that keep a
+            // character out of it); the rooms mirrored into Discord and the log of the hub's own
+            // Discord settings; the character each person speaks as on each world from Discord;
+            // and the hub's settings its admins change while it runs, with their log.
+            db.execute_batch(&format!(
+                "BEGIN IMMEDIATE; {} {} {} {} PRAGMA user_version = 8; COMMIT;",
+                crate::directory::SCHEMA,
+                crate::bridge::SCHEMA,
+                crate::interactions::SCHEMA,
+                crate::settings::SCHEMA
+            ))?;
+        }
+        if version < 9 {
+            // Where each world carries the Global room, once the hub holds it.
+            db.execute_batch(&format!(
+                "BEGIN IMMEDIATE; {} PRAGMA user_version = 9; COMMIT;",
+                crate::rooms::SCHEMA
+            ))?;
+        }
+        if version < 10 {
+            // The persons' settings go: nothing of a person is hidden, and tells reach its Discord
+            // without one. A registry made between versions 8 and 9 holds the second one too.
+            let has_discord_tells: bool = db.query_row(
+                "SELECT count(*) > 0 FROM pragma_table_info('operators') WHERE name = 'discord_tells'",
+                [],
+                |r| r.get(0),
+            )?;
+            db.execute_batch(&format!(
+                "BEGIN IMMEDIATE; {} PRAGMA user_version = 10; COMMIT;",
+                crate::persons::schema_10(has_discord_tells)
+            ))?;
+        }
         let mut registry = Self {
             db,
             now,
@@ -1001,6 +1037,23 @@ impl Registry {
     /// Whether `operator` is one of the hub's admins.
     pub(crate) fn is_admin(&self, operator: &crate::operators::Operator) -> bool {
         self.admins.contains(&operator.discord_id)
+    }
+
+    /// Whether the operator whose id is `operator` is one of the hub's admins, by the Discord id it
+    /// signed in with. Nothing else (`hub`, `world`) is one.
+    pub(crate) fn is_admin_id(&self, operator: &str) -> Result<bool> {
+        if self.admins.is_empty() {
+            return Ok(false);
+        }
+        let discord: Option<String> = self
+            .db
+            .query_row(
+                "SELECT discord_id FROM operators WHERE id = ?",
+                [operator],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(discord.is_some_and(|d| self.admins.contains(&d)))
     }
 
     /// The time, to the millisecond the registry writes times in, so that a time read back is
@@ -1382,6 +1435,10 @@ impl Registry {
             "UPDATE servers SET federation = ? WHERE id = ?",
             params![flag.word(), row.id],
         )?;
+        if flag != Federation::On {
+            // A world that leaves the network takes its characters' listings with it.
+            self.forget_worlds_listings(&row.slug)?;
+        }
         self.event_by(
             &row.id,
             "federation",
@@ -2119,12 +2176,8 @@ impl crate::core::Directory for Registry {
         answered(Registry::person_unlink(self, who))
     }
 
-    fn person_alts(
-        &self,
-        who: &dereth_network_protocol::Address,
-        shown: bool,
-    ) -> crate::core::PersonAnswer {
-        answered(Registry::person_alts(self, who, shown))
+    fn person_alts(&self, who: &dereth_network_protocol::Address) -> crate::core::PersonAnswer {
+        answered(Registry::person_alts(self, who))
     }
 
     fn person_befriend(
@@ -2172,6 +2225,73 @@ impl crate::core::Directory for Registry {
             crate::server::log("error", &format!("a person view: {}", e.message));
             crate::core::PersonView::default()
         })
+    }
+
+    fn listing(
+        &self,
+        who: &dereth_network_protocol::Address,
+        profile: Option<&dereth_network_protocol::Profile>,
+    ) -> crate::core::ListingAnswer {
+        Registry::listing(self, who, profile).unwrap_or_else(|e| {
+            crate::server::log("error", &format!("a listing: {}", e.message));
+            crate::core::ListingAnswer::unavailable()
+        })
+    }
+
+    fn owed_offs(
+        &self,
+        slug: &str,
+    ) -> Vec<(
+        dereth_network_protocol::Address,
+        dereth_network_protocol::OffBy,
+    )> {
+        Registry::owed_offs(self, slug).unwrap_or_else(|e| {
+            crate::server::log("error", &format!("the listings owed off: {}", e.message));
+            Vec::new()
+        })
+    }
+
+    fn lapse_listings(&self) {
+        if let Err(e) = Registry::lapse_listings(self) {
+            crate::server::log("error", &format!("lapsing listings: {}", e.message));
+        }
+    }
+
+    fn discord_tells(
+        &self,
+        who: &dereth_network_protocol::Address,
+    ) -> Option<crate::core::TellsPerson> {
+        Registry::tells_person(self, who).unwrap_or_else(|e| {
+            crate::server::log(
+                "error",
+                &format!("a person's tells on Discord: {}", e.message),
+            );
+            None
+        })
+    }
+
+    fn global_room(&self, slug: &str) -> Option<String> {
+        Registry::global_room(self, slug).unwrap_or_else(|e| {
+            if e.status != 404 {
+                crate::server::log("error", &format!("{slug}'s Global room: {}", e.message));
+            }
+            None
+        })
+    }
+
+    fn set_global_room(&self, slug: &str, room: &str, seed: bool) -> crate::rooms::GlobalSet {
+        Registry::set_global_room(self, slug, room, seed, crate::rooms::BY_WORLD).unwrap_or_else(
+            |e| {
+                crate::server::log(
+                    "info",
+                    &format!(
+                        "{slug} asked to carry the Global room in {room}: {}",
+                        e.message
+                    ),
+                );
+                crate::rooms::GlobalSet::default()
+            },
+        )
     }
 }
 
@@ -2267,8 +2387,17 @@ mod tests {
             let (code, _) = r.person_code(&ann).expect("a code");
             r.redeem_link_code(&op, &code).expect("linked");
             r.person_befriend(&ann, &bob).expect("befriended");
-            r.db.execute_batch("DROP TABLE person_returns; PRAGMA user_version = 6;")
-                .expect("the schema before");
+            r.db.execute_batch(
+                "DROP TABLE person_returns; DROP TABLE directory_listings;
+                 DROP TABLE directory_holds;
+                 DROP TABLE discord_mirrors; DROP TABLE discord_events;
+                 DROP TABLE person_identities;
+                 ALTER TABLE operators ADD COLUMN alts TEXT NOT NULL DEFAULT 'hidden';
+                 DROP TABLE hub_settings; DROP TABLE settings_events;
+                 DROP TABLE world_rooms;
+                 PRAGMA user_version = 6;",
+            )
+            .expect("the schema before");
         }
         let (_, c) = clock();
         let r = Registry::open(path, "dereth.network", c).expect("reopened");
@@ -2284,6 +2413,217 @@ mod tests {
         let back = r.person_view(&ann).expect("a view");
         assert_eq!(back.persons.len(), 1);
         assert_eq!(back.persons[0].handle, bob);
+        drop(r);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The registry's schema as hub 0.1.2, the last release before version 8, leaves it (version
+    /// 7): each table and index, its columns in their order.
+    const RELEASED_SCHEMA_7: &str = "
+        CREATE TABLE servers (
+          id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, metadata TEXT NOT NULL, key_hash TEXT,
+          created_at TEXT NOT NULL, last_seen_at TEXT, heartbeat TEXT,
+          registry TEXT NOT NULL DEFAULT '{}', federation TEXT NOT NULL DEFAULT 'unset',
+          operator_id TEXT);
+        CREATE UNIQUE INDEX community_identity
+          ON servers(json_extract(registry, '$.provenance.externalId'));
+        CREATE TABLE registry_events (
+          id INTEGER PRIMARY KEY,
+          server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL, received_at TEXT NOT NULL, details TEXT NOT NULL, actor TEXT);
+        CREATE INDEX server_events ON registry_events(server_id, id);
+        CREATE TABLE hub_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE hub_channels (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE operators (
+          id TEXT PRIMARY KEY, discord_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+          created_at TEXT NOT NULL, signed_in_at TEXT, disabled_at TEXT,
+          alts TEXT NOT NULL DEFAULT 'hidden');
+        CREATE TABLE operator_sessions (
+          id_hash TEXT PRIMARY KEY,
+          operator_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+        CREATE TABLE operator_events (
+          id INTEGER PRIMARY KEY, operator_id TEXT NOT NULL,
+          kind TEXT NOT NULL, at TEXT NOT NULL, details TEXT NOT NULL);
+        CREATE INDEX operator_event_kinds ON operator_events(kind, at);
+        CREATE TABLE verifications (
+          id TEXT PRIMARY KEY,
+          server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+          operator_id TEXT NOT NULL REFERENCES operators(id), key_hash TEXT,
+          token_hash TEXT NOT NULL, token_expires_at TEXT NOT NULL, created_at TEXT NOT NULL,
+          state TEXT NOT NULL);
+        CREATE INDEX server_verifications ON verifications(server_id, state);
+        CREATE TABLE reports (
+          id TEXT PRIMARY KEY,
+          server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+          reporter_id TEXT NOT NULL REFERENCES operators(id),
+          reason TEXT NOT NULL, details TEXT NOT NULL, created_at TEXT NOT NULL,
+          state TEXT NOT NULL, resolved_at TEXT, resolution TEXT, note TEXT);
+        CREATE TABLE person_characters (
+          address_key TEXT PRIMARY KEY, address TEXT NOT NULL, world TEXT NOT NULL,
+          person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+          linked_at TEXT NOT NULL);
+        CREATE INDEX person_characters_by_person ON person_characters(person_id);
+        CREATE TABLE person_codes (
+          address_key TEXT PRIMARY KEY, address TEXT NOT NULL, world TEXT NOT NULL,
+          code_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL);
+        CREATE INDEX person_codes_by_world ON person_codes(world, expires_at);
+        CREATE TABLE person_code_log (address_key TEXT NOT NULL, at TEXT NOT NULL);
+        CREATE INDEX person_code_log_by_key ON person_code_log(address_key, at);
+        CREATE TABLE person_friends (
+          person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+          handle_key TEXT NOT NULL, handle TEXT NOT NULL, added_from TEXT NOT NULL,
+          added_from_address TEXT NOT NULL, added_at TEXT NOT NULL,
+          PRIMARY KEY (person_id, handle_key, added_from));
+        CREATE INDEX person_code_log_by_time ON person_code_log(at);
+        CREATE TABLE person_returns (
+          address_key TEXT NOT NULL, world TEXT NOT NULL, handle_key TEXT NOT NULL,
+          handle TEXT NOT NULL, at TEXT NOT NULL,
+          PRIMARY KEY (address_key, handle_key));
+        CREATE INDEX person_returns_by_world ON person_returns(world);
+        CREATE INDEX person_returns_by_time ON person_returns(at);
+    ";
+
+    /// Each table's and index's definition, white space aside, by name.
+    fn schema_of(db: &Connection) -> Vec<(String, String)> {
+        let mut q = db
+            .prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name")
+            .expect("prepared");
+        q.query_map([], |r| {
+            let sql: String = r.get(1)?;
+            Ok((r.get(0)?, sql.split_whitespace().collect()))
+        })
+        .expect("read")
+        .collect::<std::result::Result<_, _>>()
+        .expect("read")
+    }
+
+    /// Every row of `table`, its `columns` alone, in the order they were written.
+    fn rows_of(db: &Connection, table: &str, columns: &str) -> Vec<Vec<rusqlite::types::Value>> {
+        let mut q = db
+            .prepare(&format!("SELECT {columns} FROM {table} ORDER BY rowid"))
+            .expect("prepared");
+        let n = q.column_count();
+        q.query_map([], |r| (0..n).map(|i| r.get(i)).collect())
+            .expect("read")
+            .collect::<std::result::Result<_, _>>()
+            .expect("read")
+    }
+
+    /// Spec: registry: a registry as the last release left it (version 7), with rows in every
+    /// table, is moved forward to this build's schema in one step: every row is kept, column for
+    /// column, the schema it ends with is a new registry's, and what it held reads as before.
+    #[test]
+    fn a_released_registry_is_moved_forward_keeping_every_row() {
+        let dir = std::env::temp_dir().join(format!("hub-schema-7-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let (live, old) = (dir.join("live.sqlite"), dir.join("old.sqlite"));
+        let ann = dereth_network_protocol::Address::parse("Ann@coldeve").expect("an address");
+        let bob = dereth_network_protocol::Address::parse("Bob@frost").expect("an address");
+        let cat = dereth_network_protocol::Address::parse("Cat@coldeve").expect("an address");
+        {
+            // What the hub writes in those tables, written by the hub itself.
+            let (_, c) = clock();
+            let r = Registry::open(live.to_str().expect("a path"), "dereth.network", c)
+                .expect("opened");
+            r.register(&reg("coldeve")).expect("registered");
+            r.register(&reg("frost")).expect("registered");
+            r.set_federation("coldeve", Federation::On).expect("on");
+            r.set_federation("frost", Federation::On).expect("on");
+            r.set_channel("oldguard", Some("{}")).expect("a channel");
+            let op = r.signed_in("100", "Ann").expect("signed in");
+            r.new_session(&op).expect("a session");
+            let (code, _) = r.person_code(&ann).expect("a code");
+            r.redeem_link_code(&op, &code).expect("linked");
+            let (code, _) = r.person_code(&cat).expect("a code");
+            r.redeem_link_code(&op, &code).expect("linked");
+            r.person_befriend(&ann, &bob).expect("befriended");
+            r.person_befriend(&cat, &bob).expect("befriended");
+            r.person_unlink(&cat).expect("unlinked");
+            r.person_code(&bob).expect("a code");
+        }
+        let db = Connection::open(&old).expect("open");
+        db.execute_batch(&format!("{RELEASED_SCHEMA_7} PRAGMA user_version = 7;"))
+            .expect("the released schema");
+        db.execute(
+            "ATTACH DATABASE ? AS live",
+            [live.to_str().expect("a path")],
+        )
+        .expect("attached");
+        let tables: Vec<(String, String)> = {
+            let mut q = db
+                // In the order they were made, so each row's references are copied before it.
+                .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY rowid")
+                .expect("prepared");
+            let names: Vec<String> = q
+                .query_map([], |r| r.get(0))
+                .expect("read")
+                .collect::<std::result::Result<_, _>>()
+                .expect("read");
+            // The columns the released schema and this build's share: a column this build no
+            // longer has (a person's settings) takes its default there, and is not compared.
+            names
+                .into_iter()
+                .map(|t| {
+                    let columns: Vec<String> = db
+                        .prepare(&format!(
+                            "SELECT name FROM pragma_table_info('{t}')
+                             WHERE name IN (SELECT name FROM pragma_table_info('{t}', 'live'))"
+                        ))
+                        .expect("prepared")
+                        .query_map([], |r| r.get(0))
+                        .expect("read")
+                        .collect::<std::result::Result<_, _>>()
+                        .expect("read");
+                    (t, columns.join(", "))
+                })
+                .collect()
+        };
+        for (t, columns) in &tables {
+            db.execute_batch(&format!(
+                "INSERT INTO {t}({columns}) SELECT {columns} FROM live.{t};"
+            ))
+            .expect("copied");
+        }
+        db.execute_batch(
+            "DETACH DATABASE live;
+             INSERT INTO hub_state(name, value) VALUES ('kept', 'yes');
+             INSERT INTO verifications VALUES ('v1', (SELECT id FROM servers WHERE slug = 'frost'),
+               (SELECT id FROM operators), NULL, 'aa', '2026-09-01T00:00:00.000Z',
+               '2026-08-31T00:00:00.000Z', 'open');
+             INSERT INTO reports VALUES ('r1', (SELECT id FROM servers WHERE slug = 'frost'),
+               (SELECT id FROM operators), 'spam', 'Lines.', '2026-08-31T00:00:00.000Z', 'open',
+               NULL, NULL, NULL);",
+        )
+        .expect("the rest");
+        let before: Vec<_> = tables
+            .iter()
+            .map(|(t, columns)| (t.clone(), rows_of(&db, t, columns)))
+            .collect();
+        for (t, rows) in &before {
+            assert!(!rows.is_empty(), "{t} holds a row");
+        }
+        drop(db);
+
+        let (_, c) = clock();
+        let r = Registry::open(old.to_str().expect("a path"), "dereth.network", c)
+            .expect("moved forward");
+        let version: i64 =
+            r.db.query_row("PRAGMA user_version", [], |row| row.get(0))
+                .expect("read");
+        assert_eq!(version, SCHEMA_VERSION);
+        for ((t, columns), (_, rows)) in tables.iter().zip(&before) {
+            assert_eq!(&rows_of(&r.db, t, columns), rows, "{t}");
+        }
+        let (_, c) = clock();
+        let new = Registry::open(":memory:", "dereth.network", c).expect("a new registry");
+        assert_eq!(schema_of(&r.db), schema_of(&new.db));
+        assert!(r.server("coldeve").expect("read").is_some());
+        let view = r.person_view(&ann).expect("a view");
+        assert!(view.linked, "the link is kept");
+        assert_eq!(view.persons.len(), 1);
+        assert_eq!(view.persons[0].handle, bob);
         drop(r);
         let _ = std::fs::remove_dir_all(&dir);
     }

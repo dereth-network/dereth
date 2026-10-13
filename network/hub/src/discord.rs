@@ -103,6 +103,25 @@ pub fn any_address(_: std::net::IpAddr) -> bool {
     true
 }
 
+/// A secret of the Discord application's: `from_env`, the value of its environment variable, when
+/// that holds anything but white space, or else the contents of `file`; trimmed either way. None
+/// when neither is given, or when they hold nothing but white space. The error names the file and
+/// why it could not be read, never what it holds.
+///
+/// # Errors
+/// When `file` cannot be read.
+pub fn secret_of(from_env: Option<String>, file: Option<&str>) -> Result<Option<String>, String> {
+    if let Some(s) = from_env.filter(|s| !s.trim().is_empty()) {
+        return Ok(Some(s.trim().to_owned()));
+    }
+    let Some(path) = file else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let text = text.trim();
+    Ok((!text.is_empty()).then(|| text.to_owned()))
+}
+
 /// `s` written for a URL's query or a form body.
 #[must_use]
 pub fn form_encode(s: &str) -> String {
@@ -124,16 +143,11 @@ impl Discord {
     /// # Errors
     /// When there is no secret.
     pub fn new(client_id: String, secret_file: Option<&str>) -> Result<Self, String> {
-        let secret = match std::env::var("DERETH_HUB_DISCORD_CLIENT_SECRET") {
-            Ok(s) if !s.trim().is_empty() => s.trim().to_owned(),
-            _ => match secret_file {
-                Some(path) => std::fs::read_to_string(path)
-                    .map_err(|e| format!("{path}: {e}"))?
-                    .trim()
-                    .to_owned(),
-                None => String::new(),
-            },
-        };
+        let secret = secret_of(
+            std::env::var("DERETH_HUB_DISCORD_CLIENT_SECRET").ok(),
+            secret_file,
+        )?
+        .unwrap_or_default();
         if secret.is_empty() {
             return Err("Discord sign-in needs the client secret: set DERETH_HUB_DISCORD_CLIENT_SECRET in the hub's environment, or name a file with --discord-client-secret-file".into());
         }

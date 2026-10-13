@@ -1,5 +1,5 @@
-//! The vectors: the address, text-rule, message and challenge examples every implementation must
-//! agree on.
+//! The vectors: the address, text-rule, message, challenge, directory, reach, say and rooms
+//! examples every implementation must agree on.
 //!
 //! The JSON files in `vectors/` are the data, readable from any language; this module loads them
 //! and runs them against this repository's own protocol crate, which is how a Rust implementation
@@ -8,9 +8,11 @@
 use serde_json::Value;
 
 use dereth_network_protocol::challenge::{nonce_hex, parse_nonce_hex, Challenge};
+use dereth_network_protocol::say::without_mark;
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_LINE_CHARS};
 use dereth_network_protocol::wire::WireError;
-use dereth_network_protocol::{Address, Message};
+use dereth_network_protocol::DirectoryMessage;
+use dereth_network_protocol::{Address, Message, ReachMessage, RoomsMessage, SayMessage};
 
 use crate::Check;
 
@@ -22,6 +24,14 @@ pub const TEXT: &str = include_str!("../vectors/text.json");
 pub const MESSAGES: &str = include_str!("../vectors/messages.json");
 /// `vectors/challenge.json`.
 pub const CHALLENGE: &str = include_str!("../vectors/challenge.json");
+/// `vectors/directory.json`.
+pub const DIRECTORY: &str = include_str!("../vectors/directory.json");
+/// `vectors/reach.json`.
+pub const REACH: &str = include_str!("../vectors/reach.json");
+/// `vectors/say.json`.
+pub const SAY: &str = include_str!("../vectors/say.json");
+/// `vectors/rooms.json`.
+pub const ROOMS: &str = include_str!("../vectors/rooms.json");
 
 fn parse(json: &str) -> Value {
     serde_json::from_str(json).expect("the vector files are JSON")
@@ -114,6 +124,13 @@ fn field(m: &Message, name: &str) -> Option<Value> {
         (Message::TellResult { id, .. }, "id") => json!(id),
         (Message::TellResult { outcome, .. }, "outcome") => serde_json::to_value(outcome).ok()?,
         (Message::TellResult { message, .. }, "message") => json!(message),
+        (Message::RoomSay { id, .. }, "id") => json!(id),
+        (Message::RoomSay { room, .. } | Message::RoomLine { room, .. }, "room") => json!(room),
+        (Message::RoomSay { from, .. } | Message::RoomLine { from, .. }, "from") => {
+            json!(from.to_string())
+        }
+        (Message::RoomSay { text, .. } | Message::RoomLine { text, .. }, "text") => json!(text),
+        (Message::RoomSay { via, .. } | Message::RoomLine { via, .. }, "via") => json!(via),
         (Message::ChannelLine { channel, .. }, "channel") => json!(channel),
         (Message::ChannelLine { from, .. }, "from") => json!(from.to_string()),
         (Message::ChannelLine { to, .. }, "to") => json!(to.to_string()),
@@ -143,7 +160,7 @@ fn field(m: &Message, name: &str) -> Option<Value> {
         (Message::PersonWatch { on, .. }, "on") => json!(on),
         (Message::PersonFriends { to, .. }, "to") => json!(to.to_string()),
         (Message::PersonFriends { linked, .. }, "linked") => json!(linked),
-        (Message::PersonFriends { alts, .. }, "alts") => json!(alts.word()),
+        (Message::PersonFriends { alts, .. }, "alts") => serde_json::to_value(alts).ok()?,
         (Message::PersonFriends { persons, .. }, "persons") => json!(persons
             .iter()
             .map(|p| json!({
@@ -396,12 +413,449 @@ pub fn challenge() -> Vec<Check> {
     out
 }
 
-/// All four sets.
+/// The value of one field of a directory message, by what the field means; a profile's fields
+/// and its allegiance's by their path (`allegiance.patron`), and a list's by its length.
+fn directory_field(m: &DirectoryMessage, name: &str) -> Option<Value> {
+    use serde_json::json;
+    Some(match (m, name) {
+        (DirectoryMessage::Listing { id, .. }, "id") => json!(id),
+        (DirectoryMessage::Listing { who, .. }, "who") => json!(who.to_string()),
+        (DirectoryMessage::Listing { on, .. }, "on") => json!(on),
+        (DirectoryMessage::Listing { profile: None, .. }, "profile") => Value::Null,
+        (
+            DirectoryMessage::Listing {
+                profile: Some(p), ..
+            },
+            field,
+        ) => match field {
+            "level" => json!(p.level),
+            "heritage" => json!(p.heritage),
+            "gender" => json!(p.gender),
+            "title" => json!(p.title),
+            "skills" => json!(p.skills.len()),
+            "augmentations" => json!(p.augmentations.len()),
+            "deaths" => json!(p.deaths),
+            "birth" => json!(p.birth),
+            "attributes.self.base" => json!(p.attributes.map(|a| a.self_.base)),
+            "allegiance.name" => json!(p.allegiance.as_ref().and_then(|a| a.name.clone())),
+            "allegiance.patron" => json!(p
+                .allegiance
+                .as_ref()
+                .and_then(|a| a.patron.as_ref())
+                .map(ToString::to_string)),
+            _ => return None,
+        },
+        (DirectoryMessage::ListingResult { id, .. }, "id") => json!(id),
+        (DirectoryMessage::ListingResult { outcome, .. }, "outcome") => {
+            serde_json::to_value(outcome).ok()?
+        }
+        (DirectoryMessage::ListingResult { reason, .. }, "reason") => {
+            serde_json::to_value(reason).ok()?
+        }
+        (DirectoryMessage::ListingResult { url, .. }, "url") => json!(url),
+        (DirectoryMessage::ListingOff { who, .. }, "who") => json!(who.to_string()),
+        (DirectoryMessage::ListingOff { by, .. }, "by") => serde_json::to_value(by).ok()?,
+        _ => return None,
+    })
+}
+
+/// Every directory vector, against `dereth-network-protocol`: the frames that must read as their
+/// type, write back covering every field and read back unchanged, with the values `expect` gives;
+/// a later version's frames that must read, ignoring what they add; the link messages a reader of
+/// the directory alone skips; and the frames that must be refused.
+#[must_use]
+pub fn directory() -> Vec<Check> {
+    let v = parse(DIRECTORY);
+    let mut out = Vec::new();
+    for case in v["ok"].as_array().into_iter().flatten() {
+        let frame = expand(s(&case["frame"]));
+        let result = match DirectoryMessage::from_json(&frame) {
+            Ok(m) if m.kind() == s(&case["type"]) => ok_directory(case, &frame, &m),
+            Ok(m) => Err(format!("{frame}: read as {}", m.kind())),
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("directory", "directory.ok", result));
+    }
+    for case in v["later"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match DirectoryMessage::from_json(&frame) {
+            Ok(m) => {
+                let written = m.to_json();
+                if written.len() < frame.len() {
+                    Ok(())
+                } else {
+                    Err(format!("{frame}: kept what it does not know: {written}"))
+                }
+            }
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("directory", "directory.later", result));
+    }
+    for case in v["unknown"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match DirectoryMessage::from_json(&frame) {
+            Err(WireError::Unknown(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not skipped as unknown")),
+        };
+        out.push(Check::new("directory", "directory.unknown", result));
+    }
+    for case in v["malformed"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match DirectoryMessage::from_json(&frame) {
+            Err(WireError::Malformed(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not refused as malformed")),
+        };
+        out.push(Check::new("directory", "directory.malformed", result));
+    }
+    out
+}
+
+/// An `ok` directory frame, read as `m`: as [`ok_message`] holds a link message to.
+fn ok_directory(case: &Value, frame: &str, m: &DirectoryMessage) -> Result<(), String> {
+    let written = m.to_json();
+    let (Ok(w), Ok(f)) = (
+        serde_json::from_str::<Value>(&written),
+        serde_json::from_str::<Value>(frame),
+    ) else {
+        return Err(format!("{frame}: written as {written}, which is not JSON"));
+    };
+    if !covers(&w, &f) {
+        return Err(format!(
+            "{frame}: written as {written}, which leaves out or changes a field"
+        ));
+    }
+    match DirectoryMessage::from_json(&written) {
+        Ok(again) if again == *m => {}
+        other => {
+            return Err(format!(
+                "{frame}: does not survive a write and a read: {other:?}"
+            ))
+        }
+    }
+    for (name, want) in case["expect"].as_object().into_iter().flatten() {
+        let got = directory_field(m, name);
+        let same = match (&got, want) {
+            (Some(Value::Number(a)), Value::Number(b)) => a.as_f64() == b.as_f64(),
+            (Some(g), w) => g == w,
+            (None, _) => false,
+        };
+        if !same {
+            return Err(format!("{frame}: {name} is {got:?}, not {want}"));
+        }
+    }
+    Ok(())
+}
+
+/// The value of one field of a reach message, by what the field means.
+fn reach_field(m: &ReachMessage, name: &str) -> Option<Value> {
+    use serde_json::json;
+    Some(match (m, name) {
+        (ReachMessage::Ask { id, .. } | ReachMessage::Result { id, .. }, "id") => json!(id),
+        (ReachMessage::Ask { from, .. }, "from") => json!(from.to_string()),
+        (ReachMessage::Ask { to, .. }, "to") => json!(to.to_string()),
+        (ReachMessage::Result { reachable, .. }, "reachable") => json!(reachable),
+        _ => return None,
+    })
+}
+
+/// Every reach vector, against `dereth-network-protocol`: the frames that must read as their type,
+/// write back covering every field and read back unchanged, with the values `expect` gives; a
+/// later version's frames that must read, ignoring what they add; the other link messages a reader
+/// of the reach messages alone skips; and the frames that must be refused.
+#[must_use]
+pub fn reach() -> Vec<Check> {
+    let v = parse(REACH);
+    let mut out = Vec::new();
+    for case in v["ok"].as_array().into_iter().flatten() {
+        let frame = expand(s(&case["frame"]));
+        let result = match ReachMessage::from_json(&frame) {
+            Ok(m) if m.kind() == s(&case["type"]) => ok_reach(case, &frame, &m),
+            Ok(m) => Err(format!("{frame}: read as {}", m.kind())),
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("reach", "reach.ok", result));
+    }
+    for case in v["later"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match ReachMessage::from_json(&frame) {
+            Ok(m) => {
+                let written = m.to_json();
+                if written.len() < frame.len() {
+                    Ok(())
+                } else {
+                    Err(format!("{frame}: kept what it does not know: {written}"))
+                }
+            }
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("reach", "reach.later", result));
+    }
+    for case in v["unknown"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match ReachMessage::from_json(&frame) {
+            Err(WireError::Unknown(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not skipped as unknown")),
+        };
+        out.push(Check::new("reach", "reach.unknown", result));
+    }
+    for case in v["malformed"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match ReachMessage::from_json(&frame) {
+            Err(WireError::Malformed(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not refused as malformed")),
+        };
+        out.push(Check::new("reach", "reach.malformed", result));
+    }
+    out
+}
+
+/// An `ok` reach frame, read as `m`: as [`ok_message`] holds a link message to.
+fn ok_reach(case: &Value, frame: &str, m: &ReachMessage) -> Result<(), String> {
+    let written = m.to_json();
+    let (Ok(w), Ok(f)) = (
+        serde_json::from_str::<Value>(&written),
+        serde_json::from_str::<Value>(frame),
+    ) else {
+        return Err(format!("{frame}: written as {written}, which is not JSON"));
+    };
+    if !covers(&w, &f) {
+        return Err(format!(
+            "{frame}: written as {written}, which leaves out or changes a field"
+        ));
+    }
+    match ReachMessage::from_json(&written) {
+        Ok(again) if again == *m => {}
+        other => {
+            return Err(format!(
+                "{frame}: does not survive a write and a read: {other:?}"
+            ))
+        }
+    }
+    for (name, want) in case["expect"].as_object().into_iter().flatten() {
+        let got = reach_field(m, name);
+        if got.as_ref() != Some(want) {
+            return Err(format!("{frame}: {name} is {got:?}, not {want}"));
+        }
+    }
+    Ok(())
+}
+
+/// The value of one field of a say message, by what the field means.
+fn say_field(m: &SayMessage, name: &str) -> Option<Value> {
+    use serde_json::json;
+    Some(match (m, name) {
+        (SayMessage::Ask { id, .. } | SayMessage::Result { id, .. }, "id") => json!(id),
+        (SayMessage::Ask { room, .. }, "room") => json!(room),
+        (SayMessage::Ask { who, .. }, "who") => json!(who.to_string()),
+        (SayMessage::Ask { text, .. }, "text") => json!(text),
+        (SayMessage::Ask { via, .. }, "via") => json!(via),
+        (SayMessage::Result { outcome, .. }, "outcome") => serde_json::to_value(outcome).ok()?,
+        (SayMessage::Result { reason, .. }, "reason") => json!(reason),
+        _ => return None,
+    })
+}
+
+/// Every say vector, against `dereth-network-protocol`, as [`reach`] runs the reach messages':
+/// the frames that must read as their type, write back covering every field and read back
+/// unchanged, with the values `expect` gives; a later version's frames that must read, ignoring
+/// what they add; the other link messages a reader of the say messages alone skips; the frames
+/// that must be refused; and the names a player gives with the mark a line said from Discord
+/// shows, each naming the character without it.
+#[must_use]
+pub fn say() -> Vec<Check> {
+    let v = parse(SAY);
+    let mut out = Vec::new();
+    for case in v["ok"].as_array().into_iter().flatten() {
+        let frame = expand(s(&case["frame"]));
+        let result = match SayMessage::from_json(&frame) {
+            Ok(m) if m.kind() == s(&case["type"]) => ok_say(case, &frame, &m),
+            Ok(m) => Err(format!("{frame}: read as {}", m.kind())),
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("say", "say.ok", result));
+    }
+    for case in v["later"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match SayMessage::from_json(&frame) {
+            Ok(m) => {
+                let written = m.to_json();
+                if written.len() < frame.len() {
+                    Ok(())
+                } else {
+                    Err(format!("{frame}: kept what it does not know: {written}"))
+                }
+            }
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("say", "say.later", result));
+    }
+    for case in v["unknown"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match SayMessage::from_json(&frame) {
+            Err(WireError::Unknown(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not skipped as unknown")),
+        };
+        out.push(Check::new("say", "say.unknown", result));
+    }
+    for case in v["malformed"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match SayMessage::from_json(&frame) {
+            Err(WireError::Malformed(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not refused as malformed")),
+        };
+        out.push(Check::new("say", "say.malformed", result));
+    }
+    for case in v["names"].as_array().into_iter().flatten() {
+        let (given, want) = (s(&case["given"]), s(&case["names"]));
+        let got = without_mark(given);
+        let result = if got == want {
+            Ok(())
+        } else {
+            Err(format!("{given:?} names {got:?}, not {want:?}"))
+        };
+        out.push(Check::new("say", "say.names", result));
+    }
+    out
+}
+
+/// The value of one field of a rooms message, by what the field means.
+fn rooms_field(m: &RoomsMessage, name: &str) -> Option<Value> {
+    use serde_json::json;
+    Some(match (m, name) {
+        (RoomsMessage::Setup { id, .. }, "id") => json!(id),
+        (RoomsMessage::Setup { global, .. }, "global") => json!(global),
+        (RoomsMessage::Setup { mirrored, .. }, "mirrored") => json!(mirrored),
+        (RoomsMessage::Global { id, .. }, "id") => json!(id),
+        (RoomsMessage::Global { room, .. }, "room") => json!(room),
+        (RoomsMessage::Global { seed, .. }, "seed") => json!(seed),
+        _ => return None,
+    })
+}
+
+/// Every rooms vector, against `dereth-network-protocol`, as [`say`] runs the say messages': the
+/// frames that must read as their type, write back covering every field and read back unchanged,
+/// with the values `expect` gives; a later version's frames that must read, ignoring what they
+/// add; the other link messages a reader of the rooms messages alone skips; and the frames that
+/// must be refused.
+#[must_use]
+pub fn rooms() -> Vec<Check> {
+    let v = parse(ROOMS);
+    let mut out = Vec::new();
+    for case in v["ok"].as_array().into_iter().flatten() {
+        let frame = expand(s(&case["frame"]));
+        let result = match RoomsMessage::from_json(&frame) {
+            Ok(m) if m.kind() == s(&case["type"]) => ok_rooms(case, &frame, &m),
+            Ok(m) => Err(format!("{frame}: read as {}", m.kind())),
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("rooms", "rooms.ok", result));
+    }
+    for case in v["later"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match RoomsMessage::from_json(&frame) {
+            Ok(m) => {
+                let written = m.to_json();
+                if written.len() < frame.len() {
+                    Ok(())
+                } else {
+                    Err(format!("{frame}: kept what it does not know: {written}"))
+                }
+            }
+            Err(e) => Err(format!("{frame}: {e}")),
+        };
+        out.push(Check::new("rooms", "rooms.later", result));
+    }
+    for case in v["unknown"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match RoomsMessage::from_json(&frame) {
+            Err(WireError::Unknown(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not skipped as unknown")),
+        };
+        out.push(Check::new("rooms", "rooms.unknown", result));
+    }
+    for case in v["malformed"].as_array().into_iter().flatten() {
+        let frame = expand(s(case));
+        let result = match RoomsMessage::from_json(&frame) {
+            Err(WireError::Malformed(_)) => Ok(()),
+            other => Err(format!("{frame}: {other:?}, not refused as malformed")),
+        };
+        out.push(Check::new("rooms", "rooms.malformed", result));
+    }
+    out
+}
+
+/// An `ok` rooms frame, read as `m`: as [`ok_message`] holds a link message to.
+fn ok_rooms(case: &Value, frame: &str, m: &RoomsMessage) -> Result<(), String> {
+    let written = m.to_json();
+    let (Ok(w), Ok(f)) = (
+        serde_json::from_str::<Value>(&written),
+        serde_json::from_str::<Value>(frame),
+    ) else {
+        return Err(format!("{frame}: written as {written}, which is not JSON"));
+    };
+    if !covers(&w, &f) {
+        return Err(format!(
+            "{frame}: written as {written}, which leaves out or changes a field"
+        ));
+    }
+    match RoomsMessage::from_json(&written) {
+        Ok(again) if again == *m => {}
+        other => {
+            return Err(format!(
+                "{frame}: does not survive a write and a read: {other:?}"
+            ))
+        }
+    }
+    for (name, want) in case["expect"].as_object().into_iter().flatten() {
+        let got = rooms_field(m, name);
+        if got.as_ref() != Some(want) {
+            return Err(format!("{frame}: {name} is {got:?}, not {want}"));
+        }
+    }
+    Ok(())
+}
+
+/// An `ok` say frame, read as `m`: as [`ok_message`] holds a link message to.
+fn ok_say(case: &Value, frame: &str, m: &SayMessage) -> Result<(), String> {
+    let written = m.to_json();
+    let (Ok(w), Ok(f)) = (
+        serde_json::from_str::<Value>(&written),
+        serde_json::from_str::<Value>(frame),
+    ) else {
+        return Err(format!("{frame}: written as {written}, which is not JSON"));
+    };
+    if !covers(&w, &f) {
+        return Err(format!(
+            "{frame}: written as {written}, which leaves out or changes a field"
+        ));
+    }
+    match SayMessage::from_json(&written) {
+        Ok(again) if again == *m => {}
+        other => {
+            return Err(format!(
+                "{frame}: does not survive a write and a read: {other:?}"
+            ))
+        }
+    }
+    for (name, want) in case["expect"].as_object().into_iter().flatten() {
+        let got = say_field(m, name);
+        if got.as_ref() != Some(want) {
+            return Err(format!("{frame}: {name} is {got:?}, not {want}"));
+        }
+    }
+    Ok(())
+}
+
+/// All eight sets.
 #[must_use]
 pub fn all() -> Vec<Check> {
     let mut v = addresses();
     v.extend(text());
     v.extend(messages());
     v.extend(challenge());
+    v.extend(directory());
+    v.extend(reach());
+    v.extend(say());
+    v.extend(rooms());
     v
 }

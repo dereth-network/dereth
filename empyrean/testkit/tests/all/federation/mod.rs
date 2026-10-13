@@ -1,6 +1,8 @@
-//! The Dereth Network between worlds: tells, replies, friends, the Global room, channels,
-//! squelches, a lost hub, a world that is not on the network, and `/dn verify`'s answer to the
-//! hub's challenge.
+//! The Dereth Network between worlds: tells, replies, friends, the Global room, channels, a
+//! world's own rooms mirrored into Discord and the room that carries its Global room, both as the
+//! hub says, squelches, a lost hub, a world that is not on the network, `/dn verify`'s answer to
+//! the hub's challenge, tells to a character not online reaching its person's Discord, and lines a
+//! person says from Discord as its own character.
 //!
 //! Fixture: several virtual-time `TestServer`s, each a world with its own characters and its
 //! network half configured, linked through the hub's own routing (`dereth_network_hub::core`) in
@@ -8,10 +10,15 @@
 //! hub sends back, so a test sees exactly what each side's client receives.
 
 mod conformance;
+mod directory;
+mod discord_rooms;
 mod friends;
 mod link;
 mod persons;
+mod reach;
 mod rooms;
+mod say;
+mod setup;
 mod squelch;
 mod tells;
 mod verify;
@@ -23,7 +30,9 @@ use std::sync::Arc;
 use dereth_assets::tables::SkillFormula;
 use dereth_network_hub::core::{Channels, DirEntry, Directory, Hub, Out};
 use dereth_network_protocol::limits::Limits;
-use dereth_network_protocol::{Federation, Message};
+use dereth_network_protocol::{
+    DirectoryMessage, Federation, Message, ReachMessage, RoomsMessage, SayMessage,
+};
 use dereth_primitives::{NetQueue, ObjectId};
 use dereth_protocol::comms::{
     CommunicationTalk, CommunicationTalkDirect, CommunicationTalkDirectByName,
@@ -37,7 +46,7 @@ use empyrean_dat::file_types::SecondaryAttributeTable;
 use empyrean_dat::{file_id, FakeDats};
 use empyrean_entity::enums::{
     AccessLevel, CharacterOption, PositionType, PropertyAttribute, PropertyAttribute2nd,
-    PropertyBool, PropertyDataId, PropertyString, WeenieType,
+    PropertyBool, PropertyDataId, PropertyInt, PropertyString, WeenieType,
 };
 use empyrean_entity::models::{PropertiesAttribute, PropertiesAttribute2nd, PropertiesPosition};
 use empyrean_entity::{ObjectGuid, Position};
@@ -158,6 +167,12 @@ fn put(ts: &TestServer, s: &Seed, at: Position) {
     };
     biota.set_property(PropertyDataId::CombatTable, 0x3000_0000);
     biota.set_property(PropertyString::Name, s.name.to_owned());
+    // What character creation gives a player: a level, a heritage and a gender, which its profile
+    // in the directory needs. A character on the network is listed, which is how the hub knows it
+    // is on.
+    biota.set_property(PropertyInt::Level, 1);
+    biota.set_property(PropertyInt::HeritageGroup, 1);
+    biota.set_property(PropertyInt::Gender, 1);
     biota.set_property(PropertyDataId::Setup, land::TEST_SETUP);
     biota.set_property(PropertyBool::ReportCollisions, true);
     biota.set_property(PropertyBool::IgnoreCollisions, false);
@@ -295,9 +310,8 @@ impl Directory for Registry {
     fn person_alts(
         &self,
         who: &dereth_network_protocol::Address,
-        shown: bool,
     ) -> dereth_network_hub::core::PersonAnswer {
-        Directory::person_alts(&self.1, who, shown)
+        Directory::person_alts(&self.1, who)
     }
     fn person_befriend(
         &self,
@@ -335,6 +349,39 @@ impl Directory for Registry {
     ) -> dereth_network_hub::core::PersonView {
         Directory::person_view(&self.1, who)
     }
+    fn listing(
+        &self,
+        who: &dereth_network_protocol::Address,
+        profile: Option<&dereth_network_protocol::Profile>,
+    ) -> dereth_network_hub::core::ListingAnswer {
+        Directory::listing(&self.1, who, profile)
+    }
+    fn owed_offs(
+        &self,
+        slug: &str,
+    ) -> Vec<(
+        dereth_network_protocol::Address,
+        dereth_network_protocol::OffBy,
+    )> {
+        Directory::owed_offs(&self.1, slug)
+    }
+    fn discord_tells(
+        &self,
+        who: &dereth_network_protocol::Address,
+    ) -> Option<dereth_network_hub::core::TellsPerson> {
+        Directory::discord_tells(&self.1, who)
+    }
+    fn global_room(&self, slug: &str) -> Option<String> {
+        Directory::global_room(&self.1, slug)
+    }
+    fn set_global_room(
+        &self,
+        slug: &str,
+        room: &str,
+        seed: bool,
+    ) -> dereth_network_hub::rooms::GlobalSet {
+        Directory::set_global_room(&self.1, slug, room, seed)
+    }
 }
 
 /// Every frame each way, by the retail name of what it carried.
@@ -354,6 +401,17 @@ pub(crate) struct Net {
     pub sent: SentLog,
     /// Every message the hub handed each world, in order.
     pub handed: Vec<(String, Message)>,
+    /// Every directory message each world sent the hub, and the hub handed each world, in order.
+    pub listed: Vec<(String, DirectoryMessage)>,
+    pub listing_answers: Vec<(String, DirectoryMessage)>,
+    /// Every reach question the hub asked each world, and each world's answer, in order.
+    pub reach_asked: Vec<(String, ReachMessage)>,
+    pub reach_answers: Vec<(String, ReachMessage)>,
+    /// Every answer each world gave the hub's asking it to say a line, in order.
+    pub say_answers: Vec<(String, SayMessage)>,
+    /// Every rooms message the hub handed each world, and each world sent the hub, in order.
+    pub rooms_told: Vec<(String, RoomsMessage)>,
+    pub rooms_asked: Vec<(String, RoomsMessage)>,
 }
 
 impl Net {
@@ -367,10 +425,13 @@ impl Net {
             let mut ts = TestServer::with_dats(dats());
             land::use_flat_land_with_test_setup(&mut ts.world, &[HOME], 10);
             ts.world.content = Arc::new(
-                MemContent::new().weenie(
-                    Weenie::new(1, "human", WeenieType::Creature)
-                        .with_did(PropertyDataId::CombatTable, 0x3000_0000),
-                ),
+                MemContent::new()
+                    .weenie(
+                        Weenie::new(1, "human", WeenieType::Creature)
+                            .with_did(PropertyDataId::CombatTable, 0x3000_0000),
+                    )
+                    // What an allegiance is made from when a character swears to a monarch.
+                    .weenie(Weenie::new(1149, "allegiance", WeenieType::Allegiance)),
             );
             guid_manager::initialize(&mut ts.world, &mut EmptyShard);
             for (i, s) in seeds.iter().enumerate() {
@@ -385,6 +446,7 @@ impl Net {
                     enabled: true,
                     slug: slug.to_owned(),
                     global_room: Some(RoomSlot::Roleplay),
+                    global_room_named: false,
                     min_character_age_secs: 0,
                 },
                 NetworkStore::default(),
@@ -397,7 +459,7 @@ impl Net {
             });
         }
         let mut hub = Hub::new("hub test", Channels::default(), Limits::DEFAULT);
-        hub.set_link_url(Some("https://site.test/characters/".into()));
+        hub.set_link_url(Some("https://site.test/link/".into()));
         hub.set_person_url(Some("https://site.test/characters/".into()));
         Self {
             hub,
@@ -406,6 +468,13 @@ impl Net {
             wire: WireLog::default(),
             sent: SentLog::default(),
             handed: Vec::new(),
+            listed: Vec::new(),
+            listing_answers: Vec::new(),
+            reach_asked: Vec::new(),
+            reach_answers: Vec::new(),
+            say_answers: Vec::new(),
+            rooms_told: Vec::new(),
+            rooms_asked: Vec::new(),
         }
     }
 
@@ -507,6 +576,41 @@ impl Net {
                 Out::Heartbeat { .. } | Out::ChannelsChanged => {}
             }
         }
+        // The directory's messages are a family of their own, handed on after the link's.
+        for (slug, m) in self.hub.take_listings() {
+            self.wire.0.push(format!("hub -> {slug}: {}", m.kind()));
+            self.listing_answers.push((slug.clone(), m.clone()));
+            let w = self.world(&slug);
+            if w.linked {
+                federation::on_link_frame(&mut w.ts.world, &m.to_json());
+            }
+        }
+        // And the reach messages.
+        for (slug, m) in self.hub.take_reach() {
+            self.wire.0.push(format!("hub -> {slug}: {}", m.kind()));
+            self.reach_asked.push((slug.clone(), m.clone()));
+            let w = self.world(&slug);
+            if w.linked {
+                federation::on_link_frame(&mut w.ts.world, &m.to_json());
+            }
+        }
+        // And the rooms messages.
+        for (slug, m) in self.hub.take_rooms() {
+            self.wire.0.push(format!("hub -> {slug}: {}", m.kind()));
+            self.rooms_told.push((slug.clone(), m.clone()));
+            let w = self.world(&slug);
+            if w.linked {
+                federation::on_link_frame(&mut w.ts.world, &m.to_json());
+            }
+        }
+    }
+
+    /// The hub hands `slug` the rooms message `m`, as a hub that writes its own frames would.
+    pub fn hub_hands_rooms(&mut self, slug: &str, m: &RoomsMessage) {
+        self.wire.0.push(format!("hub -> {slug}: {}", m.kind()));
+        let w = self.world(slug);
+        federation::on_link_frame(&mut w.ts.world, &m.to_json());
+        self.pump();
     }
 
     /// `slug` sends `m` to the hub as it is, as a world that writes its own frames would (one
@@ -516,6 +620,21 @@ impl Net {
         let outs = self.hub.receive(&self.registry, slug, m, now);
         self.route(outs);
         self.pump();
+    }
+
+    /// The hub asks `slug` to say a line (`m`), as a hub that writes its own frames would, and the
+    /// network carries what follows: `slug`'s answers since.
+    pub fn hub_asks_say(&mut self, slug: &str, m: &SayMessage) -> Vec<SayMessage> {
+        let mark = self.say_answers.len();
+        self.wire.0.push(format!("hub -> {slug}: {}", m.kind()));
+        let w = self.world(slug);
+        federation::on_link_frame(&mut w.ts.world, &m.to_json());
+        self.pump();
+        self.say_answers[mark..]
+            .iter()
+            .filter(|(s, _)| s == slug)
+            .map(|(_, m)| m.clone())
+            .collect()
     }
 
     /// The hub hands `slug` the message `m`, as a hub that writes its own frames would.
@@ -547,10 +666,37 @@ impl Net {
                 let frames = federation::take_frames(&mut self.worlds[i].ts.world);
                 for f in frames {
                     moved = true;
-                    let m = Message::from_json(&f).expect("a world sends messages");
-                    self.wire.0.push(format!("{slug} -> hub: {}", m.kind()));
-                    self.sent.0.push((slug, m.clone()));
-                    let outs = self.hub.receive(&self.registry, slug, m, now);
+                    let outs = match Message::from_json(&f) {
+                        Ok(m) => {
+                            self.wire.0.push(format!("{slug} -> hub: {}", m.kind()));
+                            self.sent.0.push((slug, m.clone()));
+                            self.hub.receive(&self.registry, slug, m, now)
+                        }
+                        Err(dereth_network_protocol::wire::WireError::Unknown(_)) => {
+                            if let Ok(m) = ReachMessage::from_json(&f) {
+                                self.wire.0.push(format!("{slug} -> hub: {}", m.kind()));
+                                self.reach_answers.push((slug.to_owned(), m.clone()));
+                                self.hub.receive_reach(slug, m, now)
+                            } else if let Ok(m) = SayMessage::from_json(&f) {
+                                // The answer to the hub's asking a world to say a line goes to the
+                                // person who said it, which no world here plays.
+                                self.wire.0.push(format!("{slug} -> hub: {}", m.kind()));
+                                self.say_answers.push((slug.to_owned(), m));
+                                Vec::new()
+                            } else if let Ok(m) = RoomsMessage::from_json(&f) {
+                                self.wire.0.push(format!("{slug} -> hub: {}", m.kind()));
+                                self.rooms_asked.push((slug.to_owned(), m.clone()));
+                                self.hub.receive_rooms(&self.registry, slug, m, now)
+                            } else {
+                                let m = DirectoryMessage::from_json(&f)
+                                    .expect("a world sends the directory's messages");
+                                self.wire.0.push(format!("{slug} -> hub: {}", m.kind()));
+                                self.listed.push((slug.to_owned(), m.clone()));
+                                self.hub.receive_listing(&self.registry, slug, m, now)
+                            }
+                        }
+                        Err(e) => panic!("{slug} sent a malformed frame: {e}"),
+                    };
                     self.route(outs);
                 }
             }

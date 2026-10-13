@@ -3,8 +3,9 @@
 Provenance: **network specification**, shaped by what the final retail client (June 2015) does,
 **observed at runtime** where noted.
 
-One implementation: `network/protocol/src/address.rs`, `settings.rs` and `standin.rs`. The vectors
-in `network/conformance/vectors/addresses.json` pin the rules below.
+One implementation: `network/protocol/src/address.rs`, `settings.rs`, `standin.rs` and, for what
+the directory publishes, `directory.rs`. The vectors in `network/conformance/vectors/addresses.json` pin
+the rules below.
 
 ## 1. Addresses
 
@@ -37,10 +38,10 @@ A character on another world is addressed as **`Name@world`**: the character's n
 - **Reserved slugs.** No world may take the nine retail worlds' names (`darktide`, `frostfell`,
   `harvestgain`, `leafcull`, `morningthaw`, `solclaim`, `thistledown`, `verdantine`, `wintersebb`),
   nor `channel`, `discord`, `hub`, `net`, `network`, `local`, `localhost`, `world`, `all` or `any`
-  (`discord` is kept for speakers from Discord, [05](05-hub.md) section 5.6). An address
-  may still name one as its world half (`Bob@darktide` parses), but since no world can join under
-  it, such an address names no one: a tell to it is answered as one to any world not on the
-  network.
+  (`discord` is kept for Discord itself, [05](05-hub.md) section 5.7, and no world may register
+  it). An address may still name one as its world half
+  (`Bob@darktide` parses), but since no world can join under it, such an address names no one: a
+  tell to it is answered as one to any world not on the network.
 - **Identity.** Two addresses are the same identity when they match without regard to case.
   `Address::key` is the address in lower case. The name keeps the case it was written with, for
   display; the world half is always written in lower case.
@@ -54,30 +55,75 @@ A channel is addressed at the reserved world `channel`: `oldguard@channel`. A ch
 
 ## 2. A character's settings
 
-Every character starts **off the network**. Its world keeps, per character (so an alt or a mule
-stays hidden unless its owner opts it in too):
+Every character starts **off the network**. Its world keeps one setting per character, so an alt
+or a mule stays off the network unless its owner puts it on too:
 
 | Setting | Values | Says |
 |---|---|---|
-| on | off, on | whether the character is on the network at all |
-| Visible | `nobody`, `friends`, `channels`, `anyone` | who sees it online |
-| Reachable | `nobody`, `friends`, `anyone` | who may send it a first tell |
-| Listed | `off`, `on` | reserved for a later version, which will say whether its profile (name, level, heritage, title; never its inventory) is published; the first version stores it and publishes nothing |
+| on | off, on | whether the character is on the network |
 
-- A character that never opted in has **every setting off**: off the network, Visible `nobody`,
-  Reachable `nobody`, Listed `off`.
-- **`/dn on` the first time** gives on, Visible `friends`, Reachable `anyone`, Listed `off`: mutual
-  friends see it online, and anyone on the network may send it a tell. Opting in again later keeps
-  the settings it had.
-- **`friends` means mutual friends**: the character lists the other, and the other lists it. A
-  world can check only its own half; the other half is the other world's word (a tell's `friend`
-  flag, or its sending a watch), which it cannot verify. A character lists its friends: those its
-  world keeps for it and, while it is online, the characters its person friends list (section 5).
-- **`channels`** means mutual friends and the members of the character's channels. A world that does
-  not know its characters' channels' members treats it as `friends`.
-- **The reply window.** A character may always be answered by anyone it sent a tell to within the
-  last 30 minutes, whatever its Reachable setting, so a conversation it starts is never one-sided.
+**On the network means visible, reachable and listed**, with no exceptions:
+
+- **Visible.** Anyone on the network who lists the character as a friend sees it online.
+- **Reachable.** Anyone on the network may send it a tell.
+- **Listed.** Its profile is in the network's directory, published as it changes (below).
+
+`@dn on` puts the character on the network, and `@dn off` takes it off at once: nobody on another
+world sees it online or reaches it, and its profile leaves the directory. A linked character's link
+to its person pauses while it is off, and resumes at `@dn on` (section 5).
+
+What still keeps a character apart while it is on the network:
+
+- **Squelches.** A character's squelch of a remote character, or of a whole world, holds as ever
+  ([03](03-world-behaviour.md) section 5).
+- **Blocks.** A world's operator may block a remote character or a whole world for everyone on
+  the world.
 - **Appearing offline** (the retail character option) makes a character show offline to everyone.
+- **Paces.** A world limits how fast any one world reaches its characters
+  ([03](03-world-behaviour.md) section 8).
+
+A world that reads a record kept by an earlier version, with more settings than `on`, reads its
+`on` alone and writes it back as `on` alone.
+
+### What the directory publishes
+
+While the character is on the network, the network's directory, on the site, shows its profile,
+and the hub's public routes answer it ([05](05-hub.md) section 6):
+
+- its address, and its world's name;
+- its level, heritage, gender and the title it shows;
+- its experience (in all, and not yet spent), its skill credits not yet spent, and its luminance
+  (to spend, and the most it may hold);
+- its six attributes (as the character was made, and as raised since), its three vitals'
+  maximums, its skills (each one's number, training and level) and its augmentations (each one,
+  and how many times taken), all without the effects of spells;
+- its allegiance: the allegiance's name when its monarch gave it one, how many characters it
+  holds, the character's rank in it, and its patron and its monarch while each of them is on the
+  network too, so that their pages link to each other;
+- only as the character's own options allow, exactly as appraising it in game shows them to
+  another player: its date of birth ("Allow others to see your date of birth"), its age ("... your
+  age"), its number of deaths ("... your number of deaths"), its chess rank ("... your chess
+  rank"), its fishing skill ("... your fishing skill") and its number of titles ("... your number
+  of titles");
+- the hour its profile last changed.
+
+Never: its inventory, its location, its house, its fellowship, its friends, whether it is online
+or when it was last seen, anything of its game account (the account's name, the order of its
+characters, an object's id), or its person (section 5): no character's page names, links or
+groups another character of the same player.
+
+- **Live.** The character's world sends its profile when it changes, at its login and logout, a
+  level gained and any other change to a field above, and the hub publishes it at once
+  ([03](03-world-behaviour.md) section 10). **So anyone watching the directory sees when a
+  character's profile changes, and so roughly when it plays.** Comparing those times, a determined
+  observer may guess that two characters of one world are one player's, since one player plays one
+  at a time; and a date of birth shown on two characters made minutes apart says as much. The
+  directory never shows whether a character is online.
+- **Out at once.** `@dn off` takes the profile out of the directory at once, and the hub deletes
+  it.
+- **The hub's operator** may take any character out for 30 days. Its world tells the player, and
+  sends the profile again only at the character's next login or its next `@dn on`, which the hub
+  refuses while the 30 days last ([05](05-hub.md) section 6.4).
 
 ## 3. A world's federation flag
 
@@ -115,61 +161,70 @@ address, or a channel's) a **stand-in id**:
 - **Not for the asking.** A world gives an id only for a line it shows, and limits how many new
   ones another world can cause ([03](03-world-behaviour.md), section 8).
 
-## 5. Persons and alts
+## 5. Persons
 
 A **person** is one Discord account, as the hub knows it. A player who signs in on the site with
 Discord may link characters to their person, any number of them on any worlds, one at a time: the
-character's world asks the hub for a one-time code on the character's behalf, vouching for it as it
-does for a tell, and the player enters the code on the site ([03](03-world-behaviour.md) section 9,
-[05](05-hub.md) section 5). Each linked character belongs to one person. A character nobody links
-has no person, and the network treats it exactly as it always did.
+character's world asks the hub for a one-time link on the character's behalf, vouching for it as
+it does for a tell, and the player opens the link ([03](03-world-behaviour.md) section 9,
+[05](05-hub.md) section 5). The site signs the player in with Discord if they are not, and links
+the character with nothing to type. Each linked character belongs to one person. A character
+nobody links has no person, and the network treats it exactly as it always did.
 
-The person has one setting of its own, kept by the hub:
+**Nothing is hidden.** Anyone who lists a person friend learns which of the network's characters
+are that person's. A player who wants a character kept apart keeps it off the network, or does not
+link it.
 
-| Setting | Values | Says |
-|---|---|---|
-| alts | `hidden` (the default), `shown` | whether anyone else may learn that the person's characters are one person |
+**Off the network, a link pauses.** `@dn off` takes a linked character off the network without
+breaking its link: while it is off, its person's friends do not see it, tells to it do not reach the
+person's Discord, and the person does not speak as it from Discord. `@dn on` brings all of that back
+with nothing to redo. Only `@dn unlink` (or unlinking on the site, or forgetting the person) breaks
+the link. The hub takes a character to be on the network while the directory lists it, or its
+operator holds it out of the directory ([05](05-hub.md) section 5.4).
 
-- **Hidden.** Nobody learns that two characters are one person: not other players, not other
-  worlds or their operators, not a character's own world, not the site's public pages. Every
-  answer about a character of a hidden person is the answer about a character nobody has linked.
-- **Shown.** Anyone may learn which of the network's characters are the person's: the hub names
-  them to a world that asks about any one of them. The person's friends then hold for every one of
-  its characters. Only the person shows them, signed in on the site; a world, which speaks for its
-  characters and so could speak falsely for one, may hide them, never show them.
+**Forgetting the person.** "Forget me" on the site takes every character the person linked off the
+network, as `@dn off` on each would, then unlinks them all, ends the person's sessions and deletes
+what the hub keeps of the person ([05](05-hub.md) section 5.3). A world that is away when it
+happens takes its characters off when it next links.
 
-**Friends.** There is one kind of friend, and `/dn friends add Bob@coldeve` (or `@friends add`)
+**Tells into Discord.** A tell to a linked character that is not online reaches the person's
+Discord when the character's world says the character would have been shown it, and the person's
+reply comes back from that character ([05](05-hub.md) section 5.8). There is no setting to turn it
+on: squelches and blocks decide who reaches the character, as in game.
+
+**Friends.** There is one kind of friend, and `@dn friends add Bob@coldeve` (or `@friends add`)
 adds it. A character nobody links keeps its friends on its own world, each the one character
 added. A linked character's friend is a **person friend**: the person behind the character added,
 listed by the hub for the adding character's person, with the character added as its **handle**.
 
-- **It follows the person, if the person allows it.** A person friend lists its handle and, while
-  the handle's person shows its alts, every other character of that person, so the friend is seen
-  on whichever character it plays. While the handle's person hides its alts, it is exactly a
-  friend of that one character.
-- **It belongs to the person that added it.** While that person's alts are hidden it holds for the
-  character it was added from alone, and while they are shown, for all of its characters.
+- **It follows the person.** A person friend lists its handle and every other character of that
+  person on the network, so the friend is seen on whichever character it plays.
+- **It belongs to the person that added it,** and holds for every one of that person's characters.
+- **Up to 1,000 across the network.** A person may list up to 1,000 person friends, from all of its
+  characters together; adding one more is refused with a plain line. Each character's friends panel
+  still shows at most 100 of them, the 6096 client's own limit for its list (section 2 of
+  [03](03-world-behaviour.md)): those online first, then those seen most lately. A character nobody
+  links still keeps at most 100 remote friends on its own world.
 - **Linking carries friends over.** When a character is linked, the friends its world kept for it
   become person friends added from it, each once; any past the person friends that may hold for it
   stay on its world.
-- **Unlinking hands them back.** A character unlinked (by `/dn unlink`, on the site, or by
+- **Unlinking hands them back.** A character unlinked (by `@dn unlink`, on the site, or by
   forgetting the person) keeps the friends that held for it: the hub hands them back to its world,
   each its handle alone, and they are kept there from then on. The person keeps its person friends
   for its other characters. A character moved to another person takes them to that person.
-- **It never makes a character visible.** Each character's own world still answers for it by its
-  own settings (section 2), so a character whose Visible is `friends` shows to a watcher only when
-  the two are mutual friends, as a person friend on each side makes them.
+- **A character's own world still answers for it** (section 2): a friend sees it online only while
+  it is on the network, not blocked and not appearing offline.
 
 **Who learns what:**
 
-| Who | With the person's alts hidden | With them shown |
-|---|---|---|
-| The player, signed in on the site | their characters, the setting, their person friends | the same |
-| One of the person's characters, in game | whether it is linked, and the setting; never the person's other characters, which would pass through its world | also the person's characters |
-| A character's own world, and its operator | whether its own characters are linked, the setting, and the person friends that hold for that character; never that two characters are one person | also the person's characters, and all its person friends |
-| Any other player or world | nothing: every answer is the one for a character nobody has linked | the person's characters |
-| World operators, through the operator API | nothing | nothing |
-| The hub's public routes and the site's public pages | nothing | nothing |
+| Who | Learns |
+|---|---|
+| The player, signed in on the site | their characters and their person friends |
+| One of the person's characters, in game | whether it is linked, and its person friends with their characters |
+| A character's own world, and its operator | whether its own characters are linked, and the person friends that hold for them, with their characters |
+| Any other player or world | through a person friend, the characters of the person it names |
+| World operators, through the operator API | nothing |
+| The hub's public routes and the site's public pages, the directory included | nothing |
 
 The hub names a person itself (its Discord id or name) to nobody but that person, signed in; the
 hub's own operator, who keeps the registry, can read it there.

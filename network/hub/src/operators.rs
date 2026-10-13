@@ -25,6 +25,7 @@ use crate::registry::{
     digest, hex, iso, new_id, new_key, parse_iso, random_bytes, same_digest, unhex, Endpoint,
     Registration, Registry, RegistryError, Row,
 };
+use crate::settings::Setting;
 
 type Result<T> = std::result::Result<T, RegistryError>;
 
@@ -36,7 +37,8 @@ pub const TOKEN_SECS: u64 = 7 * 86_400;
 const HOUR: u64 = 3_600;
 const DAY: u64 = 86_400;
 
-/// The operator API's limits (`docs/network/05-hub.md` section 2.9).
+/// The operator API's limits (`docs/network/05-hub.md` section 2.9). The hub's admins are held to
+/// the hub's ceilings and to `REPORTS_PER_DAY`, and to none of the others.
 pub mod limits {
     /// Registrations by one operator a day.
     pub const REGISTRATIONS_PER_DAY: usize = 3;
@@ -61,34 +63,17 @@ pub mod limits {
     pub const KEYS_PER_DAY: usize = 10;
     /// Registration changes for one world a day.
     pub const UPDATES_PER_DAY: usize = 30;
-    /// Reports by one operator a day.
+    /// Reports by one operator a day, the hub's admins included.
     pub const REPORTS_PER_DAY: usize = 5;
 }
 
-/// What the server tells the registry about approval and addresses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the server tells the registry about addresses. The approvals a day, the age a Discord
+/// account needs and the days a world may stay `pending` are the registry's own settings
+/// ([`crate::settings`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Policy {
-    /// Worlds approved onto the network a day, for every operator together: a ceiling above what
-    /// operators' own allowances reach together, so that a few accounts cannot spend it for all.
-    pub approvals_per_day: usize,
     /// Whether loopback addresses count as public: for tests and a hub developed on one machine.
     pub loopback_allowed: bool,
-    /// How old a Discord account must be, in days, to register or claim a world.
-    pub min_account_age_days: u64,
-    /// How long a registered world may stay `pending`, in days, before it is removed and its slug
-    /// freed.
-    pub pending_days: u64,
-}
-
-impl Default for Policy {
-    fn default() -> Self {
-        Self {
-            approvals_per_day: 500,
-            loopback_allowed: false,
-            min_account_age_days: 30,
-            pending_days: 14,
-        }
-    }
 }
 
 /// When Discord made the account `discord_id`, from its snowflake (milliseconds since the start
@@ -188,7 +173,7 @@ impl Issued {
         json!({
             "token": self.token, "expiresAt": self.expires_at,
             "page": { "hosts": self.hosts },
-            "game": format!("/dn verify {}", self.token),
+            "game": format!("@dn verify {}", self.token),
         })
     }
 }
@@ -378,7 +363,8 @@ impl Registry {
     // ---- counting -------------------------------------------------------------------------------
 
     /// When `operator` (or, with `None`, every operator) recorded `kind` since `window` seconds
-    /// ago, newest first.
+    /// ago, newest first: every one, so that a ceiling in the thousands is counted in full (the
+    /// limit that counts a kind also bounds how many are recorded).
     pub(crate) fn operator_event_times(
         &self,
         operator: Option<&str>,
@@ -387,7 +373,7 @@ impl Registry {
     ) -> Result<Vec<String>> {
         let from = since(self.now(), window);
         let mut q = self.db.prepare(
-            "SELECT at FROM operator_events WHERE kind = ?1 AND at >= ?2 AND (?3 IS NULL OR operator_id = ?3) ORDER BY at DESC LIMIT 1000",
+            "SELECT at FROM operator_events WHERE kind = ?1 AND at >= ?2 AND (?3 IS NULL OR operator_id = ?3) ORDER BY at DESC",
         )?;
         let rows = q
             .query_map(params![kind, from, operator], |r| r.get(0))?
@@ -424,6 +410,13 @@ impl Registry {
             .query_map(params![server_id, kind, from], |r| r.get(0))?
             .collect::<std::result::Result<Vec<String>, _>>()?;
         Ok(rows)
+    }
+
+    /// Whether the operator with id `operator` is held to an operator's own allowances
+    /// (`docs/network/05-hub.md` section 2.9): every operator but the hub's admins, who are held to
+    /// the hub's own ceilings and their client address's allowance alone.
+    fn has_own_allowances(&self, operator: &str) -> Result<bool> {
+        Ok(!self.is_admin_id(operator)?)
     }
 
     pub(crate) fn operator_event(&self, operator: &str, kind: &str, details: &Value) -> Result<()> {
@@ -805,20 +798,22 @@ impl Registry {
     ) -> Result<(Value, String, Issued)> {
         self.old_enough(operator)?;
         self.expire_pending()?;
-        let times = self.operator_event_times(Some(&operator.id), "registered", DAY)?;
-        within(
-            &times,
-            limits::REGISTRATIONS_PER_DAY,
-            DAY,
-            self.now(),
-            "Too many registrations today",
-        )?;
-        let (worlds, claims) = self.held(&operator.id)?;
-        if worlds + claims >= limits::HELD {
-            return Err(RegistryError::conflict(format!(
-                "An operator holds at most {} worlds and claims",
-                limits::HELD
-            )));
+        if self.has_own_allowances(&operator.id)? {
+            let times = self.operator_event_times(Some(&operator.id), "registered", DAY)?;
+            within(
+                &times,
+                limits::REGISTRATIONS_PER_DAY,
+                DAY,
+                self.now(),
+                "Too many registrations today",
+            )?;
+            let (worlds, claims) = self.held(&operator.id)?;
+            if worlds + claims >= limits::HELD {
+                return Err(RegistryError::conflict(format!(
+                    "An operator holds at most {} worlds and claims",
+                    limits::HELD
+                )));
+            }
         }
         self.check_endpoint(r)?;
         let (_, key) = self.register_as(r, self.is_admin(operator))?;
@@ -868,27 +863,29 @@ impl Registry {
                 "You have already claimed this listing",
             ));
         }
-        // Claiming and withdrawing again and again would only churn the listing's events.
-        let times = self.operator_event_times(Some(&operator.id), "claimed", DAY)?;
-        within(
-            &times,
-            limits::CLAIMS_PER_DAY,
-            DAY,
-            self.now(),
-            "Too many claims today",
-        )?;
-        let (worlds, claims) = self.held(&operator.id)?;
-        if claims >= limits::OPEN_CLAIMS {
-            return Err(RegistryError::conflict(format!(
-                "An operator holds at most {} open claims",
-                limits::OPEN_CLAIMS
-            )));
-        }
-        if worlds + claims >= limits::HELD {
-            return Err(RegistryError::conflict(format!(
-                "An operator holds at most {} worlds and claims",
-                limits::HELD
-            )));
+        if self.has_own_allowances(&operator.id)? {
+            // Claiming and withdrawing again and again would only churn the listing's events.
+            let times = self.operator_event_times(Some(&operator.id), "claimed", DAY)?;
+            within(
+                &times,
+                limits::CLAIMS_PER_DAY,
+                DAY,
+                self.now(),
+                "Too many claims today",
+            )?;
+            let (worlds, claims) = self.held(&operator.id)?;
+            if claims >= limits::OPEN_CLAIMS {
+                return Err(RegistryError::conflict(format!(
+                    "An operator holds at most {} open claims",
+                    limits::OPEN_CLAIMS
+                )));
+            }
+            if worlds + claims >= limits::HELD {
+                return Err(RegistryError::conflict(format!(
+                    "An operator holds at most {} worlds and claims",
+                    limits::HELD
+                )));
+            }
         }
         let key = new_key();
         let issued = self.issue(&row, &operator.id, Some(&key))?;
@@ -901,17 +898,17 @@ impl Registry {
         ))
     }
 
-    /// Refuses an operator whose Discord account is younger than the policy's minimum age, so that
-    /// new accounts made by the dozen cannot register or claim worlds.
+    /// Refuses an operator whose Discord account is younger than the hub's minimum age, as the
+    /// setting stands now, so that new accounts made by the dozen cannot register or claim worlds.
     fn old_enough(&self, operator: &Operator) -> Result<()> {
-        let min = Duration::from_secs(self.policy.min_account_age_days * DAY);
+        let days = self.setting(Setting::MinAccountAgeDays)?;
+        let min = Duration::from_secs(days.saturating_mul(DAY));
         let made = discord_account_made(&operator.discord_id).unwrap_or(self.now());
         if self.now().duration_since(made).unwrap_or_default() < min {
             return Err(RegistryError {
                 reason: Some("account_too_new"),
                 ..RegistryError::forbidden(format!(
-                    "A Discord account must be at least {} days old to register or claim a world",
-                    self.policy.min_account_age_days
+                    "A Discord account must be at least {days} days old to register or claim a world"
                 ))
             });
         }
@@ -1062,14 +1059,16 @@ impl Registry {
                 ..RegistryError::conflict("This world is locked: the hub's operator revoked it")
             });
         }
-        let times = self.world_event_times(&row.id, "updated", DAY)?;
-        within(
-            &times,
-            limits::UPDATES_PER_DAY,
-            DAY,
-            self.now(),
-            "Too many changes to this world today",
-        )?;
+        if self.has_own_allowances(&operator.id)? {
+            let times = self.world_event_times(&row.id, "updated", DAY)?;
+            within(
+                &times,
+                limits::UPDATES_PER_DAY,
+                DAY,
+                self.now(),
+                "Too many changes to this world today",
+            )?;
+        }
         self.check_endpoint(r)?;
         self.update_by(r, Some(&operator.id), self.is_admin(operator))?;
         self.event_by(&row.id, "updated", Some(&operator.id), &json!({}))?;
@@ -1120,15 +1119,18 @@ impl Registry {
                 "This world is locked: the hub's operator revoked it",
             ));
         }
-        // Each operator's own: another claimant's tokens never spend this one's.
-        let times = self.actor_event_times(&row.id, "verification-issued", &operator.id, DAY)?;
-        within(
-            &times,
-            limits::TOKENS_PER_DAY,
-            DAY,
-            self.now(),
-            "Too many verifications for this world today",
-        )?;
+        if self.has_own_allowances(&operator.id)? {
+            // Each operator's own: another claimant's tokens never spend this one's.
+            let times =
+                self.actor_event_times(&row.id, "verification-issued", &operator.id, DAY)?;
+            within(
+                &times,
+                limits::TOKENS_PER_DAY,
+                DAY,
+                self.now(),
+                "Too many verifications for this world today",
+            )?;
+        }
         self.issue(&row, &operator.id, None)
     }
 
@@ -1137,14 +1139,16 @@ impl Registry {
     /// Counts one verification attempt for `row` by `actor` (the operator whose verification it
     /// is), or refuses one past the limit: each claimant's attempts are its own.
     fn attempt(&self, row: &Row, actor: &str, method: Method) -> Result<()> {
-        let times = self.actor_event_times(&row.id, "verification-attempted", actor, HOUR)?;
-        within(
-            &times,
-            limits::ATTEMPTS_PER_HOUR,
-            HOUR,
-            self.now(),
-            "Too many verification attempts for this world this hour",
-        )?;
+        if self.has_own_allowances(actor)? {
+            let times = self.actor_event_times(&row.id, "verification-attempted", actor, HOUR)?;
+            within(
+                &times,
+                limits::ATTEMPTS_PER_HOUR,
+                HOUR,
+                self.now(),
+                "Too many verification attempts for this world this hour",
+            )?;
+        }
         self.event_by(
             &row.id,
             "verification-attempted",
@@ -1225,14 +1229,16 @@ impl Registry {
                 "A world whose endpoint is observed is verified in game",
             ));
         }
-        let mine = self.operator_event_times(Some(&operator.id), "page-fetched", HOUR)?;
-        within(
-            &mine,
-            limits::FETCHES_PER_HOUR,
-            HOUR,
-            self.now(),
-            "Too many page checks this hour",
-        )?;
+        if self.has_own_allowances(&operator.id)? {
+            let mine = self.operator_event_times(Some(&operator.id), "page-fetched", HOUR)?;
+            within(
+                &mine,
+                limits::FETCHES_PER_HOUR,
+                HOUR,
+                self.now(),
+                "Too many page checks this hour",
+            )?;
+        }
         let all = self.operator_event_times(None, "page-fetched", HOUR)?;
         within(
             &all,
@@ -1526,18 +1532,21 @@ impl Registry {
     }
 
     /// How long until `operator` may have a world approved, when an allowance is spent: its own
-    /// for the day, or the hub's.
+    /// for the day (an admin has none), or the hub's, as its setting stands now.
     fn approval_wait(&self, operator: &str) -> Result<Option<u64>> {
         let now = self.now();
-        let mine = self.operator_event_times(Some(operator), "approved", DAY)?;
         let all = self.operator_event_times(None, "approved", DAY)?;
-        let wait = [
-            within(&mine, limits::APPROVALS_PER_DAY, DAY, now, ""),
-            within(&all, self.policy.approvals_per_day, DAY, now, ""),
-        ]
-        .into_iter()
-        .filter_map(|r| r.err().and_then(|e| e.retry_after))
-        .max();
+        let ceiling =
+            usize::try_from(self.setting(Setting::ApprovalsPerDay)?).unwrap_or(usize::MAX);
+        let mut checks = vec![within(&all, ceiling, DAY, now, "")];
+        if self.has_own_allowances(operator)? {
+            let mine = self.operator_event_times(Some(operator), "approved", DAY)?;
+            checks.push(within(&mine, limits::APPROVALS_PER_DAY, DAY, now, ""));
+        }
+        let wait = checks
+            .into_iter()
+            .filter_map(|r| r.err().and_then(|e| e.retry_after))
+            .max();
         Ok(wait)
     }
 
@@ -1616,14 +1625,16 @@ impl Registry {
                 "This world is locked: the hub's operator revoked it",
             ));
         }
-        let times = self.world_event_times(&row.id, "key-rotated", DAY)?;
-        within(
-            &times,
-            limits::KEYS_PER_DAY,
-            DAY,
-            self.now(),
-            "Too many new keys for this world today",
-        )?;
+        if self.has_own_allowances(&operator.id)? {
+            let times = self.world_event_times(&row.id, "key-rotated", DAY)?;
+            within(
+                &times,
+                limits::KEYS_PER_DAY,
+                DAY,
+                self.now(),
+                "Too many new keys for this world today",
+            )?;
+        }
         self.rotate_key_by(&row.slug, Some(&operator.id))
     }
 
@@ -1841,6 +1852,7 @@ impl Registry {
             "UPDATE verifications SET state = 'closed' WHERE server_id = ? AND state = 'open'",
             [&row.id],
         )?;
+        self.forget_worlds_listings(&row.slug)?;
         self.event_by(&row.id, "federation", actor, &json!({ "flag": "off" }))?;
         self.event_by(&row.id, "key-revoked", actor, &json!({}))?;
         self.event_by(&row.id, "locked", actor, &json!({ "reason": reason }))?;
@@ -1851,13 +1863,13 @@ impl Registry {
     ///
     /// # Errors
     /// 404, 409 for a world that is not locked.
-    /// Removes the `pending` worlds registered longer ago than the policy allows, freeing their
-    /// slugs; each one's operator's log says so.
+    /// Removes the `pending` worlds registered longer ago than the hub's setting allows now,
+    /// freeing their slugs; each one's operator's log says so.
     ///
     /// # Errors
     /// Database errors only.
     pub(crate) fn expire_pending(&self) -> Result<()> {
-        let days = Duration::from_secs(self.policy.pending_days.saturating_mul(86_400));
+        let days = Duration::from_secs(self.setting(Setting::PendingDays)?.saturating_mul(DAY));
         let Some(before) = self.now().checked_sub(days) else {
             return Ok(());
         };
@@ -2020,14 +2032,255 @@ impl Registry {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
     use crate::fetch::Url;
+    use crate::registry::CommunityEntry;
 
     fn manual(address: &str) -> Endpoint {
         Endpoint::Manual {
             address: address.into(),
             port: 9000,
         }
+    }
+
+    /// The Discord id of the hub's admin in these tests.
+    const ADMIN: &str = "900";
+
+    struct Fixture {
+        clock: Arc<Mutex<SystemTime>>,
+        r: Registry,
+    }
+
+    impl Fixture {
+        fn advance(&self, secs: u64) {
+            *self.clock.lock().expect("the clock") += Duration::from_secs(secs);
+        }
+    }
+
+    fn registration(slug: &str) -> Registration {
+        Registration::from_json(&json!({
+            "slug": slug, "name": format!("World {slug}"), "ruleset": "PvE",
+            "endpoint": { "mode": "manual", "address": "8.8.8.8", "port": 9000 },
+            "emulator": { "family": "ACE" },
+        }))
+        .expect("a registration")
+    }
+
+    /// A registry on a clock the test turns, whose admin is [`ADMIN`], with six community listings,
+    /// `l0` to `l5`.
+    fn fixture() -> Fixture {
+        let clock = Arc::new(Mutex::new(
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000),
+        ));
+        let c = Arc::clone(&clock);
+        let mut r = Registry::open(
+            ":memory:",
+            "dereth.network",
+            Box::new(move || *c.lock().expect("the clock")),
+        )
+        .expect("a registry");
+        r.admins = vec![ADMIN.into()];
+        let listings: Vec<CommunityEntry> = (0..6)
+            .map(|i| CommunityEntry {
+                external_id: format!("00000000-0000-4000-8000-00000000000{i}"),
+                registration: registration(&format!("l{i}")),
+                source_hash: "h".into(),
+                legacy_type: "PvE".into(),
+            })
+            .collect();
+        r.import_community(&listings, true).expect("imported");
+        Fixture { clock, r }
+    }
+
+    /// The message of the first of `n` calls of `f` that is refused, if one is.
+    fn first_refusal<T>(n: usize, mut f: impl FnMut(usize) -> Result<T>) -> Option<String> {
+        (0..n).find_map(|i| f(i).err().map(|e| e.message))
+    }
+
+    /// Each of one operator's own allowances, pushed one past: what it is, and the message of the
+    /// first request refused, if one was. `p` starts the slugs of the operator's worlds.
+    fn past_each_own_allowance(
+        f: &Fixture,
+        op: &Operator,
+        p: &str,
+    ) -> Vec<(&'static str, Option<String>)> {
+        let r = &f.r;
+        let mut out = Vec::new();
+        // Claims first, while the operator holds nothing: each withdrawn at once, then held open.
+        let past = first_refusal(limits::CLAIMS_PER_DAY + 1, |i| {
+            r.claim_for(op, &format!("l{i}"))?;
+            r.withdraw(op, &format!("l{i}"))
+        });
+        out.push(("claims a day", past));
+        f.advance(DAY + 1);
+        let past = first_refusal(limits::OPEN_CLAIMS + 1, |i| {
+            r.claim_for(op, &format!("l{i}"))
+        });
+        out.push(("open claims", past));
+        for i in 0..=limits::OPEN_CLAIMS {
+            let _ = r.withdraw(op, &format!("l{i}"));
+        }
+        let past = first_refusal(limits::REGISTRATIONS_PER_DAY + 1, |i| {
+            r.register_for(op, &registration(&format!("{p}r{i}")))
+        });
+        out.push(("registrations a day", past));
+        // More worlds, a day later whenever the day's registrations are spent.
+        let (mut n, mut more) = (0, Vec::new());
+        let past = first_refusal(limits::HELD + 1, |_| loop {
+            n += 1;
+            let slug = format!("{p}h{n}");
+            match r.register_for(op, &registration(&slug)) {
+                Err(e) if e.status == 429 => f.advance(DAY + 1),
+                Err(e) => return Err(e),
+                Ok(_) => {
+                    more.push(slug);
+                    return Ok(());
+                }
+            }
+        });
+        out.push(("worlds and claims held", past));
+        let past = first_refusal(limits::TOKENS_PER_DAY + 1, |_| {
+            r.new_verification(op, &format!("{p}r0"))
+        });
+        out.push(("new verification tokens", past));
+        let past = first_refusal(limits::ATTEMPTS_PER_HOUR + 1, |_| {
+            r.page_attempt(op, &format!("{p}r1"))
+        });
+        out.push(("verification attempts", past));
+        // Each world's attempts never what refuses: ten pages of each of four worlds.
+        let pages = [
+            format!("{p}r2"),
+            more[0].clone(),
+            more[1].clone(),
+            more[2].clone(),
+        ];
+        let past = first_refusal(limits::FETCHES_PER_HOUR + 1, |i| {
+            r.page_attempt(op, &pages[i / limits::ATTEMPTS_PER_HOUR])
+        });
+        out.push(("page fetches", past));
+        let approved = [
+            format!("{p}r0"),
+            format!("{p}r1"),
+            format!("{p}r2"),
+            more[0].clone(),
+        ];
+        let past = first_refusal(limits::APPROVALS_PER_DAY + 1, |i| {
+            r.vouch(&approved[i], "Reviewed the world's own page.")?;
+            r.federation_for(op, &approved[i], Federation::On)
+        });
+        out.push(("federation approvals", past));
+        let past = first_refusal(limits::KEYS_PER_DAY + 1, |_| {
+            r.rotate_key_for(op, &format!("{p}r0"))
+        });
+        out.push(("new keys", past));
+        let past = first_refusal(limits::UPDATES_PER_DAY + 1, |_| {
+            r.update_for(op, &format!("{p}r0"), &registration(&format!("{p}r0")))
+        });
+        out.push(("registration changes", past));
+        out
+    }
+
+    /// Spec: hub: the hub's admins are held to none of one operator's own allowances (registrations,
+    /// worlds and claims held, claims, verification tokens and attempts, page fetches, approvals,
+    /// a world's new keys and changes); every other operator is refused past each of them.
+    #[test]
+    fn an_admin_is_held_to_no_operators_own_allowance() {
+        let f = fixture();
+        let ann = f.r.signed_in("100", "Ann").expect("signed in");
+        let refused: Vec<_> = past_each_own_allowance(&f, &ann, "o")
+            .into_iter()
+            .map(|(what, past)| (what, past.unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            refused,
+            [
+                ("claims a day", "Too many claims today".to_owned()),
+                (
+                    "open claims",
+                    "An operator holds at most 3 open claims".into()
+                ),
+                ("registrations a day", "Too many registrations today".into()),
+                (
+                    "worlds and claims held",
+                    "An operator holds at most 10 worlds and claims".into()
+                ),
+                (
+                    "new verification tokens",
+                    "Too many verifications for this world today".into()
+                ),
+                (
+                    "verification attempts",
+                    "Too many verification attempts for this world this hour".into()
+                ),
+                ("page fetches", "Too many page checks this hour".into()),
+                (
+                    "federation approvals",
+                    "Today's allowance of worlds joining the network is spent".into()
+                ),
+                ("new keys", "Too many new keys for this world today".into()),
+                (
+                    "registration changes",
+                    "Too many changes to this world today".into()
+                ),
+            ],
+            "an operator is refused past each"
+        );
+        let admin = f.r.signed_in(ADMIN, "Admin").expect("signed in");
+        for (what, past) in past_each_own_allowance(&f, &admin, "a") {
+            assert_eq!(past, None, "an admin past {what}");
+        }
+    }
+
+    /// Spec: hub: the hub's admins are held to the hub's own ceilings (page fetches an hour and
+    /// approvals a day, for every operator together), to one operator's reports a day and to one
+    /// person's wrong link codes an hour, as every operator is.
+    #[test]
+    fn an_admin_is_held_to_the_hubs_ceilings_reports_and_wrong_codes() {
+        let f = fixture();
+        f.r.set_settings(&[(Setting::ApprovalsPerDay, 1)], None)
+            .expect("set");
+        let admin = f.r.signed_in(ADMIN, "Admin").expect("signed in");
+        let ann = f.r.signed_in("100", "Ann").expect("signed in");
+        for slug in ["a1", "a2"] {
+            f.r.register_for(&admin, &registration(slug))
+                .expect("registered");
+        }
+        for _ in 0..limits::HUB_FETCHES_PER_HOUR {
+            f.r.operator_event(&ann.id, "page-fetched", &json!({}))
+                .expect("counted");
+        }
+        let page =
+            f.r.page_attempt(&admin, "a1")
+                .expect_err("the hub's ceiling");
+        assert_eq!(
+            (page.status, page.message.as_str()),
+            (429, "The hub has checked too many pages this hour")
+        );
+        let vouch = |slug: &str| f.r.vouch(slug, "Reviewed the world's own page.");
+        assert_eq!(vouch("a1"), Ok(Some(Approval::Approved)));
+        assert_eq!(
+            vouch("a2"),
+            Ok(Some(Approval::RateLimited)),
+            "the hub's approvals a day are spent"
+        );
+        for i in 0..limits::REPORTS_PER_DAY {
+            f.r.report(&admin, &format!("l{i}"), "spam", "")
+                .expect("reported");
+        }
+        let report = f.r.report(&admin, "l5", "spam", "").expect_err("limited");
+        assert_eq!(report.status, 429, "{report:?}");
+        for _ in 0..crate::persons::limits::WRONG_CODES_PER_HOUR {
+            let wrong =
+                f.r.redeem_link_code(&admin, "QQQQ-QQQQ")
+                    .expect_err("wrong");
+            assert_eq!(wrong.status, 422);
+        }
+        let wrong =
+            f.r.redeem_link_code(&admin, "QQQQ-QQQQ")
+                .expect_err("limited");
+        assert_eq!(wrong.status, 429, "{wrong:?}");
     }
 
     /// Spec: hub: a verification page is on the endpoint's own host, never a domain it is under,

@@ -3,18 +3,18 @@
 //! A local player's tell to an address goes to the hub, and the player sees what a local tell
 //! would give once the answer comes back: the `You tell ...` echo, the away message, or
 //! `Character not available` (`Communication_WeenieError`, `0x028A`, `0x052B`). A remote tell is
-//! delivered as `Communication_HearDirectSpeech` (`0x02BD`) from the sender's stand-in id, after
-//! the receiving character's settings, squelches and the operator's blocks have had their say.
+//! delivered as `Communication_HearDirectSpeech` (`0x02BD`) from the sender's stand-in id, to any
+//! character on the network, after its squelches and the operator's blocks have had their say.
 
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_TEXT_CHARS};
-use dereth_network_protocol::{Address, Message, Outcome, Reachable, REPLY_WINDOW_SECS};
+use dereth_network_protocol::{Address, Message, Outcome};
 use empyrean_entity::enums::{ChatMessageType, WeenieError, WeenieErrorWithString};
 use empyrean_entity::ObjectGuid;
 
 use super::{
-    blocked, enabled, fresh_id, is_on, may_owe, may_receive, may_send, now, own_address,
+    blocked, enabled, fresh_id, is_on, may_owe, may_receive, may_send, own_address,
     remote_stand_in, send, send_answer, stand_in_for, tell_player, too_new, LinkState, NotShown,
-    PendingTell, Sends,
+    PendingTell, Sends, NOT_ON,
 };
 
 /// What a character too new for the operator's minimum age is told when it sends to the network.
@@ -110,11 +110,7 @@ pub fn tell_by_id(w: &mut World, player: ObjectGuid, target: u32, text: &str) ->
 fn send_tell(w: &mut World, player: ObjectGuid, to: Address, text: &str) {
     let character = player.full();
     if !is_on(w, character) {
-        tell_player(
-            w,
-            player,
-            "You are not on the Dereth Network. Type /dn on to join it.",
-        );
+        tell_player(w, player, NOT_ON);
         return;
     }
     if blocked(w, &to) {
@@ -133,9 +129,8 @@ fn send_tell(w: &mut World, player: ObjectGuid, to: Address, text: &str) {
         tell_player(w, player, TOO_QUICKLY);
         return;
     }
-    if !to.is_channel() {
-        w.federation.told.insert((character, to.key()), now(w));
-    }
+    // Whether the sender lists the recipient: worlds of the first version let a character take
+    // tells from its mutual friends alone, and read it.
     let friend = w
         .federation
         .store
@@ -258,7 +253,7 @@ fn answer(w: &mut World, world: &str, id: String, outcome: Outcome, message: Opt
     send_answer(
         w,
         world,
-        Message::TellResult {
+        &Message::TellResult {
             id,
             outcome,
             message,
@@ -267,26 +262,8 @@ fn answer(w: &mut World, world: &str, id: String, outcome: Outcome, message: Opt
 }
 
 /// A remote sender's display name, or `None` when the network's rules refuse it.
-fn display_name(from: &Address) -> Option<String> {
+pub(super) fn display_name(from: &Address) -> Option<String> {
     sanitize_name(&from.to_string()).ok()
-}
-
-/// Whether `character` takes a first tell from `from` (`friend`: the sender lists the recipient).
-pub(super) fn reachable(w: &World, character: u32, from: &Address, friend: bool) -> bool {
-    let Some(r) = w.federation.store.characters.get(&character) else {
-        return false;
-    };
-    let in_window = w
-        .federation
-        .told
-        .get(&(character, from.key()))
-        .is_some_and(|&at| now(w) - at < REPLY_WINDOW_SECS);
-    in_window
-        || match r.settings.reachable {
-            Reachable::Anyone => true,
-            Reachable::Friends => friend && r.friends.contains_key(&from.key()),
-            Reachable::Nobody => false,
-        }
 }
 
 /// Whether `character` squelches `who` (the character or its whole world).
@@ -301,14 +278,7 @@ pub(super) fn squelches(w: &World, character: u32, who: &Address) -> bool {
 }
 
 /// A tell from another world for a character of this one.
-pub(super) fn on_tell(
-    w: &mut World,
-    id: String,
-    from: &Address,
-    to: &Address,
-    text: &str,
-    friend: bool,
-) {
+pub(super) fn on_tell(w: &mut World, id: String, from: &Address, to: &Address, text: &str) {
     if w.federation.link != LinkState::Up {
         return;
     }
@@ -336,7 +306,7 @@ pub(super) fn on_tell(
         answer(w, &origin, id, Outcome::Offline, None);
         return;
     };
-    if !is_on(w, character) || blocked(w, from) || !reachable(w, character, from, friend) {
+    if !is_on(w, character) || blocked(w, from) {
         answer(w, &origin, id, Outcome::Offline, None);
         return;
     }

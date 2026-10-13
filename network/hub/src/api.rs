@@ -170,6 +170,7 @@ pub fn code(status: u16) -> &'static str {
         413 => "TOO_LARGE",
         422 => "VERIFICATION_FAILED",
         429 => "RATE_LIMITED",
+        431 => "HEADERS_TOO_LARGE",
         503 => "UNAVAILABLE",
         s if s >= 500 => "INTERNAL_ERROR",
         _ => "REQUEST_FAILED",
@@ -574,21 +575,19 @@ fn session_route(
     };
     let admin = config.admins.contains(&operator.discord_id);
     if let (["v1", "person"], "DELETE") = (segs, req.method) {
-        // Forgetting the person may remove its account, and with it the session.
+        // Forgetting the person ends every session of its account, this one among them.
         let forgotten = {
             let reg = shared.registry();
             reg.characters_of(&operator)
-                .and_then(|characters| Ok((reg.forget_person(&operator)?, characters)))
+                .and_then(|characters| reg.forget_person(&operator).map(|_| characters))
         };
         return match forgotten {
-            Ok((gone, characters)) => {
-                shared.persons_changed(characters);
-                let r = Reply::empty(204, cors);
-                if gone {
-                    r.cookie(clear_cookie(SESSION_COOKIE))
-                } else {
-                    r
+            Ok(characters) => {
+                if let Some(service) = shared.broker.as_ref() {
+                    service.tells.forget(&operator.id);
                 }
+                shared.persons_changed(characters);
+                Reply::empty(204, cors).cookie(clear_cookie(SESSION_COOKIE))
             }
             Err(e) => Reply::error(&e, cors),
         };
@@ -630,12 +629,6 @@ struct LinkBody {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AltsBody {
-    shown: bool,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ResolveBody {
     action: String,
     #[serde(default)]
@@ -652,7 +645,6 @@ fn registration(shared: &Shared, req: &Req<'_>) -> Result<Registration, Registry
         if address.parse::<IpAddr>().is_err() {
             let policy = operators::Policy {
                 loopback_allowed: shared.config.loopback_allowed,
-                ..operators::Policy::default()
             };
             if let crate::resolver::Resolved::Found(found) = shared.resolver.resolve(address) {
                 if found
@@ -767,15 +759,6 @@ fn route(
             shared.persons_changed(characters);
             Ok((204, Value::Null))
         }
-        ("PUT", ["v1", "person", "alts"]) => {
-            let body: AltsBody = parse_body(req)?;
-            let reg = shared.registry();
-            let (person, changed) = reg.set_alts_for(op, body.shown)?;
-            if changed {
-                shared.persons_changed(reg.characters_of(op)?);
-            }
-            Ok((200, json!({ "person": person })))
-        }
         ("DELETE", ["v1", "person", "friends", handle]) => {
             let reg = shared.registry();
             reg.unfriend_for(op, &crate::server::percent_decode(handle))?;
@@ -794,6 +777,38 @@ fn route(
                     .registry()
                     .resolve_report(id, &body.action, &body.note, Some(&op.id))?;
             Ok((200, out))
+        }
+        (method, ["v1", "admin", "discord", rest @ ..]) => {
+            let body = if req.body.is_empty() {
+                Value::Null
+            } else {
+                parse_body(req)?
+            };
+            crate::bridge::admin(shared, op, method, rest, &body)
+        }
+        (method, ["v1", "admin", "settings", rest @ ..]) => {
+            let body = if req.body.is_empty() {
+                Value::Null
+            } else {
+                parse_body(req)?
+            };
+            crate::settings::admin(&shared.registry(), op, method, rest, &body)
+        }
+        (method, ["v1", "operator", "worlds", slug, "discord", "mirrors", rest @ ..]) => {
+            let body = if req.body.is_empty() {
+                Value::Null
+            } else {
+                parse_body(req)?
+            };
+            crate::bridge::operator_mirrors(shared, op, method, &slug_of(slug), rest, &body)
+        }
+        (method, ["v1", "operator", "worlds", slug, "global-room"]) => {
+            let body = if req.body.is_empty() {
+                Value::Null
+            } else {
+                parse_body(req)?
+            };
+            crate::rooms::operator_global_room(shared, op, method, &slug_of(slug), &body)
         }
         _ => Err(fail(404, "Route not found")),
     }

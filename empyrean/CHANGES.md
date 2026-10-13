@@ -14,6 +14,17 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- A player may speak in the Global room, or a room of the world's own, from its Discord mirror with `/dn say`, as one of their linked characters: the line shows here marked `(Discord)`, under the room's own rules for that character, and lines said that way on other worlds show marked too.
+- A tell to a linked character who is not playing reaches the player's Discord, unless squelches or the operator's blocks stop it.
+- The world's own chat rooms (General, say) are mirrored into a Discord channel from the hub's operator page alone, and the room that carries the Global room is moved there too or in game with `@dn admin global`; `[federation] global_room` is read only until the hub keeps a room.
+- A tell, a squelch or a friend added to a name shown with its `(Discord)` mark reaches the character itself.
+- `@dn on` puts a character on the Dereth Network for anyone there to see online, tell and find in its directory, its profile kept up to date as it plays and leaving out what its "Allow others to see your ..." options hide; `@dn off` takes it off at once. The visible, reachable, listed, alts and worlds commands are gone.
+- `@dn help` lists the commands, one line each.
+- `@dn link` gives one link to open, which links the character to the player's Discord account with nothing to type.
+- With one character on a world, `/dn say` in Discord speaks as it; with several, it asks which once and remembers.
+- `@dn off` pauses a linked character's Discord link until `@dn on`, and "Forget me" on the site takes every linked character off the network.
+- A linked character's friends may number 1,000 across the network, the friends panel showing 100, online first.
+
 ## 0.3.0 (2026-10-12)
 
 - The Dereth Network: with `[federation]` on, players tell, befriend and chat with characters on other worlds, speak in the Global room with `/dng`, and link their characters to one Discord account (`/dn` lists the commands).

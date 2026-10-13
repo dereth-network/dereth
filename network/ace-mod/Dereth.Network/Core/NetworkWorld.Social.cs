@@ -3,8 +3,9 @@
 // A remote friend is kept in the character's network record (the world's own friend list holds
 // local characters only) and shown in the friends panel as a row under its stand-in id. Its status
 // is its home world's to give: this world asks with a `watch` while the character is online, the
-// home world answers with `presence` as its own settings allow, and each change is a status row and
-// an online or offline line. A watch from another world for one of this world's characters is
+// home world answers with `presence` (online while the friend is on the network and online, to
+// anyone its operator does not block), and each change is a status row and an online or offline
+// line. A watch from another world for one of this world's characters is
 // answered the same way, from this side.
 
 namespace Dereth.Network;
@@ -32,15 +33,24 @@ public sealed partial class NetworkWorld
 
     /// <summary>
     /// `@friends add &lt;address&gt;`, which carries the name only. True when the name was an address
-    /// the network took; false leaves it to the world's own friend list. A linked character's friend
-    /// is its person's, listed by the hub; any other character's is kept in its record.
+    /// the network took, or a local name given with the mark a line said from Discord shows (which
+    /// goes to the world's own friend list without it); false leaves it to the world's own friend
+    /// list. A linked character's friend is its person's, listed by the hub; any other character's is
+    /// kept in its record.
     /// </summary>
     public bool AddFriend(uint player, string name)
     {
         lock (gate)
         {
+            var given = name;
+            name = SayWire.WithoutMark(name);
             if (!Address.LooksRemote(name))
-                return false;
+            {
+                if (name == given)
+                    return false;
+                host.LocalAddFriend(player, name);
+                return true;
+            }
             if (!Address.TryParse(name, out var friend, out _))
             {
                 host.ShowSystem(player, "That character does not exist");
@@ -59,7 +69,7 @@ public sealed partial class NetworkWorld
             }
             if (!IsOn(player))
             {
-                host.ShowSystem(player, "You are not on the Dereth Network. Type /dn on to join it.");
+                host.ShowSystem(player, NotOnLine);
                 return true;
             }
             if (Record(player)?.Friends.ContainsKey(friend.Key) == true)
@@ -76,7 +86,7 @@ public sealed partial class NetworkWorld
             // person view.
             if (persons.TryGetValue(player, out var person) && person.Linked)
             {
-                PersonAsk(player, PersonOp.Befriend, friend, null, Purpose.Command);
+                PersonAsk(player, PersonOp.Befriend, friend, Purpose.Command);
                 return true;
             }
             if (StandIn(friend) is not uint id)
@@ -88,8 +98,6 @@ public sealed partial class NetworkWorld
             dirty = true;
             host.ShowFriendRow(player, FriendRowKind.Added, id, friend.ToString(), false);
             host.ShowSystem(player, $"{friend} has been added to your friends list.");
-            // Listing a watcher can make the two mutual friends: the watchers see what they may now.
-            TellWatchers(player, null);
             if (OwnAddress(player) is { } owner)
                 SendIfUp(new Watch(owner, friend, true));
             return true;
@@ -145,53 +153,23 @@ public sealed partial class NetworkWorld
     }
 
     /// <summary>
-    /// `player` no longer lists `former`: everyone watching it sees what they may now (ending a
-    /// mutual friendship can hide it), each former friend is told even if its watch was not kept,
-    /// and the character stops watching them.
+    /// `player` no longer lists `former`: it stops watching them. What they see of it is unchanged,
+    /// since it is seen online by anyone.
     /// </summary>
     private void FriendshipEnded(uint player, IReadOnlyList<Address> former)
     {
-        TellWatchers(player, null);
         if (OwnAddress(player) is not { } owner)
             return;
-        watchers.TryGetValue(player, out var watching);
         foreach (var f in former)
-        {
-            if (watching?.ContainsKey(f.Key) != true && IsOn(player))
-                SendIfUp(new Presence(f, owner, VisibleTo(player, f)));
             SendIfUp(new Watch(owner, f, false));
-        }
-        // A former friend's watch is kept only while the character could still show to it.
-        if (watching is not null)
-            foreach (var f in former)
-                if (!CouldShow(player, f))
-                    watching.Remove(f.Key);
     }
 
-    /// <summary>Whether `watcher` may see `character` online now, by the character's Visible setting and the operator's blocks.</summary>
-    private bool VisibleTo(uint character, Address watcher)
-    {
-        var r = Record(character);
-        if (r is null || !r.Settings.On || !Online(character))
-            return false;
-        if (Blocked(watcher) || host.AppearsOffline(character))
-            return false;
-        return r.Settings.Visible switch
-        {
-            Visible.Anyone => true,
-            // A watch says the watcher lists this character; listing the watcher makes it mutual.
-            // A channel's members are not known to the world, so `channels` shows to mutual friends.
-            Visible.Friends or Visible.Channels => r.Friends.ContainsKey(watcher.Key),
-            _ => false,
-        };
-    }
-
-    /// <summary>Whether `character` could ever show to `watcher` by its settings now: it lists the watcher, or it is visible to anyone.</summary>
-    private bool CouldShow(uint character, Address watcher)
-    {
-        var r = Record(character);
-        return r is not null && r.Settings.On && (r.Settings.Visible == Visible.Anyone || r.Friends.ContainsKey(watcher.Key));
-    }
+    /// <summary>
+    /// Whether `watcher` may see `character` online now: the character is on the network, online and
+    /// not appearing offline, and the operator does not block the watcher.
+    /// </summary>
+    private bool VisibleTo(uint character, Address watcher) =>
+        IsOn(character) && Online(character) && !Blocked(watcher) && !host.AppearsOffline(character);
 
     /// <summary>Keeps `owner` as a watcher of `character`, within the caps (a watcher the character lists is always kept).</summary>
     private void KeepWatcher(uint character, Address owner)
@@ -216,11 +194,11 @@ public sealed partial class NetworkWorld
 
     /// <summary>
     /// A watch from another world for an address of this one. Every watch within the other world's
-    /// pace is answered, and alike: online only for a character on the network, online, and visible
-    /// to the watcher (who is not blocked); `offline` for anything else, a name this world does not
+    /// pace is answered, and alike: online only for a character on the network, online, not appearing
+    /// offline, and the watcher not blocked; `offline` for anything else, a name this world does not
     /// have, a character off the network and a blocked watcher included, named as the watch named
-    /// it. So a watch tells another world nothing a tell would not. A watcher the character could
-    /// show to is kept, a blocked one too (told nothing while the block lasts, so lifting it can show
+    /// it. So a watch tells another world nothing a tell would not. A watcher of a character on the
+    /// network is kept, a blocked one too (told nothing while the block lasts, so lifting it can show
     /// it what it may see).
     /// </summary>
     private void OnWatch(Address owner, Address target, bool on)
@@ -243,8 +221,7 @@ public sealed partial class NetworkWorld
         var online = false;
         if (found is { } c && IsOn(c.Id))
         {
-            if (CouldShow(c.Id, owner))
-                KeepWatcher(c.Id, owner);
+            KeepWatcher(c.Id, owner);
             online = VisibleTo(c.Id, owner);
         }
         AnswerIfUp(new Presence(owner, target, online));
@@ -402,15 +379,19 @@ public sealed partial class NetworkWorld
 
     /// <summary>
     /// A character left the world (`name` is its name, since it is no longer online): its watchers
-    /// see it offline, and it stops watching.
+    /// see it offline, and it stops watching. A listed one's profile, from the facts the host had of
+    /// it as it left, goes to the directory if it changed.
     /// </summary>
-    public void OnLogout(uint player, string name)
+    public void OnLogout(uint player, string name, CharacterFacts? facts = null)
     {
         lock (gate)
+        {
+            DirectoryLeft(player, name, facts);
             OnLogoutLocked(player, name);
+        }
     }
 
-    /// <summary>A character's settings (or its appear-offline choice) changed: its watchers see what they may see now.</summary>
+    /// <summary>A character's appear-offline choice changed: its watchers see what they may see now.</summary>
     public void SettingsChanged(uint player)
     {
         lock (gate)
@@ -489,11 +470,19 @@ public sealed partial class NetworkWorld
     }
 
     /// <summary>
-    /// A character squelch by name (carried with id 0) or by a stand-in id. True when the target
-    /// was remote. Squelching a channel leaves it.
+    /// A name a player gave (a tell's target, a squelch, a friend), without the mark a world shows
+    /// beside the speaker of a line said from Discord: `Ann (Discord)` is `Ann`. No character's name
+    /// holds a parenthesis, so a marked name a player clicks or types names the character.
+    /// </summary>
+    public static string GivenName(string name) => SayWire.WithoutMark(name);
+
+    /// <summary>
+    /// A character squelch by name (carried with id 0, its mark taken off: <see cref="GivenName"/>) or
+    /// by a stand-in id. True when the target was remote. Squelching a channel leaves it.
     /// </summary>
     public bool Squelch(uint player, bool add, uint id, string name)
     {
+        name = GivenName(name);
         lock (gate)
         {
             Address? who;
@@ -531,7 +520,7 @@ public sealed partial class NetworkWorld
                 }
                 if (held?.Squelched.Count >= MaxRemoteSquelches)
                 {
-                    host.ShowSystem(player, $"You squelch {MaxRemoteSquelches} characters on other worlds already; unsquelch one first.");
+                    host.ShowSystem(player, $"You squelch {MaxRemoteSquelches} characters on other worlds already. Unsquelch one first.");
                     return true;
                 }
                 // The squelch names the identity, so its stand-in id is kept as long as it lasts.

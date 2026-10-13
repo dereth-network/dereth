@@ -26,7 +26,6 @@ fn tells(net: &mut Net, slug: &str, who: &str, mark: usize) -> Vec<Communication
 #[test]
 fn a_tell_to_an_address_reaches_the_other_world_and_the_sender_sees_the_echo() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let (ma, mb) = (net.mark("aa", "Ann"), net.mark("bb", "Bob"));
     let wire = net.wire.0.len();
     net.tell("aa", "Ann", "Bob@bb", "long time! still playing?");
@@ -69,7 +68,6 @@ fn a_tell_to_an_address_reaches_the_other_world_and_the_sender_sees_the_echo() {
 #[test]
 fn a_reply_goes_back_by_name_and_by_the_stand_in_id() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let mb = net.mark("bb", "Bob");
     net.tell("aa", "Ann", "Bob@bb", "still playing?");
     let stand_in = tells(&mut net, "bb", "Bob", mb)[0].sender_id.0;
@@ -103,7 +101,6 @@ fn a_reply_goes_back_by_name_and_by_the_stand_in_id() {
 #[test]
 fn a_stand_in_id_is_the_same_for_every_tell_from_one_identity() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let mb = net.mark("bb", "Bob");
     net.tell("aa", "Ann", "Bob@bb", "one");
     net.tell("aa", "Ann", "BOB@BB", "two");
@@ -126,10 +123,9 @@ fn a_stand_in_id_is_the_same_for_every_tell_from_one_identity() {
 #[test]
 fn a_tell_nobody_can_take_answers_character_not_available() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable friends");
+    net.say("bb", "Bob", "@dn off");
     for to in ["Nobody@bb", "Bob@bb"] {
-        // Nobody does not exist; Bob is on the network but takes first tells from mutual friends
-        // only, and Ann is not one.
+        // Nobody does not exist; Bob is off the network.
         let ma = net.mark("aa", "Ann");
         net.tell("aa", "Ann", to, "hello?");
         let ann = net.since("aa", "Ann", ma);
@@ -157,7 +153,7 @@ fn a_character_off_the_network_is_told_how_to_join_and_nothing_leaves_the_world(
     net.tell("aa", "Ann", "Bob@bb", "hi");
     assert_eq!(
         Net::lines(&net.since("aa", "Ann", ma)),
-        ["You are not on the Dereth Network. Type /dn on to join it."]
+        ["You are not on the Dereth Network. Type @dn on to join it."]
     );
     assert!(
         net.wire_since(wire).iter().all(|l| !l.contains("tell")),
@@ -169,7 +165,6 @@ fn a_character_off_the_network_is_told_how_to_join_and_nothing_leaves_the_world(
 #[test]
 fn a_remote_line_reaches_the_client_only_after_the_text_rules() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let mb = net.mark("bb", "Bob");
     net.tell(
         "aa",
@@ -188,7 +183,6 @@ fn a_remote_line_reaches_the_client_only_after_the_text_rules() {
 #[test]
 fn an_away_recipient_still_gets_the_tell_and_the_sender_gets_the_away_message() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     {
         let w = net.world("bb");
         let bob = w.clients["Bob"];
@@ -318,7 +312,6 @@ fn an_away_answer_is_always_shown_as_the_recipients_away_line() {
 #[test]
 fn once_every_stand_in_id_is_given_a_new_correspondent_is_not_shown_under_anothers() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     // The block with one id left.
     let store: empyrean_world::federation::NetworkStore = serde_json::from_value(serde_json::json!({
         "stand_ins": { "next": dereth_network_protocol::standin::LAST, "by_key": {}, "by_id": {} },
@@ -357,7 +350,6 @@ fn once_every_stand_in_id_is_given_a_new_correspondent_is_not_shown_under_anothe
 #[test]
 fn a_world_is_held_to_its_pace_of_tells_to_one_character_even_by_a_hub_that_does_not() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let (mb, mark) = (net.mark("bb", "Bob"), net.sent.0.len());
     for i in 0..25u32 {
         net.hub_hands(
@@ -424,8 +416,6 @@ fn outcomes(net: &Net, slug: &str, mark: usize) -> Vec<dereth_network_protocol::
 fn a_world_flooding_another_with_tells_for_ten_minutes_holds_up_neither_its_players_nor_its_answers(
 ) {
     let mut net = two_worlds(false);
-    net.say("aa", "Ann", "@dn reachable anyone");
-    net.say("bb", "Bob", "@dn reachable anyone");
     let mut n = 0u32;
     let mut at = 0.0;
     for until in [120.0, 300.0, 600.0] {
@@ -478,7 +468,6 @@ fn a_hub_that_does_not_pace_a_flooding_world_holds_up_neither_this_worlds_tells_
         net.link(slug);
         net.enter(slug, s);
         net.say(slug, who, "@dn on");
-        net.say(slug, who, "@dn reachable anyone");
     }
     // 52 tells a second for two minutes, handed to bb straight, past any pace of the hub's.
     let mut n = 0u32;
@@ -531,9 +520,9 @@ fn a_pace_refusal_tells_another_world_nothing_a_delivered_tell_would_not() {
     net.link("bb");
     net.enter("bb", bob);
     net.enter("bb", cid);
-    // Bob is on the network and takes no first tell; Cid never joined it.
+    // Bob was on the network and left it; Cid never joined it.
     net.say("bb", "Bob", "@dn on");
-    net.say("bb", "Bob", "@dn reachable nobody");
+    net.say("bb", "Bob", "@dn off");
     for target in ["Cid@bb", "Bob@bb", "Nobody@bb"] {
         let mark = net.sent.0.len();
         for i in 0..25u32 {
@@ -561,7 +550,6 @@ fn a_pace_refusal_tells_another_world_nothing_a_delivered_tell_would_not() {
 #[test]
 fn a_tell_from_a_world_out_of_new_names_is_answered_rate_limited_not_offline() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     // A hub whose per-recipient pace lets every tell through, so the new names alone hold them.
     let limits = dereth_network_protocol::limits::Limits {
         tells_per_recipient: dereth_network_protocol::limits::Rate {
@@ -643,7 +631,6 @@ fn a_tell_the_network_holds_back_tells_the_sender_it_is_the_worlds_share() {
 #[test]
 fn an_away_text_longer_than_the_wire_takes_is_cut_to_it_and_the_sender_still_sees_the_away_line() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     {
         let w = net.world("bb");
         let bob = w.clients["Bob"];
@@ -702,7 +689,6 @@ fn a_tell_a_hub_hands_on_from_this_worlds_own_address_is_refused_and_shown_to_no
     net.enter("aa", dee);
     for who in ["Ann", "Dee"] {
         net.say("aa", who, "@dn on");
-        net.say("aa", who, "@dn reachable anyone");
     }
     let md = net.mark("aa", "Dee");
     let mark = net.sent.0.len();

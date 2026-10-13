@@ -1,11 +1,17 @@
 // The mod's harness. It compiles only the mod's ACE-free sources and checks them four ways:
 //
-//   vectors   the conformance vectors (addresses, text rules, link messages)
+//   vectors   the conformance vectors (addresses, text rules, link messages, the directory's, the
+//             reach messages, the say messages)
 //   units     stand-in ids, rate buckets, settings, the store, hub addresses, the game's string
-//             layout, Windows' own best fits, the world half on a link in memory, and the link
-//             client against a socket that floods it
-//   hub       the link client and the world half against a real hub over loopback, and `/dn verify`
-//             end to end: the hub's challenge heard on a game port and answered
+//             layout, Windows' own best fits, the world half on a link in memory (the directory's
+//             listings, the hub's reach questions and its says among it), and the link client
+//             against a socket that floods it
+//   hub       the link client and the world half against a real hub over loopback, the directory's
+//             listings through it, `/dn verify` end to end: the hub's challenge heard on a game
+//             port and answered, a world's own room mirrored into Discord end
+//             to end: its lines said through the webhook its operator gave, a tell to a
+//             character away carried into its person's direct messages, the reply back, and a
+//             line its person says in a mirror from Discord, said by the world as the character
 //   targets   every ACE method the mod patches, resolved in an ACE.Server.dll on disk
 //
 // Usage: Dereth.Network.Harness [--vectors <dir>] [--hub <hub executable>] [--ace <ACE server folder>]
@@ -27,6 +33,10 @@ try
     {
         await HubChecks.Run(checks, options.Hub);
         await VerifyHubChecks.Run(checks, options.Hub);
+        await DirectoryHubChecks.Run(checks, options.Hub);
+        await DiscordMirrorHubChecks.Run(checks, options.Hub);
+        await ReachHubChecks.Run(checks, options.Hub);
+        await SayHubChecks.Run(checks, options.Hub);
     }
     else
         checks.NotRun("hub", "no --hub (or DERETH_NETWORK_HUB) given");

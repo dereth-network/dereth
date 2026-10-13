@@ -491,7 +491,8 @@ fn an_unknown_config_key_is_a_warning_and_start_up_goes_on() {
 /// A world told to join the Dereth Network with a `[federation]` setting it cannot serve does not
 /// start, as for any other setting that does not fit: the error names the setting, and nothing
 /// past the configuration runs. The Global room's old setting name stops it the same way, naming
-/// the new one.
+/// the new one. The world's own rooms for Discord, no setting any more, stop nothing: the log says
+/// once that they are set on the hub's operator page.
 #[test]
 fn a_federation_setting_that_cannot_be_served_stops_start_up() {
     let dir = scratch("config-federation");
@@ -535,10 +536,22 @@ fn a_federation_setting_that_cannot_be_served_stops_start_up() {
             "{federation}: nothing past the configuration runs: {log}"
         );
     }
-    // A setting it can serve goes on to the next step.
-    write("enabled = true\nslug = \"aa\"\nglobal_room = \"roleplay\"\n");
+    // A setting it can serve goes on to the next step, the world's own rooms for Discord among
+    // them, which are not read.
+    write(
+        "enabled = true\nslug = \"aa\"\nglobal_room = \"roleplay\"\ndiscord_mirrors = [\"general\", \"society\"]\n",
+    );
     let log = stderr(&run_in(&dir, &["--run-for", "1"], &[]));
     assert!(log.contains("DatManager initialization failed"), "{log}");
+    assert_eq!(
+        log.lines()
+            .filter(|l| l.contains("`federation.discord_mirrors`")
+                && l.contains("is not read")
+                && l.contains("operator page"))
+            .count(),
+        1,
+        "{log}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

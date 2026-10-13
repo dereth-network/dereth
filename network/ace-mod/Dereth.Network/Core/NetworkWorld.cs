@@ -11,11 +11,17 @@
 //   answers.
 // - Friends. A remote friend is a friends-list row under its stand-in id, online as the friend's
 //   home world reports, with the online and offline lines.
-// - Rooms. The Global room is carried in one TurbineChat room the operator chooses; a channel is a
-//   tell address (`oldguard@channel`).
+// - Rooms. The Global room is carried in one of the world's TurbineChat rooms, and the world's other
+//   rooms its operator mirrors into Discord go to the hub, both as the hub says; a channel is a tell
+//   address (`oldguard@channel`).
 // - Squelch. A remote character, a whole world, or (for the operator) any of these for everyone.
 // - Persons. A character may be linked to its player's Discord account, through the hub; the
 //   characters its person friends name are listed as its friends while it is online.
+// - The directory. A character on the network has its profile in the network's directory, sent to
+//   the hub as it changes.
+// - Tells into Discord. The hub asks whether a character not online would have been shown a tell
+//   before it carries the tell to the character's person elsewhere; the world answers by the
+//   character's squelches and the operator's blocks.
 //
 // Every remote line passes the network's text rules first. The link is the host's: <see cref="Pump"/>,
 // run on the world thread, takes what the link received, lets the clock run, and hands the link
@@ -29,10 +35,19 @@ public sealed class WorldConfig
     public required string Slug { get; init; }
 
     /// <summary>
-    /// The TurbineChat room the Global room is carried in; none carries no room. Settled before the
-    /// link starts.
+    /// The TurbineChat room the settings carry the Global room in (none: no room), until the hub
+    /// says where: the room a hub that holds none is sent once. Settled before the link starts.
     /// </summary>
     public RoomSlot? GlobalRoom { get; set; }
+
+    /// <summary>The settings name <see cref="GlobalRoom"/> themselves, rather than leave it to its default.</summary>
+    public bool GlobalRoomNamed { get; init; }
+
+    /// <summary>
+    /// This server's chat cannot be taken: the world carries no room, whatever the hub says, and
+    /// sends the hub none of its own. Settled before the link starts.
+    /// </summary>
+    public bool RoomsOff { get; set; }
 
     /// <summary>A character must have played this many seconds before it may send to the network.</summary>
     public uint MinCharacterAgeSeconds { get; init; }
@@ -71,12 +86,6 @@ public enum RouteKind
 
 public sealed partial class NetworkWorld
 {
-    /// <summary>
-    /// How long after a character tells someone that someone may answer it, whatever the
-    /// character's Reachable setting says, in seconds.
-    /// </summary>
-    public const double ReplyWindowSecs = 30 * 60;
-
     /// <summary>How often the heartbeat goes over the link, in seconds.</summary>
     public const double StatusEverySecs = 60;
 
@@ -158,6 +167,12 @@ public sealed partial class NetworkWorld
     private const string WatchesKey = "@watch";
 
     private sealed record QueuedMessage(double At, WireMessage Message);
+
+    /// <summary>
+    /// An answer this world owes, as its frame for the link, and when it was owed: to another
+    /// world's tell, or to the hub's question about one (`reach`).
+    /// </summary>
+    private sealed record OwedAnswer(double At, string Frame);
 
     /// <summary>
     /// Watches and presence answers waiting for the link, each about one local character (a watch's
@@ -293,9 +308,10 @@ public sealed partial class NetworkWorld
     /// <summary>A tell not yet answered; `Sent` is when it was handed to the link, null while it waits for one.</summary>
     private sealed record PendingTell(uint Player, Address To, string Text, double? Sent);
 
-    private sealed record PendingChannel(uint Player, double? Sent);
+    private sealed record PendingChannel(uint Player, ChannelOp Op, Address? Who, double? Sent);
 
-    private sealed record PendingRoom(uint Player, double? Sent);
+    /// <summary>A room line not yet answered: its speaker, the room it was said in by its name on the link, and when it was handed to the link.</summary>
+    private sealed record PendingRoom(uint Player, string Room, double? Sent);
 
     private enum Sends
     {
@@ -325,9 +341,10 @@ public sealed partial class NetworkWorld
 
     /// <summary>
     /// The answers owed to each other world, by world: sent after the outbox, a world at a time in
-    /// turn, at most <see cref="MaxAnswersPerWorld"/> for one world.
+    /// turn, at most <see cref="MaxAnswersPerWorld"/> for one world. The hub's questions about a
+    /// world's tells wait with that world's answers.
     /// </summary>
-    private readonly SortedDictionary<string, Queue<QueuedMessage>> answers = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, Queue<OwedAnswer>> answers = new(StringComparer.Ordinal);
 
     /// <summary>The world whose answer went last.</summary>
     private string answered = "";
@@ -347,6 +364,12 @@ public sealed partial class NetworkWorld
     private readonly Dictionary<string, PendingTell> pending = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingChannel> pendingChannels = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingRoom> pendingRooms = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The world's own rooms the hub said it does not mirror into Discord, until when their lines
+    /// stay here without being sent. Emptied at each welcome.
+    /// </summary>
+    private readonly Dictionary<string, double> uncarried = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The last status each remote friend's home world gave each local character that lists it, and
@@ -386,9 +409,6 @@ public sealed partial class NetworkWorld
 
     /// <summary>Remote watchers of each local character, by character id.</summary>
     private readonly Dictionary<uint, SortedDictionary<string, Address>> watchers = new();
-
-    /// <summary>When each local character last told each remote identity (the reply window).</summary>
-    private readonly Dictionary<(uint, string), double> told = new();
 
     /// <summary>The ids of this run start with this, so that a restart reuses none the hub remembers.</summary>
     private readonly string run;
@@ -550,24 +570,27 @@ public sealed partial class NetworkWorld
     private bool MayOwe(string world) => !answers.TryGetValue(world, out var q) || q.Count < MaxAnswersPerWorld;
 
     /// <summary>Queues an answer owed to `world`.</summary>
-    private void SendAnswer(string world, WireMessage m)
+    private void SendAnswer(string world, WireMessage m) => Owe(world, Wire.Write(m));
+
+    /// <summary>Queues the frame of an answer owed to `world`, or to the hub about one of `world`'s tells.</summary>
+    private void Owe(string world, string frame)
     {
         if (!answers.TryGetValue(world, out var q))
         {
-            q = new Queue<QueuedMessage>();
+            q = new Queue<OwedAnswer>();
             answers[world] = q;
         }
-        q.Enqueue(new QueuedMessage(Now, m));
+        q.Enqueue(new OwedAnswer(Now, frame));
     }
 
     /// <summary>The next answer owed, from the world after the one answered last.</summary>
-    private WireMessage? NextAnswer()
+    private string? NextAnswer()
     {
         if (answers.Count == 0)
             return null;
         var world = answers.Keys.FirstOrDefault(k => string.CompareOrdinal(k, answered) > 0) ?? answers.Keys.First();
         var q = answers[world];
-        var m = q.Dequeue().Message;
+        var m = q.Dequeue().Frame;
         if (q.Count == 0)
             answers.Remove(world);
         answered = world;
@@ -855,6 +878,10 @@ public sealed partial class NetworkWorld
         }
         inFlight.Clear();
         outbox.InsertRange(0, again);
+        DirectoryLinkDown();
+        // The hub has given up on the says it asked over the link that went.
+        sayResults.Clear();
+        RoomsLinkDown();
         log(LogLevel.Info, "the link to the hub is down; " + outbox.Count + " message(s) held");
         foreach (var slug in worlds.Keys.ToList())
             WorldGone(slug);
@@ -888,6 +915,8 @@ public sealed partial class NetworkWorld
                     limits.MessagesPerWorld.PerSec * 0.9), t);
                 var share = limits.WatchesPerWorldPair;
                 share = new Rate(Math.Max(1.0, share.Burst * 0.9), share.PerSec * 0.9);
+                TakeRoomsRequests(t, pace, frames);
+                TakeSayResults(t, pace, frames);
                 while ((outbox.Count > 0 || answers.Count > 0 || chatter.Count > 0) && pace.Has(t))
                 {
                     WireMessage? next;
@@ -896,9 +925,15 @@ public sealed partial class NetworkWorld
                         next = outbox[0].Message;
                         outbox.RemoveAt(0);
                     }
+                    else if (NextAnswer() is { } answer)
+                    {
+                        pace.Take(t);
+                        frames.Add(answer);
+                        continue;
+                    }
                     else
                     {
-                        next = NextAnswer() ?? chatter.PopReady(t, share);
+                        next = chatter.PopReady(t, share);
                     }
                     if (next is not { } m)
                         break;
@@ -924,6 +959,8 @@ public sealed partial class NetworkWorld
                     }
                     frames.Add(Wire.Write(m));
                 }
+                // The directory's listings take what the pace leaves.
+                TakeListings(t, pace, frames);
                 break;
         }
         return frames;
@@ -938,7 +975,33 @@ public sealed partial class NetworkWorld
                 HandleHubMessage(r.Message!);
                 break;
             case ReadStatus.Unknown:
-                log(LogLevel.Debug, "skipped a message of a type this version does not know");
+                // The directory's messages are a family of their own, and so are the reach messages,
+                // the say messages and the rooms messages.
+                var d = DirectoryWire.Read(text);
+                if (d.Status == ReadStatus.Ok)
+                {
+                    HandleDirectoryMessage(d.Message!);
+                    break;
+                }
+                var h = d.Status == ReadStatus.Unknown ? ReachWire.Read(text) : new ReachReadResult(d.Status, null, d.Why);
+                if (h.Status == ReadStatus.Ok)
+                {
+                    HandleReachMessage(h.Message!);
+                    break;
+                }
+                var y = h.Status == ReadStatus.Unknown ? SayWire.Read(text) : new SayReadResult(h.Status, null, h.Why);
+                if (y.Status == ReadStatus.Ok)
+                {
+                    HandleSayMessage(y.Message!);
+                    break;
+                }
+                var m = y.Status == ReadStatus.Unknown ? RoomsWire.Read(text) : new RoomsReadResult(y.Status, null, y.Why);
+                if (m.Status == ReadStatus.Ok)
+                    HandleRoomsMessage(m.Message!);
+                else
+                    log(LogLevel.Debug, m.Status == ReadStatus.Unknown
+                        ? "skipped a message of a type this version does not know"
+                        : "skipped a malformed frame from the hub");
                 break;
             default:
                 log(LogLevel.Debug, "skipped a malformed frame from the hub");
@@ -962,16 +1025,19 @@ public sealed partial class NetworkWorld
                     if (i.Slug.Length > 0)
                         worlds[i.Slug] = i;
                 log(LogLevel.Info, $"welcomed; {worlds.Values.Count(i => i.Online)} world(s) online");
-                // The room goes first, then what was queued; the watches of everyone online, for
+                // The rooms go first, then what was queued; the watches of everyone online, for
                 // the worlds online now, go after (a world the hub names later is watched when it does).
+                // The rooms are those the hub last told the world, until it tells them again.
                 var queued = outbox.ToList();
                 outbox.Clear();
-                if (Config.GlobalRoom is not null && w.Rooms.Contains(Wire.GlobalRoom))
+                if (GlobalSlot is not null && w.Rooms.Contains(Wire.GlobalRoom))
                     Send(new RoomJoin(Wire.GlobalRoom, true));
+                JoinOwnRooms();
                 outbox.AddRange(queued);
                 foreach (var slug in worlds.Values.Where(i => i.Online).Select(i => i.Slug).ToList())
                     WatchEveryone(slug);
                 WatchPersonsEveryone();
+                DirectoryWelcomed();
                 break;
             }
             case WorldChange c:
@@ -991,13 +1057,13 @@ public sealed partial class NetworkWorld
                 OnPresence(p.To, p.Of, p.Online);
                 break;
             case Tell t:
-                OnTell(t.Id, t.From, t.To, t.Text, t.Friend);
+                OnTell(t.Id, t.From, t.To, t.Text);
                 break;
             case TellResult r:
                 OnTellResult(r.Id, r.Outcome, r.Message);
                 break;
             case RoomLine r:
-                OnRoomLine(r.Room, r.From, r.Text);
+                OnRoomLine(r.Room, r.From, r.Text, r.Via);
                 break;
             case RoomResult r:
                 OnRoomResult(r.Id, r.Outcome);
@@ -1015,7 +1081,7 @@ public sealed partial class NetworkWorld
                 OnPersonResult(r);
                 break;
             case PersonFriends v:
-                OnPersonView(v.To, v.Linked, v.Alts, v.Persons);
+                OnPersonView(v.To, v.Linked, v.Persons);
                 break;
             case ProtocolError e:
                 log(LogLevel.Warn, "the hub reports a protocol error: " + Sanitized(e.Code));
@@ -1104,10 +1170,9 @@ public sealed partial class NetworkWorld
             newStandIns.Remove(k);
         foreach (var k in received.Where(p => p.Value.FullAt(t)).Select(p => p.Key).ToList())
             received.Remove(k);
-        foreach (var k in told.Where(p => t - p.Value >= ReplyWindowSecs).Select(p => p.Key).ToList())
-            told.Remove(k);
         chatter.Settle(t);
         ShowDue(t);
+        LookForChanges(t);
         if (t >= nextReclaim)
         {
             nextReclaim = t + ReclaimEverySecs;

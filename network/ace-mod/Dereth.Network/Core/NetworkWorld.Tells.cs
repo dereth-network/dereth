@@ -2,8 +2,8 @@
 //
 // A local player's tell to an address goes to the hub, and the player sees what a local tell
 // would give once the answer comes back: the echo, the away message, or `Character not available`.
-// A remote tell is delivered from the sender's stand-in id, after the receiving character's
-// settings, squelches and the operator's blocks have had their say.
+// A remote tell is delivered from the sender's stand-in id, to any character on the network, after
+// its squelches and the operator's blocks have had their say.
 
 namespace Dereth.Network;
 
@@ -14,8 +14,10 @@ public sealed partial class NetworkWorld
     {
         lock (gate)
         {
+            var given = target;
+            target = SayWire.WithoutMark(target);
             if (!Address.LooksRemote(target))
-                return Routed.NotMine;
+                return target == given ? Routed.NotMine : Routed.Local(target);
             if (!Address.TryParse(target, out var to, out _))
             {
                 host.ShowNotAvailable(player);
@@ -53,7 +55,7 @@ public sealed partial class NetworkWorld
     {
         if (!IsOn(player))
         {
-            host.ShowSystem(player, "You are not on the Dereth Network. Type /dn on to join it.");
+            host.ShowSystem(player, NotOnLine);
             return;
         }
         if (Blocked(to))
@@ -77,8 +79,8 @@ public sealed partial class NetworkWorld
             host.ShowSystem(player, TooQuicklyLine);
             return;
         }
-        if (!to.IsChannel)
-            told[(player, to.Key)] = Now;
+        // Whether the sender lists the recipient: worlds of the network's first version let a character
+        // take tells from its mutual friends alone, and read it.
         var friend = Record(player)?.Friends.ContainsKey(to.Key) == true;
         var id = FreshId('t');
         pending[id] = new PendingTell(player, to, text, null);
@@ -173,21 +175,6 @@ public sealed partial class NetworkWorld
     /// <summary>A remote sender's display name, or null when the network's rules refuse it.</summary>
     private static string? DisplayName(Address from) => TextRules.SanitizeName(from.ToString());
 
-    /// <summary>Whether `character` takes a first tell from `from` (`friend`: the sender lists the recipient).</summary>
-    private bool ReachableBy(uint character, Address from, bool friend)
-    {
-        var r = Record(character);
-        if (r is null)
-            return false;
-        var inWindow = told.TryGetValue((character, from.Key), out var at) && Now - at < ReplyWindowSecs;
-        return inWindow || r.Settings.Reachable switch
-        {
-            Reachable.Anyone => true,
-            Reachable.Friends => friend && r.Friends.ContainsKey(from.Key),
-            _ => false,
-        };
-    }
-
     /// <summary>Whether `character` squelches `who` (the character or its whole world).</summary>
     private bool Squelches(uint character, Address who)
     {
@@ -196,7 +183,7 @@ public sealed partial class NetworkWorld
     }
 
     /// <summary>A tell from another world for a character of this one.</summary>
-    private void OnTell(string id, Address from, Address to, string text, bool friend)
+    private void OnTell(string id, Address from, Address to, string text)
     {
         if (link != LinkState.Up)
             return;
@@ -226,7 +213,7 @@ public sealed partial class NetworkWorld
             Answer(origin, id, Outcome.Offline);
             return;
         }
-        if (!IsOn(character) || Blocked(from) || !ReachableBy(character, from, friend))
+        if (!IsOn(character) || Blocked(from))
         {
             Answer(origin, id, Outcome.Offline);
             return;

@@ -1,6 +1,6 @@
-//! Persons on a running hub: a world asks for a link code over its link, the player enters it on
-//! the site, signed in with Discord, and the world's view of its character follows; what the site,
-//! the public routes, a world's audit log and other worlds may and may not learn.
+//! Persons on a running hub: a world asks for a link code over its link, the player opens the link
+//! on the site, signed in with Discord, and the world's view of its character follows; what the
+//! site, the public routes and a world's audit log may and may not learn.
 //! Fixture: the operator tests' hub (loopback, an in-memory registry, a stand-in for Discord), with
 //! worlds registered on its command line and linked through the conformance suite's links.
 
@@ -8,13 +8,74 @@ use std::time::Duration;
 
 use dereth_network_conformance::hub::Link;
 use dereth_network_hub::registry::Registration;
-use dereth_network_protocol::{Address, Alts, Federation, Message, PersonOp, PersonOutcome};
+use dereth_network_protocol::{
+    Address, DirectoryMessage, Federation, ListingOutcome, Message, PersonOp, PersonOutcome,
+    Profile,
+};
 use serde_json::{json, Value};
 
 use super::operators::{call, game_verify, hub, op, register, sign_in, Fixture, ADMIN, SITE};
 
 fn a(s: &str) -> Address {
     Address::parse(s).expect("an address")
+}
+
+/// `who`'s world puts it on the network, as `@dn on` does: it lists it in the directory, which is
+/// how the hub knows it is on.
+pub fn go_on(link: &mut Link, who: &str) {
+    let id = format!("on-{}", a(who).key());
+    link.send_raw(
+        &DirectoryMessage::Listing {
+            id: id.clone(),
+            who: a(who),
+            on: true,
+            profile: Some(Box::new(Profile {
+                level: 20,
+                heritage: 1,
+                gender: 1,
+                ..Profile::default()
+            })),
+        }
+        .to_json(),
+    )
+    .expect("sent");
+    let outcome = link
+        .expect_directory(
+            Duration::from_secs(5),
+            "the listing's answer",
+            |m| match m {
+                DirectoryMessage::ListingResult { id: i, outcome, .. } if *i == id => {
+                    Some(*outcome)
+                }
+                _ => None,
+            },
+        )
+        .expect("an answer");
+    assert_eq!(outcome, ListingOutcome::Ok, "{who} on the network");
+}
+
+/// `who`'s world takes it off the network, as `@dn off` does: it takes it out of the directory.
+pub fn go_off(link: &mut Link, who: &str) {
+    let id = format!("off-{}", a(who).key());
+    link.send_raw(
+        &DirectoryMessage::Listing {
+            id: id.clone(),
+            who: a(who),
+            on: false,
+            profile: None,
+        }
+        .to_json(),
+    )
+    .expect("sent");
+    link.expect_directory(
+        Duration::from_secs(5),
+        "the listing's answer",
+        |m| match m {
+            DirectoryMessage::ListingResult { id: i, .. } if *i == id => Some(()),
+            _ => None,
+        },
+    )
+    .expect("an answer");
 }
 
 /// Registers `slug` on the network, and links it: its link, greeted.
@@ -36,18 +97,17 @@ fn world(f: &Fixture, slug: &str) -> Link {
     link
 }
 
-/// The next view of `who` the link receives.
-fn next_view(link: &mut Link, who: &str) -> (bool, Alts, Vec<(String, Vec<String>)>) {
+/// The next view of `who` the link receives: whether it is linked, and its person friends.
+fn next_view(link: &mut Link, who: &str) -> (bool, Vec<(String, Vec<String>)>) {
     let who = a(who);
     link.expect(Duration::from_secs(5), "a person view", |m| match m {
         Message::PersonFriends {
             to,
             linked,
-            alts,
             persons,
+            ..
         } if to.same(&who) => Some((
             *linked,
-            *alts,
             persons
                 .iter()
                 .map(|p| {
@@ -87,8 +147,9 @@ fn ask(
     .expect("an answer")
 }
 
-/// The code a world is given for `who`.
+/// The code a world is given for `who`, which it has on the network.
 fn code_for(link: &mut Link, id: &str, who: &str) -> String {
+    go_on(link, who);
     match ask(link, id, PersonOp::Code, who, None, None) {
         Message::PersonResult {
             outcome: PersonOutcome::Ok,
@@ -119,14 +180,15 @@ fn link_with(f: &Fixture, session: &str, code: &str) -> Value {
     r.json()
 }
 
-/// Spec: hub: a world asks for a code for its own character over its link, the player enters it
-/// on the site, signed in, and the world's view of the character follows; a code works once.
+/// Spec: hub: a world asks for a code for its own character over its link and is given the link
+/// that carries it, the player opens it on the site, signed in, and the world's view of the
+/// character follows; a code works once.
 #[test]
 fn a_character_is_linked_with_the_code_its_world_asked_for_and_its_view_follows() {
     let f = hub();
     let mut aa = world(&f, "aa");
     watch(&mut aa, "Ann@aa");
-    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, vec![]));
     let answer = ask(&mut aa, "p1", PersonOp::Code, "Ann@aa", None, None);
     let Message::PersonResult {
         outcome: PersonOutcome::Ok,
@@ -138,16 +200,17 @@ fn a_character_is_linked_with_the_code_its_world_asked_for_and_its_view_follows(
     else {
         panic!("a code: {answer:?}")
     };
-    assert_eq!(url, format!("{SITE}/characters/"));
+    assert_eq!(url, format!("{SITE}/link/#{code}"));
     let session = sign_in(&f, "100");
     let linked = link_with(&f, &session, &code);
     assert_eq!(linked["character"]["address"], "Ann@aa");
     assert_eq!(linked["character"]["world"]["name"], "World aa");
-    assert_eq!(next_view(&mut aa, "Ann@aa"), (true, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (true, vec![]));
     let me = op(&f, &session, "GET", "/v1/person", &Value::Null).json();
     assert_eq!(me["person"]["characters"][0]["address"], "Ann@aa");
-    assert_eq!(me["person"]["alts"], "hidden");
-    assert!(me["person"].get("discordId").is_none(), "{me}");
+    for gone in ["alts", "discordTells", "discordId"] {
+        assert!(me["person"].get(gone).is_none(), "{gone}: {me}");
+    }
     let again = op(
         &f,
         &session,
@@ -166,15 +229,14 @@ fn a_character_is_linked_with_the_code_its_world_asked_for_and_its_view_follows(
         &Value::Null,
     );
     assert_eq!(gone.status, 204, "{gone:?}");
-    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, vec![]));
     f.running.shutdown();
 }
 
-/// Spec: hub: a change on the site reaches the views of the characters it changes, on every
-/// world; a world holding one character of a person that hides its alts hears nothing of the
-/// person's others.
+/// Spec: hub: a person friend lists every character of its person on the network, and a change on
+/// the site reaches the views of the characters it changes, on every world.
 #[test]
-fn the_site_changes_what_worlds_hear_and_a_hidden_person_stays_hidden() {
+fn a_person_friend_lists_every_character_of_its_person_and_the_site_changes_what_worlds_hear() {
     let f = hub();
     let mut aa = world(&f, "aa");
     let mut bb = world(&f, "bb");
@@ -189,9 +251,9 @@ fn the_site_changes_what_worlds_hear_and_a_hidden_person_stays_hidden() {
     let code = code_for(&mut aa, "a2", "Bob@aa");
     link_with(&f, &bob, &code);
     watch(&mut aa, "Ann@aa");
-    assert_eq!(next_view(&mut aa, "Ann@aa"), (true, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (true, vec![]));
     watch(&mut bb, "Ann@bb");
-    assert_eq!(next_view(&mut bb, "Ann@bb"), (true, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut bb, "Ann@bb"), (true, vec![]));
     let ok = ask(
         &mut aa,
         "a3",
@@ -208,27 +270,22 @@ fn the_site_changes_what_worlds_hear_and_a_hidden_person_stays_hidden() {
         }
     ));
     assert_eq!(
-        next_view(&mut aa, "Ann@aa").2,
-        vec![("Bob@bb".to_owned(), vec!["Bob@bb".to_owned()])],
-        "Bob hides his alts: the handle alone"
-    );
-    let shown = op(
-        &f,
-        &bob,
-        "PUT",
-        "/v1/person/alts",
-        &json!({ "shown": true }),
-    );
-    assert_eq!(shown.status, 200, "{shown:?}");
-    assert_eq!(shown.json()["person"]["alts"], "shown");
-    assert_eq!(
-        next_view(&mut aa, "Ann@aa").2,
+        next_view(&mut aa, "Ann@aa").1,
         vec![(
             "Bob@bb".to_owned(),
             vec!["Bob@bb".to_owned(), "Bob@aa".to_owned()]
-        )]
+        )],
+        "every one of Bob's characters"
     );
-    // Bob's other character, asked about by anyone.
+    assert_eq!(
+        next_view(&mut bb, "Ann@bb").1,
+        vec![(
+            "Bob@bb".to_owned(),
+            vec!["Bob@bb".to_owned(), "Bob@aa".to_owned()]
+        )],
+        "the person friend holds for each of Ann's characters"
+    );
+    // A world of the first version asks for a person's characters: all of them.
     let asked = ask(
         &mut bb,
         "b3",
@@ -238,19 +295,6 @@ fn the_site_changes_what_worlds_hear_and_a_hidden_person_stays_hidden() {
         None,
     );
     assert!(matches!(&asked, Message::PersonResult { characters, .. } if characters.len() == 2));
-    // Ann hides hers: nothing bb receives ever names Ann@aa, and asking gives nothing.
-    let asked = ask(
-        &mut bb,
-        "b4",
-        PersonOp::Characters,
-        "Ann@bb",
-        Some("Ann@aa"),
-        None,
-    );
-    assert!(
-        matches!(&asked, Message::PersonResult { outcome: PersonOutcome::Ok, characters, .. } if characters.is_empty()),
-        "{asked:?}"
-    );
     let unlinked = op(
         &f,
         &bob,
@@ -260,26 +304,16 @@ fn the_site_changes_what_worlds_hear_and_a_hidden_person_stays_hidden() {
     );
     assert_eq!(unlinked.status, 204);
     assert_eq!(
-        next_view(&mut aa, "Ann@aa").2,
+        next_view(&mut aa, "Ann@aa").1,
         vec![("Bob@bb".to_owned(), vec!["Bob@bb".to_owned()])]
     );
-    let mut heard = Vec::new();
-    while let Ok(Some(m)) = bb.recv(Duration::from_millis(300)) {
-        heard.push(m);
-    }
-    for m in &heard {
-        assert!(
-            !m.to_json().to_lowercase().contains("ann@aa"),
-            "bb heard of Ann@aa: {m:?}"
-        );
-    }
     f.running.shutdown();
 }
 
-/// Spec: hub: a world asking to show its character's person's characters is refused and given the
-/// site's page for it; the person stays hidden until it shows them there.
+/// Spec: hub: a world of the first version asking to hide or show its character's person's
+/// characters is refused and given the person's page; nothing changes.
 #[test]
-fn a_world_cannot_show_a_persons_characters_and_is_given_the_page_to_do_it_on() {
+fn a_worlds_request_to_hide_or_show_a_persons_characters_changes_nothing() {
     let f = hub();
     let mut aa = world(&f, "aa");
     let mut bb = world(&f, "bb");
@@ -288,30 +322,96 @@ fn a_world_cannot_show_a_persons_characters_and_is_given_the_page_to_do_it_on() 
     link_with(&f, &bob, &code);
     let code = code_for(&mut bb, "b1", "Bob@bb");
     link_with(&f, &bob, &code);
-    let answer = ask(&mut aa, "a2", PersonOp::Alts, "Bob@aa", None, Some(true));
-    let Message::PersonResult {
-        outcome: PersonOutcome::Refused,
-        url: Some(url),
-        ..
-    } = answer
-    else {
-        panic!("refused: {answer:?}")
-    };
-    assert_eq!(url, format!("{SITE}/characters/"));
-    let me = op(&f, &bob, "GET", "/v1/person", &Value::Null).json();
-    assert_eq!(me["person"]["alts"], "hidden");
+    for (id, shown) in [("a2", true), ("a3", false)] {
+        let answer = ask(&mut aa, id, PersonOp::Alts, "Bob@aa", None, Some(shown));
+        let Message::PersonResult {
+            outcome: PersonOutcome::Refused,
+            url: Some(url),
+            ..
+        } = answer
+        else {
+            panic!("refused: {answer:?}")
+        };
+        assert_eq!(url, format!("{SITE}/characters/"));
+    }
     let asked = ask(
         &mut aa,
-        "a3",
+        "a4",
         PersonOp::Characters,
         "Bob@aa",
         Some("Bob@bb"),
         None,
     );
     assert!(
-        matches!(&asked, Message::PersonResult { characters, .. } if characters.is_empty()),
+        matches!(&asked, Message::PersonResult { characters, .. } if characters.len() == 2),
         "{asked:?}"
     );
+    f.running.shutdown();
+}
+
+/// Spec: hub: a linked character its world takes off the network pauses its link: the views of its
+/// person's friends name it no more until its world puts it back on, with nothing to redo.
+#[test]
+fn a_character_off_the_network_pauses_its_link_and_back_on_resumes_it() {
+    let f = hub();
+    let mut aa = world(&f, "aa");
+    let mut bb = world(&f, "bb");
+    let (ann, bob) = (sign_in(&f, "100"), sign_in(&f, "200"));
+    let code = code_for(&mut aa, "a1", "Ann@aa");
+    link_with(&f, &ann, &code);
+    let code = code_for(&mut bb, "b1", "Bob@bb");
+    link_with(&f, &bob, &code);
+    let code = code_for(&mut aa, "a2", "Bob@aa");
+    link_with(&f, &bob, &code);
+    watch(&mut aa, "Ann@aa");
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (true, vec![]));
+    ask(
+        &mut aa,
+        "a3",
+        PersonOp::Befriend,
+        "Ann@aa",
+        Some("Bob@bb"),
+        None,
+    );
+    let both = vec![(
+        "Bob@bb".to_owned(),
+        vec!["Bob@bb".to_owned(), "Bob@aa".to_owned()],
+    )];
+    assert_eq!(next_view(&mut aa, "Ann@aa").1, both);
+    go_off(&mut aa, "Bob@aa");
+    assert_eq!(
+        next_view(&mut aa, "Ann@aa").1,
+        vec![("Bob@bb".to_owned(), vec!["Bob@bb".to_owned()])],
+        "off the network: its link paused"
+    );
+    go_on(&mut aa, "Bob@aa");
+    assert_eq!(next_view(&mut aa, "Ann@aa").1, both, "back on: resumed");
+    let me = op(&f, &bob, "GET", "/v1/person", &Value::Null).json();
+    assert_eq!(
+        me["person"]["characters"].as_array().map(Vec::len),
+        Some(2),
+        "still linked"
+    );
+    f.running.shutdown();
+}
+
+/// Spec: hub: the routes of the settings the network no longer has are gone.
+#[test]
+fn the_persons_settings_routes_are_gone() {
+    let f = hub();
+    let ann = sign_in(&f, "100");
+    for (method, path, body) in [
+        ("PUT", "/v1/person/alts", json!({ "shown": true })),
+        ("PUT", "/v1/person/discord-tells", json!({ "on": true })),
+        (
+            "DELETE",
+            "/v1/person/characters/Ann%40aa/listing",
+            Value::Null,
+        ),
+    ] {
+        let r = op(&f, &ann, method, path, &body);
+        assert_eq!(r.status, 404, "{method} {path}: {r:?}");
+    }
     f.running.shutdown();
 }
 
@@ -364,14 +464,6 @@ fn the_public_routes_and_a_worlds_audit_log_say_nothing_of_persons() {
         let code = code_for(link, id, who);
         link_with(&f, &ann, &code);
     }
-    let shown = op(
-        &f,
-        &ann,
-        "PUT",
-        "/v1/person/alts",
-        &json!({ "shown": true }),
-    );
-    assert_eq!(shown.status, 200);
     ask(
         &mut aa,
         "a2",
@@ -445,7 +537,7 @@ fn forgetting_a_person_ends_its_session() {
         .cookie("__Host-dn_session")
         .is_some_and(|c| c.contains("Max-Age=0")));
     assert_eq!(op(&f, &ann, "GET", "/v1/person", &Value::Null).status, 401);
-    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, vec![]));
     f.running.shutdown();
 }
 
@@ -457,7 +549,8 @@ fn operator_id(f: &Fixture, session: &str) -> String {
         .to_owned()
 }
 
-/// Forgets the person signed in with `session`: whether its account went, its cookie cleared.
+/// Forgets the person signed in with `session`: whether its cookie was cleared, as its sessions
+/// end.
 fn forget(f: &Fixture, session: &str) -> bool {
     let r = op(f, session, "DELETE", "/v1/person", &Value::Null);
     assert_eq!(r.status, 204, "{r:?}");
@@ -690,7 +783,7 @@ fn forgetting_a_player_whose_claims_closed_removes_its_account() {
 }
 
 /// Spec: hub: forgetting an operator, one that holds a world or has a claim open, removes its
-/// links, its person friends and its setting, and keeps its account and its reports.
+/// links and its person friends and ends its sessions, and keeps its account and its reports.
 #[test]
 fn forgetting_an_operator_keeps_its_account_and_its_reports() {
     let f = hub();
@@ -723,25 +816,33 @@ fn forgetting_an_operator_keeps_its_account_and_its_reports() {
         );
         assert_eq!(r.status, 201, "{r:?}");
     }
-    for (who, session) in [("Ann, a world's", &ann), ("Dan, a claim's", &dan)] {
-        assert!(!forget(&f, session), "{who} account stays");
+    let mut again = Vec::new();
+    for (who, discord, session) in [
+        ("Ann, a world's", "721", &ann),
+        ("Dan, a claim's", "722", &dan),
+    ] {
+        let id = operator_id(&f, session);
+        assert!(forget(&f, session), "{who} cookie cleared");
         assert_eq!(
             op(&f, session, "GET", "/v1/operator", &Value::Null).status,
-            200,
-            "{who} session"
+            401,
+            "{who} session ended"
         );
+        let session = sign_in(&f, discord);
+        assert_eq!(operator_id(&f, &session), id, "{who} account stays");
         assert_eq!(
-            op(&f, session, "GET", "/v1/operator/reports", &Value::Null).json()["reports"]
+            op(&f, &session, "GET", "/v1/operator/reports", &Value::Null).json()["reports"]
                 .as_array()
                 .map(Vec::len),
             Some(1),
             "{who} report"
         );
+        again.push(session);
     }
     assert_eq!(all_reports(&f).len(), 2);
-    let me = op(&f, &ann, "GET", "/v1/person", &Value::Null).json();
+    let me = op(&f, &again[0], "GET", "/v1/person", &Value::Null).json();
     assert_eq!(me["person"]["characters"], json!([]), "{me}");
     watch(&mut aa, "Ann@aa");
-    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, Alts::Hidden, vec![]));
+    assert_eq!(next_view(&mut aa, "Ann@aa"), (false, vec![]));
     f.running.shutdown();
 }

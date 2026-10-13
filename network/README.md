@@ -9,8 +9,8 @@ depends on a crate outside it, and its crates name their own dependency versions
 
 | folder | what | licence |
 |---|---|---|
-| [`protocol/`](protocol) | `dereth-network-protocol`: addresses, settings, the text rules, stand-in ids, rate limits and the link messages, with no I/O; builds for `wasm32-unknown-unknown` | MIT, and the Unicode License v3 for the Windows best-fit table it embeds |
-| [`hub/`](hub) | `dereth-network-hub`: the hub — the world registry (registration, `drth_` keys, claims, heartbeats, the community-list import, the federation flag), the operator API (Discord sign-in, verification, approval, reports), persons (characters linked to a Discord account with one-time codes, the alts setting, person friends) and the router for the worlds' links | AGPL-3.0-only |
+| [`protocol/`](protocol) | `dereth-network-protocol`: addresses, settings, the text rules, stand-in ids, rate limits, the link messages and the directory's, with no I/O; builds for `wasm32-unknown-unknown` | MIT, and the Unicode License v3 for the Windows best-fit table it embeds |
+| [`hub/`](hub) | `dereth-network-hub`: the hub — the world registry (registration, `drth_` keys, claims, heartbeats, the community-list import, the federation flag), the operator API (Discord sign-in, verification, approval, reports), persons (characters linked to a Discord account with one-time links, person friends), the character directory (listed characters' profiles, published as their worlds send them) and the router for the worlds' links | AGPL-3.0-only |
 | [`conformance/`](conformance) | `dereth-network-conformance`: the vectors, the hub checks and the world checks | MIT |
 | [`ace-mod/`](ace-mod) | `Dereth.Network`, the ACE mod: the network for a stock ACE world | AGPL-3.0-only |
 
@@ -38,7 +38,14 @@ API once it is given a Discord application (`--public-url`, `--site-origin`,
 `--discord-client-id`, and the secret in `DERETH_HUB_DISCORD_CLIENT_SECRET`); the site calls it
 from the browser. The same sign-in lets players link their characters: a world asks the hub for a
 one-time code with `/dn link`, and the player enters it on the first site origin's `/characters/` page.
-A hub without sign-in links no character. [`hub/DEPLOY.md`](hub/DEPLOY.md) is the guide to running a public hub: the
+A hub without sign-in links no character. Given the application's bot token as well
+(`--discord-bot-token-file`), the hub is the Discord broker: it mirrors rooms into Discord
+servers' channels, the Global room and network channels as its admins set on the site, and a
+world's own rooms, and the Global room, as the world's operator sets there; carries a tell to a
+character into its person's Discord direct messages while the person does not play it, if the
+person chose that on the site, and the person's reply back; lets a person speak in a world's
+mirror as one of its own linked characters, through that world, with the bot's `/dn say`; no
+world holds a Discord secret. [`hub/DEPLOY.md`](hub/DEPLOY.md) is the guide to running a public hub: the
 reverse proxy, Cloudflare, systemd, the container, backups and updates. [`RELEASING.md`](RELEASING.md) says
 how the hub and the ACE mod are released, on tags of their own.
 
@@ -52,8 +59,13 @@ enabled = true
 hub_url = "wss://hub.example.org"   # or ws://127.0.0.1:8650 for a hub on the same machine
 slug = "coldeve"
 key_file = "network.key"            # holds the drth_ key the hub printed
-global_room = "roleplay"            # the chat room that carries the Global room, or "" for none
 ```
+
+The rooms are the hub's to keep, not the world's settings: which of the world's chat rooms carries
+the Global room (Roleplay until its operator moves it), and which of its own rooms are mirrored into
+Discord. The operator sets both on the site (`PUT /v1/operator/worlds/<slug>/global-room`,
+`PUT /v1/operator/worlds/<slug>/discord/mirrors/general`), or the first in game with
+`/dn admin global <room>`, and the hub tells the world at once.
 
 With `enabled = true`, a setting the world cannot serve (a bad slug or hub address, an unknown room,
 no key in the key file, a store it cannot read) stops the server at start-up with the reason, as

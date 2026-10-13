@@ -56,6 +56,8 @@ empyrean-command.workspace = true
 dereth-network-hub.workspace = true
 dereth-network-conformance.workspace = true
 dereth-network-protocol.workspace = true
+# A Dereth Network scenario reads the chat log a room line is written to.
+log.workspace = true
 
 # The server's lint levels, not the client workspace's (no `undocumented_unsafe_blocks`, and
 # `module_inception` allowed: ACE folders often contain a file of the same name, e.g.

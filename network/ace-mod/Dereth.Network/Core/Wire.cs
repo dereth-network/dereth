@@ -64,13 +64,16 @@ public enum PersonOp
     Code,
     /// <summary>Unlink the character from its person.</summary>
     Unlink,
-    /// <summary>Set the alts setting of the character's person.</summary>
+    /// <summary>
+    /// Set the alts setting of the character's person: sent by worlds of the network's first version
+    /// alone, and refused by the hub. This world never sends it.
+    /// </summary>
     Alts,
     /// <summary>List the target's person as a person friend.</summary>
     Befriend,
     /// <summary>Remove the person friend whose handle is the target.</summary>
     Unfriend,
-    /// <summary>The characters of the target's person, when it shows them.</summary>
+    /// <summary>The characters of the target's person: sent by worlds of the network's first version alone. This world never sends it.</summary>
     Characters,
     /// <summary>List each of the targets' persons as a person friend: the friends the character had before it was linked.</summary>
     Carry,
@@ -84,13 +87,6 @@ public enum PersonOutcome
     RateLimited,
     Unavailable,
     Refused,
-}
-
-/// <summary>A person's alts setting: whether anyone else may learn that its characters are one person.</summary>
-public enum Alts
-{
-    Hidden,
-    Shown,
 }
 
 /// <summary>One person friend in a person view: its handle, then the characters it lists.</summary>
@@ -160,14 +156,17 @@ public sealed record RoomJoin(string Room, bool On) : WireMessage
     public override string Type => "room.join";
 }
 
-/// <summary>World to hub: a line one of its characters said in a room.</summary>
-public sealed record RoomSay(string Id, string Room, Address From, string Text) : WireMessage
+/// <summary>
+/// World to hub: a line one of its characters said in a room. `Via` marks a line its person said
+/// elsewhere, which the hub asked the world to say (`discord`).
+/// </summary>
+public sealed record RoomSay(string Id, string Room, Address From, string Text, string? Via = null) : WireMessage
 {
     public override string Type => "room.say";
 }
 
-/// <summary>Hub to world: another world's line in a room this world carries.</summary>
-public sealed record RoomLine(string Room, Address From, string Text) : WireMessage
+/// <summary>Hub to world: another world's line in a room this world carries, with the mark its world gave it.</summary>
+public sealed record RoomLine(string Room, Address From, string Text, string? Via = null) : WireMessage
 {
     public override string Type => "room.line";
 }
@@ -226,10 +225,16 @@ public sealed record PersonWatch(Address Who, bool On) : WireMessage
     public override string Type => "person.watch";
 }
 
-/// <summary>Hub to world: `To`'s person view.</summary>
-public sealed record PersonFriends(Address To, bool Linked, Alts Alts, IReadOnlyList<PersonFriend> Persons) : WireMessage
+/// <summary>
+/// Hub to world: `To`'s person view. Its `alts` is always `shown`, for worlds of the network's first
+/// version, which read it; this world reads it as any word, or none, and keeps nothing of it.
+/// </summary>
+public sealed record PersonFriends(Address To, bool Linked, IReadOnlyList<PersonFriend> Persons) : WireMessage
 {
     public override string Type => "person.friends";
+
+    /// <summary>The `alts` a person view is written with.</summary>
+    public const string EarlierAlts = "shown";
 }
 
 /// <summary>Either way: the other side broke the protocol.</summary>
@@ -386,16 +391,11 @@ public static class Wire
         _ => "refused",
     };
 
-    public static string Word(Alts a) => a == Alts.Shown ? "shown" : "hidden";
-
     private static readonly Dictionary<string, PersonOp> PersonOps =
         Enum.GetValues<PersonOp>().ToDictionary(Word, o => o, StringComparer.Ordinal);
 
     private static readonly Dictionary<string, PersonOutcome> PersonOutcomes =
         Enum.GetValues<PersonOutcome>().ToDictionary(Word, o => o, StringComparer.Ordinal);
-
-    private static readonly Dictionary<string, Alts> AltsWords =
-        Enum.GetValues<Alts>().ToDictionary(Word, o => o, StringComparer.Ordinal);
 
     private static readonly Dictionary<string, Outcome> Outcomes =
         Enum.GetValues<Outcome>().ToDictionary(Word, o => o, StringComparer.Ordinal);
@@ -588,9 +588,11 @@ public static class Wire
             case "room.join":
                 return new RoomJoin(Str(f, "room"), Bool(f, "on"));
             case "room.say":
-                return new RoomSay(Str(f, "id"), Str(f, "room"), Addr(f, "from"), Str(f, "text"));
+                return new RoomSay(Str(f, "id"), Str(f, "room"), Addr(f, "from"), Str(f, "text"),
+                    Absent(f, "via") ? null : Str(f["via"], "via"));
             case "room.line":
-                return new RoomLine(Str(f, "room"), Addr(f, "from"), Str(f, "text"));
+                return new RoomLine(Str(f, "room"), Addr(f, "from"), Str(f, "text"),
+                    Absent(f, "via") ? null : Str(f["via"], "via"));
             case "room.result":
                 return new RoomResult(Str(f, "id"), Word(Outcomes, Need(f, "outcome"), "outcome"));
             case "channel":
@@ -636,7 +638,9 @@ public static class Wire
                             Arr(Need(pf, "characters"), "characters").Select(x => Addr(x, "character")).ToList());
                     }).ToList()
                     : [];
-                return new PersonFriends(Addr(f, "to"), Bool(f, "linked"), Word(AltsWords, Need(f, "alts"), "alts"), persons);
+                if (f.TryGetValue("alts", out var alts) && alts.ValueKind != JsonValueKind.String)
+                    throw new Bad("alts is not a word");
+                return new PersonFriends(Addr(f, "to"), Bool(f, "linked"), persons);
             }
             case "error":
                 return new ProtocolError(Str(f, "code"), Str(f, "message"));
@@ -668,6 +672,7 @@ public static class Wire
                 if (!IdOk(r.Id)) throw new Bad("id");
                 if (!TextOk(r.Text)) throw new Bad("text too long");
                 if (!IsRoomName(r.Room)) throw new Bad("room");
+                if (r.Via is not null && !SayWire.IsVia(r.Via)) throw new Bad("via");
                 break;
             case TellResult r:
                 if (!IdOk(r.Id)) throw new Bad("id");
@@ -687,6 +692,7 @@ public static class Wire
             case RoomLine r:
                 if (!TextOk(r.Text)) throw new Bad("text too long");
                 if (!IsRoomName(r.Room)) throw new Bad("room");
+                if (r.Via is not null && !SayWire.IsVia(r.Via)) throw new Bad("via");
                 break;
             case ChannelLine c:
                 if (!TextOk(c.Text)) throw new Bad("text too long");
@@ -771,9 +777,13 @@ public static class Wire
                 break;
             case RoomSay r:
                 o.Str("id", r.Id).Str("room", r.Room).Str("from", r.From.ToString()).Str("text", r.Text);
+                if (r.Via is not null)
+                    o.Str("via", r.Via);
                 break;
             case RoomLine r:
                 o.Str("room", r.Room).Str("from", r.From.ToString()).Str("text", r.Text);
+                if (r.Via is not null)
+                    o.Str("via", r.Via);
                 break;
             case RoomResult r:
                 o.Str("id", r.Id).Str("outcome", Word(r.Outcome));
@@ -820,7 +830,7 @@ public static class Wire
                 o.Str("who", w.Who.ToString()).Bool("on", w.On);
                 break;
             case PersonFriends v:
-                o.Str("to", v.To.ToString()).Bool("linked", v.Linked).Str("alts", Word(v.Alts))
+                o.Str("to", v.To.ToString()).Bool("linked", v.Linked).Str("alts", PersonFriends.EarlierAlts)
                     .Raw("persons", Json.Array(v.Persons.Select(p => new JsonObj().Str("handle", p.Handle.ToString())
                         .Raw("characters", Json.Array(p.Characters.Select(a => Json.Str(a.ToString())))).ToString())));
                 break;
@@ -916,6 +926,12 @@ internal sealed class JsonObj
     }
 
     public JsonObj U32(string k, uint v)
+    {
+        Key(k).b.Append(v.ToString(CultureInfo.InvariantCulture));
+        return this;
+    }
+
+    public JsonObj U64(string k, ulong v)
     {
         Key(k).b.Append(v.ToString(CultureInfo.InvariantCulture));
         return this;

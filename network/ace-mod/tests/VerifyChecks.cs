@@ -174,7 +174,7 @@ internal static class VerifyChecks
             seen = r;
             return release.Task;
         };
-        c.Check(S, w.World.Verify(boss, "+Boss", ["not-a-token"]) == "/dn verify <token>: the token the site gave you (dnv_...).", "a bad token is refused here");
+        c.Check(S, w.World.Verify(boss, "+Boss", ["not-a-token"]) == "@dn verify <token> - verify this world with the token the site gave you", "a bad token is refused here");
         c.Check(S, w.World.Verify(boss, "+Boss", [token]) == NetworkWorld.CannotHearLine && seen is null,
             "a server whose game port cannot be heard says so, and sends nothing");
         w.World.Answerer = _ => Task.FromResult("");

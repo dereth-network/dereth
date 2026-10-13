@@ -11,7 +11,7 @@ use empyrean_entity::enums::ChatMessageType;
 
 use super::{seed, two_worlds, Net, TELL};
 
-fn squelch(net: &mut Net, slug: &str, who: &str, name: &str, add: bool) {
+pub(super) fn squelch(net: &mut Net, slug: &str, who: &str, name: &str, add: bool) {
     let w = net.world(slug);
     let id = w.clients[who];
     w.ts.send_game_action(
@@ -43,7 +43,6 @@ fn tells(net: &mut Net, slug: &str, who: &str, mark: usize) -> usize {
 #[test]
 fn a_squelched_remote_character_is_not_heard_and_sees_only_its_echo() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let mb = net.mark("bb", "Bob");
     squelch(&mut net, "bb", "Bob", "Ann@aa", true);
     assert_eq!(
@@ -68,7 +67,6 @@ fn a_squelched_remote_character_is_not_heard_and_sees_only_its_echo() {
 #[test]
 fn squelching_a_world_silences_every_character_of_it() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     net.say("bb", "Bob", "@dn squelch aa");
     let mb = net.mark("bb", "Bob");
     net.tell("aa", "Ann", "Bob@bb", "hi");
@@ -79,7 +77,6 @@ fn squelching_a_world_silences_every_character_of_it() {
 #[test]
 fn an_operator_block_refuses_a_world_for_everyone_and_looks_like_no_one_is_there() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let out = empyrean_world::federation::commands::admin(
         &mut net.world("bb").ts.world,
         &["block".to_owned(), "aa".to_owned()],
@@ -105,7 +102,7 @@ fn squelching_a_channel_leaves_it() {
     net.say("bb", "Bob", "@dn channel list");
     assert_eq!(
         Net::lines(&net.since("bb", "Bob", mb)),
-        ["You belong to no channel."]
+        ["You are in no channel."]
     );
 }
 
@@ -117,7 +114,6 @@ fn an_operator_block_hides_this_worlds_characters_from_the_blocked_worlds_watche
         &mut net.world("aa").ts.world,
         &["block".to_owned(), "bb".to_owned()],
     );
-    net.say("aa", "Ann", "@dn visible anyone");
     let mb = net.mark("bb", "Bob");
     super::add_friend(&mut net, "aa", "Ann", "Bob@bb");
     super::add_friend(&mut net, "bb", "Bob", "Ann@aa");
@@ -243,7 +239,7 @@ fn with_the_network_off_dn_admin_blocks_nothing_and_says_so() {
     let ann = seed("ann", 0x5000_0001, "Ann");
     let mut net = Net::new(&[("aa", &[ann])]);
     net.world("aa").ts.world.federation.settings.enabled = false;
-    for words in [&["block", "bb"][..], &["unblock", "bb"], &["blocks"]] {
+    for words in [&["block", "bb"][..], &["unblock", "bb"], &["block"]] {
         assert_eq!(
             dn_admin(&mut net, "aa", words),
             "This world is not on the Dereth Network.",
@@ -252,7 +248,8 @@ fn with_the_network_off_dn_admin_blocks_nothing_and_says_so() {
     }
     assert!(net.world("aa").ts.world.federation.store.blocked.is_empty());
     assert!(!net.world("aa").ts.world.federation.dirty);
-    assert!(dn_admin(&mut net, "aa", &["status"]).starts_with("Dereth Network: off"));
+    assert!(dn_admin(&mut net, "aa", &["status"])
+        .starts_with("dn admin block <world or Name@world> - "));
 }
 
 fn invite_lines(net: &mut Net, mark: usize) -> Vec<String> {
@@ -266,17 +263,6 @@ fn invite_lines(net: &mut Net, mark: usize) -> Vec<String> {
 #[test]
 fn an_invitation_reaches_only_a_character_its_inviter_may_reach() {
     let mut net = two_worlds(false);
-    net.say("aa", "Ann", "@dn channel create freegold");
-    // Mutual friends only, and Bob does not list Ann.
-    net.say("bb", "Bob", "@dn reachable friends");
-    let mb = net.mark("bb", "Bob");
-    net.say("aa", "Ann", "@dn channel invite freegold Bob@bb");
-    assert!(
-        invite_lines(&mut net, mb).is_empty(),
-        "a stranger cannot reach Bob"
-    );
-
-    net.say("bb", "Bob", "@dn reachable anyone");
     squelch(&mut net, "bb", "Bob", "Ann@aa", true);
     let mb = net.mark("bb", "Bob");
     net.say("aa", "Ann", "@dn channel create freegold2");
@@ -312,7 +298,6 @@ fn an_invitation_reaches_only_a_character_its_inviter_may_reach() {
 #[test]
 fn lifting_a_block_shows_a_watcher_the_character_does_not_list_what_it_may_see_again() {
     let mut net = two_worlds(false);
-    net.say("aa", "Ann", "@dn visible anyone");
     // Bob lists Ann; Ann lists nobody, and shows to anyone.
     let mb = net.mark("bb", "Bob");
     super::add_friend(&mut net, "bb", "Bob", "Ann@aa");
@@ -365,7 +350,7 @@ fn a_character_squelches_at_most_so_many_remote_characters_and_worlds() {
     let lines = Net::lines(&net.since("aa", "Ann", ma));
     assert_eq!(
         lines.last().map(String::as_str),
-        Some("You squelch 100 characters on other worlds already; unsquelch one first.")
+        Some("You squelch 100 characters on other worlds already. Unsquelch one first.")
     );
     let ma = net.mark("aa", "Ann");
     for i in 0..=empyrean_world::federation::MAX_SQUELCHED_WORLDS {
@@ -379,7 +364,7 @@ fn a_character_squelches_at_most_so_many_remote_characters_and_worlds() {
     let lines = Net::lines(&net.since("aa", "Ann", ma));
     assert_eq!(
         lines.last().map(String::as_str),
-        Some("You squelch 50 worlds already; unsquelch one first.")
+        Some("You squelch 50 worlds already. Unsquelch one first.")
     );
     let rec = net
         .world("aa")

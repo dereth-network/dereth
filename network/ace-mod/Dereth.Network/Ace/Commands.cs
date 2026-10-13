@@ -17,14 +17,12 @@ namespace Dereth.Network;
 public static class NetCommands
 {
     private const string Usage =
-        "on | off | visible <who> | reachable <who> | listed on|off | friends [add|remove <Name@world>] | worlds | global <text> | channel ... | help";
-
-    private const string AdminUsage = "dn admin status | blocks | block <world or Name@world> | unblock <...>; dn verify <token>";
+        "on | off | friends [add|remove <Name@world>] | global <text> | squelch|unsquelch <world> | channel ... | link | unlink | help";
 
     [CommandHandler("dn", AccessLevel.Player, CommandHandlerFlag.None,
-        "The Dereth Network: this character's status, settings, friends and channels on other worlds", Usage)]
+        "The Dereth Network: tells, friends and channels with other worlds", Usage)]
     [CommandHandler("derethnetwork", AccessLevel.Player, CommandHandlerFlag.None,
-        "The Dereth Network: this character's status, settings, friends and channels on other worlds", Usage)]
+        "The Dereth Network: tells, friends and channels with other worlds", Usage)]
     public static void HandleDn(Session session, params string[] parameters)
     {
         parameters ??= [];
@@ -42,7 +40,7 @@ public static class NetCommands
         }
         if (session is null)
         {
-            Output(null, AdminUsage);
+            Output(null, NetworkWorld.AdminHelp("dn"));
             return;
         }
         // A player's own words need the player in the world.
@@ -127,20 +125,27 @@ public static class NetCommands
         }
     }
 
-    /// <summary>`/dn admin ...`: the operator's blocks and the network's state.</summary>
+    /// <summary>
+    /// `/dn admin ...`: the operator's blocks, where the world carries the Global room (the hub's
+    /// answer comes later, on the world thread), and the network's state. With the network off, a
+    /// word that would change something says so, with the error that kept it off when one was
+    /// logged, and any other word shows the operator's help.
+    /// </summary>
     private static void Admin(Session? session, string[] parameters)
     {
         var r = Mod.Current;
         string text;
         if (r is null)
         {
-            text = Mod.OffReason is { } why ? $"Dereth Network: off: {why}." : "Dereth Network: off.";
+            text = parameters.Length > 0 && parameters[0] is "block" or "unblock" or "global"
+                ? NetworkWorld.NotOnNetworkLine + (Mod.OffReason is { } why ? $"\nThe error that kept it off: {why}" : "")
+                : NetworkWorld.AdminHelp(session?.Player is null ? "dn" : "@dn");
         }
         else
         {
             try
             {
-                text = r.World.Admin(parameters);
+                text = r.World.Admin(parameters, session?.Player?.Guid.Full);
             }
             catch (Exception e)
             {

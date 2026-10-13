@@ -31,6 +31,7 @@ public static class PatchTargets
     public const string GlobalRoom = "global-room";
     public const string Names = "names";
     public const string Verify = "verify";
+    public const string Directory = "directory";
 
     /// <summary>The character screen's message: the world's own, patched whether or not the network starts.</summary>
     public const string CharacterScreen = "character-screen";
@@ -61,12 +62,16 @@ public static class PatchTargets
             "FriendsListPostfix"),
         new(Friends, PlayerManager, "SwitchPlayerFromOfflineToOnline", [Player], null, "LoginPostfix"),
         new(Friends, PlayerManager, "SwitchPlayerFromOnlineToOffline", [Player], null, "LogoutPostfix"),
+        // A character deleted on the character screen leaves the directory at once (without it, the
+        // directory's own look over its listed characters finds it within half a minute).
+        new(Directory, PlayerManager, "HandlePlayerDelete", ["System.UInt32"], null, "PlayerDeletePostfix"),
         new(AppearOffline, "ACE.Server.Network.GameAction.Actions.GameActionSetSingleCharacterOption", "Handle",
             [ClientMessage, Session], "CharacterOptionPrefix", "CharacterOptionPostfix"),
         // Squelching a remote character.
         new(Squelch, "ACE.Server.WorldObjects.Managers.SquelchManager", "HandleActionModifyCharacterSquelch",
             ["System.Boolean", "System.UInt32", "System.String", "ACE.Entity.Enum.ChatMessageType"], "SquelchPrefix", null),
-        // The Global room: who is speaking, and the line once the world has let it through.
+        // The Global room and the rooms for Discord: who is speaking, and the line once the world
+        // has let it through.
         new(GlobalRoom, "ACE.Server.Network.Handlers.TurbineChatHandler", "TurbineChatReceived", [ClientMessage, Session],
             "TurbineChatPrefix", "TurbineChatPostfix"),
         new(GlobalRoom, "ACE.Server.Network.Handlers.TurbineChatHandler", "LogTurbineChat",

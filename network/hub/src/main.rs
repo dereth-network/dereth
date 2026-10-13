@@ -8,6 +8,7 @@ use std::time::Duration;
 use dereth_network_hub::community;
 use dereth_network_hub::registry::{ImportOptions, Registration, Registry};
 use dereth_network_hub::server::{self, HubConfig};
+use dereth_network_hub::settings::Setting;
 use dereth_network_protocol::Federation;
 
 const USAGE: &str = "\
@@ -19,6 +20,7 @@ dereth-network-hub -- the Dereth Network's hub and world registry
                            [--deny-fetch <ip or cidr>]... [--deny-fetch-file <file>]...
                            [--public-url <url>] [--site-origin <origin>]... [--admin <discord id>]...
                            [--discord-client-id <id>] [--discord-client-secret-file <path>]
+                           [--discord-bot-token-file <path>] [--discord-poll-secs <n>]
                            [--approvals-per-day <n>] [--min-account-age-days <n>]
                            [--pending-days <n>]
                            [--wire-log <file>]    one line per link frame: its type, never its body
@@ -46,6 +48,9 @@ dereth-network-hub -- the Dereth Network's hub and world registry
   dereth-network-hub report <id> dismiss|revoke \"<note>\"   revoke: federation off, key revoked, locked
   dereth-network-hub unlock <slug>                lift a revocation's lock
   dereth-network-hub remove <slug>                remove a world for good, freeing its slug
+  dereth-network-hub directory remove <Name@world>   take a character out of the directory and
+                                                  hold it out for 30 days; its world is told,
+                                                  and its log says so
   dereth-network-hub unlist|relist <slug>         take a world out of the public lists, or back
   dereth-network-hub assign <slug> <discord id>   hand a managed world to an operator
   dereth-network-hub operators                    every operator
@@ -82,10 +87,24 @@ with Discord) is on when --public-url (the hub's own address, DERETH_HUB_PUBLIC_
 DERETH_HUB_DISCORD_CLIENT_SECRET, or the file --discord-client-secret-file names, never from the
 command line. --admin (DERETH_HUB_ADMINS) names the Discord ids that may use the admin routes
 and register game endpoints under the domain.
---approvals-per-day (500) is the hub's ceiling on worlds joining the network a day, above each
-operator's own 3; --min-account-age-days (30) is how old a Discord account must be to register or
-claim a world; --pending-days (14) is how long a registered world may wait to be verified before it
-is removed and its slug freed.
+The Discord broker (rooms mirrored into Discord servers' channels and, with sign-in on, tells into
+a person's Discord direct messages, for a person that turns them on, with its replies back, and
+the bot's /dn command, with which a person speaks in a world's mirror as its own character) is on when the application's bot token is given: from the
+environment variable DERETH_HUB_DISCORD_BOT_TOKEN, or the file --discord-bot-token-file names,
+never from the command line. It is never logged. The admins mirror the Global room and network
+channels, and set the picture the mirrored lines show, through the admin routes; each world's
+operator mirrors its own rooms, and the Global room, through the operator API. While a reply to a
+tell is awaited, the hub reads the person's direct messages every --discord-poll-secs (3). Discord
+sends the /dn command's uses to <public url>/v1/discord/interactions, the application's
+Interactions Endpoint URL in Discord's developer portal; the hub registers the command at start.
+The hub's settings are the registry's, and its admins change them through the admin routes (the
+site's Hub settings), at once: the hub's ceiling on worlds joining the network a day, above each
+operator's own 3 (500); how old a Discord account must be to register or claim a world (30 days);
+and how long a registered world may wait to be verified before it is removed and its slug freed
+(14 days). --approvals-per-day, --min-account-age-days and --pending-days, which set them before,
+seed the registry while it holds no value yet; after that the registry's value holds, and a flag
+that differs is ignored, with a line in the log naming both. These three flags are to be removed
+in a later minor release.
 
 `import-community` reads the community list from a file, or with --fetch from the community
 repository (or --url), at most 2 MiB within 30 seconds; a list that does not arrive or does not
@@ -107,7 +126,7 @@ into its place. It needs write access to the binary's folder, and starts or stop
 the hub to run the new binary. It exits 0 when a release was (or, with --check, would be)
 installed, 3 when none is to be, and 1 when it refused or failed.
 For development only: --allow-loopback (loopback endpoints, pages and community lists), --discord-api,
---discord-authorize (a stand-in for Discord).";
+--discord-authorize (a stand-in for Discord, for sign-in and the broker alike).";
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
@@ -223,23 +242,14 @@ fn operator_api(args: &mut Vec<String>, config: &mut HubConfig) -> Result<(), St
                 .collect();
         }
     }
-    if let Some(n) = take(args, "--approvals-per-day")? {
-        config.approvals_per_day = n
-            .parse()
-            .map_err(|e| format!("--approvals-per-day {n}: {e}"))?;
-    }
-    if let Some(n) = take(args, "--min-account-age-days")? {
-        config.min_account_age_days = n
-            .parse()
-            .map_err(|e| format!("--min-account-age-days {n}: {e}"))?;
-    }
-    if let Some(n) = take(args, "--pending-days")? {
-        config.pending_days = n.parse().map_err(|e| format!("--pending-days {n}: {e}"))?;
-    }
+    config.approvals_per_day = setting_flag(args, Setting::ApprovalsPerDay)?;
+    config.min_account_age_days = setting_flag(args, Setting::MinAccountAgeDays)?;
+    config.pending_days = setting_flag(args, Setting::PendingDays)?;
     config.loopback_allowed = take_flag(args, "--allow-loopback");
     let secret_file = take(args, "--discord-client-secret-file")?;
     let api = take(args, "--discord-api")?;
     let authorize = take(args, "--discord-authorize")?;
+    broker(args, config, api.as_deref())?;
     if let Some(id) = flag_or_env(args, "--discord-client-id", "DERETH_HUB_DISCORD_CLIENT_ID")? {
         let mut d = dereth_network_hub::discord::Discord::new(id, secret_file.as_deref())?;
         if let Some(a) = api {
@@ -274,6 +284,75 @@ fn operator_api(args: &mut Vec<String>, config: &mut HubConfig) -> Result<(), St
             "--allow-loopback: loopback endpoints and pages are accepted (development only)",
         );
     }
+    Ok(())
+}
+
+/// The value a flag of `serve` gives one of the hub's settings, within the setting's bounds, which
+/// seeds the registry's own while it holds none.
+fn setting_flag(args: &mut Vec<String>, setting: Setting) -> Result<Option<u64>, String> {
+    take(args, setting.flag())?
+        .map(|n| setting.parse_flag(&n))
+        .transpose()
+}
+
+/// What `serve` says of arguments it does not take: the flags among them, never a value, which
+/// could be a secret given where none is read.
+fn unexpected(args: &[String]) -> String {
+    let flags: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .filter(|a| a.starts_with("--") && a.len() <= 64)
+        .collect();
+    let values = args.len() - flags.len();
+    format!(
+        "serve: unexpected {}{}; secrets are read from the environment or a file, never the command line",
+        if flags.is_empty() {
+            "arguments".to_owned()
+        } else {
+            flags.join(", ")
+        },
+        if values > 0 {
+            format!(" (and {values} value(s), not shown)")
+        } else {
+            String::new()
+        }
+    )
+}
+
+/// The Discord broker's settings: on when the application's bot token is given, from the
+/// environment or a file (never the command line).
+fn broker(args: &mut Vec<String>, config: &mut HubConfig, api: Option<&str>) -> Result<(), String> {
+    let token_file = take(args, "--discord-bot-token-file")?;
+    let poll = take(args, "--discord-poll-secs")?
+        .map(|n| match n.parse::<u64>() {
+            Ok(secs) if (1..=3_600).contains(&secs) => Ok(Duration::from_secs(secs)),
+            _ => Err(format!("--discord-poll-secs {n}: 1 to 3600")),
+        })
+        .transpose()?;
+    let token = dereth_network_hub::discord::secret_of(
+        std::env::var("DERETH_HUB_DISCORD_BOT_TOKEN").ok(),
+        token_file.as_deref(),
+    )?;
+    let Some(token) = token else {
+        if token_file.is_some() {
+            return Err("--discord-bot-token-file: the file holds no token".into());
+        }
+        if poll.is_some() {
+            return Err("--discord-poll-secs needs the Discord broker: give the bot token (DERETH_HUB_DISCORD_BOT_TOKEN, or --discord-bot-token-file)".into());
+        }
+        return Ok(());
+    };
+    let mut b = dereth_network_hub::broker::Broker::new(token);
+    if let Some(a) = api {
+        b.api = a.trim_end_matches('/').to_owned();
+    }
+    if let Some(p) = poll {
+        b.poll = p;
+    }
+    if let Some(site) = config.site_origins.first() {
+        b.site.clone_from(site);
+    }
+    config.broker = Some(b);
     Ok(())
 }
 
@@ -367,7 +446,7 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
                 .map(|s| s.parse::<f64>().map_err(|e| format!("--run-for {s}: {e}")))
                 .transpose()?;
             if !args.is_empty() {
-                return Err(format!("serve: unexpected {:?}", args));
+                return Err(unexpected(&args));
             }
             check_listen(config.listen, !config.trusted_proxies.is_empty(), insecure)?;
             let running = server::start(config).map_err(|e| e.to_string())?;
@@ -434,6 +513,23 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
         "remove" => {
             open()?.remove(&arg(0)?).map_err(|e| e.message)?;
             println!("{}: removed", arg(0)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        "directory" => {
+            if arg(0)? != "remove" {
+                return Err(format!("directory: remove <Name@world>\n\n{USAGE}"));
+            }
+            let address = arg(1)?;
+            let was = open()?.take_down(&address).map_err(|e| e.message)?;
+            println!(
+                "{address}: {} the directory, and held out for {} days",
+                if was {
+                    "taken out of"
+                } else {
+                    "not listed; held out of"
+                },
+                dereth_network_hub::directory::HOLD_DAYS
+            );
             Ok(ExitCode::SUCCESS)
         }
         "unlist" | "relist" => {
@@ -751,6 +847,56 @@ mod tests {
         let shown = r.server("vouched").expect("read").expect("there");
         assert_eq!(shown["ownership"]["state"], "managed", "{shown}");
         drop(r);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec: hub: `directory remove` on the command line takes a character out of the directory
+    /// and holds it out, its world owing hearing so; a world the registry does not have is
+    /// refused.
+    #[test]
+    fn directory_remove_on_the_command_line_takes_a_character_out() {
+        use dereth_network_protocol::{Address, OffBy, Profile};
+        assert!(USAGE.contains("directory remove <Name@world>"));
+        let dir =
+            std::env::temp_dir().join(format!("dereth-hub-cli-directory-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let db = dir.join("hub.sqlite").to_str().expect("a path").to_owned();
+        let eve = Address::parse("Eve@aa").expect("an address");
+        let open = || {
+            Registry::open(&db, "dereth.network", Box::new(std::time::SystemTime::now))
+                .expect("a registry")
+        };
+        {
+            let r = open();
+            let world = Registration::from_json(&serde_json::json!({
+                "slug": "aa", "name": "World aa", "ruleset": "PvE",
+                "endpoint": { "mode": "manual", "address": "192.0.2.1", "port": 9000 },
+                "emulator": { "family": "ACE" },
+            }))
+            .expect("a registration");
+            r.register(&world).expect("registered");
+            r.set_federation("aa", Federation::On).expect("on");
+            let profile = Profile {
+                level: 10,
+                heritage: 1,
+                gender: 2,
+                ..Profile::default()
+            };
+            r.listing(&eve, Some(&profile)).expect("listed");
+            assert!(r.directory_character("Eve@aa").expect("asked").is_some());
+        }
+        let s = |v: &[&str]| v.iter().map(|a| (*a).to_owned()).collect::<Vec<String>>();
+        run(s(&["directory", "remove", "Eve@aa", "--db", &db])).expect("taken out");
+        let r = open();
+        assert_eq!(r.directory_character("Eve@aa").expect("asked"), None);
+        assert_eq!(
+            r.owed_offs("aa").expect("asked"),
+            vec![(eve, OffBy::Operator)]
+        );
+        drop(r);
+        assert!(run(s(&["directory", "remove", "Eve@zz", "--db", &db])).is_err());
+        assert!(run(s(&["directory", "list", "--db", &db])).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

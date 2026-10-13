@@ -1218,6 +1218,7 @@ dependencies = [
  "flate2",
  "getrandom 0.4.3",
  "httparse",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",
@@ -1845,6 +1846,7 @@ dependencies = [
  "empyrean-net",
  "empyrean-store",
  "empyrean-world",
+ "log",
  "serde_json",
 ]
 
@@ -1871,6 +1873,7 @@ dependencies = [
  "empyrean-store",
  "empyrean-tables",
  "empyrean-testkit",
+ "getrandom 0.4.3",
  "log",
  "serde",
  "serde_json",

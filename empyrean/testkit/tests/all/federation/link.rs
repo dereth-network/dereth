@@ -1,10 +1,9 @@
 //! Divergence: V451
-//! The link to the hub: `/dn on` and the settings, the minute a tell waits while the hub is away,
+//! The link to the hub: `/dn on` and `/dn off`, the help, the minute a tell waits while the hub is away,
 //! what a sender is told when it never returns, and remote friends showing offline when a world
 //! or the hub is gone.
 //! Fixture: virtual-time worlds through the hub's routing (`super::Net`).
 
-use dereth_network_protocol::{Listed, Reachable, Visible};
 use dereth_protocol::comms::CommunicationHearDirectSpeech;
 use dereth_protocol::social::SocialFriendsUpdate;
 
@@ -12,58 +11,103 @@ use super::{seed, two_worlds, Net, FRIENDS_UPDATE, TELL, WEENIE_ERROR};
 
 /// Divergence: V451
 #[test]
-fn dn_on_opts_one_character_in_seen_by_mutual_friends_and_reachable_by_anyone_and_dn_off_takes_it_out(
-) {
+fn dn_on_puts_one_character_on_the_network_for_anyone_to_see_and_reach_and_dn_off_takes_it_off() {
     let ann = seed("ann", 0x5000_0001, "Ann");
     let mut net = Net::new(&[("aa", &[ann])]);
     net.link("aa");
     net.enter("aa", ann);
-    assert!(
+    let on = |net: &mut Net| {
         net.world("aa")
             .ts
             .world
             .federation
             .record(0x5000_0001)
-            .is_none(),
-        "off until opted in"
+            .is_some_and(|r| r.settings.on)
+    };
+    assert!(!on(&mut net), "off until its player puts it on");
+    let ma = net.mark("aa", "Ann");
+    net.say("aa", "Ann", "@dn on");
+    assert!(on(&mut net));
+    assert_eq!(
+        Net::lines(&net.since("aa", "Ann", ma)),
+        [
+            "You are on the Dereth Network as Ann@aa. Anyone on the network can see when you are online, send you tells and find your profile in its directory. Type @dn help for the commands.",
+            "Your profile shows your level, skills, allegiance and more, and changes as you play. Type @dn off to leave the network.",
+            "Your directory page: https://dereth.network/directory/character/?a=Ann%40aa",
+        ]
     );
     let ma = net.mark("aa", "Ann");
     net.say("aa", "Ann", "@dn on");
-    let s = net
-        .world("aa")
-        .ts
-        .world
-        .federation
-        .record(0x5000_0001)
-        .expect("a record")
-        .settings;
-    assert!(s.on);
+    net.say("aa", "Ann", "@dn");
     assert_eq!(
-        (s.visible, s.reachable, s.listed),
-        (Visible::Friends, Reachable::Anyone, Listed::Off)
+        Net::lines(&net.since("aa", "Ann", ma)),
+        [
+            "You are on the Dereth Network already, as Ann@aa.",
+            "You are on the Dereth Network as Ann@aa. The hub is connected. You have no friends on other worlds.",
+            "Your directory page: https://dereth.network/directory/character/?a=Ann%40aa",
+        ]
     );
-    assert!(Net::lines(&net.since("aa", "Ann", ma))[0]
-        .starts_with("You are on the Dereth Network as Ann@aa."));
-    net.say("aa", "Ann", "@dn visible anyone");
+    let ma = net.mark("aa", "Ann");
     net.say("aa", "Ann", "@dn off");
-    net.say("aa", "Ann", "@dn on");
-    let s = net
-        .world("aa")
-        .ts
-        .world
-        .federation
-        .record(0x5000_0001)
-        .expect("a record")
-        .settings;
+    net.say("aa", "Ann", "@dn");
+    net.say("aa", "Ann", "@dn off");
+    assert!(!on(&mut net));
     assert_eq!(
-        s.visible,
-        Visible::Anyone,
-        "opting in again keeps the settings"
+        Net::lines(&net.since("aa", "Ann", ma)),
+        [
+            "You are off the Dereth Network. Nobody on another world can see you or tell you, and your profile is out of its directory.",
+            "You are not on the Dereth Network. Type @dn on to join it as Ann@aa.",
+            "You are not on the Dereth Network.",
+        ]
     );
     assert!(
         net.world("aa").ts.world.federation.dirty,
         "the change is to be saved"
     );
+}
+
+/// Divergence: V451
+#[test]
+fn dn_help_is_one_line_per_command_and_the_removed_commands_are_gone() {
+    let ann = seed("ann", 0x5000_0001, "Ann");
+    let mut net = Net::new(&[("aa", &[ann])]);
+    net.link("aa");
+    net.enter("aa", ann);
+    net.say("aa", "Ann", "@dn on");
+    let ma = net.mark("aa", "Ann");
+    net.say("aa", "Ann", "@dn help");
+    let help = Net::lines(&net.since("aa", "Ann", ma));
+    let help: Vec<&str> = help[0].lines().collect();
+    assert_eq!(
+        help[..3],
+        [
+            "@dn - show your Dereth Network status",
+            "@dn on - put this character on the Dereth Network",
+            "@dn off - take this character off the Dereth Network",
+        ]
+    );
+    for line in &help {
+        assert!(
+            line.starts_with('@') && line.matches(" - ").count() == 1,
+            "{line}"
+        );
+        assert!(!line.contains("  "), "{line}");
+    }
+    for gone in [
+        "@dn visible anyone",
+        "@dn reachable nobody",
+        "@dn listed on",
+        "@dn alts hidden",
+        "@dn worlds",
+    ] {
+        let ma = net.mark("aa", "Ann");
+        net.say("aa", "Ann", gone);
+        let lines = Net::lines(&net.since("aa", "Ann", ma));
+        assert!(
+            lines.len() == 1 && lines[0].starts_with("@dn - show your Dereth Network status\n"),
+            "{gone}: {lines:?}"
+        );
+    }
 }
 
 /// Divergence: V451
@@ -93,7 +137,7 @@ fn derethnetwork_is_dn_spelled_out_and_dn_admin_is_the_operators_alone() {
         "a player blocks nothing"
     );
     assert!(
-        Net::lines(&net.since("aa", "Ann", ma))[0].starts_with("/dn "),
+        Net::lines(&net.since("aa", "Ann", ma))[0].starts_with("@dn - "),
         "and is shown the player's help"
     );
     let mb = net.mark("aa", "Boss");
@@ -109,6 +153,26 @@ fn derethnetwork_is_dn_spelled_out_and_dn_admin_is_the_operators_alone() {
     assert_eq!(
         Net::lines(&net.since("aa", "Boss", mb)),
         ["bb is blocked for everyone on this world."]
+    );
+    // Without a target, block and unblock show the network's state and the blocks.
+    for bare in ["@dn admin block", "@dn admin unblock"] {
+        let mb = net.mark("aa", "Boss");
+        net.say("aa", "Boss", bare);
+        let lines = Net::lines(&net.since("aa", "Boss", mb));
+        let lines: Vec<&str> = lines[0].lines().collect();
+        assert!(
+            lines[0]
+                .starts_with("This world is on the Dereth Network as aa. The hub is connected."),
+            "{bare}: {lines:?}"
+        );
+        assert_eq!(lines[1], "Blocked: bb.", "{bare}");
+    }
+    let mb = net.mark("aa", "Boss");
+    net.say("aa", "Boss", "@dn admin status");
+    assert!(
+        Net::lines(&net.since("aa", "Boss", mb))[0]
+            .starts_with("@dn admin block <world or Name@world> - "),
+        "the words it no longer has show the operator's help"
     );
 }
 
@@ -129,13 +193,13 @@ fn dn_verify_is_an_admins_and_hands_the_token_to_the_host_never_waiting_on_the_h
     let ma = net.mark("aa", "Ann");
     net.say("aa", "Ann", &format!("@dn verify {token}"));
     assert!(take(&mut net).is_empty(), "a player verifies nothing");
-    assert!(Net::lines(&net.since("aa", "Ann", ma))[0].starts_with("/dn "));
+    assert!(Net::lines(&net.since("aa", "Ann", ma))[0].starts_with("@dn - "));
 
     let mb = net.mark("aa", "Boss");
     net.say("aa", "Boss", "@dn verify not-a-token");
     assert_eq!(
         Net::lines(&net.since("aa", "Boss", mb)),
-        ["/dn verify <token>: the token the site gave you (dnv_...)."]
+        ["@dn verify <token> - verify this world with the token the site gave you"]
     );
     assert!(take(&mut net).is_empty());
 
@@ -184,7 +248,6 @@ fn dn_verify_is_an_admins_and_hands_the_token_to_the_host_never_waiting_on_the_h
 #[test]
 fn a_tell_sent_while_the_hub_is_away_goes_when_it_returns_within_the_minute() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     net.unlink("aa");
     let mb = net.mark("bb", "Bob");
     net.tell("aa", "Ann", "Bob@bb", "are you there?");
@@ -265,7 +328,6 @@ fn a_world_that_goes_away_shows_its_characters_offline_without_a_line() {
 #[test]
 fn a_hub_lost_for_good_answers_a_waiting_tell_that_the_world_is_unreachable() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     // bb's link is down at the hub but bb itself does not know yet; the hub holds the tell a
     // minute for bb, then answers.
     let outs = net.hub.disconnect("bb");
@@ -344,7 +406,6 @@ fn an_operator_cannot_rename_a_character_to_an_address_while_the_network_is_on()
 #[test]
 fn a_tell_the_link_lost_on_its_way_goes_again_when_the_link_is_back() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     let mb = net.mark("bb", "Bob");
     // Ann's tell is handed to the link, which drops before the hub reads it.
     let w = net.world("aa");
@@ -375,7 +436,6 @@ fn a_tell_the_link_lost_on_its_way_goes_again_when_the_link_is_back() {
 #[test]
 fn a_tell_the_hub_holds_for_a_returning_world_is_not_given_up_on_first() {
     let mut net = two_worlds(false);
-    net.say("bb", "Bob", "@dn reachable anyone");
     net.unlink("bb");
     net.unlink("aa");
     let ma = net.mark("aa", "Ann");
@@ -394,35 +454,6 @@ fn a_tell_the_hub_holds_for_a_returning_world_is_not_given_up_on_first() {
         "Bob was shown it, so Ann sees the echo and nothing else"
     );
     assert!(ann.iter().all(|g| g.kind != WEENIE_ERROR));
-}
-
-/// Divergence: V451
-#[test]
-fn a_world_name_from_the_hub_is_shown_only_after_the_text_rules() {
-    let mut net = two_worlds(false);
-    net.hub_hands(
-        "aa",
-        &dereth_network_protocol::Message::World(dereth_network_protocol::WorldInfo {
-            slug: "cc".into(),
-            name: "<Tell:IIDString:1342177281:+Admin>Admin<\\Tell>\nYou have been banned".into(),
-            online: true,
-        }),
-    );
-    net.hub_hands(
-        "aa",
-        &dereth_network_protocol::Message::World(dereth_network_protocol::WorldInfo {
-            slug: "Not A Slug".into(),
-            name: "Anything".into(),
-            online: true,
-        }),
-    );
-    let ma = net.mark("aa", "Ann");
-    net.say("aa", "Ann", "@dn worlds");
-    let lines = Net::lines(&net.since("aa", "Ann", ma));
-    assert_eq!(
-        lines,
-        ["On the network now:\n  bb (BB)\n  cc (Admin You have been banned)"]
-    );
 }
 
 /// Divergence: V451

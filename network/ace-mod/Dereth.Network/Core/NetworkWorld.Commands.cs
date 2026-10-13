@@ -1,10 +1,16 @@
 // What `/dn` (and `/derethnetwork`, the same command spelled out) does, and the channel requests
 // it makes.
 //
-// `/dn` is every player's: opting a character in and out, its three settings, its remote friends,
-// linking it to its player's Discord account and listing persons as friends, squelching a whole
-// world, and channels. `/dn admin` is the operator's: blocking a world or one
-// remote character for everyone on this world.
+// `/dn` is every player's: putting a character on the network and taking it off, its remote
+// friends, linking it to its player's Discord account, squelching a whole world, and channels.
+// `/dn admin` is the operator's: blocking a world or one remote character for everyone on this
+// world, and where the world carries the Global room.
+//
+// Help is one line per command, `@dn on - put this character on the Dereth Network`; a command
+// given wrongly is answered with its own line.
+//
+// A name or address a command takes may be given with the mark a line said from Discord shows beside
+// its speaker (`Ann@coldeve (Discord)`), as a player copies it: the mark is taken off.
 
 namespace Dereth.Network;
 
@@ -13,27 +19,68 @@ public sealed partial class NetworkWorld
     /// <summary>What `/dn` says when the world is not on the network.</summary>
     public const string NotOnNetworkLine = "This world is not on the Dereth Network.";
 
-    private const string Help = """
-        /dn                         your network status
-        /dn on | off                put this character on the Dereth Network, or take it off
-        /dn visible nobody|friends|channels|anyone   who sees you online
-        /dn reachable nobody|friends|anyone          who may send you a first tell
-        /dn listed on|off           kept for a later version: nothing is published yet
-        /dn friends                 your friends on other worlds
-        /dn friends add | remove <Name@world>        a friend on another world; while this character
-                                    is linked, the friend's person, on whichever character it plays if it
-                                    shows its alts
-        /dn link | unlink           link this character to your Discord account on the site, or unlink it
-        /dn alts shown|hidden       whether others may learn that your linked characters are one person
-        /dn alts [Name@world]       the setting, or the characters of that character's person
-        /dn worlds                  the worlds on the network now
-        /dn global <text>           say a line in the Global room (also /dng <text>)
-        /dn squelch | unsquelch <world>              every character of a world
-        /dn channel create | join | leave | members <channel>
-        /dn channel invite <channel> <Name@world>
-        /dn channel list            your channels
-        Tell someone on another world with @tell Name@world, text. A channel is name@channel.
-        """;
+    /// <summary>What a character off the network is told when it asks the network for something.</summary>
+    public const string NotOnLine = "You are not on the Dereth Network. Type @dn on to join it.";
+
+    /// <summary>
+    /// The player's commands, each with what it does: `/dn help` shows one line for each,
+    /// `@dn on - put this character on the Dereth Network`.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Command, string Does)> Commands =
+    [
+        ("@dn", "show your Dereth Network status"),
+        ("@dn on", "put this character on the Dereth Network"),
+        ("@dn off", "take this character off the Dereth Network"),
+        ("@dn friends", "list your friends on other worlds"),
+        ("@dn friends add <Name@world>", "add a friend on another world"),
+        ("@dn friends remove <Name@world>", "remove a friend on another world"),
+        ("@dng <text>", "say a line in the Global room"),
+        ("@dn global <text>", "say a line in the Global room"),
+        ("@dn squelch <world>", "squelch every character of a world"),
+        ("@dn unsquelch <world>", "unsquelch a world"),
+        ("@dn channel create <channel>", "make a channel"),
+        ("@dn channel invite <channel> <Name@world>", "invite a character to a channel"),
+        ("@dn channel join <channel>", "join a channel you were invited to"),
+        ("@dn channel leave <channel>", "leave a channel"),
+        ("@dn channel members <channel>", "list a channel's members"),
+        ("@dn channel list", "list your channels"),
+        ("@dn link", "get a link that links this character to your Discord account"),
+        ("@dn unlink", "unlink this character from your Discord account"),
+        ("@dn help", "show these commands"),
+        ("@tell <Name@world>, <text>", "tell a character on another world"),
+        ("@tell <channel>@channel, <text>", "say a line in a channel"),
+    ];
+
+    /// <summary>The operator's commands, as <see cref="Commands"/> (`@dn` replaced by `dn` at the console).</summary>
+    public static readonly IReadOnlyList<(string Command, string Does)> AdminCommands =
+    [
+        ("@dn admin block <world or Name@world>", "block a world or a character for everyone on this world"),
+        ("@dn admin unblock <world or Name@world>", "lift a block"),
+        ("@dn admin block", "show the blocks and the network's state"),
+        ("@dn admin global <general|trade|lfg|roleplay|off>", "carry the Global room in another of this world's rooms"),
+        ("@dn admin global", "show where this world carries the Global room"),
+        ("@dn verify <token>", "verify this world with the token the site gave you"),
+    ];
+
+    /// <summary>One command's help line: `@dn on - put this character on the Dereth Network`.</summary>
+    private static string HelpLine(string command, string does) => $"{command} - {does}";
+
+    /// <summary>`/dn help`: one line for each of the player's commands.</summary>
+    public static string Help() => string.Join("\n", Commands.Select(c => HelpLine(c.Command, c.Does)));
+
+    /// <summary>The operator's help, one line for each of its commands, as typed in game (`@dn`) or at the console (`dn`).</summary>
+    public static string AdminHelp(string prefix) =>
+        string.Join("\n", AdminCommands.Select(c => HelpLine(prefix + c.Command[3..], c.Does)));
+
+    /// <summary>The help line of the command that starts `command`, for a command given wrongly.</summary>
+    public static string Usage(string command) =>
+        Commands.Concat(AdminCommands).FirstOrDefault(c => c.Command.StartsWith(command, StringComparison.Ordinal)) is
+        { Command: not null } found
+            ? HelpLine(found.Command, found.Does)
+            : Help();
+
+    /// <summary>`n` of `thing`, in words: "1 friend", "3 friends".</summary>
+    private static string Count(int n, string thing) => n == 1 ? $"1 {thing}" : $"{n} {thing}s";
 
     /// <summary>`/dn &lt;args&gt;` for `player`.</summary>
     public void Dn(uint player, IReadOnlyList<string> args)
@@ -45,13 +92,11 @@ public sealed partial class NetworkWorld
             switch (w.Count)
             {
                 case 0:
-                    Status(player);
-                    return;
                 case 1 when first == "status":
                     Status(player);
                     return;
                 case 1 when first == "help":
-                    host.ShowSystem(player, Help);
+                    host.ShowSystem(player, Help());
                     return;
                 case 1 when first == "on":
                     NetOn(player);
@@ -59,70 +104,34 @@ public sealed partial class NetworkWorld
                 case 1 when first == "off":
                     NetOff(player);
                     return;
-                case 2 when first == "visible":
-                    if (Words.TryVisible(w[1], out var v))
-                    {
-                        RecordMut(player).Settings = RecordMut(player).Settings with { Visible = v };
-                        dirty = true;
-                        host.ShowSystem(player, $"Visible: {Words.Of(v)}.");
-                        TellWatchers(player, null);
-                    }
-                    else
-                    {
-                        host.ShowSystem(player, "/dn visible nobody|friends|channels|anyone");
-                    }
-                    return;
-                case 2 when first == "reachable":
-                    if (Words.TryReachable(w[1], out var r))
-                    {
-                        RecordMut(player).Settings = RecordMut(player).Settings with { Reachable = r };
-                        dirty = true;
-                        host.ShowSystem(player, $"Reachable: {Words.Of(r)}.");
-                    }
-                    else
-                    {
-                        host.ShowSystem(player, "/dn reachable nobody|friends|anyone");
-                    }
-                    return;
-                case 2 when first == "listed":
-                    if (Words.TryListed(w[1], out var l))
-                    {
-                        RecordMut(player).Settings = RecordMut(player).Settings with { Listed = l };
-                        dirty = true;
-                        host.ShowSystem(player, $"Listed: {Words.Of(l)}. Nothing is published yet: listing is kept for a later version.");
-                    }
-                    else
-                    {
-                        host.ShowSystem(player, "/dn listed on|off");
-                    }
-                    return;
                 case 1 when first == "friends":
                     Friends(player);
                     return;
-                case 1 when first == "worlds":
-                    Worlds(player);
+                case 1 when first == "link":
+                    LinkCharacter(player);
+                    return;
+                case 1 when first == "unlink":
+                    UnlinkCharacter(player);
+                    return;
+                case 2 when first == "friends" && w[1] is "add" or "remove":
+                    host.ShowSystem(player, Usage($"@dn friends {w[1]}"));
                     return;
                 case 2 when first is "squelch" or "unsquelch":
-                    SquelchWorld(player, first == "squelch", w[1]);
+                    SquelchWorld(player, first, w[1]);
                     return;
-            }
-            if (first is "link" or "unlink" && w.Count == 1 || first == "alts")
-            {
-                PersonCommand(player, w);
-                return;
             }
             if (w.Count >= 3 && first == "friends" && w[1] == "add")
             {
                 // What `@friends add Name@world` does.
                 if (!AddFriend(player, string.Join(" ", w.Skip(2))))
-                    host.ShowSystem(player, "/dn friends add Name@world: a character on another world.");
+                    host.ShowSystem(player, Usage("@dn friends add"));
                 return;
             }
             if (w.Count >= 3 && first == "friends" && w[1] == "remove")
             {
                 // What removing the friend's row in the friends panel does.
                 Address? listed = null;
-                if (Address.TryParse(string.Join(" ", w.Skip(2)), out var a, out _)
+                if (Address.TryParse(GivenName(string.Join(" ", w.Skip(2))), out var a, out _)
                     && Record(player)?.Friends.TryGetValue(a.Key, out var f) == true)
                     listed = f;
                 if (listed is not null && StandIn(listed) is uint id)
@@ -141,27 +150,44 @@ public sealed partial class NetworkWorld
                 Global(player, string.Join(" ", w.Skip(1)));
                 return;
             }
-            host.ShowSystem(player, Help);
+            host.ShowSystem(player, Help());
         }
     }
 
+    /// <summary>
+    /// `/dn on`: the character goes on the network as `Name@thisworld`, seen online by anyone, told by
+    /// anyone and listed in the directory.
+    /// </summary>
     private void NetOn(uint player)
     {
         var name = host.OnlineName(player) ?? "";
-        if (name.Contains(Address.Separator) || OwnAddress(player) is null)
+        if (name.Contains(Address.Separator) || OwnAddress(player) is not { } address)
         {
-            host.ShowSystem(player, "This character's name cannot be a network address, so it cannot join the network.");
+            host.ShowSystem(player, "This character's name cannot be a network address, so it cannot join the Dereth Network.");
             return;
         }
-        var rec = RecordMut(player);
-        var firstTime = !rec.Settings.On && rec.Settings == CharacterSettings.Off;
-        rec.Settings = firstTime ? CharacterSettings.OptedIn : rec.Settings with { On = true };
+        if (IsOn(player))
+        {
+            host.ShowSystem(player, $"You are on the Dereth Network already, as {address}.");
+            return;
+        }
+        RecordMut(player).Settings = CharacterSettings.OnNetwork;
         dirty = true;
         host.ShowSystem(player,
-            $"You are on the Dereth Network as {OwnAddress(player)}. Mutual friends see you online, and anyone on the network may tell you; /dn help for more.");
+            $"You are on the Dereth Network as {address}. Anyone on the network can see when you are online, send you tells and find your profile in its directory. Type @dn help for the commands.");
+        host.ShowSystem(player,
+            "Your profile shows your level, skills, allegiance and more, and changes as you play. Type @dn off to leave the network.");
+        DirectoryAnnounce(player);
         OnLoginLocked(player);
+        // Back on the network: its followers' links to it appear.
+        if (IsListed(player))
+            LinksChanged(player);
     }
 
+    /// <summary>What a linked character going off the network is told: its link pauses, and `/dn on` resumes it with nothing to redo.</summary>
+    public const string PausedLine = "This character's link to your Discord account is paused until you type @dn on.";
+
+    /// <summary>`/dn off`: the character leaves the network, and its profile the directory, at once. A linked one's link pauses.</summary>
     private void NetOff(uint player)
     {
         if (!IsOn(player))
@@ -169,16 +195,33 @@ public sealed partial class NetworkWorld
             host.ShowSystem(player, "You are not on the Dereth Network.");
             return;
         }
+        var linked = persons.TryGetValue(player, out var state) && state.Linked;
+        GoOff(player);
+        host.ShowSystem(player,
+            "You are off the Dereth Network. Nobody on another world can see you or tell you, and your profile is out of its directory.");
+        if (linked)
+            host.ShowSystem(player, PausedLine);
+    }
+
+    /// <summary>
+    /// `player`'s character goes off the network, as `/dn off` takes it: its watchers see it offline,
+    /// the rows its person friends listed leave its friends panel, and it is out of the directory at
+    /// once.
+    /// </summary>
+    private void GoOff(uint player)
+    {
         OnLogoutLocked(player, host.OnlineName(player), clientStays: true);
-        RecordMut(player).Settings = RecordMut(player).Settings with { On = false };
+        RecordMut(player).Settings = CharacterSettings.Off;
         dirty = true;
-        host.ShowSystem(player, "You are off the Dereth Network. Nobody on another world sees or reaches you.");
+        DirectoryWentOff(player);
     }
 
     private void OnLoginLocked(uint player)
     {
+        ToldAtLogin(player);
         if (!IsOn(player))
             return;
+        DirectoryArrived(player);
         TellWatchers(player, null);
         if (OwnAddress(player) is not { } owner)
             return;
@@ -201,6 +244,7 @@ public sealed partial class NetworkWorld
         PersonLeft(player, name, clientStays);
     }
 
+    /// <summary>The hub's state, as the status lines say it.</summary>
     private string LinkWord => link switch
     {
         LinkState.Up => "connected",
@@ -208,14 +252,25 @@ public sealed partial class NetworkWorld
         _ => "not connected",
     };
 
+    /// <summary>
+    /// `/dn`: whether the character is on the network, as what, the hub, its friends on other worlds,
+    /// whether it is linked, and its page in the directory once the hub has named one.
+    /// </summary>
     private void Status(uint player)
     {
         var rec = Record(player);
-        var s = rec?.Settings ?? CharacterSettings.Off;
         var who = OwnAddress(player)?.ToString() ?? "";
-        host.ShowSystem(player, s.On
-            ? $"You are on the Dereth Network as {who}. Visible: {Words.Of(s.Visible)}. Reachable: {Words.Of(s.Reachable)}. Listed: {Words.Of(s.Listed)}. {rec!.Friends.Count} friend(s) on other worlds. The hub is {LinkWord}.{LinkedNote(player)}"
-            : $"You are not on the Dereth Network. Type /dn on to join it as {who}. The hub is {LinkWord}.");
+        if (rec is not { Settings.On: true })
+        {
+            host.ShowSystem(player, $"You are not on the Dereth Network. Type @dn on to join it as {who}.");
+            return;
+        }
+        var friends = rec.Friends.Count == 0
+            ? "You have no friends on other worlds."
+            : $"You have {Count(rec.Friends.Count, "friend")} on other worlds.";
+        host.ShowSystem(player, $"You are on the Dereth Network as {who}. The hub is {LinkWord}. {friends}{LinkedNote(player)}");
+        if (rec.Listing?.Page is { } page)
+            host.ShowSystem(player, $"Your directory page: {page}");
     }
 
     private void Friends(uint player)
@@ -223,41 +278,28 @@ public sealed partial class NetworkWorld
         var rows = FriendRows(player);
         if (rows.Count == 0)
         {
-            host.ShowSystem(player, "You have no friends on other worlds. Add one with /dn friends add Name@world.");
+            host.ShowSystem(player, "You have no friends on other worlds. Add one with @dn friends add Name@world.");
             return;
         }
-        host.ShowSystem(player, "Friends on other worlds:\n" +
-            string.Join("\n", rows.Select(x => $"  {x.Name}: {(x.Online ? "online" : "offline")}")));
+        host.ShowSystem(player, "Your friends on other worlds:\n" +
+            string.Join("\n", rows.Select(x => $"{x.Name}: {(x.Online ? "online" : "offline")}")));
     }
 
-    private void Worlds(uint player)
+    /// <summary>`/dn squelch &lt;world&gt;` and `/dn unsquelch &lt;world&gt;`.</summary>
+    private void SquelchWorld(uint player, string word, string world)
     {
-        // The hub names the worlds: each name passes the text rules, and a slug that is not a
-        // network slug is not shown at all.
-        var up = worlds.Values
-            .Where(i => i.Online && i.Slug != Config.Slug && Address.IsNetworkSlug(i.Slug))
-            .Select(i =>
-            {
-                var name = TextRules.SanitizeLine(i.Name);
-                return $"  {i.Slug} ({(name.Length > 80 ? name[..80] : name)})";
-            })
-            .ToList();
-        host.ShowSystem(player, up.Count == 0 ? "No other world is on the network now." : "On the network now:\n" + string.Join("\n", up));
-    }
-
-    private void SquelchWorld(uint player, bool add, string world)
-    {
+        var add = word == "squelch";
         world = Text.AsciiLower(world);
         if (!Address.IsSlug(world) || world == Config.Slug)
         {
-            host.ShowSystem(player, "/dn squelch <world>: a world on the network, by its short name.");
+            host.ShowSystem(player, Usage($"@dn {word}"));
             return;
         }
         var held = Record(player);
         var already = held?.SquelchedWorlds.Contains(world) == true;
         if (add && !already && held?.SquelchedWorlds.Count >= MaxSquelchedWorlds)
         {
-            host.ShowSystem(player, $"You squelch {MaxSquelchedWorlds} worlds already; unsquelch one first.");
+            host.ShowSystem(player, $"You squelch {MaxSquelchedWorlds} worlds already. Unsquelch one first.");
             return;
         }
         var changed = add != already && (add ? RecordMut(player).SquelchedWorlds.Add(world) : RecordMut(player).SquelchedWorlds.Remove(world));
@@ -275,7 +317,7 @@ public sealed partial class NetworkWorld
     {
         if (!IsOn(player))
         {
-            host.ShowSystem(player, "You are not on the Dereth Network. Type /dn on to join it.");
+            host.ShowSystem(player, NotOnLine);
             return;
         }
         ChannelOp op;
@@ -299,20 +341,23 @@ public sealed partial class NetworkWorld
                 (op, name) = (ChannelOp.List, "list");
                 break;
             case >= 3 when words[0] == "invite":
-                if (!Address.TryParse(string.Join(" ", words.Skip(2)), out var a, out _) || a.IsChannel)
+                if (!Address.TryParse(GivenName(string.Join(" ", words.Skip(2))), out var a, out _) || a.IsChannel)
                 {
-                    host.ShowSystem(player, "/dn channel invite <channel> <Name@world>");
+                    host.ShowSystem(player, Usage("@dn channel invite"));
                     return;
                 }
                 (op, name, who) = (ChannelOp.Invite, words[1], a);
                 break;
+            case >= 1 when words[0] is "create" or "join" or "leave" or "members" or "invite":
+                host.ShowSystem(player, Usage($"@dn channel {words[0]}"));
+                return;
             default:
-                host.ShowSystem(player, Help);
+                host.ShowSystem(player, Help());
                 return;
         }
         var n = name;
         while (n.EndsWith("@channel", StringComparison.Ordinal))
-            n = n[..^5];
+            n = n[..^"@channel".Length];
         n = Text.AsciiLower(n);
         if (!Address.IsChannelName(n))
         {
@@ -344,12 +389,36 @@ public sealed partial class NetworkWorld
         if (OwnAddress(player) is not { } by)
             return;
         var id = FreshId('c');
-        pendingChannels[id] = new PendingChannel(player, null);
+        pendingChannels[id] = new PendingChannel(player, op, who, null);
         Send(new ChannelRequest(id, op, name, by, who));
     }
 
     /// <summary>Leaves a channel (a squelch of the channel's address).</summary>
     private void LeaveChannel(uint player, string name) => Request(player, ChannelOp.Leave, name, null);
+
+    /// <summary>The line a channel request's answer shows.</summary>
+    public static string ChannelLine(ChannelOp op, ChannelOutcome outcome, string channel, Address? who,
+        IReadOnlyList<Address> members, IReadOnlyList<string> channels)
+    {
+        var address = channel + "@channel";
+        return (outcome, op) switch
+        {
+            (ChannelOutcome.Ok, ChannelOp.List) when channels.Count == 0 => "You are in no channel.",
+            (ChannelOutcome.Ok, ChannelOp.List) => $"Your channels: {string.Join(", ", channels.Select(c => c + "@channel"))}.",
+            (ChannelOutcome.Ok, ChannelOp.Members) => $"Members of {address}: {string.Join(", ", members)}.",
+            (ChannelOutcome.Ok, ChannelOp.Create) =>
+                $"You have made the channel {address}. Invite someone with @dn channel invite {channel} Name@world.",
+            (ChannelOutcome.Ok, ChannelOp.Invite) => $"{who?.ToString() ?? "That character"} is invited to {address}.",
+            (ChannelOutcome.Ok, ChannelOp.Join) => $"You have joined {address}. Talk in it with @tell {address}, text.",
+            (ChannelOutcome.Ok, _) => $"You have left {address}.",
+            (ChannelOutcome.Exists, _) => $"{address} already exists.",
+            (ChannelOutcome.NoChannel, _) => $"There is no channel {address}.",
+            (ChannelOutcome.NotMember, _) => $"You are not a member of {address}.",
+            (ChannelOutcome.NotInvited, _) => $"You have not been invited to {address}.",
+            (ChannelOutcome.AlreadyMember, _) => $"That character is already a member of {address}.",
+            _ => $"The Dereth Network refused that for {address}.",
+        };
+    }
 
     /// <summary>The answer to a channel request.</summary>
     private void OnChannelResult(string id, ChannelOutcome outcome, string channel, IReadOnlyList<Address> members,
@@ -359,21 +428,7 @@ public sealed partial class NetworkWorld
             return;
         if (!Online(p.Player))
             return;
-        var address = channel + "@channel";
-        var line = outcome switch
-        {
-            ChannelOutcome.Ok when channels.Count > 0 => $"Your channels: {string.Join(", ", channels.Select(c => c + "@channel"))}.",
-            ChannelOutcome.Ok when members.Count > 0 => $"{address}: {string.Join(", ", members)}.",
-            ChannelOutcome.Ok when channel == "list" => "You belong to no channel.",
-            ChannelOutcome.Ok => $"Done. Tell the channel with @tell {address}, text.",
-            ChannelOutcome.Exists => $"{address} already exists.",
-            ChannelOutcome.NoChannel => $"There is no channel {address}.",
-            ChannelOutcome.NotMember => $"You are not a member of {address}.",
-            ChannelOutcome.NotInvited => $"You have not been invited to {address}.",
-            ChannelOutcome.AlreadyMember => $"That character is already a member of {address}.",
-            _ => $"The network refused that for {address}.",
-        };
-        host.ShowSystem(p.Player, line);
+        host.ShowSystem(p.Player, ChannelLine(p.Op, outcome, channel, p.Who, members, channels));
     }
 
     /// <summary>A channel request that will not be answered.</summary>
@@ -384,10 +439,9 @@ public sealed partial class NetworkWorld
     }
 
     /// <summary>
-    /// An invitation for one of this world's characters. It is shown as a first tell from the
-    /// inviter would be: only to a character that inviter may reach, never past a squelch of the
-    /// inviter, of its world or of the channel, or the operator's blocks, and held to the pace a tell
-    /// from the inviter's world to that character is.
+    /// An invitation for one of this world's characters. It is shown as a tell from the inviter would
+    /// be: never past a squelch of the inviter, of its world or of the channel, or the operator's
+    /// blocks, and held to the pace a tell from the inviter's world to that character is.
     /// </summary>
     private void OnChannelInvite(string channel, Address by, Address to)
     {
@@ -396,7 +450,7 @@ public sealed partial class NetworkWorld
         if (host.OnlineByName(to.Name) is not uint target)
             return;
         var channelAddress = Address.Create(channel, Address.ChannelWorld);
-        if (!IsOn(target) || Blocked(by) || !ReachableBy(target, by, true) || Squelches(target, by)
+        if (!IsOn(target) || Blocked(by) || Squelches(target, by)
             || channelAddress is null || Squelches(target, channelAddress))
             return;
         var byName = TextRules.SanitizeName(by.ToString());
@@ -404,7 +458,7 @@ public sealed partial class NetworkWorld
             return;
         if (!MayReceive(by.World, to.Key, limits.TellsPerRecipient))
             return;
-        host.ShowSystem(target, $"{byName} invites you to the channel {channel}@channel. Type /dn channel join {channel} to join it.");
+        host.ShowSystem(target, $"{byName} invites you to the channel {channel}@channel. Type @dn channel join {channel} to join it.");
     }
 
     /// <summary>
@@ -447,7 +501,10 @@ public sealed partial class NetworkWorld
     public string Verify(uint? player, string by, IReadOnlyList<string> args)
     {
         if (args.Count != 1 || !HubVerify.IsToken(args[0].Trim()))
-            return "/dn verify <token>: the token the site gave you (dnv_...).";
+        {
+            var line = Usage("@dn verify");
+            return player is null ? "dn" + line[3..] : line;
+        }
         var verifier = Verifier;
         if (verifier is null)
             return "This world cannot reach the hub to verify.";
@@ -537,55 +594,72 @@ public sealed partial class NetworkWorld
         }
     }
 
-    /// <summary>`/dn admin &lt;args&gt;`: the operator's blocks, and the network's state.</summary>
-    public string Admin(IReadOnlyList<string> args)
+    /// <summary>
+    /// What the operator's bare `/dn admin block` and `/dn admin unblock` show: the network's state on
+    /// this world, then what is blocked.
+    /// </summary>
+    private string AdminStatus()
+    {
+        var mirrored = MirroredSlots;
+        var online = worlds.Values.Count(i => i.Online);
+        var queued = outbox.Count + answers.Values.Sum(q => q.Count) + chatter.Count;
+        var blocked = store.Blocked.Count == 0 ? "Nothing is blocked." : $"Blocked: {string.Join(", ", store.Blocked)}.";
+        return $"This world is on the Dereth Network as {Config.Slug}. The hub is {LinkWord}. " +
+            $"{(online == 1 ? "1 world is" : $"{online} worlds are")} online. " +
+            $"{(queued == 1 ? "1 message is" : $"{queued} messages are")} waiting for the hub. " +
+            $"The Global room is carried in {Shown(GlobalSlot)}. " +
+            $"Rooms mirrored into Discord: {(mirrored.Count == 0 ? "none" : string.Join(", ", mirrored.Select(RoomSlots.Name)))}.\n{blocked}";
+    }
+
+    /// <summary>
+    /// `/dn admin &lt;args&gt;`, typed by `player` (the console when null): the operator's blocks, and
+    /// where the world carries the Global room, whose answer from the hub goes to `player`. The line
+    /// returned is the immediate one. `/dn admin block` or `/dn admin unblock` without a target shows
+    /// the network's state and the blocks; any other word shows the operator's help.
+    /// </summary>
+    public string Admin(IReadOnlyList<string> args, uint? player = null)
     {
         lock (gate)
         {
+            var prefix = player is null ? "dn" : "@dn";
             var first = args.Count > 0 ? args[0] : "";
-            if (args.Count >= 2 && first is "block" or "unblock")
+            if (first == "global")
+                return AdminGlobal(player, args.Skip(1).ToList());
+            if (first is not ("block" or "unblock"))
+                return AdminHelp(prefix);
+            if (args.Count == 1)
+                return AdminStatus();
+            var who = GivenName(string.Join(" ", args.Skip(1)));
+            string key;
+            if (Address.TryParse(who, out var a, out _))
+                key = a.Key;
+            else if (Address.IsSlug(Text.AsciiLower(who)))
+                key = Text.AsciiLower(who);
+            else
+                return prefix + Usage($"@dn admin {first} <")[3..];
+            var add = first == "block";
+            bool changed;
+            if (add)
             {
-                var who = string.Join(" ", args.Skip(1));
-                string key;
-                if (Address.TryParse(who, out var a, out _))
-                    key = a.Key;
-                else if (Address.IsSlug(Text.AsciiLower(who)))
-                    key = Text.AsciiLower(who);
-                else
-                    return "/dn admin block|unblock <world> or <Name@world>";
-                var add = first == "block";
-                bool changed;
-                if (add)
-                {
-                    // What the block covers is told this world's characters are offline first.
-                    if (!store.Blocked.Contains(key))
-                        BlockBeginning(key);
-                    changed = store.Blocked.Add(key);
-                }
-                else
-                {
-                    changed = store.Blocked.Remove(key);
-                    if (changed)
-                        BlockEnded(key);
-                }
-                dirty |= changed;
-                return (add, changed) switch
-                {
-                    (true, true) => $"{key} is blocked for everyone on this world.",
-                    (true, false) => $"{key} was already blocked.",
-                    (false, true) => $"{key} is no longer blocked.",
-                    _ => $"{key} was not blocked.",
-                };
+                // What the block covers is told this world's characters are offline first.
+                if (!store.Blocked.Contains(key))
+                    BlockBeginning(key);
+                changed = store.Blocked.Add(key);
             }
-            if (args.Count == 1 && first == "blocks")
-                return store.Blocked.Count == 0 ? "Nothing is blocked." : $"Blocked: {string.Join(", ", store.Blocked)}.";
-            if (args.Count == 0 || (args.Count == 1 && first == "status"))
+            else
             {
-                var room = Config.GlobalRoom is RoomSlot s ? RoomSlots.Name(s) : "none";
-                return $"Dereth Network: on as {Config.Slug}; the hub is {LinkWord}; " +
-                    $"{worlds.Values.Count(i => i.Online)} world(s) online; {outbox.Count + answers.Values.Sum(q => q.Count) + chatter.Count} queued; global room: {room}.";
+                changed = store.Blocked.Remove(key);
+                if (changed)
+                    BlockEnded(key);
             }
-            return "/dn admin status | blocks | block <world or Name@world> | unblock <...>";
+            dirty |= changed;
+            return (add, changed) switch
+            {
+                (true, true) => $"{key} is blocked for everyone on this world.",
+                (true, false) => $"{key} was already blocked.",
+                (false, true) => $"{key} is no longer blocked.",
+                _ => $"{key} was not blocked.",
+            };
         }
     }
 }

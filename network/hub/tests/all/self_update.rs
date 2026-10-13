@@ -654,3 +654,616 @@ fn the_built_hub_installs_from_a_release_served_over_http() {
     assert!(installed.previous.is_file());
     let _ = std::fs::remove_dir_all(&install.dir);
 }
+
+mod registries {
+    //! A registry an earlier hub kept, opened by this build: its schema moves forward to this
+    //! build's, as a new registry's is, and every row comes through, column for column, but what an
+    //! upgrade takes away on purpose. Two earlier hubs keep registries in use: release 0.1.x, at
+    //! schema 7, and the network's own hub, a build before 0.2, at schema 8.
+    //! Fixture: each earlier hub's schema frozen as its own code makes it (every statement its
+    //! `sqlite_master` holds, in order), filled through `ATTACH` with the rows this build writes
+    //! for worlds, persons, links, the directory, mirrors, operators, sessions and settings, and
+    //! with the rows only an earlier hub wrote; registry files in a temp folder.
+
+    use std::path::{Path, PathBuf};
+    use std::time::SystemTime;
+
+    use dereth_network_hub::bridge::Placement;
+    use dereth_network_hub::registry::{schema_of_file, Registration, Registry, SCHEMA_VERSION};
+    use dereth_network_hub::settings::Setting;
+    use dereth_network_protocol::directory::Allegiance;
+    use dereth_network_protocol::{Address, Federation, Profile};
+    use rusqlite::types::Value;
+    use rusqlite::Connection;
+    use serde_json::json;
+
+    /// The schema hub 0.1.x makes (the registry's version 7): each statement as its `sqlite_master`
+    /// holds it, in the order it was made.
+    const SCHEMA_7: &str = r#"
+CREATE TABLE servers (
+                   id TEXT PRIMARY KEY,
+                   slug TEXT NOT NULL UNIQUE,
+                   metadata TEXT NOT NULL,
+                   key_hash TEXT,
+                   created_at TEXT NOT NULL,
+                   last_seen_at TEXT,
+                   heartbeat TEXT,
+                   registry TEXT NOT NULL DEFAULT '{}',
+                   federation TEXT NOT NULL DEFAULT 'unset'
+                 , operator_id TEXT);
+CREATE UNIQUE INDEX community_identity
+                   ON servers(json_extract(registry, '$.provenance.externalId'));
+CREATE TABLE registry_events (
+                   id INTEGER PRIMARY KEY,
+                   server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                   kind TEXT NOT NULL, received_at TEXT NOT NULL, details TEXT NOT NULL, actor TEXT);
+CREATE INDEX server_events ON registry_events(server_id, id);
+CREATE TABLE hub_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE hub_channels (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE operators (
+                   id TEXT PRIMARY KEY,
+                   discord_id TEXT NOT NULL UNIQUE,
+                   name TEXT NOT NULL,
+                   created_at TEXT NOT NULL,
+                   signed_in_at TEXT,
+                   disabled_at TEXT, alts TEXT NOT NULL DEFAULT 'hidden');
+CREATE TABLE operator_sessions (
+                   id_hash TEXT PRIMARY KEY,
+                   operator_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+                   created_at TEXT NOT NULL,
+                   expires_at TEXT NOT NULL);
+CREATE TABLE operator_events (
+                   id INTEGER PRIMARY KEY,
+                   operator_id TEXT NOT NULL,
+                   kind TEXT NOT NULL, at TEXT NOT NULL, details TEXT NOT NULL);
+CREATE INDEX operator_event_kinds ON operator_events(kind, at);
+CREATE TABLE verifications (
+                   id TEXT PRIMARY KEY,
+                   server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                   operator_id TEXT NOT NULL REFERENCES operators(id),
+                   key_hash TEXT,
+                   token_hash TEXT NOT NULL,
+                   token_expires_at TEXT NOT NULL,
+                   created_at TEXT NOT NULL,
+                   state TEXT NOT NULL);
+CREATE INDEX server_verifications ON verifications(server_id, state);
+CREATE TABLE reports (
+                   id TEXT PRIMARY KEY,
+                   server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                   reporter_id TEXT NOT NULL REFERENCES operators(id),
+                   reason TEXT NOT NULL, details TEXT NOT NULL,
+                   created_at TEXT NOT NULL, state TEXT NOT NULL,
+                   resolved_at TEXT, resolution TEXT, note TEXT);
+CREATE TABLE person_characters (
+      address_key TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      world TEXT NOT NULL,
+      person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      linked_at TEXT NOT NULL);
+CREATE INDEX person_characters_by_person ON person_characters(person_id);
+CREATE TABLE person_codes (
+      address_key TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      world TEXT NOT NULL,
+      code_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL);
+CREATE INDEX person_codes_by_world ON person_codes(world, expires_at);
+CREATE TABLE person_code_log (address_key TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX person_code_log_by_key ON person_code_log(address_key, at);
+CREATE TABLE person_friends (
+      person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      handle_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      added_from TEXT NOT NULL,
+      added_from_address TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (person_id, handle_key, added_from));
+CREATE INDEX person_code_log_by_time ON person_code_log(at);
+CREATE TABLE person_returns (
+      address_key TEXT NOT NULL,
+      world TEXT NOT NULL,
+      handle_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      at TEXT NOT NULL,
+      PRIMARY KEY (address_key, handle_key));
+CREATE INDEX person_returns_by_world ON person_returns(world);
+CREATE INDEX person_returns_by_time ON person_returns(at);
+"#;
+
+    /// The schema the build before 0.2 makes (the registry's version 8), which the network's own
+    /// hub runs: each statement as its `sqlite_master` holds it, in the order it was made.
+    const SCHEMA_8: &str = r#"
+CREATE TABLE servers (
+                   id TEXT PRIMARY KEY,
+                   slug TEXT NOT NULL UNIQUE,
+                   metadata TEXT NOT NULL,
+                   key_hash TEXT,
+                   created_at TEXT NOT NULL,
+                   last_seen_at TEXT,
+                   heartbeat TEXT,
+                   registry TEXT NOT NULL DEFAULT '{}',
+                   federation TEXT NOT NULL DEFAULT 'unset'
+                 , operator_id TEXT);
+CREATE UNIQUE INDEX community_identity
+                   ON servers(json_extract(registry, '$.provenance.externalId'));
+CREATE TABLE registry_events (
+                   id INTEGER PRIMARY KEY,
+                   server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                   kind TEXT NOT NULL, received_at TEXT NOT NULL, details TEXT NOT NULL, actor TEXT);
+CREATE INDEX server_events ON registry_events(server_id, id);
+CREATE TABLE hub_state (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE hub_channels (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE operators (
+                   id TEXT PRIMARY KEY,
+                   discord_id TEXT NOT NULL UNIQUE,
+                   name TEXT NOT NULL,
+                   created_at TEXT NOT NULL,
+                   signed_in_at TEXT,
+                   disabled_at TEXT, alts TEXT NOT NULL DEFAULT 'hidden', discord_tells TEXT NOT NULL DEFAULT 'off');
+CREATE TABLE operator_sessions (
+                   id_hash TEXT PRIMARY KEY,
+                   operator_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+                   created_at TEXT NOT NULL,
+                   expires_at TEXT NOT NULL);
+CREATE TABLE operator_events (
+                   id INTEGER PRIMARY KEY,
+                   operator_id TEXT NOT NULL,
+                   kind TEXT NOT NULL, at TEXT NOT NULL, details TEXT NOT NULL);
+CREATE INDEX operator_event_kinds ON operator_events(kind, at);
+CREATE TABLE verifications (
+                   id TEXT PRIMARY KEY,
+                   server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                   operator_id TEXT NOT NULL REFERENCES operators(id),
+                   key_hash TEXT,
+                   token_hash TEXT NOT NULL,
+                   token_expires_at TEXT NOT NULL,
+                   created_at TEXT NOT NULL,
+                   state TEXT NOT NULL);
+CREATE INDEX server_verifications ON verifications(server_id, state);
+CREATE TABLE reports (
+                   id TEXT PRIMARY KEY,
+                   server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                   reporter_id TEXT NOT NULL REFERENCES operators(id),
+                   reason TEXT NOT NULL, details TEXT NOT NULL,
+                   created_at TEXT NOT NULL, state TEXT NOT NULL,
+                   resolved_at TEXT, resolution TEXT, note TEXT);
+CREATE TABLE person_characters (
+      address_key TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      world TEXT NOT NULL,
+      person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      linked_at TEXT NOT NULL);
+CREATE INDEX person_characters_by_person ON person_characters(person_id);
+CREATE TABLE person_codes (
+      address_key TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      world TEXT NOT NULL,
+      code_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL);
+CREATE INDEX person_codes_by_world ON person_codes(world, expires_at);
+CREATE TABLE person_code_log (address_key TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX person_code_log_by_key ON person_code_log(address_key, at);
+CREATE TABLE person_friends (
+      person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      handle_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      added_from TEXT NOT NULL,
+      added_from_address TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (person_id, handle_key, added_from));
+CREATE INDEX person_code_log_by_time ON person_code_log(at);
+CREATE TABLE person_returns (
+      address_key TEXT NOT NULL,
+      world TEXT NOT NULL,
+      handle_key TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      at TEXT NOT NULL,
+      PRIMARY KEY (address_key, handle_key));
+CREATE INDEX person_returns_by_world ON person_returns(world);
+CREATE INDEX person_returns_by_time ON person_returns(at);
+CREATE TABLE directory_listings (
+      address_key TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      name_key TEXT NOT NULL,
+      world TEXT NOT NULL,
+      level INTEGER NOT NULL,
+      heritage INTEGER NOT NULL,
+      allegiance_key TEXT,
+      allegiance_name_key TEXT,
+      allegiance_rank INTEGER,
+      patron_key TEXT,
+      monarch_key TEXT,
+      profile TEXT NOT NULL,
+      updated TEXT NOT NULL,
+      sent_day TEXT NOT NULL);
+CREATE INDEX directory_by_world ON directory_listings(world);
+CREATE INDEX directory_by_updated ON directory_listings(updated DESC, name_key, address_key);
+CREATE INDEX directory_by_level ON directory_listings(level DESC, name_key, address_key);
+CREATE INDEX directory_by_allegiance
+      ON directory_listings(world, allegiance_key, allegiance_rank DESC, name_key);
+CREATE INDEX directory_by_patron ON directory_listings(patron_key);
+CREATE INDEX directory_by_monarch ON directory_listings(monarch_key);
+CREATE INDEX directory_by_sent ON directory_listings(sent_day);
+CREATE TABLE directory_holds (
+      address_key TEXT PRIMARY KEY,
+      address TEXT NOT NULL,
+      world TEXT NOT NULL,
+      by TEXT NOT NULL,
+      owed INTEGER NOT NULL,
+      until TEXT NOT NULL);
+CREATE INDEX directory_holds_by_world ON directory_holds(world, owed);
+CREATE TABLE discord_mirrors (
+      server_id TEXT REFERENCES servers(id) ON DELETE CASCADE,
+      room TEXT NOT NULL,
+      channel_id TEXT NOT NULL UNIQUE,
+      guild_id TEXT NOT NULL,
+      webhook_id TEXT,
+      webhook_token TEXT,
+      set_at TEXT NOT NULL);
+CREATE UNIQUE INDEX discord_mirrors_of_worlds ON discord_mirrors(server_id, room)
+      WHERE server_id IS NOT NULL;
+CREATE UNIQUE INDEX discord_mirrors_of_the_hub ON discord_mirrors(room)
+      WHERE server_id IS NULL;
+CREATE TABLE discord_events (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL, at TEXT NOT NULL, actor TEXT, details TEXT NOT NULL);
+CREATE TABLE person_identities (
+      person_id TEXT NOT NULL REFERENCES operators(id) ON DELETE CASCADE,
+      world TEXT NOT NULL,
+      address_key TEXT NOT NULL REFERENCES person_characters(address_key) ON DELETE CASCADE,
+      set_at TEXT NOT NULL,
+      PRIMARY KEY (person_id, world));
+CREATE INDEX person_identities_by_character ON person_identities(address_key);
+CREATE TABLE hub_settings (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+CREATE TABLE settings_events (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL, at TEXT NOT NULL, actor TEXT, details TEXT NOT NULL);
+"#;
+
+    /// The Discord channels and server the mirrors are in.
+    const CHANNEL: &str = "1558376951000000101";
+    const ADMINS_CHANNEL: &str = "1558376951000000102";
+    const SERVER: &str = "1558376951000000000";
+
+    fn a(s: &str) -> Address {
+        Address::parse(s).expect("an address")
+    }
+
+    fn open(path: &Path) -> Registry {
+        Registry::open(
+            path.to_str().expect("a path"),
+            "dereth.network",
+            Box::new(SystemTime::now),
+        )
+        .expect("opened")
+    }
+
+    /// An empty folder of the test's own.
+    fn folder(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hub-upgrade-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp folder");
+        dir
+    }
+
+    fn profile(level: u32) -> Profile {
+        Profile {
+            level,
+            heritage: 1,
+            gender: 2,
+            title: Some("the Bloodletter".into()),
+            allegiance: Some(Allegiance {
+                key: "dawn-key-1".into(),
+                name: Some("Order of the Dawn".into()),
+                members: 41,
+                rank: 3,
+                patron: None,
+                monarch: None,
+            }),
+            ..Profile::default()
+        }
+    }
+
+    /// What a hub in use holds, written by this build at `path`: three worlds, two on the network
+    /// and one pending; a channel; two persons, one with a session; characters on the network and
+    /// linked, their person friends, a character unlinked with its friends handed back, a code not
+    /// yet used; the directory's listings and the operator's hold; a person's chosen character; a
+    /// world's mirror and the admins'; a setting; a report. The session's token.
+    fn write(path: &Path) -> String {
+        let r = open(path);
+        for slug in ["coldeve", "frost", "pending"] {
+            let reg = Registration::from_json(&json!({
+                "slug": slug, "name": format!("World {slug}"), "ruleset": "PvE",
+                "endpoint": { "mode": "manual", "address": "192.0.2.1", "port": 9000 },
+                "emulator": { "family": "ACE" },
+            }))
+            .expect("a registration");
+            r.register(&reg).expect("registered");
+            if slug != "pending" {
+                r.set_federation(slug, Federation::On).expect("on");
+            }
+        }
+        r.set_channel("oldguard", Some("{}")).expect("a channel");
+        let ann = r.signed_in("100", "Ann").expect("signed in");
+        let bob = r.signed_in("200", "Bob").expect("signed in");
+        let token = r.new_session(&ann).expect("a session");
+        for (op, who, level) in [
+            (&ann, "Ann@coldeve", 20),
+            (&ann, "Ann@frost", 30),
+            (&bob, "Bob@frost", 40),
+            (&ann, "Cat@coldeve", 50),
+        ] {
+            r.listing(&a(who), Some(&profile(level))).expect("listed");
+            let (code, _) = r.person_code(&a(who)).expect("a code");
+            r.redeem_link_code(op, &code).expect("linked");
+        }
+        r.person_befriend(&a("Ann@coldeve"), &a("Bob@frost"))
+            .expect("befriended");
+        r.person_befriend(&a("Bob@frost"), &a("Ann@coldeve"))
+            .expect("befriended");
+        r.person_unlink(&a("Cat@coldeve")).expect("unlinked");
+        r.person_code(&a("Dan@frost")).expect("a code");
+        r.take_down("Eve@frost").expect("taken down");
+        r.set_identity(&ann.id, "coldeve", Some(&a("Ann@coldeve")))
+            .expect("chosen");
+        r.set_mirror(
+            Some("coldeve"),
+            "general",
+            &Placement::bot(CHANNEL, SERVER),
+            Some(&ann.id),
+        )
+        .expect("a world's mirror");
+        r.set_mirror(
+            None,
+            "global",
+            &Placement::bot(ADMINS_CHANNEL, SERVER),
+            Some(&bob.id),
+        )
+        .expect("the admins' mirror");
+        r.set_settings(&[(Setting::PendingDays, 21)], Some(&bob.id))
+            .expect("a setting");
+        r.report(&bob, "frost", "other", "Lines.")
+            .expect("a report");
+        token
+    }
+
+    /// The tables of `schema` (`main` or an attached one), in the order they were made.
+    fn tables(db: &Connection, schema: &str) -> Vec<String> {
+        db.prepare(&format!(
+            "SELECT name FROM {schema}.sqlite_master WHERE type = 'table' ORDER BY rowid"
+        ))
+        .expect("prepared")
+        .query_map([], |r| r.get(0))
+        .expect("read")
+        .collect::<Result<_, _>>()
+        .expect("read")
+    }
+
+    /// The columns of `table` in `schema`, in order.
+    fn columns(db: &Connection, schema: &str, table: &str) -> Vec<String> {
+        db.prepare(&format!(
+            "SELECT name FROM pragma_table_info('{table}', '{schema}')"
+        ))
+        .expect("prepared")
+        .query_map([], |r| r.get(0))
+        .expect("read")
+        .collect::<Result<_, _>>()
+        .expect("read")
+    }
+
+    /// Every row of `table` that `filter` keeps, `cols` alone, in the order they were written.
+    fn rows(db: &Connection, table: &str, cols: &[String], filter: &str) -> Vec<Vec<Value>> {
+        let mut q = db
+            .prepare(&format!(
+                "SELECT {} FROM {table} WHERE {filter} ORDER BY rowid",
+                cols.join(", ")
+            ))
+            .expect("prepared");
+        let n = q.column_count();
+        q.query_map([], |r| (0..n).map(|i| r.get(i)).collect())
+            .expect("read")
+            .collect::<Result<_, _>>()
+            .expect("read")
+    }
+
+    /// Each table's and index's definition, white space aside, by name.
+    fn schema_of(db: &Connection) -> Vec<(String, String)> {
+        db.prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name")
+            .expect("prepared")
+            .query_map([], |r| {
+                let sql: String = r.get(1)?;
+                Ok((r.get(0)?, sql.split_whitespace().collect()))
+            })
+            .expect("read")
+            .collect::<Result<_, _>>()
+            .expect("read")
+    }
+
+    /// The rows an upgrade takes away on purpose, by table: the holds persons put on their
+    /// characters' listings, and the events of the setting that hid a person's characters from each
+    /// other.
+    const TAKEN: &[(&str, &str)] = &[
+        ("directory_holds", "by = 'person'"),
+        ("operator_events", "kind = 'alts'"),
+    ];
+
+    fn taken(table: &str) -> Option<&'static str> {
+        TAKEN.iter().find(|(t, _)| *t == table).map(|(_, f)| *f)
+    }
+
+    /// Builds a registry at `version` from `schema`, as the earlier hub made it, with this build's
+    /// rows copied in column for column and `extra` (the rows only an earlier hub wrote); opens it
+    /// with this build; and checks that every row came through but the ones [`TAKEN`] names, that
+    /// the columns gone are `dropped` alone, that the schema is a new registry's, and that what it
+    /// held reads as before.
+    fn moves_forward(
+        name: &str,
+        schema: &str,
+        version: i64,
+        extra: &str,
+        dropped: &[(&str, &str)],
+    ) {
+        let dir = folder(name);
+        let (written, earlier, fresh) = (
+            dir.join("written.sqlite"),
+            dir.join("earlier.sqlite"),
+            dir.join("fresh.sqlite"),
+        );
+        let token = write(&written);
+        drop(open(&fresh));
+        let db = Connection::open(&earlier).expect("open");
+        db.execute_batch(&format!("{schema} PRAGMA user_version = {version};"))
+            .expect("the earlier schema");
+        db.execute(
+            "ATTACH DATABASE ? AS written",
+            [written.to_str().expect("a path")],
+        )
+        .expect("attached");
+        db.execute(
+            "ATTACH DATABASE ? AS fresh",
+            [fresh.to_str().expect("a path")],
+        )
+        .expect("attached");
+        let mut gone = Vec::new();
+        let mut kept = Vec::new();
+        for t in tables(&db, "main") {
+            let shared: Vec<String> = columns(&db, "main", &t)
+                .into_iter()
+                .filter(|c| columns(&db, "written", &t).contains(c))
+                .collect();
+            db.execute_batch(&format!(
+                "INSERT INTO {t}({0}) SELECT {0} FROM written.{t};",
+                shared.join(", ")
+            ))
+            .expect("copied");
+            for c in columns(&db, "main", &t) {
+                if !columns(&db, "fresh", &t).contains(&c) {
+                    gone.push((t.clone(), c));
+                }
+            }
+            let after: Vec<String> = columns(&db, "main", &t)
+                .into_iter()
+                .filter(|c| columns(&db, "fresh", &t).contains(c))
+                .collect();
+            kept.push((t, after));
+        }
+        db.execute_batch(&format!(
+            "DETACH DATABASE written; DETACH DATABASE fresh; {extra}"
+        ))
+        .expect("the earlier hub's own rows");
+        let dropped: Vec<(String, String)> = dropped
+            .iter()
+            .map(|(t, c)| ((*t).to_owned(), (*c).to_owned()))
+            .collect();
+        assert_eq!(gone, dropped, "the columns an upgrade takes away");
+        let mut before = Vec::new();
+        for (t, cols) in &kept {
+            let all = rows(&db, t, cols, "1");
+            assert!(!all.is_empty(), "{name}: {t} holds a row");
+            let filter = taken(t).map_or_else(|| "1".to_owned(), |f| format!("NOT ({f})"));
+            before.push(rows(&db, t, cols, &filter));
+            if let Some(f) = taken(t) {
+                assert!(
+                    !rows(&db, t, cols, f).is_empty(),
+                    "{name}: {t} holds a row the upgrade takes away"
+                );
+            }
+        }
+        drop(db);
+
+        let r = open(&earlier);
+        assert_eq!(schema_of_file(&earlier).expect("read"), SCHEMA_VERSION);
+        let db = Connection::open(&earlier).expect("open");
+        for ((t, cols), rows_before) in kept.iter().zip(&before) {
+            assert_eq!(&rows(&db, t, cols, "1"), rows_before, "{name}: {t}");
+        }
+        let new = Connection::open(&fresh).expect("open");
+        assert_eq!(
+            schema_of(&db),
+            schema_of(&new),
+            "{name}: a new registry's schema"
+        );
+
+        // What it held reads as before.
+        assert!(r.server("coldeve").expect("read").is_some());
+        assert_eq!(
+            r.session(&token).expect("read").map(|op| op.name),
+            Some("Ann".to_owned()),
+            "the session holds"
+        );
+        let view = r.person_view(&a("Ann@coldeve")).expect("a view");
+        assert!(view.linked, "the link is kept");
+        assert_eq!(view.persons.len(), 1);
+        assert_eq!(view.persons[0].handle, a("Bob@frost"));
+        let back = r.person_view(&a("Cat@coldeve")).expect("a view");
+        assert_eq!(back.persons.len(), 1, "the friends handed back");
+        assert!(r
+            .channels()
+            .expect("read")
+            .iter()
+            .any(|(n, _)| n == "oldguard"));
+        if version >= 8 {
+            assert!(
+                r.directory_character("Bob@frost").expect("read").is_some(),
+                "the directory's listing"
+            );
+            assert!(
+                r.mirror_in_channel(CHANNEL).expect("read").is_some(),
+                "the world's mirror"
+            );
+            let ann = r.session(&token).expect("read").expect("Ann");
+            assert_eq!(
+                r.identity(&ann.id, "coldeve").expect("read"),
+                Some(a("Ann@coldeve")),
+                "the character chosen to speak as"
+            );
+        }
+        drop(r);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The rows hub 0.1.x wrote that this build no longer writes: a person's setting that showed
+    /// its characters as one person, its change's event, and a value the hub kept of its own.
+    const ROWS_7: &str = "
+    UPDATE operators SET alts = 'shown' WHERE discord_id = '100';
+    INSERT INTO operator_events(operator_id, kind, at, details)
+      VALUES ((SELECT id FROM operators WHERE discord_id = '100'), 'alts',
+              '2026-09-30T00:00:00.000Z', '{\"shown\":true}');
+    INSERT INTO hub_state(name, value) VALUES ('kept', 'yes');
+    INSERT INTO verifications VALUES ('v1', (SELECT id FROM servers WHERE slug = 'pending'),
+      (SELECT id FROM operators WHERE discord_id = '200'), NULL, 'aa', '2026-09-01T00:00:00.000Z',
+      '2026-08-31T00:00:00.000Z', 'open');
+";
+
+    /// Spec: registry: a registry hub 0.1.x kept (version 7), with rows in every table, opens on
+    /// this build at its schema: every row comes through, column for column, but the person's
+    /// setting that showed its characters as one person and that setting's events, which go; the
+    /// schema it ends with is a new registry's, and what it held reads as before.
+    #[test]
+    fn a_registry_of_hub_0_1_moves_forward_keeping_every_row() {
+        moves_forward("7", SCHEMA_7, 7, ROWS_7, &[("operators", "alts")]);
+    }
+
+    /// Spec: registry: a registry the build before 0.2 kept (version 8), the network's own hub's,
+    /// with rows in every table (worlds, persons, links, the directory, mirrors, operators and
+    /// sessions), opens on this build at its schema: every row comes through, column for column,
+    /// but each person's two settings, the holds persons put on their characters' listings and the
+    /// first setting's events, which go; the schema it ends with is a new registry's, and what it
+    /// held reads as before.
+    #[test]
+    fn a_registry_of_the_build_before_0_2_moves_forward_keeping_every_row() {
+        let rows_8 = format!(
+            "{ROWS_7}
+         UPDATE operators SET discord_tells = 'on' WHERE discord_id = '100';
+         INSERT INTO directory_holds(address_key, address, world, by, owed, until)
+           VALUES ('fay@frost', 'Fay@frost', 'frost', 'person', 0, '2099-01-01T00:00:00.000Z');"
+        );
+        moves_forward(
+            "8",
+            SCHEMA_8,
+            8,
+            &rows_8,
+            &[("operators", "alts"), ("operators", "discord_tells")],
+        );
+    }
+}

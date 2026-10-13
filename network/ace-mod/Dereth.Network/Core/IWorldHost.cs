@@ -31,14 +31,26 @@ public interface IWorldHost
     /// <summary>Whether the world is open to ordinary logins.</summary>
     bool WorldOpen();
 
-    /// <summary>Seconds the character has played, if the world knows.</summary>
+    /// <summary>Seconds the character has played, in the world or not, if the world knows.</summary>
     int? AgeSeconds(uint character);
 
     /// <summary>Whether the character chose to appear offline.</summary>
     bool AppearsOffline(uint character);
 
-    /// <summary>Whether the character is gagged (may not chat).</summary>
+    /// <summary>Whether the character is gagged (may not chat), in the world or not.</summary>
     bool IsGagged(uint character) => false;
+
+    /// <summary>Whether the character's account is banned now, the character in the world or not.</summary>
+    bool IsBanned(uint character) => false;
+
+    /// <summary>Whether `listener`, in the world, squelches `speaker`, a character of this world in the world or not, in every room.</summary>
+    bool SquelchesLocal(uint listener, uint speaker) => false;
+
+    /// <summary>
+    /// Why the world's own rules for the room in `slot` keep the character, in the world or not, from
+    /// saying a line there, as a say's refusal names it (<see cref="SayReasons"/>); null when none does.
+    /// </summary>
+    string? RoomRefusal(uint character, RoomSlot slot) => null;
 
     /// <summary>What the world shows a gagged character that tries to talk.</summary>
     void ShowGagged(uint character) =>
@@ -95,4 +107,38 @@ public interface IWorldHost
 
     /// <summary>Adds the local character `name` to the character's own friends list, as the world does.</summary>
     void LocalAddFriend(uint character, string name);
+
+    // ---- the directory -------------------------------------------------------------------------
+
+    /// <summary>
+    /// What the directory's profile of a character in the world is made from, as the world keeps
+    /// it; null for a character it has none for. A world that keeps no profiles lists nobody.
+    /// </summary>
+    CharacterFacts? Facts(uint character) => null;
+
+    /// <summary>A character's allegiance, in the world or not, as far as the world has it loaded; null for none.</summary>
+    AllegianceFacts? AllegianceOf(uint character) => null;
+
+    /// <summary>
+    /// The characters whose patron is `character`, or, when it is a monarch, every other member of
+    /// its allegiance, as far as the world has the allegiance loaded.
+    /// </summary>
+    IReadOnlyList<uint> Followers(uint character) => [];
+
+    /// <summary>The name of a character of this world, in the world or not; null for one that does not exist or is being deleted.</summary>
+    string? NameOf(uint character) => OnlineName(character);
 }
+
+/// <summary>
+/// What the directory's profile of a character is made from, as its world keeps it: the profile of
+/// its own, without its allegiance and without the six fields its options govern; those six fields'
+/// values and its "Allow others to see your ..." options for them; and its allegiance.
+/// </summary>
+public sealed record CharacterFacts(Profile Own, Seeable Values, OthersSee Allowed, AllegianceFacts? Allegiance);
+
+/// <summary>
+/// A character's allegiance as its world keeps it: its monarch's and its patron's character ids, the
+/// name its monarch gave it (null when it gave none, never a name made up in its place), how many
+/// characters it holds, and the character's rank in it.
+/// </summary>
+public readonly record struct AllegianceFacts(uint Monarch, uint? Patron, string? Name, uint Members, uint Rank);

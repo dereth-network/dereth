@@ -11,21 +11,7 @@
 /// the two noncharacters XML 1.0 forbids.
 #[must_use]
 pub fn is_hidden(c: char) -> bool {
-    matches!(
-        u32::from(c),
-        0x00..=0x1F
-            | 0x7F..=0x9F
-            | 0x061C
-            | 0x180E
-            | 0x200B..=0x200F
-            | 0x2028..=0x202E
-            | 0x2060..=0x2064
-            | 0x2066..=0x2069
-            | 0xFEFF
-            | 0xFFF9..=0xFFFB
-            | 0xFFFE
-            | 0xFFFF
-    )
+    dereth_network_protocol::text::is_hidden(c)
 }
 
 /// Whether `s` holds no hidden character, a line feed aside where `lines` allows them.

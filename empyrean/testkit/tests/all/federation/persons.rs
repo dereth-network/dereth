@@ -1,10 +1,8 @@
 //! Divergence: V448
-//! Persons: a character linked to its player's Discord account with a code its world asks the hub
-//! for, the alts setting, and friends: a linked character's friend is its person's, and the
-//! characters it names are listed as the character's friends while it is online, come online as
-//! their person, and are mutual friends through a person friend on each side; linking carries a
-//! character's friends to its person and unlinking hands them back; nothing of a hidden person's
-//! other characters reaches a world.
+//! Persons: a character linked to its player's Discord account with the link its world asks the
+//! hub for, and friends: a linked character's friend is its person's, and every character of that
+//! person is listed as the character's friend while it is online and comes online as its person;
+//! linking carries a character's friends to its person and unlinking hands them back.
 //! Fixture: three virtual-time worlds through the hub's routing (`super::Net`), with the hub's own
 //! registry for persons; a player's sign-in on the site is the registry's, called directly.
 
@@ -42,28 +40,28 @@ fn worlds() -> Net {
 }
 
 /// The person of the Discord user `discord`, signed in on the site.
-fn person(net: &Net, discord: &str) -> Operator {
+pub(super) fn person(net: &Net, discord: &str) -> Operator {
     net.registry
         .1
         .signed_in(discord, &format!("Player {discord}"))
         .expect("signed in")
 }
 
-/// The code `who`'s world showed it after `/dn link`.
-fn ask_code(net: &mut Net, slug: &str, who: &str) -> String {
+/// The code the link `who`'s world showed it after `/dn link` carries.
+pub(super) fn ask_code(net: &mut Net, slug: &str, who: &str) -> String {
     let m = net.mark(slug, who);
     net.say(slug, who, "@dn link");
     Net::lines(&net.since(slug, who, m))
         .iter()
         .find_map(|l| {
-            l.strip_prefix("Your link code is ")
+            l.strip_prefix("Open https://site.test/link/#")
                 .map(|r| r[..9].to_owned())
         })
-        .expect("a code is shown")
+        .expect("a link is shown")
 }
 
 /// `who` logs off `slug`, and is out of the world.
-fn log_off(net: &mut Net, slug: &str, who: &str) {
+pub(super) fn log_off(net: &mut Net, slug: &str, who: &str) {
     let id = net.world(slug).clients[who];
     net.world(slug).ts.client_mut(id).log_off();
     net.advance(12.0);
@@ -79,23 +77,13 @@ fn site_changed(net: &mut Net, op: &Operator) {
 
 /// Links `who` on `slug` to `discord`'s person as a player does: `/dn link` in game, then the code
 /// on the site.
-fn link(net: &mut Net, slug: &str, who: &str, discord: &str) {
+pub(super) fn link(net: &mut Net, slug: &str, who: &str, discord: &str) {
     let code = ask_code(net, slug, who);
     let op = person(net, discord);
     net.registry
         .1
         .redeem_link_code(&op, &code)
         .expect("linked on the site");
-    site_changed(net, &op);
-}
-
-/// `discord`'s person shows its alts, or hides them, from the site.
-fn alts(net: &mut Net, discord: &str, shown: bool) {
-    let op = person(net, discord);
-    net.registry
-        .1
-        .set_alts_for(&op, shown)
-        .expect("the setting");
     site_changed(net, &op);
 }
 
@@ -131,7 +119,7 @@ fn anns_friends(net: &mut Net) -> (Vec<String>, Vec<String>) {
     )
 }
 
-/// Bob, on bb and cc, shows his alts; Ann, linked, lists his person.
+/// Bob links his characters on bb and cc; Ann, linked, lists his person.
 fn ann_lists_bob(net: &mut Net) {
     link(net, "aa", "Ann", "100");
     link(net, "bb", "Bob", "200");
@@ -145,14 +133,14 @@ fn ann_lists_bob(net: &mut Net) {
     };
     let op = person(net, "200");
     net.registry.1.redeem_link_code(&op, &code).expect("linked");
-    alts(net, "200", true);
+    site_changed(net, &op);
     net.say("aa", "Ann", "@dn friends add Bob@bb");
     net.advance(1.5);
 }
 
 /// Divergence: V451
 #[test]
-fn dn_link_asks_the_hub_for_a_code_for_the_character_and_shows_it_with_the_page() {
+fn dn_link_asks_the_hub_for_a_code_for_the_character_and_shows_the_link_that_carries_it() {
     let mut net = worlds();
     let mark = net.sent.0.len();
     let m = net.mark("aa", "Ann");
@@ -163,13 +151,20 @@ fn dn_link_asks_the_hub_for_a_code_for_the_character_and_shows_it_with_the_page(
         "{asked:?}"
     );
     let lines = Net::lines(&net.since("aa", "Ann", m));
-    let line = lines
-        .iter()
-        .find(|l| l.starts_with("Your link code is "))
-        .expect("the code's line");
+    let [line] = &lines[..] else {
+        panic!("one line: {lines:?}")
+    };
+    let code = line
+        .strip_prefix("Open https://site.test/link/#")
+        .map(|r| r[..9].to_owned())
+        .expect("the link");
     assert!(
-        line.contains("Within 10 minutes, sign in with Discord at https://site.test/characters/ and enter it there."),
+        dereth_network_protocol::person::is_link_code(&code),
         "{line}"
+    );
+    assert_eq!(
+        *line,
+        format!("Open https://site.test/link/#{code} within 10 minutes to link this character to your Discord account. Keep the link to yourself.")
     );
     // Off the network, nothing is asked.
     net.say("aa", "Ann", "@dn off");
@@ -182,7 +177,7 @@ fn dn_link_asks_the_hub_for_a_code_for_the_character_and_shows_it_with_the_page(
         .any(|x| matches!(x, Message::Person { .. })));
     assert_eq!(
         Net::lines(&net.since("aa", "Ann", m)),
-        ["You are not on the Dereth Network. Type /dn on to join it."]
+        ["You are not on the Dereth Network. Type @dn on to join it."]
     );
 }
 
@@ -265,7 +260,7 @@ fn a_person_friends_characters_are_listed_watched_and_gone_at_logout() {
 fn a_character_listed_through_person_friends_comes_online_as_its_person_and_is_mutual() {
     let mut net = worlds();
     ann_lists_bob(&mut net);
-    // Bob lists Ann's person from bb; his alts are shown, so it holds on cc too.
+    // Bob lists Ann's person from bb: it holds for his character on cc too.
     net.say("bb", "Bob", "@dn friends add Ann@aa");
     net.advance(1.5);
     let m = net.mark("aa", "Ann");
@@ -295,7 +290,18 @@ fn a_character_the_view_no_longer_names_leaves_the_friends_panel() {
     ann_lists_bob(&mut net);
     let mark = net.sent.0.len();
     let m = net.mark("aa", "Ann");
-    alts(&mut net, "200", false);
+    // Bob unlinks his character on cc, on the site.
+    let bobs = person(&net, "200");
+    net.registry
+        .1
+        .unlink_for(&bobs, "Bob@cc")
+        .expect("unlinked");
+    let characters = vec![
+        Address::parse("Bob@bb").expect("an address"),
+        Address::parse("Bob@cc").expect("an address"),
+    ];
+    net.hub.persons_changed(&characters);
+    net.advance(1.5);
     assert_eq!(rows(&updates(&mut net, "aa", "Ann", m), 2), ["Bob@cc"]);
     assert!(net.sent_since("aa", mark).iter().any(|x| matches!(
         x,
@@ -371,6 +377,81 @@ fn dn_off_takes_the_rows_a_person_friend_listed_out_of_the_panel() {
 
 /// Divergence: V448
 #[test]
+fn dn_off_pauses_a_linked_characters_link_and_dn_on_resumes_it() {
+    let mut net = worlds();
+    ann_lists_bob(&mut net);
+    // Bob plays his character on cc, and takes it off the network: it stays linked, its link
+    // paused, and Ann's panel lists it no more.
+    net.enter("cc", bob());
+    net.advance(1.5);
+    let (m, mb) = (net.mark("aa", "Ann"), net.mark("cc", "Bob"));
+    net.say("cc", "Bob", "@dn off");
+    net.advance(1.5);
+    assert_eq!(
+        Net::lines(&net.since("cc", "Bob", mb)),
+        [
+            "You are off the Dereth Network. Nobody on another world can see you or tell you, and your profile is out of its directory.",
+            "This character's link to your Discord account is paused until you type @dn on.",
+        ]
+    );
+    assert_eq!(rows(&updates(&mut net, "aa", "Ann", m), 2), ["Bob@cc"]);
+    let bobs = person(&net, "200");
+    assert_eq!(
+        net.registry
+            .1
+            .characters_of(&bobs)
+            .expect("his characters")
+            .len(),
+        2,
+        "linked still"
+    );
+    // Back on, with nothing to redo: listed again.
+    let m = net.mark("aa", "Ann");
+    net.say("cc", "Bob", "@dn on");
+    net.advance(1.5);
+    assert_eq!(rows(&updates(&mut net, "aa", "Ann", m), 1), ["Bob@cc"]);
+    // A character nobody links is told nothing of a link.
+    net.say("aa", "Ann", "@dn unlink");
+    net.advance(1.5);
+    let m = net.mark("aa", "Ann");
+    net.say("aa", "Ann", "@dn off");
+    assert_eq!(
+        Net::lines(&net.since("aa", "Ann", m)),
+        ["You are off the Dereth Network. Nobody on another world can see you or tell you, and your profile is out of its directory."]
+    );
+}
+
+/// Divergence: V448
+#[test]
+fn adding_a_friend_past_the_persons_limit_is_refused_with_a_plain_line() {
+    let mut net = worlds();
+    link(&mut net, "aa", "Ann", "100");
+    let ann = Address::parse("Ann@aa").expect("an address");
+    let letter = |d: usize| char::from(b'a' + u8::try_from(d % 26).expect("small"));
+    for i in 0..dereth_network_hub::persons::limits::FRIENDS {
+        let name: String = [i / 676, i / 26, i].iter().map(|&d| letter(d)).collect();
+        let friend = Address::parse(&format!("Friend {name}@cc")).expect("an address");
+        net.registry
+            .1
+            .person_befriend(&ann, &friend)
+            .expect("listed");
+    }
+    let m = net.mark("aa", "Ann");
+    add_friend(&mut net, "aa", "Ann", "Bob@bb");
+    net.advance(1.5);
+    let got = net.since("aa", "Ann", m);
+    assert_eq!(
+        Net::lines(&got),
+        ["You have as many friends on the Dereth Network as it allows. Remove one first."]
+    );
+    assert!(
+        !got.iter().any(|g| g.kind == super::WEENIE_ERROR),
+        "a plain line, not the client's full list"
+    );
+}
+
+/// Divergence: V448
+#[test]
 fn a_linked_characters_friend_is_its_persons_and_an_unlinked_ones_its_own() {
     let mut net = worlds();
     let mark = net.sent.0.len();
@@ -412,40 +493,6 @@ fn a_linked_characters_friend_is_its_persons_and_an_unlinked_ones_its_own() {
     assert_eq!(
         Net::lines(&net.since("aa", "Ann", m)),
         ["That character is already in your friends list"]
-    );
-}
-
-/// Divergence: V448
-#[test]
-fn a_friend_whose_person_hides_its_alts_is_only_the_character_added() {
-    let mut net = worlds();
-    link(&mut net, "aa", "Ann", "100");
-    link(&mut net, "bb", "Bob", "200");
-    net.enter("cc", bob());
-    net.say("cc", "Bob", "@dn on");
-    link(&mut net, "cc", "Bob", "200");
-    log_off(&mut net, "cc", "Bob");
-    let m = net.mark("aa", "Ann");
-    net.say("aa", "Ann", "@dn friends add Bob@bb");
-    net.advance(1.5);
-    assert_eq!(rows(&updates(&mut net, "aa", "Ann", m), 1), ["Bob@bb"]);
-    assert_eq!(
-        anns_friends(&mut net),
-        (vec!["bob@bb".to_owned()], vec!["bob@bb".to_owned()])
-    );
-    // Bob plays his other character: Ann sees nothing of it, as for a character friend.
-    let m = net.mark("aa", "Ann");
-    log_off(&mut net, "bb", "Bob");
-    net.enter("cc", bob());
-    net.advance(6.0);
-    let lines = Net::lines(&net.since("aa", "Ann", m));
-    assert!(
-        !lines.iter().any(|l| l.contains("Bob@cc")),
-        "nothing of Bob@cc: {lines:?}"
-    );
-    assert!(
-        rows(&updates(&mut net, "aa", "Ann", m), 1).is_empty(),
-        "no row for Bob@cc"
     );
 }
 
@@ -549,55 +596,6 @@ fn unlinking_hands_a_characters_friends_back_to_it() {
     );
 }
 
-/// Divergence: V451
-#[test]
-fn dn_alts_hides_the_persons_characters_and_shows_a_shown_persons_characters() {
-    let mut net = worlds();
-    let m = net.mark("aa", "Ann");
-    net.say("aa", "Ann", "@dn alts shown");
-    net.advance(1.0);
-    assert_eq!(
-        Net::lines(&net.since("aa", "Ann", m)),
-        ["Link this character first: type /dn link."]
-    );
-    link(&mut net, "aa", "Ann", "100");
-    link(&mut net, "bb", "Bob", "100");
-    let m = net.mark("aa", "Ann");
-    net.say("aa", "Ann", "@dn alts");
-    assert_eq!(
-        Net::lines(&net.since("aa", "Ann", m)),
-        ["Your characters are hidden: nobody learns that they are one person."]
-    );
-    // Only the person shows them, on the site: a world that asks is refused and given the page.
-    let m = net.mark("aa", "Ann");
-    net.say("aa", "Ann", "@dn alts shown");
-    net.advance(1.5);
-    net.say("aa", "Ann", "@dn alts");
-    net.advance(1.0);
-    assert_eq!(
-        Net::lines(&net.since("aa", "Ann", m)),
-        [
-            "Only you can show your characters as one person: sign in with Discord at https://site.test/characters/ and choose it there.",
-            "Your characters are hidden: nobody learns that they are one person."
-        ]
-    );
-    alts(&mut net, "100", true);
-    let m = net.mark("aa", "Ann");
-    net.say("aa", "Ann", "@dn alts");
-    net.advance(1.0);
-    net.say("aa", "Ann", "@dn alts hidden");
-    net.advance(1.5);
-    net.say("aa", "Ann", "@dn alts");
-    assert_eq!(
-        Net::lines(&net.since("aa", "Ann", m)),
-        [
-            "Your characters, shown as one person: Ann@aa, Bob@bb.",
-            "Your characters are hidden now: nobody learns that they are one person.",
-            "Your characters are hidden: nobody learns that they are one person."
-        ]
-    );
-}
-
 /// Divergence: V448
 #[test]
 fn a_character_made_under_a_linked_characters_name_is_not_its_persons() {
@@ -622,14 +620,12 @@ fn a_character_made_under_a_linked_characters_name_is_not_its_persons() {
     let m = net.mark("aa", "Ann");
     net.say("aa", "Ann", "@dn on");
     net.advance(1.5);
-    net.say("aa", "Ann", "@dn alts");
-    let lines = Net::lines(&net.since("aa", "Ann", m));
+    let ms = net.mark("aa", "Ann");
+    net.say("aa", "Ann", "@dn");
+    let status = Net::lines(&net.since("aa", "Ann", ms));
     assert!(
-        lines.contains(
-            &"This character is not linked to a Discord account. Type /dn link to link it."
-                .to_owned()
-        ),
-        "{lines:?}"
+        !status[0].contains("linked to a Discord account"),
+        "{status:?}"
     );
     assert!(
         rows(&updates(&mut net, "aa", "Ann", m), 1).is_empty(),
@@ -645,51 +641,6 @@ fn a_character_made_under_a_linked_characters_name_is_not_its_persons() {
 
 /// Divergence: V448
 #[test]
-fn a_world_never_hears_of_a_hidden_persons_other_characters() {
-    let mut net = worlds();
-    link(&mut net, "aa", "Ann", "100");
-    link(&mut net, "bb", "Bob", "200");
-    net.enter("cc", bob());
-    net.say("cc", "Bob", "@dn on");
-    // Ann's person links Bob@cc too: two characters, one person, alts hidden.
-    link(&mut net, "cc", "Bob", "100");
-    log_off(&mut net, "cc", "Bob");
-    let handed = net.handed.len();
-    let m = net.mark("bb", "Bob");
-    net.say("bb", "Bob", "@dn alts Ann@aa");
-    net.advance(1.0);
-    net.say("bb", "Bob", "@dn friends add Ann@aa");
-    net.advance(1.5);
-    let lines = Net::lines(&net.since("bb", "Bob", m));
-    assert_eq!(lines[0], "Ann@aa shows no other characters.");
-    for (slug, msg) in &net.handed[handed..] {
-        assert!(
-            slug != "bb" || !msg.to_json().to_lowercase().contains("bob@cc"),
-            "bb heard of Ann's other character: {msg:?}"
-        );
-    }
-    let watched: Vec<String> = net
-        .sent
-        .0
-        .iter()
-        .filter_map(|(s, x)| match x {
-            Message::Watch { target, .. } if *s == "bb" => Some(target.key()),
-            _ => None,
-        })
-        .collect();
-    assert!(!watched.contains(&"bob@cc".to_owned()), "{watched:?}");
-    alts(&mut net, "100", true);
-    let m = net.mark("bb", "Bob");
-    net.say("bb", "Bob", "@dn alts Ann@aa");
-    net.advance(1.0);
-    assert_eq!(
-        Net::lines(&net.since("bb", "Bob", m)),
-        ["Ann@aa is one person with Bob@cc."]
-    );
-}
-
-/// Divergence: V448
-#[test]
 fn a_view_is_taken_only_for_this_worlds_own_characters_on_the_network() {
     let mut net = worlds();
     // Ann asked to be linked, so a view of her own linked is hers.
@@ -697,7 +648,7 @@ fn a_view_is_taken_only_for_this_worlds_own_characters_on_the_network() {
     let view = |to: &str| Message::PersonFriends {
         to: Address::parse(to).expect("an address"),
         linked: true,
-        alts: dereth_network_protocol::Alts::Shown,
+        alts: dereth_network_protocol::person::EarlierAlts,
         persons: vec![dereth_network_protocol::PersonFriend {
             handle: Address::parse("Eve@bb").expect("an address"),
             characters: vec![Address::parse("Eve@bb").expect("an address")],
@@ -781,7 +732,7 @@ fn a_person_view_brings_only_its_worlds_share_of_new_stand_in_ids() {
     let view = |from: u32| Message::PersonFriends {
         to: Address::parse("Ann@aa").expect("an address"),
         linked: true,
-        alts: dereth_network_protocol::Alts::Shown,
+        alts: dereth_network_protocol::person::EarlierAlts,
         persons: (0..5)
             .map(|p| {
                 let characters: Vec<Address> = (0..20)

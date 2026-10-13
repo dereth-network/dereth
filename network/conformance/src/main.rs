@@ -8,13 +8,15 @@ const USAGE: &str = "\
 dereth-network-conformance -- the Dereth Network's conformance suite
 
   dereth-network-conformance vectors
-      the address, text-rule, message and challenge vectors, against this build's protocol crate
+      the address, text-rule, message, challenge, directory, reach, say and rooms vectors, against
+      this build's protocol crate
 
   dereth-network-conformance hub --url ws://127.0.0.1:8650 --world <slug>=<key> --world <slug>=<key>
                                  [--world <slug>=<key>] [--off <slug>=<key>] [--slow]
       the hub checks: two federated worlds (a third adds the room checks for a world that does not
       carry the room), optionally a world whose federation flag is not on, and --slow for the
-      checks that wait out the hub's timers
+      checks that wait out the hub's timers. The directory's checks read the hub's public HTTP
+      routes at the same address, and list characters of their own, taking them out again
 
 The world checks need a world's own adapter (`world::WorldUnderTest`); a world runs them in its
 own tests.";
@@ -48,6 +50,7 @@ fn main() -> ExitCode {
                 worlds: Vec::new(),
                 off: None,
                 slow: false,
+                clock: None,
             };
             let mut i = 1;
             while i < args.len() {

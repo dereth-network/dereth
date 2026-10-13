@@ -3,13 +3,11 @@
 // The hub keeps persons; the world asks on its own characters' behalf and shows what the hub
 // answers:
 //
-// - Linking. `/dn link` asks the hub for a one-time code for the character; the player enters it on
-//   the site, signed in with Discord. `/dn unlink` undoes it. A link holds only for the character
-//   that asked for its code (`AskedLink`): a character made under the name of a deleted one is not
-//   linked to the deleted one's person, and is unlinked.
-// - Alts. `/dn alts hidden` hides the person's characters; the world never learns the person's other
-//   characters while they are hidden. Only the person shows them, on the site: the hub refuses
-//   `/dn alts shown` from a world, and names the page.
+// - Linking. `/dn link` asks the hub for a one-time code for the character, and shows the link the
+//   hub gives with it: opening it on the site, signed in with Discord, links the character.
+//   `/dn unlink` undoes it. A link holds only for the character that asked for its code
+//   (`AskedLink`): a character made under the name of a deleted one is not linked to the deleted
+//   one's person, and is unlinked.
 // - Friends. A linked character's friends are its person's, kept by the hub: adding one asks the hub
 //   to list it (`befriend`), and the friends a character had before it was linked are carried over
 //   to the hub when the view first says it is linked (`carry`). While a character is online and on
@@ -25,8 +23,8 @@ namespace Dereth.Network;
 
 public sealed partial class NetworkWorld
 {
-    /// <summary>What the hub's person view last said of one character online.</summary>
-    public readonly record struct PersonState(bool Linked, Alts Alts);
+    /// <summary>What the hub's person view last said of one character online: whether it is linked.</summary>
+    public readonly record struct PersonState(bool Linked);
 
     /// <summary>Why a person request was made, which decides what its answer shows.</summary>
     private enum Purpose
@@ -37,9 +35,16 @@ public sealed partial class NetworkWorld
         Quiet,
     }
 
-    private sealed record PendingPerson(uint Player, PersonOp Op, Address? Target, bool? Shown, Purpose Purpose, double? Sent);
+    private sealed record PendingPerson(uint Player, PersonOp Op, Address? Target, Purpose Purpose, double? Sent);
 
-    private const string LinkFirstLine = "Link this character first: type /dn link.";
+    /// <summary>What a character not linked to a person is told when it asks for something only a person has.</summary>
+    private const string LinkFirstLine = "Link this character first: type @dn link.";
+
+    /// <summary>
+    /// What a linked character adding a friend is told when its person lists as many friends across
+    /// the network as the hub allows.
+    /// </summary>
+    public const string FriendsFullLine = "You have as many friends on the Dereth Network as it allows. Remove one first.";
 
     /// <summary>What the hub's view last said of each character online, by character id.</summary>
     private readonly Dictionary<uint, PersonState> persons = new();
@@ -121,7 +126,7 @@ public sealed partial class NetworkWorld
     /// characters, any it lists itself, and any past the friends a character may list; those it no
     /// longer names go.
     /// </summary>
-    private void OnPersonView(Address to, bool linked, Alts alts, IReadOnlyList<PersonFriend> view)
+    private void OnPersonView(Address to, bool linked, IReadOnlyList<PersonFriend> view)
     {
         if (to.World != Config.Slug || host.OnlineByName(to.Name) is not uint player || !IsOn(player))
             return;
@@ -133,19 +138,17 @@ public sealed partial class NetworkWorld
         IReadOnlyList<PersonFriend> returned = [];
         if (linked && !asked)
         {
-            PersonAsk(player, PersonOp.Unlink, null, null, Purpose.Quiet);
+            PersonAsk(player, PersonOp.Unlink, null, Purpose.Quiet);
             linked = false;
-            alts = Alts.Hidden;
             view = [];
         }
         else if (!linked)
         {
-            alts = Alts.Hidden;
             returned = asked ? view : [];
             view = [];
         }
         var had = persons.TryGetValue(player, out var before);
-        persons[player] = new PersonState(linked, alts);
+        persons[player] = new PersonState(linked);
         if (linked && had && !before.Linked)
             host.ShowSystem(player, "This character is now linked to a Discord account.");
         if (linked && (!had || !before.Linked))
@@ -235,12 +238,8 @@ public sealed partial class NetworkWorld
             dirty = true;
         if (gone.Count > 0)
             FriendshipEnded(player, gone);
-        if (added.Count > 0)
-        {
-            TellWatchers(player, null);
-            foreach (var f in added)
-                SendIfUp(new Watch(own, f, true));
-        }
+        foreach (var f in added)
+            SendIfUp(new Watch(own, f, true));
     }
 
     /// <summary>
@@ -254,7 +253,7 @@ public sealed partial class NetworkWorld
         var targets = r.Friends.Where(f => !r.FromPerson.ContainsKey(f.Key)).Select(f => f.Value)
             .Take(Wire.MaxCarried).ToList();
         if (targets.Count > 0)
-            PersonAsk(player, PersonOp.Carry, null, null, Purpose.Quiet, targets);
+            PersonAsk(player, PersonOp.Carry, null, Purpose.Quiet, targets);
     }
 
     /// <summary>The handle a friend of `character` came by, when a person friend listed it.</summary>
@@ -262,12 +261,12 @@ public sealed partial class NetworkWorld
         Record(character)?.FromPerson.TryGetValue(friendKey, out var h) == true ? h : null;
 
     /// <summary>Sends a person request for `player`, within its pace; false when it was not sent.</summary>
-    private bool PersonAsk(uint player, PersonOp op, Address? target, bool? shown, Purpose purpose,
+    private bool PersonAsk(uint player, PersonOp op, Address? target, Purpose purpose,
         IReadOnlyList<Address>? targets = null)
     {
         if (purpose == Purpose.Command && !IsOn(player))
         {
-            host.ShowSystem(player, "You are not on the Dereth Network. Type /dn on to join it.");
+            host.ShowSystem(player, NotOnLine);
             return false;
         }
         // An `unfriend` only takes away, and one held back would leave a person friend the player has
@@ -281,70 +280,29 @@ public sealed partial class NetworkWorld
         if (OwnAddress(player) is not { } who)
             return false;
         var id = FreshId('p');
-        pendingPersons[id] = new PendingPerson(player, op, target, shown, purpose, null);
-        Send(new PersonRequest(id, op, who, target, shown, targets));
+        pendingPersons[id] = new PendingPerson(player, op, target, purpose, null);
+        Send(new PersonRequest(id, op, who, target, null, targets));
         return true;
     }
 
-    /// <summary>`/dn link`, `/dn unlink` and `/dn alts ...`.</summary>
-    private void PersonCommand(uint player, IReadOnlyList<string> w)
+    /// <summary>`/dn link`: the character asked to be linked, so a link the hub then reports is its own.</summary>
+    private void LinkCharacter(uint player)
     {
-        Address? ParseCharacter(IEnumerable<string> words) =>
-            Address.TryParse(string.Join(" ", words), out var a, out _) && !a.IsChannel ? a : null;
-        switch (w[0])
+        if (PersonAsk(player, PersonOp.Code, null, Purpose.Command) && Record(player)?.AskedLink != true)
         {
-            case "link":
-                // The character asked to be linked, so a link the hub then reports is its own.
-                if (PersonAsk(player, PersonOp.Code, null, null, Purpose.Command) && Record(player)?.AskedLink != true)
-                {
-                    RecordMut(player).AskedLink = true;
-                    dirty = true;
-                }
-                return;
-            case "unlink":
-                PersonAsk(player, PersonOp.Unlink, null, null, Purpose.Command);
-                return;
-            case "alts" when w.Count == 1:
-                AltsStatus(player);
-                return;
-            case "alts" when w.Count == 2 && w[1].Equals("shown", StringComparison.OrdinalIgnoreCase):
-                PersonAsk(player, PersonOp.Alts, null, true, Purpose.Command);
-                return;
-            case "alts" when w.Count == 2 && w[1].Equals("hidden", StringComparison.OrdinalIgnoreCase):
-                PersonAsk(player, PersonOp.Alts, null, false, Purpose.Command);
-                return;
-            case "alts":
-                if (ParseCharacter(w.Skip(1)) is { } of)
-                    PersonAsk(player, PersonOp.Characters, of, null, Purpose.Command);
-                else
-                    host.ShowSystem(player, "/dn alts shown|hidden, or /dn alts Name@world");
-                return;
+            RecordMut(player).AskedLink = true;
+            dirty = true;
         }
     }
 
-    /// <summary>`/dn alts`: the setting the hub last gave, and, while shown, the person's characters.</summary>
-    private void AltsStatus(uint player)
-    {
-        if (!IsOn(player))
-        {
-            host.ShowSystem(player, "You are not on the Dereth Network. Type /dn on to join it.");
-            return;
-        }
-        if (!persons.TryGetValue(player, out var s))
-            host.ShowSystem(player, "The Dereth Network has not said yet whether this character is linked.");
-        else if (!s.Linked)
-            host.ShowSystem(player, "This character is not linked to a Discord account. Type /dn link to link it.");
-        else if (s.Alts == Alts.Hidden)
-            host.ShowSystem(player, "Your characters are hidden: nobody learns that they are one person.");
-        else
-            PersonAsk(player, PersonOp.Characters, OwnAddress(player), null, Purpose.Command);
-    }
+    /// <summary>`/dn unlink`.</summary>
+    private void UnlinkCharacter(uint player) => PersonAsk(player, PersonOp.Unlink, null, Purpose.Command);
 
     /// <summary>The player removed rows its person friends listed, or cleared its friends: those person friends go, quietly.</summary>
     private void UnfriendQuietly(uint player, IEnumerable<Address> handles)
     {
         foreach (var h in handles.DistinctBy(h => h.Key))
-            PersonAsk(player, PersonOp.Unfriend, h, null, Purpose.Quiet);
+            PersonAsk(player, PersonOp.Unfriend, h, Purpose.Quiet);
     }
 
     /// <summary>The answer to a person request.</summary>
@@ -353,47 +311,39 @@ public sealed partial class NetworkWorld
         if (!pendingPersons.Remove(r.Id, out var p) || p.Purpose == Purpose.Quiet || !Online(p.Player))
             return;
         var target = p.Target?.ToString() ?? "";
-        string Joined(IEnumerable<Address> a) => string.Join(", ", a.Select(x => x.ToString()));
         string? line = (p.Op, r.Outcome) switch
         {
             (PersonOp.Code, PersonOutcome.Ok) when r.Code is { } code && r.Url is { } url =>
-                $"Your link code is {code}. Within {((r.ExpiresSecs ?? 600) + 59) / 60} minutes, sign in with Discord at {url} and enter it there. It links this character to the account you sign in with; give it to nobody.",
-            (PersonOp.Code, PersonOutcome.RateLimited) => "You have asked for too many link codes. Wait a while and try again.",
+                LinkLine(code, url, r.ExpiresSecs ?? 600),
+            (PersonOp.Code, PersonOutcome.RateLimited) => "You have asked for too many links. Wait a while and try again.",
             (_, PersonOutcome.Unavailable) => "The Dereth Network's hub does not link characters.",
             (_, PersonOutcome.RateLimited) => "The Dereth Network is holding back your requests for now. Wait a while and try again.",
-            (PersonOp.Code, _) => "The Dereth Network gave no link code.",
+            (PersonOp.Code, _) => "The Dereth Network gave no link.",
             (PersonOp.Unlink, PersonOutcome.Ok) => "This character is no longer linked to a Discord account.",
             (PersonOp.Unlink, _) => "This character is not linked to a Discord account.",
             (_, PersonOutcome.NotLinked) => LinkFirstLine,
-            (PersonOp.Alts, PersonOutcome.Refused) => r.Url is { } page
-                ? $"Only you can show your characters as one person: sign in with Discord at {page} and choose it there."
-                : "Only you can show your characters as one person, signed in on the Dereth Network's site.",
-            (PersonOp.Alts, _) when p.Shown == true =>
-                "Your characters are shown as one person now: anyone may learn which characters are yours.",
-            (PersonOp.Alts, _) => "Your characters are hidden now: nobody learns that they are one person.",
-            (PersonOp.Befriend, PersonOutcome.Refused) => null,
+            // The hub's limit on the friends a person may list across the network.
+            (PersonOp.Befriend, PersonOutcome.Refused) => FriendsFullLine,
             (PersonOp.Befriend, _) => $"{target} has been added to your friends list.",
-            // Only ever asked quietly.
-            (PersonOp.Unfriend or PersonOp.Carry, _) => null,
-            _ => CharactersLine(p, r.Characters, target, Joined),
+            // Only ever asked quietly; the other two this world never asks.
+            _ => null,
         };
-        if (p.Op == PersonOp.Befriend && r.Outcome == PersonOutcome.Refused)
-            host.ShowFriendsFull(p.Player);
         if (line is not null)
             host.ShowSystem(p.Player, TextRules.SanitizeLine(line));
     }
 
-    private string? CharactersLine(PendingPerson p, IReadOnlyList<Address> characters, string target,
-        Func<IEnumerable<Address>, string> joined)
+    /// <summary>
+    /// The line `/dn link` shows: the link that links the character, from the hub's page and code,
+    /// and how long it lasts. A hub whose page does not carry the code is answered with the code to
+    /// enter there.
+    /// </summary>
+    public static string LinkLine(string code, string url, uint expiresSecs)
     {
-        var mine = p.Target is not null && OwnAddress(p.Player) is { } own && own.Key == p.Target.Key;
-        var others = characters.Where(c => p.Target is null || c.Key != p.Target.Key).ToList();
-        return (mine, others.Count == 0) switch
-        {
-            (true, _) => $"Your characters, shown as one person: {joined(characters)}.",
-            (false, true) => $"{target} shows no other characters.",
-            _ => $"{target} is one person with {joined(others)}.",
-        };
+        var minutes = Math.Max(1, (expiresSecs + 59) / 60);
+        var lasts = minutes == 1 ? "1 minute" : $"{minutes} minutes";
+        return url.Contains(code, StringComparison.Ordinal)
+            ? $"Open {url} within {lasts} to link this character to your Discord account. Keep the link to yourself."
+            : $"Your link code is {code}. Enter it at {url} within {lasts} to link this character to your Discord account. Keep the code to yourself.";
     }
 
     /// <summary>A person request that will not be answered.</summary>

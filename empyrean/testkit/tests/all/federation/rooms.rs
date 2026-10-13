@@ -112,13 +112,12 @@ fn a_speaker_off_the_network_is_heard_only_on_its_own_world() {
 fn a_channel_is_joined_by_invitation_and_a_tell_to_it_reaches_the_other_members() {
     let mut net = two_worlds(false);
     // An invitation is shown as a first tell from the inviter would be.
-    net.say("bb", "Bob", "@dn reachable anyone");
     net.say("aa", "Ann", "@dn channel create oldguard");
     let mb = net.mark("bb", "Bob");
     net.say("aa", "Ann", "@dn channel invite oldguard Bob@bb");
     assert_eq!(
         Net::lines(&net.since("bb", "Bob", mb)),
-        ["Ann@aa invites you to the channel oldguard@channel. Type /dn channel join oldguard to join it."]
+        ["Ann@aa invites you to the channel oldguard@channel. Type @dn channel join oldguard to join it."]
     );
     net.say("bb", "Bob", "@dn channel join oldguard");
 
@@ -172,6 +171,7 @@ fn line_from(name: &str) -> dereth_network_protocol::Message {
         room: "global".into(),
         from: dereth_network_protocol::Address::parse(name).expect("an address"),
         text: "free gold at the bank".into(),
+        via: None,
     }
 }
 
@@ -287,6 +287,7 @@ fn a_line_the_hub_holds_back_tells_its_speaker_it_is_the_worlds_share_of_the_roo
                 ))
                 .expect("an address"),
                 text: "an event tonight".into(),
+                via: None,
             },
         );
     }
@@ -340,7 +341,6 @@ fn a_world_is_held_to_its_pace_of_room_lines_even_by_a_hub_that_does_not() {
 #[test]
 fn channel_lines_and_invitations_from_a_hub_that_does_not_pace_them_are_held_to_a_tells_pace() {
     let mut net = two_worlds(false);
-    net.say("aa", "Ann", "@dn reachable anyone");
     let addr = |s: &str| dereth_network_protocol::Address::parse(s).expect("an address");
     let burst = dereth_network_protocol::limits::Limits::DEFAULT
         .tells_per_recipient
@@ -424,7 +424,13 @@ fn dng_and_dn_global_reach_the_other_worlds_and_show_here_in_the_carrying_room()
 #[test]
 fn dng_on_a_world_that_carries_no_global_room_says_so_and_sends_nothing() {
     let mut net = two_worlds(false);
-    net.world("aa").ts.world.federation.settings.global_room = None;
+    // The world's operator carries the Global room nowhere.
+    let asked = empyrean_world::federation::commands::admin(
+        &mut net.world("aa").ts.world,
+        &["global".into(), "off".into()],
+    );
+    assert!(asked.starts_with("Asking"), "{asked}");
+    net.pump();
     for line in ["@dng anyone?", "@dn global anyone?"] {
         let ma = net.mark("aa", "Ann");
         let wire = net.wire.0.len();
@@ -453,7 +459,7 @@ fn dng_is_held_to_the_rooms_rules() {
     let got = net.since("aa", "Ann", ma);
     assert_eq!(
         Net::lines(&got),
-        ["You are not on the Dereth Network. Type /dn on to join it."]
+        ["You are not on the Dereth Network. Type @dn on to join it."]
     );
     assert!(got.iter().all(|g| g.kind != TURBINE_CHAT));
 
@@ -506,6 +512,7 @@ fn dng_is_held_to_the_rooms_rules() {
                 ))
                 .expect("an address"),
                 text: "an event tonight".into(),
+                via: None,
             },
         );
     }

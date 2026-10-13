@@ -1,8 +1,13 @@
-//! The conformance suite's hub checks, run against this hub over real WebSockets on loopback.
+//! The conformance suite's hub checks, run against this hub over real WebSockets and its HTTP
+//! routes on loopback.
 //! Fixture: a hub on an ephemeral loopback port over an in-memory registry with three federated
-//! worlds and one whose federation flag is off.
+//! worlds and one whose federation flag is off, its clock the time now plus what the suite lets
+//! pass.
 
-use dereth_network_conformance::hub::{run, HubTarget};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
+
+use dereth_network_conformance::hub::{run, HubClock, HubTarget};
 use dereth_network_conformance::{failures, vectors};
 use dereth_network_hub::registry::{Registration, Registry};
 use dereth_network_hub::server::{start_with, HubConfig, Running};
@@ -25,10 +30,21 @@ pub(crate) fn hub() -> (Running, Vec<(String, String)>, (String, String)) {
 
 /// [`hub`] with `config`'s settings (its address and database are the fixture's).
 pub(crate) fn hub_with(config: HubConfig) -> (Running, Vec<(String, String)>, (String, String)) {
+    let (running, worlds, off, _) = hub_with_clock(config);
+    (running, worlds, off)
+}
+
+/// A world's slug and its key.
+type World = (String, String);
+
+/// [`hub_with`], and the hub's clock for the suite to let time pass on.
+fn hub_with_clock(config: HubConfig) -> (Running, Vec<World>, World, HubClock) {
+    let passed = Arc::new(Mutex::new(Duration::ZERO));
+    let read = Arc::clone(&passed);
     let registry = Registry::open(
         ":memory:",
         "dereth.network",
-        Box::new(std::time::SystemTime::now),
+        Box::new(move || SystemTime::now() + *read.lock().expect("the clock")),
     )
     .expect("a registry");
     let mut keys = Vec::new();
@@ -49,23 +65,25 @@ pub(crate) fn hub_with(config: HubConfig) -> (Running, Vec<(String, String)>, (S
     };
     let running = start_with(config, registry).expect("the hub starts");
     let off = keys.pop().expect("dd");
-    (running, keys, off)
+    let clock = HubClock::new(move |by| *passed.lock().expect("the clock") += by);
+    (running, keys, off, clock)
 }
 
 /// Spec: conformance: every hub check passes against this hub.
 #[test]
 fn the_hub_passes_every_hub_check() {
-    let (running, worlds, off) = hub();
+    let (running, worlds, off, clock) = hub_with_clock(HubConfig::default());
     let target = HubTarget {
         base: format!("ws://{}", running.local_addr()),
         worlds,
         off: Some(off),
         slow: false,
+        clock: Some(clock),
     };
     let checks = run(&target);
     let failed = failures(&checks);
     running.shutdown();
-    assert!(checks.len() >= 22, "{} checks ran", checks.len());
+    assert!(checks.len() >= 31, "{} checks ran", checks.len());
     assert_eq!(
         checks
             .iter()
@@ -73,6 +91,22 @@ fn the_hub_passes_every_hub_check() {
             .count(),
         3,
         "the person layer's checks ran"
+    );
+    assert_eq!(
+        checks
+            .iter()
+            .filter(|c| c.name.starts_with("listing."))
+            .count(),
+        2,
+        "the directory's link checks ran"
+    );
+    assert_eq!(
+        checks
+            .iter()
+            .filter(|c| c.name.starts_with("directory."))
+            .count(),
+        9,
+        "the directory's checks over the public routes ran"
     );
     assert!(
         failed.is_empty(),
@@ -89,7 +123,16 @@ fn the_hub_passes_every_hub_check() {
 #[test]
 fn the_protocol_crate_agrees_with_every_vector() {
     let checks = vectors::all();
-    for suite in ["addresses", "text rules", "link messages", "challenge"] {
+    for suite in [
+        "addresses",
+        "text rules",
+        "link messages",
+        "challenge",
+        "directory",
+        "reach",
+        "say",
+        "rooms",
+    ] {
         assert!(
             checks.iter().any(|c| c.suite == suite),
             "no {suite} vectors ran"
@@ -111,12 +154,13 @@ fn the_protocol_crate_agrees_with_every_vector() {
 #[test]
 #[ignore = "waits out the hub's 30-second answer timer and its minute's hold; run with --ignored"]
 fn the_hub_answers_an_unanswered_tell_itself() {
-    let (running, worlds, off) = hub();
+    let (running, worlds, off, clock) = hub_with_clock(HubConfig::default());
     let target = HubTarget {
         base: format!("ws://{}", running.local_addr()),
         worlds,
         off: Some(off),
         slow: true,
+        clock: Some(clock),
     };
     let checks = run(&target);
     running.shutdown();

@@ -1,14 +1,17 @@
 //! The operator API on a running hub: Discord sign-in and sessions, the origins that may use them,
 //! registering and verifying a world (by a page on its host, or in game by answering the hub's
-//! challenge at its endpoint), approval, keys, reports and revocation, the limits, and the client
-//! address behind a proxy.
+//! challenge at its endpoint), approval, keys, reports and revocation, the limits, the client
+//! address behind a proxy, and the hub's settings its admins change while it runs (each holding at
+//! once where it is used), which the flags that set them before seed.
 //! Fixture: a hub on loopback over an in-memory registry on a clock the test turns, a stand-in for
 //! Discord's API, a page server the hub reads verification pages from, and a socket on loopback
-//! standing in for the worlds' game port, which answers the hub's challenges.
+//! standing in for the worlds' game port, which answers the hub's challenges; and the hub's own
+//! binary run on a registry file.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -17,8 +20,11 @@ use dereth_network_conformance::hub::Link;
 use dereth_network_hub::discord::{any_address, Discord};
 use dereth_network_hub::registry::{Registration, Registry};
 use dereth_network_hub::server::{start_with, HubConfig, Running};
+use dereth_network_hub::settings::Setting;
 use dereth_network_protocol::challenge::{nonce_hex, Challenge};
 use serde_json::{json, Value};
+
+use super::hardening::{listing, snowflake};
 
 pub(super) const SITE: &str = "https://site.test";
 pub(super) const ADMIN: &str = "900";
@@ -28,14 +34,14 @@ pub(super) const ADMIN: &str = "900";
 /// A request a stub server received.
 #[derive(Debug, Clone)]
 pub(super) struct Got {
-    method: String,
-    path: String,
-    headers: Vec<(String, String)>,
-    body: String,
+    pub(super) method: String,
+    pub(super) path: String,
+    pub(super) headers: Vec<(String, String)>,
+    pub(super) body: String,
 }
 
 impl Got {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(super) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(name))
@@ -1560,7 +1566,7 @@ fn a_key_rotated_from_the_site_stops_the_old_one_and_closes_its_link() {
 /// the hub's for all; past them the world is verified and stays off until asked again.
 #[test]
 fn approval_onto_the_network_is_held_to_the_daily_allowances() {
-    let f = hub_with(|c| c.approvals_per_day = 4);
+    let f = hub_with(|c| c.approvals_per_day = Some(4));
     let ann = sign_in(&f, "591");
     let bob = sign_in(&f, "592");
     let verify = |session: &str, slug: &str| {
@@ -1741,6 +1747,58 @@ fn registrations_attempts_and_reports_are_rate_limited() {
         &json!({ "slug": "t1", "reason": "spam" }),
     );
     assert_eq!(a.status, 409, "one open report of a world");
+    f.running.shutdown();
+}
+
+/// Spec: hub: the hub's admins are held to none of one operator's own allowances: an admin
+/// registers past a day's registrations and past the worlds one operator holds, and its world's
+/// verification call is counted past an hour's attempts, where another operator's is refused.
+#[test]
+fn an_admin_registers_and_verifies_past_one_operators_allowances() {
+    use dereth_network_hub::operators::limits;
+    let f = hub();
+    let admin = sign_in(&f, ADMIN);
+    let mut first = None;
+    for i in 0..=limits::HELD + 1 {
+        let (key, _) = register(&f, &admin, &format!("own{i}"), "127.0.0.1");
+        first.get_or_insert(key);
+    }
+    let key = first.expect("a key");
+    let wrong = format!("dnv_{}", "q".repeat(32));
+    for i in 0..=limits::ATTEMPTS_PER_HOUR + 1 {
+        let a = game_verify(&f, "own0", &key, &wrong, &[]);
+        assert_eq!(
+            (a.status, a.reason()),
+            (422, "wrong_token".to_owned()),
+            "attempt {i}"
+        );
+    }
+    let ann = sign_in(&f, "603");
+    let (key, _) = register(&f, &ann, "theirs", "127.0.0.1");
+    for i in 0..limits::ATTEMPTS_PER_HOUR {
+        let a = game_verify(&f, "theirs", &key, &wrong, &[]);
+        assert_eq!(a.status, 422, "attempt {i}");
+    }
+    let a = game_verify(&f, "theirs", &key, &wrong, &[]);
+    assert_eq!(a.status, 429, "another operator's attempt past the hour's");
+    f.running.shutdown();
+}
+
+/// Spec: hub: an admin's requests take from its client address's allowance, as everyone's do.
+#[test]
+fn an_admin_is_held_to_its_client_addresss_allowance() {
+    let f = hub_with(|c| c.http_per_minute = 1);
+    // A session made on the hub's side: signing in would spend the address's allowance.
+    let session = {
+        let reg = f.running.registry();
+        let admin = reg.signed_in(ADMIN, "Admin").expect("signed in");
+        reg.new_session(&admin).expect("a session")
+    };
+    let me = op(&f, &session, "GET", "/v1/operator", &Value::Null);
+    assert_eq!(me.status, 200, "{me:?}");
+    assert_eq!(me.json()["operator"]["admin"], true);
+    let again = op(&f, &session, "GET", "/v1/operator", &Value::Null);
+    assert_eq!(again.status, 429, "{again:?}");
     f.running.shutdown();
 }
 
@@ -2130,4 +2188,355 @@ fn only_an_admin_registers_under_the_hubs_domain_and_links_follow_the_configurat
     );
     assert_ne!(s.status, 404, "{s:?}");
     f.running.shutdown();
+}
+
+// ---- the hub's settings -------------------------------------------------------------------------
+
+const DAY: u64 = 86_400;
+
+/// The settings, as `session` asks for them.
+fn settings(f: &Fixture, session: &str) -> Answer {
+    op(f, session, "GET", "/v1/admin/settings", &Value::Null)
+}
+
+/// A change to the settings, as `session` asks for it.
+fn change(f: &Fixture, session: &str, body: &Value) -> Answer {
+    op(f, session, "PUT", "/v1/admin/settings", body)
+}
+
+/// The admin signed in, changing `body`, which the hub takes.
+fn admin_sets(f: &Fixture, admin: &str, body: &Value) {
+    let a = change(f, admin, body);
+    assert_eq!(a.status, 200, "{a:?}");
+}
+
+/// The slugs of `session`'s worlds.
+fn worlds_of(f: &Fixture, session: &str) -> Vec<String> {
+    op(f, session, "GET", "/v1/operator/worlds", &Value::Null).json()["worlds"]
+        .as_array()
+        .expect("worlds")
+        .iter()
+        .filter_map(|w| w["slug"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Spec: hub: the admins read each setting's value, its default and its bounds, and change any of
+/// them by name; a value that is not a whole number within its setting's bounds, a name that is
+/// not a setting and a body that names none are refused `400`, naming the setting, and change
+/// nothing; each value set is an event of the hub's settings log naming the admin; an operator who
+/// is not an admin is refused every route.
+#[test]
+fn the_admins_read_and_change_the_settings_within_their_bounds() {
+    let f = hub();
+    let admin = sign_in(&f, ADMIN);
+    let defaults = json!({
+        "approvalsPerDay": { "value": 500, "default": 500, "min": 0, "max": 100_000 },
+        "minAccountAgeDays": { "value": 30, "default": 30, "min": 0, "max": 3_650 },
+        "pendingDays": { "value": 14, "default": 14, "min": 1, "max": 365 },
+    });
+    let read = settings(&f, &admin);
+    assert_eq!((read.status, read.json()), (200, defaults.clone()));
+    for (body, named) in [
+        (json!({ "approvalsPerDay": 100_001 }), "approvalsPerDay"),
+        (json!({ "approvalsPerDay": -1 }), "approvalsPerDay"),
+        (json!({ "minAccountAgeDays": 3_651 }), "minAccountAgeDays"),
+        (json!({ "minAccountAgeDays": "30" }), "minAccountAgeDays"),
+        (json!({ "pendingDays": 0 }), "pendingDays"),
+        (json!({ "pendingDays": 366 }), "pendingDays"),
+        (json!({ "pendingDays": 7.5 }), "pendingDays"),
+        (
+            json!({ "approvalsPerDay": 40, "pendingDays": 0 }),
+            "pendingDays",
+        ),
+        (json!({ "approvalsPerDay": 40, "ceiling": 1 }), "ceiling"),
+        (json!({}), "approvalsPerDay, minAccountAgeDays, pendingDays"),
+    ] {
+        let a = change(&f, &admin, &body);
+        assert_eq!(a.status, 400, "{body}: {a:?}");
+        let message = a.json()["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        assert!(message.contains(named), "{body}: {message}");
+    }
+    assert_eq!(settings(&f, &admin).json(), defaults, "nothing changed");
+
+    let set = change(
+        &f,
+        &admin,
+        &json!({ "approvalsPerDay": 0, "minAccountAgeDays": 3_650, "pendingDays": 365 }),
+    );
+    assert_eq!(set.status, 200, "{set:?}");
+    assert_eq!(
+        (
+            &set.json()["approvalsPerDay"]["value"],
+            &set.json()["minAccountAgeDays"]["value"],
+            &set.json()["pendingDays"]["value"],
+            &set.json()["pendingDays"]["default"],
+        ),
+        (&json!(0), &json!(3_650), &json!(365), &json!(14)),
+        "the bounds themselves are taken"
+    );
+    let me = op(&f, &admin, "GET", "/v1/operator", &Value::Null).json()["operator"]["id"].clone();
+    let log = op(&f, &admin, "GET", "/v1/admin/settings/log", &Value::Null);
+    assert_eq!(log.status, 200);
+    let events = log.json()["events"].as_array().expect("events").clone();
+    assert_eq!(events.len(), 3, "{events:?}");
+    assert!(events
+        .iter()
+        .all(|e| e["kind"] == "setting" && e["actor"] == me));
+    assert_eq!(
+        events[2]["details"],
+        json!({ "name": "approvalsPerDay", "value": 0, "was": 500 })
+    );
+
+    let ann = sign_in(&f, "701");
+    for (method, path, body) in [
+        ("GET", "/v1/admin/settings", Value::Null),
+        (
+            "PUT",
+            "/v1/admin/settings",
+            json!({ "approvalsPerDay": 900 }),
+        ),
+        ("GET", "/v1/admin/settings/log", Value::Null),
+    ] {
+        assert_eq!(
+            op(&f, &ann, method, path, &body).status,
+            403,
+            "{method} {path}"
+        );
+    }
+    assert_eq!(settings(&f, &admin).json()["approvalsPerDay"]["value"], 0);
+    assert_eq!(
+        op(&f, &admin, "GET", "/v1/admin/settings/more", &Value::Null).status,
+        404
+    );
+    f.running.shutdown();
+}
+
+/// Spec: hub: a change to the hub's approvals a day holds at once: lowered, the next world
+/// verified is held off the network; raised, the world held back is approved when asked again.
+#[test]
+fn a_change_to_the_approvals_a_day_holds_at_once() {
+    let f = hub();
+    let admin = sign_in(&f, ADMIN);
+    let ann = sign_in(&f, "711");
+    let bob = sign_in(&f, "712");
+    let verified = |session: &str, slug: &str| {
+        let (key, token) = register(&f, session, slug, "127.0.0.1");
+        game_verify(&f, slug, &key, &token, &[]).json()["approval"].clone()
+    };
+    assert_eq!(verified(&ann, "first"), "approved");
+    admin_sets(&f, &admin, &json!({ "approvalsPerDay": 1 }));
+    assert_eq!(
+        verified(&bob, "second"),
+        "rate_limited",
+        "the day's one approval is spent"
+    );
+    admin_sets(&f, &admin, &json!({ "approvalsPerDay": 2 }));
+    let asked = op(
+        &f,
+        &bob,
+        "PUT",
+        "/v1/operator/worlds/second/federation",
+        &json!({ "flag": "on" }),
+    );
+    assert_eq!(
+        (asked.status, asked.json()["approval"].clone()),
+        (200, json!("approved")),
+        "{asked:?}"
+    );
+    f.running.shutdown();
+}
+
+/// Spec: hub: a change to the age a Discord account needs holds at once, for registering a world
+/// and for claiming a listing alike.
+#[test]
+fn a_change_to_the_account_age_holds_at_once() {
+    let f = hub();
+    listing(&f, "listed", "127.0.0.1");
+    listing(&f, "another", "127.0.0.1");
+    let admin = sign_in(&f, ADMIN);
+    let young = sign_in(&f, &snowflake(10));
+    let registers = |slug: &str| {
+        op(
+            &f,
+            &young,
+            "POST",
+            "/v1/operator/worlds",
+            &world(slug, "127.0.0.1"),
+        )
+    };
+    let claims = |slug: &str| {
+        op(
+            &f,
+            &young,
+            "POST",
+            &format!("/v1/operator/worlds/{slug}/claim"),
+            &Value::Null,
+        )
+    };
+    assert_eq!(registers("young").reason(), "account_too_new");
+    assert_eq!(claims("listed").reason(), "account_too_new");
+    admin_sets(&f, &admin, &json!({ "minAccountAgeDays": 5 }));
+    assert_eq!(registers("young").status, 201, "ten days are enough now");
+    assert_eq!(claims("listed").status, 201);
+    admin_sets(&f, &admin, &json!({ "minAccountAgeDays": 20 }));
+    let refused = registers("younger");
+    assert_eq!(refused.reason(), "account_too_new");
+    assert!(
+        refused.json()["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("20 days")),
+        "{refused:?}"
+    );
+    assert_eq!(claims("another").reason(), "account_too_new");
+    f.running.shutdown();
+}
+
+/// Spec: hub: a change to the days a world may stay `pending` holds at once, counted from when
+/// each world was registered: shortened, a world registered longer ago lapses; lengthened, a
+/// world past the old days is kept.
+#[test]
+fn a_change_to_the_pending_days_holds_at_once() {
+    let f = hub();
+    let admin = sign_in(&f, ADMIN);
+    let ann = sign_in(&f, "721");
+    register(&f, &ann, "waits", "127.0.0.1");
+    f.advance(Duration::from_secs(3 * DAY));
+    assert_eq!(worlds_of(&f, &ann), ["waits"], "fourteen days by default");
+    admin_sets(&f, &admin, &json!({ "pendingDays": 2 }));
+    assert!(worlds_of(&f, &ann).is_empty(), "lapsed at once");
+
+    register(&f, &ann, "keeps", "127.0.0.1");
+    f.advance(Duration::from_secs(DAY));
+    admin_sets(&f, &admin, &json!({ "pendingDays": 30 }));
+    f.advance(Duration::from_secs(5 * DAY));
+    assert_eq!(worlds_of(&f, &ann), ["keeps"], "kept past the two days");
+    admin_sets(&f, &admin, &json!({ "pendingDays": 5 }));
+    assert!(worlds_of(&f, &ann).is_empty());
+    f.running.shutdown();
+}
+
+/// Spec: hub: a flag given at start seeds its setting when the registry holds no value of it, as
+/// an event of the hub's operator's; a setting no flag gave stays its default.
+#[test]
+fn a_flag_at_start_seeds_an_empty_registry() {
+    let f = hub_with(|c| {
+        c.pending_days = Some(2);
+        c.approvals_per_day = Some(500);
+    });
+    let admin = sign_in(&f, ADMIN);
+    let read = settings(&f, &admin).json();
+    assert_eq!(read["pendingDays"]["value"], 2);
+    assert_eq!(read["pendingDays"]["default"], 14);
+    assert_eq!(read["approvalsPerDay"]["value"], 500);
+    assert_eq!(read["minAccountAgeDays"]["value"], 30);
+    let log = op(&f, &admin, "GET", "/v1/admin/settings/log", &Value::Null).json();
+    let seeded: Vec<(Value, Value)> = log["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .map(|e| (e["actor"].clone(), e["details"].clone()))
+        .collect();
+    assert_eq!(
+        seeded,
+        [
+            (
+                json!("hub-operator"),
+                json!({ "name": "pendingDays", "value": 2, "was": 14,
+                        "flag": "--pending-days" })
+            ),
+            (
+                json!("hub-operator"),
+                json!({ "name": "approvalsPerDay", "value": 500, "was": 500,
+                        "flag": "--approvals-per-day" })
+            ),
+        ]
+    );
+    // The seeded days hold for the worlds registered.
+    let ann = sign_in(&f, "731");
+    register(&f, &ann, "brief", "127.0.0.1");
+    f.advance(Duration::from_secs(2 * DAY + 1));
+    assert!(worlds_of(&f, &ann).is_empty());
+    f.running.shutdown();
+}
+
+/// Spec: hub: once the registry holds a setting, its value holds over a flag given at start that
+/// differs, which is ignored with a line in the log naming both values; a flag that agrees says
+/// nothing; a flag outside its setting's bounds stops the hub from starting.
+#[test]
+fn the_registrys_value_holds_over_a_differing_flag_and_the_log_says_so() {
+    let dir = std::env::temp_dir().join(format!("dereth-hub-settings-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let db = dir.join("hub.sqlite").to_str().expect("a path").to_owned();
+    let open = || {
+        Registry::open(&db, "dereth.network", Box::new(std::time::SystemTime::now))
+            .expect("a registry")
+    };
+    open()
+        .set_settings(&[(Setting::ApprovalsPerDay, 300)], Some("op_admin"))
+        .expect("an admin's change");
+    let serve = |flags: &[&str]| {
+        let mut args = vec![
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--run-for",
+            "0",
+            "--db",
+            &db,
+        ];
+        args.extend_from_slice(flags);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dereth-network-hub"));
+        command.args(&args);
+        for var in [
+            "DERETH_HUB_DB",
+            "DERETH_HUB_ADMINS",
+            "DERETH_HUB_PUBLIC_URL",
+            "DERETH_HUB_SITE_ORIGINS",
+            "DERETH_HUB_DISCORD_CLIENT_ID",
+            "DERETH_HUB_DISCORD_CLIENT_SECRET",
+            "DERETH_HUB_DISCORD_BOT_TOKEN",
+        ] {
+            command.env_remove(var);
+        }
+        let out = command.output().expect("the hub runs");
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (ran, log) = serve(&["--approvals-per-day", "400", "--pending-days", "21"]);
+    assert!(ran, "{log}");
+    assert!(
+        log.contains(
+            "--approvals-per-day 400 is ignored: the registry holds 300 for approvalsPerDay"
+        ),
+        "{log}"
+    );
+    assert!(
+        log.contains("--pending-days 21 is now the hub's setting pendingDays"),
+        "{log}"
+    );
+    let r = open();
+    assert_eq!(r.setting(Setting::ApprovalsPerDay), Ok(300));
+    assert_eq!(r.setting(Setting::PendingDays), Ok(21));
+    drop(r);
+
+    let (ran, log) = serve(&["--approvals-per-day", "300", "--pending-days", "21"]);
+    assert!(ran, "{log}");
+    assert!(
+        !log.contains("--approvals-per-day") && !log.contains("--pending-days"),
+        "flags that agree say nothing: {log}"
+    );
+    let (ran, log) = serve(&["--pending-days", "0"]);
+    assert!(!ran, "{log}");
+    assert!(
+        log.contains("--pending-days 0: a whole number from 1 to 365"),
+        "{log}"
+    );
+    assert_eq!(open().settings_log(10).expect("the log").len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
 }

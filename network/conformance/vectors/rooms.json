@@ -1,0 +1,90 @@
+{
+  "about": "The rooms messages (docs/network/02-link-protocol.md section 10): the hub tells a world which of its own rooms carries the Global room and which it mirrors into Discord for it, and the world sets the first, or seeds it. Every `ok` frame must read as its type, and a write of what was read must hold every field of the frame with the same value and read back unchanged; where an `ok` case gives `expect`, the message read must have those field values (`id` and `global` null when left out, `seed` false when left out). Every `later` frame must read, leaving out what it adds, as a later version may add fields. A reader of the rooms messages alone skips every `unknown` frame, the other link messages among them; every `malformed` frame is refused. In a frame, `${c*N}` stands for the character c written N times.",
+  "ok": [
+    {
+      "type": "rooms",
+      "frame": "{\"type\":\"rooms\",\"global\":\"roleplay\",\"mirrored\":[\"general\",\"trade\"]}",
+      "expect": {
+        "id": null,
+        "global": "roleplay",
+        "mirrored": ["general", "trade"]
+      }
+    },
+    {
+      "type": "rooms",
+      "frame": "{\"type\":\"rooms\",\"mirrored\":[]}",
+      "expect": {
+        "global": null,
+        "mirrored": []
+      },
+      "note": "the hub holds no room for the world: it sends its own, once"
+    },
+    {
+      "type": "rooms",
+      "frame": "{\"type\":\"rooms\",\"id\":\"g1790000000-3\",\"global\":\"off\",\"mirrored\":[\"general\",\"trade\",\"lfg\",\"roleplay\"]}",
+      "expect": {
+        "id": "g1790000000-3",
+        "global": "off",
+        "mirrored": ["general", "trade", "lfg", "roleplay"]
+      },
+      "note": "the answer to a world's own ask; carried nowhere, so every own room may be mirrored"
+    },
+    {
+      "type": "rooms.global",
+      "frame": "{\"type\":\"rooms.global\",\"id\":\"g1790000000-3\",\"room\":\"trade\"}",
+      "expect": {
+        "id": "g1790000000-3",
+        "room": "trade",
+        "seed": false
+      }
+    },
+    {
+      "type": "rooms.global",
+      "frame": "{\"type\":\"rooms.global\",\"id\":\"${i*64}\",\"room\":\"off\"}",
+      "expect": {
+        "room": "off"
+      },
+      "note": "the longest id, and the Global room carried nowhere"
+    },
+    {
+      "type": "rooms.global",
+      "frame": "{\"type\":\"rooms.global\",\"id\":\"g1790000000-1\",\"room\":\"roleplay\",\"seed\":true}",
+      "expect": {
+        "room": "roleplay",
+        "seed": true
+      },
+      "note": "a seed: taken only while the hub holds none"
+    }
+  ],
+  "later": [
+    "{\"type\":\"rooms\",\"global\":\"roleplay\",\"mirrored\":[],\"names\":{\"roleplay\":\"Roleplay\"}}",
+    "{\"type\":\"rooms.global\",\"id\":\"g1\",\"room\":\"trade\",\"by\":\"Ann\"}"
+  ],
+  "unknown": [
+    "{\"type\":\"rooms.set\",\"id\":\"g1\",\"room\":\"trade\"}",
+    "{\"type\":\"room.join\",\"room\":\"global\",\"on\":true}",
+    "{\"type\":\"say\",\"id\":\"h12\",\"room\":\"global\",\"who\":\"Ann@coldeve\",\"text\":\"hi\",\"via\":\"discord\"}",
+    "{\"type\":\"welcome\",\"proto\":1,\"world\":\"coldeve\",\"hub\":\"h\",\"worlds\":[],\"rooms\":[\"global\"]}"
+  ],
+  "malformed": [
+    "{\"type\":\"rooms\",\"global\":\"roleplay\"}",
+    "{\"type\":\"rooms\",\"global\":\"global\",\"mirrored\":[]}",
+    "{\"type\":\"rooms\",\"global\":\"Roleplay\",\"mirrored\":[]}",
+    "{\"type\":\"rooms\",\"global\":\"society\",\"mirrored\":[]}",
+    "{\"type\":\"rooms\",\"global\":\"\",\"mirrored\":[]}",
+    "{\"type\":\"rooms\",\"global\":\"roleplay\",\"mirrored\":[\"roleplay\"]}",
+    "{\"type\":\"rooms\",\"global\":\"trade\",\"mirrored\":[\"general\",\"general\"]}",
+    "{\"type\":\"rooms\",\"global\":\"trade\",\"mirrored\":[\"global\"]}",
+    "{\"type\":\"rooms\",\"global\":\"trade\",\"mirrored\":\"general\"}",
+    "{\"type\":\"rooms\",\"id\":\"\",\"global\":\"trade\",\"mirrored\":[]}",
+    "{\"type\":\"rooms\",\"id\":\"${i*65}\",\"global\":\"trade\",\"mirrored\":[]}",
+    "{\"type\":\"rooms.global\",\"id\":\"g1\"}",
+    "{\"type\":\"rooms.global\",\"room\":\"trade\"}",
+    "{\"type\":\"rooms.global\",\"id\":\"\",\"room\":\"trade\"}",
+    "{\"type\":\"rooms.global\",\"id\":\"g1\",\"room\":\"global\"}",
+    "{\"type\":\"rooms.global\",\"id\":\"g1\",\"room\":\"LFG\"}",
+    "{\"type\":\"rooms.global\",\"id\":\"g1\",\"room\":\"trade\",\"seed\":\"yes\"}",
+    "{\"type\":\"rooms.global\",\"id\":\"g1\",\"room\":\"trade\",\"seed\":1}",
+    "{\"type\":\"rooms\",\"global\":\"trade\",\"mirrored\":[],\"pad\":\"${x*16400}\"}"
+  ]
+}

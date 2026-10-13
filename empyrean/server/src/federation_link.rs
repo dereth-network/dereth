@@ -238,16 +238,7 @@ pub fn prepare(
         ));
     }
     let url = HubUrl::parse(&config.hub_url)?;
-    let global_room = if config.global_room.trim().is_empty() {
-        None
-    } else {
-        Some(RoomSlot::parse(&config.global_room).ok_or_else(|| {
-            format!(
-                "federation.global_room {:?}: general, trade, lfg, roleplay or empty",
-                config.global_room
-            )
-        })?)
-    };
+    let global_room = global_room(config.global_room.as_deref())?;
     let key_path = resolve(&config.key_file);
     let key = std::fs::read_to_string(&key_path)
         .map_err(|e| format!("federation.key_file {}: {e}", key_path.display()))?
@@ -266,6 +257,7 @@ pub fn prepare(
             enabled: true,
             slug: config.slug.clone(),
             global_room,
+            global_room_named: config.global_room.is_some(),
             min_character_age_secs: config.min_character_age_seconds,
         },
         store,
@@ -273,6 +265,21 @@ pub fn prepare(
         key,
         store_path,
     }))
+}
+
+/// `federation.global_room`: the room the world carries the Global room in until its hub keeps
+/// one, and tells a hub that keeps none; Roleplay when not set, and none when empty.
+///
+/// # Errors
+/// A name that is not one of the four rooms.
+fn global_room(named: Option<&str>) -> Result<Option<RoomSlot>, String> {
+    match named.map(str::trim) {
+        None => Ok(Some(RoomSlot::Roleplay)),
+        Some("") => Ok(None),
+        Some(name) => RoomSlot::parse(name).map(Some).ok_or_else(|| {
+            format!("federation.global_room {name:?}: general, trade, lfg, roleplay or empty")
+        }),
+    }
 }
 
 /// The saved records; none yet is an empty store.
@@ -970,6 +977,7 @@ mod tests {
                 enabled: true,
                 slug: "bb".into(),
                 global_room: None,
+                global_room_named: false,
                 min_character_age_secs: 0,
             },
             NetworkStore::default(),
@@ -1282,6 +1290,7 @@ mod tests {
                 enabled: true,
                 slug: "aa".into(),
                 global_room: None,
+                global_room_named: false,
                 min_character_age_secs: 0,
             },
             store: NetworkStore::default(),
@@ -1325,12 +1334,13 @@ mod tests {
         let config = FederationConfiguration {
             enabled: true,
             slug: "aa".into(),
-            global_room: "roleplay".into(),
+            global_room: Some("trade".into()),
             ..FederationConfiguration::default()
         };
         let resolve = |p: &str| dir.join(p);
         let ok = prepare(&config, resolve).expect("prepared").expect("on");
-        assert_eq!(ok.settings.global_room, Some(RoomSlot::Roleplay));
+        assert_eq!(ok.settings.global_room, Some(RoomSlot::Trade));
+        assert!(ok.settings.global_room_named);
         assert_eq!(
             ok.store,
             NetworkStore::default(),
@@ -1345,5 +1355,14 @@ mod tests {
         std::fs::write(&key, "not a key").expect("a bad key");
         assert!(prepare(&config, resolve).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Divergence: V449
+    #[test]
+    fn the_settings_global_room_is_roleplay_unless_named_and_none_when_empty() {
+        assert_eq!(global_room(None), Ok(Some(RoomSlot::Roleplay)));
+        assert_eq!(global_room(Some(" General ")), Ok(Some(RoomSlot::General)));
+        assert_eq!(global_room(Some("")), Ok(None));
+        assert!(global_room(Some("global")).is_err());
     }
 }

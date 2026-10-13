@@ -12,7 +12,8 @@ internal static unsafe class UnitChecks
     {
         StandInIds(c);
         Buckets(c);
-        SettingsWords(c);
+        Settings(c);
+        HelpLines(c);
         TextExtras(c);
         WindowsBestFit(c);
         StoreFile(c);
@@ -27,6 +28,11 @@ internal static unsafe class UnitChecks
         FloodChecks.Run(c);
         VerifyChecks.Run(c);
         PersonChecks.Run(c);
+        DirectoryChecks.Run(c);
+        DiscordMirrorChecks.Run(c);
+        ReachChecks.Run(c);
+        SayChecks.Run(c);
+        RoomsChecks.Run(c);
     }
 
     private static Address A(string s) => Address.Parse(s) ?? throw new ArgumentException(s);
@@ -74,16 +80,51 @@ internal static unsafe class UnitChecks
             && Limits.Default.MessagesPerWorld == new Rate(200, 50), "the default limits are the specification's");
     }
 
-    private static void SettingsWords(Checks c)
+    private static void Settings(Checks c)
     {
         const string s = "units/settings";
-        c.Check(s, Words.TryVisible("Anyone", out var v) && v == Visible.Anyone, "visible reads its words");
-        c.Check(s, Words.TryReachable("friends", out var r) && r == Reachable.Friends, "reachable reads its words");
-        c.Check(s, !Words.TryReachable("channel", out _), "reachable has no channel");
-        c.Check(s, CharacterSettings.Off == new CharacterSettings(false, Visible.Nobody, Reachable.Nobody, Listed.Off),
-            "a character starts with every setting off");
-        c.Check(s, CharacterSettings.OptedIn == new CharacterSettings(true, Visible.Friends, Reachable.Anyone, Listed.Off),
-            "opting in shows the character to mutual friends and lets anyone tell it");
+        c.Check(s, CharacterSettings.Off == new CharacterSettings(false) && !CharacterSettings.Off.On, "a character starts off the network");
+        c.Check(s, CharacterSettings.OnNetwork.On, "on the network is the one setting");
+        // A file the network's first version wrote kept who saw and reached the character, and
+        // whether it was listed: it reads as whether it was on the network alone.
+        var earlier = """
+            {"stand_ins":{"next":1610612737,"by_key":{},"by_id":{}},
+             "characters":{"1342177281":{"settings":{"on":true,"visible":"nobody","reachable":"nobody","listed":"off"},
+                                         "friends":{},"squelched":{},"squelched_worlds":[],"taken_out":"person"},
+                           "1342177282":{"settings":{"on":false,"visible":"anyone","reachable":"anyone","listed":"on"},
+                                         "friends":{},"squelched":{},"squelched_worlds":[],"taken_out":"taken_down"}},
+             "blocked":[]}
+            """;
+        var st = NetworkStore.FromJson(earlier);
+        c.Check(s, st.Characters[0x5000_0001].Settings == CharacterSettings.OnNetwork
+            && st.Characters[0x5000_0002].Settings == CharacterSettings.Off, "a saved record of more settings reads as its on alone");
+        c.Check(s, st.Characters[0x5000_0001].TakenOut == TakenOut.Operator && st.Characters[0x5000_0002].TakenOut == TakenOut.Operator,
+            "a reason the first version kept for taking a character out reads as the operator's");
+        var json = st.ToJson();
+        using var written = System.Text.Json.JsonDocument.Parse(json);
+        var settings = written.RootElement.GetProperty("characters").GetProperty("1342177281").GetProperty("settings");
+        c.Check(s, settings.EnumerateObject().Select(p => p.Name).SequenceEqual(["on"]) && settings.GetProperty("on").GetBoolean(),
+            "and is written as on alone: " + json);
+    }
+
+    private static void HelpLines(Checks c)
+    {
+        const string s = "units/help";
+        var lines = NetworkWorld.Help().Split('\n');
+        c.Check(s, lines.Length == NetworkWorld.Commands.Count && lines[1] == "@dn on - put this character on the Dereth Network",
+            "help is one line per command, the command, a dash and what it does");
+        foreach (var l in lines.Concat(NetworkWorld.AdminHelp("@dn").Split('\n')))
+        {
+            c.Check(s, l.StartsWith('@') && l.Split(" - ").Length == 2 && !l.Contains("  ") && l.Trim() == l,
+                $"a help line has no padding and one dash: {l}");
+            foreach (var gone in new[] { "visible", "reachable", "listed", "alts", "worlds", "status" })
+                c.Check(s, !l.StartsWith("@dn " + gone, StringComparison.Ordinal), $"no help line names a removed command: {l}");
+        }
+        c.Check(s, NetworkWorld.Usage("@dn friends add") == "@dn friends add <Name@world> - add a friend on another world",
+            "a command given wrongly is answered with its own line");
+        c.Check(s, NetworkWorld.Usage("@dn nothing") == NetworkWorld.Help(), "and one there is none for with the help");
+        c.Check(s, NetworkWorld.AdminHelp("dn").StartsWith("dn admin block <world or Name@world> - ", StringComparison.Ordinal),
+            "the console's help is typed dn");
     }
 
     private static void TextExtras(Checks c)
@@ -137,7 +178,7 @@ internal static unsafe class UnitChecks
         const string s = "units/store";
         var st = new NetworkStore();
         st.StandIns.IdFor(A("Bob@coldeve"));
-        var rec = new CharacterRecord { Settings = new CharacterSettings(true, Visible.Anyone, Reachable.Friends, Listed.On) };
+        var rec = new CharacterRecord { Settings = CharacterSettings.OnNetwork };
         rec.Friends[A("Bob@coldeve").Key] = A("Bob@coldeve");
         rec.Squelched[A("Eve@frost").Key] = A("Eve@frost");
         rec.SquelchedWorlds.Add("spam");
@@ -298,7 +339,7 @@ internal static unsafe class UnitChecks
         w.Pump();
 
         w.World.Global(ann, "anyone around?");
-        c.Check(s, w.Host.To(ann).Last().Text == "You are not on the Dereth Network. Type /dn on to join it."
+        c.Check(s, w.Host.To(ann).Last().Text == "You are not on the Dereth Network. Type @dn on to join it."
             && w.Host.Shown.All(x => x.Kind != "room"), "/dng off the network is refused, and nothing is said");
 
         w.World.Dn(ann, ["on"]);
@@ -323,7 +364,7 @@ internal static unsafe class UnitChecks
         w.Host.Characters[ann].Gagged = false;
 
         w.World.Global(ann, "   ");
-        c.Check(s, w.Host.To(ann).Last().Text == "/dng <text>: say a line in the Global room.", "/dng without text says how to use it");
+        c.Check(s, w.Host.To(ann).Last().Text == "@dng <text> - say a line in the Global room", "/dng without text says how to use it");
 
         var bare = TestWorld.Make("bravo", new MemoryLink(), () => clock.Now, room: null);
         var bob = bare.Host.Add(0x5000_0001, "Bob").Id;
@@ -346,9 +387,9 @@ internal static unsafe class UnitChecks
             "the old room setting's name is refused, naming the new one");
         c.Check(s, ModSettings.Problem("{ \"Slug\": \"alpha\", \"GlobalRoom\": \"General\", }") is null
             && ModSettings.FromJson("{ \"GlobalRoom\": \"General\" }").GlobalRoom == "General", "the new name is read");
-        c.Check(s, ModSettings.FromJson("{ \"Slug\": \"alpha\" }").GlobalRoom == "Roleplay"
+        c.Check(s, ModSettings.FromJson("{ \"Slug\": \"alpha\" }").GlobalRoom is null
             && ModSettings.FromJson("{ \"Slug\": \"alpha\" }").HubUrl == "wss://hub.dereth.network",
-            "unset, Global is carried by Roleplay and the hub is the public one");
+            "unset, the Global room's setting is not named (Roleplay carries it until the hub says) and the hub is the public one");
     }
 
     private static string SourceFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
@@ -446,21 +487,40 @@ internal static unsafe class UnitChecks
 
         // Off the network: told how to join, and nothing leaves the world.
         c.Check(s, w.World.TellByName(ann, "Bob@bravo", "hi").Kind == RouteKind.Handled, "an address is the network's");
-        c.Check(s, w.Host.To(ann).Last().Text == "You are not on the Dereth Network. Type /dn on to join it." && w.World.Queued == 0,
+        c.Check(s, w.Host.To(ann).Last().Text == "You are not on the Dereth Network. Type @dn on to join it." && w.World.Queued == 0,
             "a character off the network is told how to join, and nothing is sent");
         c.Check(s, w.World.TellByName(ann, "Bob", "hi").Kind == RouteKind.NotMine, "a plain name is the world's own");
         var local = w.World.TellByName(ann, "Cy@alpha", "hi");
         c.Check(s, local.Kind == RouteKind.Local && local.LocalName == "Cy", "this world's own address is a local tell");
 
+        w.World.Dn(ann, ["status"]);
+        c.Check(s, w.Host.To(ann).Last().Text == "You are not on the Dereth Network. Type @dn on to join it as Ann@alpha.",
+            "/dn says how to join, and as what");
+        var m1 = w.Host.To(ann).Count;
         w.World.Dn(ann, ["on"]);
-        c.Check(s, w.World.SettingsOf(ann) == CharacterSettings.OptedIn
-            && w.Host.To(ann).Last().Text.StartsWith("You are on the Dereth Network as Ann@alpha.", StringComparison.Ordinal),
-            "/dn on opts in, seen by mutual friends and reachable by anyone");
-        w.World.Dn(ann, ["visible", "anyone"]);
+        var joined = w.Host.To(ann).Skip(m1).Select(x => x.Text).ToList();
+        c.Check(s, w.World.SettingsOf(ann) == CharacterSettings.OnNetwork && joined.SequenceEqual(new[]
+            {
+                "You are on the Dereth Network as Ann@alpha. Anyone on the network can see when you are online, send you tells and find your profile in its directory. Type @dn help for the commands.",
+                "Your profile shows your level, skills, allegiance and more, and changes as you play. Type @dn off to leave the network.",
+            }), "/dn on puts the character on the network, for anyone to see, tell and look up: " + string.Join(" | ", joined));
+        w.World.Dn(ann, ["on"]);
+        c.Check(s, w.Host.To(ann).Last().Text == "You are on the Dereth Network already, as Ann@alpha.", "a second /dn on says so");
+        w.World.Dn(ann, []);
+        c.Check(s, w.Host.To(ann).Last().Text == "You are on the Dereth Network as Ann@alpha. The hub is not connected. You have no friends on other worlds.",
+            "/dn says the character is on, as what, the hub and its friends");
         w.World.Dn(ann, ["off"]);
+        c.Check(s, w.World.SettingsOf(ann) == CharacterSettings.Off && w.Host.To(ann).Last().Text
+            == "You are off the Dereth Network. Nobody on another world can see you or tell you, and your profile is out of its directory.",
+            "/dn off takes the character off the network");
+        w.World.Dn(ann, ["off"]);
+        c.Check(s, w.Host.To(ann).Last().Text == "You are not on the Dereth Network.", "a second /dn off says so");
+        foreach (var gone in new[] { "visible", "reachable", "listed", "alts", "worlds" })
+        {
+            w.World.Dn(ann, [gone, "anyone"]);
+            c.Check(s, w.Host.To(ann).Last().Text == NetworkWorld.Help(), $"/dn {gone} is no command now, and shows the help");
+        }
         w.World.Dn(ann, ["on"]);
-        c.Check(s, w.World.SettingsOf(ann)?.Visible == Visible.Anyone, "opting in again keeps the settings");
-        w.World.Dn(ann, ["visible", "friends"]);
         c.Check(s, w.World.AddFriend(ann, "Bob@bravo") && w.Host.To(ann).Any(x => x.Kind == "friend" && x.Row == FriendRowKind.Added
             && x.Name == "Bob@bravo" && x.Id == StandIns.First && !x.Online), "a remote friend is an added row under its stand-in id, offline");
         c.Check(s, w.World.AddFriend(ann, "bob@BRAVO") && w.Host.To(ann).Last().Text == "That character is already in your friends list",
@@ -474,7 +534,9 @@ internal static unsafe class UnitChecks
         w.World.Dn(ann, ["friends", "add", "Bob@bravo"]);
         c.Check(s, w.Host.To(ann).Last().Text == "Bob@bravo has been added to your friends list.", "/dn friends add adds as @friends add does");
         w.World.Dn(ann, ["friends", "add", "Bob"]);
-        c.Check(s, w.Host.To(ann).Last().Text == "/dn friends add Name@world: a character on another world.", "/dn friends add takes an address");
+        c.Check(s, w.Host.To(ann).Last().Text == "@dn friends add <Name@world> - add a friend on another world", "/dn friends add takes an address");
+        w.World.Dn(ann, ["friends"]);
+        c.Check(s, w.Host.To(ann).Last().Text == "Your friends on other worlds:\nBob@bravo: offline", "/dn friends lists them, one to a line");
 
         // Down: the tell waits; up: hello first, then the room, what waited, and the watches last.
         w.World.TellByName(ann, "Bob@bravo", "while down");
@@ -546,24 +608,16 @@ internal static unsafe class UnitChecks
         var res = link.SentMessages().OfType<TellResult>().LastOrDefault();
         c.Check(s, shown is { Kind: "tell", Name: "Bob@bravo" } && shown.Id == StandIns.First && shown.Text == "hi Admin ?"
             && res is { Id: "h1", Outcome: Outcome.Delivered },
-            "a mutual friend's tell is shown from its stand-in id, after the text rules, and answered delivered");
+            "a friend's tell is shown from its stand-in id, after the text rules, and answered delivered");
         link.Frame(1, new Tell("h2a", A("Yan@bravo"), A("Ann@alpha"), "hello there", false));
         w.Pump();
         res = link.SentMessages().OfType<TellResult>().Last();
         c.Check(s, res is { Id: "h2a", Outcome: Outcome.Delivered } && w.Host.To(ann).Last().Text == "hello there",
-            "a stranger's first tell reaches a character opted in as it was: reachable by anyone");
-        w.World.Dn(ann, ["reachable", "friends"]);
-        link.Frame(1, new Tell("h2", A("Zed@bravo"), A("Ann@alpha"), "spam", false));
-        w.Pump();
-        res = link.SentMessages().OfType<TellResult>().Last();
-        c.Check(s, res is { Id: "h2", Outcome: Outcome.Offline } && w.Host.To(ann).Last().Text != "spam",
-            "a stranger's first tell to a friends-only character is answered offline and not shown");
-        w.World.TellByName(ann, "Zed@bravo", "hello zed");
-        w.Pump();
+            "a stranger's tell reaches a character on the network: anyone may tell it");
         link.Frame(1, new Tell("h3", A("Zed@bravo"), A("Ann@alpha"), "hello ann", false));
         w.Pump();
         res = link.SentMessages().OfType<TellResult>().Last();
-        c.Check(s, res is { Id: "h3", Outcome: Outcome.Delivered }, "anyone the character told may answer within the reply window");
+        c.Check(s, res is { Id: "h3", Outcome: Outcome.Delivered }, "another stranger's too");
         var zedId = w.Host.To(ann).Last().Id;
         var tookById = w.World.TellById(ann, zedId, "by id");
         w.Pump();
@@ -610,7 +664,11 @@ internal static unsafe class UnitChecks
         link.Frame(1, new Watch(bobAddr, A("Ann@alpha"), true));
         w.Pump();
         c.Check(s, link.SentMessages().OfType<Presence>().Last() is { Online: true } p1 && p1.To.ToString() == "Bob@bravo"
-            && p1.Of.ToString() == "Ann@alpha", "a mutual friend's watch is answered online");
+            && p1.Of.ToString() == "Ann@alpha", "a friend's watch is answered online");
+        link.Frame(1, new Watch(A("Yan@bravo"), A("Ann@alpha"), true));
+        w.Pump();
+        c.Check(s, link.SentMessages().OfType<Presence>().Last() is { Online: true } p2 && p2.To.ToString() == "Yan@bravo",
+            "a stranger's watch is answered online too: a character on the network shows online to anyone");
         w.Host.Characters[ann].AppearOffline = true;
         w.World.SettingsChanged(ann);
         w.Pump();
@@ -674,7 +732,8 @@ internal static unsafe class UnitChecks
         c.Check(s, channel is { Op: ChannelOp.Create, Channel: "oldguard" } && channel.By.ToString() == "Ann@alpha", "/dn channel create asks the hub");
         link.Frame(1, new ChannelResult(channel.Id, ChannelOutcome.Ok, "oldguard", [], []));
         w.Pump();
-        c.Check(s, w.Host.To(ann).Last().Text == "Done. Tell the channel with @tell oldguard@channel, text.", "and says what it did");
+        c.Check(s, w.Host.To(ann).Last().Text == "You have made the channel oldguard@channel. Invite someone with @dn channel invite oldguard Name@world.",
+            "and says what it did");
         link.Frame(1, new ChannelLine("oldguard", bobAddr, A("Ann@alpha"), "tonight?"));
         w.Pump();
         var cl = w.Host.To(ann).Last();

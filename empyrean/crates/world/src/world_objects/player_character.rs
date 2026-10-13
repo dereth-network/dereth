@@ -223,7 +223,10 @@ fn current_culture_ignore_case_eq(a: &str, b: &str) -> bool {
 // ACE: Player.HandleActionAddFriend
 /// Adds a friend and updates the database.
 pub fn handle_action_add_friend(w: &mut World, this: ObjectGuid, friend_name: &str) {
-    // Not ACE (V448): a name holding `@` is a friend on another world, kept by the Dereth Network.
+    // Not ACE (V448): with the Dereth Network on, a name given with the mark a line said from
+    // Discord shows beside its speaker names the character without it; a name holding `@` is a
+    // friend on another world, kept by the Dereth Network.
+    let friend_name = crate::federation::given_name(w, friend_name);
     if crate::federation::add_friend(w, this, friend_name) {
         return;
     }

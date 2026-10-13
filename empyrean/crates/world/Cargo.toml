@@ -37,6 +37,8 @@ zlib-rs.workspace = true
 # Not ACE: the Dereth Network's protocol (`src/federation/`), and the saved form of its records.
 dereth-network-protocol.workspace = true
 serde = { workspace = true, features = ["rc"] }
+# Not ACE: the random keys the network's directory knows allegiances by.
+getrandom.workspace = true
 
 [dev-dependencies]
 dereth-client-net = { workspace = true, features = ["test-support"] }

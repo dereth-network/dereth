@@ -58,6 +58,12 @@ make an application, and under **OAuth2**:
 
 The hub asks for the `identify` scope only.
 
+**The Discord broker** (optional: rooms mirrored into Discord servers' channels, tells into persons'
+Discord, and lines persons say from Discord) needs the application's **bot token**: under
+**Bot**, reset the token, and keep it as the client secret is kept, in a file only root reads
+(section 3), never on a command line, in a repository, or in a shell's history. The hub alone holds
+it; no world does.
+
 ## 3. The service (systemd)
 
 A user of its own, a state directory, and a configuration directory the hub's group reads and
@@ -177,6 +183,68 @@ flags (`--discord-client-id`, `--discord-client-secret-file`, `--admin`): system
 service whose credential file is missing. Sign-in then reads as not open yet, and everything else
 works. Put them back, with the secret in its file, when Discord is ready.
 
+For the Discord broker, put the bot token in a file of its own as the secret is
+(`install -o root -g root -m 0600 /dev/null /etc/dereth-network-hub/discord-bot-token`, then the
+token alone on its line), and add to the unit
+`LoadCredential=discord-bot-token:/etc/dereth-network-hub/discord-bot-token` and the flag
+`--discord-bot-token-file %d/discord-bot-token`. The log then says `Discord broker on`;
+`curl -s http://127.0.0.1:8650/v1/config` shows what the broker does. The bot needs no privileged
+intent: it reads nothing in servers, and Discord gives it its own direct messages.
+
+**Tells into persons' Discord.** With sign-in and the bot token, a tell to a linked character
+reaches its person's Discord while the person does not play that character: the bot says each in
+its direct messages, and the person's reply goes back as a tell from that character. There is no
+setting for it. Discord lets the bot message only a user who shares a server with it and lets that
+server's members message them, so add the bot to the network's own Discord server (it needs no
+permission there) and tell players to join it; a person Discord refuses is not tried again for an
+hour. The bot reads a person's direct messages every `--discord-poll-secs` seconds (3) while a
+reply is awaited. The counts are at `GET /v1/admin/discord` under `tells`.
+
+**Mirrors into Discord servers' channels.** A mirror says a room's lines in one channel of a Discord
+server, under each speaker's address. Discord users' lines there stay in Discord; a person speaks
+into a world operator's mirror only as one of its own linked characters, with the bot's `/dn say`
+(below). An admin (`--admin`) mirrors the Global room, and network channels, on the site's admin
+page; each world's operator mirrors its own rooms, and the Global room, into a server it runs, on
+the operator pages. Nothing is set on the command line, and changes take effect at once. A mirror
+goes either way:
+
+1. **Through the bot.** Add the bot to the server at
+   `https://discord.com/oauth2/authorize?client_id=<client id>&scope=bot%20applications.commands&permissions=0`
+   (the site shows it as `invite`): the scopes `bot` and `applications.commands` (the `/dn`
+   command) and no permissions. A server that added the bot before with the scope `bot` alone adds
+   it again at this address to get the command. Then, on the mirror's channel alone
+   (Edit Channel, Permissions, add the bot), allow it View Channel and Manage Webhooks, so it sees no
+   other channel beyond what any member sees. In Discord, turn on Developer Mode (User Settings,
+   Advanced), right-click the channel and Copy Channel ID, and give that id on the site. The hub
+   refuses a channel the bot cannot see or lacks either permission in, and one the asker may not
+   manage webhooks in. The log then says `made the Discord webhook ... for global in the channel
+   ...` (after a restart, that the webhook mirrors it again): the bot keeps one webhook in the
+   channel, named Dereth Network, and says each line through it.
+2. **Through a webhook of your own**, with the bot nowhere in the server: in the channel's settings,
+   Integrations, Webhooks, make a webhook, copy its URL, and give that on the site. The hub keeps the
+   URL secret: it is never logged or shown again. Should the webhook be deleted, the log says the
+   mirror needs another. Such a mirror only receives: without the bot, the server has no `/dn`.
+
+A webhook has Discord's own limits; a line past them is held back, counted at `GET
+/v1/admin/discord` under the mirror's `lines`, and the log sums up each hour. The picture the lines
+show is set on the admin page, as is taking away any world operator's mirror, which is how the
+network moderates the Global room's mirrors in other servers.
+
+**Speaking from Discord.** In a world operator's mirror, a person who linked characters on that
+world chooses one with `/dn identity` and says a line as it with `/dn say <text>`; the hub asks the
+character's world to say it, and the world's line then reaches the other worlds and every mirror,
+marked as said from Discord (`Ann@coldeve (via /dn)` in the mirrors). The admins' mirrors are read
+only. Discord sends each use of the command to the hub, so, once the hub runs with sign-in and the
+bot token, set the application's **Interactions Endpoint URL** in the developer portal (General
+Information) to the hub's public address and `/v1/discord/interactions`
+(`https://hub.dereth.network/v1/discord/interactions`), and save: Discord checks the address there
+and then, so the hub must be running and reachable. The hub reads the application's public key
+with the bot token at its start, and registers the `/dn` command (the log says `the /dn command is
+registered`); it opens no Gateway connection and needs no privileged intent. It refuses any request
+there that Discord did not sign within five minutes of its own clock, so keep the host's clock set
+(NTP). Every answer is seen by the person alone. A world says such lines once it runs a version of
+Empyrean or the ACE mod that knows them; until then the person is told the world did not answer.
+
 ```sh
 systemctl daemon-reload
 systemctl enable --now dereth-network-hub
@@ -185,8 +253,11 @@ journalctl -u dereth-network-hub -f
 
 - `--admin` is the hub operator's own Discord id: it may use the admin routes (the report queue)
   from the site, and register worlds at names under `dereth.network` (your own test worlds, say)
-  from the site's operator pages. Repeat it for each admin. The command line needs no sign-in at
-  all, and registers there too.
+  from the site's operator pages. Repeat it for each admin. An admin is held to none of one
+  operator's own allowances (registrations, worlds and claims held, claims, verification tokens
+  and attempts, page checks, approvals, a world's new keys and changes): only to its address's
+  request allowance, the hub's ceilings and five reports a day. The command line needs no sign-in
+  at all, and registers there too.
 - **Names under the domain.** No world's game endpoint may be `dereth.network`,
   `hub.dereth.network`, `api.dereth.network`, or the host of `--public-url` or a `--site-origin`,
   whoever registers it. Any other name under `dereth.network` is yours alone: refused for every
@@ -204,14 +275,25 @@ journalctl -u dereth-network-hub -f
   ```
 - The log names requests' kinds, worlds and refusals; never a key, a token, a session, the secret
   or a message's text.
-- `--approvals-per-day` (default 500) is the ceiling on worlds joining the network a day on their
-  own, all operators together; each operator's own allowance (3 a day) is what binds.
-- `--min-account-age-days` (default 30) is how old an operator's Discord account must be to
-  register or claim a world.
-- `--pending-days` (default 14) is how long a registered world may wait to be verified before it is
-  removed and its slug freed. `remove <slug>` removes any world for good; `unlist <slug>` and
-  `relist <slug>` take one out of the public lists and put it back (run them as the hub's user,
-  below).
+- **The hub's settings** are kept in the registry, and an admin changes them on the site's admin
+  page (Hub settings, on the operators page); a change takes effect at once, with no restart:
+  - the ceiling on worlds joining the network a day on their own, all operators together (500;
+    0 to 100,000); each operator's own allowance (3 a day) is what binds;
+  - how old an operator's Discord account must be to register or claim a world (30 days; 0 to
+    3,650);
+  - how long a registered world may wait to be verified before it is removed and its slug freed
+    (14 days; 1 to 365).
+
+  **Hubs before these were kept in the registry** (the 0.1 releases) set them with the flags
+  `--approvals-per-day`, `--min-account-age-days` and `--pending-days`. A newer hub still takes
+  them, but only to seed the registry: a flag given while the registry holds no value of its
+  setting becomes the registry's value, and the log says so. After that the registry's value holds,
+  and a flag that differs is ignored, with a line in the log naming both values
+  (`--approvals-per-day 400 is ignored: the registry holds 300 ...`). Once the log says a flag
+  seeded its setting, take the flag out of the unit: the flags are removed in a later minor release,
+  and a hub refuses to start with a flag it does not know.
+- `remove <slug>` removes any world for good; `unlist <slug>` and `relist <slug>` take one out of
+  the public lists and put it back (run them as the hub's user, below).
 - `--deny-fetch` (repeated, or one range to a line in a `--deny-fetch-file`): ranges the hub never
   reads a verification page from, and never sends a verification challenge to, whatever else
   allows them. The hub already refuses private and reserved addresses; list what is public but
@@ -297,6 +379,9 @@ server {
     ssl_certificate     /etc/nginx/hub-origin.pem;
     ssl_certificate_key /etc/nginx/hub-origin-key.pem;
     client_max_body_size 1m;
+    # Heads as large as Cloudflare passes on, so the hub answers one too large itself (431), in
+    # words the site can read, where nginx's own limit (8 KiB a line) would answer it bare.
+    large_client_header_buffers 4 32k;
 
     location / {
         proxy_pass http://127.0.0.1:8650;
@@ -365,9 +450,10 @@ For `hub.dereth.network`:
 - **Caching:** a Cache Rule for `hub.dereth.network` that caches only what the hub marks as
   cacheable ("Respect origin" / "Use cache-control header if present"), so the public lists
   (`/v1/servers`, `/v1/status`, `/v1/network`, `/compat/*`, sent with
-  `Cache-Control: public, max-age=10`) are kept ten seconds at the edge, and everything else
+  `Cache-Control: public, max-age=10`) are kept ten seconds at the edge, the character directory's
+  answers (`/v1/directory/*`, `public, max-age=60`) a minute, and everything else
   (`Cache-Control: no-store`), the operator API, the person routes and the links above all, never
-  is. Do not use "Cache everything".
+  is. Do not use "Cache everything": a character taken out of the directory would linger.
 - **Security:** no JavaScript challenge, *I'm Under Attack* mode or Bot Fight Mode on the hub:
   world servers and the site's calls cannot answer a challenge. A WAF rate-limiting rule is fine
   for `/v1/auth/*` and `/v1/operator*`; leave `/v1/servers/*/link`, `/v1/servers/*/verify` and
@@ -395,8 +481,9 @@ For `hub.dereth.network`:
 The site at `dereth.network` calls the hub from the browser, so its Content-Security-Policy allows
 `connect-src https://hub.dereth.network`, and its sign-in link is
 `https://hub.dereth.network/v1/auth/discord?return=<path>`. Players link characters on its
-`/characters/` page (the first `--site-origin` and `/characters/`, which the hub names in every link
-code it gives a world), with the same sign-in; nothing else needs configuring for it.
+`/link/` page (the first `--site-origin` and `/link/`, which the hub names, with the code after a
+`#`, in every link it gives a world), with the same sign-in, and see them on `/characters/`; nothing
+else needs configuring for it.
 
 ## 6. Backups
 
@@ -463,6 +550,11 @@ the old ranges in place and says so in its log (`journalctl -u dereth-hub-cloudf
 - **Upgrading:** take a backup first (`self-update --apply`, section 9, takes one itself). A newer
   hub moves the registry's schema forward when it opens it; an older hub refuses to start on a
   registry newer than itself, so a downgrade needs the backup.
+  - From 0.1.x (schema 7), or from a pre-release build at schema 8, the move is automatic: the
+    first start of this hub brings the registry to its schema (`--registry-schema`), keeping every
+    world, account, session, link, friend, listing and mirror. Only what the network no longer
+    has goes: each person's two settings, and the holds persons put on their characters'
+    listings.
 
 ### The community list, daily
 

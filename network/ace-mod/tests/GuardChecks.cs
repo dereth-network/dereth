@@ -68,7 +68,6 @@ internal static class GuardChecks
         // names to invented names here.
         var (w, link, clock, ids) = World("Bob");
         var bob = ids[0];
-        w.World.Dn(bob, ["reachable", "anyone"]);
         var n = 0;
         for (var step = 0; step < 480; step++)
         {
@@ -89,10 +88,10 @@ internal static class GuardChecks
         c.Check(S, now.OfType<TellResult>().Any(r => r is { Id: "c1", Outcome: Outcome.Delivered }),
             "another world's answer does not wait behind the flooder's");
 
-        // A pace refusal says nothing a delivered tell would not: a character online and on the
-        // network who takes no first tell, and one never on the network, answer as nobody does.
+        // A pace refusal says nothing a delivered tell would not: characters online and off the
+        // network answer as nobody does.
         var (o, ol, _, os) = World("Bob", "Cid");
-        o.World.Dn(os[0], ["reachable", "nobody"]);
+        o.World.Dn(os[0], ["off"]);
         o.World.Dn(os[1], ["off"]);
         foreach (var target in new[] { "Cid@alpha", "Bob@alpha", "Nobody@alpha" })
         {
@@ -107,7 +106,6 @@ internal static class GuardChecks
 
         // Out of new names: held back, not offline.
         var (b, bl, bc, bs) = World("Bob");
-        b.World.Dn(bs[0], ["reachable", "anyone"]);
         bl.Frame(1, new Welcome(Wire.Protocol, "alpha", "hub test", [], [Wire.GlobalRoom],
             Limits.Default with { TellsPerRecipient = new Rate(1e6, 1e6) }));
         b.Pump();
@@ -126,8 +124,6 @@ internal static class GuardChecks
 
         // One character's crowd of watchers cannot push out another's presence.
         var (f, fl, fc, fs) = World("Bob", "Bot");
-        foreach (var id in fs)
-            f.World.Dn(id, ["visible", "anyone"]);
         f.Pump();
         var p0 = fl.SentMessages().OfType<Presence>().Count();
         fl.Frame(1, new Watch(A("Ann@bravo"), A("Bob@alpha"), true));
@@ -161,7 +157,7 @@ internal static class GuardChecks
 
     private static void Blocks(Checks c)
     {
-        // Mutual friends online on both sides; the operator blocks the other world.
+        // Friends online on both sides; the operator blocks the other world.
         var (w, link, _, ids) = World("Ann");
         var ann = ids[0];
         w.World.AddFriend(ann, "Bob@bravo");
@@ -195,7 +191,6 @@ internal static class GuardChecks
 
         // A watcher the character does not list: what the block took away, its lifting gives back.
         var (v, vl, _, vs) = World("Ann");
-        v.World.Dn(vs[0], ["visible", "anyone"]);
         vl.Frame(1, new Watch(A("Dan@bravo"), A("Ann@alpha"), true));
         v.Pump();
         v.World.Admin(["block", "bravo"]);
@@ -218,7 +213,6 @@ internal static class GuardChecks
         // An away text longer than the wire takes is cut to it.
         {
             var (w, link, _, ids) = World("Bob");
-            w.World.Dn(ids[0], ["reachable", "anyone"]);
             w.Host.Characters[ids[0]].Away = new string('z', 3000);
             link.Frame(1, new Tell("h1", A("Ann@bravo"), A("Bob@alpha"), "around?", false));
             w.Pump();
@@ -229,7 +223,6 @@ internal static class GuardChecks
         // A tell from this world's own address is refused and shown to no one.
         {
             var (w, link, _, ids) = World("Ann", "Dee");
-            w.World.Dn(ids[1], ["reachable", "anyone"]);
             link.Frame(1, new Tell("h2", A("Ann@alpha"), A("Dee@alpha"), "I am Ann", false));
             w.Pump();
             c.Check(S, !w.Host.To(ids[1]).Any(x => x.Kind == "tell")
@@ -239,7 +232,6 @@ internal static class GuardChecks
         // Channel lines and invitations are held to a tell's pace.
         {
             var (w, link, clock, ids) = World("Ann");
-            w.World.Dn(ids[0], ["reachable", "anyone"]);
             for (var i = 0; i < 60; i++)
                 link.Frame(1, new ChannelLine("floodchannel", A($"{Minted(i)}@bravo"), A("Ann@alpha"), "buy gold"));
             w.Pump();
@@ -325,8 +317,8 @@ internal static class GuardChecks
             var last = w.Host.To(ids[0]).Last().Text;
             for (var i = 0; i <= NetworkWorld.MaxSquelchedWorlds; i++)
                 w.World.Dn(ids[0], ["squelch", "w" + Minted(i)[4..].ToLowerInvariant() + "x"]);
-            c.Check(S, last == "You squelch 100 characters on other worlds already; unsquelch one first."
-                && w.Host.To(ids[0]).Last().Text == "You squelch 50 worlds already; unsquelch one first.",
+            c.Check(S, last == "You squelch 100 characters on other worlds already. Unsquelch one first."
+                && w.Host.To(ids[0]).Last().Text == "You squelch 50 worlds already. Unsquelch one first.",
                 "a character squelches at most so many remote characters and worlds");
         }
         // Stand-in ids nothing names are forgotten a day after their last use, and past the cap.
@@ -362,8 +354,8 @@ internal static class GuardChecks
         // A save copies what changed since the last, not the whole store.
         {
             var st = new NetworkStore();
-            st.Characters[1] = new CharacterRecord { Settings = CharacterSettings.OptedIn };
-            st.Characters[2] = new CharacterRecord { Settings = CharacterSettings.OptedIn };
+            st.Characters[1] = new CharacterRecord { Settings = CharacterSettings.OnNetwork };
+            st.Characters[2] = new CharacterRecord { Settings = CharacterSettings.OnNetwork };
             st.StandIns.IdFor(A("Bob@bravo"));
             var first = st.Snapshot(null, null, -1);
             st.Characters[1].Friends["bob@bravo"] = A("Bob@bravo");
@@ -380,7 +372,6 @@ internal static class GuardChecks
     {
         // New ids faster than the save pace: a crash never gives one again.
         var (w, link, _, ids) = World("Bob");
-        w.World.Dn(ids[0], ["reachable", "anyone"]);
         link.Frame(1, new Welcome(Wire.Protocol, "alpha", "hub test", [], [Wire.GlobalRoom],
             Limits.Default with { TellsPerRecipient = new Rate(1e6, 1e6) }));
         w.Pump();
@@ -418,7 +409,6 @@ internal static class GuardChecks
             + string.Join(", ", answers.Select(p => $"{p.Of}={p.Online}")));
         w.Host.Characters[ann].Online = true;
         w.World.Admin(["block", "bravo"]);
-        w.World.Dn(ann, ["visible", "anyone"]);
         before = link.SentMessages().OfType<Presence>().Count();
         link.Frame(1, new Watch(A("Eve@bravo"), A("aNN@alpha"), true));
         w.World.SettingsChanged(ann);
@@ -457,20 +447,21 @@ internal static class GuardChecks
         c.Check(S, !x.Host.To(xs[1]).Any(s => s.Text.Contains("has gone offline", StringComparison.Ordinal)),
             "no line for a state the watcher was never shown");
 
-        // Clearing the friends list tells a former mutual friend.
+        // Clearing the friends list stops watching, and changes nothing a former friend sees.
         var (y, yl, _, ys) = World("Ann");
         y.World.AddFriend(ys[0], "Bob@bravo");
         yl.Frame(1, new Watch(A("Bob@bravo"), A("Ann@alpha"), true));
         y.Pump();
-        var p0 = yl.SentMessages().OfType<Presence>().Count();
+        var p0 = yl.Sent.Count;
         y.World.RemoveAllFriends(ys[0]);
         y.Pump();
-        c.Check(S, yl.SentMessages().OfType<Presence>().Skip(p0).Any(p => p.To.ToString() == "Bob@bravo" && !p.Online),
-            "a cleared friend is shown the character offline");
+        var cleared = yl.SentMessages().Skip(p0).ToList();
+        c.Check(S, cleared.OfType<Watch>().Any(x => x.Target.ToString() == "Bob@bravo" && !x.On) && !cleared.OfType<Presence>().Any(),
+            "a cleared friend is no longer watched, and still sees the character as it may: "
+            + string.Join(" ", cleared.Select(m => m.Type)));
 
         // A flood of presence answers does not hold up a tell.
         var (z, zl, zc, zs) = World("Ann");
-        z.World.Dn(zs[0], ["visible", "anyone"]);
         for (var i = 0; i < 2000; i++)
             zl.Frame(1, new Watch(A($"{Minted(i)}@bravo"), A("Ann@alpha"), true));
         z.Pump();
@@ -487,7 +478,6 @@ internal static class GuardChecks
         // The block with one id left: the next new correspondent is not shown under the last id's.
         var (restored, rl, _, rs0) = World(new NetworkStore { StandIns = StandIns.StartingAt(StandIns.Last) }, 0, "Ann");
         var rann = rs0[0];
-        restored.World.Dn(rann, ["reachable", "anyone"]);
         rl.Frame(1, new Tell("e1", A("Eve@bravo"), A("Ann@alpha"), "I got the last id", false));
         rl.Frame(1, new Tell("a1", A("Ari@bravo"), A("Ann@alpha"), "and me?", false));
         restored.Pump();
@@ -522,7 +512,6 @@ internal static class GuardChecks
         // A hub that does not pace one world's room lines or tells to one character: this world does.
         var (w, link, _, ids) = World("Bob");
         var bob = ids[0];
-        w.World.Dn(bob, ["reachable", "anyone"]);
         for (var i = 0; i < 15; i++)
             link.Frame(1, new RoomLine("global", A("Eve@bravo"), "free gold"));
         for (var i = 0; i < 25; i++)
@@ -542,11 +531,11 @@ internal static class GuardChecks
         var (w, link, _, ids) = World("Bob");
         var bob = ids[0];
         int Invites() => w.Host.To(bob).Count(x => x.Text.Contains("invites you", StringComparison.Ordinal));
-        w.World.Dn(bob, ["reachable", "friends"]);
+        w.World.Dn(bob, ["off"]);
         link.Frame(1, new ChannelInvite("freegold", A("Eve@bravo"), A("Bob@alpha")));
         w.Pump();
-        c.Check(S, Invites() == 0, "a stranger's invitation does not reach a character open to mutual friends only");
-        w.World.Dn(bob, ["reachable", "anyone"]);
+        c.Check(S, Invites() == 0, "an invitation does not reach a character off the network");
+        w.World.Dn(bob, ["on"]);
         w.World.Squelch(bob, true, 0, "Eve@bravo");
         link.Frame(1, new ChannelInvite("freegold", A("Eve@bravo"), A("Bob@alpha")));
         w.Pump();
@@ -559,7 +548,9 @@ internal static class GuardChecks
         w.World.Dn(bob, ["unsquelch", "bravo"]);
         link.Frame(1, new ChannelInvite("freegold", A("Eve@bravo"), A("Bob@alpha")));
         w.Pump();
-        c.Check(S, Invites() == 1, "and reaches a character the inviter may reach");
+        c.Check(S, Invites() == 1 && w.Host.To(bob).Last().Text
+                == "Eve@bravo invites you to the channel freegold@channel. Type @dn channel join freegold to join it.",
+            "and reaches a character on the network from a stranger: " + w.Host.To(bob).Last().Text);
     }
 
     private static void Sends(Checks c)
@@ -612,8 +603,8 @@ internal static class GuardChecks
         link.Frame(1, new WorldChange(new WorldInfo("Not A Slug", "Anything", true)));
         w.Pump();
         w.World.Dn(ids[0], ["worlds"]);
-        var line = w.Host.To(ids[0]).Last().Text;
-        c.Check(S, line == "On the network now:\n  bravo (BRAVO)\n  cc (Admin You have been banned)",
-            "a world's name from the hub passes the text rules, and a slug that is not one is not shown: " + VectorChecks.Show(line));
+        c.Check(S, w.Host.To(ids[0]).Last().Text == NetworkWorld.Help()
+            && !w.Host.To(ids[0]).Any(x => x.Text.Contains("banned", StringComparison.Ordinal)),
+            "/dn worlds is no command now, and a world's name from the hub is shown to nobody");
     }
 }
