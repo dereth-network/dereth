@@ -793,6 +793,51 @@ fn the_classic_graphics_rows_carry_the_retail_captions_end_labels_and_texture_st
     );
 }
 
+/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+#[test]
+fn the_client_page_s_slow_down_in_the_background_box_is_ticked_and_apply_turns_it_off() {
+    use dereth_client_contract::options::{background, store};
+    use dereth_client_contract::PrefValue;
+    store::init();
+    let v = View::default();
+    let mut p = make("sound-graphics").unwrap();
+    let id = format!("row:{}", background::SLOW_DOWN_IN_BACKGROUND);
+    let (words, controls) = with_context(&v, |c| {
+        p.event(ControlEvent::Tick, c);
+        whole_client_page(&mut *p, c)
+    });
+    assert!(words.iter().any(|w| w == background::CAPTION), "{words:?}");
+    let ticked = |controls: &[Control]| {
+        let row = controls.iter().find(|k| k.id == id).expect("the box");
+        match &row.kind {
+            ControlKind::Check { checked, .. } => *checked,
+            other => panic!("the row is {other:?}"),
+        }
+    };
+    assert!(ticked(&controls), "ticked at first");
+    event(
+        &mut *p,
+        ControlEvent::Check {
+            id: id.clone(),
+            checked: false,
+        },
+        &v,
+    );
+    assert!(background::slows_down(), "nothing is kept before Apply");
+    let applied = activate(&mut *p, "apply", &v);
+    assert!(
+        applied.contains(&PanelAction::Game(UiRequest::SetPreference(
+            background::SLOW_DOWN_IN_BACKGROUND,
+            PrefValue::Bool(false)
+        ))),
+        "{applied:?}"
+    );
+    assert!(!background::slows_down());
+    let (_, controls) = with_context(&v, |c| whole_client_page(&mut *p, c));
+    assert!(!ticked(&controls), "the box shows what was kept");
+    store::clear();
+}
+
 #[test]
 fn fellowship_member_layout_hides_creation_options_and_uses_live_vital_rows() {
     use dereth_client_contract::view::{FellowEntry, FellowshipView};

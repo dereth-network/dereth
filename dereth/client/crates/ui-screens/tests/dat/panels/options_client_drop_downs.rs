@@ -563,14 +563,16 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     assert_eq!(at(landscape::OBJECTS), at(landscape::SKY) + 1);
     assert_eq!(at("Camera.Stiffness"), at(landscape::OBJECTS) + 1);
     // The interface row opens Display, after Sound; the performance panel's follows the
-    // field of view.
+    // field of view, and slowing down in the background follows it.
     assert_eq!(
         at(dereth_client_contract::options::interface::INTERFACE),
         at("Sound.PlaySoundOnlyWhenActive") + 1
     );
+    let panel = dereth_client_contract::options::performance::PERFORMANCE_PANEL;
+    assert_eq!(at(panel), at("Render.FieldOfView") + 1);
     assert_eq!(
-        at(dereth_client_contract::options::performance::PERFORMANCE_PANEL),
-        at("Render.FieldOfView") + 1
+        at(dereth_client_contract::options::background::SLOW_DOWN_IN_BACKGROUND),
+        at(panel) + 1
     );
 
     let menu = control(&s.config_page, landscape::GROUND);

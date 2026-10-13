@@ -14,6 +14,8 @@ pub const DISPLAY_FULL_SCREEN: &str = "Display.FullScreen";
 pub const DISPLAY_REFRESH_RATE: &str = "Display.RefreshRate";
 /// `Display.Resolution`.
 pub const DISPLAY_RESOLUTION: &str = "Display.Resolution";
+/// `Display.SlowDownInBackground`.
+pub const DISPLAY_SLOW_DOWN_IN_BACKGROUND: &str = "Display.SlowDownInBackground";
 /// `Display.SyncToRefresh`.
 pub const DISPLAY_SYNC_TO_REFRESH: &str = "Display.SyncToRefresh";
 /// `Input.InvertMouseLookYAxis`.

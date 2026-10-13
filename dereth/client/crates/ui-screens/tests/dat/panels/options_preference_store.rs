@@ -345,10 +345,11 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
     );
     ui.requests.clear();
     // The 28 retail controls (the chat font's two are the Chat Options page's), this client's
-    // three rows from another era and its performance row; the interface row stays as it is.
-    assert_eq!(s.config_page.restore_default_values(&mut ui), 32);
+    // three rows from another era, its background slow-down row and its performance row; the
+    // interface row stays as it is.
+    assert_eq!(s.config_page.restore_default_values(&mut ui), 33);
     let requests = ui.requests.take().len();
-    assert_eq!(requests, 32, "the outward notification is unchanged");
+    assert_eq!(requests, 33, "the outward notification is unchanged");
     assert_eq!(
         store::inq_value("Input.MouseLookSensitivity"),
         Some(PrefValue::Float(0.55))
@@ -377,7 +378,7 @@ fn defaults_writes_through_to_the_store_and_survives_a_reopen() {
     );
 
     // Now do it the way a player makes it stick: Defaults, then Apply, then close and re-open.
-    assert_eq!(s.config_page.restore_default_values(&mut ui), 32);
+    assert_eq!(s.config_page.restore_default_values(&mut ui), 33);
     assert_eq!(
         s.config_page.save_current_values(),
         0,
@@ -514,12 +515,13 @@ fn dragging_the_volume_slider_updates_the_preference_store() {
 fn the_store_holds_the_thirty_four_attached_preferences_and_no_others() {
     let _ui = env();
     // ...and this client's own three options from another era, its interface, its performance
-    // panel, the classic interface's six, the landscape detail texture and the renderer the next
-    // start comes up on beside them.
-    assert_eq!(store::len(), 47);
+    // panel, its background slow-down, the classic interface's six, the landscape detail texture
+    // and the renderer the next start comes up on beside them.
+    assert_eq!(store::len(), 48);
     assert!(store::is_registered("Render.LandscapeDetailTextures"));
     assert!(store::is_registered("Render.Renderer"));
     assert!(store::is_registered("Debug.PerformancePanel"));
+    assert!(store::is_registered("Display.SlowDownInBackground"));
     assert!(store::is_registered("Render.Ground") && store::is_registered("Render.Sky"));
     assert!(store::is_registered("Render.Objects") && store::is_registered("UI.Interface"));
     for p in dereth_ui_screens::options::preferences::UI_PREFERENCES {
@@ -573,7 +575,7 @@ fn the_config_page_is_where_the_other_tests_look_for_it() {
         !ui.node(page_el).expect("the page").region.flags.visible,
         "it starts hidden"
     );
-    assert_eq!(s.config_page.row_count(), 39);
+    assert_eq!(s.config_page.row_count(), 40);
 }
 
 /// Behaviour: presentation.settings.an-interface-shown-again-shows-the-store-as-it-is

@@ -65,8 +65,6 @@ pub trait Product: 'static {
     const ICON_PNG: &'static [u8];
     /// The application id a Linux desktop finds the window's `.desktop` entry by.
     const APP_ID: &'static str;
-    /// Whether frames slow down while the window is in the background, as the original's did.
-    const THROTTLE_IN_BACKGROUND: bool = true;
 
     /// Anything to do before the window opens: on Linux, the Dereth client writes its `.desktop`
     /// entry here, which is where a Wayland desktop takes the window's icon from.

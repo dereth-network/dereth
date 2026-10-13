@@ -444,6 +444,17 @@ pub static DIVERGENCES: &[Divergence] = &[
               the day.",
     },
     Divergence {
+        id: "CD-background-frame-rate",
+        title: "Slowing down in the background is an option",
+        change: "Every interface's Client Options page has a Slow Down in the Background box. \
+                 Ticked, which it is at first, the client draws about ten frames a second while \
+                 its window is not the active one, as the final client always did; unticked, it \
+                 keeps its full frame rate in the background. The final client had no such \
+                 choice.",
+        why: "A player who watches the game in a window beside another, or records it, can keep \
+              it smooth; one who wants the lighter load in the background keeps the default.",
+    },
+    Divergence {
         id: "CD-chat-links",
         title: "Web addresses in chat are links",
         change: "An http or https address in any chat line, in every interface, is a link: \

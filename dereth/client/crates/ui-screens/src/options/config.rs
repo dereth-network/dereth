@@ -432,10 +432,11 @@ mod tests {
         let v = restore_default_values();
         assert_eq!(
             v.len(),
-            24 + 3 + 5,
+            24 + 3 + 6,
             "retail's 26 rows (its 27 less Sync with Refresh Rate) less the chat font's two, \
              which are the Chat Options page's, plus the three paired volume sliders, this \
-             client's three era rows, its performance panel and its landscape detail texture"
+             client's three era rows, its background slow-down, its performance panel and its \
+             landscape detail texture"
         );
         assert_eq!(
             get_landscape(&v),

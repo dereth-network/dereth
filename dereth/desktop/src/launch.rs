@@ -3,7 +3,7 @@
 
 use dereth_client_runtime::app::{Platform, StartupError};
 use dereth_client_runtime::config::Config;
-use dereth_client_runtime::platform::clock::{Pacer, SystemClock};
+use dereth_client_runtime::platform::clock::SystemClock;
 
 use crate::Product;
 
@@ -48,25 +48,12 @@ pub fn open_platform<P: Product>(
     };
     let window = crate::platform::window::open_window(cfg, &look, events)
         .map_err(|cause| StartupError::Device { cause })?;
-    let pacer: Box<dyn Pacer> = if P::THROTTLE_IN_BACKGROUND {
-        Box::new(SystemClock::new())
-    } else {
-        Box::new(ForegroundPacer(SystemClock::new()))
-    };
+    // Whether frames slow down in the background is the player's option, which the frame pace
+    // reads every frame.
     Ok(Platform {
         window: Box::new(window),
         clock: Box::new(SystemClock::new()),
-        pacer,
+        pacer: Box::new(SystemClock::new()),
         dialog: Box::new(crate::platform::dialog::SystemDialog),
     })
-}
-
-/// The frame pacer run as if the window always had the focus, for a product that keeps its full
-/// frame rate in the background ([`Product::THROTTLE_IN_BACKGROUND`] false).
-struct ForegroundPacer(SystemClock);
-
-impl Pacer for ForegroundPacer {
-    fn frame_sleep(&mut self, _is_active_app: bool) -> u32 {
-        self.0.frame_sleep(true)
-    }
 }

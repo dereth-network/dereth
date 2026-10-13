@@ -34,6 +34,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "frame.pace.slowing-down-in-the-background-is-an-option-on-at-first",
+        says: "Every interface's Client Options page has a Slow Down in the Background box under \
+               Display, after the Performance Panel, ticked at first. Ticked, a frame drawn while \
+               the window is not the active one comes at least 99 milliseconds after the last, \
+               about ten a second, as the original client always did; unticked, the client keeps \
+               its full frame rate in the background. A frame in the foreground never waits. The \
+               change applies to the next frame and is kept in the profile. In a browser, which \
+               slows a background tab itself, the box changes nothing.",
+        since: THIS_CLIENT,
+        divergence: "CD-background-frame-rate",
+        evidence: Evidence::Private("AC-EVID-BACKGROUND-FRAME-CAP"),
+        station: "dereth-client-runtime::lib::platform::clock::tests::a_background_frame_waits_only_while_slow_down_in_the_background_is_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "frame.physics-tick.a-display-at-a-multiple-of-thirty-hertz-steps-the-world-on-a-steady-cadence",
         says: "On a display refreshing at 30, 60, 120 or 240 Hz the world is stepped every first, \
                second, fourth or eighth frame, every time, 30 times a second, whether the clock \

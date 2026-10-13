@@ -332,6 +332,80 @@ fn a_windowed_app_takes_one_relay_endpoint() {
     );
 }
 
+/// A frame drawn while the window is not the active one is paced as a background frame while Slow
+/// Down in the Background is on, as the active window's while it is off, and the change reaches
+/// the very next frame.
+///
+/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_off() {
+    use crate::platform::clock::Pacer;
+    use dereth_client_contract::options::{background, store};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// The frame pace, keeping what each frame told it and never sleeping.
+    struct Told(Rc<RefCell<Vec<bool>>>);
+    impl Pacer for Told {
+        fn frame_sleep(&mut self, is_active_app: bool) -> u32 {
+            self.0.borrow_mut().push(is_active_app);
+            0
+        }
+    }
+
+    let store_ = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let told = Rc::new(RefCell::new(Vec::new()));
+    let pacer = Told(Rc::clone(&told));
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store_),
+        move |_| {
+            Ok(Platform {
+                pacer: Box::new(pacer),
+                ..Platform::headless(64, 64)
+            })
+        },
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    let mut shell = NullShell;
+    store::init();
+    let mut frame_in_background = |slow: bool| {
+        assert!(store::set_value(
+            background::SLOW_DOWN_IN_BACKGROUND,
+            dereth_client_contract::PrefValue::Bool(slow)
+        ));
+        app.pump.state.is_active_app = false;
+        assert!(app.frame(&mut shell));
+    };
+    frame_in_background(true);
+    frame_in_background(false);
+    frame_in_background(true);
+    assert_eq!(
+        *told.borrow(),
+        [false, true, false],
+        "background, then as the active window's, then background again"
+    );
+    store::clear();
+}
+
 /// A landscape or high-fidelity option set while playing is recorded in the next world's scene;
 /// an option the store holds is read back from it instead, and is not. The interface flag is
 /// not a preference: the next world takes it from the interface shown.

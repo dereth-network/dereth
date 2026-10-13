@@ -795,6 +795,14 @@ const CLIENT_SHARED: [Heading; 5] = [
                 Value::Check(crate::options::performance::PERFORMANCE_PANEL),
                 Bool(false),
             ),
+            noted(
+                crate::options::background::NOTE,
+                pref(
+                    crate::options::background::CAPTION,
+                    Value::Check(crate::options::background::SLOW_DOWN_IN_BACKGROUND),
+                    Bool(true),
+                ),
+            ),
             only(
                 Shown::Only(Interface::Classic),
                 pref(

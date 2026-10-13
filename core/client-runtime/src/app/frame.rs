@@ -456,7 +456,7 @@ impl<S: Shell> App<S> {
 
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
-        self.pacer.frame_sleep(self.pump.state.is_active_app);
+        crate::platform::clock::pace_frame(self.pacer.as_mut(), self.pump.state.is_active_app);
         self.perf_steps = spans.times();
 
         // `--enter-world` ends the loop when its script has run: `0x0013` made the session

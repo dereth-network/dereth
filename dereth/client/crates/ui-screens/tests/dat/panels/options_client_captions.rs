@@ -87,10 +87,10 @@ fn every_row_on_the_client_options_page_carries_its_retail_caption() {
     let rows: Vec<ElemHandle> = p.option_box.as_ref().expect("option box").items.clone();
     assert_eq!(
         rows.len(),
-        39,
+        40,
         "24 retail control rows (the chat font's two are the Chat Options page's), this \
-         client's 3 rows from another era, its interface, performance and landscape detail \
-         rows, 5 headers and 4 separators"
+         client's 3 rows from another era, its interface, background slow-down, performance \
+         and landscape detail rows, 5 headers and 4 separators"
     );
     let mut captioned = 0;
     let mut blank: Vec<usize> = Vec::new();
@@ -476,10 +476,11 @@ fn register_all_fills_the_registry() {
     );
     assert_eq!(
         dereth_ui_screens::options::store::len(),
-        47,
+        48,
         "…over 34 registered variables, this client's three options from another era, its \
-         interface choice, its performance panel, the classic interface's six, the landscape \
-         detail texture and the renderer the next start comes up on"
+         interface choice, its performance panel, its background slow-down, the classic \
+         interface's six, the landscape detail texture and the renderer the next start comes \
+         up on"
     );
     let (table, label, _) =
         preferences::inq_preference("Camera.AlignToSlope").expect("inq_preference answers");

@@ -365,10 +365,10 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
     ui.requests.clear();
     let n = s.config_page.restore_default_values(&mut ui);
     assert_eq!(
-        n, 32,
+        n, 33,
         "the 27 retail controls (the chat font's two are the Chat Options page's), this client's \
-         three rows from another era, its performance row and its landscape detail row; its \
-         interface row stays as it is"
+         three rows from another era, its background slow-down row, its performance row and its \
+         landscape detail row; its interface row stays as it is"
     );
     let live: Vec<(&str, PrefValue)> = ui
         .requests
@@ -381,7 +381,7 @@ fn the_live_option_array_and_the_static_row_table_agree_on_every_default() {
         .collect();
     let stat: Vec<(&str, PrefValue)> = config::restore_default_values();
     assert_eq!(live, stat, "the built page and CONFIG_PAGE disagree");
-    assert_eq!(live.len(), 32);
+    assert_eq!(live.len(), 33);
 
     // The control kinds, counted: 11 check boxes (retail's 12 less Sync with Refresh Rate),
     // 10 sliders, 8 menus.
@@ -554,6 +554,46 @@ fn unticking_a_sound_check_box_greys_its_paired_slider() {
         ui.node(bar).unwrap().desc.states.is_empty(),
         "0x1000021C declares states now; the paragraph above is stale"
     );
+}
+
+/// Slow Down in the Background follows the Performance Panel under Display, captioned in its own
+/// words and ticked; a click on its box, raised and delivered as a player's is, turns the option
+/// off in the store at once, and a second turns it back on.
+///
+/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+#[test]
+fn the_slow_down_in_the_background_box_follows_the_performance_panel_and_a_click_turns_it_off() {
+    use dereth_client_contract::options::{background, performance};
+    let (mut ui, mut s) = screen();
+    let (i, cb) = control(&s.config_page, background::SLOW_DOWN_IN_BACKGROUND);
+    let (panel, _) = control(&s.config_page, performance::PERFORMANCE_PANEL);
+    assert_eq!(i, panel + 1, "beside the other choice about the frame rate");
+    assert_eq!(s.config_page.options[i].control, OptionControl::Checkbox);
+    assert_eq!(
+        s.config_page.options[i].label.as_deref(),
+        Some(background::CAPTION)
+    );
+    assert_eq!(s.config_page.options[i].current, PrefValue::Bool(true));
+
+    let click = |ui: &mut UiSystem, s: &mut GamePlayScreen, on: bool| -> Vec<UiRequest> {
+        ui.set_attribute_bool(cb, page::ATTR_CHECKED, on);
+        ui.drain_outbox();
+        ui.requests.clear();
+        ui.broadcast_element_message(cb, dereth_ui::msg::element::id::BUTTON_CLICKED, 7, 0);
+        pump(ui, s);
+        ui.requests.take()
+    };
+    for on in [false, true] {
+        let out = click(&mut ui, &mut s, on);
+        assert!(
+            out.contains(&UiRequest::SetPreference(
+                background::SLOW_DOWN_IN_BACKGROUND,
+                PrefValue::Bool(on)
+            )),
+            "the click did not write the option: {out:?}"
+        );
+        assert_eq!(background::slows_down(), on);
+    }
 }
 
 /// An input action reaches every element registered for it.
@@ -745,9 +785,9 @@ mod sound_defaults {
         let out = ui.requests.take();
         assert_eq!(
             out.len(),
-            32,
+            33,
             "25 rows (the chat font's two are the Chat Options page's) plus the three paired \
-             volume sliders, this client's three era rows and its \
+             volume sliders, this client's three era rows, its background slow-down row and its \
              performance row; its interface row stays as it is"
         );
 
@@ -830,12 +870,12 @@ mod sound_defaults {
             .expect("the option box is in the shipped layout");
         assert_eq!(
             ui.children(box_h).len(),
-            39,
+            40,
             "24 retail option rows (the chat font's two are on the Chat Options page), this \
-             client's 3 era rows and its interface, performance and landscape detail rows, 5 \
-             headings and 4 separators"
+             client's 3 era rows and its interface, background slow-down, performance and \
+             landscape detail rows, 5 headings and 4 separators"
         );
-        assert_eq!(screen.config_page.row_count(), 39);
+        assert_eq!(screen.config_page.row_count(), 40);
         assert_eq!(screen.config_page.headers, 5);
         assert_eq!(screen.config_page.separators, 4);
         assert_eq!(screen.config_page.failures, 0, "every row template built");
@@ -856,10 +896,10 @@ mod sound_defaults {
         let delta = |ty: u32| count(&ui, &all, ty) as i64 - count(&base_ui, &base_all, ty) as i64;
         assert_eq!(
             delta(0x1000_0035),
-            63,
+            64,
             "checkbox options: the client-options panel's 8 retail toggle rows + 3 paired \
-             boxes + the performance panel's and the landscape detail's, and the \
-             character-settings panel's 50"
+             boxes + the background slow-down's, the performance panel's and the landscape \
+             detail's, and the character-settings panel's 50"
         );
         assert_eq!(
             delta(0x1000_0036),

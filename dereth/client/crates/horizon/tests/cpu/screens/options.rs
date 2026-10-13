@@ -349,6 +349,29 @@ fn the_client_page_sets_the_shared_preferences_and_tries_a_screen_size_before_ke
     assert_eq!(store::inq_value(store::DISPLAY_RESOLUTION), before);
 }
 
+/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+#[test]
+fn the_client_page_s_slow_down_in_the_background_box_turns_the_option_off_and_on_at_once() {
+    use dereth_client_contract::options::background;
+    store::init();
+    let state = in_world();
+    let mut h = options_on("Client", &state);
+    scroll_to(&mut h, &state, background::CAPTION);
+    for on in [false, true] {
+        let r = control(&h, background::CAPTION);
+        let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
+        assert_eq!(
+            out.requests,
+            [UiRequest::SetPreference(
+                background::SLOW_DOWN_IN_BACKGROUND,
+                PrefValue::Bool(on)
+            )]
+        );
+        assert_eq!(background::slows_down(), on);
+    }
+    store::clear();
+}
+
 fn keys_state() -> GameState {
     let mut state = in_world();
     state.key_bindings = Some(KeyBindingsView {

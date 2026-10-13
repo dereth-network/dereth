@@ -4,6 +4,7 @@
 //! option pages bind to the same values; their widgets, drafts and rendering stay in their
 //! respective interface crates.
 
+pub mod background;
 pub mod classic;
 pub mod config;
 pub mod fidelity;
