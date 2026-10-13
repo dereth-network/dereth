@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.3 (2026-10-13)
+
 - Web addresses (http and https) in chat are links in every interface: click one and, once you say yes, it opens in your browser.
 - While a game the launcher started is running, Discord shows its world, client and era and how long you have played, with nothing to sign in to; the Library's "Show what I'm playing on Discord" turns it off.
 - Horizon keeps each character's look on character select, HUD layout and gamepad cross hotbars per world, so same-named characters on two worlds, even two on one host, no longer share or overwrite them; what was kept before carries over.
