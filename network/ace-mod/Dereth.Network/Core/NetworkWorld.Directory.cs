@@ -378,8 +378,8 @@ public sealed partial class NetworkWorld
             listingPaces.Remove(k);
         foreach (var (c, l) in store.Characters.Where(x => x.Value.Listing is not null).Select(x => (x.Key, x.Value.Listing!)).ToList())
         {
-            var name = host.NameOf(c);
-            if (name == l.Who.Name)
+            // Its name as an address, as it was listed: without the + ACE gives an admin's name.
+            if (AddressOf(c)?.Name == l.Who.Name)
                 continue;
             ForgetListing(c);
             OweRemoval(l.Who);

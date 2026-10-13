@@ -159,6 +159,7 @@ internal static class DirectoryChecks
         OnlyListedPatronsAndMonarchsNamed(c);
         RefusalsHoldTheCharacterOutUntilItsNextLogin(c);
         RenamedOrDeletedTakenOut(c);
+        AnAdminStaysListed(c);
     }
 
     private static void NothingWhileOffTheNetwork(Checks c)
@@ -418,5 +419,19 @@ internal static class DirectoryChecks
         w.N.OnDeleted(Bob);
         w.Advance(0.5);
         c.Check(S, w.Listings().Any(x => !x.On && x.Who.ToString() == "Bob@alpha"), "a character deleted is taken out at once");
+    }
+
+    private static void AnAdminStaysListed(Checks c)
+    {
+        var w = Ready();
+        // ACE names an admin character with a leading +, which its address leaves off.
+        w.Host.Characters[Ann].Name = "+Ann";
+        var l = List(w, Ann);
+        c.Check(S, l is { Who: var who } && who.ToString() == "Ann@alpha", "an admin character is listed under its name without the +");
+        w.Give(Answer(l?.Id ?? ""));
+        w.Taken();
+        w.Advance(NetworkWorld.LookEverySecs + 1);
+        w.Advance(NetworkWorld.LookEverySecs + 1);
+        c.Check(S, !w.Listings().Any(x => !x.On), "and is not taken out as renamed when the world looks for changes");
     }
 }
