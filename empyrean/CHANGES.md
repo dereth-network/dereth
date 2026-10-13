@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.1 (2026-10-13)
+
 - A player may speak in the Global room, or a room of the world's own, from its Discord mirror with `/dn say`, as one of their linked characters: the line shows here marked `(Discord)`, under the room's own rules for that character, and lines said that way on other worlds show marked too.
 - A tell to a linked character who is not playing reaches the player's Discord, unless squelches or the operator's blocks stop it.
 - The world's own chat rooms (General, say) are mirrored into a Discord channel from the hub's operator page alone, and the room that carries the Global room is moved there too or in game with `@dn admin global`; `[federation] global_room` is read only until the hub keeps a room.
