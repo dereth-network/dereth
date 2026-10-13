@@ -148,6 +148,40 @@ fn palettes(app: &mut App) -> Vec<Option<(Option<DataId>, Vec<PaletteRange>)>> {
         .collect()
 }
 
+/// The Aluvian male's base palette: the palette the description names, and the one the body's own
+/// parts are painted against.
+const BODY_PALETTE: DataId = DataId(0x0400_007E);
+
+/// Each part's shift palette, and whether the part is painted against the body's palette.
+fn shifts(o: &dereth_scene::preview::PreviewObject) -> Vec<(Option<DataId>, bool)> {
+    o.part_array()
+        .parts
+        .iter()
+        .map(|p| {
+            (
+                p.surface_overrides.as_ref().and_then(|s| s.shift_palette),
+                p.original_palette_id == BODY_PALETTE,
+            )
+        })
+        .collect()
+}
+
+/// The body's palette reaches exactly the parts painted against it, the whole visible body; the
+/// parts painted against another palette keep their own.
+fn assert_the_body_palette_reaches_the_parts_painted_against_it(
+    o: &dereth_scene::preview::PreviewObject,
+) {
+    let s = shifts(o);
+    let painted = s.iter().filter(|(_, p)| *p).count();
+    assert!(
+        painted >= 17,
+        "only {painted} parts are painted against the body's palette"
+    );
+    for (i, (shift, painted)) in s.iter().enumerate() {
+        assert_eq!(*shift, painted.then_some(BODY_PALETTE), "part {i}");
+    }
+}
+
 fn differing<T: PartialEq>(a: &[T], b: &[T]) -> usize {
     assert_eq!(
         a.len(),
@@ -204,7 +238,8 @@ fn every_stage_of_the_update_tail_runs() {
     app.shutdown();
 }
 
-/// Applying the object description succeeds and every part receives a surface override.
+/// Applying the object description succeeds and every part painted against the body's palette
+/// receives it.
 /// `PreviewObject::dressed` retains the application result: None means no descriptor was
 /// supplied; false means failure.
 #[test]
@@ -222,11 +257,7 @@ fn the_descriptor_reaches_the_body_and_reports_success() {
          setup does not have"
     );
     assert_eq!(o.part_array().parts.len(), 34, "the Aluvian male body");
-    assert_eq!(
-        o.parts_with_surface_overrides(),
-        34,
-        "part-array palette application applies the shift palette to *every* part"
-    );
+    assert_the_body_palette_reaches_the_parts_painted_against_it(o);
     assert!(
         o.drawn_parts() > 30,
         "only {} parts contributed geometry",
@@ -342,15 +373,10 @@ fn the_summary_page_shows_the_same_dressed_character() {
         .renderer_mut()
         .preview(PreviewId::CharGen)
         .expect("the space");
-    assert_eq!(space.object(0).expect("the model").dressed, Some(true));
-    assert_eq!(
-        space
-            .object(0)
-            .expect("the model")
-            .parts_with_surface_overrides(),
-        34,
-        "the summary model wears what the appearance model wears"
-    );
+    let o = space.object(0).expect("the model");
+    assert_eq!(o.dressed, Some(true));
+    // The summary model wears what the appearance model wears.
+    assert_the_body_palette_reaches_the_parts_painted_against_it(o);
     app.shutdown();
 }
 
@@ -358,8 +384,9 @@ fn the_summary_page_shows_the_same_dressed_character() {
 /// This checks the nine wheel spots' appearance-state consumer.
 ///
 /// The hair range starts at 0xC0 and spans 0x40 colours: offset 24/length 8 in eight-entry wire
-/// units. Selecting a different palette must change that range on every part while keeping
-/// every baked graphics-object id unchanged. This is palette-input evidence, not a pixel test.
+/// units. Selecting a different palette must change that range on every part painted against the
+/// body's palette while keeping every baked graphics-object id unchanged. This is palette-input
+/// evidence, not a pixel test.
 #[test]
 fn a_colour_chosen_on_the_wheel_reaches_the_model() {
     let mut app = wizard_on(EcgProgress::Appearance);
@@ -370,11 +397,10 @@ fn a_colour_chosen_on_the_wheel_reaches_the_model() {
     }
     let hair_range = |p: &[Option<(Option<DataId>, Vec<PaletteRange>)>]| {
         p.iter()
+            .flatten()
+            .filter(|e| e.0 == Some(BODY_PALETTE))
             .map(|e| {
-                e.as_ref()
-                    .expect("every part carries the shift palette")
-                    .1
-                    .iter()
+                e.1.iter()
                     .find(|r| r.offset == 0xC0 / 8 && r.length == 0x40 / 8)
                     .copied()
                     .expect("the hair subpalette is in every part's list")
@@ -383,6 +409,11 @@ fn a_colour_chosen_on_the_wheel_reaches_the_model() {
     };
     let before = palettes(&mut app);
     let before_hair = hair_range(&before);
+    assert!(
+        before_hair.len() >= 17,
+        "only {} parts carry the body's palette",
+        before_hair.len()
+    );
     let before_geo = baked(&mut app);
 
     // Choose spot index 3 of the nine spots.
@@ -400,7 +431,7 @@ fn a_colour_chosen_on_the_wheel_reaches_the_model() {
     assert_eq!(
         differing(&before_hair, &after_hair),
         before_hair.len(),
-        "the shift palette applies to every part, so every part's hair range must have moved"
+        "each part painted against the body's palette has its hair range moved"
     );
     assert_eq!(
         differing(&before_geo, &baked(&mut app)),

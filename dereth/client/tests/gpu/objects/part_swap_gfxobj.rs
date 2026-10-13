@@ -117,7 +117,7 @@ fn the_dat_seam_answers_present_and_absent_and_never_unknown() {
     let (mut present, mut with_record, mut absent, mut unknown) = (0usize, 0usize, 0usize, 0usize);
     for id in &ids {
         match assets.gfxobj(*id) {
-            GfxObjLookup::Present { did_degrade } => {
+            GfxObjLookup::Present { did_degrade, .. } => {
                 present += 1;
                 if did_degrade.is_some() {
                     with_record += 1;

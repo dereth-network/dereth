@@ -57,7 +57,8 @@ fn the_gfxobj_seam_answers_present_absent_and_unknown_and_each_one_is_calibrated
             matches!(
                 a.gfxobj(**id),
                 GfxObjLookup::Present {
-                    did_degrade: Some(_)
+                    did_degrade: Some(_),
+                    ..
                 }
             )
         })
@@ -111,13 +112,16 @@ fn load_gfxobj_array_fails_on_an_absent_object_and_on_a_null_level_zero() {
             matches!(
                 a.gfxobj(*id),
                 GfxObjLookup::Present {
-                    did_degrade: Some(_)
+                    did_degrade: Some(_),
+                    ..
                 }
             )
         })
         .expect("some shipped graphics object names a degrade record");
     match PhysicsPart::load_gfxobj_array(real, &a) {
-        GfxObjArrayLoad::Loaded { degrades: Some(d) } => {
+        GfxObjArrayLoad::Loaded {
+            degrades: Some(d), ..
+        } => {
             assert!(!d.degrades.is_empty(), "{real:?}: a record with no levels");
         }
         other => panic!("{real:?}: expected Loaded with a record, got {other:?}"),
@@ -170,7 +174,8 @@ fn a_swap_naming_an_absent_gfxobj_keeps_the_limb_exactly_as_it_was() {
             matches!(
                 a.gfxobj(*id),
                 GfxObjLookup::Present {
-                    did_degrade: Some(_)
+                    did_degrade: Some(_),
+                    ..
                 }
             )
         })
@@ -240,6 +245,7 @@ fn a_swapped_part_carries_the_new_objects_degrade_record() {
     for id in ids {
         let GfxObjLookup::Present {
             did_degrade: Some(_),
+            ..
         } = a.gfxobj(id)
         else {
             continue;

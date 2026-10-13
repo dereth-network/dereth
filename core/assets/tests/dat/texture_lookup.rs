@@ -56,3 +56,28 @@ fn palette_lookup_preserves_every_stored_colour() {
         expected.colors_argb
     );
 }
+
+#[test]
+fn a_surface_has_its_indexed_pictures_palette_and_a_solid_one_has_none() {
+    let store = dereth_dat::testing::open_store_or_fail();
+    let lookup = TextureLookup::new(&store, 1);
+    let surface = |id: u32| {
+        let id = DataId(id);
+        let bytes = store.read_typed(DbType::Surface, id).unwrap();
+        dereth_assets::Surface::decode_payload(id, &bytes).unwrap()
+    };
+    // A costume limb's surface names no palette; its indexed picture carries its own.
+    assert_eq!(surface(0x0800_0192).orig_palette_id, Some(DataId(0)));
+    assert_eq!(
+        lookup.surface_palette(DataId(0x0800_0192)),
+        Some(DataId(0x0400_0742))
+    );
+    // A body surface's picture carries the body's palette.
+    assert_eq!(
+        lookup.surface_palette(DataId(0x0800_0519)),
+        Some(DataId(0x0400_007E))
+    );
+    // A solid-color surface has none.
+    assert_eq!(surface(0x0800_0034).color_value, Some(0xFF00_0000));
+    assert_eq!(lookup.surface_palette(DataId(0x0800_0034)), None);
+}

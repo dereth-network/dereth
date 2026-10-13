@@ -47,6 +47,9 @@ pub struct DatAnimAssets {
     /// object creation asks once per part, and a part swap
     /// asks again — so without the memo a crowded scene re-decodes megabytes per frame.
     gfxobjs: Mutex<BTreeMap<u32, GfxObjLookup>>,
+    /// The palette each surface record has once loaded, `None` for none: a graphics object's base
+    /// palette is read off its surfaces, and the body's surfaces are shared by many of them.
+    surface_palettes: Mutex<BTreeMap<u32, Option<DataId>>>,
 }
 
 impl std::fmt::Debug for DatAnimAssets {
@@ -75,7 +78,27 @@ impl DatAnimAssets {
             emitters: Mutex::new(BTreeMap::new()),
             degrades: Mutex::new(BTreeMap::new()),
             gfxobjs: Mutex::new(BTreeMap::new()),
+            surface_palettes: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// The base palette of a graphics object with these surfaces: the palette of the first
+    /// surface, in order, that has one once loaded. Pictures are read at their original level;
+    /// the two levels of every shipped picture but two name the same palette.
+    fn base_palette(&self, surfaces: &[DataId]) -> Option<DataId> {
+        let lookup = dereth_assets::texture_lookup::TextureLookup::new(&self.store, 1);
+        surfaces.iter().find_map(|&sid| {
+            if let Ok(c) = self.surface_palettes.lock() {
+                if let Some(hit) = c.get(&sid.0) {
+                    return *hit;
+                }
+            }
+            let p = lookup.surface_palette(sid);
+            if let Ok(mut c) = self.surface_palettes.lock() {
+                c.insert(sid.0, p);
+            }
+            p
+        })
     }
 
     /// Read, decode and convert one record, memoising both hits and misses.
@@ -202,6 +225,7 @@ impl AnimAssets for DatAnimAssets {
             }) {
             Some(o) => GfxObjLookup::Present {
                 did_degrade: o.did_degrade,
+                base_palette: self.base_palette(&o.surfaces),
             },
             None => GfxObjLookup::Absent,
         };

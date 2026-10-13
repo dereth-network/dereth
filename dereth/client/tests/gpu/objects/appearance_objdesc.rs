@@ -459,17 +459,30 @@ fn the_players_own_body_wears_his_objdesc() {
         "not one of the body's {} parts carries a surface override after the ObjDesc",
         d.part_array.parts.len()
     );
-    // Applying the shift palette updates **every** part, so a description with sub-palettes
-    // dresses the whole array, not a subset.
-    assert_eq!(
-        dressed,
-        d.part_array.parts.len(),
-        "the shift palette reached only {dressed} of {} parts",
-        d.part_array.parts.len()
+    // The shift palette reaches every part painted against the description's palette, which is
+    // the whole visible body, and no other part.
+    let palette = DataId(p.objdesc.palette_id);
+    let painted = d
+        .part_array
+        .parts
+        .iter()
+        .filter(|x| x.original_palette_id == palette)
+        .count();
+    assert!(
+        painted >= 17,
+        "only {painted} parts are painted against the body's palette"
     );
+    for (i, x) in d.part_array.parts.iter().enumerate() {
+        let shifted = x.surface_overrides.as_ref().and_then(|o| o.shift_palette);
+        let expected = (x.original_palette_id == palette).then_some(palette);
+        assert_eq!(shifted, expected, "part {i} ({:?})", x.gfxobj_id);
+    }
     eprintln!(
-        "the player's {} parts all carry the server's palette; {} events, {} descriptions applied",
-        dressed, r.objects.stats.objdesc_events, s.objdescs_applied
+        "{painted} of the player's {} parts carry the server's palette, {dressed} are dressed; {} \
+         events, {} descriptions applied",
+        d.part_array.parts.len(),
+        r.objects.stats.objdesc_events,
+        s.objdescs_applied
     );
 }
 

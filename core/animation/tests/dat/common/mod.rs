@@ -14,6 +14,9 @@ use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
 use dereth_world_data::anim_convert as convert;
 
+/// A graphics object's degrade record and base palette, `None` when the dat does not hold it.
+type GfxObjFacts = Option<(Option<DataId>, Option<DataId>)>;
+
 pub struct DatAssets {
     store: RetailDatStore,
     motion_tables: Mutex<BTreeMap<u32, Option<Arc<MotionTableData>>>>,
@@ -23,7 +26,7 @@ pub struct DatAssets {
     script_tables: Mutex<BTreeMap<u32, Option<Arc<PhysicsScriptTableData>>>>,
     emitters: Mutex<BTreeMap<u32, Option<Arc<ParticleEmitterInfo>>>>,
     degrades: Mutex<BTreeMap<u32, Option<Arc<DegradeInfo>>>>,
-    gfxobjs: Mutex<BTreeMap<u32, Option<Option<DataId>>>>,
+    gfxobjs: Mutex<BTreeMap<u32, GfxObjFacts>>,
 }
 
 impl std::fmt::Debug for DatAssets {
@@ -147,21 +150,26 @@ impl AnimAssets for DatAssets {
     }
 
     fn gfxobj(&self, id: DataId) -> GfxObjLookup {
-        if let Some(hit) = self.gfxobjs.lock().expect("cache").get(&id.0) {
-            return match hit {
-                Some(did) => GfxObjLookup::Present { did_degrade: *did },
-                None => GfxObjLookup::Absent,
-            };
-        }
-        let found = self
-            .store
-            .read_typed(DbType::GfxObj, id)
-            .ok()
-            .and_then(|bytes| dereth_assets::GfxObj::decode_payload(id, &bytes).ok())
-            .map(|o| o.did_degrade);
-        self.gfxobjs.lock().expect("cache").insert(id.0, found);
+        let hit = self.gfxobjs.lock().expect("cache").get(&id.0).copied();
+        let found = hit.unwrap_or_else(|| {
+            let lookup = dereth_assets::texture_lookup::TextureLookup::new(&self.store, 1);
+            let found = self
+                .store
+                .read_typed(DbType::GfxObj, id)
+                .ok()
+                .and_then(|bytes| dereth_assets::GfxObj::decode_payload(id, &bytes).ok())
+                .map(|o| {
+                    let palette = o.surfaces.iter().find_map(|s| lookup.surface_palette(*s));
+                    (o.did_degrade, palette)
+                });
+            self.gfxobjs.lock().expect("cache").insert(id.0, found);
+            found
+        });
         match found {
-            Some(did) => GfxObjLookup::Present { did_degrade: did },
+            Some((did_degrade, base_palette)) => GfxObjLookup::Present {
+                did_degrade,
+                base_palette,
+            },
             None => GfxObjLookup::Absent,
         }
     }

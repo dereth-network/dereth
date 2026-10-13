@@ -215,6 +215,21 @@ Two behaviours of the record's lists, which matter if a rebuild builds records a
 them: inserting removes a duplicate for the same part first, and **a list silently drops new entries
 once it reaches 255**. Subpalette insertion merges overlapping ranges rather than appending blindly.
 
+**The palette recolors only the parts painted against it.** Applying a record builds one palette,
+`palette_id` with every subpalette laid over it, and gives it only to the object's parts whose
+**base palette** is `palette_id`. A part's base palette is read when its geometry is installed: the
+palette of the first of the geometry's surfaces, in surface order, that has one once loaded. Loading
+a textured surface over a palette-indexed picture takes the picture's own palette in place of the
+one the surface record names, so on the shipped data it is always the picture's. (For geometry that
+names a detail-level record, the geometry read is the record's level 0.) Every other part keeps its
+pictures' own colors. A record whose `palette_id` names no palette recolors nothing.
+
+This is what lets one description dress a body in a costume: the skin, hair and eye ranges a
+character's record lays over the body's palette reach the body's own parts, while a costume's
+limbs, painted against a palette of their own, keep it. Giving the built palette to every part
+indexes those limbs' pictures through the wrong palette, and they draw as noise in the skin's
+colors.
+
 ## 6. Where reimplementations differ
 
 | topic | the client | common reimplementations |
@@ -225,6 +240,7 @@ once it reaches 255**. Subpalette insertion merges overlapping ranges rather tha
 | The rejected-shade result | No id. | Often zero, which is the same thing by another name. |
 | The 256-entry palette expansion | Implemented. | Usually not modelled, since nothing shipped needs it. |
 | The constant byte in a surface texture | Read and discarded. | The same, under a name meaning "unknown". |
+| Which parts an appearance record's palette recolors | Only the parts whose base palette is the record's `palette_id`. | Every part: through the record's palette, or with the subpalette ranges laid over each picture's own palette. Costumes and creatures whose parts are painted against another palette come out in the wrong colors. |
 
 ## 7. A synthetic example
 

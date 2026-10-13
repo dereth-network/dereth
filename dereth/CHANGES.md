@@ -17,6 +17,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Web addresses (http and https) in chat are links in every interface: click one and, once you say yes, it opens in your browser.
 - While a game the launcher started is running, Discord shows its world, client and era and how long you have played, with nothing to sign in to; the Library's "Show what I'm playing on Discord" turns it off.
 - Horizon keeps each character's look on character select, HUD layout and gamepad cross hotbars per world, so same-named characters on two worlds, even two on one host, no longer share or overwrite them; what was kept before carries over.
+- Costumes, masks and creature parts painted in their own colors keep them, as in the original game: an Undead Guise is a dark skeleton on every heritage instead of speckled noise in the wearer's skin color.
 
 ## 0.4.2 (2026-10-12)
 

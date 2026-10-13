@@ -96,6 +96,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "objects.appearance.a-palette-recolors-only-the-parts-painted-against-it",
+        says: "The skin, hair and eye colors an appearance description lays over a body's palette \
+               recolor only the parts painted against that palette: a costume's limbs, painted \
+               against their own, keep their own colors on every body that wears it, while the \
+               parts of the body the costume leaves take the skin.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-COSTUME-PALETTE"),
+        station: "dereth-animation::dat::parts::costume_palette::an_empyrean_in_the_undead_guise_keeps_the_guises_colors_and_its_own_skin",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "objects.appearance.a-part-swap-naming-an-absent-object-keeps-the-limb",
         says: "When an appearance change asks to replace a body part with a model the game data \
                does not hold, the part keeps its old model exactly, with its textures and detail \

@@ -109,6 +109,30 @@ impl<'a> TextureLookup<'a> {
         }
     }
 
+    /// The palette a loaded surface record names: the palette its picture carries when the
+    /// picture is a palette-indexed image whose palette reads, otherwise the palette the record
+    /// itself names. A solid-color surface, or a record that names none, has none.
+    ///
+    /// Loading puts the picture's own palette in place of the record's, so a surface whose
+    /// record names no palette over an indexed picture still has one. This is the palette an
+    /// object's part is compared against when an appearance description recolors it.
+    #[must_use]
+    pub fn surface_palette(&self, surface: DataId) -> Option<DataId> {
+        let s: Surface = self.decode(DbType::Surface, surface).ok()?;
+        if s.surface_type & 6 == 0 {
+            return None;
+        }
+        let named = s.orig_palette_id.filter(|p| p.raw() != 0);
+        let picture = s
+            .orig_texture_id
+            .filter(|t| divine_type(*t) == Some(DbType::SurfaceTexture));
+        let own = picture
+            .and_then(|t| self.resolve(t).ok())
+            .and_then(|(_, rs, _)| rs.default_palette_id)
+            .filter(|p| p.raw() != 0 && self.palette(*p).is_ok());
+        own.or(named)
+    }
+
     fn read(&self, kind: DbType, id: DataId) -> Result<Vec<u8>, LookupError> {
         self.store
             .read_typed(kind, id)

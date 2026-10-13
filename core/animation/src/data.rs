@@ -377,13 +377,13 @@ pub trait AnimAssets: Send + Sync {
     fn emitter_info(&self, id: DataId) -> Option<Arc<ParticleEmitterInfo>>;
     fn degrade_info(&self, id: DataId) -> Option<Arc<DegradeInfo>>;
 
-    /// Fetch graphics-object type 6 by id — does the dat hold this object, and which
-    /// `GfxObjDegradeInfo` does it name?
+    /// Fetch graphics-object type 6 by id — does the dat hold this object, which
+    /// `GfxObjDegradeInfo` does it name, and which palette do its surfaces name?
     ///
-    /// This crate draws nothing, so it wants no geometry; it needs the *two* facts that part
-    /// loading uses — whether the object exists at all, and
-    /// its `did_degrade` — because both decide whether a part swap succeeds and which LOD table
-    /// the part carries afterwards.
+    /// This crate draws nothing, so it wants no geometry; it needs the *three* facts that part
+    /// loading uses — whether the object exists at all, its `did_degrade`, and its base palette —
+    /// because they decide whether a part swap succeeds, which LOD table the part carries
+    /// afterwards, and whether an appearance's palette recolors the part.
     ///
     /// **Defaulted to [`GfxObjLookup::Unknown`] deliberately, and that is a third state rather
     /// than a permissive default.** An `AnimAssets` with no graphics-object index cannot answer, and
@@ -399,8 +399,14 @@ pub trait AnimAssets: Send + Sync {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GfxObjLookup {
     /// The graphics-object lookup returned an object. `did_degrade` is the `GfxObjDegradeInfo` id it names, or
-    /// `None` when the graphics object's flags bit 3 is clear.
-    Present { did_degrade: Option<DataId> },
+    /// `None` when the graphics object's flags bit 3 is clear. `base_palette` is the palette of the
+    /// first of its surfaces, in surface order, that has one once loaded (the picture's own
+    /// palette for a palette-indexed picture, else the palette the surface record names), or
+    /// `None` when none has.
+    Present {
+        did_degrade: Option<DataId>,
+        base_palette: Option<DataId>,
+    },
     /// The graphics-object lookup returned NULL, so part initialization returns 0 at its first test
     /// without touching the part.
     Absent,
@@ -456,6 +462,8 @@ pub struct MapAssets {
     /// [`GfxObjLookup::Unknown`] for every id; `Some(map)` is **authoritative**, so an id the map
     /// does not hold answers [`GfxObjLookup::Absent`] and a part swap naming it fails.
     pub gfxobjs: Option<BTreeMap<u32, Option<DataId>>>,
+    /// The base palette of a graphics object [`Self::gfxobjs`] holds; one not listed has none.
+    pub base_palettes: BTreeMap<u32, DataId>,
 }
 
 impl AnimAssets for MapAssets {
@@ -484,7 +492,10 @@ impl AnimAssets for MapAssets {
         match &self.gfxobjs {
             None => GfxObjLookup::Unknown,
             Some(map) => match map.get(&id.0) {
-                Some(did) => GfxObjLookup::Present { did_degrade: *did },
+                Some(did) => GfxObjLookup::Present {
+                    did_degrade: *did,
+                    base_palette: self.base_palettes.get(&id.0).copied(),
+                },
                 None => GfxObjLookup::Absent,
             },
         }

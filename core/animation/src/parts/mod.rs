@@ -97,6 +97,10 @@ pub struct PhysicsPart {
     pub material: Option<MaterialOverride>,
     /// The surface-override set is allocated only once a texture or palette override exists.
     pub surface_overrides: Option<SurfaceOverrides>,
+    /// The base palette of the graphics object this part draws, read when the object is
+    /// installed: `DataId(0)` when none of its surfaces has a palette, or when the asset source
+    /// could not look. An appearance description's palette recolors only the parts whose base
+    /// palette it is.
     pub original_palette_id: DataId,
     /// Distance from the viewer.
     pub viewer_distance: f32,
@@ -108,8 +112,11 @@ pub struct PhysicsPart {
 #[derive(Debug, Clone, PartialEq)]
 pub enum GfxObjArrayLoad {
     /// The successful lookup result carries the degradation record that the new object
-    /// names, or `None` when it names none.
-    Loaded { degrades: Option<Arc<DegradeInfo>> },
+    /// names, or `None` when it names none, and the object's base palette.
+    Loaded {
+        degrades: Option<Arc<DegradeInfo>>,
+        base_palette: Option<DataId>,
+    },
     /// The client's `return 0` — the `GfxObj` is not in the dat, or the degrade record's level 0
     /// resolves to NULL. `SetPart` then leaves the part untouched and reports failure.
     Failed,
@@ -310,8 +317,11 @@ impl PhysicsPart {
             // Loading the new object's array failed: the array is never replaced, so the id,
             // the surfaces, the palette and the degrade record are all still the old part's.
             GfxObjArrayLoad::Failed => false,
-            GfxObjArrayLoad::Loaded { degrades } => {
-                self.set_gfxobj_array(gfxobj, Some(degrades));
+            GfxObjArrayLoad::Loaded {
+                degrades,
+                base_palette,
+            } => {
+                self.set_gfxobj_array(gfxobj, Some((degrades, base_palette)));
                 true
             }
             GfxObjArrayLoad::NotAsked => {
@@ -336,44 +346,68 @@ impl PhysicsPart {
     /// consumer of the array is the *degrade record*, while rendering loads the meshes.
     #[must_use]
     pub fn load_gfxobj_array(gfxobj: DataId, assets: &dyn AnimAssets) -> GfxObjArrayLoad {
-        let did_degrade = match assets.gfxobj(gfxobj) {
+        let (did_degrade, base_palette) = match assets.gfxobj(gfxobj) {
             GfxObjLookup::Unknown => return GfxObjArrayLoad::NotAsked,
             // The graphics-object fetch returned NULL at the first test.
             GfxObjLookup::Absent => return GfxObjArrayLoad::Failed,
-            GfxObjLookup::Present { did_degrade } => did_degrade,
+            GfxObjLookup::Present {
+                did_degrade,
+                base_palette,
+            } => (did_degrade, base_palette),
         };
         let Some(did) = did_degrade else {
             // No `GfxObjDegradeInfo`: the one-element array holds the object itself, which the
             // test above already proved present, so `array[0] != NULL` and the load succeeds.
-            return GfxObjArrayLoad::Loaded { degrades: None };
+            return GfxObjArrayLoad::Loaded {
+                degrades: None,
+                base_palette,
+            };
         };
         let Some(info) = assets.degrade_info(did) else {
             // A null degrade record takes the same one-element branch: the record the graphics
             // object names is missing, not the object.
-            return GfxObjArrayLoad::Loaded { degrades: None };
+            return GfxObjArrayLoad::Loaded {
+                degrades: None,
+                base_palette,
+            };
         };
         // `array[0]` comes from `degrades[0].gfxobj_id`, and NULL there fails the whole load.
         let level0 = info.degrades.first().map_or(DataId(0), |g| g.gfxobj_id);
-        if level0 == DataId(0) || assets.gfxobj(level0) == GfxObjLookup::Absent {
+        if level0 == DataId(0) {
             return GfxObjArrayLoad::Failed;
         }
+        // The base palette is the array's first object's, which is the record's level 0 and not
+        // necessarily the object that names the record.
+        let base_palette = match assets.gfxobj(level0) {
+            GfxObjLookup::Absent => return GfxObjArrayLoad::Failed,
+            GfxObjLookup::Present { base_palette, .. } => base_palette,
+            GfxObjLookup::Unknown => base_palette,
+        };
         GfxObjArrayLoad::Loaded {
             degrades: Some(info),
+            base_palette,
         }
     }
 
     /// Set the part's graphics-object array.
     ///
-    /// `degrades = None` means "the caller could not look", in which case the part keeps whatever
-    /// record it had; `Some(d)` stores the new record after releasing the old array, which is
-    /// the line that makes a swapped part carry the **new** object's LOD table.
+    /// `loaded = None` means "the caller could not look", in which case the part keeps whatever
+    /// record and base palette it had; `Some((d, p))` stores the new record after releasing the
+    /// old array, which is the line that makes a swapped part carry the **new** object's LOD
+    /// table, and the new object's base palette `p`, which is what an appearance's palette is
+    /// compared with from then on.
     ///
     /// `deg_level` and `deg_mode` are deliberately **not** reset: retail's array replacement does
     /// not touch them either, and rewrites both before the next `Draw`.
-    fn set_gfxobj_array(&mut self, gfxobj: DataId, degrades: Option<Option<Arc<DegradeInfo>>>) {
+    fn set_gfxobj_array(
+        &mut self,
+        gfxobj: DataId,
+        loaded: Option<(Option<Arc<DegradeInfo>>, Option<DataId>)>,
+    ) {
         self.gfxobj_id = gfxobj;
-        if let Some(d) = degrades {
+        if let Some((d, p)) = loaded {
             self.degrades = d;
+            self.original_palette_id = p.unwrap_or(DataId(0));
         }
         // Restoring the surfaces: the custom array goes, so the texture maps go with it. The shift
         // palette is a separate field, not part of that array, and is re-applied below.
