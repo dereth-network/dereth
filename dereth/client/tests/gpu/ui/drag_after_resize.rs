@@ -500,19 +500,25 @@ fn every_root_flagged_element_is_re_anchored_by_the_resize() {
     let mut app = station();
     go_full_screen(&mut app, (1920, 1080));
     let (ui, s) = gameplay(&mut app);
-    // Each drop-down on the Client Options page owns a popup root: the page's own count of them.
-    let popups = s.config_page.menu_popups;
+    // Each drop-down that has built its list owns a popup root: the options pages', by the page's
+    // own count of them, the chat's talk-focus menu and the shop's item-type menu.
+    let page_popups = s.config_page.menu_popups;
     assert!(
-        popups >= 8,
-        "the page's eight retail drop-downs at least: {popups}"
+        page_popups >= 8,
+        "the page's eight retail drop-downs at least: {page_popups}"
     );
     let root = ui.root();
     let mut stack = vec![root];
     let (mut roots, mut moving, mut stretched_to_display) = (0, 0, 0);
+    let (mut root_handles, mut popups) = (Vec::new(), Vec::new());
     while let Some(h) = stack.pop() {
         if let Some(n) = ui.node(h) {
+            if let Some(popup) = dereth_ui::widgets::menu::popup_handle(ui, h) {
+                popups.push(popup);
+            }
             if n.flags.is_root_element() {
                 roots += 1;
+                root_handles.push(h);
                 let e = n.desc.edges;
                 if e.left != EdgeMode::Fixed
                     || e.top != EdgeMode::Fixed
@@ -528,13 +534,42 @@ fn every_root_flagged_element_is_re_anchored_by_the_resize() {
         }
         stack.extend(ui.children(h));
     }
-    // The gameplay tree has the UI root 0x8, the gameplay root 0x10000495, the chat root
-    // 0x1000001C, and one 0x10000357 popup for each drop-down of the Client Options page. A
-    // separately live tooltip 0x10000395 would add one more root with four Fixed edges. Neither
-    // tooltip nor drag proxy is created in this test.
+    // The gameplay tree has the UI root 0x8, the gameplay root 0x10000495, and one popup for each
+    // drop-down that has built its list: a 0x10000357 for each of the options pages' (the Client
+    // Options page's and the chat font's two), the talk-focus menu's 0x1000001C over the chat
+    // window, and the shop's item-type list 0x1000034F. A separately live tooltip 0x10000395
+    // would add one more root with four Fixed edges. Neither tooltip nor drag proxy is created in
+    // this test.
+    let id = |h: ElemHandle| ui.node(h).map_or(0, |n| n.element_id().0);
+    let mut others: Vec<u32> = root_handles
+        .iter()
+        .filter(|h| !popups.contains(h))
+        .map(|h| id(*h))
+        .collect();
+    others.sort_unstable();
+    assert_eq!(
+        others,
+        [0x8, 0x1000_0495],
+        "every root but the UI root and the gameplay root is a drop-down's popup"
+    );
+    assert!(
+        popups.iter().all(|p| root_handles.contains(p)),
+        "every drop-down's popup is a root"
+    );
+    let popup_ids: Vec<u32> = popups.iter().map(|p| id(*p)).collect();
+    assert_eq!(
+        popup_ids.iter().filter(|p| **p == 0x1000_0357).count(),
+        page_popups,
+        "the options pages' drop-downs"
+    );
+    assert!(popup_ids.contains(&0x1000_001C), "the talk-focus menu's");
+    assert!(
+        popup_ids.contains(&0x1000_034F),
+        "the shop's item-type list"
+    );
     assert_eq!(
         roots,
-        3 + popups,
+        2 + popups.len(),
         "the root-flagged census of a live gameplay tree"
     );
     assert_eq!(
