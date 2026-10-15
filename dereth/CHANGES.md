@@ -18,6 +18,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Web: new render scale option.
 - Web: the launcher shows the same worlds as the desktop launcher.
 - Web: fixed the client sometimes failing to start after an update.
+- Launcher: gamepad controls (Windows).
 
 ## 0.4.3 (2026-10-13)
 

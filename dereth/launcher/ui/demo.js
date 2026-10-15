@@ -218,6 +218,8 @@
     open_url: ({ url }) => { window.open(url, "_blank"); },
     create_desktop_shortcut: () => "C:\\Users\\you\\Desktop\\Dereth.lnk",
     restart_to_update: () => {},
+    // No pad moves about the demo page.
+    pad_target: () => null,
   };
 
   window.demoBackend = async (cmd, args = {}) => {

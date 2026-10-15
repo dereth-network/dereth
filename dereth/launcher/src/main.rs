@@ -13,6 +13,7 @@
 
 mod backend;
 mod discord;
+mod pad;
 // Only Linux registers a desktop entry; elsewhere the module is its tests and a no-op.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod registration;
@@ -413,6 +414,8 @@ fn main() {
             });
             // What a game it started is showing on Discord, when Discord runs here.
             discord::watch(shared.clone(), discord::Presence::from_env());
+            // A pad moving about the page.
+            pad::watch(app.handle().clone());
             app.manage(shared);
             update::check(app.handle(), is_release);
             Ok(())
@@ -458,6 +461,7 @@ fn main() {
             dismiss_message,
             open_url,
             create_desktop_shortcut,
+            pad::pad_target,
         ])
         .run(tauri::generate_context!())
         .expect("the launcher window could not start");

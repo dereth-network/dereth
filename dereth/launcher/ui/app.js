@@ -200,6 +200,9 @@ function render() {
   if (!ui.snap) return;
   const active = document.activeElement;
   const keep = active && active.id ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
+  // While a pad moves about the page, the control it focused is focused again once the page is
+  // drawn anew, whatever it is.
+  const padKeep = !keep && document.body.classList.contains("pad") ? controlKey(active) : null;
 
   document.getElementById("rail").innerHTML = rail();
   // The footnote is redrawn only when it changes, so the button under the pointer stays put.
@@ -238,6 +241,8 @@ function render() {
       }
     }
   }
+  if (padKeep) padFocus(controlByKey(padKeep), false);
+  else if (keep && document.body.classList.contains("pad")) document.getElementById(keep.id)?.classList.add("pad-focus");
 }
 
 function rail() {
@@ -1143,6 +1148,153 @@ document.addEventListener("keydown", async (ev) => {
     if (c && ui.world.view.world.endpoint) await play(c);
   }
 });
+
+// ----- the pad ------------------------------------------------------------------------------------
+//
+// A pad moves about the page as the keyboard's Tab and Enter would, and more: the launcher reads it
+// and sends each move as a `pad` event, and the page asks it which control a move reaches. The
+// d-pad or the left stick moves the focus, the bottom face button presses the focused control, the
+// right one steps back, the shoulder buttons step through Home, Worlds, Library and Accounts, and
+// the right stick scrolls the list under the focus. While the pad is in use the focus is drawn on
+// every control, rows included; the pointer moving puts the page back as it was.
+
+// Every control a click acts on, in the page's order: a row is one, and so is a button on it.
+const PAD_CONTROLS = "button, a[href], input:not([type=hidden]), select, textarea, [data-go], [data-act], [data-url], [data-home], [data-world], [data-filter], [data-section], [data-open-world], [data-iface]";
+
+// The sections the shoulder buttons step through, as the rail lists them.
+const PAD_SECTIONS = ["home", "worlds", "library", "accounts"];
+
+// The controls a pad may reach: drawn, and not disabled. The screen's own come first, so a move
+// with nothing focused starts on the screen rather than on the rail.
+function padControls() {
+  const drawn = (el) => {
+    if (el.disabled) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const main = document.getElementById("main");
+  const all = [...document.querySelectorAll(PAD_CONTROLS)].filter(drawn);
+  return [...all.filter((el) => main.contains(el)), ...all.filter((el) => !main.contains(el))];
+}
+
+// Focuses a control (a row too, which takes the focus only when asked), marks it so the focus is
+// drawn whether or not the window is in front, and brings it into view.
+function padFocus(el, show = true) {
+  if (!el) return;
+  if (el.tabIndex < 0 && !el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+  document.querySelectorAll(".pad-focus").forEach((x) => x.classList.remove("pad-focus"));
+  el.classList.add("pad-focus");
+  el.focus({ preventScroll: true });
+  if (show) el.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// Where a control is found again once the page is drawn anew: its tag and data attributes, and
+// which of the controls alike it is.
+function controlKey(el) {
+  if (!el || el === document.body || !el.tagName) return null;
+  const attrs = [...el.attributes].filter((a) => a.name.startsWith("data-")).map((a) => `[${a.name}="${CSS.escape(a.value)}"]`).join("");
+  const sel = el.tagName.toLowerCase() + attrs;
+  return { sel, index: [...document.querySelectorAll(sel)].indexOf(el) };
+}
+
+function controlByKey(key) {
+  const all = document.querySelectorAll(key.sel);
+  return all[key.index] ?? all[0] ?? null;
+}
+
+// One of a list's choices to the side: the next or the previous, as the list itself would change.
+function padChoose(el, by) {
+  const i = el.selectedIndex + by;
+  if (i < 0 || i >= el.options.length) return;
+  el.selectedIndex = i;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function padMove(step) {
+  const el = document.activeElement;
+  if (el?.tagName === "SELECT" && (step === "left" || step === "right")) {
+    padChoose(el, step === "right" ? 1 : -1);
+    return;
+  }
+  const controls = padControls();
+  const from = controls.indexOf(el);
+  const rects = controls.map((c) => {
+    const r = c.getBoundingClientRect();
+    return { x: r.left, y: r.top, width: r.width, height: r.height };
+  });
+  const to = await api("pad_target", { rects, from: from < 0 ? null : from, step });
+  if (to != null) padFocus(controls[to]);
+}
+
+// The focused control, pressed: a button or a row is clicked, a text box takes Enter as from the
+// keyboard, and a list moves on to its next choice, the first after the last.
+function padPress() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return;
+  if (el.tagName === "SELECT") {
+    padChoose(el, el.selectedIndex + 1 < el.options.length ? 1 : -el.selectedIndex);
+  } else if (el.matches("input:not([type=checkbox]):not([type=radio]), textarea")) {
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  } else {
+    el.click();
+  }
+}
+
+// A step back: as Escape does where it does anything, else what is open is closed, else Worlds,
+// Library and Accounts go back to Home.
+function padBack() {
+  const before = ui.screen;
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  if (ui.screen !== before) return;
+  if (ui.addFind) { ui.addFind = null; render(); return; }
+  if (ui.addServer) { ui.addServer = null; render(); return; }
+  if (ui.screen === "worlds" && ui.expanded) {
+    const row = ui.expanded;
+    ui.expanded = null;
+    render();
+    padFocus(document.querySelector(`[data-world="${CSS.escape(row)}"]`));
+    return;
+  }
+  if (PAD_SECTIONS.includes(ui.screen) && ui.screen !== "home") { ui.screen = "home"; render(); }
+}
+
+// The next or previous section, as its rail button opens it, with the focus on its first control.
+// The first start's screens keep to themselves.
+function padSection(by) {
+  const at = PAD_SECTIONS.indexOf(ui.screen === "world" ? "worlds" : ui.screen);
+  if (at < 0) return;
+  const go = PAD_SECTIONS[(at + by + PAD_SECTIONS.length) % PAD_SECTIONS.length];
+  document.querySelector(`#rail [data-go="${go}"]`)?.click();
+  const first = padControls()[0];
+  if (first) padFocus(first);
+}
+
+function padScroll(pixels) {
+  const list = document.activeElement?.closest?.(".scroll") ?? document.querySelector("#main .scroll");
+  list?.scrollBy(0, pixels);
+}
+
+function onPad(move) {
+  document.body.classList.add("pad");
+  switch (move.kind) {
+    case "move": padMove(move.step); break;
+    case "press": padPress(); break;
+    case "back": padBack(); break;
+    case "next_section": padSection(1); break;
+    case "previous_section": padSection(-1); break;
+    case "scroll": padScroll(move.pixels); break;
+  }
+}
+
+document.addEventListener("mousemove", () => document.body.classList.remove("pad"));
+// While the pad is in use, whatever takes the focus is drawn as focused: a control the page itself
+// focuses (a world page's password box), or one focused again after the page is drawn anew.
+document.addEventListener("focusin", (ev) => {
+  if (!document.body.classList.contains("pad")) return;
+  document.querySelectorAll(".pad-focus").forEach((x) => x.classList.remove("pad-focus"));
+  ev.target.classList?.add("pad-focus");
+});
+if (window.__TAURI__?.event) window.__TAURI__.event.listen("pad", (e) => onPad(e.payload));
 
 // A world page whose world's library changed underneath it (a private copy finished) reads its
 // options again, so the new set appears without the player having to reopen the page.

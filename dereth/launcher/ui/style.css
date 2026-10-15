@@ -69,6 +69,9 @@ body {
 input, select, textarea { user-select: text; -webkit-user-select: text; }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: var(--px) solid var(--gold-bright); outline-offset: var(--px); }
+/* While a pad moves about the page, the focus is drawn on every control, and a row it is on is lit. */
+body.pad .pad-focus { outline: var(--px) solid var(--gold-bright); outline-offset: var(--px); }
+body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199, 122, 0.12); }
 
 /* ----- the painting ----------------------------------------------------------------------------- */
 

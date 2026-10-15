@@ -85,6 +85,25 @@ saves its own when it closes. A client started without the launcher still starts
 Horizon. On Windows the client's first run still copies the original game's settings in, with the
 interface chosen here kept in them.
 
+## A pad
+
+On Windows the launcher can be played with a pad, read as the Dereth client reads it, while its
+window is the one in front (a pad played in a game is not read here too):
+
+| on the pad | on the page |
+|---|---|
+| d-pad, or the left stick | moves the focus to the control that way: a button, a row, a box or a list |
+| bottom face button (A, Cross) | presses the focused control; in a text box, Enter; on a list, its next choice |
+| right face button (B, Circle) | steps back: closes an open row or form, leaves a world's page, or goes back to Home |
+| shoulder buttons | Home, Worlds, Library and Accounts, in turn |
+| right stick | scrolls the list under the focus |
+| left and right on a list | its previous and next choice |
+
+A direction held moves once, then again after a pause, then steadily. While the pad is in use the
+focus is drawn on every control, rows included; moving the pointer puts the page back as it was.
+What each button does and which control a move reaches are `dereth-launch`'s (`pad`), so any
+launcher can take a pad the same way. On macOS and Linux no pad is read yet, as in the client.
+
 ## Discord
 
 While a game the launcher started is running, Discord shows it on the player's profile:

@@ -37,6 +37,8 @@ dereth-primitives.workspace = true
 # The interface the Dereth client starts in, read from and written to the client's preferences
 # file with the client's own reader and writer, so the launcher's question and the client agree.
 dereth-client-contract.workspace = true
+# A pad's state as the client reads it, so the launcher's page takes a pad as the client does.
+dereth-input.workspace = true
 
 [dev-dependencies]
 # Where the tests find the retail dats, when a run has them: one test reads their iterations.

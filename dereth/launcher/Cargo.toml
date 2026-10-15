@@ -44,6 +44,8 @@ keyring = { version = "3", features = ["apple-native"] }
 [target.'cfg(windows)'.dependencies]
 # Passwords in Credential Manager.
 keyring = { version = "3", features = ["windows-native"] }
+# A pad on the launcher's page, read through the system's XInput, as the client reads it.
+gilrs = { version = "0.11", default-features = false, features = ["xinput"] }
 # A Windows update is the release zip, unpacked beside the launcher and swapped in.
 zip = { version = "4", default-features = false, features = ["deflate"] }
 # The message when the WebView2 runtime is missing, shown before any web view exists. The same
