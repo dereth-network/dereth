@@ -3,7 +3,7 @@
 //! Behaviour: none (external device and optional live-server integration checks).
 #![cfg(not(target_arch = "wasm32"))]
 
-use dereth_web::{frame, play::Play};
+use dereth_web::{frame, host::window::PageSize, play::Play};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -51,6 +51,8 @@ fn the_retail_interface_draws_on_the_web_device() {
         1,
         width,
         height,
+        PageSize::new(width, height),
+        100,
         &[],
         None,
     )
@@ -76,6 +78,83 @@ fn the_retail_interface_draws_on_the_web_device() {
         "{drawn} of {} pixels drawn",
         w * h
     );
+}
+
+/// The client brought up in full screen on a 1600 by 900 page, with no server to answer, under
+/// the interface `interface`, its first sizes: what it draws at once its first screen is up, and
+/// then after a Client Options page sets the drawing scale to three quarters.
+fn sizes_in_full_screen(interface: &str) -> Option<[(u32, u32); 2]> {
+    let store = Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    match pollster::block_on(dereth_render::wgpu::prepare_offscreen(800, 600, false)) {
+        Ok(p) => dereth_render::wgpu::install(p),
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return None;
+        }
+    }
+    let profile =
+        format!("[UI]\r\nInterface={interface}\r\n[Display]\r\nFullScreen=True\r\n").into_bytes();
+    let files =
+        dereth_web::settings::Files::from([(dereth_web::settings::preferences_file(), profile)]);
+    dereth_web::settings::install(&dereth_web::settings::encode(&files), None);
+    dereth_web::host::hand_over_horizon_art(Ok(
+        dereth_horizon::pieces::Pieces::built_in().expect("the Horizon interface's art")
+    ))
+    .expect("the art is taken");
+    let mut play = Play::new(
+        store,
+        "127.0.0.1",
+        "account",
+        "password",
+        1,
+        800,
+        600,
+        PageSize::new(1600, 900),
+        100,
+        &[],
+        None,
+    )
+    .expect("bring-up");
+    // Full screen is applied as the first screen comes up, a frame or two in.
+    for _ in 0..30 {
+        assert!(play.frame(), "the client stopped");
+    }
+    let first = play.client_size();
+    // Three quarters, as a Client Options page sets it.
+    assert!(dereth_client_contract::options::store::set_value(
+        dereth_client_contract::options::drawing_scale::DRAWING_SCALE,
+        dereth_client_contract::PrefValue::Int(75)
+    ));
+    assert_eq!(play.drawing_scale(), 75);
+    assert!(play.frame(), "the client stopped");
+    let followed = play.client_size();
+    dereth_client_runtime::platform::files::install(dereth_client_runtime::platform::files::DISK);
+    Some([first, followed])
+}
+
+/// In full screen the client fills the page: under Horizon, which draws the screens before the
+/// world at the player's own size, from its first screen, at the page's own pixels, and it follows
+/// a change of the drawing scale at the next frame. The modern interface holds those screens at
+/// its fixed 800 by 600, which the page scales to fit, whatever the page's size.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats and needs a GPU: --features retail-dats"
+)]
+fn full_screen_fills_the_page_under_horizon_and_the_modern_login_screens_stay_800_by_600() {
+    let Some(horizon) = sizes_in_full_screen("Horizon") else {
+        return;
+    };
+    assert_eq!(horizon, [(1600, 900), (1200, 675)]);
+    let Some(modern) = sizes_in_full_screen("Modern") else {
+        return;
+    };
+    assert_eq!(modern, [(800, 600), (800, 600)]);
 }
 
 /// Against a live server on this machine (`DERETH_TEST_LIVE_SERVER=127.0.0.1:9000`, account
@@ -110,6 +189,8 @@ fn a_live_login_reaches_the_character_screen() {
         1,
         width,
         height,
+        PageSize::new(width, height),
+        100,
         &[],
         None,
     )
@@ -202,6 +283,8 @@ fn a_live_session_enters_walks_and_talks_through_the_interface() {
         1,
         width,
         height,
+        PageSize::new(width, height),
+        100,
         &[],
         None,
     )
@@ -322,8 +405,20 @@ fn a_live_exit_from_the_character_screen_ends_the_client() {
         }
     }
     let server: SocketAddr = host.parse().expect("an address");
-    let mut play =
-        Play::new(store, &host, &account, &password, 1, 800, 600, &[], None).expect("bring-up");
+    let mut play = Play::new(
+        store,
+        &host,
+        &account,
+        &password,
+        1,
+        800,
+        600,
+        PageSize::new(800, 600),
+        100,
+        &[],
+        None,
+    )
+    .expect("bring-up");
     let udp = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind");
     udp.set_nonblocking(true).expect("non-blocking");
     let mut buf = vec![0u8; 65_536];

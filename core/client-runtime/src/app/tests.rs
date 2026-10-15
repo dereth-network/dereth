@@ -406,6 +406,81 @@ fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_o
     store::clear();
 }
 
+/// A window that draws full screen at a share of its screen's pixels offers the drawing scale: the
+/// preferences, once read, hold it at the share the window starts at, whatever the profile says. A
+/// window that cannot leaves it out.
+///
+/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_window_that_draws_at_a_share_of_its_screen_offers_the_drawing_scale_at_its_start() {
+    use crate::platform::window::WindowHost;
+    use dereth_client_contract::options::{drawing_scale, store};
+
+    /// A window that draws full screen at the share it holds, where it holds one.
+    struct Scaled(Option<u32>);
+    impl WindowHost for Scaled {
+        fn client_size(&self) -> (u32, u32) {
+            (64, 64)
+        }
+        fn screen_metrics(
+            &self,
+            _frame: (i32, i32, i32),
+        ) -> dereth_client_contract::window::ScreenMetrics {
+            crate::platform::window::headless_screen_metrics()
+        }
+        fn drawing_scale(&self) -> Option<u32> {
+            self.0
+        }
+    }
+
+    let data = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let folder = std::env::temp_dir().join(format!("drawing-scale-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let profile = folder.join("UserPreferences.ini");
+    std::fs::write(&profile, "[Display]\r\nDrawingScale=50\r\n").unwrap();
+    for (share, held) in [(Some(67), Some(67)), (None, None)] {
+        let cfg = Config {
+            headless: true,
+            frames: None,
+            connect: false,
+            sound: false,
+            dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+            preferences_file: profile.clone(),
+            ..Config::default()
+        };
+        let mut app = App::<NullShell>::bring_up_with_store(
+            cfg,
+            Some(std::sync::Arc::clone(&data)),
+            move |_| {
+                Ok(Platform {
+                    window: Box::new(Scaled(share)),
+                    ..Platform::headless(64, 64)
+                })
+            },
+            |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+        )
+        .expect("bring-up");
+        store::init();
+        app.start_preferences();
+        assert_eq!(drawing_scale::offered(), held.is_some());
+        assert_eq!(
+            store::inq_value(drawing_scale::DRAWING_SCALE),
+            held.map(dereth_client_contract::PrefValue::Int)
+        );
+        store::clear();
+    }
+    let _ = std::fs::remove_dir_all(&folder);
+}
+
 /// A landscape or high-fidelity option set while playing is recorded in the next world's scene;
 /// an option the store holds is read back from it instead, and is not. The interface flag is
 /// not a preference: the next world takes it from the interface shown.

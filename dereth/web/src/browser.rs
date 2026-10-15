@@ -114,6 +114,16 @@ fn overlay_path(overlay: &str) -> Option<PathBuf> {
     (!overlay.is_empty()).then(|| PathBuf::from(overlay))
 }
 
+/// The page a page names as `[width, height, scale]`, and the drawing scale it starts at; what it
+/// leaves out is all of an 800 by 600 page.
+fn page_size(page: &[u32]) -> (crate::host::window::PageSize, u32) {
+    let at = |i: usize, or: u32| page.get(i).copied().unwrap_or(or);
+    (
+        crate::host::window::PageSize::new(at(0, 800), at(1, 600)),
+        at(2, dereth_client_contract::options::drawing_scale::ALL),
+    )
+}
+
 fn store() -> Result<Arc<RetailDatStore>, JsError> {
     STORE
         .with(|s| s.borrow().clone())
@@ -238,7 +248,10 @@ pub struct WebPlay {
 
 #[wasm_bindgen]
 impl WebPlay {
-    /// Bring the client up in `canvas` at `width` by `height` and start logging in as `account`,
+    /// Bring the client up in `canvas` at `width` by `height`, on a page of `page`
+    /// (`[width, height, scale]`: the page in the device's own pixels, as [`WebPlay::set_page`]
+    /// gives it, and the front page's drawing scale, which the client starts at: see
+    /// [`WebPlay::drawing_scale`]), and start logging in as `account`,
     /// on WebGL 2 when `webgl_only`, told about the world what the launcher tells the desktop
     /// client on its command line (`args`: its era and systems, the set its world is drawn from,
     /// its logon version and rules), with the world's overlay kept in the folder `overlay` the
@@ -254,6 +267,7 @@ impl WebPlay {
         canvas: web_sys::OffscreenCanvas,
         width: u32,
         height: u32,
+        page: Vec<u32>,
         account: String,
         password: String,
         sequence: u32,
@@ -267,8 +281,12 @@ impl WebPlay {
             .map_err(|e| JsError::new(&e))?;
         dereth_render::wgpu::install(prepared);
         install_settings();
+        if let Err(e) = crate::settings::set_up_full_screen() {
+            tracing::warn!("the profile was not set up for full screen: {e}");
+        }
         tracing::info!("settings kept: {:?}", crate::settings::paths());
         crate::overlay::hold(&overlay);
+        let (page, drawing_scale) = page_size(&page);
         let play = crate::play::Play::new(
             store,
             crate::server_url::NOMINAL_SERVER,
@@ -277,6 +295,8 @@ impl WebPlay {
             sequence,
             width,
             height,
+            page,
+            drawing_scale,
             &args,
             overlay_path(&overlay),
         )
@@ -390,10 +410,24 @@ impl WebPlay {
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32) {
+    /// The page is now `width` by `height` of the device's own pixels.
+    #[wasm_bindgen(js_name = setPage)]
+    pub fn set_page(&mut self, width: u32, height: u32) {
         if let Some(p) = self.play.as_mut() {
-            p.resize(width, height);
+            p.set_page(crate::host::window::PageSize::new(width, height));
         }
+    }
+
+    /// The share of the page's pixels the game draws while it fills the page, in percent: the
+    /// front page's choice at first, and a Client Options page's after, which the front page
+    /// keeps for the next visit. All of them once the client has shut down.
+    #[wasm_bindgen(js_name = drawingScale)]
+    #[must_use]
+    pub fn drawing_scale(&self) -> u32 {
+        self.play.as_ref().map_or(
+            dereth_client_contract::options::drawing_scale::ALL,
+            crate::play::Play::drawing_scale,
+        )
     }
 
     /// The cursor the interface set since the last call, as `[width, height, hot_x, hot_y]` and
@@ -514,13 +548,12 @@ pub fn front_list_copy(copy: &str) -> Result<u32, JsError> {
     Ok(u32::try_from(n).unwrap_or(u32::MAX))
 }
 
-/// Whether a copy of the list fetched at `fetched_at` (seconds since the epoch) is the day's at
-/// `now`.
-#[wasm_bindgen(js_name = frontListFresh)]
+/// Whether the world list is to be read at `now` (seconds since the epoch), as the page opens: no
+/// copy of it is shown, or the copy is not the day's.
+#[wasm_bindgen(js_name = frontListWanted)]
 #[must_use]
-pub fn front_list_fresh(fetched_at: f64, now: f64) -> bool {
-    let secs = whole;
-    crate::front::list_is_fresh(secs(fetched_at), secs(now))
+pub fn front_list_wanted(now: f64) -> bool {
+    FRONT.with(|f| f.borrow().list_wanted(whole(now)))
 }
 
 /// Take the launcher's state record as the page kept it (empty for none).

@@ -142,6 +142,16 @@ pub trait WindowHost {
         false
     }
 
+    /// The share of its screen's own pixels the window draws while full screen, in percent, where
+    /// it can draw fewer of them and enlarge the picture to fill the screen: the share it starts
+    /// at, which the options pages then offer to change ([`drawing_scale`]). `None` where it
+    /// cannot, which is the default; no page then offers the drawing scale.
+    ///
+    /// [`drawing_scale`]: dereth_client_contract::options::drawing_scale
+    fn drawing_scale(&self) -> Option<u32> {
+        None
+    }
+
     /// Ask for a client rectangle and answer with the one the window system granted.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         (width, height)

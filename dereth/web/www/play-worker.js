@@ -149,10 +149,15 @@ async function start(msg) {
   log(overlay ? `the world's overlay is kept in ${overlay}` : 'no overlay is kept for this world');
   const sequence = (Date.now() % 0x100000000) >>> 0;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
+  pageNow = pageNow ?? msg.page;
+  // The client starts at the front page's drawing scale.
+  drawingScale = msg.page?.scale ?? 100;
   play = await dereth.WebPlay.create(
-    canvas, msg.width, msg.height, msg.account, msg.password, sequence,
-    params.get('gpu') === 'webgl', args, overlay,
+    canvas, msg.width, msg.height, [...pageArray(pageNow), drawingScale], msg.account,
+    msg.password, sequence, params.get('gpu') === 'webgl', args, overlay,
   );
+  // The page may have changed while the client came up.
+  setPage(pageNow);
   marks.up = performance.now();
   log(`client up on ${play.backend()} in ${(marks.up - marks.dats).toFixed(0)} ms`);
 
@@ -218,6 +223,12 @@ function loop() {
     if (size.length === 2 && (size[0] !== lastSize[0] || size[1] !== lastSize[1])) {
       lastSize = [size[0], size[1]];
       postMessage({ size: lastSize });
+    }
+    // A Client Options page changed the drawing scale: the front page keeps it.
+    const scale = play.drawingScale();
+    if (scale !== drawingScale) {
+      drawingScale = scale;
+      postMessage({ scale });
     }
     const cursor = play.cursorChange();
     if (cursor) showCursor(cursor);
@@ -286,6 +297,19 @@ async function showCursor(bytes) {
   postMessage({ cursor: { url, hx, hy } });
 }
 
+// The page's size in the device's own pixels, as the page last said: the client draws at it in
+// full screen, at the drawing scale.
+let pageNow = null;
+const pageArray = (p) => [p?.width ?? 800, p?.height ?? 600];
+function setPage(p) {
+  pageNow = p ?? pageNow;
+  if (play && pageNow) play.setPage(...pageArray(pageNow));
+}
+
+// The share of the page's pixels the client draws in full screen, in percent, as the front page
+// last heard it.
+let drawingScale = 100;
+
 // One input event from the page, in the client's terms.
 function input(ev) {
   if (!play) return;
@@ -309,7 +333,7 @@ const calls = {
   listStart: (named) => dereth.frontListStart(named || undefined),
   listNext: (body, error) => dereth.frontListNext(body ?? undefined, error ?? undefined),
   listDone: (now) => JSON.parse(dereth.frontListDone(now)),
-  listFresh: (fetchedAt, now) => dereth.frontListFresh(fetchedAt, now),
+  listWanted: (now) => dereth.frontListWanted(now),
   listCopy: (copy) => dereth.frontListCopy(copy),
   hubStart: (named, now) => dereth.frontHubStart(named || undefined, now),
   hubNext: (body, error) => dereth.frontHubNext(body ?? undefined, error ?? undefined),
@@ -373,6 +397,7 @@ onmessage = async (ev) => {
     if (msg.canvas) canvas = msg.canvas;
     if (msg.input) input(msg.input);
     if (msg.cmd === 'logoff') logOff();
+    if (msg.cmd === 'page') setPage(msg.page);
     if (msg.cmd === 'audio') audioState.started = true;
   } catch (e) {
     log(`error: ${e?.message ?? e}`);

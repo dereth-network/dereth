@@ -669,3 +669,80 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
         Some(PrefValue::Int(landscape::WORLD_DEFAULT))
     );
 }
+
+/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+/// Where the host offers the drawing scale, Display has it after Full Screen: the five shares as
+/// literal text, open on the one the host started at, and a real press on a row changes the share
+/// at once. Where no host offers it, the page has no such row.
+#[test]
+fn the_drawing_scale_follows_full_screen_where_the_host_offers_it_and_a_press_chooses_a_share() {
+    use dereth_client_contract::options::drawing_scale;
+    let (_, s) = screen();
+    assert!(
+        s.config_page
+            .options
+            .iter()
+            .all(|o| o.preference != drawing_scale::DRAWING_SCALE),
+        "no host offers it"
+    );
+
+    let mut ui = ui_system(true);
+    drawing_scale::register(75);
+    let mut s = GamePlayScreen::default();
+    s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
+        .expect("the gameplay screen builds");
+    let order: Vec<&str> = s.config_page.options.iter().map(|o| o.preference).collect();
+    let at = |p: &str| order.iter().position(|o| *o == p).expect("on the page");
+    assert_eq!(
+        at(drawing_scale::DRAWING_SCALE),
+        at("Display.FullScreen") + 1
+    );
+    let i = index_of(&s.config_page, drawing_scale::DRAWING_SCALE);
+    assert_eq!(s.config_page.options[i].control, OptionControl::Menu);
+    assert_eq!(
+        s.config_page.options[i].label.as_deref(),
+        Some(drawing_scale::CAPTION)
+    );
+    assert_eq!(s.config_page.options[i].current, PrefValue::Int(75));
+    let menu = control(&s.config_page, drawing_scale::DRAWING_SCALE);
+    assert_eq!(
+        rows(&mut ui, menu),
+        [
+            ("100%".to_owned(), Some(100)),
+            ("85%".to_owned(), Some(85)),
+            ("75%".to_owned(), Some(75)),
+            ("67%".to_owned(), Some(67)),
+            ("50%".to_owned(), Some(50)),
+        ]
+    );
+
+    // Scroll the row into the option box's window, then press as a player does.
+    let row = s.config_page.options[i].row;
+    let list = s
+        .config_page
+        .option_box
+        .as_ref()
+        .expect("option box")
+        .handle;
+    reveal(&mut ui, menu);
+    dereth_ui::widgets::listbox::scroll_item_to_view(&mut ui, list, row);
+    pump(&mut ui, &mut s);
+    let press = |ui: &mut UiSystem, s: &mut GamePlayScreen, h: ElemHandle| {
+        let b = ui.screen_box(h);
+        let (cx, cy) = ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
+        assert_eq!(ui.hit_test_screen(cx, cy), Some(h), "the press lands");
+        ui.mouse_down(dereth_ui::focus::action::PRIMARY_CLICK, cx, cy);
+        ui.mouse_up(dereth_ui::focus::action::PRIMARY_CLICK, cx, cy, false);
+        pump(ui, s);
+    };
+    press(&mut ui, &mut s, menu);
+    let half = dereth_ui::widgets::menu::get_item(&ui, menu, 4).expect("row 4");
+    assert_eq!(text_of(&mut ui, half), "50%");
+    ui.requests.clear();
+    press(&mut ui, &mut s, half);
+    assert_eq!(drawing_scale::percent(), 50, "the choice reached the store");
+    assert!(ui.requests.take().contains(&UiRequest::SetPreference(
+        drawing_scale::DRAWING_SCALE,
+        PrefValue::Int(50)
+    )));
+}

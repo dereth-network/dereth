@@ -14,6 +14,11 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Web: fullscreen is on by default and fills the browser window.
+- Web: new render scale option.
+- Web: the launcher shows the same worlds as the desktop launcher.
+- Web: fixed the client sometimes failing to start after an update.
+
 ## 0.4.3 (2026-10-13)
 
 - Web addresses (http and https) in chat are links in every interface: click one and, once you say yes, it opens in your browser.

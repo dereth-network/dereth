@@ -838,6 +838,72 @@ fn the_client_page_s_slow_down_in_the_background_box_is_ticked_and_apply_turns_i
     store::clear();
 }
 
+/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+#[test]
+fn the_client_page_s_drawing_scale_is_there_where_the_host_offers_it_and_apply_keeps_a_choice() {
+    use dereth_client_contract::options::{drawing_scale, store};
+    use dereth_client_contract::PrefValue;
+    let v = View::default();
+    let id = format!("row:{}", drawing_scale::DRAWING_SCALE);
+    let page = || {
+        let mut p = make("sound-graphics").unwrap();
+        let (words, controls) = with_context(&v, |c| {
+            p.event(ControlEvent::Tick, c);
+            whole_client_page(&mut *p, c)
+        });
+        (p, words, controls)
+    };
+    store::init();
+    let (_, words, controls) = page();
+    assert!(!words.iter().any(|w| w == drawing_scale::CAPTION));
+    assert!(controls.iter().all(|k| k.id != id), "no host offers it");
+
+    drawing_scale::register(75);
+    let (mut p, words, controls) = page();
+    assert!(
+        words.iter().any(|w| w == drawing_scale::CAPTION),
+        "{words:?}"
+    );
+    let menu = |controls: &[Control]| match &controls
+        .iter()
+        .find(|k| k.id == id)
+        .expect("the drop-down")
+        .kind
+    {
+        ControlKind::Choice { options, selected } => (options.clone(), *selected),
+        other => panic!("the row is {other:?}"),
+    };
+    assert_eq!(
+        menu(&controls),
+        (
+            ["100%", "85%", "75%", "67%", "50%"]
+                .map(String::from)
+                .to_vec(),
+            2
+        ),
+        "the five shares, at the one the host started at"
+    );
+    event(
+        &mut *p,
+        ControlEvent::Select {
+            id: id.clone(),
+            index: 3,
+        },
+        &v,
+    );
+    assert_eq!(drawing_scale::percent(), 75, "nothing is kept before Apply");
+    let applied = activate(&mut *p, "apply", &v);
+    assert!(
+        applied.contains(&PanelAction::Game(UiRequest::SetPreference(
+            drawing_scale::DRAWING_SCALE,
+            PrefValue::Int(67)
+        ))),
+        "{applied:?}"
+    );
+    assert_eq!(drawing_scale::percent(), 67);
+    store::clear();
+}
+
 #[test]
 fn fellowship_member_layout_hides_creation_options_and_uses_live_vital_rows() {
     use dereth_client_contract::view::{FellowEntry, FellowshipView};

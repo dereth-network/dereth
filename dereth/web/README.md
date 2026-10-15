@@ -10,6 +10,9 @@ WebGPU, or WebGL 2 where the browser has no WebGPU.
   storage. Nothing is uploaded.
 - **Both interfaces.** The retail interface, and the classic one, whose text is drawn with the
   Liberation fonts the client carries, laid out as on the Windows desktop.
+- **The page is the screen.** In full screen, on at first, the game draws at the page's own pixels
+  and follows the page; a drawing scale, on the front page and in the game's Client Options,
+  draws fewer of them, for speed.
 - **One WebSocket to the server.** Either an Empyrean server's own `wss://` endpoint, or
   `dereth-web-relay` (`tools/web-relay`) on the player's machine for a server that speaks only UDP.
   Plain `ws://` is refused for anything but the player's own machine.

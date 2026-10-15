@@ -671,6 +671,147 @@ mod tests {
         assert_eq!(listed, on_disk);
     }
 
+    /// The rules of a static host's `_headers` file, in order: each URL pattern with the headers it
+    /// sets. A pattern starts a line; its headers follow, indented, as `Name: value`.
+    fn header_rules(text: &str) -> Vec<(String, Vec<(String, String)>)> {
+        let mut rules: Vec<(String, Vec<(String, String)>)> = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if line.starts_with(char::is_whitespace) {
+                let (name, value) = trimmed.split_once(':').expect("a header line");
+                rules
+                    .last_mut()
+                    .expect("a header under a pattern")
+                    .1
+                    .push((name.trim().to_owned(), value.trim().to_owned()));
+            } else {
+                rules.push((trimmed.to_owned(), Vec::new()));
+            }
+        }
+        rules
+    }
+
+    /// Whether a `_headers` URL pattern matches `path`: a `*` matches any characters, a `:name`
+    /// placeholder any characters but `/`, and everything else itself.
+    fn pattern_matches(pattern: &str, path: &str) -> bool {
+        if let Some(rest) = pattern.strip_prefix('*') {
+            return (0..=path.len())
+                .filter(|&i| path.is_char_boundary(i))
+                .any(|i| pattern_matches(rest, &path[i..]));
+        }
+        if let Some(after) = pattern.strip_prefix(':') {
+            let name = after
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(after.len());
+            let rest = &after[name..];
+            let segment = path.find('/').unwrap_or(path.len());
+            return (1..=segment)
+                .filter(|&i| path.is_char_boundary(i))
+                .any(|i| pattern_matches(rest, &path[i..]));
+        }
+        match (pattern.chars().next(), path.chars().next()) {
+            (None, None) => true,
+            (Some(p), Some(c)) if p == c => {
+                pattern_matches(&pattern[p.len_utf8()..], &path[c.len_utf8()..])
+            }
+            _ => false,
+        }
+    }
+
+    /// The `Cache-Control` a host serves `path` with: every matching rule's, joined, as a host
+    /// joins a header that several rules set.
+    fn cache_control(rules: &[(String, Vec<(String, String)>)], path: &str) -> String {
+        rules
+            .iter()
+            .filter(|(pattern, _)| pattern_matches(pattern, path))
+            .flat_map(|(_, headers)| headers)
+            .filter(|(name, _)| name.eq_ignore_ascii_case("cache-control"))
+            .map(|(_, value)| value.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Whether a `Cache-Control` value makes the browser ask the host again on each load.
+    fn revalidates(cache_control: &str) -> bool {
+        let directives: Vec<String> = cache_control
+            .split(',')
+            .map(|d| d.trim().to_ascii_lowercase().replace(' ', ""))
+            .collect();
+        let has = |d: &str| directives.iter().any(|x| x == d);
+        has("no-cache") || has("no-store") || (has("max-age=0") && has("must-revalidate"))
+    }
+
+    /// Every file the page serves keeps its name from build to build, so each one revalidates on
+    /// every load: the page itself, at its own address too, every script beside it (each one in the
+    /// folder is checked, so a new script cannot be added without a rule), the module and its art.
+    /// Otherwise, after a deploy, a browser can run a cached script beside a newer page, script or
+    /// module, and the page fails to start.
+    #[test]
+    fn every_page_script_and_module_file_revalidates_on_each_load() {
+        let www = workspace_root().join(WWW);
+        let text = std::fs::read_to_string(www.join("_headers")).expect("the headers file");
+        let rules = header_rules(&text);
+        let mut paths = vec!["/".to_owned()];
+        paths.extend(
+            FILES
+                .iter()
+                .filter(|f| **f != "_headers")
+                .map(|f| format!("/{f}")),
+        );
+        for entry in std::fs::read_dir(&www).expect("the page's folder") {
+            let entry = entry.expect("an entry");
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().expect("its type").is_file()
+                && name != "_headers"
+                && !NOT_RELEASED.contains(&name.as_str())
+            {
+                paths.push(format!("/{name}"));
+            }
+        }
+        for name in ["play.js", "front.js", "play-worker.js", "index.html"] {
+            assert!(paths.contains(&format!("/{name}")), "{name} is checked");
+        }
+        for path in &paths {
+            let cc = cache_control(&rules, path);
+            assert!(
+                revalidates(&cc),
+                "{WWW}/_headers serves {path} with Cache-Control `{cc}`, which lets a browser \
+                 run a cached copy after a deploy: give it `no-cache`"
+            );
+        }
+    }
+
+    /// The check reads the host's patterns as the host does, and a rule for the module's folder
+    /// alone leaves the page's own scripts to the browser's cache.
+    #[test]
+    fn a_cache_rule_for_the_module_s_folder_alone_leaves_the_page_s_scripts_cached() {
+        assert!(pattern_matches("/*", "/"));
+        assert!(pattern_matches("/pkg/*", "/pkg/horizon/font-0.png"));
+        assert!(!pattern_matches("/pkg/*", "/play.js"));
+        assert!(pattern_matches("/*.js", "/play-worker.js"));
+        assert!(!pattern_matches("/*.js", "/index.html"));
+        assert!(pattern_matches("/:page", "/front.js"));
+        assert!(!pattern_matches("/:page", "/pkg/dereth_web.js"));
+        assert!(!pattern_matches("/:page", "/"));
+        assert!(revalidates("no-cache"));
+        assert!(revalidates("public, max-age=0, must-revalidate"));
+        assert!(!revalidates("public, max-age=3600"));
+        assert!(!revalidates(""));
+
+        let pkg_only = header_rules(
+            "/*\n  X-Content-Type-Options: nosniff\n\n/pkg/*\n  Cache-Control: no-cache\n",
+        );
+        assert!(revalidates(&cache_control(&pkg_only, "/pkg/dereth_web.js")));
+        assert!(!revalidates(&cache_control(&pkg_only, "/play-worker.js")));
+        assert!(!revalidates(&cache_control(&pkg_only, "/")));
+        let both =
+            header_rules("/*\n  Cache-Control: no-cache\n/pkg/*\n  Cache-Control: no-cache\n");
+        assert_eq!(cache_control(&both, "/pkg/x"), "no-cache, no-cache");
+    }
+
     #[test]
     fn the_tag_names_the_version_the_tree_carries() {
         assert!(check_tag("dereth-web-v0.2.0", "0.2.0").is_ok());

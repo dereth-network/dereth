@@ -19,19 +19,18 @@ use dereth_launch::datset::{scan_dir, DatOrigin, DatSet, SetKind};
 use dereth_launch::discord::Activity;
 use dereth_launch::eras::{self, EraInfo, FeatureInfo};
 use dereth_launch::folders::Folders;
-use dereth_launch::hubstatus::HubWatch;
 use dereth_launch::install::{ClientKind, Installation};
 use dereth_launch::interface::{self, Offer};
 use dereth_launch::launch::{plan, LaunchRequest};
 use dereth_launch::library::{self, FolderFind};
-use dereth_launch::serverlist::{self, ListCache, ListSource};
+use dereth_launch::listing::WorldList;
+use dereth_launch::serverlist::{ListCache, ListSource};
 use dereth_launch::state::{Account, Favourite, LauncherState, Recent, WorldPrefs};
 use dereth_launch::status::LiveStatus;
 use dereth_launch::vault::{target, Vault};
 #[cfg(test)]
 use dereth_launch::world::WorldState;
 use dereth_launch::world::{AccountModel, Emulator, StatusMethod, World};
-use dereth_launch::worlds;
 use serde::{Deserialize, Serialize};
 
 const STATUS_INTERVAL: Duration = Duration::from_secs(60);
@@ -323,19 +322,15 @@ const RETAIL_HERE: bool = cfg!(windows);
 /// The launcher's state and everything it is doing.
 pub struct Backend {
     folders: Folders,
-    /// Where the world list is read from, in the order the sources are tried.
-    list_sources: Vec<ListSource>,
     state: LauncherState,
     dereth: Option<Installation>,
-    worlds: Vec<World>,
+    /// The world list, read from its sources in order, its day's copy, and the hub's word on its
+    /// worlds, read again about once a minute.
+    list: WorldList,
     list_state: ListState,
     list_error: Option<String>,
-    /// The day's copy of the list, when there is one.
-    list_cache: Option<ListCache>,
     live: HashMap<String, LiveStatus>,
     polled: HashMap<String, Instant>,
-    /// What the hub's list says of each world from its heartbeat, read again about once a minute.
-    hub: HubWatch,
     /// Whether each server answered the server-tracker login, for worlds with no status document.
     probed: HashMap<String, bool>,
     probing: HashSet<String>,
@@ -353,7 +348,7 @@ impl std::fmt::Debug for Backend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
             .field("folders", &self.folders)
-            .field("worlds", &self.worlds.len())
+            .field("worlds", &self.list.worlds().len())
             .finish()
     }
 }
@@ -407,27 +402,16 @@ impl Backend {
                 }
             }
         }
-        let list_cache = ListCache::load(&folders.data);
-        let worlds = list_cache
-            .as_ref()
-            .and_then(|c| c.worlds().ok())
-            .unwrap_or_default();
-        let mut hub = HubWatch::new(&list_sources);
-        if let Some(copy) = &list_cache {
-            hub.copy_shown(copy);
-        }
+        let list = WorldList::new(list_sources, ListCache::load(&folders.data));
         Self {
             folders,
-            list_sources,
             state,
             dereth,
-            worlds,
+            list,
             list_state: ListState::Loading,
             list_error: None,
-            list_cache,
             live: HashMap::new(),
             polled: HashMap::new(),
-            hub,
             probed: HashMap::new(),
             probing: HashSet::new(),
             running: Vec::new(),
@@ -465,28 +449,24 @@ impl Backend {
         self.state.library_dir(&self.folders.data)
     }
 
-    fn with_live(&self, w: World) -> World {
-        let probed = self.probed.get(&w.slug).copied();
-        let live = self.live.get(&w.slug);
-        let hub = self.hub.current(&w.slug, now());
-        worlds::shown(w, probed, live, hub, &self.state)
-    }
-
     /// Forget Play Again's entries for worlds the list read last no longer names. Only after a list
     /// was read whole: a failed fetch, or one that came back empty, forgets nothing.
     fn forget_unlisted(&mut self) {
-        if self.worlds.is_empty() {
+        if self.list.worlds().is_empty() {
             return;
         }
-        let listed: HashSet<&str> = self.worlds.iter().map(|w| w.slug.as_str()).collect();
+        let listed: HashSet<&str> = self.list.worlds().iter().map(|w| w.slug.as_str()).collect();
         if self.state.forget_unlisted(&listed) {
             self.save();
         }
     }
 
-    /// Every world: the list's, then the servers the player added.
+    /// Every world: the list's, then the servers the player added, each with what it said of
+    /// itself, else the hub's word, else whether it answered the server-tracker login.
     fn all_worlds(&self) -> impl Iterator<Item = World> + '_ {
-        worlds::all(&self.worlds, &self.state).map(|w| self.with_live(w))
+        self.list.shown(&self.state, now(), |slug| {
+            (self.live.get(slug), self.probed.get(slug).copied())
+        })
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -494,7 +474,7 @@ impl Backend {
             worlds: self.all_worlds().collect(),
             list_state: self.list_state.clone(),
             list_error: self.list_error.clone(),
-            list_fetched_at: self.list_cache.as_ref().map(|c| c.fetched_at),
+            list_fetched_at: self.list.copy().map(|c| c.fetched_at),
             eras: eras::eras(),
             features: eras::features(),
             state: self.state.clone(),
@@ -582,7 +562,7 @@ impl Backend {
     pub fn load_list(shared: &Shared) {
         let fresh = {
             let mut b = lock(shared);
-            let fresh = b.list_cache.as_ref().is_some_and(|c| c.is_fresh(now()));
+            let fresh = !b.list.wants_reading(now());
             if fresh {
                 b.list_state = ListState::Loaded;
             }
@@ -605,27 +585,27 @@ impl Backend {
     }
 
     /// [`Self::refresh`], fetching each address with `get`. Answers the thread that fetches.
-    fn refresh_with<G>(shared: &Shared, get: G) -> std::thread::JoinHandle<()>
+    fn refresh_with<G>(shared: &Shared, mut get: G) -> std::thread::JoinHandle<()>
     where
         G: FnMut(&str) -> Result<Vec<u8>, String> + Send + 'static,
     {
-        let sources = {
+        let mut fetch = {
             let mut b = lock(shared);
             b.list_state = ListState::Loading;
-            b.list_sources.clone()
+            b.list.reading()
         };
         let shared = shared.clone();
         std::thread::spawn(move || {
-            let result = serverlist::fetch_first(&sources, now(), get);
-            let mut b = lock(&shared);
-            match result {
-                Ok((cache, worlds)) => {
-                    if let Err(e) = cache.save(&b.folders.data) {
+            while let Some(url) = fetch.next_url().map(str::to_owned) {
+                fetch.take(get(&url));
+            }
+            let mut guard = lock(&shared);
+            let b = &mut *guard;
+            match b.list.read(fetch, now()) {
+                Ok(copy) => {
+                    if let Err(e) = copy.save(&b.folders.data) {
                         eprintln!("dereth-launcher: the world list's copy was not saved: {e}");
                     }
-                    b.hub.list_read(&cache, now());
-                    b.worlds = worlds;
-                    b.list_cache = Some(cache);
                     b.list_state = ListState::Loaded;
                     b.list_error = None;
                     b.forget_unlisted();
@@ -635,7 +615,7 @@ impl Backend {
                     b.list_error = Some(e);
                 }
             }
-            drop(b);
+            drop(guard);
             Self::probe_all(&shared);
         })
     }
@@ -704,7 +684,7 @@ impl Backend {
     }
 
     /// Read the hub's list for each world's status when a read is due at `at` (seconds since the
-    /// epoch; [`HubWatch::start`]): on a thread, each page fetched with `get`. Answers the thread,
+    /// epoch; `HubWatch::start`): on a thread, each page fetched with `get`. Answers the thread,
     /// when a read started.
     fn read_hub_status_at<G>(
         shared: &Shared,
@@ -714,13 +694,13 @@ impl Backend {
     where
         G: FnMut(&str) -> Result<Vec<u8>, String> + Send + 'static,
     {
-        let mut read = lock(shared).hub.start(at)?;
+        let mut read = lock(shared).list.hub_mut().start(at)?;
         let shared = shared.clone();
         Some(std::thread::spawn(move || {
             while let Some(url) = read.next_url().map(str::to_owned) {
                 read.take(get(&url));
             }
-            lock(&shared).hub.finish(read, at);
+            lock(&shared).list.hub_mut().finish(read, at);
         }))
     }
 
@@ -747,7 +727,8 @@ impl Backend {
         }
         let due: Vec<(String, String)> = {
             let b = lock(shared);
-            b.worlds
+            b.list
+                .worlds()
                 .iter()
                 .filter(|w| w.status_method == StatusMethod::EmpyreanHttp)
                 .filter_map(|w| w.status_url.clone().map(|u| (w.slug.clone(), u)))
@@ -1298,6 +1279,7 @@ impl Backend {
 mod tests {
     //! Behaviour: none (the desktop launcher's backend: worlds, their status, the list, PLAY).
     use super::*;
+    use dereth_launch::serverlist;
     use dereth_launch::testing::write_dat_set;
     use dereth_launch::vault::MemoryVault;
     use dereth_launch::world::{Emulator, Endpoint, Told};
@@ -1344,7 +1326,7 @@ mod tests {
             transport: None,
         });
         w.dats.expected = Some(Iterations::END_OF_RETAIL);
-        b.worlds = vec![w];
+        *b.list.worlds_mut() = vec![w];
         (b, dir)
     }
 
@@ -1601,8 +1583,8 @@ mod tests {
         let (mut b, dir) = backend("eras");
         let mut w = World::new("leafcull", "Leafcull");
         w.emulator = Emulator::Ace;
-        w.endpoint = b.worlds[0].endpoint.clone();
-        b.worlds.push(w);
+        w.endpoint = b.list.worlds()[0].endpoint.clone();
+        b.list.worlds_mut().push(w);
 
         // Leafcull says nothing: the end of retail, from the later files.
         let w = b.world("leafcull").unwrap();
@@ -1637,8 +1619,8 @@ mod tests {
         let mut seedsow = World::new("seedsow", "Seedsow");
         seedsow.list_id = Some("394C58D0-885D-466B-B17F-D7E0B96FE3E2".into());
         dereth_launch::known::apply(&mut seedsow);
-        seedsow.endpoint = b.worlds[0].endpoint.clone();
-        b.worlds.push(seedsow);
+        seedsow.endpoint = b.list.worlds()[0].endpoint.clone();
+        b.list.worlds_mut().push(seedsow);
         let w = b.world("seedsow").unwrap();
         assert_eq!(
             (w.era.as_deref(), w.era_source),
@@ -1660,7 +1642,7 @@ mod tests {
     #[test]
     fn a_classic_era_world_is_not_started_without_classic_data_files() {
         let (mut b, dir) = backend("classic-needed");
-        b.worlds[0].era = Some("infiltration".into());
+        b.list.worlds_mut()[0].era = Some("infiltration".into());
         let out = b.launch(choice(Some("pw")));
         assert!(
             matches!(&out, LaunchOutcome::Error { message } if message.contains("Classic")),
@@ -1674,7 +1656,7 @@ mod tests {
         let find = b.read_folder(&classic);
         let id = find.classic.as_ref().unwrap().id.clone();
         b.add_folder(find);
-        b.worlds[0].era = None;
+        b.list.worlds_mut()[0].era = None;
         let out = b.launch(Choice {
             dat_set_id: Some(id),
             ..choice(Some("pw"))
@@ -1752,10 +1734,7 @@ mod tests {
         assert_eq!(s.worlds.len(), 1);
         assert_eq!(s.worlds[0].slug, "leafcull");
         assert!(s.list_fetched_at.is_some());
-        assert!(
-            b.list_cache.as_ref().unwrap().is_fresh(now()),
-            "fresh: no fetch at start"
-        );
+        assert!(!b.list.wants_reading(now()), "fresh: no fetch at start");
         assert_eq!(s.eras.len(), 2);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1922,6 +1901,38 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The window shows the same worlds as the web client's front page from the same answers: the
+    /// hub's list, with how many are on as the hub has it, or the community's own when the hub does
+    /// not answer.
+    #[test]
+    fn the_window_shows_the_worlds_every_launcher_shows_from_the_same_answers() {
+        use dereth_launch::testing::world_list as fixture;
+        let dir = tmp("same-worlds");
+        let shared: Shared = Arc::new(Mutex::new(Backend::new(
+            Folders::single(dir.join("state")),
+            serverlist::sources(None),
+            None,
+            Box::new(MemoryVault::default()),
+            "memory",
+            None,
+        )));
+        let read = |hub_answers: bool| {
+            Backend::refresh_with(&shared, fixture::fetch(hub_answers))
+                .join()
+                .unwrap();
+            let b = lock(&shared);
+            assert_eq!(b.list_state, ListState::Loaded);
+            b.snapshot()
+                .worlds
+                .iter()
+                .map(fixture::summary)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(read(true), fixture::from_the_hub());
+        assert_eq!(read(false), fixture::from_the_community());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn play_again_forgets_a_world_the_list_no_longer_names_but_not_on_an_empty_list() {
         let (mut b, dir) = backend("unlisted");
@@ -1935,11 +1946,11 @@ mod tests {
                 last_played: 1,
             });
         }
-        let all = b.worlds.clone();
-        b.worlds.clear();
+        let all = b.list.worlds().to_vec();
+        b.list.worlds_mut().clear();
         b.forget_unlisted();
         assert_eq!(b.state.recent.len(), 2, "an empty list forgets nothing");
-        b.worlds = all;
+        *b.list.worlds_mut() = all;
         b.forget_unlisted();
         assert_eq!(
             b.state

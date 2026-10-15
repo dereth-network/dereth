@@ -11,6 +11,8 @@
 //! ([`Shown`]): the classic interface's own mouse look, its stretched layout and its social
 //! window's pages; the modern interface's mouse turning, its side-by-side vitals, its chat font
 //! and its floating chat windows. A row for something the world's era does not have is left out ([`Needs`]).
+//! So is a row for something only some hosts do, where the host does not ([`Row::hosted`]): the
+//! drawing scale, which only the browser offers.
 
 use crate::options::{config::PrefValueConst, interface::Interface};
 use crate::view::PlayerOption;
@@ -209,6 +211,9 @@ pub struct Row {
     pub confirm_change: bool,
     /// What the row does when its caption alone does not say, for a tooltip.
     pub note: Option<&'static str>,
+    /// Whether only some hosts offer the row: a host offers it by registering its preference, and
+    /// a page leaves it out where the host has not ([`Row::offered`]).
+    pub hosted: bool,
 }
 
 impl Row {
@@ -244,6 +249,13 @@ impl Row {
         self.classic.is_some_and(|(_, inverted)| inverted)
     }
 
+    /// Whether this host offers the row: every row but a [`Row::hosted`] one, which a host offers
+    /// by registering its preference.
+    #[must_use]
+    pub fn offered(&self) -> bool {
+        !self.hosted || self.preference().is_some_and(super::store::is_registered)
+    }
+
     /// The profile preference the row edits, if it edits one (a sound row's on/off one).
     #[must_use]
     pub const fn preference(&self) -> Option<&'static str> {
@@ -267,6 +279,7 @@ const fn row(caption: &'static str, value: Value) -> Row {
         slider_ends: None,
         confirm_change: false,
         note: None,
+        hosted: false,
     }
 }
 
@@ -324,6 +337,11 @@ const fn confirmed(r: Row) -> Row {
         confirm_change: true,
         ..r
     }
+}
+
+/// A row only some hosts offer.
+const fn hosted(r: Row) -> Row {
+    Row { hosted: true, ..r }
 }
 
 /// Static registered bounds shared by the option rows.
@@ -772,6 +790,14 @@ const CLIENT_SHARED: [Heading; 5] = [
                 Value::Check(crate::options::names::DISPLAY_FULL_SCREEN),
                 Bool(false),
             ),
+            hosted(noted(
+                crate::options::drawing_scale::NOTE,
+                pref(
+                    crate::options::drawing_scale::CAPTION,
+                    Value::Menu(crate::options::drawing_scale::DRAWING_SCALE),
+                    Int(100),
+                ),
+            )),
             ends(
                 "ID_Graphics_Value_Dark",
                 "ID_Graphics_Value_Bright",
@@ -1080,24 +1106,29 @@ pub fn page(id: PageId) -> &'static Page {
 }
 
 /// The headings of `page` that `face` shows, each with the rows it shows, in order; a heading
-/// with no row for `face` is left out.
+/// with no row for `face` is left out, and so is a row this host does not offer
+/// ([`Row::offered`]).
 pub fn headings_for(
     id: PageId,
     face: Interface,
 ) -> impl Iterator<Item = (&'static Heading, Vec<&'static Row>)> {
     page(id).headings.iter().filter_map(move |h| {
-        let rows: Vec<&'static Row> = h.rows.iter().filter(|r| r.shown.on(face)).collect();
+        let rows: Vec<&'static Row> = h
+            .rows
+            .iter()
+            .filter(|r| r.shown.on(face) && r.offered())
+            .collect();
         (!rows.is_empty()).then_some((h, rows))
     })
 }
 
-/// Every row of `page` that `face` shows, in order.
+/// Every row of `page` that `face` shows and this host offers, in order.
 pub fn rows_for(id: PageId, face: Interface) -> impl Iterator<Item = &'static Row> {
     page(id)
         .headings
         .iter()
         .flat_map(|h| h.rows.iter())
-        .filter(move |r| r.shown.on(face))
+        .filter(move |r| r.shown.on(face) && r.offered())
 }
 
 /// The row of `page` that edits `preference`, if there is one.
@@ -1295,7 +1326,7 @@ mod tests {
             let shared: Vec<&Row> = CLIENT_SHARED
                 .iter()
                 .flat_map(|h| h.rows.iter())
-                .filter(|r| r.shown.on(face))
+                .filter(|r| r.shown.on(face) && r.offered())
                 .collect();
             assert_eq!(shown, shared, "{face:?}");
             assert!(headings_for(PageId::Client, face).all(|(h, _)| h.title != fidelity::HEADING));
@@ -1320,7 +1351,7 @@ mod tests {
             let shared: Vec<&Row> = CLIENT_SHARED
                 .iter()
                 .flat_map(|h| h.rows.iter())
-                .filter(|r| r.shown.on(Interface::Horizon))
+                .filter(|r| r.shown.on(Interface::Horizon) && r.offered())
                 .collect();
             assert_eq!(rest, shared);
         } else {

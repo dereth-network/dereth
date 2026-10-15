@@ -23,6 +23,8 @@
 //!   with byte ranges, for the worker's development reader: the four of the later set, and
 //!   `portal.dat` and `cell.dat` from before Throne of Destiny when the folder holds them.
 //!   `--classic-dat-dir` names another folder for those two, as the desktop client's switch does.
+//!   A connection stays open for the next request, so the reader's thousands of small reads share
+//!   one rather than each opening its own.
 //! - With `--server`, it prints the page's address with the server filled in: a `ws://` or `wss://`
 //!   URL is an Empyrean's WebSocket endpoint and is used as it is; a `host:port` is a server that
 //!   speaks only UDP, for which it builds and starts `dereth-web-relay` on `127.0.0.1:9180`.
@@ -359,71 +361,143 @@ fn range(header: Option<&str>, size: u64) -> Result<Option<(u64, u64)>, ()> {
     Ok(Some((start, end)))
 }
 
+/// One request: its method and path, and the headers the runner reads.
+#[derive(Debug, Default)]
+struct Request {
+    method: String,
+    path: String,
+    range: Option<String>,
+    length: u64,
+    /// Whether the connection closes after the answer: the client asked, or speaks HTTP/1.0
+    /// without asking to keep it.
+    close: bool,
+}
+
+/// The next request on a connection, or `None` once the client has closed it.
+fn read_request(reader: &mut impl BufRead) -> std::io::Result<Option<Request>> {
+    let mut line = String::new();
+    if reader.read_line(&mut line)? == 0 {
+        return Ok(None);
+    }
+    let mut parts = line.split_whitespace();
+    let mut request = Request {
+        method: parts.next().unwrap_or("").to_owned(),
+        path: parts.next().unwrap_or("/").to_owned(),
+        ..Request::default()
+    };
+    let old = parts.next() == Some("HTTP/1.0");
+    let mut connection = None;
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header)? == 0 || header.trim().is_empty() {
+            break;
+        }
+        if let Some((k, v)) = header.split_once(':') {
+            let (k, v) = (k.trim(), v.trim());
+            if k.eq_ignore_ascii_case("range") {
+                request.range = Some(v.to_owned());
+            } else if k.eq_ignore_ascii_case("content-length") {
+                request.length = v.parse().unwrap_or(0);
+            } else if k.eq_ignore_ascii_case("connection") {
+                connection = Some(v.to_ascii_lowercase());
+            }
+        }
+    }
+    request.close = match connection.as_deref() {
+        Some("close") => true,
+        Some("keep-alive") => false,
+        _ => old,
+    };
+    Ok(Some(request))
+}
+
+/// Answers with `status`, `headers` and `body`, saying whether the connection stays open for the
+/// next request. A body's length is given unless `headers` give it.
 fn respond(
     stream: &mut TcpStream,
     status: &str,
     headers: &[(&str, String)],
     body: &[u8],
+    close: bool,
 ) -> std::io::Result<()> {
     let mut head = format!("HTTP/1.1 {status}\r\n");
     for (k, v) in headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
-    head.push_str("Cache-Control: no-store\r\nConnection: close\r\n\r\n");
+    if !headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+    {
+        head.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    }
+    let connection = if close { "close" } else { "keep-alive" };
+    head.push_str(&format!(
+        "Cache-Control: no-store\r\nConnection: {connection}\r\n\r\n"
+    ));
     stream.write_all(head.as_bytes())?;
     stream.write_all(body)?;
     stream.flush()
 }
 
+/// Answers the requests on one connection, each in turn, until the client closes it or asks to.
+/// One connection carries all of a page's reads: the worker's development reader makes thousands
+/// of small ranged reads to open the data files, and a browser that had to open a connection for
+/// each runs out of them.
 fn serve_one(mut stream: TcpStream, www: &Path, dats: &DatDirs) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut request = String::new();
-    reader.read_line(&mut request)?;
-    let mut range_header = None;
-    let mut length = 0usize;
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 || line.trim().is_empty() {
+    while let Some(request) = read_request(&mut reader)? {
+        answer(&mut stream, &mut reader, &request, www, dats)?;
+        if request.close {
             break;
         }
-        if let Some((k, v)) = line.split_once(':') {
-            if k.trim().eq_ignore_ascii_case("range") {
-                range_header = Some(v.trim().to_owned());
-            } else if k.trim().eq_ignore_ascii_case("content-length") {
-                length = v.trim().parse().unwrap_or(0);
-            }
-        }
     }
-    let mut parts = request.split_whitespace();
-    let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or("/"));
+    Ok(())
+}
+
+/// Answers one request, reading its body from `reader`.
+fn answer(
+    stream: &mut TcpStream,
+    reader: &mut impl Read,
+    request: &Request,
+    www: &Path,
+    dats: &DatDirs,
+) -> std::io::Result<()> {
+    let (method, path, close) = (
+        request.method.as_str(),
+        request.path.as_str(),
+        request.close,
+    );
     // The page's log, echoed here when the page is opened with `?echo=1`.
     if method == "POST" && path == "/log" {
-        let mut body = vec![0u8; length.min(1 << 16)];
-        reader.read_exact(&mut body)?;
+        let mut body = Vec::new();
+        reader.take(request.length).read_to_end(&mut body)?;
+        body.truncate(1 << 16);
         println!("page: {}", String::from_utf8_lossy(&body).trim_end());
-        return respond(&mut stream, "204 No Content", &[], b"");
+        return respond(stream, "204 No Content", &[], b"", close);
     }
     let head_only = method == "HEAD";
     if method != "GET" && !head_only {
-        return respond(&mut stream, "405 Method Not Allowed", &[], b"");
+        // A body this runner does not read would be taken for the next request.
+        return respond(stream, "405 Method Not Allowed", &[], b"", true);
     }
     let Some(target) = resolve(www, dats, path) else {
-        return respond(&mut stream, "404 Not Found", &[], b"not found\n");
+        return respond(stream, "404 Not Found", &[], b"not found\n", close);
     };
     if !path.starts_with("/dats/") {
         eprintln!("{method} {path}");
     }
     let mut file = std::fs::File::open(&target)?;
     let size = file.metadata()?.len();
-    let (status, start, end) = match range(range_header.as_deref(), size) {
+    let (status, start, end) = match range(request.range.as_deref(), size) {
         Ok(None) => ("200 OK", 0, size.saturating_sub(1)),
         Ok(Some((s, e))) => ("206 Partial Content", s, e),
         Err(()) => {
             return respond(
-                &mut stream,
+                stream,
                 "416 Range Not Satisfiable",
                 &[("Content-Range", format!("bytes */{size}"))],
                 b"",
+                close,
             )
         }
     };
@@ -442,7 +516,7 @@ fn serve_one(mut stream: TcpStream, www: &Path, dats: &DatDirs) -> std::io::Resu
         body.resize(usize::try_from(len).unwrap_or(0), 0);
         file.read_exact(&mut body)?;
     }
-    respond(&mut stream, status, &headers, &body)
+    respond(stream, status, &headers, &body, close)
 }
 
 fn main() {
@@ -693,5 +767,87 @@ mod tests {
         assert_eq!(range(Some("bytes=8-100"), 10), Ok(Some((8, 9))));
         assert_eq!(range(Some("bytes=10-12"), 10), Err(()));
         assert_eq!(range(Some("bytes=5-2"), 10), Err(()));
+    }
+
+    /// One answer read off `reader`: its status line, its headers and its body.
+    fn answer_on(reader: &mut impl BufRead) -> (String, Vec<String>, Vec<u8>) {
+        let mut status = String::new();
+        reader.read_line(&mut status).unwrap();
+        let mut headers = Vec::new();
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line.trim().is_empty() {
+                break;
+            }
+            headers.push(line.trim().to_owned());
+        }
+        let length: usize = headers
+            .iter()
+            .find_map(|h| h.strip_prefix("Content-Length: "))
+            .map_or(0, |n| n.parse().unwrap());
+        let mut body = vec![0u8; length];
+        reader.read_exact(&mut body).unwrap();
+        (status.trim().to_owned(), headers, body)
+    }
+
+    /// The worker's development reader makes thousands of small ranged reads; a connection stays
+    /// open after each answer for the next one, so they share it, and it closes when the client
+    /// asks. An answer that is not found says how long it is, so the connection goes on after it.
+    #[test]
+    fn a_connection_stays_open_for_the_next_read_until_the_client_asks_to_close_it() {
+        let root = std::env::temp_dir().join(format!("web-dev-keep-{}", std::process::id()));
+        let (www, dats) = (root.join("www"), root.join("dats"));
+        std::fs::create_dir_all(&www).unwrap();
+        std::fs::create_dir_all(&dats).unwrap();
+        let portal = dereth_dat::ModernDat::Portal;
+        let bytes: Vec<u8> = (0..=255).collect();
+        std::fs::write(portal.in_dir(&dats), &bytes).unwrap();
+        let www = www.canonicalize().unwrap();
+        let later = DatDirs {
+            later: Some(dats),
+            classic: None,
+        };
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let at = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve_one(stream, &www, &later)
+        });
+
+        let mut client = TcpStream::connect(at).unwrap();
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let url = format!("/dats/{}", portal.file_name());
+        let ask = |client: &mut TcpStream, range: &str, last: bool| {
+            let close = if last { "Connection: close\r\n" } else { "" };
+            write!(
+                client,
+                "GET {url} HTTP/1.1\r\nHost: 127.0.0.1\r\nRange: bytes={range}\r\n{close}\r\n"
+            )
+            .unwrap();
+        };
+        for (range, want) in [("0-15", 0..16), ("200-255", 200..256), ("16-31", 16..32)] {
+            ask(&mut client, range, false);
+            let (status, headers, body) = answer_on(&mut reader);
+            assert_eq!(status, "HTTP/1.1 206 Partial Content");
+            assert!(headers.iter().any(|h| h == "Connection: keep-alive"));
+            assert_eq!(body, bytes[want]);
+        }
+        write!(client, "GET /missing HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+        let (status, _, body) = answer_on(&mut reader);
+        assert_eq!(
+            (status.as_str(), body.as_slice()),
+            ("HTTP/1.1 404 Not Found", &b"not found\n"[..])
+        );
+        ask(&mut client, "32-47", true);
+        let (status, headers, body) = answer_on(&mut reader);
+        assert_eq!(status, "HTTP/1.1 206 Partial Content");
+        assert!(headers.iter().any(|h| h == "Connection: close"));
+        assert_eq!(body, bytes[32..48]);
+        let mut rest = Vec::new();
+        reader.read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty(), "closed after the last answer");
+        server.join().unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

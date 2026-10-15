@@ -40,7 +40,8 @@ const worker = new Worker(`play-worker.js${location.search}`, { type: 'module' }
 const offscreen = view.transferControlToOffscreen();
 worker.postMessage({ canvas: offscreen }, [offscreen]);
 
-// The drawing buffer's size, which the client chooses; the page only scales it to fit.
+// The drawing buffer's size, which the client chooses; the page only scales it to fit. In full
+// screen the client draws at the page's own size (below), so it fills the page.
 let size = [800, 600];
 
 function fit() {
@@ -48,7 +49,55 @@ function fit() {
   view.style.width = `${Math.floor(size[0] * scale)}px`;
   view.style.height = `${Math.floor(size[1] * scale)}px`;
 }
-addEventListener('resize', fit);
+
+// The drawing scale: the share of the page's own pixels the client draws in full screen, which
+// the front page chooses, the game's Client Options page changes, and this browser keeps. Fewer
+// pixels draw faster and look softer.
+const SCALE_KEY = 'dereth.drawingScale';
+const scaleBox = $('scale');
+function showScale(value) {
+  if ([...scaleBox.options].some((o) => o.value === value)) scaleBox.value = value;
+}
+function keepScale(value) {
+  try {
+    localStorage.setItem(SCALE_KEY, value);
+  } catch (_) {
+    // Kept for this visit only.
+  }
+}
+try {
+  const kept = localStorage.getItem(SCALE_KEY);
+  if (kept) showScale(kept);
+} catch (_) {
+  // No storage: every visit starts at the whole page.
+}
+
+// The page in the device's own pixels, and the drawing scale in percent.
+function page() {
+  const r = $('stage').getBoundingClientRect();
+  const ratio = devicePixelRatio || 1;
+  return {
+    width: Math.round(r.width * ratio),
+    height: Math.round(r.height * ratio),
+    scale: Number(scaleBox.value) || 100,
+  };
+}
+
+function pageChanged() {
+  fit();
+  worker.postMessage({ cmd: 'page', page: page() });
+}
+addEventListener('resize', pageChanged);
+// Moving the window to a screen of another pixel ratio, or zooming the page, changes the page's
+// pixels without always resizing it.
+function watchRatio() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => {
+    pageChanged();
+    watchRatio();
+  }, { once: true });
+}
+watchRatio();
+scaleBox.addEventListener('change', () => keepScale(scaleBox.value));
 fit();
 
 // The sound: an audio context the launch opens (a page may only start one from a click), playing
@@ -95,6 +144,11 @@ worker.onmessage = (ev) => {
   if (m.log) show(m.log);
   if (m.error) show(`error: ${m.error}`);
   if (m.status !== undefined) $('status').textContent = m.status;
+  // The game's Client Options page changed the drawing scale: the next start begins there.
+  if (m.scale !== undefined) {
+    showScale(String(m.scale));
+    keepScale(String(m.scale));
+  }
   if (m.size) {
     show(`drawing at ${m.size[0]}x${m.size[1]}`);
     size = m.size;
@@ -131,7 +185,7 @@ function launch(choice) {
   $('go').disabled = true;
   if (!audio) openAudio(48000);
   $('launch').style.display = 'none';
-  worker.postMessage({ cmd: 'start', ...choice, width: size[0], height: size[1] });
+  worker.postMessage({ cmd: 'start', ...choice, width: size[0], height: size[1], page: page() });
   view.focus();
 }
 

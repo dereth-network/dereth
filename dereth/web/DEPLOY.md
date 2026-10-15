@@ -98,8 +98,8 @@ A host, the launcher, or any other tool finds the newest web client like this:
    being served. A host keeps the `web.json` it last installed beside the files for that.
 4. If it is newer, download `archive.url`, check its size and SHA-256 against `archive`, unpack
    it, check each file against `files`, and swap the folder being served for the new one in one
-   step (a rename or a symbolic link), so no visitor is served half of each. Keep `pkg/` on a
-   short cache (see [Headers](#headers)).
+   step (a rename or a symbolic link), so no visitor is served half of each. Keep every file on
+   a short cache (see [Headers](#headers)).
 
 For example, with `curl` and `jq`:
 
@@ -144,9 +144,10 @@ broken web build is seen before a release.
 - **Compression.** Serve `.wasm` compressed (gzip or Brotli); it shrinks to about a third.
 - **No cross-origin isolation.** The client uses no `SharedArrayBuffer`, so it needs no
   `Cross-Origin-Opener-Policy` or `Cross-Origin-Embedder-Policy`.
-- **Caching.** The files in `pkg/` (`pkg/horizon/` among them) keep their names from build to
-  build, so give them a short cache (`Cache-Control: no-cache` revalidates each load), or a new
-  deploy may meet an old module or old art.
+- **Caching.** Every file keeps its name from build to build: the page, its scripts, the module
+  and the art in `pkg/`. Give all of them `Cache-Control: no-cache`, which revalidates each load
+  (an unchanged file costs a short "not modified" answer). Without it, after a deploy a browser
+  may run an old script beside a new page, script or module, and the page fails to start.
 - **Missing files.** A host that answers a missing file with a page of its own (a single-page
   application's fallback) is fine: the worker checks each of the Horizon interface's files is what
   its name says before it takes it.
@@ -167,10 +168,8 @@ their own configuration):
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: ws://127.0.0.1:* ws://localhost:*
-
-/pkg/*
   Cache-Control: no-cache
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https: ws://127.0.0.1:* ws://localhost:*
 ```
 
 ## Browsers
@@ -216,6 +215,27 @@ carries it): pick a world or type an address, choose or add the data files, and 
   WebSocket endpoint on. Any other server (ACE, GDLE, ClassicACE, or an Empyrean without it) needs
   [`dereth-web-relay`](../../tools/web-relay/README.md) running on the player's machine; the page
   says so on each such world and gives the command line. Worlds reached directly are listed first.
+
+## The picture
+
+The page is the game's screen. In full screen (the Client Options page's Full Screen box, Horizon's
+switch, or Alt+Enter in the world) the game draws at the page's own pixels, the device's rather than
+the page's scaled ones, and follows the page as the window is resized or zoomed or moves to another
+screen. Full screen is on at first in a browser, and a profile kept from before it filled the page
+is turned on once.
+
+- **Drawing scale.** The front page's Drawing scale draws a share of those pixels, from all of them
+  down to half, and the browser enlarges the picture to fill the page: faster on a large or
+  high-density screen, and softer. Every interface's Client Options page has it too, under Display,
+  and a change there is drawn at once. The browser keeps the last choice for the next visit.
+- **Out of full screen** the game draws at the resolution chosen in its options, and the page scales
+  it to fit. The resolutions offered are the standard ones that fit the page, and the page's own
+  size.
+- **The modern and classic interfaces** draw their screens before the world at the fixed 800 by 600
+  they were made for, scaled to fit the page, as they keep that size in a window on the desktop; in
+  the world they fill the page. Horizon fills it from its first screen.
+- **Never smaller than 800 by 600.** A smaller page, or a drawing scale that would make the picture
+  smaller, is drawn at that size in the page's shape and scaled down to fit.
 
 ## The player's data files
 

@@ -19,6 +19,7 @@
 //! |---|---|
 //! | [`world`] | a registry entry, read tolerantly: which clients a world accepts, which dats it expects |
 //! | [`serverlist`] | the community's world list, and its day-old copy |
+//! | [`listing`] | the world list a launcher shows, read and kept alike in every launcher |
 //! | [`hubstatus`] | whether each world is up and how many are on, as the hub has it from the world's heartbeat |
 //! | [`known`] | the worlds that run a client of their own, by list id: logon, files, rules |
 //! | [`worlds`] | the worlds a launcher shows, each with what it said of itself and what the player chose |
@@ -64,6 +65,7 @@ pub mod interface;
 pub mod known;
 pub mod launch;
 pub mod library;
+pub mod listing;
 pub mod probe;
 pub mod registry;
 pub mod releases;

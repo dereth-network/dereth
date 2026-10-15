@@ -136,6 +136,52 @@ pub fn preferences_file() -> PathBuf {
     Path::new("/settings").join("UserPreferences.ini")
 }
 
+/// The section and key a profile carries once its Full Screen setting is the browser's, in which
+/// full screen fills the page.
+const FULL_SCREEN_FILLS_PAGE: (&str, &str) = ("Web", "FullScreenFillsPage");
+
+/// The profile `text` (`None` before the first visit) set up for full screen in a browser, or
+/// `None` when it already is, or does not read.
+///
+/// In a browser full screen fills the page, and a profile starts with it on. Before it filled the
+/// page, Full Screen changed nothing in a browser, so a profile saved then is turned on once as
+/// well. The key the profile is given says it has been, and from then on the player's own choice is
+/// kept.
+#[must_use]
+pub fn full_screen_set_up(text: Option<&str>) -> Option<String> {
+    use dereth_client_contract::persist::preferences::UserPreferences;
+    let mut ini = match text {
+        Some(text) => UserPreferences::parse(text).ok()?,
+        None => UserPreferences {
+            crlf: true,
+            ..UserPreferences::default()
+        },
+    };
+    let (section, key) = FULL_SCREEN_FILLS_PAGE;
+    if ini.get(&UserPreferences::key(section, key)).is_some() {
+        return None;
+    }
+    let (display, full_screen) = dereth_client_contract::options::names::DISPLAY_FULL_SCREEN
+        .split_once('.')
+        .unwrap_or(("Display", "FullScreen"));
+    ini.write_profile_string(display, full_screen, "True");
+    ini.write_profile_string(section, key, "True");
+    Some(ini.to_text())
+}
+
+/// Set the kept profile up for full screen in a browser: see [`full_screen_set_up`].
+///
+/// # Errors
+/// The store will not take the profile.
+pub fn set_up_full_screen() -> io::Result<()> {
+    let path = preferences_file();
+    let text = files::read_to_string(&path).ok();
+    match full_screen_set_up(text.as_deref()) {
+        Some(text) => files::write(&path, text),
+        None => Ok(()),
+    }
+}
+
 /// Where the overlay blocklist is kept: beside the preferences profile, as the desktop client
 /// keeps it.
 fn blocklist_file() -> PathBuf {
@@ -235,6 +281,51 @@ mod tests {
             blocklist_file(),
             Path::new("/settings").join("overlay-blocklist.txt")
         );
+        files::install(files::DISK);
+    }
+
+    /// In a browser, where full screen fills the page, a profile starts with Full Screen on, and a
+    /// profile saved before Full Screen did anything there is turned on once; from then on the
+    /// player's choice is kept, with the profile's other lines as they were.
+    ///
+    /// Behaviour: window.full-screen.in-a-browser-it-fills-the-page-at-its-own-pixels
+    #[test]
+    fn a_profile_starts_full_screen_in_a_browser_and_keeps_the_players_choice_after() {
+        use dereth_client_runtime::config::{Config, Preferences};
+        let full_screen = |text: &str| {
+            Config::from_args_and_prefs_with(&[], &Preferences::parse(text))
+                .unwrap()
+                .display
+                .full_screen
+        };
+        let first = full_screen_set_up(None).expect("a first visit is set up");
+        assert!(full_screen(&first), "{first}");
+        assert!(
+            first.contains("\r\n"),
+            "written as the client writes its profile"
+        );
+
+        let older =
+            "[Display]\r\nResolution=1024x768\r\nFullScreen=False\r\n[Sound]\r\nVolume=0.5\r\n";
+        let set_up = full_screen_set_up(Some(older)).expect("an older profile is set up once");
+        assert!(full_screen(&set_up), "{set_up}");
+        assert!(set_up.contains("Resolution=1024x768") && set_up.contains("Volume=0.5"));
+        assert_eq!(full_screen_set_up(Some(&set_up)), None);
+
+        let chosen = set_up.replace("FullScreen=True", "FullScreen=False");
+        assert_eq!(
+            full_screen_set_up(Some(&chosen)),
+            None,
+            "the player's own choice"
+        );
+        assert!(!full_screen(&chosen));
+
+        install(&[], None);
+        files::write(&preferences_file(), older).unwrap();
+        set_up_full_screen().unwrap();
+        assert!(full_screen(
+            &files::read_to_string(&preferences_file()).unwrap()
+        ));
         files::install(files::DISK);
     }
 

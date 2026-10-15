@@ -8,7 +8,6 @@
 //! [`Play::frame`] once an animation frame, and carries [`Play::receive`] and
 //! [`Play::take_messages`] to and from the WebSocket. Everything between is the client shell's.
 
-use std::cell::Cell;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -24,7 +23,7 @@ use crate::frame;
 use crate::host::clock::{FramePaced, SystemClock};
 use crate::host::dialog::SystemDialog;
 use crate::host::window::{
-    key_code_from_dom, key_from_key_code, CanvasSize, HostEvent, WebWindow, WindowEvents,
+    key_code_from_dom, key_from_key_code, HostEvent, Page, PageSize, WebWindow, WindowEvents,
 };
 use crate::host::WebHost;
 
@@ -57,7 +56,7 @@ pub struct CursorImage {
 pub struct Play {
     app: App,
     events: WindowEvents,
-    size: CanvasSize,
+    page: Rc<Page>,
     server: IpAddr,
     frames: u64,
     /// The cursor [`Play::cursor_change`] last returned.
@@ -96,8 +95,10 @@ pub fn world_config(world_args: &[String], overlay: Option<PathBuf>) -> Result<C
 }
 
 impl Play {
-    /// Bring the client up over `store` in a `width` by `height` canvas, on the device
-    /// `dereth_render::wgpu::install` prepared, and start logging in to `host` as `account`.
+    /// Bring the client up over `store` in a `width` by `height` canvas on a page of `page`
+    /// ([`Self::set_page`]) whose drawing scale starts at `drawing_scale` percent (the front
+    /// page's choice; [`Self::drawing_scale`]), on the device `dereth_render::wgpu::install`
+    /// prepared, and start logging in to `host` as `account`.
     /// `world_args` are what the launcher tells the desktop client about the world on its command
     /// line (its era and systems, the set its world is drawn from, its logon version and rules;
     /// [`world_config`]), and `overlay` the folder in the browser's storage the world's overlay is
@@ -115,6 +116,8 @@ impl Play {
         sequence: u32,
         width: u32,
         height: u32,
+        page: PageSize,
+        drawing_scale: u32,
         world_args: &[String],
         overlay: Option<PathBuf>,
     ) -> Result<Self, String> {
@@ -158,8 +161,8 @@ impl Play {
         // them.
         dereth_client_shell::hud::install_platform::<WebHost>();
         <WebHost as dereth_client_shell::platform::host::Host>::install_default_output();
-        let size: CanvasSize = Rc::new(Cell::new((width, height)));
-        let window_size = Rc::clone(&size);
+        let page = Page::new(page, (width, height), drawing_scale);
+        let window_page = Rc::clone(&page);
         let events = WindowEvents::default();
         let mut app = App::bring_up_with_store(
             cfg,
@@ -167,7 +170,7 @@ impl Play {
             Rc::clone(&events),
             move |_| {
                 Ok(Platform {
-                    window: Box::new(WebWindow::new(window_size)),
+                    window: Box::new(WebWindow::new(window_page)),
                     clock: Box::new(SystemClock::new()),
                     pacer: Box::new(FramePaced),
                     dialog: Box::new(SystemDialog),
@@ -205,7 +208,7 @@ impl Play {
         Ok(Self {
             app,
             events,
-            size,
+            page,
             server,
             frames: 0,
             cursor_shown: None,
@@ -225,8 +228,13 @@ impl Play {
         }
     }
 
-    /// One whole frame of the client, drawn. `false` when the client has shut itself down.
+    /// One whole frame of the client, drawn. `false` when the client has shut itself down. A
+    /// canvas that fills the page and has not yet followed a change of the page's size or of the
+    /// drawing scale does first: the client is told its window was resized.
     pub fn frame(&mut self) -> bool {
+        if let Some((width, height)) = self.page.follow() {
+            self.event(HostEvent::Resized { width, height });
+        }
         self.frames += 1;
         self.app.frame()
     }
@@ -271,9 +279,10 @@ impl Play {
         self.frames
     }
 
-    /// The size the client draws at: the canvas's drawing buffer, which the client changes itself
-    /// (to the display preference on entering the game, and back to 800 by 600 on leaving it).
-    /// The page scales the canvas to fit and maps the pointer by it.
+    /// The size the client draws at: the canvas's drawing buffer. In full screen it is the page's
+    /// own pixels at the drawing scale; else the size the client chose (800 by 600 for the screens
+    /// before the world under the modern and classic interfaces, and the display preference out of
+    /// full screen in the world). The page scales the canvas to fit and maps the pointer by it.
     #[must_use]
     pub fn client_size(&self) -> (u32, u32) {
         self.app.present.size()
@@ -281,9 +290,6 @@ impl Play {
 
     /// Queue one host event for the next frame.
     pub fn event(&mut self, event: HostEvent) {
-        if let HostEvent::Resized { width, height } = event {
-            self.size.set((width, height));
-        }
         self.events.borrow_mut().push(event);
     }
 
@@ -344,9 +350,18 @@ impl Play {
         self.event(HostEvent::Focused(gained));
     }
 
-    /// The canvas's drawing buffer is now `width` by `height`.
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.event(HostEvent::Resized { width, height });
+    /// The page is now `page`, in the device's own pixels. A canvas that fills the page follows it
+    /// at the next frame.
+    pub fn set_page(&mut self, page: PageSize) {
+        self.page.set(page);
+    }
+
+    /// The share of the page's pixels the client draws while it fills the page, in percent: the
+    /// front page's choice at first, and the one a Client Options page made after, which the page
+    /// keeps for the next visit.
+    #[must_use]
+    pub fn drawing_scale(&self) -> u32 {
+        dereth_client_contract::options::drawing_scale::percent()
     }
 
     /// The cursor the interface last set, when it differs from the last one this returned: its

@@ -67,11 +67,12 @@ export function startFront({ call, launch, params, log }) {
     let cached = load(LIST_KEY, null);
     const now = Date.now() / 1000;
     // The copy's worlds are the list until a fetch brings another. A copy that does not read
-    // (damaged, or in a shape this page does not know) is no copy, and the list is fetched.
+    // (damaged, or in a shape this page does not know) is no copy, and the list is fetched; so is
+    // one that is not the day's, by the desktop launcher's rule.
     if (cached && !(await call('listCopy', JSON.stringify(cached)).then(() => true, () => false))) {
       cached = null;
     }
-    if (!force && cached && (await call('listFresh', cached.fetched_at, now))) return '';
+    if (!force && !(await call('listWanted', Math.floor(now)))) return '';
     // The launcher in the worker names each address to fetch: the hub's list a page at a time,
     // then the community's own when the hub does not answer with its list; a list the page's
     // `list` parameter names is read alone.

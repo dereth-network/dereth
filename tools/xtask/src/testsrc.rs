@@ -1027,6 +1027,22 @@ impl Walk<'_> {
     }
 }
 
+/// The name a cargo target of `kinds` is inventoried under: `lib` for the library whatever crate
+/// types it is built as (a WebAssembly module's `cdylib` and `rlib` among them), `bin.<name>` for a
+/// program, its own name for an integration test, and `None` for anything else.
+fn target_name(kinds: &[&str], name: &str) -> Option<String> {
+    const LIBRARY: &[&str] = &["lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"];
+    if kinds.iter().any(|k| LIBRARY.contains(k)) {
+        Some("lib".to_owned())
+    } else if kinds.contains(&"bin") {
+        Some(format!("bin.{name}"))
+    } else if kinds.contains(&"test") {
+        Some(name.to_owned())
+    } else {
+        None
+    }
+}
+
 /// The workspace's targets, from `cargo metadata`.
 ///
 /// # Errors
@@ -1063,13 +1079,7 @@ pub fn targets(ws: &Path) -> Result<Vec<Target>, String> {
                 .map(|ks| ks.iter().filter_map(|k| k.as_str()).collect())
                 .unwrap_or_default();
             let name = t["name"].as_str().unwrap_or_default();
-            let tname = if kinds.contains(&"lib") || kinds.contains(&"proc-macro") {
-                "lib".to_owned()
-            } else if kinds.contains(&"bin") {
-                format!("bin.{name}")
-            } else if kinds.contains(&"test") {
-                name.to_owned()
-            } else {
+            let Some(tname) = target_name(&kinds, name) else {
                 continue;
             };
             result.push(Target {
@@ -1202,6 +1212,22 @@ pub fn test_inventory(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A library is inventoried as `lib` whatever crate types it is built as, so the unit tests of
+    /// a WebAssembly module's crate are read like any other library's.
+    #[test]
+    fn a_library_built_as_a_webassembly_module_is_still_the_lib_target() {
+        assert_eq!(
+            target_name(&["cdylib", "rlib"], "dereth_web").as_deref(),
+            Some("lib")
+        );
+        assert_eq!(target_name(&["lib"], "x").as_deref(), Some("lib"));
+        assert_eq!(target_name(&["proc-macro"], "x").as_deref(), Some("lib"));
+        assert_eq!(target_name(&["bin"], "x").as_deref(), Some("bin.x"));
+        assert_eq!(target_name(&["test"], "cpu").as_deref(), Some("cpu"));
+        assert_eq!(target_name(&["example"], "x"), None);
+        assert_eq!(target_name(&["custom-build"], "build-script-build"), None);
+    }
 
     #[test]
     fn scenario_declarations_keep_nested_names_claims_and_ignore_attributes() {

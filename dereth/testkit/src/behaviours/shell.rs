@@ -2647,6 +2647,38 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "window.full-screen.in-a-browser-it-fills-the-page-at-its-own-pixels",
+        says: "In a browser the page is the screen. Full Screen, on at first there, draws the game \
+               at the page's own pixels (the device's, not the page's scaled ones) at the player's \
+               drawing scale, from all of them down to half, never smaller than 800 by 600 in the \
+               page's shape, and follows the page and the scale as they change. A profile saved \
+               before Full Screen did anything in a browser is turned on once; after that the \
+               player's choice is kept. Out of full screen, and on the screens the modern and \
+               classic interfaces hold at 800 by 600 before the world, the game is drawn at its \
+               own size and scaled to fit the page. The resolutions offered are the standard ones \
+               that fit the page, and the page's own size.",
+        since: THIS_CLIENT,
+        divergence: "CD-002",
+        evidence: Evidence::Private("AC-EVID-WEB-FULL-SCREEN-FILLS-PAGE"),
+        station: "dereth-web::lib::host::window::tests::full_screen_fills_the_page_at_the_drawing_scale_and_follows_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option",
+        says: "In a browser every interface's Client Options page has a Drawing Scale drop-down \
+               under Display, after Full Screen: the share of the page's own pixels the game draws \
+               in full screen, 100, 85, 75, 67 or 50 percent, starting at the front page's choice. \
+               A change made there (on Apply, under the classic interface) is drawn at the next \
+               frame, Defaults puts it back to all of them, and the front page keeps the choice \
+               for the next visit; the profile does not. Where the game cannot draw at a share of \
+               its screen, on the desktop, no page has the row.",
+        since: THIS_CLIENT,
+        divergence: "CD-002",
+        evidence: Evidence::Private("AC-EVID-WEB-DRAWING-SCALE-OPTION"),
+        station: "dereth-client-contract::lib::options::drawing_scale::tests::a_host_that_offers_the_drawing_scale_has_its_row_on_every_interface_s_page",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "window.full-screen.it-fills-the-monitor-the-window-is-on-and-not-the-resolution-that-was-asked-for",
         says: "Full screen fills the monitor the window is on, edge to edge, whatever resolution \
                the player's display setting asked for -- this client borrows no display mode, so \

@@ -42,8 +42,10 @@ impl Host for WebHost {
     /// the page's animation frames, and the log as the error box.
     fn open_platform(cfg: &Config, _events: WindowEvents) -> Result<Platform, StartupError> {
         Ok(Platform {
-            window: Box::new(window::WebWindow::new(std::rc::Rc::new(
-                std::cell::Cell::new((cfg.width, cfg.height)),
+            window: Box::new(window::WebWindow::new(window::Page::new(
+                window::PageSize::new(cfg.width, cfg.height),
+                (cfg.width, cfg.height),
+                dereth_client_contract::options::drawing_scale::ALL,
             ))),
             clock: Box::new(clock::SystemClock::new()),
             pacer: Box::new(clock::FramePaced),
