@@ -96,3 +96,116 @@ The workflow refuses a tag that does not name the version, or that is not on `ma
 The CI and release workflows download one ACE release (`ACE_VERSION`) and check its digest
 (`ACE_SHA256`). To move to a newer ACE, change both in both workflows, after the mod's harness and
 `PatchApply` pass against it (`network/ace-mod/README.md`, *Checking a build*).
+
+## Preflight, then ship
+
+The branch you are releasing can be tried on your own dev setup before anything is pushed, and
+shipped in one command once it does what you wanted. The dev worlds are worlds you upgrade anyway: the preflight's upgrade
+is their upgrade.
+
+```
+cargo xtask preflight setup --out setup       # once: a script per machine, to read and run there
+cargo xtask preflight [--with <world>]        # on that branch; --dry-run says what it would do
+cargo xtask preflight play                    # the client and the launcher, on the dev hub
+cargo xtask preflight rollback                # every world as it was, the dev hub stopped
+cargo xtask ship                              # main to the preflighted commit, released, pushed
+cargo xtask preflight finish                  # the final builds in the dev worlds, the real hub
+```
+
+- **`preflight`** works out the products the branch changed since `main` and the release each takes,
+  and says why (the hub's is a minor release when its registry's schema moves; Empyrean's when a
+  patch would be refused). It builds each in a worktree of the commit, stamped
+  `<version>-rc.N`. It backs the real hub's registry up on its machine over ssh, copies it down,
+  and runs the candidate hub on the copy: it counts every table before and after the migration,
+  and drops every Discord mirror and webhook, every sign-in and link code, and every person's
+  links but your own (`admins`), before it serves, with the dev Discord application, behind the
+  tunnel. Then each dev world is stopped, backed up (its server or mod, its configuration and
+  Empyrean's databases), given its candidate, pointed at the dev hub (the original kept), and
+  started. A second preflight builds the next candidate and keeps the first backups.
+- **`ship`** fast-forwards `main` to exactly the preflighted commit, refusing when the branch has
+  moved since (here, or on the remote if it is there), and runs `cargo xtask release <product> <version> --push` for each product, as
+  above. The workflows then draft the releases; you publish them.
+- What a run changed is kept in the work folder's `preflight.json`, saved as soon as each world's
+  backup is whole and after every world, so a run cut short can still be rolled back.
+
+The setup file is `%APPDATA%\Dereth\preflight.toml` (`DERETH_PREFLIGHT` names another), never the
+repository's:
+
+```toml
+work_dir = 'D:\dereth-preflight'          # builds, the registry's copy, backups, preflight.json
+
+[hub]
+ssh = "you@hub-vps"                       # the real hub's machine (key-based ssh)
+remote_db = "/srv/dereth-hub/hub.sqlite"  # and its registry there
+public_url = "https://dev-hub.example.org"
+admins = ["<your Discord id>"]
+discord_client_id = "<the dev application's id>"
+discord_client_secret_file = 'D:\dereth-dev\client-secret.txt'
+discord_bot_token_file = 'D:\dereth-dev\bot-token.txt'
+tunnel = "dev-hub"
+
+[[machine]]                               # a machine worlds run on, other than this one
+name = "world-box"
+ssh = "you@world-box"                     # key-based ssh from here
+os = "windows"
+
+[[machine]]
+name = "world-vm"
+ssh = "you@world-vm"
+os = "linux"
+target = "x86_64-unknown-linux-gnu.2.28"  # what cargo zigbuild builds Empyrean for
+
+[[world]]
+name = "empyrean"
+kind = "empyrean"
+machine = "world-box"                     # leave it out for a world on this machine
+service = "EmpyreanDev"                   # the nssm service
+dir = 'D:\worlds\empyrean'                # as world-box spells it
+
+[[world]]
+name = "ace"
+kind = "ace"
+machine = "world-box"
+service = "ACEDev"
+dir = 'D:\ACE\Server'                     # the folder holding ACE.Server.dll
+mods_dir = 'D:\ACE\Mods'                  # ACE's ModsDirectory, when it is not Mods inside dir
+depends_on = "MariaDB"                    # the service ACE waits for
+mariadb_dir = 'D:\ACE\mariadb'            # if MariaDB is not a service yet, setup makes it one
+mariadb_ini = 'D:\ACE\my.ini'             # with nssm: mariadbd --defaults-file=<this> --console
+key_file = 'D:\dereth-dev\ace.key'        # on world-box
+
+[[world]]
+name = "infiltration"
+kind = "empyrean"
+machine = "world-vm"
+service = "empyrean"                      # the systemd unit there
+dir = "/srv/empyrean"
+optional = true                           # only with --with infiltration
+```
+
+The one-time setup writes a script for each machine, to read and run once there as an
+administrator (or root):
+- **`setup.ps1`, this machine:** your account may start and stop each world's service here
+  (`sc sdset`) and change its folder, so the preflight never runs as an administrator; an ACE
+  world is made a service that waits for its database (MariaDB too, from `mariadb_dir`, when it
+  is not one yet), with its key in its environment; cargo zigbuild, zig and each Linux machine's
+  target are installed; the tunnel and its address are created (after `cloudflared tunnel login`);
+  and the dev application's secret files are made readable by you alone.
+- **`setup-<machine>.ps1`, each Windows machine:** its OpenSSH server is turned on, this machine's
+  public key (`ssh_key`, or your usual one) logs in as the account the ssh address names, that
+  account may start and stop the worlds' services and change their folders, and an ACE world is
+  made a service as above.
+- **`setup-<machine>.sh`, each Linux machine:** the account may run `sudo -n systemctl stop` and
+  `start` of its worlds' units without a password, and nothing more, and may change the worlds'
+  folders (`setfacl`).
+
+### Worlds on other machines
+
+A world with a `machine` runs there, reached over ssh with a key; several worlds may share one.
+Nothing is built there: everything is built here and copied over with scp. A Windows machine's
+worlds take this machine's builds, Empyrean's server and the mod (built against that world's own
+ACE server, whose assemblies are copied here first), and are driven with PowerShell. A Linux
+machine's take Empyrean built here with `cargo zigbuild` for its `target`, and are driven with
+systemd. Each world's files as they were, its databases' logs included, are kept beside it, in
+its folder's `.preflight-backup`, and a rollback puts them back from there. The dev hub stays on
+this machine: every world links to it at `public_url`, through the tunnel.

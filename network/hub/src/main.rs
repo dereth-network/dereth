@@ -44,6 +44,11 @@ dereth-network-hub -- the Dereth Network's hub and world registry
   dereth-network-hub export-community             the registry as a community list
   dereth-network-hub audit <slug>                 a world's last 100 registry events
   dereth-network-hub backup <file>                a consistent copy of the registry, while it runs
+  dereth-network-hub table-counts                 each table's rows, read without migrating the file
+  dereth-network-hub defang-copy --this-is-a-copy [--keep <discord id>]...
+                                                  for a copy alone: drop every Discord mirror, every
+                                                  sign-in and link code, and every person's links
+                                                  but the kept ones', so a hub on it reaches no one
   dereth-network-hub reports [--all]              the open reports (every one with --all)
   dereth-network-hub report <id> dismiss|revoke \"<note>\"   revoke: federation off, key revoked, locked
   dereth-network-hub unlock <slug>                lift a revocation's lock
@@ -705,6 +710,40 @@ fn run(mut args: Vec<String>) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         "self-update" => self_update(&mut args, &db),
+        "table-counts" => {
+            let counts = dereth_network_hub::registry::table_counts(std::path::Path::new(&db))
+                .map_err(|e| e.message)?;
+            for (table, rows) in counts {
+                println!("{table} {rows}");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        "defang-copy" => {
+            if !take_flag(&mut args, "--this-is-a-copy") {
+                return Err(format!(
+                    "defang-copy: only for a copy of a registry; say so with --this-is-a-copy
+
+{USAGE}"
+                ));
+            }
+            let mut keep = Vec::new();
+            while let Some(id) = take(&mut args, "--keep")? {
+                keep.push(id);
+            }
+            if !args.is_empty() {
+                return Err(format!(
+                    "defang-copy: unexpected {args:?}
+
+{USAGE}"
+                ));
+            }
+            let d = open()?.defang_copy(&keep).map_err(|e| e.message)?;
+            println!(
+                "{db}: {} Discord mirror(s), {} link(s) of persons not kept, {} sign-in(s) and {} link code(s) taken out",
+                d.mirrors, d.links, d.sessions, d.codes
+            );
+            Ok(ExitCode::SUCCESS)
+        }
         "backup" => {
             let to = arg(0)?;
             open()?.backup(&to).map_err(|e| e.message)?;

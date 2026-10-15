@@ -393,10 +393,13 @@ fn main() {
                 .devtools(DEVTOOLS)
                 .build()?;
 
-            // The hub's list, then the community's own when the hub does not answer with one; a
-            // list named by `DERETH_SERVERS_LIST` is read alone.
-            let list_sources =
-                serverlist::sources(std::env::var("DERETH_SERVERS_LIST").ok().as_deref());
+            // The hub's list (another hub's when `DERETH_HUB_LIST` names it), then the community's
+            // own when the hub does not answer with one; a list named by `DERETH_SERVERS_LIST` is
+            // read alone.
+            let list_sources = serverlist::sources_from(
+                std::env::var("DERETH_SERVERS_LIST").ok().as_deref(),
+                std::env::var("DERETH_HUB_LIST").ok().as_deref(),
+            );
             let (vault, name) = vault();
             let shared: Shared = std::sync::Arc::new(std::sync::Mutex::new(Backend::new(
                 folders.clone(),

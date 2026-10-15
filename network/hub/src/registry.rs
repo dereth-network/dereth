@@ -759,6 +759,45 @@ pub fn schema_of_file(path: &std::path::Path) -> Result<i64> {
     Ok(open_existing(path)?.query_row("PRAGMA user_version", [], |r| r.get(0))?)
 }
 
+/// Every table of the registry file at `path`, by name, and how many rows it holds, read without
+/// opening it as a registry (whatever its schema): what a copy holds before a newer hub migrates it,
+/// and after.
+///
+/// # Errors
+/// 404 when there is no file at `path`; database errors.
+pub fn table_counts(path: &std::path::Path) -> Result<Vec<(String, i64)>> {
+    let db = open_existing(path)?;
+    let names = db
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+             ORDER BY name",
+        )?
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut out = Vec::with_capacity(names.len());
+    for name in names {
+        let quoted = name.replace('"', "\"\"");
+        let n: i64 = db.query_row(&format!("SELECT count(*) FROM \"{quoted}\""), [], |r| {
+            r.get(0)
+        })?;
+        out.push((name, n));
+    }
+    Ok(out)
+}
+
+/// What [`Registry::defang_copy`] took out of a copy of a registry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Defanged {
+    /// Discord mirrors: their channels and webhooks.
+    pub mirrors: usize,
+    /// Links between a character and a person whose Discord id was not kept.
+    pub links: usize,
+    /// Sign-ins.
+    pub sessions: usize,
+    /// Link codes.
+    pub codes: usize,
+}
+
 /// Writes the consistent copy [`Registry::backup`] writes, of the registry file at `path`, to `to`
 /// (a new file), without opening it as a registry (it is only read, whatever its schema), while a
 /// hub runs on it or not. The schema version of the copy.
@@ -1787,6 +1826,36 @@ impl Registry {
         self.events_of(&row.id, 100, None)
     }
 
+    /// Takes out of a **copy** of a registry what would reach past it once a hub runs on it: every
+    /// Discord mirror, with its channel and webhook; every link between a character and a person
+    /// whose Discord id is not in `keep`, so that tells reach no other person's Discord; every
+    /// sign-in; and every link code. Worlds, their keys and everything else stay. A hub run on the
+    /// copy afterwards says nothing in any Discord channel, and carries tells into the kept
+    /// persons' direct messages alone. Never for a registry a hub of the network runs on.
+    ///
+    /// # Errors
+    /// Database errors, with nothing taken out.
+    pub fn defang_copy(&mut self, keep: &[String]) -> Result<Defanged> {
+        let tx = self.db.transaction()?;
+        let mirrors = tx.execute("DELETE FROM discord_mirrors", [])?;
+        let kept =
+            serde_json::to_string(keep).map_err(|e| RegistryError::new(500, e.to_string()))?;
+        let links = tx.execute(
+            "DELETE FROM person_characters WHERE person_id NOT IN
+               (SELECT id FROM operators WHERE discord_id IN (SELECT value FROM json_each(?1)))",
+            [&kept],
+        )?;
+        let sessions = tx.execute("DELETE FROM operator_sessions", [])?;
+        let codes = tx.execute("DELETE FROM person_codes", [])?;
+        tx.commit()?;
+        Ok(Defanged {
+            mirrors,
+            links,
+            sessions,
+            codes,
+        })
+    }
+
     /// Writes a consistent copy of the registry to `path` (a new file), while the hub runs: one
     /// transaction's view, whatever is being written meanwhile.
     ///
@@ -2715,6 +2784,91 @@ mod tests {
         assert!(b.authenticate("coldeve", &key));
         assert_eq!(b.channels().expect("read").len(), 1);
         drop(b);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Spec: hub: a copy of a registry, defanged, keeps its worlds and their keys and the links of
+    /// the persons kept, and holds no Discord mirror, no other person's link, no sign-in and no link
+    /// code; its tables are counted without migrating it.
+    #[test]
+    fn a_defanged_copy_keeps_its_worlds_and_reaches_no_discord_but_the_kept_persons() {
+        let dir = std::env::temp_dir().join(format!("hub-defang-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let copy = dir.join("copy.sqlite");
+        let (_, c) = clock();
+        let mut r =
+            Registry::open(copy.to_str().expect("a path"), "dereth.network", c).expect("open");
+        let (_, key) = r.register(&reg("coldeve")).expect("registered");
+        r.db.execute_batch(
+            "INSERT INTO operators(id, discord_id, name, created_at) VALUES
+               ('o1', '1001', 'owner', 'then'), ('o2', '2002', 'someone', 'then');
+             INSERT INTO person_characters(address_key, address, world, person_id, linked_at) VALUES
+               ('ann@coldeve', 'Ann@coldeve', 'coldeve', 'o1', 'then'),
+               ('bob@coldeve', 'Bob@coldeve', 'coldeve', 'o2', 'then'),
+               ('cy@coldeve', 'Cy@coldeve', 'coldeve', 'o2', 'then');
+             INSERT INTO operator_sessions(id_hash, operator_id, created_at, expires_at) VALUES
+               ('s1', 'o1', 'then', 'later');
+             INSERT INTO person_codes(address_key, address, world, code_hash, expires_at) VALUES
+               ('dan@coldeve', 'Dan@coldeve', 'coldeve', 'h1', 'later');
+             INSERT INTO discord_mirrors(server_id, room, channel_id, guild_id, webhook_id,
+               webhook_token, set_at) VALUES (NULL, 'global', 'c1', 'g1', 'w1', 'secret', 'then');",
+        )
+        .expect("rows");
+        let count = |table: &str| {
+            table_counts(&copy)
+                .expect("counted")
+                .into_iter()
+                .find(|(t, _)| t == table)
+                .map(|(_, n)| n)
+        };
+        assert_eq!(
+            count("person_characters"),
+            Some(3),
+            "counted as the file holds it"
+        );
+        assert_eq!(count("discord_mirrors"), Some(1));
+
+        let d = r.defang_copy(&["1001".to_owned()]).expect("defanged");
+        assert_eq!(
+            d,
+            Defanged {
+                mirrors: 1,
+                links: 2,
+                sessions: 1,
+                codes: 1
+            }
+        );
+        drop(r);
+        for (table, rows) in [
+            ("discord_mirrors", 0),
+            ("person_characters", 1),
+            ("operator_sessions", 0),
+            ("person_codes", 0),
+            ("operators", 2),
+            ("servers", 1),
+        ] {
+            assert_eq!(count(table), Some(rows), "{table}");
+        }
+        let (_, c) = clock();
+        let b = Registry::open(copy.to_str().expect("a path"), "dereth.network", c)
+            .expect("the copy opens");
+        assert!(
+            b.authenticate("coldeve", &key),
+            "the world's own key still works"
+        );
+        assert_eq!(
+            b.db.query_row("SELECT person_id FROM person_characters", [], |r| r
+                .get::<_, String>(0))
+                .expect("one link"),
+            "o1",
+            "the kept person's link"
+        );
+        drop(b);
+        assert_eq!(
+            table_counts(&dir.join("none.sqlite")).map_err(|e| e.status),
+            Err(404)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

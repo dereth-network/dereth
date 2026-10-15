@@ -75,15 +75,26 @@ pub struct ListSource {
 /// alone when one is named, and otherwise the hub's list, then the community's own. An empty name
 /// names none.
 pub fn sources(named: Option<&str>) -> Vec<ListSource> {
+    sources_from(named, None)
+}
+
+/// [`sources`], with the list of another hub than the network's (`hub`, the address of its
+/// `/v1/servers`: a hub of one's own, such as a release's trial on a copy of the registry) read in
+/// place of the network's hub. An empty address names none.
+pub fn sources_from(named: Option<&str>, hub: Option<&str>) -> Vec<ListSource> {
     let source = |url: &str, format, empty_is_an_answer| ListSource {
         url: url.to_owned(),
         format,
         empty_is_an_answer,
     };
+    let hub = hub
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .unwrap_or(HUB_LIST_URL);
     match named.map(str::trim).filter(|n| !n.is_empty()) {
         Some(named) => vec![source(named, ListFormat::ServersXml, true)],
         None => vec![
-            source(HUB_LIST_URL, ListFormat::Hub, false),
+            source(hub, ListFormat::Hub, false),
             source(COMMUNITY_LIST_URL, ListFormat::ServersXml, false),
         ],
     }
@@ -777,6 +788,30 @@ mod tests {
         assert!(w[0].dats.custom.is_some());
         assert_eq!(w[1].world_profile.as_deref(), Some("classicdereth"));
         assert_eq!(w[1].logon_version.as_deref(), Some("1802"));
+    }
+
+    #[test]
+    fn another_hubs_list_is_read_in_place_of_the_networks_and_a_named_list_alone_still() {
+        let urls = |s: Vec<ListSource>| s.into_iter().map(|s| s.url).collect::<Vec<_>>();
+        assert_eq!(
+            urls(sources_from(
+                None,
+                Some("https://dev-hub.example.org/v1/servers")
+            )),
+            ["https://dev-hub.example.org/v1/servers", COMMUNITY_LIST_URL]
+        );
+        assert_eq!(
+            urls(sources_from(None, Some(" "))),
+            [HUB_LIST_URL, COMMUNITY_LIST_URL]
+        );
+        assert_eq!(sources_from(None, None), sources(None));
+        assert_eq!(
+            urls(sources_from(
+                Some("https://x.example/Servers.xml"),
+                Some("https://dev")
+            )),
+            ["https://x.example/Servers.xml"]
+        );
     }
 
     #[test]

@@ -18,6 +18,8 @@ retail-dats = []
 [dependencies]
 # `crate-docs` reads `cargo metadata`; the unit tier's budget keeps its history as JSON.
 serde_json.workspace = true
+# `preflight` reads its setup file and keeps what it changed, as typed records.
+serde.workspace = true
 # `test-lint` states its naming rules as the regular expressions the test standard writes them in.
 regex = "1"
 # The sweep runs test binaries without cargo, so it reads the Cargo configuration's `[env]` itself.
