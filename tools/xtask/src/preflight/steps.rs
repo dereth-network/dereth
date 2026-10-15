@@ -740,6 +740,12 @@ fn databases(w: &World, text: &str, linux: bool) -> Vec<String> {
     }
 }
 
+/// The last part of a world's path, as Windows spells it: split at either slash, whatever this
+/// machine's own separator is.
+pub fn last_part(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
 /// `w` recorded with its backup, which is whole: from now on a rollback puts it back, even when
 /// the run stops before the world is started again.
 fn record(
@@ -806,13 +812,10 @@ fn install_here(
         m.copy(&config, &backup.join("config"))?;
         for db in databases(w, &text, false) {
             for suffix in ["", "-wal", "-shm"] {
-                let file = PathBuf::from(format!("{db}{suffix}"));
+                let path = format!("{db}{suffix}");
+                let file = PathBuf::from(&path);
                 if m.exists(&file) {
-                    let name = file
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    m.copy(&file, &backup.join("db").join(name))?;
+                    m.copy(&file, &backup.join("db").join(last_part(&path)))?;
                 }
             }
         }
@@ -1010,12 +1013,9 @@ fn restore_here(m: &mut dyn Machine, w: &World, backup: &Path) -> Result<(), Str
         let text = m.read(Path::new(&w.config_file()))?;
         for db in databases(w, &text, false) {
             for suffix in ["", "-wal", "-shm"] {
-                let file = PathBuf::from(format!("{db}{suffix}"));
-                let name = file
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let kept = dbs.join(&name);
+                let path = format!("{db}{suffix}");
+                let file = PathBuf::from(&path);
+                let kept = dbs.join(last_part(&path));
                 if m.exists(&kept) {
                     m.copy(&kept, &file)?;
                 } else {

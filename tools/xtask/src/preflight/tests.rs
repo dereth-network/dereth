@@ -1890,6 +1890,17 @@ fn an_ace_worlds_mods_folder_may_sit_beside_its_server() {
 }
 
 #[test]
+fn a_worlds_file_is_named_by_either_slash_whatever_this_machine_uses() {
+    assert_eq!(steps::last_part("D:\\worlds\\emp\\shard.db"), "shard.db");
+    assert_eq!(
+        steps::last_part("D:\\worlds\\emp/db/auth.db-wal"),
+        "auth.db-wal"
+    );
+    assert_eq!(steps::last_part("/srv/emp/shard.db-shm"), "shard.db-shm");
+    assert_eq!(steps::last_part("shard.db"), "shard.db");
+}
+
+#[test]
 fn the_mod_is_not_built_against_a_folder_with_no_ace_server_in_it() {
     let mut f = fake();
     f.remove(Path::new("D:/ACE/Server/ACE.Server.dll"))
