@@ -281,6 +281,33 @@ pub struct CharacterRecord {
     /// login.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub taken_out: Option<directory::TakenOut>,
+    /// Which of this world's characters it squelched for tells as it last left the world, kept for
+    /// a character on the network and linked ([`reach`]); none for one that has not left since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub away_squelches: Option<LocalSquelches>,
+}
+
+/// The tell squelches a character had of its own world's characters as it last left the world:
+/// characters by id, accounts by name, or everyone. While it is away the world cannot ask it, so a
+/// tell from one of them is answered by these.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSquelches {
+    #[serde(default)]
+    pub characters: BTreeSet<u32>,
+    #[serde(default)]
+    pub accounts: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub everyone: bool,
+}
+
+impl LocalSquelches {
+    /// Whether a tell from the character `id`, of the account `account`, would be held back.
+    #[must_use]
+    pub fn covers(&self, id: u32, account: Option<&str>) -> bool {
+        self.everyone
+            || self.characters.contains(&id)
+            || account.is_some_and(|a| self.accounts.contains(a))
+    }
 }
 
 /// What the network keeps across restarts: the stand-in ids (never reused), each character's

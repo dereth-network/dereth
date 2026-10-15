@@ -1225,7 +1225,9 @@ persons in and its broker is on (`broker.discordTells` in `GET /v1/config`).
 
 **Out: a tell into the person's direct messages.**
 
-1. A tell goes to its world as ever. When the world answers `offline` and the character is linked,
+1. A tell goes to its world as ever, a tell from a character of the same world among them (its
+   world sends one to an away, linked character to the hub, [03](03-world-behaviour.md) section 1).
+   When the world answers `offline` and the character is linked,
    the teller's world is answered `offline` at once, as for any character not online, and the hub
    asks the character's world `reach`: would the character, not online, have been shown it? The
    question names the teller and the character, nothing more. The world answers by the

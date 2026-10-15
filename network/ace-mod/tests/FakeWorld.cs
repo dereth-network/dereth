@@ -23,6 +23,12 @@ internal sealed class FakeCharacter
     public bool Olthoi { get; set; }
     /// <summary>The characters of this world it squelches in every room, by id.</summary>
     public HashSet<uint> SquelchedLocals { get; } = [];
+    /// <summary>The accounts of this world's characters it squelches, by name.</summary>
+    public HashSet<string> SquelchedAccounts { get; } = [];
+    /// <summary>Whether it squelches everyone.</summary>
+    public bool SquelchesEveryone { get; set; }
+    /// <summary>The name of its account.</summary>
+    public string? Account { get; set; }
 
     // What the directory's profile is made of.
     public uint Level { get; set; } = 10;
@@ -80,6 +86,15 @@ internal sealed class FakeHost : IWorldHost
 
     public bool SquelchesLocal(uint listener, uint speaker) =>
         Characters.TryGetValue(listener, out var c) && c.SquelchedLocals.Contains(speaker);
+
+    public string? AccountOf(uint character) => Characters.TryGetValue(character, out var c) ? c.Account : null;
+
+    /// <summary>The tell squelches a character has of this world's characters, as a host takes them as it leaves.</summary>
+    public LocalSquelches KeptSquelches(uint character)
+    {
+        var c = Characters[character];
+        return new LocalSquelches(c.SquelchedLocals.ToHashSet(), c.SquelchedAccounts.ToHashSet(StringComparer.Ordinal), c.SquelchesEveryone);
+    }
 
     public string? RoomRefusal(uint character, RoomSlot slot) =>
         Characters.TryGetValue(character, out var c) && c.Olthoi ? SayReasons.NotAllowed : null;

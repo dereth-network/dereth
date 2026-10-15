@@ -46,6 +46,12 @@ public interface IWorldHost
     /// <summary>Whether `listener`, in the world, squelches `speaker`, a character of this world in the world or not, in every room.</summary>
     bool SquelchesLocal(uint listener, uint speaker) => false;
 
+    /// <summary>Whether `listener`, in the world, squelches tells from `speaker`, a character of this world in the world or not.</summary>
+    bool SquelchesLocalTells(uint listener, uint speaker) => SquelchesLocal(listener, speaker);
+
+    /// <summary>The name of the account a character of this world belongs to, in the world or not; null when the world cannot tell.</summary>
+    string? AccountOf(uint character) => null;
+
     /// <summary>
     /// Why the world's own rules for the room in `slot` keep the character, in the world or not, from
     /// saying a line there, as a say's refusal names it (<see cref="SayReasons"/>); null when none does.

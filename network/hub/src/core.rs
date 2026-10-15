@@ -5660,6 +5660,81 @@ mod tests {
         assert_eq!(h.take_discord_answers()[0].outcome, Outcome::Unavailable);
     }
 
+    /// Spec: hub: a tell to a linked character from a character of its own world goes to the
+    /// character's world and, answered `offline`, has that world asked `reach` and goes to the
+    /// person's Discord when it says so, as one from another world does; the person's reply goes
+    /// back to that world as a tell from the character, and its answer to the person.
+    #[test]
+    fn a_tell_from_the_characters_own_world_reaches_its_persons_discord_and_the_reply_comes_back() {
+        let d = TellsDir;
+        let mut h = tells_hub();
+        let (back, asked) = told(&mut h, "t1", "Bob@bb", "Ann@bb", Outcome::Offline, 1.0);
+        assert_eq!(
+            sent_to(&back, "bb"),
+            [&Message::TellResult {
+                id: "t1".into(),
+                outcome: Outcome::Offline,
+                message: None
+            }],
+            "the teller is answered as for any character not online"
+        );
+        let [(world, ask)] = &asked[..] else {
+            panic!("one question: {asked:?}")
+        };
+        assert!(
+            world == "bb"
+                && matches!(ask, ReachMessage::Ask { from, to, .. }
+                    if from.to_string() == "Bob@bb" && to.to_string() == "Ann@bb"),
+            "the character's own world is asked, naming the teller of that world: {asked:?}"
+        );
+        reach_answer(&mut h, "bb", ask, true, 1.1);
+        assert_eq!(
+            h.take_discord_tells(),
+            [DiscordTell {
+                person: "p1".into(),
+                from: a("Bob@bb"),
+                to: a("Ann@bb"),
+                text: "hi".into(),
+            }]
+        );
+        let (_, asked) = told(&mut h, "t2", "Bob@bb", "Ann@bb", Outcome::Offline, 2.0);
+        reach_answer(&mut h, "bb", &asked[0].1, false, 2.1);
+        assert!(
+            h.take_discord_tells().is_empty(),
+            "not when the world says no"
+        );
+
+        let (out, carry) = h.tell_from_discord(&d, "p1", &a("Ann@bb"), &a("Bob@bb"), "soon", 3.0);
+        assert_eq!(carry, Carry::Carried);
+        let [Message::Tell { id, from, to, .. }] = sent_to(&out, "bb")[..] else {
+            panic!("one tell to bb: {out:?}")
+        };
+        assert_eq!(
+            (from.to_string(), to.to_string()),
+            ("Ann@bb".into(), "Bob@bb".into())
+        );
+        h.receive(
+            &d,
+            "bb",
+            Message::TellResult {
+                id: id.clone(),
+                outcome: Outcome::Delivered,
+                message: None,
+            },
+            3.1,
+        );
+        assert_eq!(
+            h.take_discord_answers(),
+            [DiscordAnswer {
+                person: "p1".into(),
+                from: a("Ann@bb"),
+                to: a("Bob@bb"),
+                outcome: Outcome::Delivered,
+                message: None,
+            }]
+        );
+    }
+
     /// `Ann@bb`, of the person `p1`, and `Bob@aa`, of the person `p2`.
     struct PairDir;
 

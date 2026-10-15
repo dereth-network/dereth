@@ -25,6 +25,14 @@ You tell Bob@coldeve, "see you then"
 - **By name.** `@tell Name@world, text` reaches the world as `Communication_TalkDirectByName`
   (`0x005D`). A target name holding `@` is a network address. The world sends the tell to the
   hub; its own address for a local character (`Ann@thisworld`) is a local tell to `Ann`.
+- **To an away, linked character of the world's own.** A tell by name (`Ann`, `Ann@thisworld`, or
+  either with the mark below) to one of the world's characters that is not online but is on the
+  network and linked by itself (section 9) goes to the hub as a tell to `Ann@thisworld`, so that it
+  may reach the player's Discord (*A person's Discord*, below): from a sender on the network, while
+  the link is up, under the checks and paces below. The sender sees what a tell to another world's
+  character not online shows: `Character not available`. A tell to a character online, off the
+  network, never linked or unknown, a tell from a sender off the network, and any tell while the
+  link is down stay the world's own, as before.
 - **By id.** A reply that the client sends by id, `Communication_TalkDirect` (`0x0032`), carries
   the stand-in id the remote sender was shown under; the world turns it back into the address.
 - **A marked name.** A name given with the mark a line said from Discord shows beside its speaker
@@ -64,8 +72,12 @@ You tell Bob@coldeve, "see you then"
 
 ### Receiving
 
-A tell from another world is shown to a character that is online and on the network, from anyone
-(a tell the hub hands on from the receiving world's own address is refused). The operator's blocks
+A tell from another world is shown to a character that is online and on the network, from anyone.
+A tell the hub hands on from the receiving world's own address is refused (`offline`) unless it is
+a reply from elsewhere: from one of the world's characters that is not online but is on the network
+and linked by itself, whose player answered from where its tell went (*A person's Discord*). Such a
+reply is shown as any remote tell, under the character's address and a stand-in id, and the
+recipient's own squelches of the character hold. The operator's blocks
 and the recipient's squelches apply, and the sender must have a stand-in id (section 8). Otherwise
 the answer is `offline` (or `squelched`), and the recipient sees nothing. Only a tell that would be
 shown counts against the paces section 8 describes, and one held back by them is answered
@@ -103,10 +115,16 @@ code:
   earlier character of its name, is answered false. An answer waits with those owed to the teller's
   world (section 8), so a question about a tell from a world already owed its share is not
   answered.
+- **A teller of its own world.** A character of the world's own reaches an away, linked character
+  this way too (section 1, *Sending*). While the character is away the world cannot ask its
+  squelches of its own world's characters, so it keeps them as the character leaves (the characters
+  and accounts it squelches for tells, and whether it squelches everyone) and answers `reach` for a
+  teller of its own by them; a character that has not left since its world began keeping them is
+  reached by no teller of its own world. The answer is otherwise as for any teller.
 - **A reply is a tell.** The person's reply reaches the teller's world as a tell from the character
   the tell was for, which may come while that character is not online: the world takes it as any
   tell, by its own rules, and the teller may answer it as any tell. The character's own world is
-  told nothing of it.
+  told nothing of it, unless it is the teller's world too.
 
 ## 2. Friends
 

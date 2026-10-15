@@ -14,8 +14,8 @@ use empyrean_entity::ObjectGuid;
 
 use super::{
     answer_if_up, blocked, enabled, existing_record_mut, is_on, may_receive, now, own_address,
-    presence_line, record_mut, send_if_up, stand_in, stand_in_for, tell_player, Status,
-    MAX_REMOTE_FRIENDS, MAX_REMOTE_SQUELCHES, MAX_WATCHERS, MAX_WATCHERS_PER_WORLD, NOT_ON,
+    presence_line, record_mut, send_if_up, stand_in, stand_in_for, tell_player, LocalSquelches,
+    Status, MAX_REMOTE_FRIENDS, MAX_REMOTE_SQUELCHES, MAX_WATCHERS, MAX_WATCHERS_PER_WORLD, NOT_ON,
     PRESENCE_PACE, WATCHES,
 };
 use crate::managers::player_manager;
@@ -25,6 +25,7 @@ use crate::network::game_event::events::game_event_friends_list_update::{
 use crate::network::game_event::events::game_event_weenie_error::game_event_weenie_error;
 use crate::network::game_event::game_event_message::session_data;
 use crate::network::game_messages::game_message::enqueue_send;
+use crate::world_objects::managers::squelch_manager;
 use crate::world_objects::world_object_networking::shims;
 use crate::World;
 
@@ -606,12 +607,49 @@ pub fn on_login(w: &mut World, player: ObjectGuid) {
 
 /// A character left the world: its watchers see it offline, it stops watching, and what its
 /// friends' worlds told it is forgotten, with the friends its person friends listed. A listed
-/// one's profile goes to the directory if it changed.
+/// one's profile goes to the directory if it changed. A linked one keeps the tell squelches it has
+/// of this world's characters, by which a tell from one of them is answered while it is away
+/// ([`super::reach`]).
 pub fn on_logout(w: &mut World, player: ObjectGuid) {
     if enabled(w) {
+        keep_away_squelches(w, player);
         super::directory::left(w, player);
     }
     leave(w, player, false);
+}
+
+/// The tell squelches a character on the network and linked has of this world's characters, kept
+/// in its record as it leaves: characters whose squelch covers tells, accounts, and everyone when a
+/// squelch of all covers tells. None is kept for a character the world no longer holds.
+fn keep_away_squelches(w: &mut World, player: ObjectGuid) {
+    let character = player.full();
+    if !w
+        .federation
+        .record(character)
+        .is_some_and(|r| r.settings.on && r.asked_link)
+    {
+        return;
+    }
+    let held = w.objects.get(player).is_some_and(|o| o.player.is_some());
+    let kept = held.then(|| {
+        let db = squelch_manager::squelches(w, player);
+        let mask = ChatMessageType::Tell.to_mask();
+        LocalSquelches {
+            characters: db
+                .characters
+                .iter()
+                .filter(|(_, i)| i.filters.first().is_some_and(|f| f.contains(mask)))
+                .map(|(id, _)| *id)
+                .collect(),
+            accounts: db.accounts.keys().cloned().collect(),
+            everyone: db.globals.filters.first().is_some_and(|f| f.contains(mask)),
+        }
+    });
+    let r = record_mut(w, character);
+    if r.away_squelches != kept {
+        r.away_squelches = kept;
+        w.federation.dirty = true;
+    }
 }
 
 /// A character went off the network (`/dn off`) and stays in the world: as [`on_logout`], and the

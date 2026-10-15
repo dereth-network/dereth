@@ -98,6 +98,10 @@ the vectors and to its own checks of the same behaviour, against a real hub. The
 | `tell.a_local_sender_sees_the_echo_only_once_the_hub_answers` | the tell goes as the character's address; the echo waits for `delivered` |
 | `tell.an_offline_answer_is_character_not_available` | the native error |
 | `tell.a_reply_by_id_goes_to_the_stand_in_ids_identity` | the by-id reply path |
+| `tell.by_name_to_an_away_linked_character_of_its_own_goes_to_the_hub` | a tell by name to one of its characters away, on the network and linked goes to the hub from the sender's address; an `offline` answer is `Character not available` |
+| `tell.by_name_to_an_online_character_of_its_own_stays_local` | a tell by name to one of its characters online is the world's own: nothing to the hub, shown under the sender's own id |
+| `tell.a_reply_as_an_away_linked_character_of_its_own_is_shown` | a tell from its own address, as one of its characters away, on the network and linked, is shown under that address and a stand-in id; `delivered` |
+| `tell.from_its_own_character_in_the_world_is_offline_and_unseen` | a tell from its own address, as one of its characters in the world, is `offline` and shown to nobody |
 | `squelch.a_squelched_sender_is_answered_squelched_and_unseen` | remote squelch |
 | `presence.a_character_on_the_network_shows_online_to_anyone_who_watches` | a stranger's watch is answered online, and offline once the character goes off the network |
 | `presence.a_friend_shows_as_its_home_world_says` | a status row under the stand-in id |

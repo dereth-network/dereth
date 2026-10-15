@@ -97,7 +97,7 @@ internal static class ReachChecks
         c.Check(S, Answered(Ask(w, link, clock, Question("q5", "Bob@bravo", "Ann@charlie")), "q5", false),
             "nor another world's");
         c.Check(S, Answered(Ask(w, link, clock, Question("q6", "Fay@alpha", "Ann@alpha")), "q6", false),
-            "nor one asked about a tell from this world's own address");
+            "nor one asked about a tell from this world's own address, when the character kept no squelches as it left");
         w.Host.Characters[0x5000_0001].Deleted = true;
         c.Check(S, Answered(Ask(w, link, clock, Question("q6d", "Bob@bravo", "Ann@alpha")), "q6d", false),
             "nor one deleted");

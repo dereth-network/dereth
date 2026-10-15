@@ -206,6 +206,19 @@ counts against the pace of tells from the teller's world to the character, as a 
 The answer shows nobody anything and gives no stand-in id. A reply from Discord reaches this
 world's teller as any tell from another world does.
 
+A teller on this world reaches it too. A tell by name (`@tell Ann`, or `Ann@<slug>`) from a
+character on the network to one of this world's characters that is not online but is on the
+network and linked goes to the hub instead of being answered here, so that it reaches the player's
+Discord; the teller is answered *Character not available*, as for any character not online. A tell
+to a character online, off the network or never linked, from a teller off the network, or while
+the link is down stays ACE's own tell. ACE keeps an offline character's squelches nowhere the mod
+can read, so as each linked character on the network leaves the world the mod keeps, in its
+record, which of this world's characters and accounts it squelches for tells and whether it
+squelches everyone, and answers a teller of this world by that; a character that has not logged
+out since this version is reached by no teller of its own world until it has. The reply from
+Discord is shown to the teller as a tell from `Ann@<slug>`, under a stand-in id, unless the teller
+squelches Ann.
+
 ## Commands
 
 `@dn` is the network's command (typed `/dn` too: the retail client forwards a command it does not
@@ -247,9 +260,9 @@ Each feature is patched only if every ACE method it needs is found. The table is
 | Feature | ACE methods | What it does |
 |---|---|---|
 | `core` | `PlayerManager.Tick` (after) | On the world thread every loop: what the hub sent is handled, the clock runs (the one-minute hold, the 100-second answer timeout, the heartbeat), and what to send is handed to the link. Without it the network stays off. |
-| `tells` | `GameActionTell.Handle` (before) | A tell whose name holds `@` goes to the hub; this world's own address is a local tell, and so is a name given with the mark a line said from Discord shows (`Ann (Discord)`, as the client sends a clicked name). The sender sees the echo, the away message, or `Character not available`, once the hub answers. A sender squelched by the recipient sees what ACE shows for a local squelch: the echo, then *... has you squelched.* |
+| `tells` | `GameActionTell.Handle` (before) | A tell whose name holds `@` goes to the hub; this world's own address is a local tell, and so is a name given with the mark a line said from Discord shows (`Ann (Discord)`, as the client sends a clicked name), except to a character of this world away, on the network and linked, whose tell goes to the hub (*Tells into Discord*). The sender sees the echo, the away message, or `Character not available`, once the hub answers. A sender squelched by the recipient sees what ACE shows for a local squelch: the echo, then *... has you squelched.* |
 | `replies` | `GameActionTalkDirect.Handle` (before) | A reply by id to a stand-in id goes back to the remote sender. |
-| `friends` | `GameActionAddFriend.Handle`, `GameActionRemoveFriend.Handle` (before); `GameActionRemoveAllFriends.Handle`, `GameEventFriendsListUpdate.WriteEventBody`, `PlayerManager.SwitchPlayerFromOfflineToOnline`, `SwitchPlayerFromOnlineToOffline` (after) | Remote friends kept in the network's own records, rows under their stand-in ids, the full list at login carrying them after the local ones, watches and presence at login and logout, the online and offline lines, and a listed character's listing at login and logout. |
+| `friends` | `GameActionAddFriend.Handle`, `GameActionRemoveFriend.Handle` (before); `GameActionRemoveAllFriends.Handle`, `GameEventFriendsListUpdate.WriteEventBody`, `PlayerManager.SwitchPlayerFromOfflineToOnline`, `SwitchPlayerFromOnlineToOffline` (after) | Remote friends kept in the network's own records, rows under their stand-in ids, the full list at login carrying them after the local ones, watches and presence at login and logout, the online and offline lines, a listed character's listing at login and logout, and a linked character's tell squelches of this world's characters as it leaves. |
 | `directory` | `PlayerManager.HandlePlayerDelete` (after) | A listed character deleted on the character screen leaves the directory at once. Without it the directory finds the deletion itself within half a minute, as it finds a rename. |
 | `appear-offline` | `GameActionSetSingleCharacterOption.Handle` (before and after) | Appearing offline shows a character offline to its remote watchers too. |
 | `squelch` | `SquelchManager.HandleActionModifyCharacterSquelch` (before) | Squelching an address or a stand-in id; squelching a channel leaves it. A name given with the mark a line said from Discord shows is squelched without it, by ACE too. |
@@ -279,7 +292,8 @@ squelch) is forgotten a day after it was last used, and the least lately used pa
 the id is still never given again, and the identity gets a new one if it is seen again.
 
 The store (`StorePath`) holds the stand-in ids, whether each character is on the network, its
-remote friends and remote squelches, the operator's blocks, and the directory's listings (each listed character's
+remote friends and remote squelches (and, for a linked one, its tell squelches of this world's
+characters as it last left), the operator's blocks, and the directory's listings (each listed character's
 latest profile and whether the hub has answered it, the listings owed that take characters out, and
 the random keys allegiances are listed under): nothing else, no message, no presence history and
 nothing of persons. A linked character's friends are its person friends: the characters they list

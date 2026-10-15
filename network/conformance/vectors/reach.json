@@ -18,6 +18,15 @@
       }
     },
     {
+      "type": "reach",
+      "frame": "{\"type\":\"reach\",\"id\":\"h10\",\"from\":\"Fay@frost\",\"to\":\"Ann@frost\"}",
+      "expect": {
+        "from": "Fay@frost",
+        "to": "Ann@frost"
+      },
+      "note": "a teller of the character's own world"
+    },
+    {
       "type": "reach.result",
       "frame": "{\"type\":\"reach.result\",\"id\":\"h7\",\"reachable\":true}",
       "expect": {

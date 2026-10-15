@@ -236,6 +236,159 @@ fn a_tell_to_a_character_away_goes_to_its_persons_discord_once_its_world_says_so
     );
 }
 
+/// `who` on bb tells Ann by `name`: what the hub handed to Discord. `who` is answered as for any
+/// character not online, and bb is asked about the tell and answers once.
+fn tell_ann_at_home(net: &mut Net, who: &str, name: &str, text: &str) -> Vec<DiscordTell> {
+    let m = net.mark("bb", who);
+    let (asked, answered) = (net.reach_asked.len(), net.reach_answers.len());
+    net.tell("bb", who, name, text);
+    let shown = net.since("bb", who, m);
+    assert!(
+        shown.len() == 1 && shown[0].kind == WEENIE_ERROR,
+        "{who} is answered as for any character not online: {} shown",
+        shown.len()
+    );
+    assert_eq!(
+        (net.reach_asked.len(), net.reach_answers.len()),
+        (asked + 1, answered + 1),
+        "bb is asked about {who}'s tell to {name}, and answers once"
+    );
+    net.hub.take_discord_tells()
+}
+
+/// Divergence: V447
+#[test]
+fn a_tell_by_name_from_the_characters_own_world_reaches_its_persons_discord_and_the_reply_comes_back(
+) {
+    let mut net = away(|_| {});
+    let tells = tell_ann_at_home(&mut net, "Fay", "Ann", "lunch?");
+    assert_eq!(
+        said(&tells),
+        ["Fay@bb tells Ann@bb, \"lunch?\"\n-# Reply to answer as Ann@bb."],
+        "a tell by her name from Fay, on Ann's own world"
+    );
+    for name in ["Ann@bb", "Ann (Discord)"] {
+        let again = tell_ann_at_home(&mut net, "Fay", name, "lunch?");
+        assert_eq!(said(&again).len(), 1, "and by {name}");
+    }
+
+    // The person answers from Discord: the reply reaches Fay as a tell from Ann@bb while Ann is
+    // away.
+    let m = net.mark("bb", "Fay");
+    let now = net.now();
+    let (outs, carry) = net.hub.tell_from_discord(
+        &net.registry,
+        &tells[0].person,
+        &addr("Ann@bb"),
+        &addr("Fay@bb"),
+        "on my way",
+        now,
+    );
+    net.route(outs);
+    net.advance(0.3);
+    assert_eq!(carry, Carry::Carried);
+    let heard: Vec<CommunicationHearDirectSpeech> = net
+        .since("bb", "Fay", m)
+        .iter()
+        .filter(|g| g.kind == TELL)
+        .map(|g| g.decode::<CommunicationHearDirectSpeech>())
+        .collect();
+    assert!(
+        heard.len() == 1
+            && heard[0].sender_name == "Ann@bb"
+            && heard[0].message == "on my way"
+            && dereth_network_protocol::standin::is_stand_in(heard[0].sender_id.0),
+        "{heard:?}"
+    );
+}
+
+/// Divergence: V447
+#[test]
+fn a_tell_from_the_characters_own_world_is_held_back_by_the_squelches_it_kept_as_it_left() {
+    let mut net = away(|net| squelch(net, "bb", "Ann", "Fay", true));
+    let tells = tell_ann_at_home(&mut net, "Fay", "Ann", "are you ignoring me?");
+    assert!(
+        tells.is_empty(),
+        "a teller Ann squelched: {:?}",
+        said(&tells)
+    );
+    assert!(
+        matches!(
+            net.reach_answers.last(),
+            Some((w, ReachMessage::Result { reachable: false, .. })) if w == "bb"
+        ),
+        "answered not reachable"
+    );
+    let (tells, _) = tell_ann(&mut net, "aa", "Bob", "and from aa?");
+    assert_eq!(
+        said(&tells).len(),
+        1,
+        "a teller of another world she does not squelch"
+    );
+
+    // A reply from Discord to a teller who squelches the character is not shown.
+    let mut net = away(|_| {});
+    let tells = tell_ann_at_home(&mut net, "Fay", "Ann", "hi");
+    squelch(&mut net, "bb", "Fay", "Ann", true);
+    let m = net.mark("bb", "Fay");
+    let now = net.now();
+    let (outs, _) = net.hub.tell_from_discord(
+        &net.registry,
+        &tells[0].person,
+        &addr("Ann@bb"),
+        &addr("Fay@bb"),
+        "hello?",
+        now,
+    );
+    net.route(outs);
+    net.advance(0.3);
+    assert!(
+        !net.since("bb", "Fay", m).iter().any(|g| g.kind == TELL),
+        "Fay squelches Ann"
+    );
+}
+
+/// Divergence: V447
+#[test]
+fn a_tell_by_name_to_a_character_online_unlinked_or_from_a_sender_off_the_network_stays_the_worlds_own(
+) {
+    let mut net = in_the_worlds();
+    let asked = net.reach_asked.len();
+    let m = net.mark("bb", "Ann");
+    net.tell("bb", "Fay", "Ann", "hi");
+    let heard: Vec<CommunicationHearDirectSpeech> = net
+        .since("bb", "Ann", m)
+        .iter()
+        .filter(|g| g.kind == TELL)
+        .map(|g| g.decode::<CommunicationHearDirectSpeech>())
+        .collect();
+    assert!(
+        heard.len() == 1 && heard[0].sender_name == "Fay" && heard[0].sender_id.0 == fay().guid,
+        "Ann online is told by Fay as by any local tell: {heard:?}"
+    );
+    log_off(&mut net, "bb", "Ann");
+    let m = net.mark("bb", "Fay");
+    net.tell("bb", "Fay", "Ann", "hi");
+    let shown = net.since("bb", "Fay", m);
+    assert!(
+        shown.len() == 1 && shown[0].kind == WEENIE_ERROR,
+        "Ann away and never linked: Character not available, as ever"
+    );
+    assert_eq!(net.reach_asked.len(), asked, "and no question is asked");
+
+    // Linked and away, told by a character off the network: the world's own tell.
+    let mut net = away(|_| {});
+    net.say("bb", "Fay", "@dn off");
+    let asked = net.reach_asked.len();
+    let m = net.mark("bb", "Fay");
+    net.tell("bb", "Fay", "Ann", "hi");
+    let shown = net.since("bb", "Fay", m);
+    assert!(
+        shown.len() == 1 && shown[0].kind == WEENIE_ERROR && net.reach_asked.len() == asked,
+        "a sender off the network keeps the world's own tell"
+    );
+}
+
 /// Divergence: V447
 #[test]
 fn a_teller_or_a_world_the_character_squelches_does_not_reach_its_persons_discord() {

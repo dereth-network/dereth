@@ -677,6 +677,128 @@ pub fn run(make: &mut dyn FnMut() -> Box<dyn WorldUnderTest>) -> Vec<Check> {
         },
     );
     check(
+        "tell.by_name_to_an_away_linked_character_of_its_own_goes_to_the_hub",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[&c, &d])?;
+            asks_to_link(w, &d)?;
+            w.log_out(&d);
+            let _ = w.take();
+            w.shown(&c);
+            let s = w.slug();
+            w.tell(&c, &d, "lunch?");
+            w.advance(0.3);
+            let sent = w.take();
+            let Some(id) = sent.iter().find_map(|m| match m {
+                Message::Tell {
+                    id, from, to, text, ..
+                } if from.to_string() == format!("{c}@{s}")
+                    && to.to_string() == format!("{d}@{s}")
+                    && text == "lunch?" =>
+                {
+                    Some(id.clone())
+                }
+                _ => None,
+            }) else {
+                return Err(format!("no tell to the hub: {sent:?}"));
+            };
+            w.give(&Message::TellResult {
+                id,
+                outcome: Outcome::Offline,
+                message: None,
+            });
+            w.advance(0.3);
+            let shown = w.shown(&c);
+            shown
+                .contains(&Shown::NotAvailable)
+                .then_some(())
+                .ok_or_else(|| format!("shown {shown:?}"))
+        },
+    );
+    check(
+        "tell.by_name_to_an_online_character_of_its_own_stays_local",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[&c, &d])?;
+            asks_to_link(w, &d)?;
+            let _ = w.take();
+            w.shown(&d);
+            w.tell(&c, &d, "hi");
+            w.advance(0.3);
+            let sent = w.take();
+            if sent.iter().any(|m| matches!(m, Message::Tell { .. })) {
+                return Err(format!("a tell went to the hub: {sent:?}"));
+            }
+            let shown = w.shown(&d);
+            shown
+                .iter()
+                .any(|x| matches!(x, Shown::Tell { from, id, .. } if *from == c && !is_stand_in(*id)))
+                .then_some(())
+                .ok_or_else(|| format!("shown {shown:?}"))
+        },
+    );
+    check(
+        "tell.a_reply_as_an_away_linked_character_of_its_own_is_shown",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[&c, &d])?;
+            asks_to_link(w, &d)?;
+            w.log_out(&d);
+            let _ = w.take();
+            w.shown(&c);
+            let s = w.slug();
+            let from = format!("{d}@{s}");
+            w.give(&incoming(
+                "h1",
+                &from,
+                &format!("{c}@{s}"),
+                "on my way",
+                false,
+            ));
+            w.advance(0.3);
+            let answered = answer_of(&w.take(), "h1").map(|x| x.0);
+            let shown = w.shown(&c);
+            match answered {
+                Some(Outcome::Delivered)
+                    if shown.iter().any(|x| {
+                        matches!(x, Shown::Tell { from: f, id, text }
+                            if *f == from && is_stand_in(*id) && text == "on my way")
+                    }) =>
+                {
+                    Ok(())
+                }
+                other => Err(format!("{other:?}, shown {shown:?}")),
+            }
+        },
+    );
+    check(
+        "tell.from_its_own_character_in_the_world_is_offline_and_unseen",
+        &mut |w| {
+            let (c, d) = w.characters();
+            ready(w, &[&c, &d])?;
+            w.shown(&c);
+            let s = w.slug();
+            w.give(&incoming(
+                "h1",
+                &format!("{d}@{s}"),
+                &format!("{c}@{s}"),
+                "hi",
+                false,
+            ));
+            w.advance(0.3);
+            let answered = answer_of(&w.take(), "h1");
+            let shown = w.shown(&c);
+            match answered {
+                Some((Outcome::Offline, _))
+                    if !shown.iter().any(|x| matches!(x, Shown::Tell { .. })) =>
+                {
+                    Ok(())
+                }
+                other => Err(format!("{other:?}, shown {shown:?}")),
+            }
+        },
+    );
+    check(
         "squelch.a_squelched_sender_is_answered_squelched_and_unseen",
         &mut |w| {
             let (c, _) = w.characters();

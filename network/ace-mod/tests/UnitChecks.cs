@@ -31,6 +31,7 @@ internal static unsafe class UnitChecks
         DirectoryChecks.Run(c);
         DiscordMirrorChecks.Run(c);
         ReachChecks.Run(c);
+        SameWorldChecks.Run(c);
         SayChecks.Run(c);
         RoomsChecks.Run(c);
     }

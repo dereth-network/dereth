@@ -2,8 +2,13 @@
 //
 // A local player's tell to an address goes to the hub, and the player sees what a local tell
 // would give once the answer comes back: the echo, the away message, or `Character not available`.
+// So does a tell, by name, from a character on the network to one of this world's own that is not
+// online but is on the network and linked, so that it may reach its player's Discord; any other
+// tell to this world's own characters is the world's own, as ever.
 // A remote tell is delivered from the sender's stand-in id, to any character on the network, after
-// its squelches and the operator's blocks have had their say.
+// its squelches and the operator's blocks have had their say. A tell from this world's own address
+// is taken only as a reply from elsewhere: from one of its characters not online, on the network
+// and linked, whose player answered from their Discord.
 
 namespace Dereth.Network;
 
@@ -17,17 +22,45 @@ public sealed partial class NetworkWorld
             var given = target;
             target = SayWire.WithoutMark(target);
             if (!Address.LooksRemote(target))
+            {
+                if (AwayLinked(player, target) is { } away)
+                {
+                    SendTell(player, away, text);
+                    return Routed.Handled;
+                }
                 return target == given ? Routed.NotMine : Routed.Local(target);
+            }
             if (!Address.TryParse(target, out var to, out _))
             {
                 host.ShowNotAvailable(player);
                 return Routed.Handled;
             }
             if (to.World == Config.Slug)
+            {
+                if (AwayLinked(player, to.Name) is { } away)
+                {
+                    SendTell(player, away, text);
+                    return Routed.Handled;
+                }
                 return Routed.Local(to.Name);
+            }
             SendTell(player, to, text);
             return Routed.Handled;
         }
+    }
+
+    /// <summary>
+    /// The address of the character of this world named `name`, when a tell to it from `player`
+    /// goes to the hub: the link is up, `player` is on the network, and the character is not online
+    /// but is on the network and linked, so the tell may reach its player's Discord. Null for any
+    /// other, whose tell stays the world's own.
+    /// </summary>
+    private Address? AwayLinked(uint player, string name)
+    {
+        if (link != LinkState.Up || !IsOn(player) || host.FindCharacter(name) is not { } found
+            || found.Id == player || Online(found.Id) || Record(found.Id) is not { Settings.On: true, AskedLink: true })
+            return null;
+        return Address.Create(found.Name, Config.Slug);
     }
 
     /// <summary>
@@ -188,11 +221,19 @@ public sealed partial class NetworkWorld
         if (link != LinkState.Up)
             return;
         var origin = from.World;
-        // This world's own characters never reach it through the hub: a tell claiming one is refused.
+        // A tell from this world's own address is a reply from elsewhere, or it is refused: its
+        // sender must be one of this world's characters not online, on the network and linked, so
+        // that only its player can have answered, from their Discord.
+        uint? localSender = null;
         if (origin == Config.Slug)
         {
-            Answer(origin, id, Outcome.Offline);
-            return;
+            if (host.FindCharacter(from.Name) is not { } sender || Online(sender.Id)
+                || Record(sender.Id) is not { Settings.On: true, AskedLink: true })
+            {
+                Answer(origin, id, Outcome.Offline);
+                return;
+            }
+            localSender = sender.Id;
         }
         // A world already owed its share of answers is not answered again until it is owed fewer;
         // the hub answers this one for it.
@@ -218,7 +259,7 @@ public sealed partial class NetworkWorld
             Answer(origin, id, Outcome.Offline);
             return;
         }
-        if (Squelches(character, from))
+        if (Squelches(character, from) || (localSender is uint s && host.SquelchesLocalTells(character, s)))
         {
             Answer(origin, id, Outcome.Squelched);
             return;

@@ -1,5 +1,6 @@
 // What the network keeps across restarts: the stand-in ids (never reused), whether each character
-// is on the network, its remote friends and remote squelches, the operator's blocks, the directory's listings
+// is on the network, its remote friends and remote squelches (and, for one linked, its tell
+// squelches of this world's characters as it last left), the operator's blocks, the directory's listings
 // (each listed character's latest profile and whether the hub has answered it, the listings owed
 // that take characters out, and the keys allegiances are known by), and the world's rooms as its hub
 // last told them. Nothing else: no message, no presence history.
@@ -46,6 +47,24 @@ public sealed class CharacterRecord
 
     /// <summary>Why the character was taken out of the directory while it was away, to tell it at its next login.</summary>
     public TakenOut? TakenOut;
+
+    /// <summary>
+    /// Which of this world's characters it squelched for tells as it last left the world, kept for
+    /// a character on the network and linked; null for one that has not left since.
+    /// </summary>
+    public LocalSquelches? AwaySquelches;
+}
+
+/// <summary>
+/// The tell squelches a character had of its own world's characters as it last left the world:
+/// characters by id, accounts by name, or everyone. While it is away the world cannot ask it, so a
+/// tell from one of them is answered by these. Never changed in place, only replaced.
+/// </summary>
+public sealed record LocalSquelches(IReadOnlySet<uint> Characters, IReadOnlySet<string> Accounts, bool Everyone)
+{
+    /// <summary>Whether a tell from the character `id`, of the account `account`, would be held back.</summary>
+    public bool Covers(uint id, string? account) =>
+        Everyone || Characters.Contains(id) || (account is not null && Accounts.Contains(account));
 }
 
 /// <summary>What the world keeps of a listed character.</summary>
@@ -140,7 +159,11 @@ public sealed class NetworkStore
                 continue;
             }
             // A listing record is never changed in place, only replaced: the copy may share it.
-            var c = new CharacterRecord { Settings = r.Settings, AskedLink = r.AskedLink, Listing = r.Listing, TakenOut = r.TakenOut };
+            var c = new CharacterRecord
+            {
+                Settings = r.Settings, AskedLink = r.AskedLink, Listing = r.Listing, TakenOut = r.TakenOut,
+                AwaySquelches = r.AwaySquelches,
+            };
             // What person friends listed is the character's only while it is online.
             foreach (var (k, a) in r.Friends)
                 if (!r.FromPerson.ContainsKey(k))
@@ -220,6 +243,21 @@ public sealed class NetworkStore
                 }
                 if (r.TakenOut is { } t)
                     w.WriteString("taken_out", Word(t));
+                if (r.AwaySquelches is { } q)
+                {
+                    w.WriteStartObject("away_squelches");
+                    w.WriteStartArray("characters");
+                    foreach (var x in q.Characters.Order())
+                        w.WriteNumberValue(x);
+                    w.WriteEndArray();
+                    w.WriteStartArray("accounts");
+                    foreach (var x in q.Accounts.Order(StringComparer.Ordinal))
+                        w.WriteStringValue(x);
+                    w.WriteEndArray();
+                    if (q.Everyone)
+                        w.WriteBoolean("everyone", true);
+                    w.WriteEndObject();
+                }
                 w.WriteEndObject();
             }
             w.WriteEndObject();
@@ -315,6 +353,19 @@ public sealed class NetworkStore
                             "forgotten" => TakenOut.Forgotten,
                             _ => TakenOut.Operator,
                         };
+                    if (c.TryGetProperty("away_squelches", out var aw) && aw.ValueKind == JsonValueKind.Object)
+                    {
+                        var characters = new HashSet<uint>();
+                        if (aw.TryGetProperty("characters", out var ac))
+                            foreach (var x in ac.EnumerateArray())
+                                characters.Add(x.GetUInt32());
+                        var accounts = new HashSet<string>(StringComparer.Ordinal);
+                        if (aw.TryGetProperty("accounts", out var aa))
+                            foreach (var x in aa.EnumerateArray())
+                                accounts.Add(x.GetString() ?? throw new FormatException("an account"));
+                        r.AwaySquelches = new LocalSquelches(characters, accounts,
+                            aw.TryGetProperty("everyone", out var ev) && ev.GetBoolean());
+                    }
                     s.Characters[id] = r;
                 }
             if (root.TryGetProperty("blocked", out var bl))

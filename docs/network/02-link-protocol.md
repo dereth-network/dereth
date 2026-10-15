@@ -445,7 +445,10 @@ never answers.
   the tell by its own rules ([03](03-world-behaviour.md) section 1): squelching neither the sender
   nor the sender's world, and blocking neither (the operator's blocks); false for anything else,
   alike (a character online now, one that does not exist), so the answer says nothing a tell would
-  not. It shows the character nothing and gives no stand-in id. A `true` counts against the world's pace
+  not. `from` may be one of the world's own characters, whose tell by name to an away, linked
+  character the world sent the hub ([03](03-world-behaviour.md) section 1); the world then answers
+  by the squelches the character had of its own world's characters as it last left, and false when
+  it kept none. It shows the character nothing and gives no stand-in id. A `true` counts against the world's pace
   of tells from the sender's world to the character (section 5), as a shown tell does; one past it
   is answered false.
 - An answer counts against the world's messages per world, and one over them goes nowhere. The hub

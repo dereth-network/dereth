@@ -2,9 +2,14 @@
 //!
 //! A local player's tell to an address goes to the hub, and the player sees what a local tell
 //! would give once the answer comes back: the `You tell ...` echo, the away message, or
-//! `Character not available` (`Communication_WeenieError`, `0x028A`, `0x052B`). A remote tell is
-//! delivered as `Communication_HearDirectSpeech` (`0x02BD`) from the sender's stand-in id, to any
-//! character on the network, after its squelches and the operator's blocks have had their say.
+//! `Character not available` (`Communication_WeenieError`, `0x028A`, `0x052B`). So does a tell, by
+//! name, from a character on the network to one of this world's own that is not online but is on
+//! the network and linked, so that it may reach its player's Discord; any other tell to this
+//! world's own characters is the world's own, as ever. A remote tell is delivered as
+//! `Communication_HearDirectSpeech` (`0x02BD`) from the sender's stand-in id, to any character on
+//! the network, after its squelches and the operator's blocks have had their say. A tell from this
+//! world's own address is taken only as a reply from elsewhere: from one of its characters not
+//! online, on the network and linked, whose player answered from their Discord.
 
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_TEXT_CHARS};
 use dereth_network_protocol::{Address, Message, Outcome};
@@ -31,6 +36,7 @@ fn held_back(to: &str) -> String {
         "The Dereth Network is holding back tells from this world to {to} for now. Wait a moment and try again."
     )
 }
+use crate::entity::i_player::IPlayer;
 use crate::managers::player_manager;
 use crate::network::game_event::events::game_event_tell::game_event_tell_from;
 use crate::network::game_event::events::game_event_weenie_error::game_event_weenie_error;
@@ -38,6 +44,7 @@ use crate::network::game_event::events::game_event_weenie_error_with_string::gam
 use crate::network::game_event::game_event_message::session_data;
 use crate::network::game_messages::game_message::enqueue_send;
 use crate::network::game_messages::messages::game_message_system_chat::game_message_system_chat;
+use crate::world_objects::managers::squelch_manager;
 use crate::world_objects::player_networking;
 use crate::world_objects::world_object_networking::shims;
 use crate::World;
@@ -79,18 +86,70 @@ fn echo(w: &mut World, player: ObjectGuid, to: &str, text: &str) {
 
 /// A tell by name (`Communication_TalkDirectByName`). The sender's gag has been checked.
 pub fn tell_by_name(w: &mut World, player: ObjectGuid, target: &str, text: &str) -> Routed {
-    if !enabled(w) || !dereth_network_protocol::address::looks_remote(target) {
+    if !enabled(w) {
         return Routed::NotMine;
+    }
+    if !dereth_network_protocol::address::looks_remote(target) {
+        let Some(away) = away_linked(w, player, target) else {
+            return Routed::NotMine;
+        };
+        send_tell(w, player, away, text);
+        return Routed::Handled;
     }
     let Ok(to) = Address::parse(target) else {
         not_available(w, player);
         return Routed::Handled;
     };
     if to.world() == w.federation.settings.slug {
-        return Routed::Local(to.name().to_owned());
+        let Some(away) = away_linked(w, player, to.name()) else {
+            return Routed::Local(to.name().to_owned());
+        };
+        send_tell(w, player, away, text);
+        return Routed::Handled;
     }
     send_tell(w, player, to, text);
     Routed::Handled
+}
+
+/// The address of the character of this world named `name`, when a tell to it from `player` goes
+/// to the hub: the link is up, `player` is on the network, and the character is not online but is
+/// on the network and linked, so the tell may reach its player's Discord. `None` for any other,
+/// whose tell stays the world's own.
+fn away_linked(w: &World, player: ObjectGuid, name: &str) -> Option<Address> {
+    if w.federation.link != LinkState::Up || !is_on(w, player.full()) {
+        return None;
+    }
+    let (Some(found), false) = player_manager::find_by_name(w, name) else {
+        return None;
+    };
+    let id = found.guid().full();
+    if id == player.full() || !linked_on(w, id) {
+        return None;
+    }
+    let name = crate::entity::i_player::name(w, found)?;
+    Address::new(&name, &w.federation.settings.slug).ok()
+}
+
+/// Whether `recipient`, in the world, squelches tells from `sender`, a character of this world not
+/// in it: by its account, the character itself, or everyone.
+fn squelches_away_sender(w: &World, recipient: ObjectGuid, sender: IPlayer) -> bool {
+    let db = squelch_manager::squelches(w, recipient);
+    let mask = ChatMessageType::Tell.to_mask();
+    let by_account = crate::entity::i_player::account(w, sender)
+        .is_some_and(|a| db.accounts.contains_key(&a.account_name));
+    let by_character = db
+        .characters
+        .get(&sender.guid().full())
+        .is_some_and(|i| i.filters.first().is_some_and(|f| f.contains(mask)));
+    let everyone = db.globals.filters.first().is_some_and(|f| f.contains(mask));
+    by_account || by_character || everyone
+}
+
+/// Whether a character of this world is on the network and asked for its own link.
+fn linked_on(w: &World, character: u32) -> bool {
+    w.federation
+        .record(character)
+        .is_some_and(|r| r.settings.on && r.asked_link)
 }
 
 /// A tell by id (`Communication_TalkDirect`): a reply to a remote sender goes by the stand-in id
@@ -283,10 +342,20 @@ pub(super) fn on_tell(w: &mut World, id: String, from: &Address, to: &Address, t
         return;
     }
     let origin = from.world().to_owned();
-    // This world's own characters never reach it through the hub: a tell claiming one is refused.
+    // A tell from this world's own address is a reply from elsewhere, or it is refused: its sender
+    // must be one of this world's characters not online, on the network and linked, so that only
+    // its player can have answered, from their Discord.
+    let mut local_sender = None;
     if origin == w.federation.settings.slug {
-        answer(w, &origin, id, Outcome::Offline, None);
-        return;
+        match player_manager::find_by_name(w, from.name()) {
+            (Some(sender), false) if linked_on(w, sender.guid().full()) => {
+                local_sender = Some(sender);
+            }
+            _ => {
+                answer(w, &origin, id, Outcome::Offline, None);
+                return;
+            }
+        }
     }
     // A world already owed its share of answers is not answered again until it is owed fewer;
     // the hub answers this one for it.
@@ -310,7 +379,9 @@ pub(super) fn on_tell(w: &mut World, id: String, from: &Address, to: &Address, t
         answer(w, &origin, id, Outcome::Offline, None);
         return;
     }
-    if squelches(w, character, from) {
+    if squelches(w, character, from)
+        || local_sender.is_some_and(|s| squelches_away_sender(w, target, s))
+    {
         answer(w, &origin, id, Outcome::Squelched, None);
         return;
     }

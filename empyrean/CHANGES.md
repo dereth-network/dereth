@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Fixed players showing up in the wrong place after taking a portal.
+- Same-world tells to offline Dereth Network players can now reach their Discord DMs.
 
 ## 0.3.1 (2026-10-13)
 

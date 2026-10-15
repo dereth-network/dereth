@@ -84,13 +84,24 @@ internal sealed class AceHost : IWorldHost
     /// As ACE's own room handling asks of a local line's listener: a squelch of the speaker's account
     /// or character in every room, or of everyone; for a speaker in the world, ACE's own check.
     /// </summary>
-    public bool SquelchesLocal(uint listener, uint speaker)
+    public bool SquelchesLocal(uint listener, uint speaker) => SquelchesLocalIn(listener, speaker, ChatMessageType.AllChannels);
+
+    public bool SquelchesLocalTells(uint listener, uint speaker) => SquelchesLocalIn(listener, speaker, ChatMessageType.Tell);
+
+    public string? AccountOf(uint character) => Anyone(character)?.Account?.AccountName;
+
+    /// <summary>
+    /// Whether `listener`, in the world, squelches `speaker`, in the world or not, for `type`: as
+    /// ACE asks of a speaker in the world, and otherwise by its account, the character itself, or
+    /// everyone.
+    /// </summary>
+    private static bool SquelchesLocalIn(uint listener, uint speaker, ChatMessageType type)
     {
         if (P(listener)?.SquelchManager.Squelches is not { } squelches)
             return false;
         if (P(speaker) is { } online)
-            return squelches.Contains(online, ChatMessageType.AllChannels);
-        var mask = ChatMessageType.AllChannels.ToMask();
+            return squelches.Contains(online, type);
+        var mask = type.ToMask();
         if (Anyone(speaker)?.Account?.AccountName is { } account && squelches.Accounts.ContainsKey(account))
             return true;
         if (squelches.Characters.TryGetValue(speaker, out var info) && info.Filters.Count > 0 && info.Filters[0].HasFlag(mask))
@@ -253,6 +264,24 @@ internal sealed class AceHost : IWorldHost
             Mod.Fault("a profile for the directory", e, LogLevel.Warn);
             return null;
         }
+    }
+
+    /// <summary>
+    /// The tell squelches a player has of this world's characters, as ACE holds them: characters
+    /// whose squelch covers tells, accounts, and everyone when a squelch of all covers tells.
+    /// </summary>
+    public static LocalSquelches? TellSquelchesOf(Player p)
+    {
+        if (p.SquelchManager?.Squelches is not { } squelches)
+            return null;
+        var mask = ChatMessageType.Tell.ToMask();
+        var characters = squelches.Characters
+            .Where(c => c.Value.Filters.Count > 0 && c.Value.Filters[0].HasFlag(mask))
+            .Select(c => c.Key)
+            .ToHashSet();
+        var accounts = squelches.Accounts.Keys.ToHashSet(StringComparer.Ordinal);
+        var everyone = squelches.Globals.Filters.Count > 0 && squelches.Globals.Filters[0].HasFlag(mask);
+        return new LocalSquelches(characters, accounts, everyone);
     }
 
     /// <summary>

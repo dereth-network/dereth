@@ -6,11 +6,13 @@
 // the world answers `reachable` true only for a character of its own, not online, on the network,
 // whose link is its own (it asked for its code: the hub asks about one that never did for an
 // earlier character of its name, since deleted), squelching neither the sender nor the sender's
-// world, and blocking neither (the operator's blocks). A `true` takes one from the world's pace of
-// tells from the sender's world to the character, as a shown tell does, and one past it is
-// `false`. Anything else is `false`, alike: a character online now, one off the network, one
-// deleted or waiting to be, one this world does not have. The answer shows the character nothing
-// and gives no stand-in id.
+// world, and blocking neither (the operator's blocks). A sender of this world's own reaches it too,
+// unless the character squelched it, its account or everyone for tells as it last left the world:
+// what it kept then decides, and a character that has not left since keeping it is not reached
+// this way. A `true` takes one from the world's pace of tells from the sender's world to the
+// character, as a shown tell does, and one past it is `false`. Anything else is `false`, alike: a
+// character online now, one off the network, one deleted or waiting to be, one this world does not
+// have. The answer shows the character nothing and gives no stand-in id.
 //
 // An answer waits with the answers owed to the sender's world: at most MaxAnswersPerWorld for one
 // world (a question past that is not answered, and the hub carries the tell nowhere else), a world
@@ -40,16 +42,25 @@ public sealed partial class NetworkWorld
     /// </summary>
     private bool ReachableAway(Address from, Address to)
     {
-        // This world's own characters never reach it through the hub.
-        if (to.World != Config.Slug || from.World == Config.Slug)
+        if (to.World != Config.Slug)
             return false;
         if (host.FindCharacter(to.Name) is not { } found || Online(found.Id))
             return false;
         var character = found.Id;
         var shown = Record(character) is { Settings.On: true, AskedLink: true }
             && !Blocked(from) && !Squelches(character, from) && DisplayName(from) is not null
+            && (from.World != Config.Slug || !SquelchedAway(character, from))
             // The host is asked last, only for a character that would be shown the tell.
             && host.NameOf(character) is not null;
         return shown && MayReceive(from.World, to.Key, limits.TellsPerRecipient);
     }
+
+    /// <summary>
+    /// Whether `character`, away, holds back a tell from `from`, a character of this world: by the
+    /// tell squelches it kept as it last left, and always when it kept none, or `from` is no
+    /// character of this world's or is itself.
+    /// </summary>
+    private bool SquelchedAway(uint character, Address from) =>
+        host.FindCharacter(from.Name) is not { } teller || teller.Id == character
+        || Record(character)?.AwaySquelches is not { } kept || kept.Covers(teller.Id, host.AccountOf(teller.Id));
 }

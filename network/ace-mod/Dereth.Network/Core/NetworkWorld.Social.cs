@@ -380,12 +380,16 @@ public sealed partial class NetworkWorld
     /// <summary>
     /// A character left the world (`name` is its name, since it is no longer online): its watchers
     /// see it offline, and it stops watching. A listed one's profile, from the facts the host had of
-    /// it as it left, goes to the directory if it changed.
+    /// it as it left, goes to the directory if it changed. A linked one keeps the tell squelches it
+    /// had of this world's characters as it left (`squelches`; none when the host could not tell),
+    /// by which a tell from one of them is answered while it is away.
     /// </summary>
-    public void OnLogout(uint player, string name, CharacterFacts? facts = null)
+    public void OnLogout(uint player, string name, CharacterFacts? facts = null, LocalSquelches? squelches = null)
     {
         lock (gate)
         {
+            if (Record(player) is { Settings.On: true, AskedLink: true })
+                RecordMut(player).AwaySquelches = squelches;
             DirectoryLeft(player, name, facts);
             OnLogoutLocked(player, name);
         }

@@ -298,7 +298,7 @@ internal static class Patches
 
     /// <summary>
     /// After `PlayerManager.SwitchPlayerFromOnlineToOffline`: a character left the world, with its
-    /// profile for the directory as it left.
+    /// profile for the directory and its tell squelches as it left.
     /// </summary>
     public static void LogoutPostfix(Player __0, bool __result)
     {
@@ -314,9 +314,18 @@ internal static class Patches
         {
             Mod.Fault("a profile for the directory", e, LogLevel.Warn);
         }
+        LocalSquelches? squelches = null;
         try
         {
-            r.World.OnLogout(__0.Guid.Full, __0.Name, facts);
+            squelches = AceHost.TellSquelchesOf(__0);
+        }
+        catch (Exception e)
+        {
+            Mod.Fault("the squelches a character left with", e, LogLevel.Warn);
+        }
+        try
+        {
+            r.World.OnLogout(__0.Guid.Full, __0.Name, facts, squelches);
         }
         catch (Exception e)
         {
