@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.4 (2026-10-15)
+
 - Web: fullscreen is on by default and fills the browser window.
 - Web: new render scale option.
 - Web: the launcher shows the same worlds as the desktop launcher.
