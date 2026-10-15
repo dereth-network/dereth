@@ -655,6 +655,41 @@ pub fn send_update_position(w: &mut World, this: ObjectGuid, admin_move: bool) {
     }
 }
 
+/// Not ACE's (retail captures, V286): the update position a teleport sends as it begins, while the
+/// object's location is already its destination. It goes to the reach the object is leaving, as
+/// every update does, and also to every player around the destination (its landblock and the
+/// adjacent ones), as retail sent it. A player there who still holds the object, having left for
+/// the destination a moment earlier, is not sent the object again when it arrives, so this is the
+/// only word that player gets of where it went; without it the object stays where that player last
+/// saw it. ACE sent this update to the players who know the object, which includes that player.
+pub fn send_teleport_update_position(w: &mut World, this: ObjectGuid) {
+    let msg = game_message_update_position::game_message_update_position(w, this, false);
+    let reached = enqueue_broadcast(w, this, true, std::slice::from_ref(&msg)).unwrap_or_default();
+
+    let destination = w
+        .objects
+        .get(this)
+        .and_then(WorldObject::location)
+        .map(|l| l.landblock_id());
+    let around = destination
+        .and_then(|d| players_around(w, this, d))
+        .unwrap_or_default();
+    let visibility = obj(w, this).visibility();
+    for player in around {
+        if reached.contains(&player) || (visibility && !shims::player_adminvision(w, player)) {
+            continue;
+        }
+        if let Some(session) = shims::player_session(w, player) {
+            game_message::enqueue_send(w, session, msg.clone());
+        }
+    }
+
+    let now = w.now.utc;
+    if let Some(o) = w.objects.get_mut(this) {
+        o.wo.world_object_networking.last_update_position = now;
+    }
+}
+
 // ACE: WorldObject.SendPartialUpdates
 /// Sends each `PropertyInt` of `properties` the object has to `target_session` (other property
 /// types are logged and skipped).
@@ -2250,13 +2285,20 @@ fn known_players(w: &World, this: ObjectGuid) -> Vec<ObjectGuid> {
 /// of its last location; one with no landblock at all falls back to the players who know it.
 /// ACE sent every broadcast to the known players only.
 pub fn reach_players(w: &World, this: ObjectGuid) -> Vec<ObjectGuid> {
-    let Some(centre) = reach_landblock(w, this) else {
-        return known_players(w, this);
-    };
+    reach_landblock(w, this)
+        .and_then(|centre| players_around(w, this, centre))
+        .unwrap_or_else(|| known_players(w, this))
+}
+
+/// Every player in `centre`'s landblock and its adjacent landblocks (a dungeon has none), `this`
+/// left out, in guid order; `None` when `centre` is not loaded.
+fn players_around(
+    w: &World,
+    this: ObjectGuid,
+    centre: empyrean_entity::LandblockId,
+) -> Option<Vec<ObjectGuid>> {
     let lm = &w.landblock_manager.landblocks;
-    let Some(centre_lb) = lm.get(centre) else {
-        return known_players(w, this);
-    };
+    let centre_lb = lm.get(centre)?;
     let mut blocks = vec![centre];
     blocks.extend(
         centre_lb
@@ -2286,7 +2328,7 @@ pub fn reach_players(w: &World, this: ObjectGuid) -> Vec<ObjectGuid> {
         }
     }
     players.sort_by_key(|g| g.full());
-    players
+    Some(players)
 }
 
 fn same_landblock(a: empyrean_entity::LandblockId, b: empyrean_entity::LandblockId) -> bool {

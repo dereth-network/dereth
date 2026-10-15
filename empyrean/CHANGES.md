@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Fixed players showing up in the wrong place after taking a portal.
+
 ## 0.3.1 (2026-10-13)
 
 - A player may speak in the Global room, or a room of the world's own, from its Discord mirror with `/dn say`, as one of their linked characters: the line shows here marked `(Discord)`, under the room's own rules for that character, and lines said that way on other worlds show marked too.

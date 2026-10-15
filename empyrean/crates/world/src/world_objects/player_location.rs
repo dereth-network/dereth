@@ -917,12 +917,13 @@ pub fn teleport(w: &mut World, this: ObjectGuid, new_position_in: &Position, fro
 
     // send a "fake" update position to get the client to start loading asap,
     // also might fix some decal bugs
+    // (V286: to the players around the destination too)
     let prev_loc = location(w, this);
     w.objects
         .get_mut(this)
         .expect("ACE: this is null")
         .set_location(Some(new_position));
-    world_object_networking::send_update_position(w, this, false);
+    world_object_networking::send_teleport_update_position(w, this);
     w.objects
         .get_mut(this)
         .expect("ACE: this is null")

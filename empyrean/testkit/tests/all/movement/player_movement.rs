@@ -615,6 +615,68 @@ fn a_teleport_to_a_far_landblock_enters_portal_space_and_arrives() {
     );
 }
 
+/// V286 (retail pcaps): a player who teleports to where another player already stands, one who
+/// went ahead a moment earlier and so still holds it, is placed at its destination for that player
+/// as it enters portal space. It is not created for that player again, so the "fake" update, sent
+/// to the players around the destination as well as around the place it leaves, is the only word
+/// that player gets; without it the teleporter stays where that player last saw it, a world away.
+#[test]
+fn a_teleporter_reaches_a_watcher_who_went_ahead_at_its_destination() {
+    let mut ts = seeded();
+    let (a, _) = enter(&mut ts, "alpha", ALPHA, outdoor(HOME, 100.0, 100.0, 20.0));
+    let (_b, _) = enter(&mut ts, "bravo", BRAVO, outdoor(HOME, 104.0, 100.0, 20.0));
+    ts.advance(1.0);
+    let created_bravo = |ts: &TestServer, from: usize| {
+        ts.received_raw(a)[from..]
+            .iter()
+            .filter(|m| m.opcode == 0xF745 && m.body[0..4] == BRAVO.to_le_bytes())
+            .count()
+    };
+    assert_eq!(created_bravo(&ts, 0), 1, "Alpha has been sent Bravo");
+
+    // Alpha goes ahead and arrives; Bravo follows a few seconds later.
+    player_location::teleport(
+        &mut ts.world,
+        ObjectGuid::new(ALPHA),
+        &outdoor(FAR, 50.0, 60.0, 20.0),
+        false,
+    );
+    ts.advance(0.1);
+    ts.send_game_action(a, &CharacterLoginCompleteNotification);
+    ts.advance(2.0);
+    let mark = ts.received_raw(a).len();
+    let positions = ts.received::<MovementPositionEvent>(a).len();
+    player_location::teleport(
+        &mut ts.world,
+        ObjectGuid::new(BRAVO),
+        &outdoor(FAR, 52.0, 60.0, 20.0),
+        false,
+    );
+    ts.advance(0.1);
+    let _ = TestServer::take_not_ported();
+
+    let bravo_at: Vec<(u32, f32)> = ts.received::<MovementPositionEvent>(a)[positions..]
+        .iter()
+        .filter(|p| p.id == ObjectId(BRAVO))
+        .map(|p| {
+            (
+                p.position.origin.objcell_id >> 16,
+                p.position.origin.origin.x,
+            )
+        })
+        .collect();
+    assert_eq!(
+        bravo_at,
+        [(u32::from(FAR), 52.0)],
+        "Alpha is told Bravo's destination"
+    );
+    assert_eq!(
+        created_bravo(&ts, mark),
+        0,
+        "Alpha still holds Bravo: no new create"
+    );
+}
+
 /// A portal: its use requirements pass, `ActOnUse` teleports through `ThreadSafeTeleport` (the
 /// next world tick), then its follow-up records the portal as the last one and says
 /// `ITeleported`. Straight after, the portal refuses a second use as too recent (the error once;
