@@ -150,14 +150,25 @@ pub fn installed() -> bool {
     PREPARED.with(|p| p.borrow().is_some())
 }
 
-/// An adapter and a device on `instance`, for `surface` or for drawing off screen, with limits a
-/// WebGL 2 device can meet and block compression where the adapter has it.
+/// An adapter and a device on `instance`, for `surface` or for drawing off screen.
 async fn device_for(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
     software: bool,
     hifi: HifiAsk,
 ) -> Result<(wgpu::Adapter, wgpu::Device, wgpu::Queue), String> {
+    let adapter = adapter_for(instance, surface, software).await?;
+    let (device, queue) = device_on(&adapter, hifi).await?;
+    Ok((adapter, device, queue))
+}
+
+/// The adapter `instance` offers for `surface` (or off screen): a software adapter when
+/// `software` asks for one and the platform has one, the hardware adapter otherwise.
+async fn adapter_for(
+    instance: &wgpu::Instance,
+    surface: Option<&wgpu::Surface<'_>>,
+    software: bool,
+) -> Result<wgpu::Adapter, String> {
     let request = |fallback: bool| wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: fallback,
@@ -166,14 +177,22 @@ async fn device_for(
     };
     // A software adapter when one is asked for and the platform has one; the hardware adapter
     // otherwise.
-    let adapter = match instance.request_adapter(&request(software)).await {
-        Ok(a) => a,
+    match instance.request_adapter(&request(software)).await {
+        Ok(a) => Ok(a),
         Err(_) if software => instance
             .request_adapter(&request(false))
             .await
-            .map_err(|e| format!("no GPU adapter: {e}"))?,
-        Err(e) => return Err(format!("no GPU adapter: {e}")),
-    };
+            .map_err(|e| format!("no GPU adapter: {e}")),
+        Err(e) => Err(format!("no GPU adapter: {e}")),
+    }
+}
+
+/// A device on `adapter`, with limits a WebGL 2 device can meet and block compression where the
+/// adapter has it, and the high-fidelity request when `hifi` asks for it.
+async fn device_on(
+    adapter: &wgpu::Adapter,
+    hifi: HifiAsk,
+) -> Result<(wgpu::Device, wgpu::Queue), String> {
     let features = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
     // The adapter's own bind-group and storage limits where it has more than WebGL 2's: the
     // landscape splat binds a fifth group, and the landscape composite needs storage buffers.
@@ -192,13 +211,13 @@ async fn device_for(
     limits.max_sampled_textures_per_shader_stage = supported.max_sampled_textures_per_shader_stage;
     #[cfg(feature = "hifi")]
     let (features, limits, experimental) = if hifi {
-        sidecar::widen_request(&adapter, features, limits)
+        sidecar::widen_request(adapter, features, limits)
     } else {
         (features, limits, wgpu::ExperimentalFeatures::default())
     };
     #[cfg(not(feature = "hifi"))]
     let () = hifi;
-    let (device, queue) = adapter
+    adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("dereth"),
             required_features: features,
@@ -208,8 +227,7 @@ async fn device_for(
             ..Default::default()
         })
         .await
-        .map_err(|e| format!("no GPU device: {e}"))?;
-    Ok((adapter, device, queue))
+        .map_err(|e| format!("no GPU device: {e}"))
 }
 
 /// Whether a device is asked for the high-fidelity request: a flag in a build with it, and
@@ -345,9 +363,8 @@ async fn prepare_offscreen_for(
     software: bool,
     hifi: HifiAsk,
 ) -> Result<Prepared, String> {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    let (adapter, device, queue) = device_for(&instance, None, software, hifi).await?;
+    let adapter = offscreen_adapter(software).await?;
+    let (device, queue) = device_on(&adapter, hifi).await?;
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let texture = offscreen_texture(&device, format, width, height);
     Ok(prepared(
@@ -358,6 +375,35 @@ async fn prepare_offscreen_for(
         format,
         (width, height),
     ))
+}
+
+/// The adapter an off-screen device is made on, from the native graphics APIs `wgpu` chooses or
+/// those `WGPU_BACKEND` names: a software adapter when `software` asks for one and the platform has
+/// one, the hardware adapter otherwise.
+#[cfg(not(all(any(test, feature = "test-support"), not(target_arch = "wasm32"))))]
+async fn offscreen_adapter(software: bool) -> Result<wgpu::Adapter, String> {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    adapter_for(&instance, None, software).await
+}
+
+/// The adapter an off-screen device is made on, as above, found once of each kind in a test build
+/// and shared by every off-screen device the process makes. Finding an adapter brings up every
+/// graphics API the instance may use and looks at its adapters (on Windows, Direct3D 12 beside the
+/// Vulkan the device is made on); done for every device while other tests' devices draw on
+/// parallel threads, that has hung the process in the drivers.
+#[cfg(all(any(test, feature = "test-support"), not(target_arch = "wasm32")))]
+async fn offscreen_adapter(software: bool) -> Result<wgpu::Adapter, String> {
+    static FOUND: [std::sync::OnceLock<Result<wgpu::Adapter, String>>; 2] =
+        [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
+    FOUND[usize::from(software)]
+        .get_or_init(|| {
+            let instance = wgpu::Instance::new(
+                wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
+            );
+            pollster::block_on(adapter_for(&instance, None, software))
+        })
+        .clone()
 }
 
 /// A device drawing into a native window at `width` by `height`.
