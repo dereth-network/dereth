@@ -90,6 +90,9 @@ pub enum ResourceName {
     TaaHistory0,
     /// The second of them.
     TaaHistory1,
+    /// The share of the sun's light the Remastered sky's clouds let through to the world under
+    /// them, over the world round the eye.
+    CloudShadow,
 }
 
 /// One shared resource.

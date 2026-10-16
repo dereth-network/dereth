@@ -64,6 +64,73 @@ pub struct HifiFrame {
     pub far_trees: Option<Arc<HifiFarTrees>>,
     /// How the far trees and the forest cover are drawn, as the scene's tuning has it.
     pub far: HifiFarKnobs,
+    /// The Remastered sky, as the scene's tuning has it, while an art pack is open and its sky
+    /// is wanted: retail's clouds, sun, moons and stars drawn again over the physical sky.
+    pub sky_knobs: Option<HifiSkyKnobs>,
+}
+
+/// How the Remastered sky is drawn: retail's clouds, sun, moons and stars, each where retail
+/// puts it and at retail's hours, drawn again at modern quality.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HifiSkyKnobs {
+    /// The clouds drawn again (off: retail's own cloud deck is drawn).
+    pub clouds: bool,
+    /// How many steps the clouds are drawn with through their depth.
+    pub cloud_steps: u32,
+    /// The share of the frame's pixels each way the clouds are worked out at.
+    pub cloud_resolution: f32,
+    /// How much of the sky the clouds cover, against retail's own cloud picture.
+    pub cloud_cover: f32,
+    /// How high over the eye the clouds' base lies, meters.
+    pub cloud_height: f32,
+    /// How thick the clouds are, meters.
+    pub cloud_depth: f32,
+    /// How large retail's cloud picture is laid over the sky, against retail's size overhead.
+    pub cloud_scale: f32,
+    /// How much fine detail breaks up the clouds.
+    pub cloud_detail: f32,
+    /// How fast the clouds drift, a share of retail's drift.
+    pub cloud_speed: f32,
+    /// How brightly the sun lights the clouds.
+    pub cloud_light: f32,
+    /// How dark the clouds' shaded sides and bases are.
+    pub cloud_shade: f32,
+    /// How much the clouds shade the land under them.
+    pub cloud_shadows: f32,
+    /// The sun's disk across, degrees.
+    pub sun_size: f32,
+    /// How strong the glow about the sun is.
+    pub sun_glow: f32,
+    /// The moons' size against retail's.
+    pub moon_size: f32,
+    /// How bright the stars are.
+    pub stars: f32,
+    /// How much the stars twinkle as the clock runs.
+    pub star_twinkle: f32,
+}
+
+impl Default for HifiSkyKnobs {
+    fn default() -> Self {
+        Self {
+            clouds: true,
+            cloud_steps: 12,
+            cloud_resolution: 0.5,
+            cloud_cover: 1.0,
+            cloud_height: 1500.0,
+            cloud_depth: 900.0,
+            cloud_scale: 1.0,
+            cloud_detail: 1.0,
+            cloud_speed: 1.0,
+            cloud_light: 1.0,
+            cloud_shade: 1.0,
+            cloud_shadows: 0.5,
+            sun_size: 1.0,
+            sun_glow: 1.0,
+            moon_size: 1.0,
+            stars: 1.0,
+            star_twinkle: 1.0,
+        }
+    }
 }
 
 /// The trees an art pack draws far off: retail's scenery of the models the pack has far pictures
@@ -511,6 +578,39 @@ pub struct HifiSkyObject {
     pub max_bright: f32,
     /// Its property bits.
     pub properties: u32,
+    /// How fast its picture scrolls, picture units a second of the game's clock.
+    pub tex_velocity: [f32; 2],
+    /// Its picture laid flat from above, for a deck.
+    pub deck: Option<HifiSkyDeck>,
+    /// Its first flat card, as it stands now.
+    pub card: Option<HifiSkyCard>,
+    /// The texture slot of its picture: the deck's, or the card's.
+    pub texture: Option<u32>,
+}
+
+/// A deck whose picture is laid flat from above.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HifiSkyDeck {
+    /// `[a, b, c, d]`, with `u = a + b x` and `v = c + d y` over render-space meters.
+    pub laying: [f32; 4],
+    /// How high over the viewer it lies at its highest, meters.
+    pub height: f32,
+}
+
+/// A sky object's flat picture as it stands now, in render space with height third: a point
+/// `p` on it shows its picture at `uv + (dot(p - center, u) / |u|^2, dot(p - center, v) / |v|^2)`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HifiSkyCard {
+    /// Its center, meters from the viewer.
+    pub center: Vec3,
+    /// The step across it for one unit of its picture's `u`.
+    pub u: Vec3,
+    /// The step for one unit of `v`.
+    pub v: Vec3,
+    /// The picture's `(u, v)` at its center.
+    pub uv: [f32; 2],
+    /// Whether the picture is added to what is behind it, as a glow is (retail's sun).
+    pub additive: bool,
 }
 
 /// One point light.

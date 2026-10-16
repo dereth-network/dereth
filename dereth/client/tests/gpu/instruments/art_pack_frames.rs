@@ -315,13 +315,42 @@ fn settle_drawn_ground(shot: &mut Shot, gpu: &mut Gpu) {
 }
 
 /// The times of day: noon on a sunny day, noon on the rainy day without its rain (overcast),
-/// the evening with the sun five degrees up, and midnight on the sunny day.
-const TIMES: [(&str, Clock); 4] = [
+/// the evening with the sun five degrees up, and midnight on the sunny day; asked for by name,
+/// the same noon with the rain falling (`rain`), the morning with the sun six degrees up
+/// (`dawn`), the night before dawn with both moons up (`moons`), and noon on the first clear and
+/// the first cloudy day (`clear`, `cloudy`).
+const TIMES: [(&str, Clock); 9] = [
     ("day", Clock::Sunny(0.5)),
     ("overcast", Clock::Rainy(0.5)),
     ("dusk", Clock::SunUp(5.0)),
     ("night", Clock::Sunny(0.0)),
+    ("rain", Clock::Rainy(0.5)),
+    ("dawn", Clock::SunRise(6.0)),
+    ("moons", Clock::Sunny(0.1)),
+    ("clear", Clock::Group("Clear", 0.5)),
+    ("cloudy", Clock::Group("Cloudy", 0.5)),
 ];
+
+/// The first four of [`TIMES`], drawn when no times are asked for.
+const USUAL_TIMES: usize = 4;
+
+/// Whether the time named `time`, `index`th of [`TIMES`], is drawn: one of those asked for, or
+/// one of the usual four when none are asked for.
+fn time_wanted(index: usize, time: &str) -> bool {
+    match env("DERETH_ART_PACK_TIMES") {
+        Some(_) => listed("DERETH_ART_PACK_TIMES", time),
+        None => index < USUAL_TIMES,
+    }
+}
+
+/// `station` at `time`: the rain falls at the time named for it.
+fn at_time(station: &Station, time: &str, clock: Clock) -> Station {
+    Station {
+        clock,
+        weather: station.weather || time == "rain",
+        ..station.clone()
+    }
+}
 
 /// The three ways a set is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,6 +464,14 @@ fn fidelity(way: Way, debug: Option<u32>) -> String {
     spec
 }
 
+/// `spec` with the weather's box ticked when `station` brings its weather.
+fn with_weather(mut spec: String, station: &Station) -> String {
+    if station.weather {
+        spec.push_str(",Weather=1");
+    }
+    spec
+}
+
 /// One set: `station` drawn `way` on a device of its own, its last frame and what it cost.
 fn run(
     store: &Arc<dereth_dat::RetailDatStore>,
@@ -453,7 +490,8 @@ fn run(
             .set_art_pack(store, gpu, Some(Arc::clone(pack)))
             .expect("the blocks bake for the pack");
         shot.scene.draw.cfg.render.fidelity =
-            FidelityPreferences::parse_switch(&fidelity(way, debug)).expect("the boxes parse");
+            FidelityPreferences::parse_switch(&with_weather(fidelity(way, debug), station))
+                .expect("the boxes parse");
         if let Some(k) = terrain_knobs().filter(|_| way == Way::Pack) {
             shot.scene.set_terrain_knobs(k);
         }
@@ -526,14 +564,11 @@ fn capture_an_art_pack_beside_the_retail_look() {
         .into_iter()
         .filter(|s| listed("DERETH_ART_PACK_STATIONS", s.name))
     {
-        for (time, clock) in TIMES {
-            if !listed("DERETH_ART_PACK_TIMES", time) {
+        for (index, (time, clock)) in TIMES.into_iter().enumerate() {
+            if !time_wanted(index, time) {
                 continue;
             }
-            let station = Station {
-                clock,
-                ..base.clone()
-            };
+            let station = at_time(&base, time, clock);
             for way in Way::ALL
                 .into_iter()
                 .filter(|w| listed("DERETH_ART_PACK_WAYS", w.name()))
@@ -561,6 +596,7 @@ fn capture_an_art_pack_beside_the_retail_look() {
                             n.starts_with("art pack")
                                 || n.starts_with("drawn ground")
                                 || n.starts_with("anti-aliasing")
+                                || n.starts_with("sky")
                                 || *n == "re-shaded"
                         })
                         .map(|(n, v)| format!("{n}={v}"))
@@ -625,7 +661,8 @@ fn motion_frames() -> usize {
 /// little (`pan`), where the edges of the needles crawl if anything does; the body running
 /// forward with its chase camera (`walk`), where a moving figure over a moving background leaves
 /// a trail if anything does; and, asked for alone, the free camera standing still (`still`),
-/// where nothing should change from frame to frame.
+/// where nothing should change from frame to frame, or standing still while the clock runs
+/// `DERETH_ART_PACK_LAPSE_SECONDS` a frame (default 1; `lapse`), the clouds drifting over it.
 #[test]
 #[ignore = "instrument: writes PNGs; run with DERETH_ART_PACK set and --ignored"]
 fn capture_an_art_pack_in_motion() {
@@ -647,7 +684,10 @@ fn capture_an_art_pack_in_motion() {
             .expect("the place is one of the places")
     };
     let asked = env("DERETH_ART_PACK_MOTION").unwrap_or_else(|| "pan,walk".to_owned());
-    for sequence in ["pan", "walk", "still", "dolly"] {
+    let lapse = env("DERETH_ART_PACK_LAPSE_SECONDS")
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(1.0);
+    for sequence in ["pan", "walk", "still", "dolly", "lapse"] {
         if !asked
             .split(',')
             .any(|s| s.trim().eq_ignore_ascii_case(sequence))
@@ -661,7 +701,7 @@ fn capture_an_art_pack_in_motion() {
             .unwrap_or_else(|| "player".to_owned());
         let mut station = find(match sequence {
             "walk" => &walk_at,
-            "still" | "dolly" => &still_at,
+            "still" | "dolly" | "lapse" => &still_at,
             _ => &pan_at,
         });
         if let Some((_, clock)) = env("DERETH_ART_PACK_MOTION_TIME").and_then(|t| {
@@ -735,7 +775,11 @@ fn capture_an_art_pack_in_motion() {
                     );
                     shot.scene.camera.yaw = yaw + 0.006 * t;
                 }
-                shot.step(gpu);
+                if sequence == "lapse" {
+                    shot.step_by(gpu, lapse);
+                } else {
+                    shot.step(gpu);
+                }
                 if let Some(e) = gpu.hifi_failed() {
                     panic!("{sequence} {}: the presentation failed: {e}", way.name());
                 }
@@ -776,7 +820,8 @@ fn changed(a: &[u8], b: &[u8], threshold: u8) -> usize {
 
 /// Each place drawn from a camera that does not move, the world stepped with its clock held (the
 /// sun, the weather and everything the clock animates held; `DERETH_ART_PACK_STILL_CLOCK=running`
-/// lets it run), once settled: `DERETH_ART_PACK_STILL_FRAMES` frames
+/// lets it run), at noon or at the time `DERETH_ART_PACK_STILL_TIME` names (one of the frame
+/// writer's times), once settled: `DERETH_ART_PACK_STILL_FRAMES` frames
 /// (default 24), the anti-aliasing stepping through its jitter as it does. For each place and way
 /// (`DERETH_ART_PACK_WAYS`, default `pack,hifi`), `<root>/still/still.csv` counts the pixels
 /// that change from one frame to the next by more than 8 and by more than 32 levels (the most and
@@ -800,10 +845,19 @@ fn measure_a_still_camera() {
     let frames = still_frames().max(2);
     let ways = env("DERETH_ART_PACK_WAYS").unwrap_or_else(|| "pack,hifi".to_owned());
     let mut csv = String::from("place,way,frames,over8_max,over8_mean,over32_max,over32_mean\n");
-    for station in places()
+    let time = env("DERETH_ART_PACK_STILL_TIME").and_then(|t| {
+        TIMES
+            .into_iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(t.trim()))
+    });
+    for base in places()
         .into_iter()
         .filter(|s| listed("DERETH_ART_PACK_STATIONS", s.name))
     {
+        let station = match time {
+            Some((name, clock)) => at_time(&base, name, clock),
+            None => base,
+        };
         for way in [Way::Pack, Way::Hifi, Way::Retail] {
             if !ways
                 .split(',')

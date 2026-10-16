@@ -57,6 +57,11 @@ struct Params {
     // pack's leaf on the outside of its crown keeps in shade, and w how much of that one deep
     // inside takes.
     leaf: vec4<f32>,
+    // The clouds' shadow map: xy its center, render space; z how far it reaches each way from
+    // it; w the clouds' base, render space.
+    cloud_map: vec4<f32>,
+    // x how much of the sun the clouds' shadows take, 0 for none; yzw unused.
+    cloud_shade: vec4<f32>,
 };
 
 struct Light {
@@ -79,6 +84,40 @@ struct Light {
 // The rooms' own lights on each pixel of a room's surface, as the vertex colors are burned from
 // them; alpha negative where the pixel is not a room's surface.
 @group(0) @binding(8) var room_light: texture_2d<f32>;
+// The share of the sun's light the clouds overhead let through to the world under each texel,
+// over the world round the eye, while the Remastered sky's clouds cast shadows.
+@group(0) @binding(9) var cloud_shadow: texture_2d<f32>;
+
+// The share of the sun's light the clouds let through to the point `world`: their shadow map
+// read where the sun's line from the point meets their base, between its four nearest texels,
+// fading to none toward the map's edge.
+fn cloud_light(world: vec3<f32>) -> f32 {
+    let strength = params.cloud_shade.x;
+    let map = params.cloud_map;
+    if (strength <= 0.0 || params.sun_dir.z <= 0.01) {
+        return 1.0;
+    }
+    let l = params.sun_dir.xyz;
+    let at = world.xy + l.xy * ((map.w - world.z) / l.z);
+    let off = (at - map.xy) / map.z;
+    let edge = 1.0 - smoothstep(0.75, 0.95, max(abs(off.x), abs(off.y)));
+    if (edge <= 0.0) {
+        return 1.0;
+    }
+    let size = vec2<f32>(textureDimensions(cloud_shadow));
+    let uv = vec2<f32>(off.x, -off.y) * 0.5 + 0.5;
+    let texel = uv * size - 0.5;
+    let base = floor(texel);
+    let f = texel - base;
+    let top = vec2<i32>(size) - 1;
+    let q = vec2<i32>(base);
+    let a = textureLoad(cloud_shadow, clamp(q, vec2<i32>(0), top), 0).r;
+    let b = textureLoad(cloud_shadow, clamp(q + vec2<i32>(1, 0), vec2<i32>(0), top), 0).r;
+    let c = textureLoad(cloud_shadow, clamp(q + vec2<i32>(0, 1), vec2<i32>(0), top), 0).r;
+    let d = textureLoad(cloud_shadow, clamp(q + vec2<i32>(1, 1), vec2<i32>(0), top), 0).r;
+    let t = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    return 1.0 - strength * edge * (1.0 - t);
+}
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
@@ -517,7 +556,7 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
             ng = n;
         }
         let ns = select(ng, -ng, leafy && dot(ng, params.sun_dir.xyz) < 0.0);
-        shadow = sun_shadow(world, ns, dist, noise);
+        shadow = sun_shadow(world, ns, dist, noise) * cloud_light(world);
         if (leafy) {
             shadow = leaf_sun(kind, leaf.y, shadow, params.leaf);
         } else if (shadow > 0.0) {

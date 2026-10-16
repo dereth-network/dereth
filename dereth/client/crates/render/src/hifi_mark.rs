@@ -16,13 +16,15 @@ pub enum Mark {
     SkyBegin(u8),
     /// A sky pass ends.
     SkyEnd(u8),
-    /// One sky object is about to be drawn, with its index in the day group and its property
-    /// bits.
+    /// One sky object is about to be drawn, with its place among the sky objects present, its
+    /// property bits and the model it draws.
     SkyObject {
-        /// The object's index in the day group's sky objects.
+        /// The object's place among the day group's sky objects present at this time of day.
         index: u32,
         /// The object's property bits.
         properties: u32,
+        /// The graphics object or setup id it draws.
+        gfx: u32,
     },
     /// One landscape cell is about to be drawn.
     TerrainCell {

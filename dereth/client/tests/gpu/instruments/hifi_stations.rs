@@ -55,6 +55,10 @@ pub(crate) enum Clock {
     Rainy(f32),
     /// The first Sunny day, in the evening when the sun stands this many degrees up.
     SunUp(f32),
+    /// The first Sunny day, in the morning when the sun has climbed this many degrees up.
+    SunRise(f32),
+    /// The first day of a day group whose name begins with this, at this fraction of the day.
+    Group(&'static str, f32),
 }
 
 /// Where the viewer is.
@@ -1314,6 +1318,32 @@ fn game_time(store: &RetailDatStore, clock: Clock) -> Option<f64> {
     match clock {
         Clock::Rainy(_) => None,
         Clock::Sunny(f) => Some(at(sunny_day, f)),
+        Clock::Group(name, f) => {
+            let day = (1..720).find(|k| group(at(*k, 0.5)).starts_with(name))?;
+            Some(at(day, f))
+        }
+        Clock::SunRise(degrees) => {
+            let mut c = dereth_client_runtime::game_clock::GameClock::new(&region);
+            c.set_game_time(0.0, at(sunny_day, 0.5));
+            let g = dereth_world_render::sky::present_day_group(
+                &region,
+                c.current_year,
+                c.current_day,
+            )?;
+            let elevation = |t: f32| {
+                let s = dereth_world_render::sky::get_lighting(g, t).sun_vec;
+                let len = (s.x * s.x + s.y * s.y + s.z * s.z).sqrt().max(1e-6);
+                math::asinf(s.z / len).to_degrees()
+            };
+            let f = (100..500)
+                .map(|i| {
+                    #[allow(clippy::cast_precision_loss)]
+                    let t = i as f32 / 1000.0;
+                    t
+                })
+                .find(|t| elevation(*t) >= degrees)?;
+            Some(at(sunny_day, f))
+        }
         Clock::SunUp(degrees) => {
             let mut c = dereth_client_runtime::game_clock::GameClock::new(&region);
             c.set_game_time(0.0, at(sunny_day, 0.5));
@@ -1668,7 +1698,7 @@ impl Shot {
     }
 
     /// Step the station one frame, its clock moved on `seconds`, and draw it.
-    fn step_by(&mut self, gpu: &mut Gpu, seconds: f64) {
+    pub(crate) fn step_by(&mut self, gpu: &mut Gpu, seconds: f64) {
         self.now += seconds;
         let now = LocalTime(self.now);
         #[allow(clippy::cast_possible_truncation)] // a frame's seconds

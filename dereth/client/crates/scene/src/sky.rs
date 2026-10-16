@@ -40,7 +40,7 @@ mod imp {
     use dereth_assets::Region;
     use dereth_dat::RetailDatStore;
     use dereth_primitives::{DataId, Frame, Vec3};
-    use dereth_render::device::{Gpu, PerFrameConstants};
+    use dereth_render::device::{Gpu, PerFrameConstants, TextureSlot};
     use dereth_render::{DrawConstants, RenderError, ViewParams, ZFunc};
     use dereth_world_render::sky::{self, SkyPass, SKY_ZFAR_MULTIPLIER};
 
@@ -80,6 +80,208 @@ mod imp {
         total: (f32, f32),
     }
 
+    /// How a sky object's pictures lie, worked out once from its meshes as they are built: what a
+    /// presentation needs to draw the object in its own way where the object draws.
+    #[derive(Debug, Clone, Copy, Default, PartialEq)]
+    struct Shape {
+        /// A deck whose picture is laid flat from above.
+        deck: Option<Deck>,
+        /// The first of its pictures that is one flat four-cornered card, in the object's own
+        /// frame.
+        card: Option<Card>,
+    }
+
+    /// A deck whose picture is laid flat from above: `u = a + b x` and `v = c + d y` over
+    /// render-space meters, as `[a, b, c, d]`.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct Deck {
+        /// `[a, b, c, d]`.
+        pub laying: [f32; 4],
+        /// How high over the viewer it lies at its highest, meters.
+        pub height: f32,
+        /// The picture's slot.
+        pub texture: Option<TextureSlot>,
+    }
+
+    /// One flat four-cornered picture: its center, the step across it for one whole unit of its
+    /// picture's `u` and of its `v`, the picture's `(u, v)` at the center, and its slot.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct Card {
+        /// Its center.
+        pub center: glam::Vec3,
+        /// The step for one unit of `u`.
+        pub u: glam::Vec3,
+        /// The step for one unit of `v`.
+        pub v: glam::Vec3,
+        /// The picture's `(u, v)` at the center.
+        pub uv: (f32, f32),
+        /// The picture's slot.
+        pub texture: Option<TextureSlot>,
+        /// Whether the picture is added to what is behind it, as a glow is.
+        pub additive: bool,
+    }
+
+    impl Card {
+        /// The card turned by `frame`'s rotation.
+        fn turned(self, frame: &Frame) -> Self {
+            let m = dereth_primitives::frame::l2g(frame.rotation);
+            let turn = |v: glam::Vec3| {
+                let r = dereth_primitives::frame::localtoglobalvec(m, Vec3::new(v.x, v.y, v.z));
+                glam::Vec3::new(r.x, r.y, r.z)
+            };
+            Self {
+                center: turn(self.center),
+                u: turn(self.u),
+                v: turn(self.v),
+                ..self
+            }
+        }
+    }
+
+    /// What a presentation is told of one sky object present at this time of day, beside what
+    /// the region's tables say of it.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct SkyObjectView {
+        /// The graphics object or setup it draws.
+        pub gfx: DataId,
+        /// Its property bits.
+        pub properties: u32,
+        /// Its picture laid flat from above, for a deck.
+        pub deck: Option<Deck>,
+        /// Its first flat card, turned and placed as it is drawn now, in render space.
+        pub card: Option<Card>,
+    }
+
+    /// The vertices' positions and texture coordinates in a mesh built for the sky.
+    fn mesh_points(m: &PartMesh) -> Vec<(glam::Vec3, f32, f32)> {
+        let f = |b: &[u8], at: usize| {
+            b.get(at..at + 4)
+                .and_then(|s| <[u8; 4]>::try_from(s).ok())
+                .map_or(0.0, f32::from_le_bytes)
+        };
+        m.vertices
+            .as_chunks::<LAND_VERTEX_STRIDE>()
+            .0
+            .iter()
+            .map(|v| {
+                (
+                    glam::Vec3::new(f(v, 0), f(v, 4), f(v, 8)),
+                    f(v, LAND_VERTEX_STRIDE - 8),
+                    f(v, LAND_VERTEX_STRIDE - 4),
+                )
+            })
+            .collect()
+    }
+
+    /// The flat laying `[a, b, c, d]` of `points`' pictures, `u = a + b x` and `v = c + d y`, when
+    /// every point lies on it to a thousandth of a unit and both steps are real.
+    fn laying_of(points: &[(glam::Vec3, f32, f32)]) -> Option<[f32; 4]> {
+        let fit = |pts: &[(f32, f32)]| -> Option<(f32, f32)> {
+            #[allow(clippy::cast_precision_loss)] // a mesh's few vertices
+            let n = pts.len() as f32;
+            let mx = pts.iter().map(|p| p.0).sum::<f32>() / n;
+            let my = pts.iter().map(|p| p.1).sum::<f32>() / n;
+            let sxx: f32 = pts.iter().map(|p| (p.0 - mx) * (p.0 - mx)).sum();
+            let sxy: f32 = pts.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum();
+            if sxx < 1.0 {
+                return None;
+            }
+            let b = sxy / sxx;
+            let a = my - b * mx;
+            let worst = pts
+                .iter()
+                .map(|p| (a + b * p.0 - p.1).abs())
+                .fold(0.0, f32::max);
+            (worst < 1e-3 && b.abs() > 1e-7).then_some((a, b))
+        };
+        if points.len() < 3 {
+            return None;
+        }
+        let xs: Vec<(f32, f32)> = points.iter().map(|p| (p.0.x, p.1)).collect();
+        let ys: Vec<(f32, f32)> = points.iter().map(|p| (p.0.y, p.2)).collect();
+        let (a, b) = fit(&xs)?;
+        let (c, d) = fit(&ys)?;
+        Some([a, b, c, d])
+    }
+
+    /// `points` as one flat four-cornered card, when they are triangles over four corners lying
+    /// in one plane (both faces of a two-sided card among them).
+    fn card_of(
+        points: &[(glam::Vec3, f32, f32)],
+        texture: Option<TextureSlot>,
+        additive: bool,
+    ) -> Option<Card> {
+        if points.is_empty() || !points.len().is_multiple_of(6) || points.len() > 12 {
+            return None;
+        }
+        let mut corners: Vec<(glam::Vec3, f32, f32)> = Vec::with_capacity(4);
+        for p in points {
+            if !corners.iter().any(|q| q.0.distance_squared(p.0) < 1e-6) {
+                corners.push(*p);
+            }
+        }
+        if corners.len() != 4 {
+            return None;
+        }
+        let center = corners.iter().map(|c| c.0).sum::<glam::Vec3>() * 0.25;
+        let uv = (
+            corners.iter().map(|c| c.1).sum::<f32>() * 0.25,
+            corners.iter().map(|c| c.2).sum::<f32>() * 0.25,
+        );
+        // The step for a unit of u and of v from the corners' offsets from the center, by least
+        // squares over the four.
+        let (mut suu, mut svv, mut suv) = (0.0f32, 0.0f32, 0.0f32);
+        let (mut pu, mut pv) = (glam::Vec3::ZERO, glam::Vec3::ZERO);
+        for c in &corners {
+            let (du, dv) = (c.1 - uv.0, c.2 - uv.1);
+            let off = c.0 - center;
+            suu += du * du;
+            svv += dv * dv;
+            suv += du * dv;
+            pu += off * du;
+            pv += off * dv;
+        }
+        let det = suu * svv - suv * suv;
+        if det.abs() < 1e-9 {
+            return None;
+        }
+        let u = pu * (svv / det) - pv * (suv / det);
+        let v = pv * (suu / det) - pu * (suv / det);
+        // Flat: every corner where the center and the two steps put it.
+        let flat = corners.iter().all(|c| {
+            let at = center + u * (c.1 - uv.0) + v * (c.2 - uv.1);
+            at.distance_squared(c.0) < 1e-2
+        });
+        flat.then_some(Card {
+            center,
+            u,
+            v,
+            uv,
+            texture,
+            additive,
+        })
+    }
+
+    /// The shape of an object built from `meshes`.
+    fn shape_of(meshes: &[PartMesh]) -> Shape {
+        let mut shape = Shape::default();
+        for m in meshes {
+            let points = mesh_points(m);
+            if shape.deck.is_none() {
+                shape.deck = laying_of(&points).map(|laying| Deck {
+                    laying,
+                    height: points.iter().map(|p| p.0.z).fold(f32::MIN, f32::max),
+                    texture: m.texture,
+                });
+            }
+            if shape.card.is_none() {
+                let additive = m.key.alpha_blend && m.key.dst_blend == dereth_render::Blend::One;
+                shape.card = card_of(&points, m.texture, additive);
+            }
+        }
+        shape
+    }
+
     #[derive(Debug)]
     pub struct SkyScene {
         /// Geometry per graphics id. The client destroys and recreates a sky object whenever its
@@ -88,6 +290,9 @@ mod imp {
         /// `Gpu::upload_texture` runs a command list of its own and must not happen in a frame.
         // ORDER-OK: a memo keyed by DataId, only ever looked up.
         meshes: BTreeMap<DataId, Arc<Vec<PartMesh>>>,
+        /// How each graphics id's pictures lie, worked out as its meshes are built.
+        // ORDER-OK: a memo keyed by DataId, only ever looked up.
+        shapes: BTreeMap<DataId, Shape>,
         /// This frame's objects in the order returned by the day-group sky lookup.
         objects: Vec<SkyObject>,
         /// the accumulated texture velocity per **gfx id**,
@@ -107,6 +312,8 @@ mod imp {
     /// One live sky object: sky object `[i]` plus its properties.
     #[derive(Debug)]
     struct SkyObject {
+        /// The graphics object or setup it draws.
+        gfx: DataId,
         properties: u32,
         /// The object's frame after heading and rotation are applied. The origin is `(0, 0, 0)` for
         /// everything except a weather object, which the per-frame position update pins to the viewer.
@@ -210,6 +417,7 @@ mod imp {
         ) -> Result<Self, RenderError> {
             let textures = TextureStore::new(store);
             let mut meshes: BTreeMap<DataId, Arc<Vec<PartMesh>>> = BTreeMap::new();
+            let mut shapes: BTreeMap<DataId, Shape> = BTreeMap::new();
             let mut stats = SkyStats::default();
             for id in gfx_ids(region) {
                 // Sky object creation accepts a setup record (0x02) or a bare graphics object
@@ -261,11 +469,13 @@ mod imp {
                     .iter()
                     .map(|m| m.vertices.len() / (LAND_VERTEX_STRIDE * 3))
                     .sum::<usize>();
+                shapes.insert(id, shape_of(&built));
                 meshes.insert(id, Arc::new(built));
             }
             Ok(Self {
                 tex_totals: BTreeMap::new(),
                 meshes,
+                shapes,
                 objects: Vec::new(),
                 // Weather is enabled by default.
                 weather_enabled: true,
@@ -409,6 +619,7 @@ mod imp {
                 // accumulation stopped it dead. A person watching it caught each in turn.
                 let uv_offset = self.tex_velocity_total(cp.gfx_id, cp.tex_velocity);
                 self.objects.push(SkyObject {
+                    gfx: cp.gfx_id,
                     properties: cp.properties,
                     frame,
                     no_draw,
@@ -504,6 +715,7 @@ mod imp {
                 gpu.hifi_mark(dereth_render::hifi_mark::Mark::SkyObject {
                     index: this,
                     properties: o.properties,
+                    gfx: o.gfx.0,
                 });
                 let origin = if o.properties & 4 == 0 {
                     o.frame.origin
@@ -583,6 +795,21 @@ mod imp {
         #[must_use]
         pub fn live(&self) -> usize {
             self.objects.len()
+        }
+
+        /// Every sky object present at this time of day, in the order they are drawn, as a
+        /// presentation that draws them in its own way reads them: where their pictures lie as
+        /// they are drawn now.
+        pub fn views(&self) -> impl Iterator<Item = SkyObjectView> + '_ {
+            self.objects.iter().map(|o| {
+                let shape = self.shapes.get(&o.gfx).copied().unwrap_or_default();
+                SkyObjectView {
+                    gfx: o.gfx,
+                    properties: o.properties,
+                    deck: shape.deck,
+                    card: shape.card.map(|c| c.turned(&o.frame)),
+                }
+            })
         }
     }
 

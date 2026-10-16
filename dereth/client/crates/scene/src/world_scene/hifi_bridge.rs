@@ -26,9 +26,9 @@ use dereth_render_hifi::snapshot::{
     AskedFall, HifiArtPack, HifiBlockLevels, HifiCamera, HifiDrawnGround, HifiFog, HifiFrame,
     HifiGround, HifiGroundKnobs, HifiGroundMaterial, HifiGroundTile, HifiLamp, HifiLevelRun,
     HifiLight, HifiMaterials, HifiPackBlock, HifiPackImage, HifiPackLod, HifiPackMaterial,
-    HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyObject,
-    HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock, HifiTextureMaterial,
-    HifiWater, HifiWorldGround, LampSource,
+    HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyCard, HifiSkyDeck,
+    HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock,
+    HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
 use dereth_terrain::land::drawn::{Knob, Knobs};
@@ -475,6 +475,33 @@ fn far_trees_for_presentation(
     }
 }
 
+/// The Remastered sky as the presentation reads it, while its knob has it on.
+fn sky_knobs(k: &Knobs) -> Option<dereth_render_hifi::snapshot::HifiSkyKnobs> {
+    // LINT-OK: a step count knob, 1 to 64.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let steps = k.get(Knob::CloudSteps).round() as u32;
+    k.on(Knob::Sky)
+        .then(|| dereth_render_hifi::snapshot::HifiSkyKnobs {
+            clouds: k.on(Knob::Clouds),
+            cloud_steps: steps,
+            cloud_resolution: k.get(Knob::CloudResolution),
+            cloud_cover: k.get(Knob::CloudCover),
+            cloud_height: k.get(Knob::CloudHeight),
+            cloud_depth: k.get(Knob::CloudDepth),
+            cloud_scale: k.get(Knob::CloudScale),
+            cloud_detail: k.get(Knob::CloudDetail),
+            cloud_speed: k.get(Knob::CloudSpeed),
+            cloud_light: k.get(Knob::CloudLight),
+            cloud_shade: k.get(Knob::CloudShade),
+            cloud_shadows: k.get(Knob::CloudShadows),
+            sun_size: k.get(Knob::SunSize),
+            sun_glow: k.get(Knob::SunGlow),
+            moon_size: k.get(Knob::MoonSize),
+            stars: k.get(Knob::Stars),
+            star_twinkle: k.get(Knob::StarTwinkle),
+        })
+}
+
 /// The light on an art pack's art as the presentation reads it.
 fn pack_light(k: &Knobs) -> HifiPackLight {
     HifiPackLight {
@@ -869,6 +896,13 @@ fn snapshot(
         ws.clock.current_day,
         super::lighting::asked_day(ws),
     );
+    // What the sky's own objects say of where their pictures lie and how far they have drifted,
+    // by the model each draws.
+    let views: Vec<crate::sky::SkyObjectView> = draw
+        .sky
+        .as_ref()
+        .map(|s| s.views().collect())
+        .unwrap_or_default();
     frame.sky = HifiSky {
         sun_direction: sun.normalize_or_zero(),
         sun_brightness: sun.length(),
@@ -885,15 +919,37 @@ fn snapshot(
                 dereth_world_render::sky::get_sky(g, ws.clock.present_time_of_day)
                     .iter()
                     .zip(0u32..)
-                    .map(|(o, index)| HifiSkyObject {
-                        index,
-                        gfx_id: o.gfx_id.0,
-                        heading: o.heading,
-                        rotation: o.rotation,
-                        transparent: o.transparent,
-                        luminosity: o.luminosity,
-                        max_bright: o.max_bright,
-                        properties: o.properties,
+                    .map(|(o, index)| {
+                        let view = views.iter().find(|v| v.gfx == o.gfx_id && o.gfx_id.0 != 0);
+                        HifiSkyObject {
+                            index,
+                            gfx_id: o.gfx_id.0,
+                            heading: o.heading,
+                            rotation: o.rotation,
+                            transparent: o.transparent,
+                            luminosity: o.luminosity,
+                            max_bright: o.max_bright,
+                            properties: o.properties,
+                            tex_velocity: [o.tex_velocity.0, o.tex_velocity.1],
+                            deck: view.and_then(|v| v.deck).map(|d| HifiSkyDeck {
+                                laying: d.laying,
+                                height: d.height,
+                            }),
+                            card: view.and_then(|v| v.card).map(|c| HifiSkyCard {
+                                center: c.center,
+                                u: c.u,
+                                v: c.v,
+                                uv: [c.uv.0, c.uv.1],
+                                additive: c.additive,
+                            }),
+                            texture: view
+                                .and_then(|v| {
+                                    v.deck
+                                        .and_then(|d| d.texture)
+                                        .or_else(|| v.card.and_then(|c| c.texture))
+                                })
+                                .map(|t| t.0),
+                        }
                     })
                     .collect()
             })
@@ -1015,6 +1071,10 @@ fn snapshot(
         None => None,
     };
     frame.pack_light = pack_light(&draw.drawn.knobs);
+    frame.sky_knobs = frame
+        .art_pack
+        .as_ref()
+        .and_then(|_| sky_knobs(&draw.drawn.knobs));
     frame.far = far_knobs(&draw.drawn.knobs);
     frame.far_trees = if draw.far.active && frame.art_pack.is_some() {
         if sh

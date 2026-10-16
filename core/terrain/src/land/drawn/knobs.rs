@@ -181,6 +181,42 @@ pub enum Knob {
     LeafScatter,
     /// How much of that a leaf deep inside takes.
     LeafScatterDeep,
+    /// The Remastered sky at all.
+    Sky,
+    /// The Remastered clouds.
+    Clouds,
+    /// How many steps the clouds are drawn with through their depth.
+    CloudSteps,
+    /// The share of the frame's pixels each way the clouds are worked out at.
+    CloudResolution,
+    /// How much of the sky the clouds cover, against retail's own picture.
+    CloudCover,
+    /// How high over the eye the clouds' base lies.
+    CloudHeight,
+    /// How thick the clouds are.
+    CloudDepth,
+    /// How large retail's cloud picture is laid over the sky.
+    CloudScale,
+    /// How much fine detail breaks up the clouds.
+    CloudDetail,
+    /// How fast the clouds drift, a share of retail's drift.
+    CloudSpeed,
+    /// How brightly the sun lights the clouds.
+    CloudLight,
+    /// How dark the clouds' shaded sides and bases are.
+    CloudShade,
+    /// How much the clouds shade the land under them.
+    CloudShadows,
+    /// The sun's disk across.
+    SunSize,
+    /// How strong the sun's glow is.
+    SunGlow,
+    /// The moons' size against retail's.
+    MoonSize,
+    /// How bright the stars are.
+    Stars,
+    /// How much the stars twinkle.
+    StarTwinkle,
 }
 
 /// What a knob is and holds.
@@ -249,7 +285,7 @@ const fn switch(
 }
 
 /// How many knobs there are.
-pub const KNOB_COUNT: usize = 84;
+pub const KNOB_COUNT: usize = 102;
 
 /// Every knob, in [`Knob`]'s order.
 pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
@@ -337,6 +373,24 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::LeafInnerSky, "leaf_inner_sky", 0.15, (0.0, 1.0), "", "light", "the share of the open sky a leaf deep inside an art pack's crown still sees between the leaves round it"),
     num(Knob::LeafScatter, "leaf_scatter", 0.4, (0.0, 1.0), "", "light", "the share of the sun a leaf on the outside of an art pack's crown keeps in shade"),
     num(Knob::LeafScatterDeep, "leaf_scatter_deep", 0.5, (0.0, 1.0), "", "light", "how much of that a leaf deep inside its crown takes"),
+    switch(Knob::Sky, "sky", true, "sky", "the Remastered sky: retail's clouds, sun, moons and stars drawn again at modern quality over the physical sky; off draws retail's own"),
+    switch(Knob::Clouds, "clouds", true, "sky", "the Remastered clouds, laid where retail's cloud picture lays them and drifting with it; off draws retail's cloud deck"),
+    num(Knob::CloudSteps, "cloud_steps", 12.0, (1.0, 64.0), "", "sky", "how many steps the clouds are drawn with through their depth: more is fuller and softer, and costs more; 1 is a flat layer"),
+    num(Knob::CloudResolution, "cloud_resolution", 0.5, (0.25, 1.0), "", "sky", "the share of the frame's pixels each way the clouds are worked out at before they are enlarged to it"),
+    num(Knob::CloudCover, "cloud_cover", 1.0, (0.0, 2.0), "", "sky", "how much of the sky the clouds cover, against retail's own cloud picture: 0 none, 2 twice the cover"),
+    num(Knob::CloudHeight, "cloud_height", 1500.0, (200.0, 6000.0), "m", "sky", "how high over the eye the clouds' base lies"),
+    num(Knob::CloudDepth, "cloud_depth", 900.0, (50.0, 4000.0), "m", "sky", "how thick the clouds are, base to top"),
+    num(Knob::CloudScale, "cloud_scale", 1.0, (0.25, 4.0), "", "sky", "how large retail's cloud picture is laid over the sky: 1 as large overhead as retail draws it, 2 twice as large"),
+    num(Knob::CloudDetail, "cloud_detail", 1.0, (0.0, 2.0), "", "sky", "how much fine detail breaks up the clouds' edges and faces: 0 retail's soft shapes alone"),
+    num(Knob::CloudSpeed, "cloud_speed", 1.0, (0.0, 4.0), "", "sky", "how fast the clouds drift, a share of retail's drift: 0 holds them still"),
+    num(Knob::CloudLight, "cloud_light", 1.0, (0.0, 3.0), "", "sky", "how brightly the sun lights the clouds' faces and their rims toward it"),
+    num(Knob::CloudShade, "cloud_shade", 1.0, (0.0, 2.0), "", "sky", "how much darker the clouds' bases are than their tops: 0 lit evenly"),
+    num(Knob::CloudShadows, "cloud_shadows", 0.5, (0.0, 1.0), "", "sky", "how much the clouds shade the land under them: 0 none, 1 their full shadow"),
+    num(Knob::SunSize, "sun_size", 1.0, (0.2, 6.0), "deg", "sky", "the sun's disk across"),
+    num(Knob::SunGlow, "sun_glow", 1.0, (0.0, 3.0), "", "sky", "how strong the glow about the sun is"),
+    num(Knob::MoonSize, "moon_size", 1.0, (0.25, 3.0), "", "sky", "the moons' size, a share of retail's"),
+    num(Knob::Stars, "stars", 1.0, (0.0, 4.0), "", "sky", "how bright the stars are: 0 none"),
+    num(Knob::StarTwinkle, "star_twinkle", 1.0, (0.0, 2.0), "", "sky", "how much the stars twinkle as the clock runs: 0 holds them steady"),
 ];
 
 impl Knob {

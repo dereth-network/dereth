@@ -189,6 +189,12 @@ fn the_water_holds_still_while_the_clock_is_held_and_its_ripples_lie_where_the_c
     let pack = ground_pack();
     let (mut device, mut shot) = opened(&holtburg_shore(), &pack, BOXES);
     let gpu = &mut device;
+    // Under retail's own sky, whose broken clouds the ripples show against as they move: the
+    // Remastered sky's even cloud low over this water leaves half as much of them to see.
+    let (knobs, notes) = dereth_terrain::land::drawn::Knobs::parse("sky = false");
+    assert!(notes.is_empty(), "{notes:?}");
+    shot.scene.set_terrain_knobs(knobs);
+    shot.step_held(gpu);
     shot.step_held(gpu);
     assert!(water_drawn(gpu), "the water is drawn");
     let first = capture(gpu);
@@ -209,7 +215,7 @@ fn the_water_holds_still_while_the_clock_is_held_and_its_ripples_lie_where_the_c
     }
     // At the same held clock, ripples drifting twice as fast lie elsewhere: the ripples are
     // where the clock and their speed put them, and nothing else moves them.
-    let (knobs, notes) = dereth_terrain::land::drawn::Knobs::parse("ripple_speed = 2");
+    let (knobs, notes) = dereth_terrain::land::drawn::Knobs::parse("sky = false\nripple_speed = 2");
     assert!(notes.is_empty(), "{notes:?}");
     shot.scene.set_terrain_knobs(knobs);
     shot.step_held(gpu);

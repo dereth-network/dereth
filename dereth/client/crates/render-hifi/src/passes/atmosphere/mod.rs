@@ -31,6 +31,7 @@
 //! the unfogged replay, acting on the world replay; and the air, over the replayed world. The
 //! tables are published to the shared resources for the passes that light or reflect the sky.
 
+pub mod heavens;
 pub mod model;
 
 use std::cell::{RefCell, RefMut};
@@ -144,6 +145,20 @@ struct Shared {
     sky_view_key: Option<SkyViewKey>,
     /// The device objects, made on first use.
     gpu: Option<Gpu>,
+    /// What the Remastered sky draws again this frame, while it is drawn.
+    heavens: Option<heavens::Plan>,
+    /// The Remastered sky's device objects, made on first use.
+    heavens_gpu: Option<heavens::HeavensGpu>,
+    /// The model of the sky object being replayed.
+    in_object: u32,
+    /// Whether the Remastered sky has been drawn this frame.
+    heavens_drawn: bool,
+    /// Whether the clouds were worked out this frame.
+    clouds_drawn: bool,
+    /// Whether the clouds' shadows are worked out this frame.
+    shadows_wanted: bool,
+    /// Whether they were.
+    shadows_drawn: bool,
 }
 
 impl Shared {
@@ -636,6 +651,12 @@ impl HifiPass for SkyTables {
         s.veil_drawn = false;
         s.draw_tables = false;
         s.draw_sky_view = false;
+        s.heavens = None;
+        s.heavens_drawn = false;
+        s.clouds_drawn = false;
+        s.shadows_wanted = false;
+        s.shadows_drawn = false;
+        s.in_object = 0;
         s.active = !split(cx.seam) && cx.seam.tables().world_span().is_some();
         if !s.active {
             return Ok(());
@@ -671,6 +692,57 @@ impl HifiPass for SkyTables {
         cx.seam
             .queue()
             .write_buffer(&gpu.constants, 0, &model::constants(cx.frame, level));
+        // The Remastered sky, while an art pack's art is drawn and its knob has it on.
+        if let Some(knobs) = cx
+            .frame
+            .sky_knobs
+            .as_ref()
+            .filter(|_| cx.settings.art_pack && cx.frame.art_pack.is_some())
+        {
+            let plan = heavens::plan(cx.frame, knobs);
+            if heavens::shadow_map(cx.frame, knobs, &plan).is_some() {
+                cx.resources.texture(
+                    cx.seam.device(),
+                    ResourceName::CloudShadow,
+                    TextureSpec {
+                        width: heavens::SHADOW_SIZE,
+                        height: heavens::SHADOW_SIZE,
+                        format: heavens::SHADOW_FORMAT,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
+                    },
+                )?;
+                s.shadows_wanted = true;
+            }
+            let (width, height) = cx
+                .seam
+                .world_viewport()
+                .map_or_else(|| cx.seam.surface_size(), |v| (v.width, v.height));
+            let size = heavens::cloud_size(width, height, knobs.cloud_resolution);
+            if s.heavens_gpu.as_ref().is_none_or(|h| h.format() != format) {
+                s.heavens_gpu = Some(heavens::HeavensGpu::new(
+                    cx.seam.device(),
+                    cx.seam.queue(),
+                    format,
+                ));
+            }
+            if let (Some(h), Some(g)) = (s.heavens_gpu.as_mut(), s.gpu.as_ref()) {
+                cx.seam.queue().write_buffer(
+                    &h.constants,
+                    0,
+                    &heavens::constants(cx.frame, knobs, &plan, height, size.1),
+                );
+                if let Some(binds) = g.binds.as_ref() {
+                    h.prepare(
+                        cx.seam,
+                        &plan,
+                        size,
+                        (&g.constants, &binds.sky_view_view, &g.sampler),
+                    );
+                }
+            }
+            s.heavens = Some(plan);
+        }
 
         // The world without its linear fog: a copy of each fogged per-frame block it was
         // recorded with, the fog switched off.
@@ -710,14 +782,44 @@ impl HifiPass for SkyTables {
     fn encode(&mut self, cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
         let mut shared = state(&self.0);
         let s = &mut *shared;
-        if !s.active || !(s.draw_tables || s.draw_sky_view) {
+        if !s.active {
             return Ok(());
         }
+        Self::encode_tables(s, cx);
+        // The Remastered sky's clouds, every frame it is drawn, once the sky's view is.
+        if let (Some(plan), Some(h)) = (s.heavens.as_ref(), s.heavens_gpu.as_ref()) {
+            let drawn = plan.deck.is_some();
+            if h.encode_clouds(cx.encoder, cx.timer.writes("sky clouds"), drawn) {
+                cx.seam.count_pass();
+                s.clouds_drawn = drawn;
+            }
+            if s.shadows_wanted {
+                if let Some(Resource::Texture(_, view)) =
+                    cx.resources.get(ResourceName::CloudShadow)
+                {
+                    let view = view.clone();
+                    if h.encode_shadow(cx.encoder, &view, cx.timer.writes("sky cloud shadows")) {
+                        cx.seam.count_pass();
+                        s.shadows_drawn = true;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SkyTables {
+    /// Draw the tables this frame wants drawn.
+    fn encode_tables(s: &Shared, cx: &mut EncodeCx<'_, '_>) {
+        if !(s.draw_tables || s.draw_sky_view) {
+            return;
+        }
         let Some(gpu) = s.gpu.as_ref() else {
-            return Ok(());
+            return;
         };
         let Some(binds) = gpu.binds.as_ref() else {
-            return Ok(());
+            return;
         };
         let draw = |cx: &mut EncodeCx<'_, '_>,
                     target: &wgpu::TextureView,
@@ -770,7 +872,6 @@ impl HifiPass for SkyTables {
             &binds.tables[2],
             Some("sky tables"),
         );
-        Ok(())
     }
 }
 
@@ -784,13 +885,18 @@ impl std::fmt::Debug for Sky {
 }
 
 impl Sky {
-    /// Draw the physical sky into the open world pass, once a frame, and whether it was drawn.
+    /// Draw the physical sky into the open world pass, once a frame, and the Remastered sky
+    /// over it while it is drawn; whether either was drawn.
     fn draw_sky(s: &mut Shared, pass: &mut wgpu::RenderPass<'_>) -> bool {
         s.sky_drawn = true;
-        if s.weight < LEAST_WEIGHT {
-            return false;
+        let mut drew = s.weight >= LEAST_WEIGHT && Self::draw_full(s, pass, |g| &g.sky);
+        if s.heavens.is_some() {
+            if let Some(h) = s.heavens_gpu.as_ref() {
+                s.heavens_drawn = h.draw(pass);
+                drew |= s.heavens_drawn;
+            }
         }
-        Self::draw_full(s, pass, |g| &g.sky)
+        drew
     }
 
     /// Draw the horizon's veil over the sky into the open world pass, once a frame, and whether it
@@ -839,6 +945,21 @@ impl HifiPass for Sky {
     fn encode(&mut self, _cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
         Ok(())
     }
+
+    fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
+        let s = state(&self.0);
+        notes.push(("sky remastered", u64::from(s.heavens_drawn)));
+        notes.push(("sky clouds drawn", u64::from(s.clouds_drawn)));
+        notes.push(("sky cloud shadows drawn", u64::from(s.shadows_drawn)));
+        notes.push((
+            "sky remastered models",
+            s.heavens.as_ref().map_or(0, |p| p.replaced.len() as u64),
+        ));
+        notes.push((
+            "sky remastered binds made",
+            s.heavens_gpu.as_ref().map_or(0, |h| h.binds_made),
+        ));
+    }
 }
 
 impl ReplayFilter for Sky {
@@ -849,6 +970,10 @@ impl ReplayFilter for Sky {
         }
         if s.in_sky && s.in_dome && s.weight >= WHOLE_WEIGHT {
             return DrawAction::Skip(SkipRule::SkyDome);
+        }
+        // An object the Remastered sky draws again in its place.
+        if s.in_sky && s.heavens.as_ref().is_some_and(|p| p.replaces(s.in_object)) {
+            return DrawAction::Skip(SkipRule::ReplacedByPass);
         }
         DrawAction::Legacy
     }
@@ -875,13 +1000,19 @@ impl ReplayFilter for Sky {
             Mark::SkyBegin(0) => {
                 s.in_sky = true;
                 s.in_dome = false;
+                s.in_object = 0;
             }
-            Mark::SkyObject { index, properties } if s.in_sky => {
+            Mark::SkyObject {
+                index,
+                properties,
+                gfx,
+            } if s.in_sky => {
                 let dome = model::is_dome(index, properties);
                 if !dome && !s.sky_drawn {
                     drew |= Self::draw_sky(s, pass);
                 }
                 s.in_dome = dome;
+                s.in_object = gfx;
             }
             Mark::SkyEnd(0) => {
                 if s.in_sky && !s.sky_drawn {
@@ -892,6 +1023,7 @@ impl ReplayFilter for Sky {
                 }
                 s.in_sky = false;
                 s.in_dome = false;
+                s.in_object = 0;
             }
             _ => {}
         }

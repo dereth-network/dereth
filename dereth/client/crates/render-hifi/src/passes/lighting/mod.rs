@@ -909,6 +909,7 @@ impl LightingGpu {
                 buf_entry(6, wgpu::ShaderStages::FRAGMENT, false),
                 tex_entry(7, float, d2),
                 tex_entry(8, float, d2),
+                tex_entry(9, float, d2),
             ],
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1532,6 +1533,30 @@ impl HifiPass for Lighting {
             )
         };
         let room_view = room_light.unwrap_or(no_lamps);
+        // The Remastered sky's clouds' shadows, while its clouds cast them this frame.
+        let cloud_map = frame
+            .sky_knobs
+            .as_ref()
+            .filter(|_| {
+                cx.settings.art_pack
+                    && frame.art_pack.is_some()
+                    && cx.settings.sky.is_on()
+                    && frame.sky.outdoor
+            })
+            .and_then(|k| {
+                let plan = crate::passes::atmosphere::heavens::plan(frame, k);
+                crate::passes::atmosphere::heavens::shadow_map(frame, k, &plan)
+            });
+        let cloud_view = match (
+            cloud_map,
+            cx.resources
+                .get(crate::resources::ResourceName::CloudShadow),
+        ) {
+            (Some(_), Some(crate::resources::Resource::Texture(_, v))) => Some(v.clone()),
+            _ => None,
+        };
+        let cloud_map = cloud_map.filter(|_| cloud_view.is_some());
+        let cloud_view = cloud_view.as_ref().unwrap_or(no_lamps);
         let cam = &frame.camera;
         let (sun, amb) = legacy_light(frame);
         let sun_gain = env_f32("DERETH_HIFI_SUN", 2.6);
@@ -1656,6 +1681,13 @@ impl HifiPass for Lighting {
             pack.scatter,
             pack.scatter_deep,
         ]);
+        match cloud_map {
+            Some(m) => {
+                p.extend([m.center.x, m.center.y, m.reach, m.base]);
+                p.extend([m.strength, 0.0, 0.0, 0.0]);
+            }
+            None => p.extend([0.0; 8]),
+        }
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);
         for l in &lights {
@@ -1712,6 +1744,10 @@ impl HifiPass for Lighting {
                     wgpu::BindGroupEntry {
                         binding: 8,
                         resource: wgpu::BindingResource::TextureView(room_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: wgpu::BindingResource::TextureView(cloud_view),
                     },
                 ],
             })

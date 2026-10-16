@@ -41,6 +41,8 @@ mod hifi_render_scale;
 #[cfg(feature = "hifi")]
 mod hifi_replay_binds;
 mod hifi_reshade;
+#[cfg(feature = "hifi")]
+mod hifi_sky;
 mod hifi_visual_only;
 #[cfg(feature = "hifi")]
 mod hifi_water;
