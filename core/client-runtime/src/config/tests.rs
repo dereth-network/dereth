@@ -184,6 +184,34 @@ fn the_classic_dat_dir_switch_names_where_the_older_files_are_and_is_optional() 
     }
 }
 
+/// Behaviour: none (experimental hi-fi art packs)
+#[test]
+fn the_art_pack_folder_comes_from_the_command_line_over_the_profile() {
+    let none = parse(&[]).expect("parses");
+    assert_eq!(none.art_pack, None);
+    assert!(!none.art_pack_argument);
+    let named = parse(&["--art-pack", "packs/pilot"]).expect("parses");
+    assert_eq!(named.art_pack, Some(PathBuf::from("packs/pilot")));
+    assert!(named.art_pack_argument);
+    let profile = Preferences::parse("[Fidelity]\nArtPack= packs/kept \n");
+    let kept = Config::from_args_and_prefs_with(&[], &profile).expect("parses");
+    assert_eq!(kept.art_pack, Some(PathBuf::from("packs/kept")));
+    assert!(
+        !kept.art_pack_argument,
+        "the profile's folder may be overridden"
+    );
+    let argv = vec!["--art-pack".to_string(), "packs/asked".to_string()];
+    let over = Config::from_args_and_prefs_with(&argv, &profile).expect("parses");
+    assert_eq!(over.art_pack, Some(PathBuf::from("packs/asked")));
+    let blank = Preferences::parse("[Fidelity]\nArtPack=\n");
+    assert_eq!(
+        Config::from_args_and_prefs_with(&[], &blank)
+            .expect("parses")
+            .art_pack,
+        None
+    );
+}
+
 /// Behaviour: login.logon-version.a-world-that-wants-another-logon-version-is-sent-it
 #[test]
 fn the_logon_version_switch_replaces_1802_and_refuses_what_cannot_be_sent() {

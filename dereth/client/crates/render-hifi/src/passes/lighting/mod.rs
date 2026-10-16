@@ -43,6 +43,19 @@ const CASTER_REACH: f32 = 900.0;
 pub const MAX_LIGHTS: usize = 128;
 const CASTER_STRIDE: u64 = 256;
 const BLOOM_LEVELS: u32 = 6;
+/// The share of the open sky a leaf deep inside an art pack's crown still sees, between the
+/// leaves around it.
+const LEAF_INNER_SKY: f32 = 0.15;
+/// The share of the sun a leaf of the world's own trees keeps in its plant's shadow. Those trees
+/// are a few crossed cards, whose shadows hold none of the gaps a crown has between its leaves:
+/// without it their canopies go black in patches.
+const LEAF_SHADOW_FLOOR: f32 = 0.4;
+/// The share of the sun a leaf on the outside of an art pack's crown keeps in shade: the light
+/// the crowns about it scatter between their leaves and pass through them. An art pack's crown
+/// casts its own gaps, so this is the light that reaches past them, not a stand-in for them.
+const LEAF_PACK_SCATTER: f32 = 0.4;
+/// How much of that a leaf deep inside its crown still takes, against one on the outside.
+const LEAF_PACK_SCATTER_DEEP: f32 = 0.5;
 
 pub(crate) fn env_f32(name: &str, default: f32) -> f32 {
     std::env::var(name)
@@ -64,6 +77,25 @@ pub(crate) fn srgb_to_linear(c: f32) -> f32 {
 }
 
 /// The sun and ambient light as the vertex light took them, 0..1 per channel.
+/// The sun's colour, linear, at a brightness of one: the tint a white balance against the sun
+/// divides the picture by (`DERETH_HIFI_WHITE_BALANCE`). White for a sun with no colour.
+#[must_use]
+pub fn sun_tint(frame: &HifiFrame) -> [f32; 3] {
+    let linear = frame.sky.sun_color.map(|c| {
+        let s = f32::from(c) / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            dereth_primitives::num::math::powf((s + 0.055) / 1.055, 2.4)
+        }
+    });
+    let l = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    if l <= 1e-4 {
+        return [1.0; 3];
+    }
+    linear.map(|c| c / l)
+}
+
 pub(crate) fn legacy_light(frame: &HifiFrame) -> ([f32; 3], [f32; 3]) {
     let sky = &frame.sky;
     let sun = sky
@@ -73,6 +105,21 @@ pub(crate) fn legacy_light(frame: &HifiFrame) -> ([f32; 3], [f32; 3]) {
         .ambient_color
         .map(|c| f32::from(c) / 255.0 * sky.ambient_level.max(0.2));
     (sun, amb)
+}
+
+/// How much of the sun's brightness the ambient light the world's objects are drawn with outdoors
+/// adds to the landscape's level.
+const OBJECT_AMBIENT_FROM_SUN: f32 = 0.2;
+
+/// The ambient light the world's objects outdoors are drawn with, 0..1 per channel: the
+/// landscape's level and a fifth of the sun's brightness more, in the ambient colour. The light
+/// per pixel takes the landscape's ambient out of every surface ([`legacy_light`]), so an object
+/// keeps that fifth and comes out brighter than its own colour under the new light. An art pack's
+/// surface drawn with this ambient comes out as bright as the object it replaces.
+pub(crate) fn object_ambient(frame: &HifiFrame) -> [f32; 3] {
+    let sky = &frame.sky;
+    let level = sky.ambient_level + OBJECT_AMBIENT_FROM_SUN * sky.sun_brightness;
+    sky.ambient_color.map(|c| f32::from(c) / 255.0 * level)
 }
 
 /// The point lights the relight puts on the frame's surfaces at `gain`: the nearest
@@ -104,6 +151,84 @@ pub fn point_lights(frame: &HifiFrame, gain: f32) -> Vec<&crate::snapshot::HifiL
 /// Whether the sun is up far enough to shade and shadow what the frame shows of the outdoors.
 pub(crate) fn sun_up(frame: &HifiFrame) -> bool {
     frame.sky.sees_outside && frame.sky.sun_direction.z > 0.02 && frame.sky.sun_brightness > 0.02
+}
+
+/// How the day's light is shared between the sun and the sky. The authored sun shines as
+/// brightly through a rainy day's cloud as on a clear one, and as near the horizon as overhead;
+/// here the cloud the day's weather brings, a fog that closes in by day, and the long path of a
+/// low sun through the air take light from the sun's beam, and the sky gives most of it back as
+/// light from all round. Under a grey sky the sun's shadows soften and fade.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DayLight {
+    /// The share of the sun's light that reaches the ground in its beam: 1 under a clear sky
+    /// with the sun high.
+    pub sun: f32,
+    /// How overcast the day is: 0 for a clear sky, 1 for one wholly grey.
+    pub cover: f32,
+    /// The sun's light the sky gives back from all round, as a share of the sun's own.
+    pub scattered: f32,
+}
+
+/// How much of the sun's beam a wholly grey sky takes.
+const COVER_TAKES: f32 = 0.85;
+/// How much of the sun's beam the air takes from a sun at the horizon.
+const LOW_SUN_TAKES: f32 = 0.3;
+/// The height of the sun, as the vertical share of its direction, over which the air takes less
+/// and less of its beam: all it takes below the first, none above the second (about two and
+/// twenty degrees).
+const LOW_SUN: (f32, f32) = (0.03, 0.35);
+/// How much of the light taken from the beam the sky gives back: cloud scatters most of what it
+/// takes.
+const SCATTERED_BACK: f32 = 0.8;
+/// How much of what the sky gives back comes from the bright cloud about the sun.
+const ABOUT_THE_SUN: f32 = 0.5;
+
+impl DayLight {
+    /// The light of a frame under a clear sky with the sun high: the sun's beam whole.
+    pub const CLEAR: Self = Self {
+        sun: 1.0,
+        cover: 0.0,
+        scattered: 0.0,
+    };
+
+    /// The share of the day's light in `frame`: the cloud of its weather group, a fog that
+    /// closes in by day, and the height of the sun.
+    #[must_use]
+    pub fn of(frame: &HifiFrame) -> Self {
+        use crate::passes::atmosphere::model::Weather;
+        let sky = &frame.sky;
+        let elevation = sky.sun_direction.z;
+        let weather = Weather::of(&sky.day_group).overcast() / Weather::Rainy.overcast();
+        // A fog that closes in to a few hundred metres by day is a grey sky too; the evening's
+        // own haze is not.
+        let fog = sky.fog.map_or(0.0, |f| {
+            (1.0 - smoothstep(250.0, 900.0, f.max)) * smoothstep(0.15, 0.35, elevation)
+        });
+        let cover = weather.max(fog).clamp(0.0, 1.0);
+        let low = 1.0 - smoothstep(LOW_SUN.0, LOW_SUN.1, elevation);
+        let sun = (1.0 - COVER_TAKES * cover) * (1.0 - LOW_SUN_TAKES * low);
+        Self {
+            sun,
+            cover,
+            scattered: (1.0 - sun) * SCATTERED_BACK,
+        }
+    }
+
+    /// The sun's light the sky gives back, linear and grey, for a sun of linear colour `sun_lin`
+    /// at `gain`: the share seen from all round, and the share from the bright cloud about the
+    /// sun, which the things under it shade as they shade the sun.
+    #[must_use]
+    pub fn sky_light(&self, sun_lin: [f32; 3], gain: f32) -> (f32, f32) {
+        let lum = 0.2126 * sun_lin[0] + 0.7152 * sun_lin[1] + 0.0722 * sun_lin[2];
+        let given = lum * gain * self.scattered;
+        (given * (1.0 - ABOUT_THE_SUN), given * ABOUT_THE_SUN)
+    }
+
+    /// How many times wider the sun's shadows soften than under a clear sky.
+    #[must_use]
+    pub fn penumbra(&self) -> f32 {
+        1.0 + 5.0 * self.cover
+    }
 }
 
 /// The exposure for the frame's light: a key of the sun and sky, held to a sane range so night
@@ -272,8 +397,12 @@ struct CasterBlock {
     generation: u32,
     buffer: Option<wgpu::Buffer>,
     vertices: u32,
-    /// Cut-out batches: positions and texture coordinates, and the texture slot.
-    cutouts: Vec<(wgpu::Buffer, u32, u32)>,
+    /// The objects an art pack has models for, apart: they cast no shadow while the pack's
+    /// models are drawn in their place.
+    covered: Option<(wgpu::Buffer, u32)>,
+    /// Cut-out batches: positions and texture coordinates, the texture slot, and whether the
+    /// batch holds objects an art pack has models for.
+    cutouts: Vec<(wgpu::Buffer, u32, u32, bool)>,
 }
 
 /// Where a vertex format's first texture coordinates sit, bytes.
@@ -309,16 +438,23 @@ fn cutout_vertices(batch: &crate::snapshot::HifiStaticBatch) -> Vec<f32> {
     out
 }
 
-/// The vertex positions of a block's retained geometry, block-local, three per triangle.
-fn caster_positions(block: &crate::snapshot::HifiStaticBlock) -> Vec<f32> {
+/// The vertex positions of a block's retained geometry, block-local, three per triangle: the
+/// landscape and the batches that are not of objects an art pack has models for, or (`covered`)
+/// those batches alone.
+fn caster_positions(block: &crate::snapshot::HifiStaticBlock, covered: bool) -> Vec<f32> {
     let mut out = Vec::with_capacity(block.terrain_triangles.len() * 9);
-    for t in &block.terrain_triangles {
-        for p in t {
-            out.extend_from_slice(&[p.x, p.y, p.z]);
+    if !covered {
+        for t in &block.terrain_triangles {
+            for p in t {
+                out.extend_from_slice(&[p.x, p.y, p.z]);
+            }
         }
     }
     for batch in &block.batches {
-        if batch.format.is_pre_transformed() || (batch.cutout && batch.texture.is_some()) {
+        if batch.format.is_pre_transformed()
+            || (batch.cutout && batch.texture.is_some())
+            || batch.art_pack != covered
+        {
             continue;
         }
         let stride = batch.format.stride() as usize;
@@ -827,6 +963,9 @@ fn hdr_texture(device: &wgpu::Device, label: &str, size: (u32, u32), mips: u32) 
 /// The lighting pass over the opaque world.
 #[derive(Debug, Default)]
 pub struct Lighting {
+    /// The art pack's models, which cast the sun's shadows in place of the objects they replace
+    /// while they are drawn.
+    pack: Option<crate::passes::art_pack::PackCasters>,
     gpu: Option<LightingGpu>,
     blocks: HashMap<u16, CasterBlock>,
     /// Whether this frame steps indoors: the pass then leaves it as re-shaded.
@@ -850,14 +989,38 @@ pub struct Lighting {
     cells: cells::CellLight,
 }
 
-/// The side of each shadow cascade's map: one texel, only so the light has a map to bind, when
-/// no shadow is drawn.
-fn shadow_size(s: &HifiSettings) -> u32 {
-    if shadows_wanted(s) {
-        4096
-    } else {
-        1
+impl Lighting {
+    /// The pass, with the art pack's models to cast shadows through.
+    #[must_use]
+    pub fn with_art_pack(pack: crate::passes::art_pack::PackCasters) -> Self {
+        Self {
+            pack: Some(pack),
+            ..Self::default()
+        }
     }
+}
+
+/// The side of each shadow cascade's map for a world viewport `height` pixels high: a quarter as
+/// many texels again as the viewport has rows, to the next power of two, between 2048 and 4096,
+/// so a cascade's texel is about as fine as one or two pixels at its far end and finer nearer (a
+/// finer map costs four times the drawing for each doubling, most of it in the cut-out leaves of
+/// a forest).
+/// `DERETH_HIFI_SHADOW_SIZE` asks for another. One texel, only so the light has a map to bind,
+/// when no shadow is drawn.
+#[must_use]
+pub fn shadow_size(s: &HifiSettings, height: u32) -> u32 {
+    if !shadows_wanted(s) {
+        return 1;
+    }
+    std::env::var("DERETH_HIFI_SHADOW_SIZE")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or_else(|| {
+            (height.saturating_mul(5) / 4)
+                .next_power_of_two()
+                .clamp(2048, 4096)
+        })
+        .clamp(1, 8192)
 }
 
 fn shadows_wanted(s: &HifiSettings) -> bool {
@@ -921,10 +1084,14 @@ impl HifiPass for Lighting {
                 queue.write_buffer(&buffer, 0, &bytes);
                 buffer
             };
-            let positions = caster_positions(block);
+            let positions = caster_positions(block, false);
             #[allow(clippy::cast_possible_truncation)]
             let vertices = (positions.len() / 3) as u32;
             let buffer = (!positions.is_empty()).then(|| upload(&positions));
+            let covered = caster_positions(block, true);
+            #[allow(clippy::cast_possible_truncation)]
+            let covered =
+                (!covered.is_empty()).then(|| (upload(&covered), (covered.len() / 3) as u32));
             let cutouts = block
                 .batches
                 .iter()
@@ -934,7 +1101,7 @@ impl HifiPass for Lighting {
                     let v = cutout_vertices(b);
                     #[allow(clippy::cast_possible_truncation)]
                     let n = (v.len() / 5) as u32;
-                    (n > 0).then(|| (upload(&v), n, slot))
+                    (n > 0).then(|| (upload(&v), n, slot, b.art_pack))
                 })
                 .collect();
             self.blocks.insert(
@@ -943,6 +1110,7 @@ impl HifiPass for Lighting {
                     generation: block.generation,
                     buffer,
                     vertices,
+                    covered,
                     cutouts,
                 },
             );
@@ -972,7 +1140,11 @@ impl HifiPass for Lighting {
 
         // --- the shadow cascades ---------------------------------------------------------
         let shadows = shadows_wanted(cx.settings) && sun_up(frame) && !self.blocks.is_empty();
-        let map = shadow_size(cx.settings);
+        let rows = match frame.camera.viewport[3] {
+            0 => size.1,
+            h => h,
+        };
+        let map = shadow_size(cx.settings, rows);
         if self.shadow.as_ref().is_none_or(|s| s.3 != map) {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("high-fidelity sun shadow"),
@@ -1060,12 +1232,18 @@ impl HifiPass for Lighting {
                 }
             }
             queue.write_buffer(&gpu.caster_uniform, 0, &bytes);
+            // While the art pack's models are drawn, they cast the shadows of the objects they
+            // replace.
+            let pack = self.pack.as_ref().filter(|p| p.replacing());
+            if let Some(p) = pack {
+                p.prepare(&device, &queue, &cas.matrices);
+            }
             let mut leaves: HashMap<u32, wgpu::BindGroup> = HashMap::new();
             for ((block, _), block_slots) in draws.iter().zip(&slots) {
                 if block_slots.iter().all(Option::is_none) {
                     continue;
                 }
-                for (_, _, slot) in &block.cutouts {
+                for (_, _, slot, _) in &block.cutouts {
                     if leaves.contains_key(slot) {
                         continue;
                     }
@@ -1119,15 +1297,21 @@ impl HifiPass for Lighting {
                     let Some(slot) = slots[k][c] else {
                         continue;
                     };
-                    let Some(buffer) = block.buffer.as_ref() else {
-                        continue;
-                    };
                     self.cascade_blocks.0 += 1;
                     #[allow(clippy::cast_possible_truncation)]
                     let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
-                    pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
-                    pass.set_vertex_buffer(0, buffer.slice(..));
-                    pass.draw(0..block.vertices, 0..1);
+                    let covered = block.covered.as_ref().filter(|_| pack.is_none());
+                    for (buffer, n) in block
+                        .buffer
+                        .as_ref()
+                        .map(|b| (b, block.vertices))
+                        .into_iter()
+                        .chain(covered.map(|(b, n)| (b, *n)))
+                    {
+                        pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
+                        pass.set_vertex_buffer(0, buffer.slice(..));
+                        pass.draw(0..n, 0..1);
+                    }
                 }
                 pass.set_pipeline(&gpu.cutout_pipeline);
                 for (k, (block, _)) in draws.iter().enumerate() {
@@ -1137,7 +1321,10 @@ impl HifiPass for Lighting {
                     #[allow(clippy::cast_possible_truncation)]
                     let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
                     pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
-                    for (buffer, n, slot) in &block.cutouts {
+                    for (buffer, n, slot, covered) in &block.cutouts {
+                        if *covered && pack.is_some() {
+                            continue;
+                        }
                         let Some(tb) = leaves.get(slot) else {
                             continue;
                         };
@@ -1145,6 +1332,9 @@ impl HifiPass for Lighting {
                         pass.set_vertex_buffer(0, buffer.slice(..));
                         pass.draw(0..*n, 0..1);
                     }
+                }
+                if let Some(p) = pack {
+                    p.draw(&mut pass, c);
                 }
             }
         }
@@ -1275,11 +1465,17 @@ impl HifiPass for Lighting {
         p.extend([cam.eye.x, cam.eye.y, cam.eye.z, lights.len() as f32]);
         let l = frame.sky.sun_direction.normalize_or(Vec3::Z);
         p.extend([l.x, l.y, l.z, f32::from(u8::from(shadows))]);
+        // What the cloud and the air leave of the sun's beam, and give back to the sky.
+        let day = if sun_on {
+            DayLight::of(frame)
+        } else {
+            DayLight::CLEAR
+        };
         // After dark the sky's directional light (the moon's) is kept as the ordinary frame had
         // it, unshadowed: without it the night ground holds only the dim ambient, far below
         // what the vertex light gave it.
         let sun_w = if sun_on {
-            sun_gain
+            sun_gain * day.sun
         } else if frame.sky.sees_outside {
             env_f32("DERETH_HIFI_MOON", 1.0)
         } else {
@@ -1307,7 +1503,8 @@ impl HifiPass for Lighting {
         p.extend([
             point_gain,
             if sun_on {
-                env_f32("DERETH_HIFI_CONTACT", 2.5)
+                // Under a grey sky the beam's contact shadows fade with it.
+                env_f32("DERETH_HIFI_CONTACT", 2.5) * (1.0 - day.cover)
             } else {
                 0.0
             },
@@ -1352,6 +1549,15 @@ impl HifiPass for Lighting {
             f32::from(u8::from(!frame.sky.outdoor)),
         ]);
         p.extend([env_f32("DERETH_HIFI_ROOM_KEPT", 0.45), 0.0, 0.0, 0.0]);
+        let sun_lin = sun.map(|c| dereth_primitives::num::math::powf(c.max(0.0), 2.2));
+        let (all_round, about_sun) = day.sky_light(sun_lin, if sun_on { sun_gain } else { 0.0 });
+        p.extend([all_round, about_sun, day.penumbra(), 0.0]);
+        p.extend([
+            env_f32("DERETH_HIFI_LEAF_INNER", LEAF_INNER_SKY),
+            env_f32("DERETH_HIFI_LEAF_FLOOR", LEAF_SHADOW_FLOOR),
+            env_f32("DERETH_HIFI_LEAF_SCATTER", LEAF_PACK_SCATTER),
+            env_f32("DERETH_HIFI_LEAF_SCATTER_DEEP", LEAF_PACK_SCATTER_DEEP),
+        ]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);
         for l in &lights {
@@ -1698,7 +1904,7 @@ impl PostGpu {
                 ..wgpu::SamplerDescriptor::default()
             }),
             params: (0..(BLOOM_LEVELS * 2 + 1))
-                .map(|_| uniform(device, "high-fidelity bloom", 64))
+                .map(|_| uniform(device, "high-fidelity bloom", 96))
                 .collect(),
             layout,
             exposure_layout,
@@ -1799,6 +2005,11 @@ impl HifiPass for LightingPost {
             });
         #[allow(clippy::cast_precision_loss)]
         let level_size = |m: u32| ((half.0 >> m).max(1) as f32, (half.1 >> m).max(1) as f32);
+        // Off unless asked for: a white balance against the warm sun, and a tone curve that keeps
+        // hue (the two ways of taking the warm sun's oversaturation out of foliage, to compare).
+        let tint = sun_tint(frame);
+        let balance = env_f32("DERETH_HIFI_WHITE_BALANCE", 0.0).clamp(0.0, 1.0);
+        let hue = env_f32("DERETH_HIFI_TONE_HUE", 0.0).clamp(0.0, 1.0);
         let write = |i: usize, texel: (f32, f32), first: bool| {
             let v = [
                 exposure,
@@ -1817,6 +2028,14 @@ impl HifiPass for LightingPost {
                 viewport[1],
                 viewport[2],
                 viewport[3],
+                tint[0],
+                tint[1],
+                tint[2],
+                balance,
+                hue,
+                0.0,
+                0.0,
+                0.0,
             ];
             queue.write_buffer(&gpu.params[i], 0, &floats(&v));
         };
@@ -2019,8 +2238,8 @@ struct MeasureGpu {
 
 /// The outdoor frame's brightness against the ordinary picture's, once its light, occlusion,
 /// bounced light and air are drawn and before the weather: at each of a ladder of exposures
-/// about the sun and the sky's, as the tone map would draw it. The tone map holds the outdoor
-/// exposure to it.
+/// about the sun and the sky's, as the tone map would draw it, an art pack's models counting for
+/// little. The tone map holds the outdoor exposure to it.
 #[derive(Debug, Default)]
 pub struct OutdoorMeasure {
     gpu: Option<MeasureGpu>,
@@ -2093,6 +2312,7 @@ impl HifiPass for OutdoorMeasure {
                     storage_entry(3),
                     texture(4, float),
                     storage_entry(5),
+                    texture(6, float),
                 ],
             });
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -2167,6 +2387,10 @@ impl HifiPass for OutdoorMeasure {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: measured.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&rt.normal),
                 },
             ],
         });

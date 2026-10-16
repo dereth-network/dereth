@@ -3,8 +3,9 @@
 //!
 //! It knows only what the functions it is used on need: literals, constants, arguments, component
 //! access and swizzles, vectors built and splatted, arithmetic, comparison, bitwise operations and
-//! casts on scalars and small vectors, the common built-in functions, `select`, calls to the
-//! module's other functions, `if` and `return`. Anything else panics, naming what it met.
+//! casts on scalars and small vectors, the common built-in functions, `select` (by a scalar, or
+//! component by component), calls to the module's other functions, `if` and `return`. Anything
+//! else panics, naming what it met.
 
 use dereth_primitives::num::math;
 use naga::{BinaryOperator, Expression, Handle, Literal, MathFunction, ScalarKind, Statement};
@@ -355,13 +356,30 @@ impl Run<'_> {
                 condition,
                 accept,
                 reject,
-            } => {
-                if self.eval(*condition).bool() {
-                    self.eval(*accept)
-                } else {
-                    self.eval(*reject)
+            } => match self.eval(*condition) {
+                // A vector condition picks component by component.
+                Value::Vector(which) => {
+                    let (Value::Vector(yes), Value::Vector(no)) =
+                        (self.eval(*accept), self.eval(*reject))
+                    else {
+                        panic!("a vector select of non-vectors");
+                    };
+                    Value::Vector(
+                        which
+                            .iter()
+                            .zip(yes.into_iter().zip(no))
+                            .map(|(w, (y, n))| if w.bool() { y } else { n })
+                            .collect(),
+                    )
                 }
-            }
+                c => {
+                    if c.bool() {
+                        self.eval(*accept)
+                    } else {
+                        self.eval(*reject)
+                    }
+                }
+            },
             Expression::Math {
                 fun,
                 arg,

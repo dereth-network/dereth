@@ -14,6 +14,7 @@ use dereth_render::wgpu::sidecar::{legacy_shader_source, splat_shader_source};
 use dereth_render::{PipelineKey, VertexFormat};
 
 pub mod cache;
+pub mod material;
 pub mod motion;
 pub mod pipeline;
 pub mod reshade;
@@ -38,11 +39,14 @@ pub enum Variant {
     /// How far each surface moved on screen since the last frame, for the draws of things that
     /// moved.
     Motion,
+    /// The re-shaded output of a retail surface drawn with an art pack's material in place of
+    /// its picture (see [`material`]).
+    Material,
 }
 
 impl Variant {
     /// Every variant. A new variant is added here as well as to the enum.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Reshade,
         Self::ShadowDepth,
         Self::ShadowClip,
@@ -50,6 +54,7 @@ impl Variant {
         Self::SwayReshade,
         Self::Surface,
         Self::Motion,
+        Self::Material,
     ];
 }
 
@@ -267,8 +272,8 @@ pub fn legacy_source(format: VertexFormat, splat: bool) -> String {
     }
 }
 
-/// The anchors `module` applies to its ordinary source; for the surface and motion variants, the
-/// anchors they apply to the re-shaded text after the re-shade's own.
+/// The anchors `module` applies to its ordinary source; for the surface, motion and material
+/// variants, the anchors they apply to the re-shaded text after the re-shade's own.
 ///
 /// # Errors
 /// [`DeriveError::NotDerived`] for a variant with no derivation yet.
@@ -277,6 +282,7 @@ pub fn anchors(module: ModuleKey) -> Result<Vec<Anchor>, DeriveError> {
         Variant::Reshade => Ok(reshade::anchors(module.format, module.splat)),
         Variant::Surface => Ok(crate::passes::lighting::derive::anchors(module.splat)),
         Variant::Motion => Ok(motion::anchors(module.format, module.splat)),
+        Variant::Material if !module.splat => Ok(material::anchors()),
         other => Err(DeriveError::NotDerived(other)),
     }
 }
@@ -312,6 +318,17 @@ pub fn derive_from(source: &str, module: ModuleKey) -> Result<String, DeriveErro
                 },
             )?;
             Ok(apply(&reshaded, &motion::anchors(module.format, module.splat))? + motion::PRELUDE)
+        }
+        // The landscape is never drawn with a material for a retail picture.
+        Variant::Material if !module.splat => {
+            let reshaded = derive_from(
+                source,
+                ModuleKey {
+                    variant: Variant::Reshade,
+                    ..module
+                },
+            )?;
+            Ok(apply(&reshaded, &material::anchors())? + &material::prelude(module.format))
         }
         other => Err(DeriveError::NotDerived(other)),
     }

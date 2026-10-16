@@ -9,13 +9,14 @@
 //! (`cargo xtask seams`, `seam: client crates`). Its arithmetic goes through
 //! `dereth_primitives::num` wherever the original's float-to-int truncation is load-bearing.
 //!
-//! It holds the codecs (`jpeg`, `dxt`, `d3dx_bc`, `mip`, `pixel_format`, `palette`, `texture`), the
-//! descriptions a device is configured from (`pso`, `vertex`, `surface`, `sampler`, `descriptor`),
-//! the bitmap-font atlas (`font`), the 2D UI quad path (`ui`), the projection and view matrices
-//! (`camera`) and the recording backend (`mock`).
+//! It holds the codecs (`jpeg`, `dxt`, `d3dx_bc`, `block_codec`, `mip`, `pixel_format`, `palette`,
+//! `texture`), the descriptions a device is configured from (`pso`, `vertex`, `surface`,
+//! `sampler`, `descriptor`), the bitmap-font atlas (`font`), the 2D UI quad path (`ui`), the
+//! projection and view matrices (`camera`) and the recording backend (`mock`).
 
 #![doc(html_no_source)]
 
+pub mod block_codec;
 pub mod camera;
 mod d3dx_bc;
 pub mod descriptor;

@@ -53,6 +53,7 @@ use crate::derive::cache::PipelineCache;
 use crate::derive::pipeline::{HDR_FORMAT, NORMAL_FORMAT};
 use crate::derive::reshade::MaterialClass;
 use crate::derive::{DerivedKey, Variant};
+use crate::materials::Materials;
 use crate::resources::{Resource, ResourceName, Resources, TextureSpec};
 use crate::shared::fullscreen::COLOUR_WGSL;
 use crate::shared::terrain_field::{self, FieldSignature, TerrainField};
@@ -411,10 +412,13 @@ pub fn readiness(plan: &ReshadePlan, tables: &SideTables, cache: &PipelineCache)
     r
 }
 
-/// The filter that replays each recorded draw with the pipeline derived from its own.
+/// The filter that replays each recorded draw with the pipeline derived from its own, and the
+/// draws an art pack has materials for with their materials.
 #[derive(Debug)]
 pub struct ReshadeFilter<'c> {
     cache: &'c PipelineCache,
+    /// The art pack's materials and this frame's draws of them, while they are drawn.
+    materials: Option<&'c Materials>,
     /// The last draw's key and pipeline: draws come in runs of one pipeline, and a draw may be
     /// asked about twice.
     last: Option<(DerivedKey, Option<&'c wgpu::RenderPipeline>)>,
@@ -424,15 +428,32 @@ impl<'c> ReshadeFilter<'c> {
     /// The filter drawing with `cache`'s pipelines.
     #[must_use]
     pub fn new(cache: &'c PipelineCache) -> Self {
-        Self { cache, last: None }
+        Self {
+            cache,
+            materials: None,
+            last: None,
+        }
+    }
+
+    /// The filter drawing with `cache`'s pipelines, and `materials`' draws with their materials.
+    #[must_use]
+    pub fn with_materials(cache: &'c PipelineCache, materials: &'c Materials) -> Self {
+        Self {
+            cache,
+            materials: Some(materials),
+            last: None,
+        }
     }
 }
 
 impl ReplayFilter for ReshadeFilter<'_> {
-    fn draw(&mut self, _cmd: u32, note: Option<&DrawNote>) -> DrawAction<'_> {
+    fn draw(&mut self, cmd: u32, note: Option<&DrawNote>) -> DrawAction<'_> {
         let Some(note) = note else {
             return DrawAction::Legacy;
         };
+        if let Some(action) = self.materials.and_then(|m| m.action(cmd, note, self.cache)) {
+            return action;
+        }
         let key = derived_key(note);
         let pipeline = match self.last {
             Some((k, p)) if k == key => p,
@@ -542,7 +563,13 @@ fn fs_normals(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(n.xyz * 0.5 + vec3<f32>(0.5), 1.0);
 }
 
+// The census's tint for material class `c`: an art pack's leaves and lit surfaces apart from the
+// world's own, so a measure of the frame can tell the new art from the old.
 fn class_colour(c: f32) -> vec3<f32> {
+    let pack_leaf = abs(c - 5.5) < 0.51;
+    let pack_lit = min(abs(c - 1.1), abs(c - 1.4)) < 0.09;
+    if (pack_leaf) { return vec3<f32>(0.20, 0.45, 0.95); }
+    if (pack_lit) { return vec3<f32>(0.80, 0.95, 0.20); }
     if (c < 0.5) { return vec3<f32>(0.95, 0.85, 0.30); }
     if (c < 1.5) { return vec3<f32>(0.30, 0.85, 0.35); }
     if (c < 2.5) { return vec3<f32>(0.95, 0.55, 0.20); }

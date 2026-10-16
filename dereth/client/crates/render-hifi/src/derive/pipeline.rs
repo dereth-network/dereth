@@ -33,7 +33,10 @@ impl DerivedKey {
         ordinary_blend: Option<wgpu::BlendState>,
     ) -> Option<[wgpu::ColorTargetState; 2]> {
         match self.variant {
-            Variant::Reshade => Some(reshade_targets(ordinary_blend, self.key.alpha_test)),
+            // A material draws as the re-shade does, blend and cut-out alike.
+            Variant::Reshade | Variant::Material => {
+                Some(reshade_targets(ordinary_blend, self.key.alpha_test))
+            }
             _ => None,
         }
     }

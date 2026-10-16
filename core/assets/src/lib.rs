@@ -28,6 +28,7 @@
 
 #![doc(html_no_source)]
 
+pub mod art_pack;
 pub mod audio;
 pub mod common;
 pub mod dbobj;

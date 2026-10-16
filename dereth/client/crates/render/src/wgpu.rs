@@ -1649,6 +1649,13 @@ impl Gpu {
         self.texture_book.contains(key)
     }
 
+    /// The slot holding the texture uploaded under `key`, while one is resident, without taking
+    /// a link.
+    #[must_use]
+    pub fn texture_slot_of(&self, key: TextureKey) -> Option<TextureSlot> {
+        self.texture_book.slot_of(key).map(TextureSlot)
+    }
+
     #[allow(clippy::too_many_lines)]
     fn upload_texture_internal(
         &mut self,

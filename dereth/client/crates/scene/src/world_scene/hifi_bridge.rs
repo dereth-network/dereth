@@ -8,8 +8,10 @@
 //!   rays, so no setting can ask for a combination that does not draw. The presentation never
 //!   sees a runtime type.
 //! - **The snapshot.** After the frame's world has been drawn, a plain owned copy of what the
-//!   presentation needs about it (camera, sun, fog, sky, lights, lamps, landscape, and the
-//!   retained geometry of blocks that changed) is handed to the presentation. It is built from
+//!   presentation needs about it (camera, sun, fog, sky, lights, lamps, landscape, the retained
+//!   geometry of blocks that changed, and the art pack with where its models stand and the ground
+//!   it lays, with each cell's layers as retail lays them, and its materials for retail pictures with
+//!   the texture slots holding those pictures) is handed to the presentation. It is built from
 //!   shared reads after the frame's walk has finished, so it cannot change what the frame drew or
 //!   what can be picked in it. With no presentation installed nothing is built.
 //!
@@ -20,8 +22,10 @@ use std::collections::HashMap;
 
 use dereth_client_runtime::render_prefs::{FidelityFeature, FidelityPreferences};
 use dereth_render_hifi::snapshot::{
-    AskedFall, HifiCamera, HifiFog, HifiFrame, HifiLamp, HifiLight, HifiSky, HifiSkyObject,
-    HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock, LampSource,
+    AskedFall, HifiArtPack, HifiCamera, HifiFog, HifiFrame, HifiGround, HifiGroundMaterial,
+    HifiLamp, HifiLight, HifiMaterials, HifiPackBlock, HifiPackImage, HifiPackLod,
+    HifiPackMaterial, HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyObject,
+    HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock, HifiTextureMaterial, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
 
@@ -40,6 +44,228 @@ pub(crate) struct Shadow {
     pub(super) now: f64,
     previous_view_projection: Option<glam::Mat4>,
     sent: HashMap<u16, (u32, u32)>,
+    /// The art pack as the presentation draws it, made once per pack (by its serial).
+    pack: Option<(u64, std::sync::Arc<HifiArtPack>)>,
+    /// The art pack's materials for retail pictures as the presentation draws them, made once
+    /// per pack (by its serial).
+    materials: Option<(u64, std::sync::Arc<HifiMaterials>)>,
+    /// For each block whose art pack placements the presentation holds, the block's generation.
+    sent_pack: HashMap<u16, u32>,
+    /// The art pack's ground as the presentation draws it, made once per retail ground read (by
+    /// its serial).
+    ground: Option<(u64, std::sync::Arc<HifiGround>)>,
+    /// Each resident block's cell layers, with the block's generation and cells a side they were
+    /// worked out for.
+    ground_cells: HashMap<u16, ((u32, u8), CellLayers)>,
+}
+
+/// A block's cell layers, as the presentation reads them.
+type CellLayers = std::sync::Arc<[[u32; 4]; 64]>;
+
+/// A picture of the art pack as the presentation reads it. Its levels are shared, not copied.
+fn picture(i: &crate::art_pack::Image) -> HifiPackImage {
+    HifiPackImage {
+        width: i.width,
+        height: i.height,
+        srgb: i.srgb,
+        levels: i.levels.clone(),
+        format: i.format,
+    }
+}
+
+/// The art pack's materials for retail pictures as the presentation draws them.
+fn materials_for_presentation(pack: &crate::art_pack::ArtPack) -> HifiMaterials {
+    HifiMaterials {
+        serial: pack.serial,
+        materials: pack
+            .materials
+            .iter()
+            .map(|m| HifiTextureMaterial {
+                albedo: picture(&m.albedo),
+                normal: picture(&m.normal),
+                surface: picture(&m.surface),
+            })
+            .collect(),
+    }
+}
+
+/// The art pack's ground as the presentation draws it: the pack's materials, then retail's
+/// pictures for the grounds the pack has none for, and retail's masks.
+fn ground_for_presentation(
+    pack: &crate::art_pack::ArtPack,
+    retail: &crate::art_pack::RetailGround,
+) -> HifiGround {
+    use crate::art_pack::Ground;
+    let mut materials = Vec::new();
+    let mut of_ground = vec![None; 33];
+    for g in &pack.grounds {
+        let index = u16::try_from(materials.len()).ok();
+        for k in &g.grounds {
+            let n = match k {
+                Ground::Type(t) => usize::from(*t),
+                Ground::Road => 32,
+            };
+            if n < of_ground.len() {
+                of_ground[n] = index;
+            }
+        }
+        materials.push(HifiGroundMaterial {
+            albedo: picture(&g.albedo),
+            normal: picture(&g.normal),
+            surface: picture(&g.surface),
+            size: g.size,
+            normal_scale: g.normal_scale,
+            retail: false,
+        });
+    }
+    for p in &retail.pictures {
+        let index = u16::try_from(materials.len()).ok();
+        for g in &p.grounds {
+            let n = usize::from(*g);
+            if n < of_ground.len() {
+                of_ground[n] = index;
+            }
+        }
+        #[allow(clippy::cast_precision_loss)] // a handful of repeats
+        let size = dereth_terrain::consts::CELL_SIZE / p.tiling.max(1) as f32;
+        materials.push(HifiGroundMaterial {
+            albedo: picture(&p.albedo),
+            normal: picture(&p.normal),
+            surface: picture(&p.surface),
+            size,
+            normal_scale: 1.0,
+            retail: true,
+        });
+    }
+    HifiGround {
+        serial: retail.serial,
+        materials,
+        of_ground,
+        masks: retail.masks.iter().map(|(_, i)| picture(i)).collect(),
+        broad: retail
+            .broad
+            .iter()
+            .map(|(i, tiling)| (picture(i), *tiling))
+            .collect(),
+    }
+}
+
+/// The layers of each cell of a block with terrain words `words`, as retail lays them over `tm`
+/// with the block drawn `cells` cells a side (8 at full detail; 4, 2 or 1 farther off, each
+/// drawn cell's layers laid over every cell it covers), naming masks as `retail` holds them; a
+/// terrain type the ground has no picture for (`drawn`) is laid as retail lays it, as its
+/// neighbours'.
+fn ground_layers(
+    tm: &dereth_assets::region::TexMerge,
+    retail: &crate::art_pack::RetailGround,
+    words: &[u16; 81],
+    drawn: u32,
+    cells: u8,
+) -> [[u32; 4]; 64] {
+    use dereth_render_hifi::passes::ground::{cell_words, CellLayer};
+    use dereth_terrain::land::merge::{ground_plan, MergeKey};
+    let filled = dereth_terrain::land::fill::fill_undrawn_terrain(
+        &dereth_assets::world::CellLandblock {
+            id: dereth_primitives::DataId(0),
+            lbi_exists: 0,
+            terrain: *words,
+            height: [0; 81],
+        },
+        drawn,
+    );
+    let words = filled.as_ref().map_or(words, |lb| &lb.terrain);
+    let mut out = [[0u32; 4]; 64];
+    let cells = usize::from(cells.clamp(1, 8));
+    // A drawn cell's corners are every `step`th of the block's words.
+    let step = 8 / cells;
+    // LINT-OK: terrain types, road values, mask indices and rotations, each a few bits.
+    #[allow(clippy::cast_possible_truncation)]
+    for e in 0..cells {
+        for n in 0..cells {
+            let w = |a: usize, b: usize| words[a * step * 9 + b * step];
+            let corners = [w(e, n), w(e + 1, n), w(e + 1, n + 1), w(e, n + 1)];
+            let key = MergeKey::new(corners.map(|c| (c >> 2) & 0x1F), corners.map(|c| c & 3), 1);
+            let plan = ground_plan(tm, key);
+            let overlays: Vec<CellLayer> = plan
+                .overlays
+                .iter()
+                .filter_map(|o| {
+                    Some(CellLayer {
+                        ground: o.ground.map(|g| g.min(63) as u8),
+                        mask: retail.mask(o.alpha)?,
+                        rotation: o.rotation.index() as u8,
+                    })
+                })
+                .collect();
+            let laid = cell_words(plan.base.map(|g| g.min(63) as u8), &overlays, step as u8);
+            for de in 0..step {
+                for dn in 0..step {
+                    out[(e * step + de) * 8 + n * step + dn] = laid;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Where one of the art pack's models stands, as the presentation places it: block-local, turned
+/// and scaled as the object it replaces is baked.
+fn pack_placement(p: &crate::art_pack::PackPlacement) -> HifiPackPlacement {
+    let q = p.frame.rotation;
+    HifiPackPlacement {
+        id: p.id.0,
+        origin: v3(p.frame.origin),
+        rotation: glam::Quat::from_xyzw(q.x, q.y, q.z, q.w),
+        scale: p.scale,
+    }
+}
+
+/// The art pack `pack` as the presentation draws it. Its vertices and pictures are shared, not
+/// copied.
+fn pack_for_presentation(pack: &crate::art_pack::ArtPack) -> HifiArtPack {
+    HifiArtPack {
+        serial: pack.serial,
+        models: pack
+            .models
+            .iter()
+            .map(|m| HifiPackModel {
+                id: m.id.0,
+                foliage: m.foliage,
+                lods: m
+                    .lods
+                    .iter()
+                    .map(|l| HifiPackLod {
+                        distance: l.distance,
+                        views: l.views.map(|v| (v.count, v.columns)),
+                        shadows_only: l.shadows_only,
+                        primitives: l
+                            .primitives
+                            .iter()
+                            .map(|p| HifiPackPrimitive {
+                                vertices: std::sync::Arc::clone(&p.vertices),
+                                indices: std::sync::Arc::clone(&p.indices),
+                                material: HifiPackMaterial {
+                                    base_color: p.material.base_color,
+                                    base_color_image: p.material.base_color_image,
+                                    normal_image: p.material.normal_image,
+                                    normal_scale: p.material.normal_scale,
+                                    metal_rough_image: p.material.metal_rough_image,
+                                    metallic: p.material.metallic,
+                                    roughness: p.material.roughness,
+                                    occlusion_image: p.material.occlusion_image,
+                                    occlusion_strength: p.material.occlusion_strength,
+                                    alpha_cutoff: p.material.alpha_cutoff,
+                                    double_sided: p.material.double_sided,
+                                },
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+                bounds: (glam::Vec3::from(m.bounds.0), m.bounds.1),
+            })
+            .collect(),
+        images: pack.images.iter().map(picture).collect(),
+    }
 }
 
 /// The vertices of `batch` the scene draws at the detail levels it chose for its objects: the
@@ -117,7 +343,9 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
         },
         sky: level_of(raw(FidelityFeature::Sky), Level::High),
         weather: inside(FidelityFeature::Weather),
-        // The anti-aliasing is drawn with the light per pixel, unless it is turned off.
+        // An art pack's models are drawn for the light per pixel, unless the retail look is
+        // asked for; so is the anti-aliasing, unless it is turned off.
+        art_pack: lit && raw(FidelityFeature::RetailLook) == 0,
         anti_aliasing: lit && raw(FidelityFeature::NoAntiAliasing) == 0,
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
@@ -164,6 +392,7 @@ pub(super) fn apply_preferences(
     }
     // A new start: the presentation's retained copies go with its old settings.
     sh.sent.clear();
+    sh.sent_pack.clear();
     sh.previous_view_projection = None;
     let wanted = settings(prefs, rays);
     let mut refused = false;
@@ -232,7 +461,16 @@ pub(super) fn publish(draw: &SceneDraw, sh: &mut Shadow, ws: &WorldState, gpu: &
     let stamp = gpu.frame_stamp();
     let (width, height) = gpu.size();
     let reuse = renderer(gpu).and_then(HifiRenderer::recycle_frame);
-    let frame = snapshot(draw, ws, stamp, (width, height), sh, reuse);
+    let mut frame = snapshot(draw, ws, stamp, (width, height), sh, reuse);
+    // The slots holding the retail pictures the pack's materials stand for, as they are now.
+    frame.material_slots.clear();
+    if frame.materials.is_some() {
+        for (key, m) in &draw.land.material_keys {
+            if let Some(slot) = gpu.texture_slot_of(*key) {
+                frame.material_slots.push((slot.0, *m));
+            }
+        }
+    }
     if let Some(r) = renderer(gpu) {
         r.receive_frame(frame);
     }
@@ -455,6 +693,96 @@ fn snapshot(
         }
     }
 
+    // --- the art pack ----------------------------------------------------------------------
+    frame.art_pack = match draw.land.art_pack.as_deref() {
+        Some(pack) => {
+            if sh
+                .pack
+                .as_ref()
+                .is_none_or(|(serial, _)| *serial != pack.serial)
+            {
+                sh.pack = Some((
+                    pack.serial,
+                    std::sync::Arc::new(pack_for_presentation(pack)),
+                ));
+                sh.sent_pack.clear();
+            }
+            sh.pack.as_ref().map(|(_, p)| std::sync::Arc::clone(p))
+        }
+        None => None,
+    };
+    // --- the art pack's materials for retail pictures ---------------------------------------
+    frame.materials = match draw
+        .land
+        .art_pack
+        .as_deref()
+        .filter(|p| !p.materials.is_empty())
+    {
+        Some(pack) => {
+            if sh
+                .materials
+                .as_ref()
+                .is_none_or(|(serial, _)| *serial != pack.serial)
+            {
+                sh.materials = Some((
+                    pack.serial,
+                    std::sync::Arc::new(materials_for_presentation(pack)),
+                ));
+            }
+            sh.materials.as_ref().map(|(_, m)| std::sync::Arc::clone(m))
+        }
+        None => {
+            sh.materials = None;
+            None
+        }
+    };
+    // --- the art pack's ground ------------------------------------------------------------
+    frame.ground = match (
+        draw.land.art_pack.as_deref(),
+        draw.land.retail_ground.as_deref(),
+    ) {
+        (Some(pack), Some(retail)) => {
+            if sh
+                .ground
+                .as_ref()
+                .is_none_or(|(serial, _)| *serial != retail.serial)
+            {
+                sh.ground = Some((
+                    retail.serial,
+                    std::sync::Arc::new(ground_for_presentation(pack, retail)),
+                ));
+                sh.ground_cells.clear();
+            }
+            sh.ground.as_ref().map(|(_, g)| std::sync::Arc::clone(g))
+        }
+        _ => {
+            sh.ground = None;
+            sh.ground_cells.clear();
+            None
+        }
+    };
+    frame.pack_feed.clear();
+    if frame.art_pack.is_some() {
+        for ((bx, by), block) in &draw.blocks {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // LINT-OK: block indices are 0..=0xFE. Not a float conversion.
+            let id = ((*bx as u16) << 8) | (*by as u16);
+            if sh.sent_pack.get(&id) == Some(&block.hifi_generation) {
+                continue;
+            }
+            frame.pack_feed.push(HifiPackBlock {
+                block: id,
+                generation: block.hifi_generation,
+                placements: block.art_pack.iter().map(pack_placement).collect(),
+            });
+            sh.sent_pack.insert(id, block.hifi_generation);
+        }
+        sh.sent_pack.retain(|id, _| {
+            draw.blocks
+                .contains_key(&(i32::from(*id >> 8), i32::from(*id & 0xFF)))
+        });
+    }
+
     // --- the landscape ---------------------------------------------------------------------
     frame.terrain.clear();
     frame.static_feed.clear();
@@ -488,6 +816,29 @@ fn snapshot(
             let origin = glam::Vec3::new(block.origin.0, block.origin.1, 0.0);
             let n = usize::from(mesh.side_cell_count);
             let side = usize::from(mesh.side_vertex_count);
+            let layers = match (frame.ground.as_ref(), draw.land.retail_ground.as_deref()) {
+                (Some(_), Some(retail)) => {
+                    let made = (block.hifi_generation, mesh.side_cell_count);
+                    let fresh = sh
+                        .ground_cells
+                        .get(&id)
+                        .filter(|(m, _)| *m == made)
+                        .map(|(_, l)| std::sync::Arc::clone(l));
+                    Some(fresh.unwrap_or_else(|| {
+                        let l = std::sync::Arc::new(ground_layers(
+                            &draw.land.tex_merge,
+                            retail,
+                            &block.terrain,
+                            draw.land.drawn,
+                            mesh.side_cell_count,
+                        ));
+                        sh.ground_cells
+                            .insert(id, (made, std::sync::Arc::clone(&l)));
+                        l
+                    }))
+                }
+                _ => None,
+            };
             frame.terrain.push(HifiTerrainBlock {
                 block: id,
                 ring: u8::try_from(ring).unwrap_or(u8::MAX),
@@ -497,6 +848,7 @@ fn snapshot(
                 heights: mesh.vertices.iter().map(|v| v.z).collect(),
                 cuts: mesh.sw_to_ne_cut.clone(),
                 generation: block.hifi_generation,
+                layers,
             });
             // The retained geometry, once per block contents and detail levels, a few megabytes
             // a frame at most.
@@ -525,6 +877,7 @@ fn snapshot(
                     cutout: b.key.alpha_blend || b.key.alpha_test,
                     texture: b.texture.map(|t| t.0),
                     alpha_ref: b.alpha_ref,
+                    art_pack: b.art_pack,
                 });
             // The buildings' rooms too, and what stands in them: a doorway's lintel and a
             // porch's roof are a room's geometry, and the sun is shut out by them as by the
@@ -542,6 +895,7 @@ fn snapshot(
                     cutout: m.key.alpha_blend || m.key.alpha_test,
                     texture: m.texture.map(|t| t.0),
                     alpha_ref: m.alpha_ref,
+                    art_pack: false,
                 });
             let batches: Vec<HifiStaticBatch> = statics.chain(rooms).collect();
             let mut terrain_triangles = Vec::with_capacity(n * n * 2);
@@ -576,6 +930,7 @@ fn snapshot(
         }
     }
     sh.sent.retain(|id, _| resident.contains(id));
+    sh.ground_cells.retain(|id, _| resident.contains(id));
 
     frame
 }
@@ -604,8 +959,8 @@ mod tests {
         p
     }
 
-    /// Whether the settings draw what the box `name` asks for: its effect, or for the
-    /// anti-aliasing's box the world without it.
+    /// Whether the settings draw what the box `name` asks for: its effect, or for the retail
+    /// look's box the original models in place of an art pack's.
     fn drawn(s: &HifiSettings, name: &str) -> bool {
         use dereth_client_contract::options::names::fidelity as n;
         match name {
@@ -616,6 +971,7 @@ mod tests {
             n::LAMPS => s.lamps.is_on(),
             n::SKY => s.sky.is_on(),
             n::WEATHER => s.weather.is_on(),
+            n::RETAIL_LOOK => s.lighting.is_on() && !s.art_pack,
             n::NO_ANTI_ALIASING => s.lighting.is_on() && !s.anti_aliasing,
             _ => unreachable!("{name}"),
         }
@@ -650,10 +1006,14 @@ mod tests {
         assert_eq!(on.lamps, Level::High);
         assert_eq!(on.sky, Level::High);
         assert_eq!(on.weather, Level::High);
+        assert!(!on.art_pack, "the retail look's box is ticked too");
         assert!(!on.anti_aliasing, "the anti-aliasing's box is ticked too");
         assert_eq!(on.debug, DebugView::Off);
-        // The anti-aliasing is drawn with the better lighting, until it is turned off.
+        // The art pack is drawn with the better lighting, until the retail look is asked for.
         let lit = settings(&boxes(0b1), true);
+        assert!(lit.art_pack);
+        assert!(!settings(&boxes(0), true).art_pack);
+        // So is the anti-aliasing, until it is turned off.
         assert!(lit.anti_aliasing);
         assert!(!settings(&boxes(0), true).anti_aliasing);
         // A capture's level past a tick is kept.
@@ -716,6 +1076,38 @@ mod tests {
         assert_eq!(settings(&boxes(0b000_0011), true), settings(&both, true));
     }
 
+    /// An art pack's model is turned and placed exactly as the bake turns and places the object
+    /// it replaces.
+    ///
+    /// Behaviour: none (experimental hi-fi art packs)
+    #[test]
+    fn a_pack_model_stands_where_the_bake_puts_the_object_it_replaces() {
+        let (c, s) = (0.6f32, 0.8f32);
+        // A turn about a tilted axis, as a scenery object leaning with its slope has.
+        let rotation = dereth_primitives::Quat::new(c, s * 0.48, -s * 0.6, s * 0.64);
+        let frame = dereth_primitives::Frame::new(
+            dereth_primitives::Vec3::new(37.5, 120.25, 61.0),
+            rotation,
+        );
+        let placed = pack_placement(&crate::art_pack::PackPlacement {
+            id: dereth_primitives::DataId(0x0200_0258),
+            frame,
+            scale: 1.0,
+        });
+        for local in [
+            dereth_primitives::Vec3::new(1.0, 0.0, 0.0),
+            dereth_primitives::Vec3::new(0.3, -2.0, 5.0),
+        ] {
+            let baked = dereth_terrain::math::localtoglobal(&frame, local);
+            let drawn =
+                placed.rotation * glam::Vec3::new(local.x, local.y, local.z) + placed.origin;
+            assert!(
+                drawn.distance(glam::Vec3::new(baked.x, baked.y, baked.z)) < 1e-4,
+                "{drawn} against {baked:?}"
+            );
+        }
+    }
+
     /// The planes come back out of the projection they went into.
     #[test]
     fn the_near_and_far_planes_come_back_out_of_the_projection() {
@@ -727,5 +1119,109 @@ mod tests {
         let (near, far) = planes(dereth_render::camera::projection(&v));
         assert!((near - 0.5).abs() < 1e-3, "{near}");
         assert!((far - 2400.0).abs() < 1.0, "{far}");
+    }
+
+    /// Behaviour: none (experimental hi-fi art packs)
+    /// A block's cell layers are retail's at full detail, cell by cell east by north, with each
+    /// mask named by its index in the retail ground.
+    #[test]
+    fn a_blocks_cell_layers_are_retails_east_by_north_at_the_detail_it_is_drawn() {
+        use dereth_assets::region::{CodeTexture, TerrainDesc, TexMerge};
+        use dereth_render_hifi::passes::ground::{cell_layers, cell_span};
+        use dereth_terrain::land::merge::{ground_plan, MergeKey};
+        let desc = |t: u32, gid: u32| TerrainDesc {
+            terrain_type: t,
+            tex_gid: dereth_primitives::DataId(gid),
+            tex_tiling: 2,
+            max_vert_bright: 0,
+            min_vert_bright: 0,
+            max_vert_saturate: 0,
+            min_vert_saturate: 0,
+            max_vert_hue: 0,
+            min_vert_hue: 0,
+            detail_tex_tiling: 0,
+            detail_tex_gid: dereth_primitives::DataId(0),
+        };
+        let mask = |gid: u32| CodeTexture {
+            code: 8,
+            tex_gid: dereth_primitives::DataId(gid),
+        };
+        let tm = TexMerge {
+            base_tex_size: 16,
+            corner_terrain_maps: vec![mask(0x0500_0100), mask(0x0500_0101)],
+            side_terrain_maps: vec![CodeTexture {
+                code: 9,
+                tex_gid: dereth_primitives::DataId(0x0500_0200),
+            }],
+            road_maps: vec![mask(0x0500_0300)],
+            terrain_desc: vec![
+                desc(1, 0x0600_0001),
+                desc(9, 0x0600_0009),
+                desc(32, 0x0600_0020),
+            ],
+        };
+        let image = crate::art_pack::images::with_levels(1, 1, vec![0; 4], false, None);
+        // The retail ground holds the masks in another order than the land surface lists them.
+        let retail = crate::art_pack::RetailGround {
+            serial: 1,
+            masks: [0x0500_0300, 0x0500_0200, 0x0500_0101, 0x0500_0100]
+                .map(|id| (dereth_primitives::DataId(id), image.clone()))
+                .to_vec(),
+            pictures: Vec::new(),
+            broad: Vec::new(),
+        };
+        // Grassland, with patchy grass at vertex (2, 3) and a road through vertex (6, 1).
+        let mut words = [1u16 << 2; 81];
+        words[2 * 9 + 3] = 9 << 2;
+        words[6 * 9 + 1] |= 1;
+        let layers = ground_layers(&tm, &retail, &words, u32::MAX, 8);
+        for e in 0..8usize {
+            for n in 0..8usize {
+                let w = |a: usize, b: usize| words[a * 9 + b];
+                let c = [w(e, n), w(e + 1, n), w(e + 1, n + 1), w(e, n + 1)];
+                let key = MergeKey::new(c.map(|c| (c >> 2) & 0x1F), c.map(|c| c & 3), 1);
+                let plan = ground_plan(&tm, key);
+                let (base, overlays) = cell_layers(layers[e * 8 + n]).expect("laid");
+                assert_eq!(base.map(u32::from), plan.base, "cell {e} {n}");
+                assert_eq!(overlays.len(), plan.overlays.len(), "cell {e} {n}");
+                for (o, p) in overlays.iter().zip(&plan.overlays) {
+                    assert_eq!(o.ground.map(u32::from), p.ground);
+                    assert_eq!(Some(o.mask), retail.mask(p.alpha));
+                    assert_eq!(usize::from(o.rotation), p.rotation.index());
+                }
+            }
+        }
+        // The patchy grass is the north-east corner of cell (1, 2), the north-west of (2, 2),
+        // the south-east of (1, 3) and the south-west of (2, 3); no other cell has an overlay
+        // but the four round the road.
+        let laid = |e: usize, n: usize| cell_layers(layers[e * 8 + n]).expect("laid").1;
+        for (e, n) in [(1, 2), (2, 2), (1, 3), (2, 3)] {
+            assert_eq!(laid(e, n)[0].ground, Some(9), "cell {e} {n}");
+        }
+        assert!(laid(4, 6).is_empty());
+        assert_eq!(laid(6, 1)[0].ground, Some(32));
+        assert_eq!(
+            laid(6, 1)[0].mask,
+            0,
+            "the road's mask, first in the retail ground"
+        );
+        assert!(layers.iter().all(|w| cell_span(*w) == 1));
+        // Drawn two cells a side, far off: each drawn cell's corners are every fourth word, and
+        // its layers are laid over the sixteen cells it covers. The patchy grass and the road
+        // fall between them: no drawn cell has an overlay.
+        let coarse = ground_layers(&tm, &retail, &words, u32::MAX, 2);
+        for (k, words) in coarse.iter().enumerate() {
+            assert_eq!(cell_span(*words), 4, "cell {k}");
+            let (base, overlays) = cell_layers(*words).expect("laid");
+            assert_eq!(base, Some(1));
+            assert!(overlays.is_empty(), "cell {k}");
+        }
+        // Patchy grass on a drawn corner shows in the drawn cells round it, over all their cells.
+        words[4 * 9 + 4] = 9 << 2;
+        let coarse = ground_layers(&tm, &retail, &words, u32::MAX, 2);
+        for (e, n) in [(0, 0), (3, 3), (4, 4), (7, 7), (0, 7), (7, 0)] {
+            let (_, overlays) = cell_layers(coarse[e * 8 + n]).expect("laid");
+            assert_eq!(overlays[0].ground, Some(9), "cell {e} {n}");
+        }
     }
 }

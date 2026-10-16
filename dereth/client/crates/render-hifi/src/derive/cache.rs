@@ -30,6 +30,9 @@ pub struct BuildContext {
     pub layout: wgpu::PipelineLayout,
     /// The landscape splat's layout, once the device has one.
     pub splat_layout: Option<wgpu::PipelineLayout>,
+    /// The layout of a draw with an art pack's material: the recorded layout's groups and the
+    /// material's own, once a pack with materials is on the device.
+    pub material_layout: Option<wgpu::PipelineLayout>,
 }
 
 /// One finished build, handed back by the worker.
@@ -171,6 +174,10 @@ fn build(
         cx.splat_layout
             .as_ref()
             .ok_or_else(|| "no landscape splat layout yet".to_owned())?
+    } else if key.variant == Variant::Material {
+        cx.material_layout
+            .as_ref()
+            .ok_or_else(|| "no material layout yet".to_owned())?
     } else {
         &cx.layout
     };
@@ -246,9 +253,9 @@ impl PipelineCache {
         debug_assert!(
             matches!(
                 key.variant,
-                Variant::Reshade | Variant::Surface | Variant::Motion
+                Variant::Reshade | Variant::Surface | Variant::Motion | Variant::Material
             ),
-            "only re-shading, surfaces and motion are derived"
+            "only re-shading, surfaces, motion and materials are derived"
         );
         if self.asked.insert(key) {
             self.queue.push_back(key);
@@ -304,7 +311,8 @@ impl PipelineCache {
 
     /// Whether `key` can be built against `cx` now.
     fn buildable(key: &DerivedKey, cx: &BuildContext) -> bool {
-        !key.splat || cx.splat_layout.is_some()
+        (!key.splat || cx.splat_layout.is_some())
+            && (key.variant != Variant::Material || cx.material_layout.is_some())
     }
 
     #[cfg(not(target_arch = "wasm32"))]

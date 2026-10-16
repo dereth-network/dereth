@@ -38,6 +38,10 @@ pub(super) struct BakeFrom {
     /// The texture detail and image scale the surfaces' pictures are decoded at, and whether
     /// the files held their high-resolution pictures.
     pub(super) pictures: (u32, dereth_render::texture::ImageScale, bool),
+    /// The art pack whose models the high-fidelity presentation may draw: the objects it has
+    /// models for are baked apart.
+    #[cfg(feature = "hifi")]
+    pub(super) art_pack: Option<Arc<crate::art_pack::ArtPack>>,
 }
 
 /// What a bake off the frame was made for: compared with what the frame would bake the block for
@@ -191,13 +195,16 @@ fn bake(job: BakeJob, cache: &mut BakeCache) -> Option<BakeDone> {
         &from.table,
         spec,
     );
-    let placed = land::place_objects(
+    #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
+    let mut placed = land::place_objects(
         &from.store,
         &from.region,
         (&lb, &mesh, bx, by),
         from.knobs,
         &|_, _| false,
     );
+    #[cfg(feature = "hifi")]
+    land::cover_with_pack(&mut placed, from.art_pack.as_deref(), &|_, _| false);
     let mut gathered = land::gather_objects(&from.store, cache, None, &placed, from.knobs);
     let mut surfaces = Vec::new();
     for (_, assembly) in &mut gathered.sides {
@@ -417,6 +424,8 @@ impl SceneDraw {
             table: land.table.clone(),
             knobs,
             pictures,
+            #[cfg(feature = "hifi")]
+            art_pack: land.art_pack.clone(),
         });
         land.bake_from = Some(Arc::clone(&from));
         from

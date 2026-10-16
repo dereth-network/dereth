@@ -331,7 +331,11 @@ impl LandContext {
             let takes = |id: DataId, building: bool| {
                 self.objects.as_ref().is_some_and(|l| l.takes(id, building))
             };
-            place_objects(store, &self.region, (lb, mesh, bx, by), knobs, &takes)
+            #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
+            let mut placed = place_objects(store, &self.region, (lb, mesh, bx, by), knobs, &takes);
+            #[cfg(feature = "hifi")]
+            cover_with_pack(&mut placed, self.art_pack.as_deref(), &takes);
+            placed
         };
         let look = self.objects.as_mut().map(|l| (&*l.files, &mut l.cache));
         let mut gathered = gather_objects(store, &mut self.bake, look, &placed, knobs);
@@ -382,6 +386,8 @@ impl LandContext {
             mut emitters,
             #[cfg(feature = "hifi")]
             hifi_lamps,
+            #[cfg(feature = "hifi")]
+            art_pack,
             ..
         } = placed;
         let GatheredObjects {
@@ -520,6 +526,8 @@ impl LandContext {
             hosts_spawned: false,
             #[cfg(feature = "hifi")]
             hifi_lamps,
+            #[cfg(feature = "hifi")]
+            art_pack,
         })
     }
 
@@ -958,6 +966,13 @@ pub(super) struct PlacedObjects {
     pub(super) emitters: Vec<EmitterPlacement>,
     #[cfg(feature = "hifi")]
     pub(super) hifi_lamps: super::hifi_lamps::BlockLamps,
+    /// For each of [`Self::items`], whether the art pack has a model for it ([`cover_with_pack`]):
+    /// such placements are baked apart from every other object.
+    #[cfg(feature = "hifi")]
+    pub(super) covered: Vec<bool>,
+    /// The placements the art pack has models for.
+    #[cfg(feature = "hifi")]
+    pub(super) art_pack: Vec<crate::art_pack::PackPlacement>,
 }
 
 /// A block's placements' triangles gathered by surface, before any is resolved to a picture: the
@@ -1050,7 +1065,44 @@ pub(super) fn place_objects(
         emitters,
         #[cfg(feature = "hifi")]
         hifi_lamps,
+        #[cfg(feature = "hifi")]
+        covered: Vec::new(),
+        #[cfg(feature = "hifi")]
+        art_pack: Vec::new(),
     }
+}
+
+/// Mark which of `placed`'s placements the art pack `pack` has models for, with another era's
+/// look drawing those `takes` says it draws: they are baked apart from every other object, with
+/// the look they would have without the pack, so the high-fidelity presentation can draw the
+/// models in their place. Their collision is the world's, as every placement's is.
+#[cfg(feature = "hifi")]
+pub(super) fn cover_with_pack(
+    placed: &mut PlacedObjects,
+    pack: Option<&crate::art_pack::ArtPack>,
+    takes: &dyn Fn(DataId, bool) -> bool,
+) {
+    let has = |id: DataId| pack.is_some_and(|p| p.has(id));
+    let looks = crate::art_pack::Looks {
+        pack: Some(&has),
+        classic: Some(takes),
+    };
+    placed.covered = placed
+        .items
+        .iter()
+        .map(|it| looks.of(it.0, it.3) == crate::art_pack::Look::ArtPack)
+        .collect();
+    placed.art_pack = placed
+        .items
+        .iter()
+        .zip(&placed.covered)
+        .filter(|(_, c)| **c)
+        .map(|(it, _)| crate::art_pack::PackPlacement {
+            id: it.0,
+            frame: it.1,
+            scale: it.2,
+        })
+        .collect();
 }
 
 /// `placed`'s placements' triangles gathered by surface: the world's side through `world_store`
@@ -1108,6 +1160,10 @@ pub(super) fn gather_objects(
         for (i, (id, frame, scale, building, _)) in
             items.iter().enumerate().filter(|(_, it)| it.4 == from_look)
         {
+            #[cfg(feature = "hifi")]
+            {
+                baker.covered = placed.covered.get(i).copied().unwrap_or(false);
+            }
             let shell = baker.add_object_kind(*id, frame, *scale, *building);
             if let Some(slot) = building_of[i].and_then(|k| shell_placements.get_mut(k)) {
                 *slot = shell.map(|p| p + offset);
@@ -1671,6 +1727,14 @@ impl SceneDraw {
             // its sort cell's building and objects, all inside the block's own
             // level-3 position push of (block id, identity). The batches are block-local, so
             // `world` above is exactly that push.
+            #[cfg(feature = "hifi")]
+            if !block.art_pack.is_empty() {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                // LINT-OK: block indices are 0..=0xFE. Not a float conversion.
+                gpu.hifi_mark(Mark::ArtPackBlock {
+                    block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
+                });
+            }
             for batch in &block.opaque {
                 submit_static_batch(
                     gpu,

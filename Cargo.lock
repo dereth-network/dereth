@@ -845,6 +845,7 @@ dependencies = [
  "dereth-dat",
  "dereth-primitives",
  "thiserror 2.0.20",
+ "toml",
 ]
 
 [[package]]
@@ -1391,6 +1392,7 @@ dependencies = [
  "dereth-world-render",
  "glam",
  "png",
+ "serde_json",
  "thiserror 2.0.20",
  "tracing",
  "web-time",

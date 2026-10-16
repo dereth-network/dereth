@@ -1,5 +1,6 @@
 //! Instruments: frame writers, ignored with a reason and never counted as coverage.
 
+mod art_pack_frames;
 mod building_boundary_frames;
 mod dungeon_web_frames;
 mod hifi_frames;

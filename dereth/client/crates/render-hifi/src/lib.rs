@@ -32,6 +32,7 @@ pub mod composite;
 pub mod derive;
 pub mod fail;
 pub mod graph;
+pub mod materials;
 pub mod passes;
 pub mod reshade;
 pub mod resources;
@@ -147,7 +148,8 @@ pub struct HifiSettings {
     /// Light bounced from the surfaces around, inside the light (with `lighting` on).
     pub global_illumination: Level,
     /// Ambient and contact occlusion; left out of the outdoor frames the bounced light is drawn
-    /// into, whose creases it already darkens, and drawn everywhere else.
+    /// into, whose creases it already darkens, but for the leaves of canopies, and drawn
+    /// everywhere else.
     pub ambient_occlusion: Level,
     /// Outdoor lamps, lanterns, torches and braziers as light sources after dusk, with traced
     /// visibility (with `lighting` on, on a device with ray queries).
@@ -157,6 +159,9 @@ pub struct HifiSettings {
     /// Rain, snow and wet ground, when the day's own weather brings them (asked for with
     /// `lighting` on).
     pub weather: Level,
+    /// An art pack's models drawn in place of the objects they replace, when the frame carries
+    /// a pack (asked for with `lighting` on, whose light they are drawn for).
+    pub art_pack: bool,
     /// Temporal anti-aliasing of the world drawn in the light per pixel (asked for with
     /// `lighting` on): each frame is drawn a fraction of a pixel off the last, and the frames
     /// are blended, following what moved, into edges that neither stair-step nor crawl.
@@ -297,6 +302,8 @@ pub struct HifiRenderer {
     /// For each per-frame block the world was recorded with, the block it is replayed with at
     /// this frame's jitter; empty on a frame drawn without the anti-aliasing.
     jittered_frames: HashMap<u32, u32>,
+    /// An art pack's materials for retail pictures, and this frame's draws of them.
+    materials: materials::Materials,
     /// The size the world was last drawn at, pixels: the frame's, or a share of it at a render
     /// scale.
     drawn_size: (u32, u32),
@@ -326,6 +333,7 @@ impl HifiRenderer {
             reshader: Reshader::default(),
             jitter_count: 0,
             jittered_frames: HashMap::new(),
+            materials: materials::Materials::default(),
             drawn_size: (0, 0),
         }
     }
@@ -421,10 +429,20 @@ impl HifiRenderer {
         let Some(frame) = self.frame.as_ref() else {
             return Ok(());
         };
+        // The art pack's materials, while it is drawn and has them.
+        let materials = frame
+            .materials
+            .as_ref()
+            .filter(|_| materials::drawn(&self.settings, frame));
+        self.materials.clear();
+        if let Some(m) = materials {
+            self.materials.upload(cx, m);
+        }
         let build = BuildContext {
             device: cx.device().clone(),
             layout: cx.pipeline_layout().clone(),
             splat_layout: cx.splat_pipeline_layout().cloned(),
+            material_layout: self.materials.pipeline_layout().cloned(),
         };
         let mut last = None;
         for note in &cx.tables().draws {
@@ -477,6 +495,15 @@ impl HifiRenderer {
                 .iter()
                 .filter(|d| plan.translucent.contains(&d.cmd) && reshade::translucent(d))
                 .count() as u64;
+            if materials.is_some() {
+                self.materials.plan(
+                    cx.tables(),
+                    &frame.material_slots,
+                    plan.reshaded(),
+                    &mut self.pipelines,
+                );
+                self.pipelines.pump(&build);
+            }
             self.plan = Some(plan);
         }
         Ok(())
@@ -601,7 +628,8 @@ impl HifiRenderer {
                             );
                             filters = pre.0;
                         }
-                        let mut reshade = ReshadeFilter::new(&self.pipelines);
+                        let mut reshade =
+                            ReshadeFilter::with_materials(&self.pipelines, &self.materials);
                         filters.push(&mut reshade);
                         let mut chain = Chain(filters);
                         if slot == Slot::WorldReplay {
@@ -1201,6 +1229,12 @@ impl FrameSidecar for HifiRenderer {
             "anti-aliasing jittered blocks",
             self.jittered_frames.len() as u64,
         ));
+        report
+            .notes
+            .push(("art pack material draws", self.materials.drawn_count()));
+        report
+            .notes
+            .push(("art pack material bytes", self.materials.resident_bytes()));
         for (_, pass) in self.graph.passes() {
             pass.notes(&mut report.notes);
         }

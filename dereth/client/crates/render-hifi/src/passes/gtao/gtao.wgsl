@@ -411,8 +411,9 @@ fn fs_apply(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
 }
 
 // The multiply into the re-shaded picture where the bounced light is drawn: there `picture` is
-// the normals, and only the surfaces it does not light take the occlusion -- a building's or a
-// dungeon's cells, and the things standing in them, lit as indoors.
+// the normals, and only the surfaces it does not darken take the occlusion -- a building's or a
+// dungeon's cells, and the things standing in them, lit as indoors -- and the leaves, whose
+// bounced light leaves them half their sky however deep in a crown they are.
 @fragment
 fn fs_apply_inside(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let px = vec2<i32>(frag.xy);
@@ -421,7 +422,8 @@ fn fs_apply_inside(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32>
     }
     let kind = textureLoad(picture, px, 0).w;
     let inside = (kind > 1.2 && kind < 1.3) || (kind > 1.5 && kind < 2.5);
-    if (!inside) {
+    let leaf = kind > 3.5 && kind < 6.0;
+    if (!inside && !leaf) {
         return vec4<f32>(1.0);
     }
     let t = encode(final_term(px));

@@ -130,6 +130,9 @@ pub mod fidelity {
     pub const SKY: &str = "Fidelity.Sky";
     /// `Fidelity.Weather`: rain, snow and wet ground, when the day's own weather brings them.
     pub const WEATHER: &str = "Fidelity.Weather";
+    /// `Fidelity.RetailLook`: the original models are drawn where an art pack has replacements
+    /// for them.
+    pub const RETAIL_LOOK: &str = "Fidelity.RetailLook";
     /// `Fidelity.NoAntiAliasing`: the world is drawn in the better lighting without its temporal
     /// anti-aliasing.
     pub const NO_ANTI_ALIASING: &str = "Fidelity.NoAntiAliasing";
@@ -140,8 +143,12 @@ pub mod fidelity {
     /// presentation draws under. The client sets it as the interface changes; it is never kept
     /// in the profile.
     pub const INTERFACE: &str = "Fidelity.Interface";
+    /// `Fidelity.ArtPack`: the folder of the art pack the presentation draws, a path, read at
+    /// start-up. `--art-pack` on the command line and `DERETH_ART_PACK` in the environment win
+    /// over it. No box sets it.
+    pub const ART_PACK: &str = "Fidelity.ArtPack";
 
-    /// Every name the profile and `--set-at` may set, the eight boxes first.
+    /// Every name the profile and `--set-at` may set, the nine boxes first.
     pub const NAMES: &[&str] = &[
         LIGHTING,
         SHADOWS,
@@ -150,6 +157,7 @@ pub mod fidelity {
         LAMPS,
         SKY,
         WEATHER,
+        RETAIL_LOOK,
         NO_ANTI_ALIASING,
         DEBUG,
     ];

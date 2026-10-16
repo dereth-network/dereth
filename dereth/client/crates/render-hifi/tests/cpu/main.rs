@@ -4,6 +4,7 @@ mod common;
 mod derive;
 mod graph;
 mod lighting;
+mod materials;
 mod occlusion;
 mod reshade;
 mod shared;

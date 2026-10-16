@@ -1,5 +1,5 @@
 //! The Client page of the settings ends, in a build with the experimental rendering effects, with
-//! their eight boxes under a heading of their own: a box whose prerequisite is off is greyed and
+//! their nine boxes under a heading of their own: a box whose prerequisite is off is greyed and
 //! cannot be ticked, and the rest tick as any other.
 //!
 //! Behaviour: none (experimental Horizon interface)

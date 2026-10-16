@@ -708,6 +708,12 @@ pub(super) fn submit_static_vertices(
         gpu.bind_stage1_texture(slot);
         world.detail_params = [tiling, 1.0, 0.0, 0.0];
     }
+    // The objects an art pack has models for: the high-fidelity presentation may draw the
+    // models in their place.
+    #[cfg(feature = "hifi")]
+    if batch.art_pack {
+        gpu.hifi_mark(dereth_render::hifi_mark::Mark::ArtPackCovered);
+    }
     gpu.draw_dynamic(
         // A batch drawn with a detail surface installed is never queued for a second pass
         // ([`static_multipass_member`]), so the two never meet.
@@ -725,7 +731,12 @@ pub(super) fn submit_static_vertices(
         per_frame,
         &world,
         vertices,
-    )
+    )?;
+    #[cfg(feature = "hifi")]
+    if batch.art_pack {
+        gpu.hifi_mark(dereth_render::hifi_mark::Mark::ArtPackCoveredEnd);
+    }
+    Ok(())
 }
 
 pub(super) fn static_subset_visible(batch: &StaticBatch) -> bool {

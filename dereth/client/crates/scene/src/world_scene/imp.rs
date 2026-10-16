@@ -493,6 +493,9 @@ struct BlockDraw {
     /// presentation alone: looked for only while it draws them.
     #[cfg(feature = "hifi")]
     hifi_lamps: hifi_lamps::BlockLamps,
+    /// The outdoor placements the art pack has models for, block-local.
+    #[cfg(feature = "hifi")]
+    art_pack: Vec<crate::art_pack::PackPlacement>,
 }
 
 /// The number the next block build takes, so the high-fidelity presentation tells a block whose
@@ -545,6 +548,9 @@ struct BakedObjects {
     /// Where the lamps of the outdoor placements may be, for the high-fidelity presentation.
     #[cfg(feature = "hifi")]
     hifi_lamps: hifi_lamps::BlockLamps,
+    /// The outdoor placements the art pack has models for.
+    #[cfg(feature = "hifi")]
+    art_pack: Vec<crate::art_pack::PackPlacement>,
 }
 
 /// One resident block's bake as [`WorldScene::block_bake`] reports it.
@@ -998,6 +1004,11 @@ struct StaticBatch {
     /// cell's statics, in buffer order. Empty for a landblock's batches, whose objects are
     /// drawn whole.
     part_runs: Vec<PartRun>,
+    /// Whether it holds only objects the art pack has models for, apart from every other
+    /// object so the high-fidelity presentation can draw the models in their place. Never set
+    /// without that presentation.
+    #[cfg_attr(not(feature = "hifi"), allow(dead_code))]
+    art_pack: bool,
 }
 
 /// One run of vertices in a [`StaticBatch`], and the degrade level it belongs to.
@@ -2572,6 +2583,67 @@ struct LandContext {
     static_geometry: HashMap<DataId, Option<Arc<dereth_physics::SetupGeometry>>>,
     /// The cell BSPs that search reads, by cell structure, memoised for the session.
     cell_bsps: dereth_world_data::env_cells::CellBspMemo,
+    /// The art pack whose models the high-fidelity presentation may draw: the outdoor objects it
+    /// has models for are baked apart from the rest ([`crate::art_pack::Looks`]).
+    #[cfg(feature = "hifi")]
+    art_pack: Option<Arc<crate::art_pack::ArtPack>>,
+    /// Retail's masks and pictures the art pack's ground is laid with, while the pack lays one
+    /// over a ground drawn by blending pictures.
+    #[cfg(feature = "hifi")]
+    retail_ground: Option<Arc<crate::art_pack::RetailGround>>,
+    /// The texture keys the retail pictures the art pack has materials for are held under, as
+    /// the objects' surfaces upload them with no palette of their own, each with the material's
+    /// index: the high-fidelity presentation finds the slots holding them each frame.
+    #[cfg(feature = "hifi")]
+    material_keys: Vec<(dereth_render::TextureKey, u32)>,
+}
+
+#[cfg(feature = "hifi")]
+impl LandContext {
+    /// Work out the texture keys of the retail pictures the art pack has materials for, or
+    /// forget them when no pack has any. A picture an object recolors with a palette of its own
+    /// is held under no key, so a material never reaches it.
+    fn refresh_material_keys(&mut self, store: &RetailDatStore) {
+        self.material_keys.clear();
+        let Some(pack) = self.art_pack.as_ref() else {
+            return;
+        };
+        let textures = TextureStore::new(store);
+        for (m, material) in (0u32..).zip(&pack.materials) {
+            for t in &material.textures {
+                let (key, _) = appearance::combined_key(&textures, Some(*t), None);
+                if key != dereth_render::TextureKey::UNCACHED {
+                    self.material_keys.push((key, m));
+                }
+            }
+        }
+    }
+
+    /// Read retail's masks and the pictures the art pack's ground needs from the ground's files,
+    /// or forget them when no pack lays a ground or the ground is not drawn by blending pictures.
+    fn refresh_retail_ground(&mut self, store: &RetailDatStore) {
+        let pack = self
+            .art_pack
+            .as_ref()
+            .filter(|p| !p.grounds.is_empty() && self.pal_shift.is_none());
+        self.retail_ground = pack.map(|pack| {
+            let store = self.ground_store.as_ref().unwrap_or(store);
+            let textures = TextureStore::new(store);
+            Arc::new(crate::art_pack::RetailGround::of(
+                &self.tex_merge,
+                pack,
+                &mut |id| {
+                    let b = textures.bgra8(id).ok()?;
+                    let rgba = b
+                        .pixels
+                        .iter()
+                        .flat_map(|p| [p[2], p[1], p[0], p[3]])
+                        .collect();
+                    Some((b.width, b.height, rgba))
+                },
+            ))
+        });
+    }
 }
 
 /// The world's objects drawn with another era's look (`[Render] Objects`).
@@ -3006,6 +3078,20 @@ impl WorldScene {
         Ok(Self { world, draw })
     }
 
+    /// [`SceneDraw::set_art_pack`] on this scene.
+    ///
+    /// # Errors
+    /// As [`SceneDraw::set_art_pack`].
+    #[cfg(feature = "hifi")]
+    pub fn set_art_pack(
+        &mut self,
+        store: &RetailDatStore,
+        gpu: &mut Gpu,
+        pack: Option<Arc<crate::art_pack::ArtPack>>,
+    ) -> Result<(), WorldError> {
+        self.draw.set_art_pack(&mut self.world, store, gpu, pack)
+    }
+
     /// The whole scene as the shared view an application's world state and a renderer's
     /// drawing half make, so one reader serves both.
     #[must_use]
@@ -3123,6 +3209,8 @@ struct ObjectBaker<'a> {
     /// Bounding spheres worked out ahead of [`Self::finish`], by surface.
     // ORDER-OK: looked up by key only.
     spheres: HashMap<BatchKey, (Vec3, f32)>,
+    /// Whether the art pack has a model for the object being placed.
+    covered: bool,
 }
 
 /// One entry of the decoded-surface memo: the surface record, the two polygon flags it
@@ -3147,6 +3235,8 @@ struct BatchKey {
     /// translucent thing; a batch merging a whole block's objects has no one distance to take
     /// that place by. Opaque and alpha-tested surfaces write depth and stay merged.
     instance: Option<u32>,
+    /// Whether the art pack has a model for the placed object: such objects are batched apart.
+    art_pack: bool,
 }
 
 impl<'a> ObjectBaker<'a> {
@@ -3172,6 +3262,7 @@ impl<'a> ObjectBaker<'a> {
             parts: None,
             object: 0,
             spheres: HashMap::new(),
+            covered: false,
         }
     }
 
@@ -3424,6 +3515,7 @@ impl<'a> ObjectBaker<'a> {
                 },
                 building_pass,
                 instance: blends.then_some(self.instances),
+                art_pack: self.covered,
             };
             let (buf, chunks) = self.groups.entry(key.clone()).or_insert_with(|| {
                 self.order.push(key);
@@ -3565,6 +3657,7 @@ impl<'a> ObjectBaker<'a> {
                 active: Vec::new(),
                 from_look: self.from_look,
                 part_runs,
+                art_pack: key.art_pack,
             };
             if batch.key.alpha_blend {
                 blended.push(batch);

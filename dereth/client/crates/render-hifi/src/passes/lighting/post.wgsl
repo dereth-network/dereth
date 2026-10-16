@@ -10,6 +10,12 @@ struct Post {
     // x saturation, y contrast, z vignette, w 1 on the first downsample.
     grade: vec4<f32>,
     viewport: vec4<f32>,
+    // rgb the sun's colour at a brightness of one, w how far the picture is balanced against it
+    // (nought: not at all).
+    balance: vec4<f32>,
+    // x how far the tone curve keeps each colour's hue and saturation, from the curve taken
+    // channel by channel (nought) to the curve taken on brightness alone (one).
+    hue: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -132,6 +138,8 @@ fn fs_tonemap(i: VsOut) -> @location(0) vec4<f32> {
     let uv = vec2<f32>(i.pos.xy) * post.texel.xy;
     let b = textureSampleLevel(bloom, lin, uv, 0.0).rgb / post.tone.w;
     var x = mix(c, b, post.tone.y) * exposure[0];
+    // A white balance against the warm sun, when one is asked for.
+    x = x / mix(vec3<f32>(1.0), max(post.balance.rgb, vec3<f32>(0.05)), post.balance.w);
     // Vignette, inside the world viewport.
     let v = (i.pos.xy - post.viewport.xy) / post.viewport.zw - vec2<f32>(0.5);
     x = x * (1.0 - post.grade.z * dot(v, v));
@@ -142,6 +150,14 @@ fn fs_tonemap(i: VsOut) -> @location(0) vec4<f32> {
         // The fitted curve's toe falls to black far below a tenth of middle grey, which takes
         // night and deep shade with it; below where it meets a straight toe, the toe holds.
         m = max(aces(x), x * post.texel.z);
+        // The curve taken on brightness alone keeps each colour's hue and saturation, where the
+        // curve taken channel by channel pushes a warm-lit green further from grey; when asked.
+        if (post.hue.x > 0.0) {
+            let l = max(luminance(x), 1e-6);
+            let curved = luminance(max(aces(vec3<f32>(l)), vec3<f32>(l * post.texel.z)));
+            let kept = clamp(x * (curved / l), vec3<f32>(0.0), vec3<f32>(1.0));
+            m = mix(m, kept, clamp(post.hue.x, 0.0, 1.0));
+        }
     }
     // Grade: a little saturation and contrast about middle grey, in display space.
     var g = linear_to_srgb(m);

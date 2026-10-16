@@ -22,7 +22,7 @@ d3d12 = ["dereth-render/d3d12"]
 # The optional high-fidelity presentation (`dereth-render-hifi`) and the bridge that hands it the
 # frame. Off unless a build asks for it; without it the scene builds no bridge and behaves exactly
 # as before.
-hifi = ["dep:dereth-render-hifi", "dereth-render/hifi", "dereth-client-runtime/hifi", "wgpu"]
+hifi = ["dep:dereth-render-hifi", "dep:serde_json", "dereth-render/hifi", "dereth-client-runtime/hifi", "wgpu"]
 # Opt-in capture controls for the test and capture tools: the presentation's own (the weather's
 # masks and a frame clock), when it is built in.
 test-support = ["dereth-render-hifi?/capture"]
@@ -58,8 +58,10 @@ tracing.workspace = true
 glam.workspace = true
 # A monotonic clock a browser can read too; natively it is the standard library's.
 web-time.workspace = true
-# The capture writes a PNG.
+# The capture writes a PNG, and an art pack's pictures are PNGs.
 png.workspace = true
+# An art pack's models are glTF, whose text is JSON.
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The options page's restore-defaults list, which one test checks the renderer's seed against.

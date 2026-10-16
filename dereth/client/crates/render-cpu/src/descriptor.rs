@@ -539,6 +539,18 @@ impl TextureTable {
         !key.is_uncached() && self.by_key.contains_key(&key)
     }
 
+    /// The slot of the live cached texture `key` names, without taking a link on it.
+    #[must_use]
+    pub fn slot_of(&self, key: TextureKey) -> Option<u32> {
+        if key.is_uncached() {
+            return None;
+        }
+        self.by_key
+            .get(&key)
+            .copied()
+            .filter(|slot| self.entries.contains_key(slot))
+    }
+
     /// `if (key != 0 and texture_table[key] exists) { AddRef; return it }`.
     ///
     /// [`UNCACHED`] never hits, which makes a dyed item's texture private to its owning surface.

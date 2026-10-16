@@ -6,9 +6,10 @@
 //! the scene: every field is owned data, and the snapshot is `Send + 'static`.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use dereth_render::VertexFormat;
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 
 /// The snapshot of one frame.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -32,6 +33,45 @@ pub struct HifiFrame {
     pub terrain: Vec<HifiTerrainBlock>,
     /// Retained geometry of blocks whose contents changed since the last snapshot.
     pub static_feed: Vec<HifiStaticBlock>,
+    /// The art pack whose models may be drawn in place of the objects they replace, while one
+    /// is open.
+    pub art_pack: Option<Arc<HifiArtPack>>,
+    /// Where the art pack's models stand in blocks whose contents changed since the last
+    /// snapshot.
+    pub pack_feed: Vec<HifiPackBlock>,
+    /// The art pack's ground and what it is laid with, while a pack that lays one is open and
+    /// the ground is laid as retail lays it by blending pictures.
+    pub ground: Option<Arc<HifiGround>>,
+    /// The art pack's materials drawn in place of retail pictures, while a pack that has them is
+    /// open.
+    pub materials: Option<Arc<HifiMaterials>>,
+    /// The texture slots holding, this frame, a retail picture one of [`Self::materials`] stands
+    /// for, each with that material's index: a draw that binds such a slot is drawn with the
+    /// material.
+    pub material_slots: Vec<(u32, u32)>,
+}
+
+/// An art pack's materials drawn in place of retail pictures. Made once when the pack is opened;
+/// every frame shares it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiMaterials {
+    /// A number of its own, so a pack opened again is told from the one before.
+    pub serial: u64,
+    /// The materials, by the index [`HifiFrame::material_slots`] names them with.
+    pub materials: Vec<HifiTextureMaterial>,
+}
+
+/// One material drawn in place of a retail picture, on the retail surface's own coordinates.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiTextureMaterial {
+    /// The base color with the retail picture's alpha, read as the retail picture is: in the
+    /// display's encoding, as stored, so the surface's stages compute with it exactly as they
+    /// compute with the retail picture.
+    pub albedo: HifiPackImage,
+    /// The normal's parts along the picture's width and up it (-1..1 as 0..1), in red and green.
+    pub normal: HifiPackImage,
+    /// The roughness and the ambient occlusion, in red and green.
+    pub surface: HifiPackImage,
 }
 
 /// The camera of the frame. The matrices are the frame's own, in the column-vector convention.
@@ -242,6 +282,10 @@ pub struct HifiTerrainBlock {
     pub cuts: Vec<bool>,
     /// Bumped whenever the block's drawn contents are rebuilt.
     pub generation: u32,
+    /// The layers of each of its 64 cells as retail lays them at full detail, in the words
+    /// [`crate::passes::ground::cell_words`] makes, east by north (`east * 8 + north`), while an
+    /// art pack's ground is laid.
+    pub layers: Option<Arc<[[u32; 4]; 64]>>,
 }
 
 impl Default for HifiTerrainBlock {
@@ -255,6 +299,7 @@ impl Default for HifiTerrainBlock {
             heights: Vec::new(),
             cuts: Vec::new(),
             generation: 0,
+            layers: None,
         }
     }
 }
@@ -287,6 +332,198 @@ pub struct HifiStaticBatch {
     pub texture: Option<u32>,
     /// The alpha below which its pixels are cut.
     pub alpha_ref: u8,
+    /// Whether it holds only objects the art pack has models for, which the pack's models stand
+    /// in for while they are drawn.
+    pub art_pack: bool,
+}
+
+/// An art pack as the presentation draws it: models for retail objects, each with its levels of
+/// detail, and the pictures they are drawn with. Made once when the pack is opened; every frame
+/// shares it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiArtPack {
+    /// A number of its own, so a pack opened again is told from the one before.
+    pub serial: u64,
+    /// The models.
+    pub models: Vec<HifiPackModel>,
+    /// The pictures the models' materials name by index.
+    pub images: Vec<HifiPackImage>,
+}
+
+/// One model of an art pack.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiPackModel {
+    /// The retail object it is drawn in place of: a setup or a graphics object.
+    pub id: u32,
+    /// Cut-out growth: its cut-out materials (needles, leaves) are drawn from both sides and lit
+    /// through from behind.
+    pub foliage: bool,
+    /// Its levels of detail, nearest first.
+    pub lods: Vec<HifiPackLod>,
+    /// A sphere holding every level, in the model's own space (height up): its centre and
+    /// radius.
+    pub bounds: (Vec3, f32),
+}
+
+/// One level of detail of a model.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiPackLod {
+    /// How far from the eye it is drawn, metres; infinite for a last level with no limit.
+    pub distance: f32,
+    /// Its parts, one material each.
+    pub primitives: Vec<HifiPackPrimitive>,
+    /// For a level that is pictures of the model seen from round it: how many views, evenly
+    /// round its upright axis, and how many tiles to a row of its pictures. Its parts are upright
+    /// quads across the axis, turned to face the eye; each part's base colour picture holds the
+    /// views' colours and coverage, and its normal picture each view's normal in the model's
+    /// own space and, in alpha, how far the surface stands along the view from the plane through
+    /// the axis (0.5 on the plane, 0 and 1 half the quad's width nearer and farther).
+    pub views: Option<(u32, u32)>,
+    /// Drawn into the sun's shadows alone, where they ask for a coarser level than the view
+    /// draws, and never into the view.
+    pub shadows_only: bool,
+}
+
+/// One part of a level of detail: triangles of one material.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiPackPrimitive {
+    /// The vertices, [`PACK_VERTEX_FLOATS`] floats each: position (3), normal (3), tangent with
+    /// its handedness (4), texture coordinates (2) and colour (4), in the model's own space,
+    /// height up.
+    pub vertices: Arc<Vec<f32>>,
+    /// Three indices a triangle, counter-clockwise seen from its front.
+    pub indices: Arc<Vec<u32>>,
+    /// How it is drawn.
+    pub material: HifiPackMaterial,
+}
+
+/// The floats of one vertex of a pack's model.
+pub const PACK_VERTEX_FLOATS: usize = 16;
+
+/// A physically based material.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HifiPackMaterial {
+    /// The base colour, linear, and its alpha, which the base colour picture is multiplied by.
+    pub base_color: [f32; 4],
+    /// The base colour picture.
+    pub base_color_image: Option<u32>,
+    /// The tangent-space normal picture.
+    pub normal_image: Option<u32>,
+    /// How strongly the normal picture bends the normal.
+    pub normal_scale: f32,
+    /// The picture whose green holds the roughness and blue the metalness.
+    pub metal_rough_image: Option<u32>,
+    /// The metalness, which the picture's blue is multiplied by.
+    pub metallic: f32,
+    /// The roughness, which the picture's green is multiplied by.
+    pub roughness: f32,
+    /// The picture whose red holds the ambient occlusion.
+    pub occlusion_image: Option<u32>,
+    /// How much of the occlusion is applied, 0..1.
+    pub occlusion_strength: f32,
+    /// The alpha below which a pixel is cut away, for a cut-out material.
+    pub alpha_cutoff: Option<f32>,
+    /// Whether both faces are drawn.
+    pub double_sided: bool,
+}
+
+impl Default for HifiPackMaterial {
+    fn default() -> Self {
+        Self {
+            base_color: [1.0; 4],
+            base_color_image: None,
+            normal_image: None,
+            normal_scale: 1.0,
+            metal_rough_image: None,
+            metallic: 1.0,
+            roughness: 1.0,
+            occlusion_image: None,
+            occlusion_strength: 1.0,
+            alpha_cutoff: None,
+            double_sided: false,
+        }
+    }
+}
+
+/// One picture of an art pack, with its smaller levels: eight bits a channel, or compressed in
+/// blocks.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiPackImage {
+    /// Width of the largest level, texels.
+    pub width: u32,
+    /// Height of the largest level, texels.
+    pub height: u32,
+    /// Whether it holds colour in the display's encoding (a base colour), rather than data
+    /// (normals, roughness, occlusion).
+    pub srgb: bool,
+    /// Every level, largest first: four bytes a texel, rows packed, or the level's blocks in
+    /// [`Self::format`], rows of blocks packed.
+    pub levels: Vec<Arc<Vec<u8>>>,
+    /// The blocks the levels are compressed in; `None` for four bytes a texel.
+    pub format: Option<dereth_render::block_codec::BlockFormat>,
+}
+
+/// An art pack's ground: a material for each retail ground, and retail's blend masks that lay
+/// them. Made once when the pack is opened or the ground changes; every frame shares it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiGround {
+    /// A number of its own, so a ground made again is told from the one before.
+    pub serial: u64,
+    /// The materials, every picture of every material one size.
+    pub materials: Vec<HifiGroundMaterial>,
+    /// For each retail ground (terrain types 0 to 31, and 32 the road), the index of the
+    /// material drawn for it; `None` where none is, and for a ground past the list's end.
+    pub of_ground: Vec<Option<u16>>,
+    /// Retail's blend masks, by the index a cell's layers name them with: each picture's red
+    /// keeps what lies under the layer (255) or takes the layer (0).
+    pub masks: Vec<HifiPackImage>,
+    /// Each retail ground's own picture, shrunk to its patches a fifth of a metre and broader, all
+    /// one size, with its repeats across a cell (terrain types 0 to 31, then the road): what the
+    /// pack's materials are laid out in, so they keep the character of the ground they replace.
+    pub broad: Vec<(HifiPackImage, u32)>,
+}
+
+/// One ground material. Its normal picture is the size of its base colour; its surface picture
+/// is half that, and every material's are the same sizes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiGroundMaterial {
+    /// The base colour, in the display's encoding, with the height in alpha.
+    pub albedo: HifiPackImage,
+    /// The normal's east and north parts (-1..1 as 0..1), in red and green.
+    pub normal: HifiPackImage,
+    /// The roughness and the ambient occlusion, in red and green.
+    pub surface: HifiPackImage,
+    /// How many metres one repeat of the pictures covers.
+    pub size: f32,
+    /// How strongly the normal picture bends the normal.
+    pub normal_scale: f32,
+    /// Retail's own picture for a ground the pack has no material for: laid as retail lays it,
+    /// its repeats square with the cells, with no detail or variation of the pack's.
+    pub retail: bool,
+}
+
+/// Where an art pack's models stand in one block.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiPackBlock {
+    /// The landblock id.
+    pub block: u16,
+    /// The block's build these placements belong to.
+    pub generation: u32,
+    /// The placements.
+    pub placements: Vec<HifiPackPlacement>,
+}
+
+/// One object the art pack draws in place of the retail one.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HifiPackPlacement {
+    /// The retail object, which names the model.
+    pub id: u32,
+    /// Where it stands, relative to the block's south-west corner, height up.
+    pub origin: Vec3,
+    /// How it is turned.
+    pub rotation: Quat,
+    /// How it is scaled, the same on every axis.
+    pub scale: f32,
 }
 
 /// The snapshot crosses to the device by value and holds no borrow.

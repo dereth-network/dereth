@@ -52,4 +52,14 @@ pub enum Mark {
         /// The cell's full id.
         cell: u32,
     },
+    /// A landscape block whose objects an art pack can draw is about to draw its objects.
+    ArtPackBlock {
+        /// The landblock id, `0xXXYY`.
+        block: u16,
+    },
+    /// The draws up to the matching [`Mark::ArtPackCoveredEnd`] are of objects an art pack can
+    /// draw in their place.
+    ArtPackCovered,
+    /// The end of the draws [`Mark::ArtPackCovered`] opened.
+    ArtPackCoveredEnd,
 }

@@ -139,6 +139,17 @@ pub enum DrawAction<'p> {
     PipelineFrame(&'p wgpu::RenderPipeline, u32),
     /// Replay it with its recorded pipeline and another per-frame constant block offset.
     Frame(u32),
+    /// Replay it with another pipeline, whose layout is the recorded one with a fifth group of
+    /// its own, `texture` bound in place of the first stage's texture and `extra` as the fifth
+    /// group, for this draw alone: the next draw finds the groups as the recording has them.
+    Retextured {
+        /// The pipeline.
+        pipeline: &'p wgpu::RenderPipeline,
+        /// The first stage's texture, in the recorded texture group's layout.
+        texture: &'p wgpu::BindGroup,
+        /// The fifth group.
+        extra: &'p wgpu::BindGroup,
+    },
 }
 
 /// How each recorded draw of a replay was handled: the replay's census.
@@ -180,7 +191,9 @@ impl Census {
     pub fn count(&mut self, action: &DrawAction<'_>) {
         match action {
             DrawAction::Legacy => self.legacy += 1,
-            DrawAction::Pipeline(_) | DrawAction::PipelineFrame(..) => self.reshaded += 1,
+            DrawAction::Pipeline(_)
+            | DrawAction::PipelineFrame(..)
+            | DrawAction::Retextured { .. } => self.reshaded += 1,
             DrawAction::Frame(_) => self.reframed += 1,
             DrawAction::Skip(SkipRule::SkyDome) => self.skipped_sky_dome += 1,
             DrawAction::Skip(SkipRule::CoveredByFeed) => self.skipped_covered_by_feed += 1,
@@ -696,6 +709,28 @@ impl Replayer<'_> {
                                 pass.set_pipeline(p);
                                 current = Some(Bound::other(p));
                             }
+                            pass.set_bind_group(0, uniform_bind, &[f, *draw]);
+                            pass.set_vertex_buffer(0, vb.slice(vertices.clone()));
+                            pass.draw(0..*count, 0..1);
+                        }
+                        DrawAction::Retextured {
+                            pipeline: p,
+                            texture,
+                            extra,
+                        } => {
+                            if current != Some(Bound::other(p)) {
+                                pass.set_pipeline(p);
+                                current = Some(Bound::other(p));
+                            }
+                            for (group, b) in [(1usize, texture), (4, extra)] {
+                                if bound[group] != Some(std::ptr::from_ref(b)) {
+                                    #[allow(clippy::cast_possible_truncation)] // 1 or 4
+                                    pass.set_bind_group(group as u32, b, &[]);
+                                    bound[group] = Some(std::ptr::from_ref(b));
+                                    census.bound += 1;
+                                }
+                            }
+                            let f = remap.unwrap_or(*frame);
                             pass.set_bind_group(0, uniform_bind, &[f, *draw]);
                             pass.set_vertex_buffer(0, vb.slice(vertices.clone()));
                             pass.draw(0..*count, 0..1);

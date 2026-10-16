@@ -94,6 +94,10 @@ mod imp {
         /// look with them.
         object_identity:
             Option<std::sync::Arc<dereth_client_runtime::object_identity::ObjectIdentity>>,
+        /// The art pack the application named ([`Self::offer_art_pack`]), once it is open: every
+        /// world loaded after is baked for it.
+        #[cfg(feature = "hifi")]
+        art_pack: Option<std::sync::Arc<crate::art_pack::ArtPack>>,
     }
 
     /// A decoded retail surface and the six vertices that stretch it over the back buffer.
@@ -215,6 +219,8 @@ mod imp {
                 ground_markers: Vec::new(),
                 marker_pipeline: None,
                 object_identity: None,
+                #[cfg(feature = "hifi")]
+                art_pack: None,
             })
         }
 
@@ -235,11 +241,13 @@ mod imp {
             cfg: dereth_client_runtime::scene::SceneConfig,
             world: &mut Option<dereth_client_runtime::world_state::WorldState>,
         ) -> Result<(), dereth_world_data::landblock::WorldError> {
-            let (mut scene, mut ws) = crate::world_scene::SceneDraw::load_with_identity(
+            let (mut scene, mut ws) = crate::world_scene::SceneDraw::load_with_looks(
                 store,
                 &mut self.gpu,
                 cfg,
                 self.object_identity.clone(),
+                #[cfg(feature = "hifi")]
+                self.art_pack.clone(),
             )?;
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
@@ -386,6 +394,35 @@ mod imp {
         /// The scene, for the camera.
         pub fn world_mut(&mut self) -> Option<&mut crate::world_scene::SceneDraw> {
             self.world.as_mut()
+        }
+
+        /// Open the art pack in the folder `dir`, for every world loaded from now on. A pack that
+        /// will not open is reported and the world is drawn without one; a model of it that will
+        /// not read is reported and left out.
+        #[cfg(feature = "hifi")]
+        pub fn offer_art_pack(&mut self, dir: &Path) {
+            let started = web_time::Instant::now();
+            match crate::art_pack::ArtPack::open_dir(dir) {
+                Ok(pack) => {
+                    for problem in &pack.problems {
+                        tracing::warn!("art pack {}: {problem}", dir.display());
+                    }
+                    tracing::info!(
+                        "art pack {:?} from {}: {} models, {} triangles, {} pictures, opened in \
+                         {:.2} s",
+                        pack.name,
+                        dir.display(),
+                        pack.models.len(),
+                        pack.triangles(),
+                        pack.images.len(),
+                        started.elapsed().as_secs_f64()
+                    );
+                    self.art_pack = Some(std::sync::Arc::new(pack));
+                }
+                Err(e) => {
+                    tracing::warn!("the art pack in {} is not drawn: {e}", dir.display());
+                }
+            }
         }
 
         /// The object identity verdicts the application worked out: kept for every world loaded

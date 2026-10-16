@@ -21,6 +21,9 @@ impl TextureBook {
     pub(crate) fn contains(&self, key: TextureKey) -> bool {
         self.table.contains(key)
     }
+    pub(crate) fn slot_of(&self, key: TextureKey) -> Option<u32> {
+        self.table.slot_of(key)
+    }
     pub(crate) fn get(&mut self, key: TextureKey) -> Option<u32> {
         self.table.get(key)
     }

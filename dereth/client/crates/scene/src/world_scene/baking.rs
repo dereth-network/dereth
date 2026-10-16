@@ -744,6 +744,8 @@ impl SceneDraw {
                 objects_visual: b.objects_visual,
                 #[cfg(feature = "hifi")]
                 hifi_lamps: b.hifi_lamps,
+                #[cfg(feature = "hifi")]
+                art_pack: b.art_pack,
             },
             _ if wants_objects => match prepared {
                 // Baked off the frame: finished here.
@@ -834,6 +836,8 @@ impl SceneDraw {
                 hifi_generation: next_hifi_generation(),
                 #[cfg(feature = "hifi")]
                 hifi_lamps: built.hifi_lamps,
+                #[cfg(feature = "hifi")]
+                art_pack: built.art_pack,
             },
         );
         Ok(())

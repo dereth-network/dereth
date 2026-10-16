@@ -1082,17 +1082,23 @@ mod tests {
         ui.windows.open(WindowId::Options, 0.0);
         ui.windows.options_page.tab = tab::CLIENT;
         frame(&mut ui, &mut input);
-        ui.windows.options_page.scroll[tab::CLIENT] = 1.0e6;
-        frame(&mut ui, &mut input);
-        frame(&mut ui, &mut input);
-        // A click on the better lighting's box.
+        // A click on the better lighting's box, once the list is scrolled down to show its row
+        // whole: the page's rows are more than the list shows at once.
         let lighting = fidelity::find(dereth_client_contract::options::names::fidelity::LIGHTING)
             .expect("the lighting's box");
-        let r = ui
-            .windows
-            .options_page
-            .control(lighting.caption)
-            .expect("the lighting's row");
+        let mut shown = None;
+        for _ in 0..2000 {
+            let page = &ui.windows.options_page;
+            if let (Some(list), Some(r)) = (page.control("list"), page.control(lighting.caption)) {
+                if r.y >= list.y && r.bottom() <= list.bottom() {
+                    shown = Some(r);
+                    break;
+                }
+            }
+            ui.windows.options_page.scroll[tab::CLIENT] += 6.0;
+            frame(&mut ui, &mut input);
+        }
+        let r = shown.expect("the lighting's row");
         input.mouse = (r.x + 10.0, r.y + r.h / 2.0);
         input.down[0] = true;
         input.pressed[0] = true;

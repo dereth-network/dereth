@@ -717,6 +717,78 @@ pub fn merge_plan(tm: &TexMerge, key: MergeKey, shift: u32) -> MergePlan {
     plan
 }
 
+/// One layer of a cell's ground, as [`ground_plan`] names it: the ground of terrain type `ground`
+/// (the road's is [`ROAD_TERRAIN_TYPE`]; `None` where the type names no picture) blended in
+/// through the alpha map `alpha` walked at `rotation`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroundOverlay {
+    pub alpha: DataId,
+    pub rotation: Rotation,
+    pub ground: Option<u32>,
+}
+
+/// The layers of [`merge_plan`] by terrain type rather than by picture: the ground under them,
+/// then each overlay in the order it is laid. A renderer that draws its own material for each
+/// terrain type lays them through the same alpha maps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroundPlan {
+    pub base: Option<u32>,
+    pub overlays: Vec<GroundOverlay>,
+}
+
+/// The ground `key` lays, layer for layer as [`merge_plan`] composites it, each layer named by the
+/// terrain type of the description whose picture it draws.
+#[must_use]
+pub fn ground_plan(tm: &TexMerge, key: MergeKey) -> GroundPlan {
+    let choice = get_terrain(key);
+    let road = get_road_code(key);
+    let road_tex = get_terrain_tex(tm, ROAD_TERRAIN_TYPE);
+    let ground_of = |t: Option<u32>| {
+        t.and_then(|t| get_terrain_tex(tm, t))
+            .map(|d| d.terrain_type)
+    };
+    let base = if road.all_road && road_tex.is_some() {
+        road_tex.map(|d| d.terrain_type)
+    } else {
+        ground_of(choice.tex[0])
+    };
+    let mut plan = GroundPlan {
+        base,
+        overlays: Vec::new(),
+    };
+    if !road.all_road {
+        for k in 0..3 {
+            if choice.code[k] == 0 {
+                break;
+            }
+            let Some(map) = find_terrain_alpha(tm, choice.code[k], key) else {
+                continue;
+            };
+            plan.overlays.push(GroundOverlay {
+                alpha: map.tex_gid,
+                rotation: map.rotation,
+                ground: ground_of(choice.tex[k + 1]),
+            });
+        }
+        if let Some(rd) = road_tex {
+            for k in 0..2 {
+                if road.codes[k] == 0 {
+                    break;
+                }
+                let Some(map) = find_road_alpha(tm, road.codes[k], key) else {
+                    continue;
+                };
+                plan.overlays.push(GroundOverlay {
+                    alpha: map.tex_gid,
+                    rotation: map.rotation,
+                    ground: Some(rd.terrain_type),
+                });
+            }
+        }
+    }
+    plan
+}
+
 /// Composite `plan` on the CPU. An overlay whose alpha map is missing is skipped, and a missing
 /// texture blends the debug colour.
 #[must_use]
@@ -1522,5 +1594,38 @@ mod tests {
             MIN_TEX_SIZE,
             "the 8 floor bites"
         );
+    }
+    /// The ground plan lays the composite's layers by terrain type: the same overlays, through
+    /// the same alpha maps at the same rotations, each naming the type whose picture the
+    /// composite draws there, for every corner and road pattern.
+    #[test]
+    fn the_ground_plan_names_each_composite_layer_by_its_terrain_type() {
+        let tm = tex_merge(16);
+        let picture = |t: Option<u32>| t.and_then(|t| get_terrain_tex(&tm, t)).map(|d| d.tex_gid);
+        let mut overlays = 0;
+        for corners in 0..81u32 {
+            let types = [0, 1, 2, 3].map(|k| [1u16, 2, 7][(corners / 3u32.pow(k) % 3) as usize]);
+            for roads in 0..16u32 {
+                let road = [0, 1, 2, 3].map(|k| ((roads >> k) & 1) as u16);
+                let key = MergeKey::new(types, road, 1);
+                let merged = merge_plan(&tm, key, 0);
+                let ground = ground_plan(&tm, key);
+                assert_eq!(picture(ground.base), merged.base, "{key:?}");
+                assert_eq!(ground.overlays.len(), merged.overlays.len(), "{key:?}");
+                for (g, m) in ground.overlays.iter().zip(&merged.overlays) {
+                    assert_eq!((g.alpha, g.rotation), (m.alpha, m.rotation), "{key:?}");
+                    assert_eq!(picture(g.ground), m.tex, "{key:?}");
+                }
+                overlays += ground.overlays.len();
+            }
+        }
+        // Type 7 has no description: it is drawn with the first one's picture, and named by
+        // its type.
+        let plan = ground_plan(&tm, MergeKey::new([7, 7, 7, 7], [0; 4], 1));
+        assert_eq!(plan.base, Some(1));
+        let all_road = ground_plan(&tm, MergeKey::new([1, 1, 1, 1], [1; 4], 1));
+        assert_eq!(all_road.base, Some(ROAD_TERRAIN_TYPE));
+        assert!(all_road.overlays.is_empty());
+        assert!(overlays > 1000, "the patterns lay overlays: {overlays}");
     }
 }

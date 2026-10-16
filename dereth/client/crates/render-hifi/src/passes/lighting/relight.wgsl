@@ -46,6 +46,17 @@ struct Params {
     // x the share of the light a room's vertices held that its surfaces keep however far from
     // the lights (the light the room's walls throw about); yzw unused.
     room: vec4<f32>,
+    // The sun's light that cloud and a low sun's long path through the air take from its beam
+    // and the sky gives back, grey, linear, its gain applied: x the share seen from all round, y
+    // the share from the bright cloud about the sun, which the things under it shade as they
+    // shade the sun; z how many times wider the sun's shadows soften than under a clear sky; w
+    // unused.
+    scatter: vec4<f32>,
+    // x the share of the open sky a leaf deep inside an art pack's crown still sees; y the share
+    // of the sun a leaf of the world's own trees keeps in its plant's shadow; z the share an art
+    // pack's leaf on the outside of its crown keeps in shade, and w how much of that one deep
+    // inside takes.
+    leaf: vec4<f32>,
 };
 
 struct Light {
@@ -88,6 +99,50 @@ fn render_at(px: vec2<f32>, d: f32) -> vec3<f32> {
     return w.xyz / w.w;
 }
 
+// Whether pixel `q` is inside the world viewport.
+fn in_view(q: vec2<i32>) -> bool {
+    let v = params.viewport;
+    return all(vec2<f32>(q) >= v.xy) && all(vec2<f32>(q) < v.xy + v.zw);
+}
+
+// The surface's step along `axis` at `px` (the point `p`), from the side whose next two pixels
+// run on in line with it, so an edge or a crease never mixes two surfaces; zero where neither
+// side lies in the viewport.
+fn depth_step(px: vec2<i32>, p: vec3<f32>, axis: vec2<i32>) -> vec3<f32> {
+    var err_a = 1e30;
+    var err_b = 1e30;
+    var ta = vec3<f32>(0.0);
+    var tb = vec3<f32>(0.0);
+    let a2 = px - axis * 2;
+    if (in_view(a2)) {
+        let a1 = px - axis;
+        let q1 = render_at(vec2<f32>(a1) + 0.5, textureLoad(depth, a1, 0));
+        let q2 = render_at(vec2<f32>(a2) + 0.5, textureLoad(depth, a2, 0));
+        err_a = length(2.0 * q1 - q2 - p);
+        ta = p - q1;
+    }
+    let b2 = px + axis * 2;
+    if (in_view(b2)) {
+        let b1 = px + axis;
+        let q1 = render_at(vec2<f32>(b1) + 0.5, textureLoad(depth, b1, 0));
+        let q2 = render_at(vec2<f32>(b2) + 0.5, textureLoad(depth, b2, 0));
+        err_b = length(2.0 * q1 - q2 - p);
+        tb = q1 - p;
+    }
+    return select(tb, ta, err_a < err_b);
+}
+
+// The surface's own facing at `px`, from the depth: what a normal map or a plant's leaning
+// normal leaves out. Turned toward the eye; zero where the depth does not tell.
+fn depth_normal(px: vec2<i32>, p: vec3<f32>) -> vec3<f32> {
+    let n = cross(depth_step(px, p, vec2<i32>(1, 0)), depth_step(px, p, vec2<i32>(0, 1)));
+    let l = length(n);
+    if (l < 1e-12) {
+        return vec3<f32>(0.0);
+    }
+    return select(-n, n, dot(n, params.eye.xyz - p) >= 0.0) / l;
+}
+
 const TAPS: i32 = 32;
 
 fn vogel(k: i32, n: i32, phi: f32) -> vec2<f32> {
@@ -97,11 +152,13 @@ fn vogel(k: i32, n: i32, phi: f32) -> vec2<f32> {
     return vec2<f32>(cos(t), sin(t)) * r;
 }
 
-// The sun's visibility at `world`, softened by the distance to the blocker (PCSS).
+// The sun's visibility at `world`, softened by the distance to the blocker (PCSS); `n` is the
+// surface's own facing, from the depth, not the normal it is shaded with.
 fn cascade_shadow(c: i32, world: vec3<f32>, n: vec3<f32>, noise: f32) -> f32 {
     let texel = params.texel[c];
     let ndl = clamp(dot(n, params.sun_dir.xyz), 0.0, 1.0);
-    // Push the point off the surface along its normal and toward the sun, by a few texels.
+    // Push the point off the surface along its facing and toward the sun, by a few texels. A
+    // normal map's tilt, pixel by pixel, would scatter the push and speckle the shadow.
     let offset = n * texel * (1.5 + 2.0 * (1.0 - ndl)) + params.sun_dir.xyz * texel * 1.0;
     let lp = params.cascade[c] * vec4<f32>(world + offset, 1.0);
     let uv = vec2<f32>(lp.x * 0.5 + 0.5, 0.5 - lp.y * 0.5);
@@ -112,8 +169,8 @@ fn cascade_shadow(c: i32, world: vec3<f32>, n: vec3<f32>, noise: f32) -> f32 {
     let size = params.tune.z;
     let range = params.depth_range[c];
     let phi = noise * 6.2831853;
-    // Blocker search over a disc about a metre and a half across.
-    let search = clamp(0.7 / texel, 2.0, 48.0) / size;
+    // Blocker search over a disc about a metre and a half across, wider under a grey sky.
+    let search = clamp(0.7 * params.scatter.z / texel, 2.0, 48.0) / size;
     var blockers = 0.0;
     var sum = 0.0;
     for (var k: i32 = 0; k < 16; k = k + 1) {
@@ -129,8 +186,9 @@ fn cascade_shadow(c: i32, world: vec3<f32>, n: vec3<f32>, noise: f32) -> f32 {
         return 1.0;
     }
     let blocker = sum / blockers;
-    // The sun is about half a degree across; widened a little for the old art's sake.
-    let penumbra_m = (z - blocker) * range * 0.018 + texel * 1.5;
+    // The sun is about half a degree across; widened a little for the old art's sake, and far
+    // more where cloud spreads its light.
+    let penumbra_m = (z - blocker) * range * 0.018 * params.scatter.z + texel * 1.5;
     let radius = clamp(penumbra_m / texel, 1.0, 40.0) / size;
     var lit = 0.0;
     for (var k: i32 = 0; k < TAPS; k = k + 1) {
@@ -295,6 +353,74 @@ fn room_reflects(c: vec3<f32>, kind: f32) -> vec4<f32> {
     return vec4<f32>(own, 1.0);
 }
 
+// The roughness of an art pack model's surface and whether it is a metal (x and y), from the
+// class it writes: 1.02..1.18 a dielectric, 1.32..1.48 a metal, the roughness spread over each.
+// Negative for every other surface.
+fn pbr_of(kind: f32) -> vec2<f32> {
+    if (kind > 1.01 && kind < 1.19) {
+        return vec2<f32>(clamp((kind - 1.02) / 0.16, 0.0, 1.0), 0.0);
+    }
+    if (kind > 1.31 && kind < 1.49) {
+        return vec2<f32>(clamp((kind - 1.32) / 0.16, 0.0, 1.0), 1.0);
+    }
+    return vec2<f32>(-1.0);
+}
+
+// The roughness of an art pack's ground, from the class it writes: 3.05..3.35. Negative for
+// every other surface; the landscape drawn with retail's pictures writes 3 itself.
+fn ground_rough(kind: f32) -> f32 {
+    if (kind > 3.02 && kind < 3.4) {
+        return clamp((kind - 3.05) / 0.3, 0.0, 1.0);
+    }
+    return -1.0;
+}
+
+// Whether the class is an art pack's leaf: one that carries how open its place in its crown is.
+fn pack_leaf(kind: f32) -> bool {
+    return select(false, (kind < 6.0), (kind > 4.99));
+}
+
+// What a leaf's class carries: x how much of the sun it was drawn with, y how open its place in
+// its crown is to the sky, 1 on the crown's outside to 0 deep inside. An art pack's leaf carries
+// both, sixteen steps of each (5 and its code over 256); the world's own leaves carry the first
+// where it is known (4.1 none to 4.4 all) and are taken as open.
+fn leaf_of(kind: f32) -> vec2<f32> {
+    if (pack_leaf(kind)) {
+        let code = u32(round((kind - 5.0) * 256.0));
+        return vec2<f32>(f32(code >> 4u) / 15.0, f32(code & 15u) / 15.0);
+    }
+    return vec2<f32>(select(0.55, clamp((kind - 4.1) / 0.3, 0.0, 1.0), kind > 4.05), 1.0);
+}
+
+// How much of the sun a leaf of class `kind` takes where the sun's shadow leaves it `shadow` of
+// it, `open` how open its place in its crown is and `leaf` the light per pixel's leaf numbers.
+// The world's own trees are a few crossed cards, whose shadows hold none of the gaps a crown has:
+// they keep a fixed share. An art pack's crown casts its own gaps, and a leaf in its shade keeps
+// the light the crowns scatter between their leaves and pass through them, more on the outside
+// of its crown than deep inside.
+fn leaf_sun(kind: f32, open: f32, shadow: f32, leaf: vec4<f32>) -> f32 {
+    let scattered = leaf.z * mix(leaf.w, 1.0, clamp(open, 0.0, 1.0));
+    let kept = select(leaf.y, scattered, pack_leaf(kind));
+    return kept + (1.0 - kept) * shadow;
+}
+
+// The sun's specular reflection off a surface of roughness `rough`, without its Fresnel term:
+// the microfacet distribution and visibility of a physically based surface, times the cosine.
+fn sun_specular(n: vec3<f32>, l: vec3<f32>, v: vec3<f32>, rough: f32) -> f32 {
+    let r = max(rough, 0.045);
+    let a = r * r;
+    let a2 = a * a;
+    let h = normalize(l + v);
+    let ndh = max(dot(n, h), 0.0);
+    let ndl = max(dot(n, l), 0.0);
+    let ndv = max(dot(n, v), 1e-3);
+    let d = ndh * ndh * (a2 - 1.0) + 1.0;
+    let distribution = a2 / (3.14159265 * d * d);
+    let k = (r + 1.0) * (r + 1.0) / 8.0;
+    let visibility = 1.0 / ((ndl * (1.0 - k) + k) * (ndv * (1.0 - k) + k) * 4.0);
+    return distribution * visibility * ndl;
+}
+
 struct Out {
     @location(0) colour: vec4<f32>,
     // What the pixel reflects of new light, faded by the fog; zero where it is not relit.
@@ -356,7 +482,11 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
     let baked = kind > 1.5 && kind < 2.5;
     // How much of the sun a leaf was drawn with, which its class carries where it is known: its
     // normal here is its plant's, not the card's that the vertex light used.
-    let share = select(0.55, clamp((kind - 4.1) / 0.3, 0.0, 1.0), kind > 4.05);
+    let leaf = leaf_of(kind);
+    let share = leaf.x;
+    // How much of the open sky a leaf sees: all of it on the outside of its crown, little deep
+    // inside.
+    let sky_seen = select(1.0, mix(params.leaf.x, 1.0, leaf.y), leafy);
     var albedo: vec3<f32>;
     var legacy_lin = vec3<f32>(1.0);
     if (baked) {
@@ -376,21 +506,27 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
     let wrap = clamp((ndl_raw + 0.15) / 1.15, 0.0, 1.0);
     var shadow = 1.0;
     let ao = 1.0;
-    if (!baked && (wrap > 0.0 || leafy)) {
-        // A leaf facing away from the sun still sees it through itself: its visibility is taken
-        // from the side the sun is on.
-        let ns = select(n, -n, leafy && ndl_raw < 0.0);
+    // The shadow view shows the shadow on every surface, the faces turned from the sun too; and
+    // under cloud the bright sky about the sun reaches past the sun's own terminator.
+    let shadow_view = params.tune.w > 0.5 && params.tune.w < 1.5;
+    if (!baked && (wrap > 0.0 || leafy || shadow_view || params.scatter.y > 0.0)) {
+        // The shadow is looked up off the surface's own facing. A leaf card facing away from the
+        // sun still sees it through itself: its visibility is taken from the side the sun is on.
+        var ng = depth_normal(px, world);
+        if (dot(ng, ng) < 0.25) {
+            ng = n;
+        }
+        let ns = select(ng, -ng, leafy && dot(ng, params.sun_dir.xyz) < 0.0);
         shadow = sun_shadow(world, ns, dist, noise);
         if (leafy) {
-            // A canopy is never wholly dark: light finds its way between the leaves.
-            shadow = 0.4 + 0.6 * shadow;
+            shadow = leaf_sun(kind, leaf.y, shadow, params.leaf);
         } else if (shadow > 0.0) {
             // What the sun's shadow already darkens wholly, a contact ray cannot darken more.
             shadow = shadow * contact_shadow(world, dist, fract(noise + 0.37));
         }
     }
     let through = select(0.0, shadow, leafy && params.sun_legacy.w > 0.0);
-    if (params.tune.w > 0.5 && params.tune.w < 1.5) {
+    if (shadow_view) {
         return out(vec4<f32>(vec3<f32>(shadow * ao), 1.0), vec4<f32>(0.0));
     }
     var light = vec3<f32>(0.0);
@@ -399,15 +535,22 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
     } else {
         let sun_lin = pow(params.sun_legacy.rgb, vec3<f32>(2.2));
         let amb_lin = pow(params.amb_legacy.rgb, vec3<f32>(2.2));
-        // Sky from above, a warm bounce from the ground below.
+        // Sky from above, a warm bounce from the ground below; and the sun's light that cloud or
+        // the low air spread over the sky, from above most, and the bright cloud about the sun
+        // on what faces it, shaded where the sun is.
         let up = n.z * 0.5 + 0.5;
         let sky = amb_lin * vec3<f32>(0.85, 0.95, 1.15);
         let ground = amb_lin * 0.45 + sun_lin * vec3<f32>(0.10, 0.08, 0.05);
-        let hemi = mix(ground, sky, up) * ao * params.amb_legacy.w;
-        // A canopy takes the sky from all round, its crown more than its underside; however
-        // deep the occlusion, light still finds its way between the leaves.
-        let open_hemi = mix(ground, sky, 0.5 + 0.3 * n.z) * params.amb_legacy.w;
-        let leaf_hemi = open_hemi * mix(0.5, 1.0, ao);
+        let spread = vec3<f32>(params.scatter.x);
+        let cloud = vec3<f32>(params.scatter.y) * shadow;
+        let hemi = (mix(ground, sky, up) * params.amb_legacy.w + mix(spread * 0.35, spread, up))
+            * ao;
+        // A canopy takes the sky from all round, its crown more than its underside. A leaf deep
+        // in an art pack's crown sees little of it between the leaves around it.
+        let leaf_up = 0.5 + 0.3 * n.z;
+        let open_hemi = mix(ground, sky, leaf_up) * params.amb_legacy.w
+            + mix(spread * 0.35, spread, leaf_up);
+        let leaf_hemi = open_hemi * sky_seen;
         if (params.tune.w > 1.5) {
             return out(vec4<f32>(hemi * 2.0, 1.0), vec4<f32>(0.0));
         }
@@ -423,17 +566,22 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
                 0.3 + 0.7 * clamp((ndl_raw + 0.5) / 1.5, 0.0, 1.0),
                 kind > 3.5,
             );
-            light = leaf_hemi + sun_lin * params.sun_legacy.w * leaf_wrap * shadow * 0.8;
+            light = leaf_hemi + cloud * leaf_wrap
+                + sun_lin * params.sun_legacy.w * leaf_wrap * shadow * 0.8;
         } else {
             // Where the sun does not reach, the open sky still lights the surface: a share of
             // the sun's light, more from above, in place of what the bounced light would bring.
             let fill = sun_lin * params.sun_legacy.w * params.extra.z * (0.5 + 0.5 * up)
                 * (1.0 - wrap * shadow);
-            light = hemi + fill + sun_lin * params.sun_legacy.w * wrap * shadow;
-            // A little sheen where the sun glances off toward the eye.
-            let h = normalize(params.sun_dir.xyz + to_eye / max(dist, 1e-3));
-            let spec = pow(max(dot(n, h), 0.0), 48.0) * 0.12 * shadow * ndl;
-            light = light + sun_lin * params.sun_legacy.w * spec;
+            light = hemi + cloud * (0.5 + 0.5 * ndl_raw) * ao + fill
+                + sun_lin * params.sun_legacy.w * wrap * shadow;
+            // A little sheen where the sun glances off toward the eye, on a surface that says
+            // nothing of its roughness (an art pack's model's own reflection is added below).
+            if (pbr_of(kind).x < 0.0 && ground_rough(kind) < 0.0) {
+                let h = normalize(params.sun_dir.xyz + to_eye / max(dist, 1e-3));
+                let spec = pow(max(dot(n, h), 0.0), 48.0) * 0.12 * shadow * ndl;
+                light = light + sun_lin * params.sun_legacy.w * spec;
+            }
         }
     }
     // The new light over the old, applied to the colour as drawn (so whatever the vertex light
@@ -453,20 +601,46 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
         ratio = lum_ratio * clamp(ratio / max(lum_ratio, 1e-4), vec3<f32>(0.8), vec3<f32>(1.25));
     }
     var relit = select(lit * mix(ratio, vec3<f32>(1.0), f), lit, baked);
+    // An art pack's model reflects the sun as its roughness says, a metal in its own colour and
+    // anything else in the sun's; a metal's colour is mostly that reflection.
+    let pbr = pbr_of(kind);
+    if (pbr.x >= 0.0 && !leafy && !baked) {
+        let v = to_eye / max(dist, 1e-3);
+        let own = min(lit / legacy_lin, vec3<f32>(1.0));
+        let h = normalize(params.sun_dir.xyz + v);
+        let f0 = mix(vec3<f32>(0.04), own, pbr.y);
+        let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
+        let sun_lin = pow(params.sun_legacy.rgb, vec3<f32>(2.2)) * params.sun_legacy.w;
+        let specular = fresnel * sun_specular(n, params.sun_dir.xyz, v, pbr.x) * shadow;
+        relit = relit * mix(1.0, 0.25, pbr.y) + specular * sun_lin * (1.0 - f);
+    }
+    // An art pack's ground reflects the sun as its roughness says, as a dielectric.
+    let ground = ground_rough(kind);
+    if (ground >= 0.0 && !leafy && !baked) {
+        let v = to_eye / max(dist, 1e-3);
+        let h = normalize(params.sun_dir.xyz + v);
+        let fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(v, h), 0.0), 5.0);
+        let sun_lin = pow(params.sun_legacy.rgb, vec3<f32>(2.2)) * params.sun_legacy.w;
+        let specular = fresnel * sun_specular(n, params.sun_dir.xyz, v, ground) * shadow;
+        relit = relit + specular * sun_lin * (1.0 - f);
+    }
     relit = relit + albedo * point_light(world, n, baked) * (1.0 - f);
     let refl = select(min(lit / legacy_lin, vec3<f32>(2.0)) * (1.0 - f), vec3<f32>(0.0), baked);
     if (leafy && through > 0.0) {
-        // Light through the leaf: a soft diffuse share from the far side, and a bright forward
-        // lobe where the eye looks toward the sun through it, tinted deeper by the leaf.
-        // Both fade as the sun goes down, and the tint is mostly the leaf's brightness, so a
-        // low sun seen through a tree does not light it up.
+        // Light through the leaf, seen only looking toward the sun: a soft glow on the sun's
+        // side of the view and a bright forward lobe straight through, tinted deeper by the
+        // leaf. It passes the thin outside of a crown and not its thick inside, and only where
+        // the sun reaches the leaf. Both fade as the sun goes down, and the tint is mostly the
+        // leaf's brightness, so a low sun seen through a tree does not light it up.
         let e = to_eye / max(dist, 1e-3);
-        let forward = pow(clamp(dot(-e, params.sun_dir.xyz), 0.0, 1.0), 5.0);
-        let back = clamp(-ndl_raw, 0.0, 1.0);
+        let toward = clamp(dot(-e, params.sun_dir.xyz), 0.0, 1.0);
+        let forward = pow(toward, 5.0);
+        let thin = leaf.y * leaf.y;
         let grey = luminance(refl);
         let tint = mix(vec3<f32>(grey), refl * refl / max(grey, 0.04), 0.35);
         let sun_lin = pow(params.sun_legacy.rgb, vec3<f32>(2.2)) * params.sun_legacy.w;
-        let amount = (back * 0.45 + forward * 1.6) * through * params.extra.y * day;
+        let amount = (toward * toward * 0.45 + forward * 1.6) * through * thin * params.extra.y
+            * day;
         relit = relit + clamp(tint, vec3<f32>(0.0), vec3<f32>(1.5)) * sun_lin * amount;
     }
     if (params.lamp.x > 0.5 && !baked) {
@@ -485,5 +659,7 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
             relit = relit + lit * lp.w * params.lamp.y;
         }
     }
-    return out(vec4<f32>(relit, c.a), vec4<f32>(refl, 1.0));
+    // The bounced light takes the place of the sky the leaf was given, which is the share of
+    // the sky it sees.
+    return out(vec4<f32>(relit, c.a), vec4<f32>(refl * sky_seen, 1.0));
 }

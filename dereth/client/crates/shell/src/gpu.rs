@@ -1040,6 +1040,11 @@ mod imp {
             SceneRenderer::offer_object_identity(self, identity);
         }
 
+        #[cfg(feature = "hifi")]
+        fn offer_art_pack(&mut self, dir: &std::path::Path) {
+            SceneRenderer::offer_art_pack(self, dir);
+        }
+
         fn overlay_upload(
             &mut self,
             texture: OverlayTexture,

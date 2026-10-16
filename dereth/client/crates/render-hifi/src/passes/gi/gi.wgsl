@@ -35,6 +35,9 @@ struct Params {
     tune: vec4<f32>,
     // xy the half-resolution size; z the filter's stride; w the bounce strength.
     half: vec4<f32>,
+    // xyz the sun's light that cloud or the low air spread over the sky, as the relight gave it
+    // to every surface; w unused.
+    spread: vec4<f32>,
 };
 
 @group(0) @binding(0) var hdr: texture_2d<f32>;
@@ -301,13 +304,18 @@ fn fs_filter(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(sum / max(wsum, 1e-4), c.a);
 }
 
-// The relight's sky term, as it put it in: what the bounced light replaces.
-fn old_sky(n: vec3<f32>) -> vec3<f32> {
-    let up = n.z * 0.5 + 0.5;
+// The relight's sky term facing `up` (0 down, 1 up), as it put it in: what the bounced light
+// replaces.
+fn sky_term(up: f32) -> vec3<f32> {
     let amb = params.amb_lin.rgb;
     let sky = amb * vec3<f32>(0.85, 0.95, 1.15);
     let ground = amb * 0.45 + params.sun_lin.rgb * vec3<f32>(0.10, 0.08, 0.05);
-    return mix(ground, sky, up) * params.amb_lin.w;
+    let spread = params.spread.rgb;
+    return mix(ground, sky, up) * params.amb_lin.w + mix(spread * 0.35, spread, up);
+}
+
+fn old_sky(n: vec3<f32>) -> vec3<f32> {
+    return sky_term(n.z * 0.5 + 0.5);
 }
 
 // The bounced light at a full-resolution pixel, from the four half-resolution texels around it,
@@ -373,13 +381,11 @@ fn fs_composite(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         bounced = max(bounced, before);
     }
     if (textureLoad(normals, fp, 0).w > 3.5) {
-        // A leaf: the relight gave it the sky from all round, and the bounce never takes more
-        // than half of it away (the horizons a card finds among its neighbours are leaves the
-        // light passes between).
-        let amb = params.amb_lin.rgb;
-        let sky = amb * vec3<f32>(0.85, 0.95, 1.15);
-        let ground = amb * 0.45 + params.sun_lin.rgb * vec3<f32>(0.10, 0.08, 0.05);
-        before = mix(ground, sky, 0.5 + 0.3 * n.z) * params.amb_lin.w;
+        // A leaf: the relight gave it the sky from all round (as much of it as its place in its
+        // crown sees, which its reflectance here carries), and the bounce never takes more than
+        // half of that away (the horizons a card finds among its neighbours are leaves the light
+        // passes between).
+        before = sky_term(0.5 + 0.3 * n.z);
         bounced = max(bounced, before * 0.5);
     }
     let add = r.rgb * (bounced - before);

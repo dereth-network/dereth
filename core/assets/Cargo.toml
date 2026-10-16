@@ -18,6 +18,8 @@ retail-dats = []
 dereth-dat.workspace = true
 dereth-primitives.workspace = true
 thiserror.workspace = true
+# An art pack's manifest (`art_pack`) is TOML.
+toml.workspace = true
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }

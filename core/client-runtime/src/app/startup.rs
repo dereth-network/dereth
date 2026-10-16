@@ -186,7 +186,11 @@ impl<S: Shell> App<S> {
         // Only when the caller did not bring its own presentation. The device is
         // built here rather than by [`App::bring_up`] because it needs the window handles the block
         // above has just produced.
-        let present = present(&*window, client_w, client_h, &cfg)?;
+        let mut present = present(&*window, client_w, client_h, &cfg)?;
+        // The art pack, before any world is loaded, so the first one is drawn with it.
+        if let Some(dir) = cfg.art_pack.as_deref() {
+            present.offer_art_pack(dir);
+        }
 
         let timer = Clock::init();
 

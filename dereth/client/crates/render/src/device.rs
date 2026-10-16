@@ -836,6 +836,13 @@ impl Gpu {
         dispatch!(self, g => g.has_texture_key(key))
     }
 
+    /// The slot holding the texture uploaded under `key`, while one is resident, without taking
+    /// a link.
+    #[must_use]
+    pub fn texture_slot_of(&self, key: TextureKey) -> Option<TextureSlot> {
+        dispatch!(self, g => g.texture_slot_of(key))
+    }
+
     // --- landscape surfaces on the device ----------------------------------------------------
 
     /// Whether [`Self::merge_terrain_texture`] is available on this device.

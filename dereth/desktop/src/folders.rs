@@ -78,6 +78,10 @@ pub const CRASH_LOGS_KEPT: usize = 20;
 /// documentation.
 pub const SETTINGS_DIR_ENV: &str = "DERETH_SETTINGS_DIR";
 
+/// The environment variable that names the folder of an art pack the high-fidelity presentation
+/// draws. It wins over `[Fidelity] ArtPack` in the profile; `--art-pack` wins over it.
+pub const ART_PACK_ENV: &str = "DERETH_ART_PACK";
+
 /// The original game's settings directory under `Documents`, which a retail installation writes.
 pub const RETAIL_SETTINGS_DIR_NAME: &str = "Asheron's Call";
 
@@ -373,6 +377,11 @@ pub fn load_config(
             default_preferences,
             settings_dir_override().is_some(),
         )?;
+        if !cfg.art_pack_argument {
+            if let Some(dir) = process_env(ART_PACK_ENV).filter(|v| !v.is_empty()) {
+                cfg.art_pack = Some(PathBuf::from(dir));
+            }
+        }
         if cfg.preferences_file.as_os_str().is_empty() && !cfg.headless {
             cfg.preferences_file = default_preferences.to_path_buf();
         }

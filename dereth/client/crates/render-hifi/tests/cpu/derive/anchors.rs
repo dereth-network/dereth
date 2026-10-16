@@ -141,7 +141,7 @@ fn a_variant_without_a_derivation_says_so() {
     for v in Variant::ALL {
         let module = ModuleKey::all(v).next().expect("one module");
         match v {
-            Variant::Reshade | Variant::Surface | Variant::Motion => {
+            Variant::Reshade | Variant::Surface | Variant::Motion | Variant::Material => {
                 assert!(derive::derive(module).is_ok());
             }
             other => assert_eq!(derive::derive(module), Err(DeriveError::NotDerived(other))),

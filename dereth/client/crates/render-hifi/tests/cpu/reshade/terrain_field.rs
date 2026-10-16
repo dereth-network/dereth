@@ -80,6 +80,7 @@ fn block(
         heights: mesh.vertices.iter().map(|v| v.z).collect(),
         cuts: mesh.sw_to_ne_cut.clone(),
         generation: 1,
+        layers: None,
     };
     (mesh, snapshot)
 }
@@ -210,6 +211,7 @@ fn the_field_holds_one_height_per_vertex_and_the_finer_block_wins_an_edge() {
         heights: heights.clone(),
         cuts: vec![false; 16],
         generation: 3,
+        layers: None,
     };
     for order in [
         [fine.clone(), coarse.clone()],

@@ -86,8 +86,8 @@ pub use device::{
 #[cfg(feature = "mock")]
 pub use dereth_render_cpu::mock;
 pub use dereth_render_cpu::{
-    camera, descriptor, dxt, font, jpeg, mip, palette, pixel_format, pso, sampler, surface,
-    texture, ui, vertex,
+    block_codec, camera, descriptor, dxt, font, jpeg, mip, palette, pixel_format, pso, sampler,
+    surface, texture, ui, vertex,
 };
 
 pub use dereth_render_cpu::ExpandedPalette;

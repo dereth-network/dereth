@@ -328,7 +328,9 @@ fn params(s: &HifiSettings, f: &HifiFrame, encoded: bool, grid: u32) -> Vec<u8> 
 /// Whether the bounced light darkens this frame's creases itself, so a second occlusion over the
 /// surfaces it lights would darken them twice: it is drawn into the re-shaded outdoor frame
 /// alone, never indoors, underground or in a frame that steps indoors. In such a frame the
-/// occlusion is drawn on the rooms and what stands in them only; everywhere else, on all of it.
+/// occlusion is drawn on the rooms and what stands in them, and on the leaves of the canopies,
+/// whose bounced light never shuts out more than half their sky (the depth cannot tell the gaps
+/// between leaves from the leaves); everywhere else, on all of it.
 fn covered_by_bounced_light(cx: &EncodeCx<'_, '_>) -> bool {
     let s = cx.settings;
     s.lighting.is_on()

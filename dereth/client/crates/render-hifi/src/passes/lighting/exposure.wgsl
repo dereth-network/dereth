@@ -13,7 +13,10 @@
 // more than a little brighter than the ordinary picture (or, by day, darker) the exposure is moved
 // just so far that it is not (`main`). What the light adds in shade, contrast and color is kept:
 // only the whole is brought down or up; and the weather, drawn after, darkens the wet world as it
-// would.
+// would. An art pack's models count for little in the measure: the picture before the light holds
+// the new art under the old light, not the world's own objects, so it is no picture of the world
+// to hold the frame to, and the new art's own brightness (a darker stone, a canopy in shade) is
+// left to show against the world it stands in.
 
 struct Params {
     viewport: vec4<f32>,
@@ -54,6 +57,20 @@ struct Params {
 // What `measure` found of the outdoor frame: [0] the ordinary picture's summed brightness, [1..9]
 // the frame's at each rung of the ladder.
 @group(0) @binding(5) var<storage, read_write> measured: array<f32, 12>;
+// The re-shaded world's normals, whose classes tell an art pack's models (for `measure`).
+@group(0) @binding(6) var normals: texture_2d<f32>;
+
+// How much an art pack's model's pixel counts in the measure, against one of the world's own.
+const PACK_WEIGHT: f32 = 0.1;
+
+// How much the pixel `px` counts in the measure: an art pack's leaf or lit surface little, the
+// rest of the world wholly.
+fn measure_weight(px: vec2<i32>) -> f32 {
+    let kind = textureLoad(normals, px, 0).w;
+    let pack = (kind > 4.99 && kind < 6.0) || (kind > 1.01 && kind < 1.19)
+        || (kind > 1.31 && kind < 1.49);
+    return select(1.0, PACK_WEIGHT, pack);
+}
 
 const SIDE: u32 = 16u;
 const TAPS: u32 = 8u;
@@ -63,10 +80,12 @@ var<workgroup> square_sum: array<f32, 256>;
 var<workgroup> weight_sum: array<f32, 256>;
 
 // The rungs of the ladder of exposures the outdoor frame is drawn at, as shares of the sun and
-// the sky's: from two fifths up to twice, three rungs to each doubling.
+// the sky's: from a half up to two and a half times, three rungs to each doubling. A frame the
+// light draws much darker than the ordinary picture (a forest under a grey sky, its canopy
+// shading the ground) is brought up the farthest.
 const RUNGS: u32 = 8u;
 // The rung of the sun and the sky's own exposure.
-const OWN_RUNG: u32 = 4u;
+const OWN_RUNG: u32 = 3u;
 var<workgroup> ordinary_sum: array<f32, 256>;
 var<workgroup> rung_sum: array<array<f32, 8>, 256>;
 
@@ -242,11 +261,12 @@ fn measure(@builtin(local_invocation_index) i: u32, @builtin(local_invocation_id
                     / f32(SIDE * TAPS);
                 let px = vec2<i32>(v.xy + g * v.zw);
                 let c = max(textureLoad(picture, px, 0).rgb, vec3<f32>(0.0));
-                ord = ord + ordinary_brightness(textureLoad(ordinary, px, 0).rgb, px, g);
+                let w = measure_weight(px);
+                ord = ord + w * ordinary_brightness(textureLoad(ordinary, px, 0).rgb, px, g);
                 let r = g - vec2<f32>(0.5);
                 let lit = c * params.mode.y * (1.0 - params.look.z * dot(r, r));
                 for (var k: u32 = 0u; k < RUNGS; k = k + 1u) {
-                    rungs[k] = rungs[k] + drawn_brightness(lit * rung(k), params.look.x, params.look.y);
+                    rungs[k] = rungs[k] + w * drawn_brightness(lit * rung(k), params.look.x, params.look.y);
                 }
             }
         }

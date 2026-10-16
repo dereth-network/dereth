@@ -2,6 +2,7 @@
 //! the field's normal, and where the world replay stops to keep its depth before any building is
 //! stamped.
 
+mod census;
 mod landscape_normals;
 mod plan;
 mod stamp_split;

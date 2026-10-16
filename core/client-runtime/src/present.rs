@@ -314,6 +314,13 @@ pub trait Presentation: std::fmt::Debug {
     ) {
         let _ = identity;
     }
+    /// The folder of the art pack the application was told of (`--art-pack`, `DERETH_ART_PACK`
+    /// or `[Fidelity] ArtPack`): a presentation that draws art packs opens it, and draws its
+    /// models in place of the objects they replace in the world loaded now and every one after.
+    /// A presentation that draws none ignores it.
+    fn offer_art_pack(&mut self, dir: &std::path::Path) {
+        let _ = dir;
+    }
 
     // ---------------------------------------------------------------------------------------
     // the overlay, any UI's -- see `dereth_client_contract::overlay`

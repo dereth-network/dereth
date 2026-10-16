@@ -291,6 +291,13 @@ pub struct Config {
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
     pub object_visuals: Option<Option<crate::render_prefs::RegionStyle>>,
+    /// `--art-pack <dir>`: the folder of an art pack, whose models the high-fidelity
+    /// presentation draws in place of the objects it has replacements for, in a build that has
+    /// it. `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
+    /// `DERETH_ART_PACK` in the environment, which the desktop host reads. `None`: no art pack.
+    pub art_pack: Option<PathBuf>,
+    /// Whether [`Self::art_pack`] came from the command line, which nothing overrides.
+    pub art_pack_argument: bool,
     /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
     /// launcher reads it from the world's status. It wins over the era read from the data files,
     /// and chooses which of [`Self::dat_dir`]'s sets draws the world; `None`: the end of retail's
@@ -539,6 +546,8 @@ impl Default for Config {
             console: true,
             dat_dir: default_dat_dir(),
             object_visuals: None,
+            art_pack: None,
+            art_pack_argument: false,
             classic_dat_dir: None,
             overlay_dat_dir: None,
             world_base: None,
@@ -714,6 +723,12 @@ const REBUILD_SWITCHES: &[Switch] = &[
     // The era whose look the world's objects draw with.
     Switch {
         long: "object-visuals",
+        short: None,
+        arity: Arity::Required,
+    },
+    // The folder of the art pack the high-fidelity presentation draws.
+    Switch {
+        long: "art-pack",
         short: None,
         arity: Arity::Required,
     },
@@ -1194,6 +1209,15 @@ impl Config {
         // as set there because it is a `SceneConfig` field of its own; `self.render` carries the
         // same value so that the live options-page path and the start-up path agree.
         self.render = crate::render_prefs::RenderPreferences::from_preferences(prefs);
+        // `[Fidelity] ArtPack=`: a folder, read at start-up. The command line, parsed after the
+        // preferences, wins over it.
+        if let Some(dir) = prefs
+            .get(dereth_client_contract::options::names::fidelity::ART_PACK)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            self.art_pack = Some(PathBuf::from(dir));
+        }
         // `Render.AutomaticDegrades` is the player's switch for the governor, registered true.
         self.auto_degrades = self.render.automatic_degrades;
         self.terrain_blending = crate::render_prefs::terrain_blending(prefs);
@@ -1500,6 +1524,10 @@ impl Config {
                     .map(crate::render_prefs::objects_style);
                 self.render.objects = style;
                 self.object_visuals = Some(style);
+            }
+            "art-pack" => {
+                self.art_pack = Some(PathBuf::from(v));
+                self.art_pack_argument = true;
             }
             "set-at" => {
                 let (frame, setting) = v

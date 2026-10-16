@@ -13,7 +13,7 @@
 use glam::{Mat4, Vec3};
 
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
-use crate::passes::lighting::{env_f32, legacy_light, sun_up};
+use crate::passes::lighting::{env_f32, legacy_light, sun_up, DayLight};
 use crate::resources::ResourceName;
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::{Caps, DebugView, HifiError, HifiFrame, HifiSettings};
@@ -248,11 +248,22 @@ impl HifiPass for GlobalIllumination {
         let sun_lin = lin(sun);
         let amb_lin = lin(amb);
         let sun_on = sun_up(frame);
+        // What cloud and the low air leave of the sun's beam, and spread over the sky, as the
+        // light per pixel takes them.
+        let day = if sun_on {
+            DayLight::of(frame)
+        } else {
+            DayLight::CLEAR
+        };
         let sun_gain = if sun_on {
             env_f32("DERETH_HIFI_SUN", 2.6)
         } else {
             0.0
         };
+        // The share seen from all round is the sky's; the bright cloud about the sun is shaded
+        // as the sun is, and the bounced light leaves it to the light per pixel.
+        let spread = [day.sky_light(lin(sun), sun_gain).0; 3];
+        let sun_gain = sun_gain * day.sun;
         let amb_gain = env_f32("DERETH_HIFI_AMBIENT", 0.85);
         let l = frame.sky.sun_direction.normalize_or(Vec3::Z);
         let elevation = l.z.clamp(0.0, 1.0);
@@ -263,6 +274,7 @@ impl HifiPass for GlobalIllumination {
             .map(|i| {
                 amb_lin[i] * amb_gain * [0.85, 0.95, 1.15][i]
                     + sun_lin[i] * sun_gain * sky_k * (0.25 + 0.75 * elevation) * sky_tint[i]
+                    + spread[i]
             })
             .collect();
         // The far ground: sunlit grass and earth seen from below the horizon.
@@ -271,6 +283,7 @@ impl HifiPass for GlobalIllumination {
             .map(|i| {
                 sun_lin[i] * sun_gain * elevation * 0.16 * ground_tint[i]
                     + amb_lin[i] * amb_gain * 0.3
+                    + spread[i] * 0.3
             })
             .collect();
         #[allow(clippy::cast_precision_loss)]
@@ -329,6 +342,9 @@ impl HifiPass for GlobalIllumination {
         let mut p2 = p.clone();
         p.extend([half_f[0], half_f[1], 1.0, bounce]);
         p2.extend([half_f[0], half_f[1], 2.0, bounce]);
+        for q in [&mut p, &mut p2] {
+            q.extend([spread[0], spread[1], spread[2], 0.0]);
+        }
         queue.write_buffer(&gpu.params[0], 0, &floats(&p));
         queue.write_buffer(&gpu.params[1], 0, &floats(&p2));
         self.previous = Some((render_to_clip, cam.eye));

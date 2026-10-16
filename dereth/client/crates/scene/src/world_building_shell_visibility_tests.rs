@@ -139,6 +139,7 @@ fn real_building_and_ordinary_geometry_keep_separate_batches_with_identical_mate
             material: key.material.clone(),
             building_pass: false,
             instance: key.instance.map(|i| i + 1),
+            art_pack: false,
         };
         assert_eq!(
             baker.groups[key], baker.groups[&ordinary],
