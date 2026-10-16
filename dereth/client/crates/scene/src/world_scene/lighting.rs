@@ -73,16 +73,68 @@ pub(super) fn burn_env_cell(cell: &mut EnvCellDraw, pools: &LightPools, origin: 
             i
         })
         .collect();
-    for m in &mut cell.meshes {
-        for v in m.vertices.as_chunks_mut::<OBJECT_VERTEX_STRIDE>().0 {
+    burn_vertices(cell.meshes.iter_mut().map(|m| &mut m.vertices), &locals);
+}
+
+/// How far past a point light's reach the box of the vertices it is tried against may lie and
+/// still have it tried, meters: the box's nearest point and a vertex's distance are worked out
+/// differently, so a light is left out only when it falls short by more than their rounding.
+const REACH_MARGIN: f32 = 1.0e-3;
+
+/// Burn the static point lights `locals` into the diffuse of every vertex of `meshes`, each
+/// vertex the lights' sum in their order. A light whose reach falls short of the box round every
+/// vertex adds nothing to any of them, so it is not tried. How many lights were tried.
+pub(super) fn burn_vertices<'a>(
+    meshes: impl Iterator<Item = &'a mut Vec<u8>>,
+    locals: &[LightInfo],
+) -> usize {
+    let mut meshes: Vec<&mut Vec<u8>> = meshes.collect();
+    let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
+    let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    for v in meshes
+        .iter()
+        .flat_map(|m| m.as_chunks::<OBJECT_VERTEX_STRIDE>().0)
+    {
+        let f = |o: usize| f32::from_le_bytes([v[o], v[o + 1], v[o + 2], v[o + 3]]);
+        lo = Vec3::new(lo.x.min(f(0)), lo.y.min(f(4)), lo.z.min(f(8)));
+        hi = Vec3::new(hi.x.max(f(0)), hi.y.max(f(4)), hi.z.max(f(8)));
+    }
+    // No box where no vertex has a position to measure.
+    let boxed = lo.x <= hi.x && lo.y <= hi.y && lo.z <= hi.z;
+    let tried: Vec<&LightInfo> = locals
+        .iter()
+        .filter(|li| li.light_type == LightType::Point)
+        .filter(|li| {
+            if !boxed {
+                return true;
+            }
+            let p = li.offset.origin;
+            let nearest = Vec3::new(
+                p.x.max(lo.x).min(hi.x),
+                p.y.max(lo.y).min(hi.y),
+                p.z.max(lo.z).min(hi.z),
+            );
+            let range =
+                li.falloff * dereth_world_render::lighting::CALC_POINT_LIGHT_FALLOFF_MULTIPLIER;
+            // Kept unless it surely falls short: a light the box cannot be measured against
+            // is tried, as every light was.
+            !matches!(
+                p.sub(nearest)
+                    .mag2()
+                    .sqrt()
+                    .partial_cmp(&(range + REACH_MARGIN)),
+                Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+            )
+        })
+        .collect();
+    for m in &mut meshes {
+        for v in m.as_chunks_mut::<OBJECT_VERTEX_STRIDE>().0 {
             let f = |o: usize| f32::from_le_bytes([v[o], v[o + 1], v[o + 2], v[o + 3]]);
             let pos = Vec3::new(f(0), f(4), f(8));
             let normal = Vec3::new(f(12), f(16), f(20));
             let mut c = [0.0f32; 3];
-            for li in &locals {
-                if li.light_type == LightType::Point {
-                    dereth_world_render::lighting::calc_point_light(pos, normal, li, &mut c);
-                }
+            for li in &tried {
+                dereth_world_render::lighting::calc_point_light(pos, normal, li, &mut c);
             }
             let o = OBJECT_DIFFUSE_OFFSET;
             // Little-endian `0xAARRGGBB`: B, G, R, A in memory.
@@ -91,6 +143,7 @@ pub(super) fn burn_env_cell(cell: &mut EnvCellDraw, pools: &LightPools, origin: 
             v[o + 2] = burn_byte(c[0]);
         }
     }
+    tried.len()
 }
 
 /// The `byte(c)` of the burn: `c * 255` truncated to an integer, clamped to a byte.
@@ -934,5 +987,85 @@ impl SceneDraw {
             .values()
             .find(|b| b.env_cells.iter().any(|c| c.id == cell))
             .map(|b| b.origin)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (how the client's own burn of an interior's static lights is worked out)
+    use super::*;
+
+    /// One mesh vertex at `p`, facing up, white.
+    fn vertex(p: Vec3) -> Vec<u8> {
+        let mut v = Vec::with_capacity(OBJECT_VERTEX_STRIDE);
+        for c in [p.x, p.y, p.z, 0.0, 0.0, 1.0] {
+            v.extend(c.to_le_bytes());
+        }
+        v.extend([0xFF; 4]);
+        v.extend([0; 8]);
+        v
+    }
+
+    /// A point light at `p` reaching `falloff` meters.
+    fn light(p: Vec3, falloff: f32) -> LightInfo {
+        LightInfo {
+            offset: Frame::new(p, Quat::IDENTITY),
+            falloff,
+            color: [0.9, 0.6, 0.3],
+            ..LightInfo::default()
+        }
+    }
+
+    #[test]
+    fn a_room_is_burned_by_the_lights_that_reach_it_alone_and_burns_as_by_every_light() {
+        // A room of two meshes, a grid of vertices four meters across round (10, 10, 2).
+        let mut meshes: Vec<Vec<u8>> = (0..2u8)
+            .map(|m| {
+                (0..25u8)
+                    .flat_map(|k| {
+                        let (x, y) = (f32::from(k % 5), f32::from(k / 5));
+                        vertex(Vec3::new(8.0 + x, 8.0 + y, 1.0 + f32::from(m)))
+                    })
+                    .collect()
+            })
+            .collect();
+        // Two lights in the room, one just past a corner, and three far off.
+        let lights = vec![
+            light(Vec3::new(10.0, 10.0, 2.5), 3.0),
+            light(Vec3::new(9.0, 11.0, 1.5), 1.5),
+            light(Vec3::new(14.0, 14.0, 2.0), 4.0),
+            light(Vec3::new(60.0, 10.0, 2.0), 8.0),
+            light(Vec3::new(10.0, -80.0, 2.0), 20.0),
+            light(Vec3::new(10.0, 10.0, 90.0), 30.0),
+        ];
+        // Every light tried at every vertex, as the burn once was.
+        let mut every = meshes.clone();
+        for m in &mut every {
+            for v in m.as_chunks_mut::<OBJECT_VERTEX_STRIDE>().0 {
+                let f = |o: usize| f32::from_le_bytes([v[o], v[o + 1], v[o + 2], v[o + 3]]);
+                let (pos, normal) = (Vec3::new(f(0), f(4), f(8)), Vec3::new(f(12), f(16), f(20)));
+                let mut c = [0.0f32; 3];
+                for li in &lights {
+                    dereth_world_render::lighting::calc_point_light(pos, normal, li, &mut c);
+                }
+                let o = OBJECT_DIFFUSE_OFFSET;
+                v[o] = burn_byte(c[2]);
+                v[o + 1] = burn_byte(c[1]);
+                v[o + 2] = burn_byte(c[0]);
+            }
+        }
+        let tried = burn_vertices(meshes.iter_mut(), &lights);
+        assert_eq!(
+            tried, 3,
+            "the room's two lights and the one past its corner"
+        );
+        assert_eq!(meshes, every, "the burn is the burn of every light");
+        assert!(
+            meshes
+                .iter()
+                .flat_map(|m| m.as_chunks::<OBJECT_VERTEX_STRIDE>().0)
+                .any(|v| v[OBJECT_DIFFUSE_OFFSET + 2] > 0),
+            "the room is lit"
+        );
     }
 }

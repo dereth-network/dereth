@@ -4,6 +4,8 @@
 
 mod adaptive_degrade;
 mod animated_scenery;
+mod backdrop_streaming;
+mod bake_off_frame;
 mod billboards;
 pub(crate) mod building_boundary_draw;
 mod clipped_outdoor_pass;

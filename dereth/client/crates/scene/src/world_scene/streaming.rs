@@ -167,6 +167,19 @@ impl SceneDraw {
             gpu_merge_sources: HashMap::new(),
             mip_worker: crate::mip_worker::MipWorker::new(),
             defer_mips: cfg.stream_budget.is_some(),
+            bakes: None,
+            bakes_failed: false,
+            bake_epoch: 0,
+            bake_from: None,
+            bakes_asked: HashMap::new(),
+            bakes_done: HashMap::new(),
+            bakes_on_frame: HashSet::new(),
+            objects_baked: (0, 0),
+            pictures: None,
+            pictures_failed: false,
+            pictures_asked: HashSet::new(),
+            pictures_epoch: 0,
+            pictures_decoded: (0, 0),
             splat_supported: gpu.terrain_splat_supported() && !pal_shifted,
             splat_wanted: splat,
             composites_wanted: !splat,
@@ -224,6 +237,7 @@ impl SceneDraw {
             blocks: BTreeMap::new(),
             pending: BTreeMap::new(),
             awaiting: BTreeMap::new(),
+            awaiting_pictures: BTreeMap::new(),
             released_blocks: Vec::new(),
             land,
             terrain_key,
@@ -630,6 +644,8 @@ impl SceneDraw {
         self.release_departed_blocks(gpu);
         self.land.mip_worker.poll();
         self.convert_terrain(ws, store, gpu)?;
+        self.take_bakes(ws);
+        self.land.take_pictures();
         if self.pending.is_empty() {
             return Ok(());
         }
@@ -666,6 +682,20 @@ impl SceneDraw {
                 }
                 self.awaiting.remove(&block);
             }
+            // So does one waiting for the splat draw's pictures to be decoded off the frame.
+            if let Some(ids) = self.awaiting_pictures.get(&block) {
+                if !self.land.pictures_failed && ids.iter().any(|id| !self.land.picture_ready(*id))
+                {
+                    continue;
+                }
+                self.awaiting_pictures.remove(&block);
+            }
+            // So does one whose objects are baked off the frame, until they are.
+            let prepared = match self.bake_off_frame(ws, store, gpu, block, work) {
+                bake_worker::OffFrame::Ready(done) => Some(done),
+                bake_worker::OffFrame::Wait => continue,
+                bake_worker::OffFrame::OnFrame => None,
+            };
             self.pending.remove(&block);
             // A block that scrolled out of the window before it was built has nothing to
             // build into.
@@ -673,7 +703,7 @@ impl SceneDraw {
                 continue;
             };
             touched.insert(block);
-            self.build_slot(ws, store, gpu, xi, yi, work)?;
+            self.build_slot(ws, store, gpu, xi, yi, work, prepared)?;
         }
         // Load each touched block's interior cells on the **physics** side. It is
         // here rather than inside `env_cell` because `env_cell` is a pure decoder and
@@ -986,6 +1016,7 @@ impl SceneDraw {
         let splat = wanted_splat && splat_supported;
         self.land.ground = ground.map(Box::new);
         self.land.ground_store = ground_store;
+        self.land.bake_epoch += 1;
         self.land.drawn = drawn;
         self.land.tex_merge = tex_merge;
         self.land.pal_shift = pal_shift;
@@ -1393,7 +1424,9 @@ impl SceneDraw {
 
     pub(super) fn flush_graphics_resources(&mut self, ws: &mut WorldState, gpu: &mut Gpu) {
         self.awaiting.clear();
+        self.awaiting_pictures.clear();
         self.land.sources.clear();
+        self.land.forget_pictures();
         self.release_terrain_sources(gpu);
         let departed: Vec<(i32, i32)> = self.blocks.keys().copied().collect();
         for k in &departed {

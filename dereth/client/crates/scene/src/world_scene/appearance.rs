@@ -361,6 +361,8 @@ pub(super) fn read_surface(store: &RetailDatStore, id: DataId) -> Option<dereth_
 ///
 /// Shared by the static object baker and by the character, which is why it is a free function
 /// rather than a method on either.
+#[allow(clippy::too_many_arguments)]
+// LINT-OK: the eighth is the picture decoded off the frame, which the frame resolves from.
 pub(super) fn resolve_surface(
     store: &RetailDatStore,
     textures: &TextureStore<'_>,
@@ -374,6 +376,8 @@ pub(super) fn resolve_surface(
     // Where a compressed texture's mip chain comes from when it is not ready: `None` builds it
     // here, as the upload always has; `Some` asks the worker and reports the surface pending.
     defer: Option<&mut crate::mip_worker::MipWorker>,
+    // The surface's picture, decoded and scaled off the frame, where it was.
+    prefetched: Option<&PrefetchedTexture>,
 ) -> Result<Option<ResolvedSurface>, RenderError> {
     let (surface, two_sided, tiled) = (key.surface, key.two_sided, key.tiled);
     let decoded = surface.and_then(|id| read_surface(store, id));
@@ -403,36 +407,45 @@ pub(super) fn resolve_surface(
     // (palette, texture) pair take **one** shared runtime texture and one descriptor pair. See
     // [`combined_key`] for how the key is derived and why a shift palette gets none.
     let (texture_key, palettised) = combined_key(textures, texture_id, shift.as_ref());
-    let slot = match texture_id {
-        Some(id) => match textures.texture_data_shifted(id, clip_map, shift.as_ref()) {
-            Ok(data) => {
-                // Texture upload creates the device
-                // texture at the current texture scale, not at the source extent; see
-                // [`dereth_render::texture::scale_surface`] for the arithmetic and the one
-                // declared departure (the block-compressed arm).
-                let (src_w, src_h) = (data.width, data.height);
-                let data = dereth_render::texture::scale_surface(&data, image_scale)?;
-                // A compressed texture's mip chain from the worker when it can make it: a key
-                // the device already holds is a cache hit and builds nothing, and an uncached
-                // key has no identity for the worker to remember it by.
-                let prepared = match defer {
-                    Some(w) if !texture_key.is_uncached() && !gpu.has_texture_key(texture_key) => {
-                        #[allow(clippy::as_conversions)]
-                        // LINT-OK: the image scale's shift count, as its own casts elsewhere.
-                        w.prepare((texture_key.raw(), image_scale as u32), &data)
-                    }
-                    _ => crate::mip_worker::Prepared::NotNeeded,
-                };
-                let data = match prepared {
-                    crate::mip_worker::Prepared::Pending => return Ok(None),
-                    crate::mip_worker::Prepared::Ready(chain) => (*chain).clone(),
-                    crate::mip_worker::Prepared::NotNeeded => data,
-                };
-                *built = Some((data.width, data.height, src_w, src_h));
-                Some(gpu.upload_imgtex_keyed(texture_key, &data)?)
-            }
+    let picture = match (texture_id, prefetched) {
+        (Some(_), Some(p)) => Some(Ok((std::borrow::Cow::Borrowed(&p.data), p.source))),
+        (Some(id), None) => match textures.texture_data_shifted(id, clip_map, shift.as_ref()) {
+            // Texture upload creates the device
+            // texture at the current texture scale, not at the source extent; see
+            // [`dereth_render::texture::scale_surface`] for the arithmetic and the one
+            // declared departure (the block-compressed arm).
+            Ok(data) => Some(
+                dereth_render::texture::scale_surface(&data, image_scale)
+                    .map(|scaled| (std::borrow::Cow::Owned(scaled), (data.width, data.height))),
+            ),
             Err(_) => None,
         },
+        (None, _) => None,
+    };
+    let slot = match picture {
+        Some(picture) => {
+            let (data, (src_w, src_h)) = picture?;
+            // A compressed texture's mip chain from the worker when it can make it: a key
+            // the device already holds is a cache hit and builds nothing, and an uncached
+            // key has no identity for the worker to remember it by.
+            let prepared = match defer {
+                Some(w) if !texture_key.is_uncached() && !gpu.has_texture_key(texture_key) => {
+                    #[allow(clippy::as_conversions)]
+                    // LINT-OK: the image scale's shift count, as its own casts elsewhere.
+                    w.prepare((texture_key.raw(), image_scale as u32), &data)
+                }
+                _ => crate::mip_worker::Prepared::NotNeeded,
+            };
+            let data = match prepared {
+                crate::mip_worker::Prepared::Pending => return Ok(None),
+                crate::mip_worker::Prepared::Ready(chain) => {
+                    std::borrow::Cow::Owned((*chain).clone())
+                }
+                crate::mip_worker::Prepared::NotNeeded => data,
+            };
+            *built = Some((data.width, data.height, src_w, src_h));
+            Some(gpu.upload_imgtex_keyed(texture_key, &data)?)
+        }
         None => None,
     };
     let state = decoded.map_or_else(RenderState::default, |s| RenderState {

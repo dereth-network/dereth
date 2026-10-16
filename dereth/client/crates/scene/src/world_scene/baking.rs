@@ -213,6 +213,8 @@ impl Default for BakeCache {
             textures_downscaled: 0,
             textures_uploaded: 0,
             unowned_releases: 0,
+            prefetched: HashMap::new(),
+            prefetched_used: 0,
             texture_key_hits: 0,
             solid_texel_key_hits: 0,
             solid_texels_uploaded: 0,
@@ -350,6 +352,15 @@ impl BakeCache {
         // `image_scale` is at the moment
         // the device texture is created, and `built` is what actually went to the device.
         let mut built = None;
+        // A picture a bake off the frame decoded at this detail and scale, for a surface with no
+        // appearance of its own.
+        let prefetched = key
+            .surface
+            .filter(|_| key.appearance == SurfaceAppearance::default())
+            .and_then(|s| self.prefetched.get(&s))
+            .filter(|p| p.made_at == (self.environment_texture_detail, self.image_scale))
+            .cloned();
+        self.prefetched_used += u64::from(prefetched.is_some());
         let Some(r) = resolve_surface(
             store,
             textures,
@@ -358,6 +369,7 @@ impl BakeCache {
             self.image_scale,
             &mut built,
             defer,
+            prefetched.as_deref(),
         )?
         else {
             self.pending_surfaces += 1;
@@ -556,6 +568,10 @@ impl BakeCache {
 impl SceneDraw {
     /// One window slot: landblock fetch and generation, and — for a slot that is new rather
     /// than merely resized — dynamic-object, building, and static-object initialization.
+    /// `prepared` is the block's record, mesh and objects baked off the frame
+    /// ([`bake_worker`]), when they were: the build finishes them in place of baking them.
+    #[allow(clippy::too_many_arguments)]
+    // LINT-OK: the seventh is what was baked off the frame for the slot.
     pub(super) fn build_slot(
         &mut self,
         ws: &mut WorldState,
@@ -564,6 +580,7 @@ impl SceneDraw {
         xi: u32,
         yi: u32,
         work: SlotWork,
+        prepared: Option<Box<bake_worker::BakeDone>>,
     ) -> Result<(), WorldError> {
         let Some(slot) = ws.streamer.window.slot(xi, yi) else {
             return Ok(());
@@ -576,19 +593,64 @@ impl SceneDraw {
         };
         let (bx, by) = (spec.block_x, spec.block_y);
         let _build = tracing::debug_span!("build_landblock", bx, by, lod = spec.lod_div).entered();
-        let Some(lb) = read_landblock(store, bx, by) else {
-            // Landblock lookup returns no record for a block the dat does not
-            // carry -- the world edge. Nothing is drawn there and nothing is an error.
-            // The block still has to hand its bake's links back, exactly as one
-            // that scrolled off the edge does.
-            if let Some(b) = self.blocks.remove(&(bx, by)) {
-                self.released_blocks.push(b);
-                self.release_departed_blocks(gpu);
+        let (lb, mesh, filled, prepared) = match prepared {
+            Some(done) => {
+                let done = *done;
+                (
+                    done.lb,
+                    done.mesh,
+                    done.filled,
+                    Some((done.objects, done.key)),
+                )
             }
-            return Ok(());
+            None => {
+                let Some(lb) = read_landblock(store, bx, by) else {
+                    // Landblock lookup returns no record for a block the dat does not
+                    // carry -- the world edge. Nothing is drawn there and nothing is an error.
+                    // The block still has to hand its bake's links back, exactly as one
+                    // that scrolled off the edge does.
+                    if let Some(b) = self.blocks.remove(&(bx, by)) {
+                        self.released_blocks.push(b);
+                        self.release_departed_blocks(gpu);
+                    }
+                    return Ok(());
+                };
+                let (mesh, filled) = land::landblock_mesh(
+                    &lb,
+                    self.land.drawn,
+                    self.land.ground.as_deref().unwrap_or(&self.land.region),
+                    &self.land.table,
+                    spec,
+                );
+                (lb, mesh, filled, None)
+            }
         };
+        // While the landscape streams over several frames, the block waits for the splat draw's
+        // pictures it needs to be decoded off the frame, and keeps what was baked for it; all
+        // but the viewer's own block, which is built now, as its objects are baked now.
+        if self.cfg.stream_budget.is_some() && ws.streamer.window.viewer_block() != Some((bx, by)) {
+            let waiting = self.land.splat_pictures_waiting(store, &mesh);
+            if !waiting.is_empty() {
+                if let Some((objects, key)) = prepared {
+                    self.land.bakes_done.insert(
+                        (bx, by),
+                        bake_worker::BakeDone {
+                            key,
+                            lb,
+                            filled,
+                            mesh,
+                            objects,
+                        },
+                    );
+                }
+                self.awaiting_pictures.insert((bx, by), waiting);
+                self.want(ws, xi, yi, work);
+                return Ok(());
+            }
+        }
         let (mesh, cell_texture, cell_keys, merge_keys, cell_splat) =
-            self.land.generate(store, gpu, &lb, spec)?;
+            self.land
+                .surfaces(store, gpu, filled.as_ref().unwrap_or(&lb), mesh)?;
         // Kept before `set_mesh` takes the mesh.
         let side_cell_count = mesh.side_cell_count;
 
@@ -683,19 +745,37 @@ impl SceneDraw {
                 #[cfg(feature = "hifi")]
                 hifi_lamps: b.hifi_lamps,
             },
-            _ if wants_objects => self.land.bake(
-                store,
-                gpu,
-                &lb,
-                &mesh,
-                bx,
-                by,
-                self.cfg.cell_statics,
-                self.cfg.part_degrades,
-                self.cfg.degrade_levels,
-                self.cfg.static_billboards,
-                self.cfg.lod_object_guard,
-            )?,
+            _ if wants_objects => match prepared {
+                // Baked off the frame: finished here.
+                Some((objects, _)) => {
+                    self.land.objects_baked.1 += 1;
+                    let knobs = self.object_knobs(gpu);
+                    self.land.finish_objects(
+                        store,
+                        gpu,
+                        (&lb, bx, by),
+                        objects,
+                        self.cfg.cell_statics,
+                        knobs,
+                    )?
+                }
+                None => {
+                    self.land.objects_baked.0 += 1;
+                    self.land.bake(
+                        store,
+                        gpu,
+                        &lb,
+                        &mesh,
+                        bx,
+                        by,
+                        self.cfg.cell_statics,
+                        self.cfg.part_degrades,
+                        self.cfg.degrade_levels,
+                        self.cfg.static_billboards,
+                        self.cfg.lod_object_guard,
+                    )?
+                }
+            },
             _ => BakedObjects::default(),
         };
 
@@ -828,10 +908,55 @@ impl SceneDraw {
         space
     }
 
+    /// How many surfaces of the blocks' objects have been resolved with a picture decoded off
+    /// the frame, for the tests.
+    #[must_use]
+    pub fn pictures_decoded_off_frame(&self) -> u64 {
+        self.land.bake.prefetched_used
+    }
+
+    /// How many of the splat draw's pictures have been decoded on the frame, and how many off
+    /// it, for the tests.
+    #[must_use]
+    pub fn splat_pictures_decoded(&self) -> (u64, u64) {
+        self.land.pictures_decoded
+    }
+
     /// How many blocks currently have geometry, for the tests.
     #[must_use]
     pub fn resident_blocks(&self) -> usize {
         self.blocks.len()
+    }
+
+    /// A digest of every resident block's baked objects, for the tests that compare two bakes:
+    /// each batch's surface, its vertices and which placement and level each run of them is,
+    /// and each degrading placement's centre, block by block. The pictures' device slots are
+    /// left out, since two devices number them as they come.
+    #[must_use]
+    pub fn baked_objects_digest(&self) -> u64 {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut h = std::hash::DefaultHasher::new();
+        for (block, b) in &self.blocks {
+            block.hash(&mut h);
+            b.baked.hash(&mut h);
+            for batch in b.opaque.iter().chain(&b.blended) {
+                batch.key.hash(&mut h);
+                batch.texture.is_some().hash(&mut h);
+                batch.surface_type.hash(&mut h);
+                batch.building_pass.hash(&mut h);
+                batch.alpha_ref.hash(&mut h);
+                batch.vertices.hash(&mut h);
+                for c in &batch.chunks {
+                    (c.placement, c.level, c.start, c.end, c.part).hash(&mut h);
+                }
+            }
+            for p in &b.degrade {
+                for v in [p.centre.x, p.centre.y, p.centre.z, p.scale_z] {
+                    v.to_bits().hash(&mut h);
+                }
+            }
+        }
+        h.finish()
     }
 
     // -----------------------------------------------------------------------------------

@@ -2,38 +2,50 @@
 
 use super::*;
 
+/// One block's mesh, before its vertex lighting, from its record `lb` alone: the land surface of
+/// `ground` with the height table `table`, at `spec`'s detail. A terrain type `drawn` has no
+/// picture for takes its neighbours' for the surfaces alone, and the water stays the cells' own;
+/// the record so filled comes back with the mesh, when it was. A pure function of its inputs, so
+/// a block's mesh is the same made on the frame or off it.
+pub(super) fn landblock_mesh(
+    lb: &CellLandblock,
+    drawn: u32,
+    ground: &dereth_assets::Region,
+    table: &[f32; dereth_terrain::consts::LAND_HEIGHT_TABLE_LEN],
+    spec: SlotSpec,
+) -> (LandblockMesh, Option<CellLandblock>) {
+    let filled = dereth_terrain::land::fill::fill_undrawn_terrain(lb, drawn);
+    let surface_lb = filled.as_ref().unwrap_or(lb);
+    let mut mesh = generate_landblock_with_table(
+        surface_lb,
+        ground,
+        table,
+        spec.block_x,
+        spec.block_y,
+        spec.lod_div,
+        spec.dir,
+    );
+    if filled.is_some() {
+        (mesh.cell_water, mesh.water_type) =
+            dereth_terrain::land::water::calc_water(&lb.terrain, usize::from(mesh.side_cell_count));
+    }
+    (mesh, filled)
+}
+
 impl LandContext {
-    /// Generate one block's mesh and its vertex lighting, then the block's merged
-    /// land surfaces.
+    /// One block's vertex lighting and merged land surfaces, for `mesh` made by
+    /// [`landblock_mesh`] from `surface_lb`, the record as the ground's land surface draws it:
+    /// the second half of generating a block, the mesh being the first.
     ///
     /// The merge cache is shared across the whole window, so a block entering the window
     /// usually uploads only the handful of textures its own terrain pairs need.
-    pub(super) fn generate(
+    pub(super) fn surfaces(
         &mut self,
         store: &RetailDatStore,
         gpu: &mut Gpu,
-        lb: &CellLandblock,
-        spec: SlotSpec,
+        surface_lb: &CellLandblock,
+        mut mesh: LandblockMesh,
     ) -> Result<GeneratedBlock, WorldError> {
-        // A terrain type the ground has no picture for takes its neighbours' for the surfaces
-        // alone; the water stays the cells' own.
-        let filled = dereth_terrain::land::fill::fill_undrawn_terrain(lb, self.drawn);
-        let surface_lb = filled.as_ref().unwrap_or(lb);
-        let mut mesh = generate_landblock_with_table(
-            surface_lb,
-            self.ground.as_deref().unwrap_or(&self.region),
-            &self.table,
-            spec.block_x,
-            spec.block_y,
-            spec.lod_div,
-            spec.dir,
-        );
-        if filled.is_some() {
-            (mesh.cell_water, mesh.water_type) = dereth_terrain::land::water::calc_water(
-                &lb.terrain,
-                usize::from(mesh.side_cell_count),
-            );
-        }
         // `generate` recomputes the vertex lighting after every geometry rebuild.
         bake_lighting(&mut mesh, &self.lighting);
 
@@ -245,6 +257,7 @@ impl LandContext {
             tex_merge,
             merge,
             bake,
+            pictures_decoded,
             ..
         } = self;
         let src = DatTerrainTextures {
@@ -254,6 +267,7 @@ impl LandContext {
             ),
             memo: RefCell::new(sources),
         };
+        let decoded_before = src.memo.borrow().len();
         let mut cells = Vec::with_capacity(keys.len());
         for key in keys {
             let splat = match splats.get(key) {
@@ -275,6 +289,9 @@ impl LandContext {
             };
             cells.push(Some(splat));
         }
+        // Each picture decoded here went into the memo.
+        let decoded = src.memo.borrow().len() - decoded_before;
+        pictures_decoded.0 += u64::try_from(decoded).unwrap_or(u64::MAX);
         Ok(cells)
     }
 
@@ -282,7 +299,8 @@ impl LandContext {
     /// **block-local** vertices.
     ///
     /// Block-local coordinates use the block id and an identity frame, letting the window scroll
-    /// without touching a vertex.
+    /// without touching a vertex. The bake is [`place_objects`], [`gather_objects`] and
+    /// [`Self::finish_objects`], here one after the other on the frame.
     #[allow(clippy::too_many_arguments)]
     // LINT-OK: the block's identity is four of them (`lb`, `mesh`, `bx`, `by`) and they are
     // three different views of the same block that the callee needs separately;
@@ -301,104 +319,110 @@ impl LandContext {
         static_billboards: bool,
         lod_object_guard: bool,
     ) -> Result<BakedObjects, WorldError> {
+        let knobs = ObjectKnobs {
+            part_degrades,
+            degrade_levels,
+            static_billboards,
+            lod_object_guard,
+            #[cfg(feature = "hifi")]
+            lamps: super::hifi_bridge::lamps_possible(gpu),
+        };
+        let placed = {
+            let takes = |id: DataId, building: bool| {
+                self.objects.as_ref().is_some_and(|l| l.takes(id, building))
+            };
+            place_objects(store, &self.region, (lb, mesh, bx, by), knobs, &takes)
+        };
+        let look = self.objects.as_mut().map(|l| (&*l.files, &mut l.cache));
+        let mut gathered = gather_objects(store, &mut self.bake, look, &placed, knobs);
+        // Counted in this cache as they were gathered.
+        gathered.parts_not_drawn = 0;
+        let prepared = PreparedObjects {
+            placed,
+            gathered,
+            objects_visual: self.objects.is_some(),
+            textures: Vec::new(),
+        };
+        self.finish_objects(store, gpu, (lb, bx, by), prepared, cell_statics, knobs)
+    }
+
+    /// The device's half of a block's bake, [`Self::bake`]'s last: every surface of
+    /// `prepared`'s triangles resolved to its picture and its pipeline state, the interior
+    /// cells, and the buildings' openings.
+    pub(super) fn finish_objects(
+        &mut self,
+        store: &RetailDatStore,
+        gpu: &mut Gpu,
+        (lb, bx, by): (&CellLandblock, i32, i32),
+        prepared: PreparedObjects,
+        cell_statics: bool,
+        knobs: ObjectKnobs,
+    ) -> Result<BakedObjects, WorldError> {
+        let PreparedObjects {
+            placed,
+            gathered,
+            objects_visual,
+            textures,
+        } = prepared;
+        // The pictures decoded off the frame, for the surfaces resolved below, and their mip
+        // chains for the mip worker.
+        self.bake.prefetched.clear();
+        for (surface, t) in textures {
+            if let Some((key, chain)) = &t.chain {
+                self.mip_worker.offer(*key, Arc::clone(chain));
+            }
+            self.bake.prefetched.insert(surface, t);
+        }
+        let PlacedObjects {
+            lbi,
+            full_detail,
+            scenery,
+            land_statics,
+            mut cell_restrictions,
+            mut emitters,
+            #[cfg(feature = "hifi")]
+            hifi_lamps,
+            ..
+        } = placed;
+        let GatheredObjects {
+            sides,
+            shell_placements,
+            parts_not_drawn,
+        } = gathered;
+        // Gathered off the frame, they were counted in the thread's own cache.
+        self.bake.parts_not_drawn += parts_not_drawn;
         let pending_before = self.bake.pending_surfaces;
         let look_pending_before = self
             .objects
             .as_ref()
             .map_or(0, |l| l.cache.pending_surfaces);
+        let ObjectKnobs {
+            part_degrades,
+            degrade_levels,
+            static_billboards,
+            ..
+        } = knobs;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         // LINT-OK: `read_landblock` already bounded both to 0..=0xFE. Not a float conversion.
         let block = ((bx as u16) << 8) | (by as u16);
-        // **What the block holds is the world builder's; this bake draws it.** The scenery,
-        // the landblock-info statics resolved to their land cells, the collision record of
-        // each and the house restrictions all come from `land_content`, which a presentation
-        // with no device calls too. Objects of every kind need full detail there, not scenery
-        // alone: static-object and building initialization carry the same guard, so a block
-        // on an outer ring is bare terrain.
-        //
-        // The bake turns the same placements into batches in the same order -- scenery, then
-        // building shells, then statics -- and pairs every placement whose setup names a
-        // default script or a default animation with its collision record by index: static
-        // initialization creates one physics body per placement, queues its default script on
-        // that same body and plays its default animation on that body's parts
-        // ([`land_placements`]).
-        let LandContent {
-            lbi,
-            full_detail,
-            placed,
-            object_slots,
-            land_statics,
-            mut cell_restrictions,
-        } = land_content(store, &self.region, lb, mesh, bx, by, lod_object_guard);
-
-        // The scenery, the building shells and the statics, each drawn wholly from one era:
-        // the objects' look when it is another era's and stands for the object
-        // ([`ObjectLook::takes`]), the world's otherwise. Their collision records above are
-        // the world's either way.
-        let objects_visual = self.objects.is_some();
-        let takes = |id: DataId, building: bool| {
-            self.objects.as_ref().is_some_and(|l| l.takes(id, building))
-        };
-        let (items, mut emitters) = land_placements(
-            store,
-            &placed,
-            lbi.as_ref().filter(|_| full_detail),
-            &object_slots,
-            &takes,
-        );
-        // Where the outdoor placements' lamps may be, for the high-fidelity presentation alone:
-        // the baked placements and the animated ones drawn as live objects. Nothing is read for
-        // them here; the lamps are looked for only while the presentation draws them. Only a
-        // device that can draw the lamps keeps the list: one made without the presentation's
-        // request, as every classic or modern start-up's is, keeps nothing.
-        #[cfg(feature = "hifi")]
-        let hifi_lamps = if super::hifi_bridge::lamps_possible(gpu) {
-            super::hifi_lamps::BlockLamps::at(
-                items.iter().map(|it| (it.0, &it.1, it.2)).chain(
-                    emitters
-                        .iter()
-                        .filter(|e| e.animated)
-                        .map(|e| (e.setup, &e.frame, e.scale)),
-                ),
-            )
-        } else {
-            super::hifi_lamps::BlockLamps::default()
-        };
         let (buildings, statics) = lbi
             .as_ref()
             .filter(|_| full_detail)
             .map_or((0, 0), |info| (info.buildings.len(), info.objects.len()));
-        // The world's side first, then the look's, each through its own files and cache; the
-        // look's degrading placements follow the world's, so its batches' chunks are moved up
-        // by the world's count.
         let mut baked: BakedGroups = (Vec::new(), Vec::new(), Vec::new());
-        // Each building's shell placement, in the block's placement numbering, for its
-        // openings to follow. Building items are pushed in `info.buildings` order.
-        let mut shell_placements: Vec<Option<u32>> = vec![None; buildings];
-        let building_of: Vec<Option<usize>> = items
-            .iter()
-            .scan(0usize, |next, it| {
-                Some(it.3.then(|| {
-                    *next += 1;
-                    *next - 1
-                }))
-            })
-            .collect();
-        for from_look in [false, true] {
-            if !items.iter().any(|it| it.4 == from_look) {
-                continue;
-            }
+        for (from_look, assembly) in sides {
             let (draw_store, draw_cache): (&RetailDatStore, &mut BakeCache) =
                 match (from_look, self.objects.as_mut()) {
                     (true, Some(look)) => (&*look.files, &mut look.cache),
                     _ => (store, &mut self.bake),
                 };
-            let mut baker = ObjectBaker::new(
+            let mut baker = ObjectBaker::resume(
                 draw_store,
                 draw_cache,
                 part_degrades,
                 degrade_levels,
                 static_billboards,
+                assembly,
             );
             baker.from_look = from_look;
             baker.defer = if self.defer_mips {
@@ -409,14 +433,6 @@ impl LandContext {
             // LINT-OK: a placement count bounded by the block's part count. Not a float.
             #[allow(clippy::cast_possible_truncation)]
             let offset = baked.2.len() as u32;
-            for (i, (id, frame, scale, building, _)) in
-                items.iter().enumerate().filter(|(_, it)| it.4 == from_look)
-            {
-                let shell = baker.add_object_kind(*id, frame, *scale, *building);
-                if let Some(slot) = building_of[i].and_then(|k| shell_placements.get_mut(k)) {
-                    *slot = shell.map(|p| p + offset);
-                }
-            }
             let (mut opaque, mut blended, degrade) = baker
                 .finish(gpu)
                 .map_err(|e| WorldError::Render(e.to_string()))?;
@@ -474,6 +490,7 @@ impl LandContext {
                     part_degrades && degrade_levels,
                 )
             });
+        self.bake.prefetched.clear();
         let look_pending = self
             .objects
             .as_ref()
@@ -487,7 +504,7 @@ impl LandContext {
             degrade,
             env_cells,
             building_views,
-            scenery: placed.len(),
+            scenery,
             buildings,
             statics,
             sim: BlockStatics {
@@ -913,6 +930,203 @@ impl LandContext {
 
 /// One entry of a block's bake list: `(object, frame, scale, building shell, drawn from the look)`.
 pub(super) type BakeItem = (DataId, Frame, f32, bool, bool);
+
+/// The switches a block's objects are baked with, from [`SceneConfig`]: see each there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ObjectKnobs {
+    pub(super) part_degrades: bool,
+    pub(super) degrade_levels: bool,
+    pub(super) static_billboards: bool,
+    pub(super) lod_object_guard: bool,
+    /// Whether the device can draw the high-fidelity presentation's lamps, so the bake lists
+    /// where they may be.
+    #[cfg(feature = "hifi")]
+    pub(super) lamps: bool,
+}
+
+/// What stands on one block, as the bake places it: the world builder's placements and
+/// collision records, each placement's bake item, and the lamps among them. Read from the files
+/// alone, on any thread.
+pub(super) struct PlacedObjects {
+    pub(super) lbi: Option<LandblockInfo>,
+    pub(super) full_detail: bool,
+    /// How many scenery objects the block grows.
+    pub(super) scenery: usize,
+    pub(super) land_statics: Vec<dereth_world_data::env_cells::CellStatic>,
+    pub(super) cell_restrictions: Vec<(CellId, ObjectId)>,
+    pub(super) items: Vec<BakeItem>,
+    pub(super) emitters: Vec<EmitterPlacement>,
+    #[cfg(feature = "hifi")]
+    pub(super) hifi_lamps: super::hifi_lamps::BlockLamps,
+}
+
+/// A block's placements' triangles gathered by surface, before any is resolved to a picture: the
+/// world's own files' side first, then another era's look's (`true`); and each building's shell
+/// placement, in the block's placement numbering.
+pub(super) struct GatheredObjects {
+    pub(super) sides: Vec<(bool, BakerAssembly)>,
+    pub(super) shell_placements: Vec<Option<u32>>,
+    /// Parts a level with no geometry left out, for the counter of the cache that finishes the
+    /// bake: none when that cache gathered them itself.
+    pub(super) parts_not_drawn: u32,
+}
+
+/// A block's objects as far as they are made without the device.
+pub(super) struct PreparedObjects {
+    pub(super) placed: PlacedObjects,
+    pub(super) gathered: GatheredObjects,
+    /// Whether another era's look was set when they were placed.
+    pub(super) objects_visual: bool,
+    /// The pictures of their surfaces, decoded off the frame, by surface.
+    pub(super) textures: Vec<(DataId, Arc<PrefetchedTexture>)>,
+}
+
+/// What stands on block `(bx, by)` (record `lb`, `mesh` its full-detail mesh, the world's
+/// `region`), as the bake places it: **what the block holds is the world builder's; the bake
+/// draws it.** The scenery, the landblock-information statics resolved to their land cells, the
+/// collision record of each and the house restrictions all come from `land_content`, which a
+/// presentation with no device calls too. Objects of every kind need full detail there, not
+/// scenery alone: static-object and building initialization carry the same guard, so a block on
+/// an outer ring is bare terrain.
+///
+/// `takes` says which placements another era's look draws.
+pub(super) fn place_objects(
+    store: &RetailDatStore,
+    region: &dereth_assets::Region,
+    (lb, mesh, bx, by): (&CellLandblock, &LandblockMesh, i32, i32),
+    knobs: ObjectKnobs,
+    takes: &dyn Fn(DataId, bool) -> bool,
+) -> PlacedObjects {
+    // The bake turns the same placements into batches in the same order -- scenery, then
+    // building shells, then statics -- and pairs every placement whose setup names a
+    // default script or a default animation with its collision record by index: static
+    // initialization creates one physics body per placement, queues its default script on
+    // that same body and plays its default animation on that body's parts
+    // ([`land_placements`]).
+    let LandContent {
+        lbi,
+        full_detail,
+        placed,
+        object_slots,
+        land_statics,
+        cell_restrictions,
+    } = land_content(store, region, lb, mesh, bx, by, knobs.lod_object_guard);
+    // The scenery, the building shells and the statics, each drawn wholly from one era:
+    // the objects' look when it is another era's and stands for the object
+    // ([`ObjectLook::takes`]), the world's otherwise. Their collision records above are
+    // the world's either way.
+    let (items, emitters) = land_placements(
+        store,
+        &placed,
+        lbi.as_ref().filter(|_| full_detail),
+        &object_slots,
+        takes,
+    );
+    // Where the outdoor placements' lamps may be, for the high-fidelity presentation alone:
+    // the baked placements and the animated ones drawn as live objects. Nothing is read for
+    // them here; the lamps are looked for only while the presentation draws them. Only a
+    // device that can draw the lamps keeps the list: one made without the presentation's
+    // request, as every classic or modern start-up's is, keeps nothing.
+    #[cfg(feature = "hifi")]
+    let hifi_lamps = if knobs.lamps {
+        super::hifi_lamps::BlockLamps::at(
+            items.iter().map(|it| (it.0, &it.1, it.2)).chain(
+                emitters
+                    .iter()
+                    .filter(|e| e.animated)
+                    .map(|e| (e.setup, &e.frame, e.scale)),
+            ),
+        )
+    } else {
+        super::hifi_lamps::BlockLamps::default()
+    };
+    PlacedObjects {
+        lbi,
+        full_detail,
+        scenery: placed.len(),
+        land_statics,
+        cell_restrictions,
+        items,
+        emitters,
+        #[cfg(feature = "hifi")]
+        hifi_lamps,
+    }
+}
+
+/// `placed`'s placements' triangles gathered by surface: the world's side through `world_store`
+/// and `world`'s decode memo, the look's through `look`'s, the look's degrading placements
+/// numbered after the world's. Needs no device, so it runs on any thread with a memo of its own.
+pub(super) fn gather_objects(
+    world_store: &RetailDatStore,
+    world: &mut BakeCache,
+    mut look: Option<(&RetailDatStore, &mut BakeCache)>,
+    placed: &PlacedObjects,
+    knobs: ObjectKnobs,
+) -> GatheredObjects {
+    let items = &placed.items;
+    let buildings = placed
+        .lbi
+        .as_ref()
+        .filter(|_| placed.full_detail)
+        .map_or(0, |info| info.buildings.len());
+    // Each building's shell placement, in the block's placement numbering, for its
+    // openings to follow. Building items are pushed in `info.buildings` order.
+    let mut shell_placements: Vec<Option<u32>> = vec![None; buildings];
+    let building_of: Vec<Option<usize>> = items
+        .iter()
+        .scan(0usize, |next, it| {
+            Some(it.3.then(|| {
+                *next += 1;
+                *next - 1
+            }))
+        })
+        .collect();
+    let not_drawn_before = world.parts_not_drawn;
+    let mut sides = Vec::new();
+    // The world's side first, then the look's, each through its own files and cache; the
+    // look's degrading placements follow the world's, so its batches' chunks are moved up
+    // by the world's count.
+    let mut placements = 0u32;
+    for from_look in [false, true] {
+        if !items.iter().any(|it| it.4 == from_look) {
+            continue;
+        }
+        let (draw_store, draw_cache): (&RetailDatStore, &mut BakeCache) =
+            match (from_look, look.as_mut()) {
+                (true, Some((files, cache))) => (*files, &mut **cache),
+                _ => (world_store, &mut *world),
+            };
+        let mut baker = ObjectBaker::new(
+            draw_store,
+            draw_cache,
+            knobs.part_degrades,
+            knobs.degrade_levels,
+            knobs.static_billboards,
+        );
+        baker.from_look = from_look;
+        let offset = placements;
+        for (i, (id, frame, scale, building, _)) in
+            items.iter().enumerate().filter(|(_, it)| it.4 == from_look)
+        {
+            let shell = baker.add_object_kind(*id, frame, *scale, *building);
+            if let Some(slot) = building_of[i].and_then(|k| shell_placements.get_mut(k)) {
+                *slot = shell.map(|p| p + offset);
+            }
+        }
+        let assembly = baker.into_assembly();
+        // LINT-OK: a placement count bounded by the block's part count. Not a float.
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            placements += assembly.placement_count() as u32;
+        }
+        sides.push((from_look, assembly));
+    }
+    GatheredObjects {
+        sides,
+        shell_placements,
+        parts_not_drawn: world.parts_not_drawn - not_drawn_before,
+    }
+}
 
 /// What a block's bake bakes, and what it makes live objects of, from its outdoor placements:
 /// the scenery, then the building shells, then the landblock statics.

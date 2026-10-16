@@ -132,6 +132,13 @@ impl MipWorker {
         Prepared::Pending
     }
 
+    /// Take `chain`, built elsewhere from the same level, as the chain for `key`.
+    pub fn offer(&mut self, key: ChainKey, chain: Arc<TextureData>) {
+        if !self.failed.contains(&key) {
+            self.ready.entry(key).or_insert(chain);
+        }
+    }
+
     /// Whether every one of `keys` has finished (built or failed).
     #[must_use]
     pub fn all_done(&self, keys: &[ChainKey]) -> bool {

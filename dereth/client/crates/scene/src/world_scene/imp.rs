@@ -29,6 +29,8 @@ use degrade::*;
 #[path = "views.rs"]
 mod views;
 pub use views::*;
+#[path = "bake_worker.rs"]
+mod bake_worker;
 #[path = "cells.rs"]
 mod cells;
 #[cfg(feature = "hifi")]
@@ -41,6 +43,8 @@ pub(crate) mod hifi_lamps;
 mod marker;
 #[path = "objects.rs"]
 mod objects;
+#[path = "picture_worker.rs"]
+mod picture_worker;
 pub use marker::{marker_mesh, MarkerCorner, MARKER_GRID, MARKER_LIFT, MARKER_MIN_RADIUS};
 
 use std::cell::RefCell;
@@ -501,7 +505,7 @@ fn next_hifi_generation() -> u32 {
 
 /// Which block a window slot holds and how `generate` must build it: the landblock's
 /// `block_coord`, `dir` and the LOD divisor block orientation assigned.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SlotSpec {
     block_x: i32,
     block_y: i32,
@@ -1133,6 +1137,9 @@ pub struct SceneDraw {
     /// Queued blocks whose last bake was handed back to wait on the mip worker, with the chains
     /// it asked for. [`Self::stream`] skips them until every one is done.
     awaiting: BTreeMap<(i32, i32), Vec<crate::mip_worker::ChainKey>>,
+    /// Queued blocks waiting for the splat draw's pictures to be decoded off the frame, with the
+    /// pictures. [`Self::stream`] skips them until every one is.
+    awaiting_pictures: BTreeMap<(i32, i32), Vec<DataId>>,
     /// Blocks the scroll pushed out of the window, waiting to give their
     /// bake's texture links back.
     ///
@@ -2497,6 +2504,35 @@ struct LandContext {
     /// Whether a bake may leave textures pending on the worker: set with a streaming budget,
     /// that is on a connected client. Offline runs, captures and the tests bake synchronously.
     defer_mips: bool,
+    /// The thread that bakes blocks' objects off the frame while the landscape streams over
+    /// several frames; `None` before it is first wanted, or where it could not be started.
+    bakes: Option<bake_worker::BakeWorker>,
+    bakes_failed: bool,
+    /// The generation of what a bake is made from besides the block (the ground):
+    /// bumped whenever it changes, so a bake off the frame for an older one is thrown away.
+    bake_epoch: u64,
+    /// What bakes off the frame are made from, for [`Self::bake_epoch`] and the switches.
+    bake_from: Option<Arc<bake_worker::BakeFrom>>,
+    /// The blocks asked of the thread and not yet taken, each with what it was asked for.
+    // ORDER-OK: looked up by block only.
+    bakes_asked: HashMap<(i32, i32), bake_worker::BakeKey>,
+    /// The blocks the thread is done with, waiting for their build.
+    // ORDER-OK: looked up by block only.
+    bakes_done: HashMap<(i32, i32), bake_worker::BakeDone>,
+    /// The blocks the thread found no record for: built on the frame, which finds none either.
+    bakes_on_frame: HashSet<(i32, i32)>,
+    /// How many blocks' objects have been baked on the frame, and how many off it.
+    objects_baked: (u64, u64),
+    /// The thread that decodes the splat draw's pictures while the landscape streams over
+    /// several frames; `None` before it is first wanted, or where it could not be started.
+    pictures: Option<picture_worker::PictureWorker>,
+    pictures_failed: bool,
+    /// The pictures asked of the thread and not yet taken, for the generation of the decoded
+    /// pictures [`Self::sources`] holds, bumped whenever they are thrown away.
+    pictures_asked: HashSet<DataId>,
+    pictures_epoch: u64,
+    /// How many of the splat draw's pictures have been decoded on the frame, and how many off it.
+    pictures_decoded: (u64, u64),
     /// Whether the device can splat; set at load. Without it no splat data is made.
     splat_supported: bool,
     /// Whether blocks built now get splat layers, and whether they get composites. Exactly one
@@ -2714,6 +2750,13 @@ pub(crate) struct BakeCache {
     /// choice between a two-level `SurfaceTexture`'s high-res and original art through
     /// [`TextureStore::with_environment_texture_detail`].
     environment_texture_detail: u32,
+    /// The pictures of the surfaces a bake off the frame decoded, by surface, while the frame
+    /// finishes that bake: a surface resolved then takes its picture from here instead of
+    /// decoding it. Empty at any other time.
+    // ORDER-OK: looked up by surface only.
+    pub(crate) prefetched: HashMap<DataId, Arc<PrefetchedTexture>>,
+    /// How many surfaces have been resolved with a picture decoded off the frame.
+    pub(crate) prefetched_used: u64,
     /// `(width, height, scale)` of the last texture this cache actually uploaded. Not a client
     /// field — the same instrument, and for the same reason, as
     /// `TerrainMergeCache::last_built`: `Render.EnvironmentTextureDetail`'s observable effect
@@ -2878,7 +2921,7 @@ pub(crate) struct PaletteComposition {
     pub(crate) from_look: Vec<bool>,
 }
 
-/// What [`LandContext::generate`] makes for one block: the mesh, each cell's composite, the
+/// What [`LandContext::surfaces`] makes for one block: the mesh, each cell's composite, the
 /// merge key each cell holds a reference on (empty with no composites), every cell's merge
 /// key, and each cell's splat layers (empty unless splatting).
 type GeneratedBlock = (
@@ -3074,6 +3117,9 @@ struct ObjectBaker<'a> {
     parts: Option<Vec<CellStaticPart>>,
     /// The index among the cell's statics of the object being placed.
     object: u32,
+    /// Bounding spheres worked out ahead of [`Self::finish`], by surface.
+    // ORDER-OK: looked up by key only.
+    spheres: HashMap<BatchKey, (Vec3, f32)>,
 }
 
 /// One entry of the decoded-surface memo: the surface record, the two polygon flags it
@@ -3122,6 +3168,7 @@ impl<'a> ObjectBaker<'a> {
             instances: 0,
             parts: None,
             object: 0,
+            spheres: HashMap::new(),
         }
     }
 
@@ -3453,6 +3500,7 @@ impl<'a> ObjectBaker<'a> {
             if vertices.is_empty() {
                 continue;
             }
+            let sphere_ahead = self.spheres.remove(&key);
             // A batch no degrade record governs keeps its chunk list empty and is
             // drawn whole, which is what makes the `degrade_levels` control byte-exact.
             let degrades = chunks.iter().any(|c| c.placement != NO_PLACEMENT);
@@ -3496,7 +3544,7 @@ impl<'a> ObjectBaker<'a> {
             // `dereth_client_runtime::models::triangulate`. Measured: forcing `Cull::None` and letting
             // `from_surface` decide produce the same frame over Holtburg, so nothing is being
             // culled that should be drawn.
-            let sphere = vertex_sphere(&vertices);
+            let sphere = sphere_ahead.unwrap_or_else(|| vertex_sphere(&vertices));
             let batch = StaticBatch {
                 key: pkey,
                 key_detail: resolved.key_detail,
@@ -3532,6 +3580,104 @@ impl<'a> ObjectBaker<'a> {
         let parts = self.parts.take().unwrap_or_default();
         Ok((self.finish(gpu)?, parts))
     }
+
+    /// What this baker has placed, before [`Self::finish`]: it borrows nothing, so a block's
+    /// objects can be placed on one thread and finished on the frame's.
+    fn into_assembly(self) -> BakerAssembly {
+        BakerAssembly {
+            groups: self.groups,
+            order: self.order,
+            placements: self.placements,
+            instances: self.instances,
+            spheres: self.spheres,
+        }
+    }
+
+    /// A baker over `store` and `cache` that carries on from `assembly`, as [`Self::new`] makes
+    /// one.
+    fn resume(
+        store: &'a RetailDatStore,
+        cache: &'a mut BakeCache,
+        part_degrades: bool,
+        degrade_levels: bool,
+        billboards: bool,
+        assembly: BakerAssembly,
+    ) -> Self {
+        let BakerAssembly {
+            groups,
+            order,
+            placements,
+            instances,
+            spheres,
+        } = assembly;
+        Self {
+            groups,
+            order,
+            placements,
+            instances,
+            spheres,
+            ..Self::new(store, cache, part_degrades, degrade_levels, billboards)
+        }
+    }
+}
+
+/// An [`ObjectBaker`]'s placements before [`ObjectBaker::finish`]: each surface's triangles in
+/// the order the surfaces first appeared, and the degrading placements.
+pub(super) struct BakerAssembly {
+    // ORDER-OK: drained through `order`, as the baker's own.
+    groups: HashMap<BatchKey, (Vec<u8>, Vec<LevelChunk>)>,
+    order: Vec<BatchKey>,
+    placements: Vec<DegradePlacement>,
+    instances: u32,
+    /// Each surface's triangles' bounding sphere, where it was worked out ahead of
+    /// [`ObjectBaker::finish`].
+    // ORDER-OK: looked up by key only.
+    spheres: HashMap<BatchKey, (Vec3, f32)>,
+}
+
+impl BakerAssembly {
+    /// How many degrading placements it holds.
+    pub(super) fn placement_count(&self) -> usize {
+        self.placements.len()
+    }
+
+    /// Work out each surface's bounding sphere now, as [`ObjectBaker::finish`] would.
+    pub(super) fn work_out_spheres(&mut self) {
+        for (key, (vertices, _)) in &self.groups {
+            if !vertices.is_empty() {
+                self.spheres.insert(key.clone(), vertex_sphere(vertices));
+            }
+        }
+    }
+
+    /// The surfaces whose pictures [`ObjectBaker::finish`] resolves, with no appearance of
+    /// their own: the surface records, each once.
+    pub(super) fn surfaces(&self) -> Vec<DataId> {
+        let mut out: Vec<DataId> = self
+            .order
+            .iter()
+            .filter(|k| k.material.appearance == SurfaceAppearance::default())
+            .filter_map(|k| k.material.surface)
+            .collect();
+        out.sort_unstable_by_key(|id| id.0);
+        out.dedup();
+        out
+    }
+}
+
+/// A surface's picture decoded off the frame, as texture resolution makes it: scaled to the
+/// image scale, with the size it had before, and a compressed picture's mip chain built; and
+/// the texture detail and image scale it was made at.
+#[derive(Debug)]
+pub(crate) struct PrefetchedTexture {
+    pub(crate) data: dereth_primitives::TextureData,
+    pub(crate) source: (u32, u32),
+    /// The chain's key and the chain, for a compressed picture.
+    pub(crate) chain: Option<(
+        crate::mip_worker::ChainKey,
+        Arc<dereth_primitives::TextureData>,
+    )>,
+    pub(crate) made_at: (u32, dereth_render::texture::ImageScale),
 }
 
 /// The runs of a buffer whose bytes belong to cell parts, from `(part, start, end)` in buffer
