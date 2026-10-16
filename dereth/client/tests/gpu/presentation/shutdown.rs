@@ -838,6 +838,7 @@ fn the_teardown_runs_the_documented_order() {
 /// test's own making and removed again; the installation's `UserPreferences.ini` is never opened.
 #[test]
 fn a_changed_preference_is_written_back_on_shutdown() {
+    use dereth_client_contract::options::{fidelity, renderer};
     let _gpu = gpu_lock();
     have_dats();
 
@@ -882,6 +883,19 @@ fn a_changed_preference_is_written_back_on_shutdown() {
         "Misc.TooltipDelay",
         dereth_ui_screens::PrefValue::Float(0.75),
     );
+    // And, in a build with the experimental effects, one of their boxes ticked.
+    dereth_ui_screens::options::store::set_value(
+        fidelity::OPTIONS[0].name,
+        dereth_ui_screens::PrefValue::Bool(true),
+    );
+
+    // The options the save may leave out of the profile, with the value each holds at the quit:
+    // the renderer while no page has chosen one, and each experimental-effects box that is off
+    // and that the profile does not name.
+    let at_quit: Vec<(&str, dereth_ui_screens::PrefValue)> = std::iter::once(renderer::RENDERER)
+        .chain(fidelity::OPTIONS.iter().map(|o| o.name))
+        .filter_map(|name| dereth_ui_screens::options::store::inq_value(name).map(|v| (name, v)))
+        .collect();
 
     assert!(!path.exists(), "nothing has written it yet");
     let log = app.shutdown();
@@ -915,10 +929,10 @@ fn a_changed_preference_is_written_back_on_shutdown() {
         "the saved profile contains no fallback section"
     );
 
-    // Parse and reload the same text into the existing process. Every registered value is
-    // accepted: retail's 34 and this client's own beside them; two of the three values set above
-    // are then checked explicitly. This is not a fresh `App` restart and does not independently
-    // assert every reloaded value.
+    // Parse and reload the same text into the existing process. Every registered option comes
+    // back: retail's 34 and this client's own beside them, each from the profile, or, where the
+    // save left it out, as the default it held at the quit. The ticked box and two of the three
+    // values set above are then checked explicitly. This is not a fresh `App` restart.
     assert_eq!(
         dereth_ui_screens::options::store::init(),
         34,
@@ -926,11 +940,29 @@ fn a_changed_preference_is_written_back_on_shutdown() {
     );
     let registered = dereth_ui_screens::options::store::len();
     let ini = dereth_ui::persist::preferences::UserPreferences::parse(&text).expect("it parses");
+    let left_out: Vec<_> = at_quit
+        .iter()
+        .filter(|(name, _)| {
+            !ini.entries
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case(name))
+        })
+        .collect();
     let (applied, _ignored) = dereth_ui_screens::options::store::load(&ini);
     assert_eq!(
-        applied, registered,
-        "every registered option came back: {applied} applied of {registered}"
+        applied + left_out.len(),
+        registered,
+        "every registered option came back: {applied} from the profile and {} left out, of \
+         {registered}",
+        left_out.len()
     );
+    for (name, value) in &at_quit {
+        assert_eq!(
+            dereth_ui_screens::options::store::inq_value(name).as_ref(),
+            Some(value),
+            "{name} comes back as it was at the quit, written or left out at its default"
+        );
+    }
     assert_eq!(
         dereth_ui_screens::options::store::inq_value("Sound.SoundFeatures"),
         Some(dereth_ui_screens::PrefValue::Int(1)),
