@@ -227,7 +227,7 @@ impl<S: Shell> App<S> {
 
     /// Move the player's own body to where the server has just put him.
     ///
-    /// [`complete_player_teleport`] includes the accepted-edge relocation, teleport_hook and
+    /// [`complete_player_teleport_at`] includes the accepted-edge relocation, teleport_hook and
     /// player-teleported command tail. The free seam lets tests drive the same path over a real
     /// body and inspect outgoing movement without a live connection.
     pub(super) fn player_teleport_use_time(&mut self, shell: &mut S) {

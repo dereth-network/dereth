@@ -426,9 +426,10 @@ pub struct Interaction {
     /// — the back buffer, which is what every caller of [`draw_use_time_with_chat_focus`] passes.
     ///
     /// Kept here for the same reason as [`Interaction::cursor`]: the drop arm is reached from
-    /// [`Interaction::run_ui_requests`], which has no viewport argument and has three callers
-    /// outside this file. Written by [`draw_use_time_with_chat_focus`] before step 2, so a pick armed by a drop is
-    /// measured against the same rectangle as a pick armed by a click in the same frame.
+    /// [`Interaction::run_ui_requests_with_chat_focus`], which has no viewport argument and has
+    /// three callers outside this file. Written by [`draw_use_time_with_chat_focus`] before step
+    /// 2, so a pick armed by a drop is measured against the same rectangle as a pick armed by a
+    /// click in the same frame.
     ///
     /// **This is not the viewport:** it is the extent the viewport is clamped into, and the two
     /// are different rectangles.

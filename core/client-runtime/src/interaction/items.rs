@@ -20,7 +20,7 @@ impl Interaction {
     ///
     /// Nothing is predicted: placing in the backpack ghosts the icon with the show-pending notice
     /// and the item does not move until `0x0022 Item_ServerSaysContainID` arrives and
-    /// [`apply_events`] applies it.
+    /// [`apply_events_at_boundary`] applies it.
     pub(super) fn use_object(
         &mut self,
         id: ObjectId,

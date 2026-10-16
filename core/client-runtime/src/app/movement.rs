@@ -108,10 +108,10 @@ impl<S: Shell> App<S> {
     /// *ran*, *lost*, *retook* — so that "no dispatch arrived" and "the step never ran" cannot be
     /// confused: an instrument with no third state cannot tell them apart.
     ///
-    /// The work itself is the free [`command_interpreter_control_transfer`], for the reason
-    /// [`apply_player_teleport`] is free: a counter can prove the *call site* exists and can prove
-    /// nothing at all about what the step does, so the step has to be reachable by a test holding
-    /// a real body and no device.
+    /// The work itself is the free [`command_interpreter_control_transfer_with_finish`], for the
+    /// reason [`motion::apply_player_teleport_at`] is free: a counter can prove the *call site*
+    /// exists and can prove nothing at all about what the step does, so the step has to be
+    /// reachable by a test holding a real body and no device.
     pub(super) fn command_interpreter_control_transfer(&mut self, shell: &mut S) {
         // Counted before the call: this is the **call**, not the transfer.
         self.events.push(FrameEvent::ControlTransfer);
