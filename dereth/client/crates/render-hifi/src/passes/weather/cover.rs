@@ -5,8 +5,10 @@
 //! walks. Only the blocks' static geometry is drawn into it, never the landscape: the ground is
 //! what the rain falls on, not what shelters it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
+use crate::shared::static_feed::{DeviceCopy, LevelRuns};
 use crate::snapshot::{HifiFrame, HifiStaticBlock};
 
 /// The map's side, texels.
@@ -100,11 +102,13 @@ impl Placement {
 }
 
 /// The static geometry of one block that can shelter the ground: every solid batch drawn in the
-/// world (roofs, porches, walls, rocks), as positions, block-local, three per triangle; the
-/// landscape and cut-out leaves left out.
+/// world (roofs, porches, walls, rocks), as positions, block-local, three per triangle, every
+/// detail level of their objects, and how they lie by level; the landscape and cut-out leaves
+/// left out.
 #[must_use]
-pub fn shelter_positions(block: &HifiStaticBlock) -> Vec<f32> {
+pub fn shelter_positions(block: &HifiStaticBlock) -> (Vec<f32>, LevelRuns) {
     let mut out = Vec::new();
+    let mut runs = LevelRuns::default();
     for batch in &block.batches {
         // Leaves and other cut-out cards are left out: from above they are a scatter of
         // crossed cards whose outline would print on the ground as a hard-edged dry patch.
@@ -114,6 +118,7 @@ pub fn shelter_positions(block: &HifiStaticBlock) -> Vec<f32> {
         let stride = batch.format.stride() as usize;
         let count = batch.bytes.len() / stride;
         let usable = count - count % 3;
+        runs.batch(&batch.runs, u32::try_from(usable).unwrap_or(u32::MAX));
         for v in 0..usable {
             let at = v * stride;
             let f = |k: usize| {
@@ -123,15 +128,15 @@ pub fn shelter_positions(block: &HifiStaticBlock) -> Vec<f32> {
             out.extend_from_slice(&[f(0), f(1), f(2)]);
         }
     }
-    out
+    (out, runs)
 }
 
 #[derive(Debug)]
 struct Block {
     generation: u32,
-    buffer: Option<wgpu::Buffer>,
-    vertices: u32,
-    /// The buffer's size, bytes.
+    /// The geometry, and the vertices its objects' current detail levels draw.
+    copy: Option<DeviceCopy>,
+    /// The geometry's size, bytes.
     bytes: u64,
 }
 
@@ -150,12 +155,24 @@ struct Gpu {
 #[derive(Debug, Default)]
 pub struct CoverMap {
     blocks: HashMap<u16, Block>,
+    /// The detail level each object of a resident block stands at, as last handed over.
+    levels: HashMap<u16, Arc<Vec<u32>>>,
+    /// The blocks whose levels or geometry changed since their lists were made: listed when the
+    /// map is next drawn.
+    stale: HashSet<u16>,
+    /// How many times a block's drawn vertices have been listed, and how many times its list
+    /// was kept as the levels drew the same of it.
+    listed: (u64, u64),
     gpu: Option<Gpu>,
 }
 
 impl CoverMap {
     /// Take the frame's newly sent block geometry, and let go of blocks no longer resident.
     pub fn take_feed(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &HifiFrame) {
+        for l in &frame.static_levels {
+            self.levels.insert(l.block, Arc::clone(&l.levels));
+            self.stale.insert(l.block);
+        }
         for block in &frame.static_feed {
             if self
                 .blocks
@@ -164,38 +181,56 @@ impl CoverMap {
             {
                 continue;
             }
-            let positions = shelter_positions(block);
-            #[allow(clippy::cast_possible_truncation)] // a block's vertex count
-            let vertices = (positions.len() / 3) as u32;
-            let buffer = (!positions.is_empty()).then(|| {
-                let bytes: Vec<u8> = positions.iter().flat_map(|f| f.to_le_bytes()).collect();
-                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("weather shelter"),
-                    size: bytes.len() as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                queue.write_buffer(&buffer, 0, &bytes);
-                buffer
-            });
+            let (positions, runs) = shelter_positions(block);
+            let bytes: Vec<u8> = positions.iter().flat_map(|f| f.to_le_bytes()).collect();
             self.blocks.insert(
                 block.block,
                 Block {
                     generation: block.generation,
-                    buffer,
-                    vertices,
-                    bytes: positions.len() as u64 * 4,
+                    copy: DeviceCopy::new(
+                        device,
+                        queue,
+                        "weather shelter",
+                        &bytes,
+                        runs,
+                        wgpu::BufferUsages::empty(),
+                    ),
+                    bytes: bytes.len() as u64,
                 },
             );
+            self.stale.insert(block.block);
         }
         let resident = crate::shared::resident::ResidentBlocks::of(&frame.terrain);
         self.blocks.retain(|id, _| resident.holds(*id));
+        self.levels.retain(|id, _| resident.holds(*id));
+        self.stale.retain(|id| resident.holds(*id));
+    }
+
+    /// List the vertices the blocks changed since their lists were made draw at their levels.
+    fn select_stale(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for id in self.stale.drain() {
+            let levels = self.levels.get(&id).map_or(&[][..], |l| l.as_slice());
+            if let Some(copy) = self.blocks.get_mut(&id).and_then(|b| b.copy.as_mut()) {
+                if copy.select(device, queue, levels) {
+                    self.listed.0 += 1;
+                } else {
+                    self.listed.1 += 1;
+                }
+            }
+        }
+    }
+
+    /// How many times a block's drawn vertices have been listed, and how many times its list
+    /// was kept as the levels drew the same of it.
+    #[must_use]
+    pub fn listed(&self) -> (u64, u64) {
+        self.listed
     }
 
     /// Whether any block's geometry is held.
     #[must_use]
     pub fn holds_any(&self) -> bool {
-        self.blocks.values().any(|b| b.buffer.is_some())
+        self.blocks.values().any(|b| b.copy.is_some())
     }
 
     /// The video memory held: the geometry's copies, and the map once it has been drawn.
@@ -220,6 +255,7 @@ impl CoverMap {
         at: &Placement,
         timer: &mut crate::timing::GpuTimer,
     ) -> wgpu::TextureView {
+        self.select_stale(device, queue);
         let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device));
         let origins: HashMap<u16, glam::Vec3> =
             frame.terrain.iter().map(|t| (t.block, t.origin)).collect();
@@ -228,7 +264,7 @@ impl CoverMap {
             .iter()
             .filter_map(|(id, b)| {
                 let o = *origins.get(id)?;
-                (b.buffer.is_some() && at.overlaps(o)).then_some((b, o))
+                (b.copy.is_some() && at.overlaps(o)).then_some((b, o))
             })
             .collect();
         let needed = draws.len().max(1) as u64;
@@ -279,14 +315,13 @@ impl CoverMap {
             });
             pass.set_pipeline(&gpu.pipeline);
             for (k, (block, _)) in draws.iter().enumerate() {
-                let Some(buffer) = block.buffer.as_ref() else {
+                let Some(copy) = block.copy.as_ref() else {
                     continue;
                 };
                 #[allow(clippy::cast_possible_truncation)] // a few blocks' offsets
                 let offset = (k as u64 * STRIDE) as u32;
                 pass.set_bind_group(0, &gpu.bind, &[offset]);
-                pass.set_vertex_buffer(0, buffer.slice(..));
-                pass.draw(0..block.vertices, 0..1);
+                copy.draw(&mut pass, 0);
             }
         }
         gpu.view.clone()

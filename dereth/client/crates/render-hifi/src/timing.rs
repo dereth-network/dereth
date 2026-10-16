@@ -33,6 +33,43 @@ impl Timing {
     }
 }
 
+/// A CPU stopwatch, where the platform has a clock to read; it reads nought where it has none.
+#[derive(Debug, Clone, Copy)]
+pub struct Stopwatch {
+    #[cfg(not(target_arch = "wasm32"))]
+    started: std::time::Instant,
+}
+
+impl Stopwatch {
+    /// Start now.
+    #[must_use]
+    pub fn start() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            started: std::time::Instant::now(),
+        }
+    }
+
+    /// Milliseconds since the start.
+    #[must_use]
+    pub fn ms(&self) -> f32 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.started.elapsed().as_secs_f32() * 1000.0
+        }
+        #[cfg(target_arch = "wasm32")]
+        0.0
+    }
+}
+
+/// Add `ms` to `name`'s entry in `list`, making it when there is none.
+pub fn add_ms(list: &mut Vec<(&'static str, f32)>, name: &'static str, ms: f32) {
+    match list.iter_mut().find(|(n, _)| *n == name) {
+        Some((_, v)) => *v += ms,
+        None => list.push((name, ms)),
+    }
+}
+
 /// How many passes one frame can time.
 pub const MAX_TIMED: u32 = 32;
 

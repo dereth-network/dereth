@@ -282,7 +282,15 @@ impl SceneDraw {
         self.fold_object_counters(counters);
         done?;
         #[cfg(feature = "hifi")]
-        self.drawn_ground_step(ws, store, gpu);
+        {
+            let started = web_time::Instant::now();
+            self.drawn_ground_step(ws, store, gpu);
+            let costs = self.frame_costs.get();
+            self.frame_costs.set(FrameCosts {
+                drawn_ground: started.elapsed().as_secs_f32() * 1000.0,
+                ..costs
+            });
+        }
         self.stats.server_object_setups = self.object_meshes.len();
         // `server_object_batches` and `server_object_triangles` are what one
         // frame **draws**, so they are written by [`Self::refresh_part_levels`]. Seeded here

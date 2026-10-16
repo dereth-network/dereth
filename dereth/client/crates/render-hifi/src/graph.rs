@@ -128,6 +128,12 @@ pub trait HifiPass {
     /// not re-shaded (its world is drawn as recorded).
     fn planned(&mut self, _plan: Option<&crate::reshade::ReshadePlan>) {}
 
+    /// Whether the pass wants every block's retained geometry handed over again, having let it
+    /// go: asking clears it.
+    fn wants_feed_again(&mut self) -> bool {
+        false
+    }
+
     /// The GPU half, recorded at the pass's slot.
     ///
     /// # Errors

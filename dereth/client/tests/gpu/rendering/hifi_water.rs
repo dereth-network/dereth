@@ -1,6 +1,7 @@
 //! The water Better Lighting draws with an art pack's ground: it holds still while the game's
 //! clock is held, its ripples lying where the clock puts them; it is drawn only with the pack's
-//! ground (never with Retail Look), and its knob turns it off.
+//! ground (never with Retail Look), and its knob turns it off. Retail's water pictures' colors it is
+//! drawn with are worked out once for a ground, not again every frame.
 //!
 //! The pack is made in the test: a flat ground of its own color for each dry terrain type and
 //! none for the water, so the water's own color is retail's water picture's.
@@ -219,6 +220,39 @@ fn the_water_holds_still_while_the_clock_is_held_and_its_ripples_lie_where_the_c
     assert!(
         moved > 2_000,
         "only {moved} pixels of the water moved with the ripples' speed doubled"
+    );
+}
+
+/// The water's own color starts from retail's water pictures' mean colors: worked out for the
+/// pack's ground as the water is first drawn, and not again while the ground stays.
+#[test]
+fn retails_water_colors_are_worked_out_once_for_a_ground() {
+    let _gpu = crate::common::gpu_lock();
+    let pack = ground_pack();
+    let (mut device, mut shot) = opened(&holtburg_shore(), &pack, BOXES);
+    let gpu = &mut device;
+    let worked_out = |gpu: &Gpu| {
+        gpu.hifi_report()
+            .and_then(|r| {
+                r.notes
+                    .iter()
+                    .find(|(n, _)| *n == "retail water colors worked out")
+                    .map(|(_, v)| *v)
+            })
+            .expect("the water pass's note")
+    };
+    shot.step_held(gpu);
+    assert!(water_drawn(gpu), "the water is drawn");
+    let first = worked_out(gpu);
+    for _ in 0..10 {
+        shot.step_held(gpu);
+    }
+    assert!(water_drawn(gpu), "the water is drawn");
+    assert!(first >= 1, "worked out for the pack's ground");
+    assert_eq!(
+        worked_out(gpu),
+        first,
+        "worked out again for the same ground"
     );
 }
 

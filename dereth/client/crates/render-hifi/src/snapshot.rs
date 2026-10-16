@@ -31,8 +31,12 @@ pub struct HifiFrame {
     pub lamps: Vec<HifiLamp>,
     /// The resident landscape blocks.
     pub terrain: Vec<HifiTerrainBlock>,
-    /// Retained geometry of blocks whose contents changed since the last snapshot.
-    pub static_feed: Vec<HifiStaticBlock>,
+    /// Retained geometry of blocks whose contents changed since the last snapshot: every detail
+    /// level of their objects.
+    pub static_feed: Vec<Arc<HifiStaticBlock>>,
+    /// The detail level each object of a block stands at, for the blocks where any changed since
+    /// the last snapshot and the blocks whose retained geometry is sent with it.
+    pub static_levels: Vec<HifiBlockLevels>,
     /// The art pack whose models may be drawn in place of the objects they replace, while one
     /// is open.
     pub art_pack: Option<Arc<HifiArtPack>>,
@@ -601,7 +605,8 @@ impl Default for HifiTerrainBlock {
     }
 }
 
-/// The retained geometry of one block, sent when its contents change.
+/// The retained geometry of one block, sent when its contents change: every detail level of each
+/// object, the levels drawn chosen by the block's [`HifiBlockLevels`].
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HifiStaticBlock {
     /// The landblock id.
@@ -619,10 +624,13 @@ pub struct HifiStaticBlock {
 pub struct HifiStaticBatch {
     /// The vertex format.
     pub format: VertexFormat,
-    /// The vertex bytes.
+    /// The vertex bytes: every detail level of every object in the batch.
     pub bytes: Vec<u8>,
     /// The byte ranges of the batch's draws.
     pub ranges: Vec<Range<u32>>,
+    /// Which runs of the vertices are which object's detail level, in order; empty when the
+    /// whole batch is drawn whatever the levels.
+    pub runs: Vec<HifiLevelRun>,
     /// Whether the batch is cut out by its texture's alpha (tested or blended), as leaves are.
     pub cutout: bool,
     /// The texture slot it is drawn with, when it has one.
@@ -632,6 +640,45 @@ pub struct HifiStaticBatch {
     /// Whether it holds only objects the art pack has models for, which the pack's models stand
     /// in for while they are drawn.
     pub art_pack: bool,
+}
+
+/// A run of a static batch's vertices: one detail level of one object, or geometry drawn at every
+/// distance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HifiLevelRun {
+    /// The object, an index into its block's [`HifiBlockLevels::levels`]; [`HifiLevelRun::EVERY`]
+    /// for geometry no detail level governs.
+    pub object: u32,
+    /// The detail level the run is.
+    pub level: u32,
+    /// Its first vertex, and the vertex past its last.
+    pub start: u32,
+    pub end: u32,
+    /// Whether its vertices stand where the object stands: false for an object drawn as a card
+    /// turned to the eye, whose vertices are its own, never drawn from the retained geometry.
+    pub placed: bool,
+}
+
+impl HifiLevelRun {
+    /// [`HifiLevelRun::object`] for geometry drawn at every distance.
+    pub const EVERY: u32 = u32::MAX;
+
+    /// Whether the run is drawn while its block's objects stand at `levels`.
+    #[must_use]
+    pub fn drawn(&self, levels: &[u32]) -> bool {
+        self.placed
+            && (self.object == Self::EVERY
+                || levels.get(self.object as usize).copied() == Some(self.level))
+    }
+}
+
+/// The detail level each object of a block stands at.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HifiBlockLevels {
+    /// The landblock id.
+    pub block: u16,
+    /// Each object's level, by the index its runs name.
+    pub levels: Arc<Vec<u32>>,
 }
 
 /// An art pack as the presentation draws it: models for retail objects, each with its levels of

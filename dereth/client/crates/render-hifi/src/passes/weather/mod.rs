@@ -486,6 +486,9 @@ impl HifiPass for Weather {
         let (geometry, map) = self.cover.held_bytes();
         notes.push(("weather shelter geometry bytes", geometry));
         notes.push(("weather shelter map bytes", map));
+        let (listed, kept) = self.cover.listed();
+        notes.push(("weather shelter geometry listed", listed));
+        notes.push(("weather shelter geometry lists kept", kept));
         // How much falls and how much of it is snow, in thousandths.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0..1 to 0..1000
         let thousandths = |v: f32| (v.clamp(0.0, 1.0) * 1000.0).round() as u64;

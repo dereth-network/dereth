@@ -9,6 +9,7 @@
 #![cfg(gpu)]
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use dereth_assets::world::CellLandblock;
 use dereth_assets::Decode;
@@ -1386,6 +1387,31 @@ pub(crate) struct Shot {
     pub follow: Option<[f32; 4]>,
     /// What the player holds down each step: nothing unless an instrument walks the body.
     pub input: CharacterInput,
+    /// What the last step's parts took on the processor.
+    pub last: StepTimes,
+}
+
+/// What one step's parts took on the processor, milliseconds, in the order a step runs them.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct StepTimes {
+    /// The objects' sync: their geometry, positions and movement, and the drawn ground's upkeep.
+    pub sync: f64,
+    /// The world's simulation: physics, animation and the camera.
+    pub update: f64,
+    /// The landscape's streaming: the blocks built and baked.
+    pub stream: f64,
+    /// The frame's upload arena reserved.
+    pub reserve: f64,
+    /// The world drawn: the walk that records it and the snapshot for the presentation.
+    pub draw: f64,
+    /// The frame ended: the presentation's preparation and recording, the replays, the
+    /// submission.
+    pub end: f64,
+}
+
+/// Milliseconds since `t`.
+fn ms(t: Instant) -> f64 {
+    t.elapsed().as_secs_f64() * 1000.0
 }
 
 impl Shot {
@@ -1429,6 +1455,14 @@ impl Shot {
         };
         cfg.render.automatic_degrades = false;
         cfg.terrain_splat = splat;
+        // `DERETH_HIFI_STREAM_BUDGET_MS=<ms>`: the landscape built a few blocks a frame within that
+        // budget, as a connected client builds it (0 builds everything queued at once).
+        if let Some(ms) = std::env::var("DERETH_HIFI_STREAM_BUDGET_MS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+        {
+            cfg.stream_budget = (ms > 0).then(|| std::time::Duration::from_millis(ms));
+        }
         // `DERETH_HIFI_SCENERY_RADIUS=<blocks>`: the scenery drawn that far round the viewer's
         // block (0 for the bare ground).
         if let Some(r) = std::env::var("DERETH_HIFI_SCENERY_RADIUS")
@@ -1568,6 +1602,7 @@ impl Shot {
             front,
             follow: None,
             input: CharacterInput::default(),
+            last: StepTimes::default(),
         }
     }
 
@@ -1638,12 +1673,15 @@ impl Shot {
         let now = LocalTime(self.now);
         #[allow(clippy::cast_possible_truncation)] // a frame's seconds
         let dt = self.frame_seconds as f32;
+        let t = Instant::now();
         self.scene
             .sync_objects(&self.store, gpu, &mut self.stream)
             .expect("sync_objects");
         if let Some(c) = self.scene.character.as_mut() {
             self.stream.sync_physics_at(&self.store, &mut c.world, now);
         }
+        self.last.sync = ms(t);
+        let t = Instant::now();
         self.scene.update(
             dereth_client_runtime::camera::CameraInput::default(),
             self.input,
@@ -1673,7 +1711,10 @@ impl Shot {
             self.scene.camera.yaw = yaw;
             self.scene.camera.pitch = pitch;
         }
+        self.last.update = ms(t);
+        let t = Instant::now();
         self.scene.stream(&self.store, gpu).expect("stream");
+        self.last.stream = ms(t);
         self.draw(gpu);
     }
 
@@ -1743,12 +1784,79 @@ impl Shot {
 
     /// Draw the station again as it stands, without stepping it.
     pub(crate) fn draw(&mut self, gpu: &mut Gpu) {
+        let t = Instant::now();
         self.scene
             .reserve_upload_arena(gpu)
             .expect("reserve the arena");
         gpu.begin_frame().expect("begin");
+        self.last.reserve = ms(t);
+        let t = Instant::now();
         self.scene.draw(gpu).expect("draw");
+        self.last.draw = ms(t);
+        let t = Instant::now();
         gpu.end_frame().expect("end");
+        self.last.end = ms(t);
+    }
+
+    /// Create an object of `setup` moved by motion table `mtable`, `id` its own, standing on the
+    /// ground at block-local `(x, y)` of `block`, turned `heading` degrees, as the server would
+    /// create it, from the next step on.
+    pub(crate) fn create_object(
+        &mut self,
+        id: u32,
+        (setup, mtable): (u32, Option<u32>),
+        block: u16,
+        (x, y): (f32, f32),
+        heading: f32,
+    ) {
+        use dereth_protocol::types::{physicsdesc::flags, ObjDesc, PhysicsDesc, PublicWeenieDesc};
+        let region =
+            dereth_world_data::landblock::load_region(&self.store).expect("the region decodes");
+        let land =
+            dereth_world_data::land_source::DatLandSource::new(Arc::clone(&self.store), &region)
+                .expect("the land source opens");
+        let ground = land.ground_height(LandblockId(block), x, y).unwrap_or(0.0);
+        let r = heading.to_radians();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a block-local position, 0..192, to its outdoor cell's index
+        let cell = (u32::from(block) << 16) | ((x / 24.0) as u32 * 8 + (y / 24.0) as u32 + 1);
+        let payload = dereth_protocol::objects::ObjectCreatePayload {
+            id: dereth_primitives::ObjectId(id),
+            objdesc: ObjDesc::default(),
+            physicsdesc: PhysicsDesc {
+                bitfield: flags::POSITION
+                    | flags::SETUP
+                    | if mtable.is_some() { flags::MTABLE } else { 0 },
+                setup_id: Some(setup),
+                mtable_id: mtable,
+                state: 0,
+                position: Some(dereth_protocol::types::PositionWire {
+                    objcell_id: cell,
+                    frame: dereth_protocol::types::Frame {
+                        origin: Vec3::new(x, y, ground).into(),
+                        orientation: Quat::new(math::cosf(r * 0.5), 0.0, 0.0, math::sinf(r * 0.5))
+                            .into(),
+                    },
+                }),
+                timestamps: dereth_protocol::types::PhysicsTimestamps {
+                    instance: 1,
+                    ..dereth_protocol::types::PhysicsTimestamps::default()
+                },
+                ..PhysicsDesc::default()
+            },
+            wdesc: PublicWeenieDesc::default(),
+        };
+        let body =
+            dereth_protocol::write_body(&dereth_protocol::objects::ItemCreateObject(payload))
+                .expect("encode");
+        self.stream.apply_event(
+            &dereth_client_net::client_session::SessionEvent::WorldObject {
+                opcode: dereth_protocol::Opcode::ITEM_CREATE_OBJECT,
+                body,
+            },
+            LocalTime(self.now),
+        );
+        self.stream.world.update_visible_object_list();
     }
 
     /// Apply the scene's own preferences poll, as the application does once a frame.

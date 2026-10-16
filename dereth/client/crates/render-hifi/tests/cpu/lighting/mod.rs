@@ -10,3 +10,4 @@ mod ground;
 mod outdoor;
 mod point_lights;
 mod rooms;
+mod traced;

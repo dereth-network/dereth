@@ -146,6 +146,11 @@ pub struct Water {
     gpu: Option<Gpu>,
     /// Whether the water was drawn in the last frame.
     drawn: bool,
+    /// Retail's water pictures' mean colors, and the ground they were worked out for: they are
+    /// worked out again only for another ground.
+    hues: Option<(u64, [Vec3; 5])>,
+    /// How many times they have been worked out.
+    averaged: u64,
 }
 
 /// The pass.
@@ -542,6 +547,7 @@ impl HifiPass for Water {
 
     fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
         notes.push(("water drawn", u64::from(self.drawn)));
+        notes.push(("retail water colors worked out", self.averaged));
     }
 
     fn observe(&mut self, _cx: &mut PrepareCx<'_, '_>) {
@@ -621,7 +627,16 @@ impl HifiPass for Water {
             },
             |v| [v.x as f32, v.y as f32, v.width as f32, v.height as f32],
         );
-        let hues = retail_water(ground).map(|h| as_drawn(cx.frame, h));
+        let hues = match self.hues {
+            Some((serial, hues)) if serial == ground.serial => hues,
+            _ => {
+                let hues = retail_water(ground);
+                self.hues = Some((ground.serial, hues));
+                self.averaged += 1;
+                hues
+            }
+        }
+        .map(|h| as_drawn(cx.frame, h));
         let values = constants(
             cx.frame,
             &water,

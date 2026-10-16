@@ -755,6 +755,19 @@ pub struct CellStaticDrawStats {
     pub cells_reached_again: u32,
 }
 
+/// What the scene's own parts of the last frame took on the processor, milliseconds. See
+/// [`SceneDraw::frame_costs`].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FrameCosts {
+    /// The drawn ground's upkeep: its tuning, the near offsets worked out, the far trees, and the
+    /// blocks asked to bake again for it.
+    pub drawn_ground: f32,
+    /// The walk of the world that records the frame's draws.
+    pub walk: f32,
+    /// The snapshot handed to the high-fidelity presentation.
+    pub snapshot: f32,
+}
+
 /// Which submission of a cell's static batch a [`CellStaticRunDraw`] was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CellRunPass {
@@ -1387,6 +1400,8 @@ pub struct SceneDraw {
     /// How many land cells the last [`Self::draw`] made ready to draw a building's rooms in:
     /// the view, its screen polygon and the rooms' lights, worked out for each.
     frame_building_cells: std::cell::Cell<u32>,
+    /// What the scene's own parts of the last frame took on the processor.
+    pub(super) frame_costs: std::cell::Cell<FrameCosts>,
     /// Where the detail textures were last taken from ([`Self::detail_source_used`]).
     detail_from: DetailSource,
     /// The sky objects, and the clock that positions them.

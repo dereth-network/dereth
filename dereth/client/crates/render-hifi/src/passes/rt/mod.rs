@@ -2,19 +2,41 @@
 //!
 //! [`RtScene`] keeps one bottom-level acceleration structure per resident block (its landscape
 //! and opaque static geometry) and one per block for its cut-out surfaces (leaves), each built
-//! once per block generation, and a top-level structure over them rebuilt every frame. Cut-out
-//! surfaces are tested against their texture's alpha, kept in a small atlas.
+//! once per block generation, and a top-level structure over them, built again whenever the
+//! blocks it holds or where they stand change. Cut-out surfaces are tested against their
+//! texture's alpha, kept in a small atlas.
+//!
+//! Each object is traced at its finest detail level, whatever level it is drawn at, so a block's
+//! structures are built once for its contents and not again as its objects' levels change: a
+//! dungeon's whole level is one block, and building it again costs milliseconds.
+//!
+//! The scene is kept only while something traces through it: the lamps once they light, after
+//! dusk, and a room's own lights while the viewer is in a room. By day out of doors nothing does,
+//! and a while after the last frame that traced the structures are let go; the next frame that
+//! traces asks for every block's retained geometry again ([`RtScene::take_request`]).
 
 use std::collections::HashMap;
 
 use glam::Vec3;
 
+use crate::shared::static_feed::LevelRuns;
 use crate::HifiFrame;
 
 const ATLAS: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 const ATLAS_SIZE: u32 = 256;
 const ATLAS_LAYERS: u32 = 256;
 const MAX_INSTANCES: u32 = 4096;
+/// How many frames the scene is kept up to date after the last frame that traced through it,
+/// before it is let go: a second or two, so stepping in and out of a doorway by day keeps it.
+pub const KEEP_FRAMES: u32 = 120;
+
+/// Whether anything traces through the scene in `frame`: the lamps, once the sun is low enough
+/// for them to light and the frame has any, or a room's own lights, while the viewer is in a
+/// room.
+#[must_use]
+pub fn traces(frame: &HifiFrame) -> bool {
+    !frame.sky.outdoor || (crate::passes::lamps::night(frame) > 0.001 && !frame.lamps.is_empty())
+}
 
 fn floats(values: &[f32]) -> Vec<u8> {
     values.iter().flat_map(|v| v.to_le_bytes()).collect()
@@ -106,6 +128,8 @@ fn structure(
     Some(Structure { blas, geometries })
 }
 
+/// The positions of the vertices of `batch`, each object at its finest detail level, and their
+/// texture coordinates for a cut-out batch.
 fn batch_positions(batch: &crate::snapshot::HifiStaticBatch) -> (Vec<f32>, Vec<[f32; 2]>) {
     let stride = batch.format.stride() as usize;
     let count = batch.bytes.len() / stride;
@@ -115,9 +139,12 @@ fn batch_positions(batch: &crate::snapshot::HifiStaticBatch) -> (Vec<f32>, Vec<[
     } else {
         16
     };
-    let mut p = Vec::with_capacity(usable * 3);
-    let mut t = Vec::with_capacity(usable);
-    for v in 0..usable {
+    let mut runs = LevelRuns::default();
+    runs.batch(&batch.runs, u32::try_from(usable).unwrap_or(u32::MAX));
+    let drawn = runs.finest();
+    let mut p = Vec::with_capacity(drawn.len() * 3);
+    let mut t = Vec::with_capacity(drawn.len());
+    for v in drawn.into_iter().map(|v| v as usize) {
         let at = v * stride;
         p.extend_from_slice(&[
             read_f32(&batch.bytes, at),
@@ -278,6 +305,67 @@ pub struct RtScene {
     dirty: bool,
     /// Whether the structures are built for this frame.
     ready: bool,
+    /// Whether this frame traces through the scene.
+    tracing: bool,
+    /// Whether the scene is kept, frame by frame.
+    keeping: Keeping,
+    /// The top level's instances as it was last built: each block, its generation and where
+    /// it stands.
+    built_for: Vec<(u16, u32, [u32; 3])>,
+    /// How many bottom-level structures and how many top levels have been built.
+    builds: (u64, u64),
+}
+
+/// What the scene does with a frame's blocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// Take in the frame's new and changed blocks.
+    Take,
+    /// Let every structure go, and take nothing in.
+    LetGo,
+    /// Take nothing in: the structures are let go.
+    Skip,
+}
+
+/// Whether the scene is kept: from frame to frame, taking blocks in while anything traces through
+/// it and for [`KEEP_FRAMES`] after, then letting them go until a frame traces again, which asks
+/// for every block anew.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Keeping {
+    /// Frames since the last that traced.
+    idle: u32,
+    /// Whether the structures have been let go.
+    let_go: bool,
+    /// Whether every block's retained geometry is wanted again.
+    request: bool,
+}
+
+impl Keeping {
+    /// The next frame, `tracing` saying whether it traces: what to do with its blocks.
+    pub fn frame(&mut self, tracing: bool) -> Kept {
+        if tracing {
+            self.idle = 0;
+            if self.let_go {
+                self.let_go = false;
+                self.request = true;
+            }
+            return Kept::Take;
+        }
+        self.idle = self.idle.saturating_add(1);
+        match (self.let_go, self.idle > KEEP_FRAMES) {
+            (true, _) => Kept::Skip,
+            (false, true) => {
+                self.let_go = true;
+                Kept::LetGo
+            }
+            (false, false) => Kept::Take,
+        }
+    }
+
+    /// Whether every block's retained geometry is wanted again; asking clears it.
+    pub fn take_request(&mut self) -> bool {
+        std::mem::take(&mut self.request)
+    }
 }
 
 /// What a traced pass binds to trace the scene.
@@ -294,8 +382,31 @@ pub struct SceneBindings<'a> {
 }
 
 impl RtScene {
-    /// Takes in the frame's new or changed block geometry.
-    pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &HifiFrame) {
+    /// Takes in the frame's new or changed block geometry, `tracing` saying whether the frame
+    /// traces through the scene ([`traces`]). Once [`KEEP_FRAMES`] have passed without a frame
+    /// that does, the structures are let go and nothing is taken in; the next frame that traces
+    /// asks for every block again.
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: &HifiFrame,
+        tracing: bool,
+    ) {
+        self.tracing = tracing;
+        match self.keeping.frame(tracing) {
+            Kept::Take => {}
+            Kept::LetGo => {
+                self.blocks.clear();
+                self.tlas = None;
+                self.cut_buffers = None;
+                self.cut_bases.clear();
+                self.built_for.clear();
+                self.dirty = true;
+                return;
+            }
+            Kept::Skip => return,
+        }
         for block in &frame.static_feed {
             if self
                 .blocks
@@ -366,6 +477,19 @@ impl RtScene {
         }
     }
 
+    /// Whether every block's retained geometry is wanted again, for a scene built anew after it
+    /// was let go; asking clears it.
+    pub fn take_request(&mut self) -> bool {
+        self.keeping.take_request()
+    }
+
+    /// How many bottom-level structures and how many top levels have been built, and how many
+    /// blocks are held.
+    #[must_use]
+    pub fn counts(&self) -> (u64, u64, usize) {
+        (self.builds.0, self.builds.1, self.blocks.len())
+    }
+
     /// The scene's bindings, once [`Self::build`] has built it this frame.
     #[must_use]
     pub fn bindings(&self) -> Option<SceneBindings<'_>> {
@@ -384,7 +508,8 @@ impl RtScene {
     }
 
     /// Builds the frame's structures: new blocks' bottom levels, the alpha atlas, the cut table
-    /// and the top level. Returns whether there is a scene to trace.
+    /// and the top level, when the blocks or where they stand changed. Returns whether there is a
+    /// scene to trace: none in a frame that traces nothing.
     #[allow(clippy::too_many_lines)]
     pub fn build(
         &mut self,
@@ -395,7 +520,7 @@ impl RtScene {
         frame: &HifiFrame,
     ) -> bool {
         self.ready = false;
-        if self.blocks.is_empty() {
+        if !self.tracing || self.blocks.is_empty() {
             return false;
         }
         let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device));
@@ -511,6 +636,26 @@ impl RtScene {
         });
         let origins: HashMap<u16, Vec3> =
             frame.terrain.iter().map(|t| (t.block, t.origin)).collect();
+        // The instances the top level holds this frame: when they are the ones it was last built
+        // with, and no block's structure is new, it is traced as it stands.
+        let mut instances: Vec<(u16, u32, [u32; 3])> = self
+            .blocks
+            .iter()
+            .filter_map(|(id, b)| {
+                let o = origins.get(id)?;
+                Some((
+                    *id,
+                    b.generation,
+                    [o.x.to_bits(), o.y.to_bits(), o.z.to_bits()],
+                ))
+            })
+            .collect();
+        instances.sort_unstable();
+        let fresh = self.blocks.values().any(|b| !b.built);
+        if !fresh && !instances.is_empty() && instances == self.built_for {
+            self.ready = true;
+            return true;
+        }
         let mut n = 0usize;
         for (id, b) in &self.blocks {
             let Some(o) = origins.get(id) else { continue };
@@ -536,6 +681,7 @@ impl RtScene {
             tlas[i] = None;
         }
         if n == 0 {
+            self.built_for.clear();
             return false;
         }
         let mut entries = Vec::new();
@@ -561,11 +707,14 @@ impl RtScene {
                 });
             }
         }
+        self.builds.0 += entries.len() as u64;
+        self.builds.1 += 1;
         encoder.build_acceleration_structures(entries.iter(), std::iter::once(&*tlas));
         drop(entries);
         for b in self.blocks.values_mut() {
             b.built = true;
         }
+        self.built_for = instances;
         self.ready = true;
         true
     }

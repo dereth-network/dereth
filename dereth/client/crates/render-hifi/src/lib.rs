@@ -307,9 +307,16 @@ pub struct HifiRenderer {
     jittered_frames: HashMap<u32, u32>,
     /// An art pack's materials for retail pictures, and this frame's draws of them.
     materials: materials::Materials,
+    /// Each pass's CPU time preparing this frame, milliseconds.
+    cpu_prepare: Vec<(&'static str, f32)>,
+    /// Each pass's CPU time recording this frame, and the replays', milliseconds.
+    cpu_encode: Vec<(&'static str, f32)>,
     /// The size the world was last drawn at, pixels: the frame's, or a share of it at a render
     /// scale.
     drawn_size: (u32, u32),
+    /// How many frames a pass has let the blocks' retained geometry go on and wanted every
+    /// resident block's handed over again.
+    feed_requests: u64,
 }
 
 impl HifiRenderer {
@@ -337,7 +344,10 @@ impl HifiRenderer {
             jitter_count: 0,
             jittered_frames: HashMap::new(),
             materials: materials::Materials::default(),
+            cpu_prepare: Vec::new(),
+            cpu_encode: Vec::new(),
             drawn_size: (0, 0),
+            feed_requests: 0,
         }
     }
 
@@ -379,6 +389,14 @@ impl HifiRenderer {
     /// The last snapshot, handed back so its storage can be refilled for the next frame.
     pub fn recycle_frame(&mut self) -> Option<HifiFrame> {
         self.frame.take()
+    }
+
+    /// How many frames a pass has let the blocks' retained geometry go on and wanted every
+    /// resident block's handed over again: after a change of it, the snapshots send every
+    /// resident block's, whatever was sent before.
+    #[must_use]
+    pub fn feed_requests(&self) -> u64 {
+        self.feed_requests
     }
 
     /// The names of the passes this frame would run, in pass order.
@@ -585,11 +603,13 @@ impl HifiRenderer {
             .timer
             .as_mut()
             .ok_or(HifiError::NotReady("the frame was not prepared"))?;
+        let watch = timing::Stopwatch::start();
         let targets = Compositor::targets(cx, &mut self.resources)?;
         let rt = match &self.plan {
             Some(_) => Some(ReshadeTargets::new(cx, &mut self.resources)?),
             None => None,
         };
+        timing::add_ms(&mut self.cpu_encode, "targets", watch.ms());
         let mut colour = targets.colour.clone();
         // What the passes read: the depth each pixel sees, once a frame that stamps a building's
         // openings has had it worked out (see `composite`).
@@ -610,6 +630,7 @@ impl HifiRenderer {
             .zip(&self.wanted)
             .any(|((_, p), wanted)| *wanted && p.draws_ground());
         for slot in Slot::ORDER {
+            let watch = timing::Stopwatch::start();
             if matches!(slot, Slot::WorldReplay | Slot::AlphaReplay) {
                 let mut filters: Vec<&mut dyn ReplayFilter> = self
                     .graph
@@ -992,11 +1013,18 @@ impl HifiRenderer {
                     }
                     _ => {}
                 }
+                let name = if slot == Slot::WorldReplay {
+                    "world replay"
+                } else {
+                    "alpha replay"
+                };
+                timing::add_ms(&mut self.cpu_encode, name, watch.ms());
             }
             for ((s, pass), wanted) in self.graph.passes_mut().zip(&self.wanted) {
                 if s != slot || !*wanted {
                     continue;
                 }
+                let watch = timing::Stopwatch::start();
                 let mut ecx = EncodeCx {
                     seam: cx,
                     settings: &self.settings,
@@ -1013,6 +1041,7 @@ impl HifiRenderer {
                     pipelines: &self.pipelines,
                 };
                 pass.encode(&mut ecx)?;
+                timing::add_ms(&mut self.cpu_encode, pass.name(), watch.ms());
             }
             if slot == Slot::Hdr && !resolved {
                 if let Some(rt) = &rt {
@@ -1027,6 +1056,7 @@ impl HifiRenderer {
                 resolved = true;
             }
             if slot == Slot::Blit {
+                let watch = timing::Stopwatch::start();
                 let writes = timer.writes("composite");
                 enlarged = self.compositor.composite(
                     cx,
@@ -1049,6 +1079,7 @@ impl HifiRenderer {
                     &census,
                     target,
                 );
+                timing::add_ms(&mut self.cpu_encode, "composite", watch.ms());
             }
         }
         timer.resolve(encoder);
@@ -1071,6 +1102,8 @@ impl FrameSidecar for HifiRenderer {
         self.resources.begin_frame();
         self.wanted.clear();
         self.jittered_frames.clear();
+        self.cpu_prepare.clear();
+        self.cpu_encode.clear();
         // The frame's place in the anti-aliasing's jitter, set on its camera before any pass sees
         // it; nought when the anti-aliasing is not asked for.
         if let Some(frame) = self.frame.as_mut() {
@@ -1098,6 +1131,7 @@ impl FrameSidecar for HifiRenderer {
         }
         let mut failure = None;
         for (_, pass) in self.graph.passes_mut() {
+            let watch = timing::Stopwatch::start();
             pass.observe(&mut PrepareCx {
                 seam: cx,
                 settings: &self.settings,
@@ -1120,7 +1154,15 @@ impl FrameSidecar for HifiRenderer {
                     failure = Some(e);
                 }
             }
+            timing::add_ms(&mut self.cpu_prepare, pass.name(), watch.ms());
             self.wanted.push(wanted);
+        }
+        if self
+            .graph
+            .passes_mut()
+            .fold(false, |again, (_, pass)| pass.wants_feed_again() || again)
+        {
+            self.feed_requests += 1;
         }
         if let Some(e) = failure {
             return Err(self.fail(&e));
@@ -1137,6 +1179,7 @@ impl FrameSidecar for HifiRenderer {
         self.readiness = reshade::Readiness::default();
         self.recorded_draws = (0, 0);
         self.translucent_draws = 0;
+        let watch = timing::Stopwatch::start();
         if CompositeMode::for_settings(&self.settings) == CompositeMode::Reshade {
             if let Err(e) = self.prepare_reshade(cx) {
                 return Err(self.fail(&e));
@@ -1147,6 +1190,8 @@ impl FrameSidecar for HifiRenderer {
                 pass.planned(self.plan.as_ref());
             }
         }
+        timing::add_ms(&mut self.cpu_prepare, "re-shade plan", watch.ms());
+        let watch = timing::Stopwatch::start();
         // A re-shaded frame drawn with the anti-aliasing replays its world at the frame's jitter:
         // each block it was recorded with, as the passes' say hands it on, shifted.
         if let (Some(_), Some(frame)) = (&self.plan, self.frame.as_ref()) {
@@ -1166,6 +1211,7 @@ impl FrameSidecar for HifiRenderer {
                 );
             }
         }
+        timing::add_ms(&mut self.cpu_prepare, "jittered blocks", watch.ms());
         Ok(SidecarFrame::Composite)
     }
 
@@ -1204,6 +1250,8 @@ impl FrameSidecar for HifiRenderer {
         if let Some(t) = &self.timer {
             report.gpu_ms = t.last().passes.iter().map(|p| (p.name, p.gpu_ms)).collect();
         }
+        report.cpu_prepare.clone_from(&self.cpu_prepare);
+        report.cpu_encode.clone_from(&self.cpu_encode);
         report.waiting = u32::try_from(self.pipelines.waiting()).unwrap_or(u32::MAX);
         report
             .notes

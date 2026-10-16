@@ -23,11 +23,12 @@ use std::collections::HashMap;
 use dereth_client_runtime::render_prefs::{FidelityFeature, FidelityPreferences};
 use dereth_render_hifi::snapshot::HifiPackLight;
 use dereth_render_hifi::snapshot::{
-    AskedFall, HifiArtPack, HifiCamera, HifiDrawnGround, HifiFog, HifiFrame, HifiGround,
-    HifiGroundKnobs, HifiGroundMaterial, HifiGroundTile, HifiLamp, HifiLight, HifiMaterials,
-    HifiPackBlock, HifiPackImage, HifiPackLod, HifiPackMaterial, HifiPackModel, HifiPackPlacement,
-    HifiPackPrimitive, HifiSky, HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch,
-    HifiStaticBlock, HifiTerrainBlock, HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
+    AskedFall, HifiArtPack, HifiBlockLevels, HifiCamera, HifiDrawnGround, HifiFog, HifiFrame,
+    HifiGround, HifiGroundKnobs, HifiGroundMaterial, HifiGroundTile, HifiLamp, HifiLevelRun,
+    HifiLight, HifiMaterials, HifiPackBlock, HifiPackImage, HifiPackLod, HifiPackMaterial,
+    HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyObject,
+    HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock, HifiTextureMaterial,
+    HifiWater, HifiWorldGround, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
 use dereth_terrain::land::drawn::{Knob, Knobs};
@@ -40,14 +41,19 @@ const FEED_BYTES_PER_FRAME: usize = 4 << 20;
 
 /// What the bridge remembers between frames: the preferences and the device's ray queries it
 /// last applied, the scene's clock at its last step, the previous frame's camera, and, for each
-/// block whose geometry the presentation holds, the block's generation and the detail levels its
-/// objects stood at when it was sent.
+/// block whose geometry the presentation holds, the block's generation it was sent at and the
+/// detail levels its objects last stood at.
 #[derive(Debug, Default)]
 pub(crate) struct Shadow {
     applied: Option<(FidelityPreferences, bool)>,
     pub(super) now: f64,
     previous_view_projection: Option<glam::Mat4>,
-    sent: HashMap<u16, (u32, u32)>,
+    sent: HashMap<u16, u32>,
+    /// For each block whose detail levels the presentation holds, those levels as one number.
+    sent_levels: HashMap<u16, u32>,
+    /// How many times the presentation had asked for every block's geometry again when it was
+    /// last sent every block's.
+    feed_requests: u64,
     /// The art pack as the presentation draws it, made once per pack (by its serial).
     pack: Option<(u64, std::sync::Arc<HifiArtPack>)>,
     /// The art pack's materials for retail pictures as the presentation draws them, made once
@@ -300,37 +306,67 @@ fn pack_for_presentation(
     }
 }
 
-/// The vertices of `batch` the scene draws at the detail levels it chose for its objects: the
-/// whole batch where nothing in it changes level, otherwise each object's chosen level alone. An
-/// object drawn as a card turned to the eye is left out, as is every level the scene does not
-/// draw: what the presentation shades and casts shadows with is what the frame shows.
-fn drawn_vertices(batch: &super::StaticBatch, placements: &[super::DegradePlacement]) -> Vec<u8> {
-    if batch.chunks.is_empty() {
-        return batch.vertices.clone();
-    }
-    let mut out = Vec::new();
-    for c in &batch.chunks {
-        let drawn = if c.placement == super::NO_PLACEMENT {
-            true
-        } else {
-            placements
-                .get(c.placement as usize)
-                .is_some_and(|p| p.level == c.level && !p.billboards)
-        };
-        if drawn {
-            if let Some(v) = batch.vertices.get(c.start as usize..c.end as usize) {
-                out.extend_from_slice(v);
+/// `batch` as the presentation keeps it: every detail level of every object in it, and which
+/// runs of its vertices are which object's level, its objects numbered from `first` in its
+/// block's detail levels ([`block_levels`]). An object drawn as a card turned to the eye has its
+/// vertices baked as its own, not where it stands, and its runs are marked so: the presentation
+/// never draws them.
+fn retained_batch(
+    batch: &super::StaticBatch,
+    placements: &[super::DegradePlacement],
+    first: u32,
+) -> HifiStaticBatch {
+    let stride = batch.key.vertex_format.stride().max(1);
+    let runs = batch
+        .chunks
+        .iter()
+        .map(|c| {
+            let every = c.placement == super::NO_PLACEMENT;
+            HifiLevelRun {
+                object: if every {
+                    HifiLevelRun::EVERY
+                } else {
+                    first + c.placement
+                },
+                level: c.level,
+                start: c.start / stride,
+                end: c.end / stride,
+                placed: every
+                    || placements
+                        .get(c.placement as usize)
+                        .is_some_and(|p| !p.billboards),
             }
-        }
+        })
+        .collect();
+    HifiStaticBatch {
+        format: batch.key.vertex_format,
+        ranges: std::iter::once(0..u32::try_from(batch.vertices.len()).unwrap_or(u32::MAX))
+            .collect(),
+        bytes: batch.vertices.clone(),
+        runs,
+        cutout: batch.key.alpha_blend || batch.key.alpha_test,
+        texture: batch.texture.map(|t| t.0),
+        alpha_ref: batch.alpha_ref,
+        art_pack: batch.art_pack,
     }
-    out
 }
 
-/// The detail levels a block's objects stand at, as one number: it changes when any of them does.
-fn levels_key(placements: &[super::DegradePlacement]) -> u32 {
-    placements.iter().fold(0x811C_9DC5u32, |h, p| {
-        (h ^ p.level).wrapping_mul(0x0100_0193)
-    })
+/// The detail level each object of `block` stands at, as the presentation numbers them: the
+/// block's own objects, then each room's in turn.
+fn block_levels(block: &super::BlockDraw) -> Vec<u32> {
+    block
+        .degrade
+        .iter()
+        .chain(block.env_cells.iter().flat_map(|c| &c.degrade))
+        .map(|p| p.level)
+        .collect()
+}
+
+/// `levels` as one number: it changes when any of them does.
+fn levels_key(levels: &[u32]) -> u32 {
+    levels
+        .iter()
+        .fold(0x811C_9DC5u32, |h, l| (h ^ l).wrapping_mul(0x0100_0193))
 }
 
 // --- the drawn ground ------------------------------------------------------------------
@@ -651,6 +687,7 @@ pub(super) fn apply_preferences(
     }
     // A new start: the presentation's retained copies go with its old settings.
     sh.sent.clear();
+    sh.sent_levels.clear();
     sh.sent_pack.clear();
     sh.previous_view_projection = None;
     let wanted = settings(prefs, rays);
@@ -719,6 +756,13 @@ pub(super) fn publish(draw: &SceneDraw, sh: &mut Shadow, ws: &WorldState, gpu: &
     }
     let stamp = gpu.frame_stamp();
     let (width, height) = gpu.size();
+    // A presentation that let the blocks' retained geometry go is sent every block's again.
+    let asked = renderer(gpu).map_or(sh.feed_requests, |r| r.feed_requests());
+    if asked != sh.feed_requests {
+        sh.feed_requests = asked;
+        sh.sent.clear();
+        sh.sent_levels.clear();
+    }
     let reuse = renderer(gpu).and_then(HifiRenderer::recycle_frame);
     let mut frame = snapshot(draw, ws, stamp, (width, height), sh, reuse);
     // The slots holding the retail pictures the pack's materials stand for, as they are now.
@@ -1066,6 +1110,7 @@ fn snapshot(
     // --- the landscape ---------------------------------------------------------------------
     frame.terrain.clear();
     frame.static_feed.clear();
+    frame.static_levels.clear();
     let window = &ws.streamer.window;
     let mid = window.mid_width();
     let centre = i64::from(mid / 2);
@@ -1130,35 +1175,45 @@ fn snapshot(
                 generation: block.hifi_generation,
                 layers,
             });
-            // The retained geometry, once per block contents and detail levels, a few megabytes
-            // a frame at most.
-            let levels = levels_key(&block.degrade);
-            let key = (block.hifi_generation, levels);
-            if sh.sent.get(&id) == Some(&key) || feed_bytes > FEED_BYTES_PER_FRAME {
+            // The retained geometry, once per block contents, a few megabytes a frame at most;
+            // and the level each of its objects stands at, whenever any changes.
+            let levels = block_levels(block);
+            let key = levels_key(&levels);
+            let content = sh.sent.get(&id) != Some(&block.hifi_generation)
+                && feed_bytes <= FEED_BYTES_PER_FRAME;
+            if content || sh.sent_levels.get(&id) != Some(&key) {
+                frame.static_levels.push(HifiBlockLevels {
+                    block: id,
+                    levels: Arc::new(levels),
+                });
+                sh.sent_levels.insert(id, key);
+            }
+            if !content {
                 continue;
             }
-            let statics = block
+            let mut first = 0u32;
+            let mut objects = |placements: &[super::DegradePlacement]| {
+                let at = first;
+                first += u32::try_from(placements.len()).unwrap_or(u32::MAX);
+                at
+            };
+            let own = objects(&block.degrade);
+            let mut statics: Vec<HifiStaticBatch> = block
                 .opaque
                 .iter()
                 .chain(&block.blended)
-                .map(|b| (b, drawn_vertices(b, &block.degrade)))
-                .chain(block.env_cells.iter().flat_map(|c| {
+                .map(|b| retained_batch(b, &block.degrade, own))
+                .collect();
+            for c in &block.env_cells {
+                let at = objects(&c.degrade);
+                statics.extend(
                     c.statics
                         .iter()
                         .chain(&c.statics_blended)
-                        .map(|b| (b, drawn_vertices(b, &c.degrade)))
-                }))
-                .filter(|(_, v)| !v.is_empty())
-                .map(|(b, bytes)| HifiStaticBatch {
-                    format: b.key.vertex_format,
-                    ranges: std::iter::once(0..u32::try_from(bytes.len()).unwrap_or(u32::MAX))
-                        .collect(),
-                    bytes,
-                    cutout: b.key.alpha_blend || b.key.alpha_test,
-                    texture: b.texture.map(|t| t.0),
-                    alpha_ref: b.alpha_ref,
-                    art_pack: b.art_pack,
-                });
+                        .map(|b| retained_batch(b, &c.degrade, at)),
+                );
+            }
+            let statics = statics.into_iter().filter(|b| !b.bytes.is_empty());
             // The buildings' rooms too, and what stands in them: a doorway's lintel and a
             // porch's roof are a room's geometry, and the sun is shut out by them as by the
             // walls outside, and so are the lamps.
@@ -1172,6 +1227,7 @@ fn snapshot(
                     ranges: std::iter::once(0..u32::try_from(m.vertices.len()).unwrap_or(u32::MAX))
                         .collect(),
                     bytes: m.vertices.clone(),
+                    runs: Vec::new(),
                     cutout: m.key.alpha_blend || m.key.alpha_test,
                     texture: m.texture.map(|t| t.0),
                     alpha_ref: m.alpha_ref,
@@ -1198,18 +1254,18 @@ fn snapshot(
             }
             feed_bytes +=
                 batches.iter().map(|b| b.bytes.len()).sum::<usize>() + terrain_triangles.len() * 36;
-            frame.static_feed.push(HifiStaticBlock {
+            frame.static_feed.push(Arc::new(HifiStaticBlock {
                 block: id,
-                // The presentation keeps a block's copy until this changes: with the contents,
-                // or with any object's detail level.
-                generation: block.hifi_generation.wrapping_mul(0x9E37_79B9) ^ levels,
+                // The presentation keeps a block's copy until its contents change.
+                generation: block.hifi_generation,
                 batches,
                 terrain_triangles,
-            });
-            sh.sent.insert(id, key);
+            }));
+            sh.sent.insert(id, block.hifi_generation);
         }
     }
     sh.sent.retain(|id, _| resident.contains(id));
+    sh.sent_levels.retain(|id, _| resident.contains(id));
     sh.ground_cells.retain(|id, _| resident.contains(id));
 
     frame

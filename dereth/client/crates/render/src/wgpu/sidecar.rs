@@ -307,10 +307,52 @@ pub struct SidecarReport {
     pub gpu_ms: Vec<(&'static str, f32)>,
     /// The CPU time the sidecar took in the frame, milliseconds.
     pub cpu_ms: f32,
+    /// The parts of [`Self::cpu_ms`], milliseconds, by name: the frame's steps (`tables`,
+    /// `prepare`, `encode`, `submit`).
+    pub cpu_steps: Vec<(&'static str, f32)>,
+    /// Each pass's CPU time preparing the frame (uploads and constants), milliseconds.
+    pub cpu_prepare: Vec<(&'static str, f32)>,
+    /// Each pass's CPU time recording its GPU work, milliseconds, and the replays' of the
+    /// recorded world.
+    pub cpu_encode: Vec<(&'static str, f32)>,
     /// How many pieces of background work (pipeline builds) the sidecar is still waiting for.
     pub waiting: u32,
     /// Whatever else the sidecar counted about the frame, by name.
     pub notes: Vec<(&'static str, u64)>,
+}
+
+/// A frame's steps timed one after another, where the platform has a clock to time them by.
+#[derive(Debug)]
+pub struct Laps {
+    #[cfg(not(target_arch = "wasm32"))]
+    mark: std::time::Instant,
+    /// Each step's milliseconds, in order.
+    pub steps: Vec<(&'static str, f32)>,
+}
+
+impl Laps {
+    /// Start timing now.
+    #[must_use]
+    pub fn start() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            mark: std::time::Instant::now(),
+            steps: Vec::new(),
+        }
+    }
+
+    /// End the step `name` now, and start the next.
+    pub fn lap(&mut self, name: &'static str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = std::time::Instant::now();
+            self.steps
+                .push((name, now.duration_since(self.mark).as_secs_f32() * 1000.0));
+            self.mark = now;
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = name;
+    }
 }
 
 /// The blend the ordinary pipeline of `key` draws with, `None` for a draw that does not blend.
@@ -1385,6 +1427,7 @@ impl Gpu {
         };
         #[cfg(not(target_arch = "wasm32"))]
         let started = std::time::Instant::now();
+        let mut laps = Laps::start();
         // A frame that drew no world is drawn the ordinary way, and needs no notes.
         if installed
             .marks
@@ -1397,6 +1440,7 @@ impl Gpu {
             installed.tables.clear();
             installed.marks.get_mut().clear();
         }
+        laps.lap("tables");
         let (fw, fh) = self.size;
         let full = Viewport {
             x: 0,
@@ -1469,10 +1513,12 @@ impl Gpu {
                 installed.sidecar.prepare(&mut cx)
             }
         };
+        laps.lap("prepare");
 
         // The arenas, with whatever the sidecar appended after the recorded constants.
         let vertex_buffer = self.vertex_buffer_for_frame();
         let (uniform_buffer, uniform_bind) = self.uniform_buffer_for_frame();
+        laps.lap("arenas");
         // A browser cannot wait for the device's verdict, so there it is never revised.
         #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut outcome = match prepared {
@@ -1518,7 +1564,9 @@ impl Gpu {
                     census: Census::default(),
                     passes: 0,
                 };
-                match installed.sidecar.encode(&mut cx, &mut encoder, view) {
+                let encoded = installed.sidecar.encode(&mut cx, &mut encoder, view);
+                laps.lap("encode");
+                match encoded {
                     Err(e) => Outcome::Failed(e.0),
                     Ok(()) => {
                         census = cx.census;
@@ -1565,17 +1613,20 @@ impl Gpu {
                                 false,
                             );
                         }
+                        laps.lap("interface");
                         Outcome::Composited(encoder.finish())
                     }
                 }
             }
         };
+        laps.lap("finish");
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(e) = pollster::block_on(scope.pop()) {
             if !matches!(outcome, Outcome::Failed(_)) {
                 outcome = Outcome::Failed(format!("the device refused a step: {e}"));
             }
         }
+        laps.lap("validation");
 
         let composited = matches!(outcome, Outcome::Composited(_));
         let mut failed = None;
@@ -1643,6 +1694,7 @@ impl Gpu {
                 encoder.finish()
             }
         };
+        laps.lap("plain replay");
         #[cfg(feature = "test-support")]
         {
             self.passes_encoded += 1 + u64::from(sidecar_passes) * u64::from(composited);
@@ -1654,6 +1706,7 @@ impl Gpu {
             self.queue.present(t);
             self.last_present_sync_interval = self.surface_interval();
         }
+        laps.lap("submit");
         self.frame_stamp += 1;
         self.uniform_arena.truncate(recorded_uniform_len);
         if let Some(why) = failed {
@@ -1670,6 +1723,7 @@ impl Gpu {
         let mut report = SidecarReport {
             composited,
             census,
+            cpu_steps: laps.steps,
             ..SidecarReport::default()
         };
         #[cfg(not(target_arch = "wasm32"))]

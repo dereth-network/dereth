@@ -15,13 +15,15 @@
 pub mod cells;
 pub mod derive;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::shared::fullscreen::COLOUR_WGSL;
+use crate::shared::static_feed::{DeviceCopy, LevelRuns};
 use crate::{Caps, DebugView, HifiError, HifiFrame, HifiSettings, Level};
 
 const SHADOW_WGSL: &str = include_str!("shadow.wgsl");
@@ -385,21 +387,43 @@ const ADJUSTING_OUTDOORS: f32 = 3.0;
 /// seconds; after a longer one it takes the frame's exposure at once.
 const ADAPTATION_KEPT: f32 = 0.5;
 
-/// The retained shadow geometry of one block.
+/// The retained shadow geometry of one block: every detail level of its objects, and the lists
+/// of the vertices its objects' current levels draw.
 #[derive(Debug)]
 struct CasterBlock {
     generation: u32,
-    buffer: Option<wgpu::Buffer>,
-    vertices: u32,
-    /// How many of `vertices`, first, are the landscape's: left out while the drawn ground casts
-    /// in their place.
+    /// The landscape and the objects an art pack has no models for.
+    opaque: Option<DeviceCopy>,
+    /// How many of the opaque copy's drawn vertices, first, are the landscape's: left out while
+    /// the drawn ground casts in their place.
     landscape: u32,
     /// The objects an art pack has models for, apart: they cast no shadow while the pack's
     /// models are drawn in their place.
-    covered: Option<(wgpu::Buffer, u32)>,
+    covered: Option<DeviceCopy>,
     /// Cut-out batches: positions and texture coordinates, the texture slot, and whether the
     /// batch holds objects an art pack has models for.
-    cutouts: Vec<(wgpu::Buffer, u32, u32, bool)>,
+    cutouts: Vec<(DeviceCopy, u32, bool)>,
+}
+
+impl CasterBlock {
+    /// List the vertices each copy draws while the block's objects stand at `levels`: how many
+    /// copies' lists were made again, and how many were kept as they were.
+    fn select(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, levels: &[u32]) -> (u64, u64) {
+        let mut out = (0, 0);
+        for copy in self
+            .opaque
+            .iter_mut()
+            .chain(self.covered.iter_mut())
+            .chain(self.cutouts.iter_mut().map(|(c, _, _)| c))
+        {
+            if copy.select(device, queue, levels) {
+                out.0 += 1;
+            } else {
+                out.1 += 1;
+            }
+        }
+        out
+    }
 }
 
 /// Where a vertex format's first texture coordinates sit, bytes.
@@ -415,12 +439,15 @@ fn read_f32(bytes: &[u8], at: usize) -> f32 {
     f32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
 
-/// A cut-out batch's positions and texture coordinates, five floats a vertex.
-fn cutout_vertices(batch: &crate::snapshot::HifiStaticBatch) -> Vec<f32> {
+/// A cut-out batch's positions and texture coordinates, five floats a vertex, every detail level
+/// of its objects, and how they lie by level.
+fn cutout_vertices(batch: &crate::snapshot::HifiStaticBatch) -> (Vec<f32>, LevelRuns) {
     let stride = batch.format.stride() as usize;
     let count = batch.bytes.len() / stride;
     let usable = count - count % 3;
     let uv = uv_offset(batch.format);
+    let mut runs = LevelRuns::default();
+    runs.batch(&batch.runs, u32::try_from(usable).unwrap_or(u32::MAX));
     let mut out = Vec::with_capacity(usable * 5);
     for v in 0..usable {
         let at = v * stride;
@@ -432,20 +459,25 @@ fn cutout_vertices(batch: &crate::snapshot::HifiStaticBatch) -> Vec<f32> {
             read_f32(&batch.bytes, at + uv + 4),
         ]);
     }
-    out
+    (out, runs)
 }
 
 /// The vertex positions of a block's retained geometry, block-local, three per triangle: the
 /// landscape and the batches that are not of objects an art pack has models for, or (`covered`)
-/// those batches alone.
-fn caster_positions(block: &crate::snapshot::HifiStaticBlock, covered: bool) -> Vec<f32> {
+/// those batches alone; every detail level of their objects, and how they lie by level.
+fn caster_positions(
+    block: &crate::snapshot::HifiStaticBlock,
+    covered: bool,
+) -> (Vec<f32>, LevelRuns) {
     let mut out = Vec::with_capacity(block.terrain_triangles.len() * 9);
+    let mut runs = LevelRuns::default();
     if !covered {
         for t in &block.terrain_triangles {
             for p in t {
                 out.extend_from_slice(&[p.x, p.y, p.z]);
             }
         }
+        runs.every(u32::try_from(block.terrain_triangles.len() * 3).unwrap_or(u32::MAX));
     }
     for batch in &block.batches {
         if batch.format.is_pre_transformed()
@@ -457,6 +489,7 @@ fn caster_positions(block: &crate::snapshot::HifiStaticBlock, covered: bool) -> 
         let stride = batch.format.stride() as usize;
         let count = batch.bytes.len() / stride;
         let usable = count - count % 3;
+        runs.batch(&batch.runs, u32::try_from(usable).unwrap_or(u32::MAX));
         for v in 0..usable {
             let at = v * stride;
             let f = |k: usize| {
@@ -466,7 +499,7 @@ fn caster_positions(block: &crate::snapshot::HifiStaticBlock, covered: bool) -> 
             out.extend_from_slice(&[f(0), f(1), f(2)]);
         }
     }
-    out
+    (out, runs)
 }
 
 #[derive(Debug)]
@@ -968,6 +1001,20 @@ pub struct Lighting {
     drawn: Option<crate::passes::drawn::DrawnCasters>,
     gpu: Option<LightingGpu>,
     blocks: HashMap<u16, CasterBlock>,
+    /// The detail level each object of a resident block stands at, as last handed over.
+    levels: HashMap<u16, Arc<Vec<u32>>>,
+    /// The blocks whose levels or geometry changed since their lists were made: listed on the
+    /// next frame that casts the sun's shadows.
+    stale: HashSet<u16>,
+    /// How many blocks' shadow geometry has been copied to the device, how many times a copy's
+    /// drawn vertices have been listed, how many times a copy's list was kept as the levels drew
+    /// the same of it, and how many changes of a block's levels have been handed over.
+    copies: (u64, u64, u64, u64),
+    /// The leaves' pictures as the cut-out shadow casters bind them, by texture slot, with the
+    /// texture each was made for.
+    leaves: HashMap<u32, (wgpu::Texture, wgpu::BindGroup)>,
+    /// How many of those have been made.
+    leaves_made: u64,
     /// Whether this frame steps indoors: the pass then leaves it as re-shaded.
     split: bool,
     /// The last frame's sun shadows: the blocks drawn into the cascades, a block counted once for
@@ -1049,6 +1096,19 @@ impl HifiPass for Lighting {
         notes.push(("room lights walked", self.cells.walked() as u64));
         notes.push(("sun shadow cascade blocks drawn", self.cascade_blocks.0));
         notes.push(("sun shadow blocks held", self.cascade_blocks.1));
+        notes.push(("shadow geometry copied", self.copies.0));
+        notes.push(("shadow geometry listed", self.copies.1));
+        notes.push(("shadow geometry lists kept", self.copies.2));
+        notes.push(("detail levels handed over", self.copies.3));
+        notes.push(("leaf shadow pictures bound", self.leaves_made));
+        let (structures, top_levels, blocks) = self.rt.counts();
+        notes.push(("traced structures built", structures));
+        notes.push(("traced top levels built", top_levels));
+        notes.push(("traced blocks held", blocks as u64));
+    }
+
+    fn wants_feed_again(&mut self) -> bool {
+        self.rt.take_request()
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
@@ -1078,6 +1138,14 @@ impl HifiPass for Lighting {
             crate::reshade::ReshadePlan::new(cx.seam.tables()).is_some_and(|p| p.is_split());
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
+        // The blocks whose drawn vertices are listed again: those whose objects' levels changed,
+        // and those whose geometry is new. They are listed only for a frame that casts the sun's
+        // shadows: indoors, by night, or with the shadows off, they wait.
+        for l in &frame.static_levels {
+            self.levels.insert(l.block, Arc::clone(&l.levels));
+            self.stale.insert(l.block);
+            self.copies.3 += 1;
+        }
         for block in &frame.static_feed {
             if self
                 .blocks
@@ -1086,55 +1154,57 @@ impl HifiPass for Lighting {
             {
                 continue;
             }
-            let upload = |data: &[f32]| {
-                let bytes = floats(data);
-                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("high-fidelity shadow casters"),
-                    size: bytes.len() as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                queue.write_buffer(&buffer, 0, &bytes);
-                buffer
+            let copy = |(data, runs): (Vec<f32>, LevelRuns)| {
+                DeviceCopy::new(
+                    &device,
+                    &queue,
+                    "high-fidelity shadow casters",
+                    &floats(&data),
+                    runs,
+                    wgpu::BufferUsages::empty(),
+                )
             };
-            let positions = caster_positions(block, false);
-            #[allow(clippy::cast_possible_truncation)]
-            let vertices = (positions.len() / 3) as u32;
             #[allow(clippy::cast_possible_truncation)]
             let landscape = (block.terrain_triangles.len() * 3) as u32;
-            let buffer = (!positions.is_empty()).then(|| upload(&positions));
-            let covered = caster_positions(block, true);
-            #[allow(clippy::cast_possible_truncation)]
-            let covered =
-                (!covered.is_empty()).then(|| (upload(&covered), (covered.len() / 3) as u32));
             let cutouts = block
                 .batches
                 .iter()
                 .filter(|b| b.cutout && !b.format.is_pre_transformed())
                 .filter_map(|b| {
                     let slot = b.texture?;
-                    let v = cutout_vertices(b);
-                    #[allow(clippy::cast_possible_truncation)]
-                    let n = (v.len() / 5) as u32;
-                    (n > 0).then(|| (upload(&v), n, slot, b.art_pack))
+                    Some((copy(cutout_vertices(b))?, slot, b.art_pack))
                 })
                 .collect();
             self.blocks.insert(
                 block.block,
                 CasterBlock {
                     generation: block.generation,
-                    buffer,
-                    vertices,
-                    landscape: landscape.min(vertices),
-                    covered,
+                    opaque: copy(caster_positions(block, false)),
+                    landscape,
+                    covered: copy(caster_positions(block, true)),
                     cutouts,
                 },
             );
+            self.copies.0 += 1;
+            self.stale.insert(block.block);
+        }
+        if shadows_wanted(cx.settings) && sun_up(frame) {
+            for id in self.stale.drain() {
+                if let Some(b) = self.blocks.get_mut(&id) {
+                    let levels = self.levels.get(&id).map_or(&[][..], |l| l.as_slice());
+                    let (listed, kept) = b.select(&device, &queue, levels);
+                    self.copies.1 += listed;
+                    self.copies.2 += kept;
+                }
+            }
         }
         let resident = crate::shared::resident::ResidentBlocks::of(&frame.terrain);
         self.blocks.retain(|id, _| resident.holds(*id));
+        self.levels.retain(|id, _| resident.holds(*id));
+        self.stale.retain(|id| resident.holds(*id));
         if crate::passes::lamps::LampLight::wanted(cx.settings.lamps, cx.caps.ray_query) {
-            self.rt.prepare(&device, &queue, frame);
+            self.rt
+                .prepare(&device, &queue, frame, crate::passes::rt::traces(frame));
         }
         Ok(())
     }
@@ -1259,18 +1329,24 @@ impl HifiPass for Lighting {
             if let Some(d) = drawn {
                 d.prepare(&queue, &cas.matrices);
             }
-            let mut leaves: HashMap<u32, wgpu::BindGroup> = HashMap::new();
+            // The leaves' pictures as the cut-out casters bind them, kept from frame to frame while
+            // their slots hold the same textures.
+            let mut used: Vec<u32> = Vec::new();
             for ((block, _), block_slots) in draws.iter().zip(&slots) {
                 if block_slots.iter().all(Option::is_none) {
                     continue;
                 }
-                for (_, _, slot, _) in &block.cutouts {
-                    if leaves.contains_key(slot) {
+                for (_, slot, _) in &block.cutouts {
+                    if used.contains(slot) {
                         continue;
                     }
+                    used.push(*slot);
                     let Some(t) = cx.seam.texture(dereth_render::device::TextureSlot(*slot)) else {
                         continue;
                     };
+                    if self.leaves.get(slot).is_some_and(|(held, _)| held == t) {
+                        continue;
+                    }
                     let view = t.create_view(&wgpu::TextureViewDescriptor {
                         dimension: Some(wgpu::TextureViewDimension::D2),
                         base_array_layer: 0,
@@ -1291,9 +1367,11 @@ impl HifiPass for Lighting {
                             },
                         ],
                     });
-                    leaves.insert(*slot, bg);
+                    self.leaves.insert(*slot, (t.clone(), bg));
+                    self.leaves_made += 1;
                 }
             }
+            self.leaves.retain(|slot, _| used.contains(slot));
             #[allow(clippy::needless_range_loop)] // a cascade's index picks its blocks and offsets
             for c in 0..CASCADES {
                 let mut pass = cx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1321,21 +1399,13 @@ impl HifiPass for Lighting {
                     self.cascade_blocks.0 += 1;
                     #[allow(clippy::cast_possible_truncation)]
                     let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
-                    let covered = block.covered.as_ref().filter(|_| pack.is_none());
                     let from = if drawn.is_some() { block.landscape } else { 0 };
-                    for (buffer, range) in block
-                        .buffer
-                        .as_ref()
-                        .map(|b| (b, from..block.vertices))
-                        .into_iter()
-                        .chain(covered.map(|(b, n)| (b, 0..*n)))
-                    {
-                        if range.is_empty() {
-                            continue;
-                        }
-                        pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
-                        pass.set_vertex_buffer(0, buffer.slice(..));
-                        pass.draw(range, 0..1);
+                    pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
+                    if let Some(copy) = &block.opaque {
+                        copy.draw(&mut pass, from);
+                    }
+                    if let Some(copy) = block.covered.as_ref().filter(|_| pack.is_none()) {
+                        copy.draw(&mut pass, 0);
                     }
                 }
                 pass.set_pipeline(&gpu.cutout_pipeline);
@@ -1346,16 +1416,15 @@ impl HifiPass for Lighting {
                     #[allow(clippy::cast_possible_truncation)]
                     let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
                     pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
-                    for (buffer, n, slot, covered) in &block.cutouts {
+                    for (copy, slot, covered) in &block.cutouts {
                         if *covered && pack.is_some() {
                             continue;
                         }
-                        let Some(tb) = leaves.get(slot) else {
+                        let Some((_, tb)) = self.leaves.get(slot) else {
                             continue;
                         };
                         pass.set_bind_group(1, tb, &[]);
-                        pass.set_vertex_buffer(0, buffer.slice(..));
-                        pass.draw(0..*n, 0..1);
+                        copy.draw(&mut pass, 0);
                     }
                 }
                 if let Some(p) = pack {

@@ -354,7 +354,9 @@ impl SceneDraw {
         gpu.set_viewport(self.effective_viewport(ws, w, h));
         #[cfg(feature = "hifi")]
         gpu.hifi_mark(Mark::WorldBegin);
+        let started = web_time::Instant::now();
         let r = self.draw_in_viewport(ws, gpu);
+        let walked = web_time::Instant::now();
         // The world is down: what follows is the interface. The snapshot is taken now, after
         // the frame's walk has finished, from shared reads only.
         #[cfg(feature = "hifi")]
@@ -362,6 +364,12 @@ impl SceneDraw {
             gpu.hifi_mark(Mark::WorldEnd);
             hifi_bridge::publish(self, &mut self.hifi.borrow_mut(), ws, gpu);
         }
+        let costs = self.frame_costs.get();
+        self.frame_costs.set(FrameCosts {
+            walk: walked.duration_since(started).as_secs_f32() * 1000.0,
+            snapshot: walked.elapsed().as_secs_f32() * 1000.0,
+            ..costs
+        });
         gpu.reset_viewport();
         r
     }

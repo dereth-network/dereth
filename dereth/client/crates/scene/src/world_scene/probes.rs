@@ -586,6 +586,13 @@ impl SceneDraw {
         self.frame_building_cells.get()
     }
 
+    /// What the scene's own parts of the last frame took on the processor: the drawn ground's
+    /// upkeep, the walk that records the frame, and the snapshot for the presentation.
+    #[must_use]
+    pub fn frame_costs(&self) -> FrameCosts {
+        self.frame_costs.get()
+    }
+
     /// One interior cell's newest portal view.
     #[must_use]
     pub fn cell_view_polys(&self, cell: CellId) -> Vec<Vec<(f32, f32)>> {
