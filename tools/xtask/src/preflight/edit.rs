@@ -1,6 +1,7 @@
 //! The one setting the preflight changes in a world's configuration: the hub it links to. Each
 //! edit keeps every other line as it was, and reads back the value it replaced, so the original
-//! can be put back.
+//! can be put back. The slug the world links under is read from the same file, to watch for it at
+//! the dev hub.
 
 /// Empyrean's `[federation] hub_url` in `toml` set to `url`: the text, and the value it had (none
 /// when it was unset, which is the network's own hub).
@@ -112,6 +113,27 @@ fn settings(json: &str) -> Result<serde_json::Value, String> {
         return Ok(serde_json::Value::Object(serde_json::Map::new()));
     }
     serde_json::from_str(json).map_err(|e| format!("Settings.json: {e}"))
+}
+
+/// The slug a world's configuration `text` registers it under at the hub: Empyrean's
+/// `[federation] slug` (`ace` false), or the mod's `Slug` in its `Settings.json` (`ace` true). `None`
+/// when it names none.
+pub fn slug(text: &str, ace: bool) -> Option<String> {
+    let slug = if ace {
+        settings(text)
+            .ok()?
+            .get("Slug")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    } else {
+        let table: toml::Table = text.parse().ok()?;
+        table
+            .get("federation")
+            .and_then(|f| f.get("slug"))
+            .and_then(toml::Value::as_str)
+            .map(str::to_owned)
+    };
+    slug.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
 }
 
 /// The key of a TOML line `key = value`, if it is one.

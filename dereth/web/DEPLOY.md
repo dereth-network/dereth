@@ -127,6 +127,13 @@ The owner of the repository runs releases:
    the release with Dereth's notes for the version.
 3. Review the draft and publish it. Hosts that follow the releases pick it up.
 
+`cargo xtask ship` (the network's [`RELEASING.md`](../../network/RELEASING.md), "Preflight, then
+ship") does the first two steps: with each Dereth release it ships, it tags
+`dereth-web-v<version>` on Dereth's release commit and pushes the tag. A change to the web client
+alone is a reason for a Dereth release, since the web client carries Dereth's version. Its
+preflight builds the bundle beforehand as a release candidate, and `cargo xtask preflight play
+--web` serves it on `127.0.0.1` with the world list of the dev hub it tries the release on.
+
 Without GitHub Actions, `cargo xtask publish web <version>` makes the same release from
 `cargo xtask package web` run locally ([CONTRIBUTING.md, "Releasing without GitHub
 Actions"](../../CONTRIBUTING.md#releasing-without-github-actions)).
@@ -192,11 +199,13 @@ carries it): pick a world or type an address, choose or add the data files, and 
 
 - **The worlds** are the world list (the Dereth Network hub's, `/v1/servers`, which holds the
   community list, `acresources/serverslist`'s `Servers.xml`, and the worlds registered at the
-  hub; that `Servers.xml` itself when the hub does not answer with its list; or the `Servers.xml`
-  the `list` parameter names, read alone; fetched from the browser and kept for a day in its local
-  storage), the launcher's table of worlds that run a client of their own (their logon version,
-  rules, era and files), and the servers the player adds by address: `host:port`, a `wss://`
-  URL, or an Empyrean status address (`https://…/status`).
+  hub, or another hub's that the `hub` parameter names; that `Servers.xml` itself when the hub
+  does not answer with its list; or the `Servers.xml` the `list` parameter names, read alone;
+  fetched from the browser and kept for a day in its local storage, with where it was read from,
+  so that a page opened with other parameters reads its own list at once), the launcher's table
+  of worlds that run a client of their own (their logon version, rules, era and files), and the
+  servers the player adds by address: `host:port`, a `wss://` URL, or an Empyrean status address
+  (`https://…/status`).
 - **What the client is told about the world** (its era, the set its world is drawn from, its
   systems, its logon version and the rules its client played by) is the launcher's one
   description of it: the words the desktop launcher puts on the client's command line, read by the
@@ -328,6 +337,7 @@ chosen. The page takes only these:
 | `server=<url>` | adds that server (a `wss://` URL or a status address) and chooses it |
 | `account=<name>` | fills the Account field |
 | `list=<url>` | reads the world list from another address, a `Servers.xml` read alone |
+| `hub=<url>` | reads the world list from another hub, its `/v1/servers` address, in place of the Dereth Network hub's (a hub run to try a release on) |
 | `log`, `log=<level>` | shows the client's log and its frame rate over the canvas, and sets how much of the log reaches the browser console (`info` by default; `debug`, `trace`, `warn`, `error`), for reporting a problem |
 | `gpu=webgl` | draws with WebGL 2 even where the browser has WebGPU, for a browser whose WebGPU misbehaves |
 | `dats=http` | offers the dev runner's data files (development only; see below) |

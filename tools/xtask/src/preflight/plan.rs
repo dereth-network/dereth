@@ -52,11 +52,20 @@ pub enum Bump {
     Minor,
 }
 
+/// The web client's folder: its crate, its page and its scripts.
+const WEB: &str = "dereth/web/";
+
+/// Whether the changed file `path` is the web client's.
+pub fn is_web(path: &str) -> bool {
+    path.replace('\\', "/").starts_with(WEB)
+}
+
 /// The products the files `changed` (paths from the repository's root) belong to. A file belongs
 /// to the workspace package whose folder holds it (`packages`, name and folder) and so to every
 /// product built from that package (`depends`: each product's packages, its own included); the
 /// ACE mod's folder is the mod's, a change to the launcher's own app or to a lock file belongs to
-/// what builds with it, and nothing else (the docs, the research notes) is a product.
+/// what builds with it, the web client is released as Dereth (it carries Dereth's version), and
+/// nothing else (the docs, the research notes) is a product.
 pub fn products_of(
     changed: &[String],
     packages: &[(String, String)],
@@ -69,7 +78,9 @@ pub fn products_of(
             out.insert(Product::Ace);
             continue;
         }
-        if path.starts_with("dereth/launcher/") && !path.starts_with("dereth/launcher/crates/") {
+        if (path.starts_with("dereth/launcher/") && !path.starts_with("dereth/launcher/crates/"))
+            || path.starts_with(WEB)
+        {
             out.insert(Product::Dereth);
             continue;
         }
@@ -142,6 +153,31 @@ pub fn empyrean_bump(refusal: Option<&str>) -> (Bump, String) {
                 .to_owned(),
         ),
     }
+}
+
+/// Whether the files `changed` make a Dereth release by the web client's changes alone: without
+/// them, they would make none ([`products_of`]).
+pub fn web_alone(
+    changed: &[String],
+    packages: &[(String, String)],
+    depends: &BTreeMap<Product, BTreeSet<String>>,
+) -> bool {
+    let others: Vec<String> = changed.iter().filter(|p| !is_web(p)).cloned().collect();
+    products_of(changed, packages, depends).contains(&Product::Dereth)
+        && !products_of(&others, packages, depends).contains(&Product::Dereth)
+}
+
+/// Dereth's release and why: a patch, for the client's, the launcher's or the web client's changes.
+/// When the web client's alone (`web_alone`) make it, the reason says so: the web client carries
+/// Dereth's version, so it is released as a Dereth release, its own tag beside Dereth's.
+pub fn dereth_bump(web_alone: bool) -> (Bump, String) {
+    let why = if web_alone {
+        "the web client's changes alone: it carries Dereth's version, so it is released with a \
+         Dereth release, its own tag on Dereth's"
+    } else {
+        "the client's, the launcher's or the web client's changes"
+    };
+    (Bump::Patch, why.to_owned())
 }
 
 /// The release-candidate stamp of `product`'s next build of `version`: one past the last that

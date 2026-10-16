@@ -240,16 +240,19 @@ impl ListFetch {
             }
             return Err(self.failures.join("; "));
         };
+        let sources = source_urls(&self.sources);
         let cache = match source.format {
             ListFormat::Hub => ListCache {
                 fetched_at: now,
                 list: String::new(),
                 hub: self.pages,
+                sources,
             },
             ListFormat::ServersXml => ListCache {
                 fetched_at: now,
                 list: self.pages.into_iter().next().unwrap_or_default(),
                 hub: Vec::new(),
+                sources,
             },
         };
         let worlds = cache.worlds().map_err(|e| format!("{}: {e}", source.url))?;
@@ -511,7 +514,12 @@ fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
     Some(w)
 }
 
-/// The day's copy: the list as it was fetched, and when.
+/// The addresses of `sources`, in order: what a copy of the list read from them records.
+pub fn source_urls(sources: &[ListSource]) -> Vec<String> {
+    sources.iter().map(|s| s.url.clone()).collect()
+}
+
+/// The day's copy: the list as it was fetched, when, and from which sources.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ListCache {
     /// Seconds since the epoch.
@@ -522,12 +530,23 @@ pub struct ListCache {
     /// The hub's pages, as fetched, when the list was the hub's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hub: Vec<String>,
+    /// The addresses of the sources the list was read from, in the order they were tried
+    /// ([`source_urls`]): the copy stands in for a list read from those sources alone. A copy kept
+    /// before copies recorded them records none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
 }
 
 impl ListCache {
     /// Whether the copy is the hub's list.
     pub fn is_hubs(&self) -> bool {
         !self.hub.is_empty()
+    }
+
+    /// Whether the copy was read from `sources`, and so may stand in for reading them: a copy of
+    /// another hub's list, or of a list the player named, is not the list these sources give.
+    pub fn is_from(&self, sources: &[ListSource]) -> bool {
+        self.sources == source_urls(sources)
     }
 
     /// Whether the copy is less than a day old. A copy from the future (a clock set back) is not.
@@ -930,6 +949,53 @@ mod tests {
         assert_eq!(cache.hub.len(), 2, "the copy is the hub's pages");
         assert!(cache.list.is_empty());
         assert_eq!(cache.worlds().unwrap(), worlds);
+        assert_eq!(
+            cache.sources,
+            [HUB_LIST_URL, COMMUNITY_LIST_URL],
+            "the copy records the sources it was read from"
+        );
+    }
+
+    #[test]
+    fn a_copy_is_from_the_sources_it_was_read_from_and_no_others() {
+        const DEV: &str = "https://dev-hub.example.org/v1/servers";
+        const NAMED: &str = "https://lists.example/Servers.xml";
+        let read = |from: &[ListSource]| {
+            let answers: Vec<(String, Result<Vec<u8>, &str>)> = vec![
+                (
+                    hub_page_url(HUB_LIST_URL, 0),
+                    Ok(hub_page_of(&[hub_row("coldeve", "Coldeve")], None)),
+                ),
+                (
+                    hub_page_url(DEV, 0),
+                    Ok(hub_page_of(&[hub_row("devworld", "Dev World")], None)),
+                ),
+                (NAMED.to_owned(), Ok(list_of("Named World"))),
+            ];
+            let answers: Vec<(&str, Result<Vec<u8>, &str>)> = answers
+                .iter()
+                .map(|(u, a)| (u.as_str(), a.clone()))
+                .collect();
+            fetch_with(from, &answers).0.unwrap().0
+        };
+        let usual = sources(None);
+        let dev = sources_from(None, Some(DEV));
+        let named = sources(Some(NAMED));
+        let from_usual = read(&usual);
+        let from_dev = read(&dev);
+        let from_named = read(&named);
+        assert!(from_usual.is_from(&usual) && from_dev.is_from(&dev) && from_named.is_from(&named));
+        assert!(
+            !from_usual.is_from(&dev),
+            "the network's list is not the dev hub's"
+        );
+        assert!(!from_dev.is_from(&usual), "nor the other way about");
+        assert!(!from_named.is_from(&usual) && !from_usual.is_from(&named));
+        assert_eq!(from_dev.sources, [DEV, COMMUNITY_LIST_URL]);
+        // A copy kept before copies said where they came from is from nowhere it can be told.
+        let older: ListCache =
+            serde_json::from_value(serde_json::json!({"fetched_at": 7, "list": LIST})).unwrap();
+        assert!(older.sources.is_empty() && !older.is_from(&usual));
     }
 
     #[test]
@@ -1264,6 +1330,7 @@ mod tests {
             fetched_at: 1_000,
             list: LIST.into(),
             hub: Vec::new(),
+            sources: source_urls(&sources(None)),
         };
         assert!(c.is_fresh(1_000));
         assert!(c.is_fresh(1_000 + MAX_AGE_SECS - 1));
@@ -1294,6 +1361,7 @@ mod tests {
             hub: vec![
                 String::from_utf8(hub_page_of(&[hub_row("coldeve", "Coldeve")], None)).unwrap(),
             ],
+            sources: Vec::new(),
         };
         hub.save(&d).unwrap();
         let again = ListCache::load(&d).unwrap();

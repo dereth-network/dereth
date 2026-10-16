@@ -107,6 +107,7 @@ is their upgrade.
 cargo xtask preflight setup --out setup       # once: a script per machine, to read and run there
 cargo xtask preflight [--with <world>]        # on that branch; --dry-run says what it would do
 cargo xtask preflight play                    # the client and the launcher, on the dev hub
+cargo xtask preflight play --web              # the web client's build, on 127.0.0.1, on the dev hub
 cargo xtask preflight rollback                # every world as it was, the dev hub stopped
 cargo xtask ship                              # main to the preflighted commit, released, pushed
 cargo xtask preflight finish                  # the final builds in the dev worlds, the real hub
@@ -114,17 +115,39 @@ cargo xtask preflight finish                  # the final builds in the dev worl
 
 - **`preflight`** works out the products the branch changed since `main` and the release each takes,
   and says why (the hub's is a minor release when its registry's schema moves; Empyrean's when a
-  patch would be refused). It builds each in a worktree of the commit, stamped
-  `<version>-rc.N`. It backs the real hub's registry up on its machine over ssh, copies it down,
-  and runs the candidate hub on the copy: it counts every table before and after the migration,
-  and drops every Discord mirror and webhook, every sign-in and link code, and every person's
-  links but your own (`admins`), before it serves, with the dev Discord application, behind the
-  tunnel. Then each dev world is stopped, backed up (its server or mod, its configuration and
-  Empyrean's databases), given its candidate, pointed at the dev hub (the original kept), and
-  started. A second preflight builds the next candidate and keeps the first backups.
+  patch would be refused; Dereth's for the web client's changes too, since the web client carries
+  Dereth's version). Before anything is built or stopped, it checks what it needs and says all of
+  what is missing at once: the tools its builds need here, the dev Discord application's secret
+  files (there, and not empty), `site_origins` beside a `discord_client_id` (the hub refuses one
+  without the other), and each ACE world's `key_file`, which must hold a registry key (looked at
+  where it is; the key is never shown). It builds each product in a worktree of the commit,
+  stamped `<version>-rc.N`, and the web client with Dereth. It backs the real hub's registry up
+  on its machine over ssh, copies it down, and runs the candidate hub on the copy: it counts
+  every table before and after the migration, and drops every Discord mirror and webhook, every
+  sign-in and link code, and every person's links but your own (`admins`), before it serves, with
+  the dev Discord application, behind the tunnel. The dev hub must then answer on `listen` within
+  half a minute; if it does not, the run stops before any world is touched, with the end of the
+  dev hub's `hub.log`. Then each dev world is stopped, backed up (its server or mod, its
+  configuration and Empyrean's databases), given its candidate, pointed at the dev hub (the
+  original kept), and started. A second preflight builds the next candidate and keeps the first
+  backups.
+- **Every world must link.** For up to three minutes after the worlds start, the preflight watches
+  the dev hub for each of them, by the slug its configuration names. The summary says which
+  linked and which did not, and for each that did not, the log to read: ACE's `ACE_Log.txt`
+  beside its server, Empyrean's service output (`journalctl -u <unit>` on Linux), and the dev
+  hub's `hub.log`.
+- **`preflight play`** starts the launcher on the dev hub's world list. The launcher keeps its copy
+  of the list with the sources it was read from, so it reads the dev hub's list at once, and the
+  ordinary launcher afterwards reads the network's again. **`--web`** serves the web client the
+  preflight built on `127.0.0.1` alone (port 8080, or `--port`), its world list the dev hub's,
+  and prints the address to open.
 - **`ship`** fast-forwards `main` to exactly the preflighted commit, refusing when the branch has
-  moved since (here, or on the remote if it is there), and runs `cargo xtask release <product> <version> --push` for each product, as
-  above. The workflows then draft the releases; you publish them.
+  moved since (here, or on the remote if it is there), and cuts each product's release itself, as
+  `cargo xtask release <product> <version> --push` does, never by starting cargo (whose build of
+  xtask could not replace the running one on Windows). With Dereth, it also tags
+  `dereth-web-v<version>` on Dereth's release commit and pushes it, which drafts the web client's
+  release ([`dereth/web/DEPLOY.md`](../dereth/web/DEPLOY.md#releases)); it refuses before anything
+  moves if that tag is there already. The workflows then draft the releases; you publish them.
 - What a run changed is kept in the work folder's `preflight.json`, saved as soon as each world's
   backup is whole and after every world, so a run cut short can still be rolled back.
 
@@ -138,6 +161,7 @@ work_dir = 'D:\dereth-preflight'          # builds, the registry's copy, backups
 ssh = "you@hub-vps"                       # the real hub's machine (key-based ssh)
 remote_db = "/srv/dereth-hub/hub.sqlite"  # and its registry there
 public_url = "https://dev-hub.example.org"
+site_origins = ["https://dev-site.example.org"]  # the hub refuses a Discord client id without it
 admins = ["<your Discord id>"]
 discord_client_id = "<the dev application's id>"
 discord_client_secret_file = 'D:\dereth-dev\client-secret.txt'
@@ -188,13 +212,16 @@ administrator (or root):
 - **`setup.ps1`, this machine:** your account may start and stop each world's service here
   (`sc sdset`) and change its folder, so the preflight never runs as an administrator; an ACE
   world is made a service that waits for its database (MariaDB too, from `mariadb_dir`, when it
-  is not one yet), with its key in its environment; cargo zigbuild, zig and each Linux machine's
-  target are installed; the tunnel and its address are created (after `cloudflared tunnel login`);
-  and the dev application's secret files are made readable by you alone.
+  is not one yet); its key from `key_file` is put in its service's environment, whether the
+  service was made now or was there before, its other environment entries kept; each world's
+  program (Empyrean's server, and the `dotnet` an ACE world's service runs) gets an inbound
+  firewall rule, `dereth-world-<name>`; cargo zigbuild, zig, each Linux machine's target and the
+  web client's are installed; the tunnel and its address are created (after `cloudflared tunnel
+  login`); and the dev application's secret files are made readable by you alone.
 - **`setup-<machine>.ps1`, each Windows machine:** its OpenSSH server is turned on, this machine's
   public key (`ssh_key`, or your usual one) logs in as the account the ssh address names, that
-  account may start and stop the worlds' services and change their folders, and an ACE world is
-  made a service as above.
+  account may start and stop the worlds' services and change their folders, and an ACE world's
+  service, its key and each world's firewall rule are made as above.
 - **`setup-<machine>.sh`, each Linux machine:** the account may run `sudo -n systemctl stop` and
   `start` of its worlds' units without a password, and nothing more, and may change the worlds'
   folders (`setfacl`).

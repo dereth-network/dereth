@@ -1719,6 +1719,8 @@ mod tests {
                    <server_port>9000</server_port><type>PvE</type></ServerItem></ArrayOfServerItem>"
                 .into(),
             hub: Vec::new(),
+            // The sources the launcher below reads: none.
+            sources: Vec::new(),
         }
         .save(&folders.data)
         .unwrap();
@@ -1736,6 +1738,73 @@ mod tests {
         assert!(s.list_fetched_at.is_some());
         assert!(!b.list.wants_reading(now()), "fresh: no fetch at start");
         assert_eq!(s.eras.len(), 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A launcher started on another hub's list (`DERETH_HUB_LIST`) reads that hub's list at
+    /// start, however fresh the copy of the network's, and the launcher started after it on the
+    /// usual sources reads the network's again, however fresh the other hub's copy.
+    #[test]
+    fn a_launcher_on_another_hubs_list_reads_it_at_start_and_the_next_reads_the_networks_again() {
+        const DEV: &str = "https://dev-hub.example.org/v1/servers";
+        let page = |name: &str| {
+            serde_json::json!({"data": [{"slug": serverlist::slug_for(name), "name": name,
+                "isDemo": false, "emulator": {"family": "ACE"},
+                "endpoint": {"mode": "manual", "address": "127.0.0.1", "port": 9}}],
+                "nextOffset": null})
+            .to_string()
+        };
+        let dir = tmp("list-other-hub");
+        let folders = Folders::single(dir.join("state"));
+        let usual = serverlist::sources(None);
+        ListCache {
+            fetched_at: now(),
+            hub: vec![page("Leafcull")],
+            sources: serverlist::source_urls(&usual),
+            ..ListCache::default()
+        }
+        .save(&folders.data)
+        .unwrap();
+        let launcher = |sources: Vec<ListSource>| -> Shared {
+            Arc::new(Mutex::new(Backend::new(
+                folders.clone(),
+                sources,
+                None,
+                Box::new(MemoryVault::default()),
+                "memory",
+                None,
+            )))
+        };
+        let slugs = |shared: &Shared| -> Vec<String> {
+            lock(shared)
+                .snapshot()
+                .worlds
+                .into_iter()
+                .map(|w| w.slug)
+                .collect()
+        };
+
+        let on_dev = launcher(serverlist::sources_from(None, Some(DEV)));
+        assert!(slugs(&on_dev).is_empty(), "the network's copy is not shown");
+        assert!(
+            lock(&on_dev).list.wants_reading(now()),
+            "the dev hub's list is read at start"
+        );
+        let dev_page = page("Dev World");
+        Backend::refresh_with(&on_dev, move |url| {
+            assert!(url.starts_with(DEV), "{url}");
+            Ok(dev_page.clone().into_bytes())
+        })
+        .join()
+        .unwrap();
+        assert_eq!(slugs(&on_dev), ["dev-world"]);
+
+        let after = launcher(usual);
+        assert!(slugs(&after).is_empty(), "the dev hub's copy is not shown");
+        assert!(
+            lock(&after).list.wants_reading(now()),
+            "the network's list is read again"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1766,6 +1835,7 @@ mod tests {
             fetched_at: 1,
             list: list_of(&["Leafcull Isle"]),
             hub: Vec::new(),
+            sources: serverlist::source_urls(&serverlist::sources(None)),
         }
         .save(&folders.data)
         .unwrap();
@@ -2057,13 +2127,21 @@ mod tests {
 
     /// A launcher whose day's copy of the list is `copy`, read from the usual sources, or from the
     /// `Servers.xml` `named` alone.
+    /// A launcher reading the usual sources, or the list `named` alone, with `copy` kept as the
+    /// day's copy of what they gave.
     fn launcher_with(name: &str, copy: &ListCache, named: Option<&str>) -> (Shared, PathBuf) {
         let dir = tmp(name);
         let folders = Folders::single(dir.join("state"));
-        copy.save(&folders.data).unwrap();
+        let sources = serverlist::sources(named);
+        ListCache {
+            sources: serverlist::source_urls(&sources),
+            ..copy.clone()
+        }
+        .save(&folders.data)
+        .unwrap();
         let b = Backend::new(
             folders,
-            serverlist::sources(named),
+            sources,
             None,
             Box::new(MemoryVault::default()),
             "memory",
@@ -2121,6 +2199,7 @@ mod tests {
                 ],
                 None,
             )],
+            ..ListCache::default()
         };
         let (shared, dir) = launcher_with("hub-status", &copy, None);
         assert_eq!(
@@ -2223,7 +2302,7 @@ mod tests {
         let community = ListCache {
             fetched_at: now(),
             list: xml.into(),
-            hub: Vec::new(),
+            ..ListCache::default()
         };
         let (shared, dir) = launcher_with("hub-refresh", &community, None);
         let (_, get) = stand_in(Vec::new());
@@ -2266,11 +2345,11 @@ mod tests {
 
         let hub_copy = ListCache {
             fetched_at: now(),
-            list: String::new(),
             hub: vec![hub_page_of(
                 &[hub_row("Coldeve", "online", Some(31), Some(LATER))],
                 None,
             )],
+            ..ListCache::default()
         };
         let (shared, dir) = launcher_with(
             "hub-named",

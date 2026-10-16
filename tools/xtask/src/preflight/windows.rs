@@ -183,6 +183,25 @@ Copy-Item -LiteralPath (Join-Path $backup 'config') -Destination {} -Force
     s
 }
 
+/// What [`key_check`] answers for a key file that holds a registry key.
+pub const KEY_HELD: &str = "a key";
+
+/// `w`'s registry key file, `file`, looked at without its key leaving the machine: the script
+/// answers [`KEY_HELD`], `missing`, `empty` or `not a key`, and nothing else.
+pub fn key_check(w: &World, file: &str) -> String {
+    format!(
+        "{}$file = {}
+if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {{ 'missing'; return }}
+$text = Get-Content -LiteralPath $file -Raw
+if ($null -eq $text -or $text.Trim() -eq '') {{ 'empty'; return }}
+if ($text.Trim() -cmatch '^drth_[A-Za-z0-9_-]{{43}}$') {{ {} }} else {{ 'not a key' }}
+",
+        start(w, "its registry key's file looked at"),
+        ps(file),
+        ps(KEY_HELD)
+    )
+}
+
 /// The assemblies of `w`'s ACE server staged to be copied down, for its mod's build.
 pub fn assemblies(w: &World) -> String {
     format!(

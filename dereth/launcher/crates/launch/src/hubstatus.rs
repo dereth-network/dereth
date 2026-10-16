@@ -338,6 +338,7 @@ mod tests {
             fetched_at: NOW,
             list: String::new(),
             hub: pages.to_vec(),
+            sources: Vec::new(),
         }
     }
 
@@ -610,6 +611,7 @@ mod tests {
                    </ArrayOfServerItem>"
                 .into(),
             hub: Vec::new(),
+            sources: Vec::new(),
         };
         let mut late = watch.start(NOW + 60).unwrap();
         watch.list_read(&community, NOW + 60);

@@ -183,6 +183,32 @@ pub fn release(args: &[String]) -> i32 {
     }
 }
 
+/// One release cut in this process: what `cargo xtask release <name> <requested> --push --remote
+/// <remote>` does (`push` false leaves out the push), with `ace_dir` in place of `DERETH_ACE_DIR`
+/// for the ACE mod's checks. `cargo xtask ship` cuts its releases this way, never by starting
+/// cargo, whose build of this program could not replace it while it runs.
+///
+/// # Errors
+/// What the release command would stop with.
+pub fn cut(
+    name: &str,
+    requested: &str,
+    push: bool,
+    remote: &str,
+    ace_dir: Option<&Path>,
+) -> Result<(), String> {
+    match Releasable::from_command_name(name).ok_or(USAGE)? {
+        Releasable::Product(product) => run(product, requested, push, remote),
+        Releasable::Network(part) => network::run_with(
+            part,
+            requested,
+            push,
+            remote,
+            ace_dir.map(|d| d.as_os_str().to_owned()),
+        ),
+    }
+}
+
 fn parse(args: &[String]) -> Result<(Releasable, String, bool, String), String> {
     let mut it = args.iter();
     let what = it

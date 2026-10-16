@@ -1,6 +1,7 @@
 //! Everything the preflight does to a machine, behind one trait: commands here and over ssh,
-//! copies both ways, processes it leaves running, files, and services. [`Real`] does it; the tests
-//! hand the preflight a fake that keeps a record instead.
+//! copies both ways, processes it leaves running, files, services, and what a program here answers
+//! over HTTP, with the waits between tries. [`Real`] does it; the tests hand the preflight a fake
+//! that keeps a record instead, and never waits.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -135,6 +136,11 @@ pub trait Machine {
     fn remove(&mut self, path: &Path) -> Result<(), String>;
     /// The service `name` on this machine brought to `to`, waiting until it is there.
     fn service(&mut self, name: &str, to: Service) -> Result<(), String>;
+    /// The body of `url` (plain HTTP, on this machine), or why there is none: no answer, or an
+    /// error status.
+    fn get(&mut self, url: &str) -> Result<String, String>;
+    /// A wait of `ms` milliseconds between two tries of something that is still starting.
+    fn pause(&mut self, ms: u64);
 }
 
 /// This machine.
@@ -323,6 +329,25 @@ impl Machine for Real {
             "the service {name} did not reach {state} within a minute"
         ))
     }
+
+    fn get(&mut self, url: &str) -> Result<String, String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            // A program that is starting may take the connection and say nothing yet.
+            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .build()
+            .into();
+        agent
+            .get(url)
+            .call()
+            .map_err(|e| format!("{url}: {e}"))?
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| format!("{url}: {e}"))
+    }
+
+    fn pause(&mut self, ms: u64) {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
 }
 
 /// A dry run: what would be done is printed, and nothing is; files are read where they are.
@@ -420,6 +445,13 @@ impl Machine for DryRun {
         println!("would bring the service {name} to {to:?}");
         Ok(())
     }
+
+    fn get(&mut self, url: &str) -> Result<String, String> {
+        println!("would ask {url}");
+        Err("a dry run asks nothing".to_owned())
+    }
+
+    fn pause(&mut self, _ms: u64) {}
 }
 
 /// A file, or a folder and everything in it, copied to `to` (replacing what is there).

@@ -137,14 +137,15 @@ Release and packaging:
                             tag network-hub-v<version> or network-ace-v<version>. No
                             CHANGES.md: the release workflow writes the notes from the commits
                             (network/RELEASING.md)
-  preflight [--with <world>]... [--dry-run] | play | rollback | finish | status | setup
+  preflight [--with <world>]... [--dry-run] | play [--web] | rollback | finish | status | setup
                             on a branch, before anything is pushed: build what changed since main
                             as release candidates, run the dev hub on a defanged copy of the real
                             registry, and install the candidates in the dev worlds, linked to it;
                             the setup file is the owner's (network/RELEASING.md, Preflight)
   ship [--dry-run]          after a preflight: main fast-forwarded to exactly the preflighted
                             commit (refused when its branch has moved), each changed product released
-                            and pushed as `release` does it
+                            and pushed as `release` does it, in this process, and the web client
+                            tagged with Dereth
   release-notes dereth|empyrean [--since <tag>] [--version <v>] [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final

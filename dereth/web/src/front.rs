@@ -55,13 +55,21 @@ pub fn overlay_folder(address: &str) -> String {
 
 impl Front {
     /// Take the day's copy of the world list as the page kept it (the desktop launcher's copy, as
-    /// JSON). Answers how many worlds it lists.
+    /// JSON), for the list read from the sources the page names: the `Servers.xml` `named` (its
+    /// `list` parameter), or another hub's list (`hub`, its `hub` parameter). Answers how many
+    /// worlds it lists.
     ///
     /// # Errors
-    /// The copy does not read; the worlds read before stand.
-    pub fn set_copy(&mut self, copy: &str) -> Result<usize, String> {
+    /// The copy does not read, or was read from other sources; the worlds read before stand.
+    pub fn set_copy(
+        &mut self,
+        copy: &str,
+        named: Option<&str>,
+        hub: Option<&str>,
+    ) -> Result<usize, String> {
+        self.list.set_sources(serverlist::sources_from(named, hub));
         let copy: ListCache = serde_json::from_str(copy).map_err(|e| e.to_string())?;
-        self.list.show_copy(copy).map_err(|e| e.to_string())
+        self.list.show_copy(copy)
     }
 
     /// Whether the list is to be read at `now` (seconds since the epoch), as the page opens: no
@@ -72,10 +80,11 @@ impl Front {
     }
 
     /// Start reading the world list from its sources: the `Servers.xml` `named` alone (the page's
-    /// `list` parameter) when one is named, and otherwise the hub's list, then the community's own.
-    /// Answers the first address to fetch.
-    pub fn list_start(&mut self, named: Option<&str>) -> Option<String> {
-        self.list.set_sources(serverlist::sources(named));
+    /// `list` parameter) when one is named, and otherwise the hub's list (the network's, or the one
+    /// `hub` names, the page's `hub` parameter), then the community's own. Answers the first
+    /// address to fetch.
+    pub fn list_start(&mut self, named: Option<&str>, hub: Option<&str>) -> Option<String> {
+        self.list.set_sources(serverlist::sources_from(named, hub));
         let fetch = self.list.reading();
         let first = fetch.next_url().map(str::to_owned);
         self.fetch = Some(fetch);
@@ -107,16 +116,21 @@ impl Front {
         Ok(json!({"worlds": self.list.worlds().len(), "from": from, "copy": copy}).to_string())
     }
 
-    /// Start reading the hub's list for each world's status when a read is due at `now`: about a
-    /// minute after the last, and only while the worlds shown are the hub's list's and the page
-    /// names no list of its own (`named`, its `list` parameter). Answers the first address to
-    /// fetch; nothing when no read is due. The page reads one at a time, so a read it left
-    /// unfinished was lost, and ends as one that failed.
-    pub fn hub_start(&mut self, named: Option<&str>, now: u64) -> Option<String> {
+    /// Start reading the hub's list (the network's, or the one `hub` names) for each world's
+    /// status when a read is due at `now`: about a minute after the last, and only while the worlds
+    /// shown are the hub's list's and the page names no list of its own (`named`, its `list`
+    /// parameter). Answers the first address to fetch; nothing when no read is due. The page reads
+    /// one at a time, so a read it left unfinished was lost, and ends as one that failed.
+    pub fn hub_start(
+        &mut self,
+        named: Option<&str>,
+        hub: Option<&str>,
+        now: u64,
+    ) -> Option<String> {
         if let Some(lost) = self.hub_read.take() {
             self.list.hub_mut().finish(lost, now);
         }
-        self.list.set_sources(serverlist::sources(named));
+        self.list.set_sources(serverlist::sources_from(named, hub));
         let read = self.list.hub_mut().start(now)?;
         let first = read.next_url().map(str::to_owned);
         self.hub_read = Some(read);
@@ -384,10 +398,14 @@ mod tests {
   </ServerItem>
 </ArrayOfServerItem>";
 
-    /// The day's copy of `xml`, as the page has always kept a `Servers.xml` (and kept every copy
-    /// before the hub's list was read).
+    /// The usual sources' addresses, which a copy read from them records.
+    fn usual() -> Vec<String> {
+        serverlist::source_urls(&serverlist::sources(None))
+    }
+
+    /// The day's copy of `xml`, as the page keeps a `Servers.xml` read from the usual sources.
     fn copy_of(xml: &str) -> String {
-        json!({"fetched_at": 1, "list": xml}).to_string()
+        json!({"fetched_at": 1, "list": xml, "sources": usual()}).to_string()
     }
 
     /// The page reads the list as the desktop launcher does: the hub's first, the community's when
@@ -403,7 +421,7 @@ mod tests {
             "provenance": {"externalId": "3f1f41ec-c7fd-4ed9-b47d-25b0d94219c1",
                            "legacyType": "PvE"}}], "nextOffset": null})
         .to_string();
-        let hub = f.list_start(None).unwrap();
+        let hub = f.list_start(None, None).unwrap();
         assert!(hub.starts_with(HUB_LIST_URL), "{hub}");
         assert_eq!(f.list_next(Ok(page.into_bytes())), None);
         let done: Value = serde_json::from_str(&f.list_done(5).unwrap()).unwrap();
@@ -415,12 +433,12 @@ mod tests {
         assert_eq!(f.worlds(NOW)["worlds"][0]["logon_version"], "c118");
         let mut again = Front::default();
         assert_eq!(
-            again.set_copy(&done["copy"].to_string()),
+            again.set_copy(&done["copy"].to_string(), None, None),
             Ok(1),
             "the copy reads again"
         );
 
-        assert_eq!(f.list_start(None), Some(hub.clone()));
+        assert_eq!(f.list_start(None, None), Some(hub.clone()));
         assert_eq!(
             f.list_next(Err("Failed to fetch".into())).as_deref(),
             Some(COMMUNITY_LIST_URL)
@@ -433,7 +451,7 @@ mod tests {
         );
 
         // A hub that shows no world is passed over too.
-        f.list_start(None);
+        f.list_start(None, None);
         let empty = json!({"data": [], "total": 0, "nextOffset": null}).to_string();
         assert_eq!(
             f.list_next(Ok(empty.into_bytes())).as_deref(),
@@ -442,7 +460,7 @@ mod tests {
         f.list_next(Ok(LIST.as_bytes().to_vec()));
         assert_eq!(f.list_done(7).map(|_| ()), Ok(()));
 
-        f.list_start(None);
+        f.list_start(None, None);
         f.list_next(Err("HTTP 502".into()));
         assert_eq!(f.list_next(Ok(b"<html/>".to_vec())), None);
         let e = f.list_done(7).unwrap_err();
@@ -457,7 +475,7 @@ mod tests {
         );
 
         let named = "https://lists.example/Servers.xml";
-        assert_eq!(f.list_start(Some(named)).as_deref(), Some(named));
+        assert_eq!(f.list_start(Some(named), None).as_deref(), Some(named));
         assert_eq!(
             f.list_next(Err("HTTP 404".into())),
             None,
@@ -474,7 +492,7 @@ mod tests {
         use dereth_launch::testing::world_list as fixture;
         let read = |f: &mut Front, hub_answers: bool| {
             let mut fetch = fixture::fetch(hub_answers);
-            let mut url = f.list_start(None);
+            let mut url = f.list_start(None, None);
             while let Some(u) = url {
                 url = f.list_next(fetch(&u));
             }
@@ -534,12 +552,12 @@ mod tests {
         // The day's copy of the hub's list: what it said is not shown.
         let copy = json!({"fetched_at": NOW, "list": "", "hub": [String::from_utf8(
             hub_page(&[hub_row("Coldeve", "online", Some(99), Some(IN_10_MIN))], None).unwrap())
-            .unwrap()]});
-        assert_eq!(f.set_copy(&copy.to_string()), Ok(1));
+            .unwrap()], "sources": usual()});
+        assert_eq!(f.set_copy(&copy.to_string(), None, None), Ok(1));
         assert_eq!(seen(&f, "coldeve", NOW), ("unknown".into(), Value::Null));
 
         // The hub's list fetched: an ACE world's state and players at once.
-        let first = f.list_start(None).unwrap();
+        let first = f.list_start(None, None).unwrap();
         assert_eq!(
             f.list_next(hub_page(
                 &[
@@ -557,10 +575,14 @@ mod tests {
 
         // Read again a minute after the last, a page at a time. A read the page lost on the way
         // ends as a failed one, and does not keep the next from starting.
-        assert_eq!(f.hub_start(None, NOW + 59), None, "not within the minute");
-        assert_eq!(f.hub_start(None, NOW + 60), Some(first.clone()));
         assert_eq!(
-            f.hub_start(None, NOW + 61),
+            f.hub_start(None, None, NOW + 59),
+            None,
+            "not within the minute"
+        );
+        assert_eq!(f.hub_start(None, None, NOW + 60), Some(first.clone()));
+        assert_eq!(
+            f.hub_start(None, None, NOW + 61),
             None,
             "a minute after the lost one"
         );
@@ -569,7 +591,7 @@ mod tests {
             None,
             "nothing is being read"
         );
-        assert_eq!(f.hub_start(None, NOW + 120), Some(first.clone()));
+        assert_eq!(f.hub_start(None, None, NOW + 120), Some(first.clone()));
         assert_eq!(
             f.hub_next(hub_page(
                 &[hub_row("Coldeve", "online", Some(14), Some(IN_5_MIN))],
@@ -601,7 +623,7 @@ mod tests {
         assert_eq!(seen(&f, "coldeve", NOW + 121), ("online".into(), json!(14)));
 
         // A read that fails changes nothing; the hub alone is asked.
-        assert_eq!(f.hub_start(None, NOW + 180), Some(first.clone()));
+        assert_eq!(f.hub_start(None, None, NOW + 180), Some(first.clone()));
         assert_eq!(f.hub_next(Err("Failed to fetch".into())), None);
         assert!(!f.hub_done(NOW + 181));
         assert_eq!(seen(&f, "coldeve", NOW + 181), ("online".into(), json!(14)));
@@ -628,17 +650,17 @@ mod tests {
 
         // A list the page names is read alone: no status is read.
         assert_eq!(
-            f.hub_start(Some("https://lists.example/Servers.xml"), NOW + 600),
+            f.hub_start(Some("https://lists.example/Servers.xml"), None, NOW + 600),
             None
         );
 
         // The community's list, read when the hub does not answer, ends the hub's word.
-        f.list_start(None);
+        f.list_start(None, None);
         f.list_next(Err("HTTP 502".into()));
         f.list_next(Ok(LIST.as_bytes().to_vec()));
         f.list_done(NOW + 601).unwrap();
         assert_eq!(
-            f.hub_start(None, NOW + 1_000),
+            f.hub_start(None, None, NOW + 1_000),
             None,
             "not {COMMUNITY_LIST_URL}"
         );
@@ -665,9 +687,12 @@ mod tests {
     #[test]
     fn the_list_and_the_table_read_in_the_page_as_in_the_desktop_launcher() {
         let mut f = Front::default();
-        assert_eq!(f.set_copy(&copy_of(LIST)), Ok(2));
-        assert!(f.set_copy(&copy_of("<html/>")).is_err(), "not the list");
-        assert!(f.set_copy("not a copy").is_err());
+        assert_eq!(f.set_copy(&copy_of(LIST), None, None), Ok(2));
+        assert!(
+            f.set_copy(&copy_of("<html/>"), None, None).is_err(),
+            "not the list"
+        );
+        assert!(f.set_copy("not a copy", None, None).is_err());
         let all = f.worlds(NOW);
         let worlds = all["worlds"].as_array().unwrap();
         assert_eq!(worlds.len(), 2, "a list that does not read leaves the last");
@@ -789,7 +814,7 @@ mod tests {
     #[test]
     fn sets_kept_in_the_browser_are_matched_to_a_world_by_their_iterations() {
         let mut f = Front::default();
-        f.set_copy(&copy_of(LIST)).unwrap();
+        f.set_copy(&copy_of(LIST), None, None).unwrap();
         let ids = f.add_sets("sets/eor", end_of_retail_files());
         assert_eq!(
             ids.len(),
@@ -846,15 +871,70 @@ mod tests {
             .is_empty());
     }
 
+    /// The page's `hub` parameter names another hub's list, read in place of the network's, for
+    /// the worlds and for their status; a copy of the network's list is not shown on it, nor a copy
+    /// of its list without it, nor a copy kept before copies recorded their sources.
+    #[test]
+    fn the_hub_parameter_reads_another_hubs_list_and_a_copy_of_another_list_is_not_shown() {
+        use serverlist::{COMMUNITY_LIST_URL, HUB_LIST_URL};
+        const DEV: &str = "https://dev-hub.example.org/v1/servers";
+        let page = json!({"data": [{"slug": "devworld", "name": "Dev World", "isDemo": false,
+            "emulator": {"family": "ACE"},
+            "endpoint": {"mode": "manual", "address": "192.0.2.9", "port": 9000}}],
+            "nextOffset": null})
+        .to_string();
+        let mut f = Front::default();
+        assert!(
+            f.set_copy(&copy_of(LIST), None, Some(DEV)).is_err(),
+            "the network's copy is not the dev hub's list"
+        );
+        assert!(f.list_wanted(1), "so the list is read");
+        let first = f.list_start(None, Some(DEV)).unwrap();
+        assert!(first.starts_with(DEV), "{first}");
+        assert_eq!(f.list_next(Ok(page.into_bytes())), None);
+        let done: Value = serde_json::from_str(&f.list_done(NOW).unwrap()).unwrap();
+        assert_eq!(done["from"], DEV);
+        assert_eq!(done["copy"]["sources"], json!([DEV, COMMUNITY_LIST_URL]));
+        assert_eq!(f.worlds(NOW)["worlds"][0]["slug"], "dev-world");
+        // Its status is read from the same hub.
+        let status = f.hub_start(None, Some(DEV), NOW + 60).unwrap();
+        assert!(status.starts_with(DEV), "{status}");
+
+        // Without the parameter, the dev hub's copy is not the list, and the network's is read.
+        let mut later = Front::default();
+        assert!(later
+            .set_copy(&done["copy"].to_string(), None, None)
+            .is_err());
+        assert!(later.list_wanted(NOW));
+        assert!(later
+            .list_start(None, None)
+            .unwrap()
+            .starts_with(HUB_LIST_URL));
+        // With it, the dev hub's copy stands in for its list.
+        let mut again = Front::default();
+        assert_eq!(
+            again.set_copy(&done["copy"].to_string(), None, Some(DEV)),
+            Ok(1)
+        );
+        assert!(!again.list_wanted(NOW + 60));
+        // A copy the page kept before copies recorded their sources is read again.
+        let older = json!({"fetched_at": NOW, "list": LIST}).to_string();
+        assert!(Front::default().set_copy(&older, None, None).is_err());
+    }
+
     #[test]
     fn the_lists_copy_is_the_days_and_an_overlay_is_kept_by_the_servers_address() {
         let mut f = Front::default();
         assert!(f.list_wanted(1_000), "no copy");
-        f.set_copy(&json!({"fetched_at": 1_000, "list": LIST}).to_string())
-            .unwrap();
+        f.set_copy(
+            &json!({"fetched_at": 1_000, "list": LIST, "sources": usual()}).to_string(),
+            None,
+            None,
+        )
+        .unwrap();
         assert!(!f.list_wanted(1_000 + 3_600));
         assert!(f.list_wanted(1_000 + 86_400));
-        assert!(f.set_copy(&copy_of("<html/>")).is_err());
+        assert!(f.set_copy(&copy_of("<html/>"), None, None).is_err());
         assert!(!f.list_wanted(1_000 + 3_600), "the copy shown stands");
         assert_eq!(overlay_folder("127.0.0.1:19960"), "127.0.0.1-19960");
         assert_eq!(overlay_folder("play.example.org"), "play.example.org-9000");

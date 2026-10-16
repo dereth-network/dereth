@@ -2,12 +2,15 @@
 //! read and run once on that machine as an administrator (or root):
 //! - **this machine** (`setup.ps1`): the account's right to start and stop each world's service
 //!   here and to change its folder (so the preflight never needs to be an administrator), an ACE
-//!   world's service with its database as its dependency, the tools that build Empyrean for the
-//!   Linux machines, the tunnel and its address, and the dev Discord application's secret files,
-//!   readable by the account alone;
+//!   world's service with its database as its dependency and its registry key in its environment
+//!   (set again on a service that was there before, its other entries kept), an inbound firewall
+//!   rule for each world's program, the tools that build Empyrean for the Linux machines and the
+//!   web client's target, the tunnel and its address, and the dev Discord application's secret
+//!   files, readable by the account alone;
 //! - **each Windows world machine** (`setup-<machine>.ps1`): its OpenSSH server, this machine's
 //!   key authorized for the account the preflight logs in as, and that account's right to start
-//!   and stop its worlds' services and to change their folders, an ACE world's made as here;
+//!   and stop its worlds' services and to change their folders, an ACE world's service and each
+//!   world's firewall rule made as here;
 //! - **each Linux world machine** (`setup-<machine>.sh`): the sudoers line that lets that account
 //!   stop and start its worlds' units, and nothing more, and its write access to their folders.
 //!
@@ -15,7 +18,7 @@
 
 use super::config::{Config, Host, Kind, Os, Place, World};
 use super::linux::sh;
-use super::steps::rust_target;
+use super::steps::{rust_target, WEB_TARGET};
 use super::windows::ps;
 
 /// A setup script: its file, where and how it is run, and its text.
@@ -81,9 +84,9 @@ fn grant_modify(t: &mut Text, path: &str, folder: bool) {
     t.line("if ($LASTEXITCODE -ne 0) { throw \"icacls failed ($LASTEXITCODE)\" }");
 }
 
-/// A Windows world's lines: an ACE world's service made (when it is not there yet), the account's
-/// right to start and stop it, and to change its folder (and an ACE world's mod and settings,
-/// wherever they are).
+/// A Windows world's lines: an ACE world's service made (when it is not there yet) and its key set
+/// (whether it was or not), the account's right to start and stop it, and to change its folder
+/// (and an ACE world's mod and settings, wherever they are), and its program's firewall rule.
 fn windows_world(t: &mut Text, w: &World) {
     t.line("");
     t.line(&format!("# {}", w.name));
@@ -112,14 +115,10 @@ fn windows_world(t: &mut Text, w: &World) {
                 ps(db)
             ));
         }
-        if let Some(key) = &w.key_file {
-            t.line(&format!(
-                "  nssm set {} AppEnvironmentExtra (\"DERETH_NETWORK_KEY=\" + (Get-Content {} -Raw).Trim())",
-                ps(&w.service),
-                ps(key)
-            ));
-        }
         t.line("}");
+        if let Some(key) = &w.key_file {
+            service_key(t, w, key);
+        }
     }
     t.line(&format!("Grant-StartStop {}", ps(&w.service)));
     grant_modify(t, &w.dir, true);
@@ -127,6 +126,66 @@ fn windows_world(t: &mut Text, w: &World) {
         grant_modify(t, &w.mod_dir(), true);
         grant_modify(t, &w.config_file(), false);
     }
+    firewall(t, w);
+}
+
+/// The registry key in `key` (a file) set in the environment of the ACE world `w`'s service,
+/// whether the script made the service or it was there before: `DERETH_NETWORK_KEY` alone is
+/// replaced, and the service's other environment entries kept. They are read and written where
+/// nssm keeps them (`nssm get <service> AppEnvironmentExtra` reads the same value), the service's
+/// registry parameters, as its parameters are set above. The key is never shown.
+fn service_key(t: &mut Text, w: &World, key: &str) {
+    t.line(&format!("$keyFile = {}", ps(key)));
+    t.line("if (-not (Test-Path -LiteralPath $keyFile -PathType Leaf)) { throw \"There is no key file at $keyFile\" }");
+    t.line("$key = (Get-Content -LiteralPath $keyFile -Raw).Trim()");
+    t.line(&format!(
+        "$params = {}",
+        ps(&format!(
+            "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\{}\\Parameters",
+            w.service
+        ))
+    ));
+    t.line("$extra = @((Get-ItemProperty -LiteralPath $params -Name AppEnvironmentExtra -ErrorAction SilentlyContinue).AppEnvironmentExtra | Where-Object { $_ -and -not $_.StartsWith('DERETH_NETWORK_KEY=') })");
+    t.line("Set-ItemProperty -LiteralPath $params -Name AppEnvironmentExtra -Type MultiString -Value ([string[]]($extra + \"DERETH_NETWORK_KEY=$key\"))");
+    t.line(&format!(
+        "Write-Host ({} + ': its registry key is set from ' + $keyFile + ', its other environment kept; it takes the key when it next starts')",
+        ps(&w.service)
+    ));
+}
+
+/// An inbound firewall rule, named for the world `w`, that lets its program be reached from the
+/// network: Empyrean's server, or the program the ACE world's service runs (its `dotnet`, as this
+/// machine finds it). Made once, and brought up to date when it is there.
+fn firewall(t: &mut Text, w: &World) {
+    match w.kind {
+        Kind::Empyrean => t.line(&format!("$program = {}", ps(&w.replaced()))),
+        Kind::Ace => {
+            t.line(&format!(
+                "$program = (Get-ItemProperty -LiteralPath {} -Name Application).Application",
+                ps(&format!(
+                    "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\{}\\Parameters",
+                    w.service
+                ))
+            ));
+            t.line("if (-not [System.IO.Path]::IsPathRooted($program)) { $program = (Get-Command $program -CommandType Application | Select-Object -First 1).Source }");
+        }
+    }
+    t.line(&format!(
+        "$rule = {}",
+        ps(&format!("dereth-world-{}", w.name))
+    ));
+    t.line("if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) {");
+    t.line("  Set-NetFirewallRule -Name $rule -Program $program -Direction Inbound -Action Allow -Enabled True");
+    t.line("} else {");
+    t.line(&format!(
+        "  New-NetFirewallRule -Name $rule -DisplayName {} -Program $program -Direction Inbound -Action Allow | Out-Null",
+        ps(&format!("Dereth world {}", w.name))
+    ));
+    t.line("}");
+    t.line(&format!(
+        "Write-Host ({} + ': ' + $program + ' may be reached from the network')",
+        ps(&w.name)
+    ));
 }
 
 /// The service an ACE world waits for (`db`), made with nssm from its MariaDB folder when it is
@@ -286,6 +345,12 @@ fn here(cfg: &Config, from: &str) -> String {
             ));
         }
     }
+    t.line("");
+    t.line("# The web client is built here with each Dereth release, for the browser's target.");
+    t.line(&format!("rustup target add {}", ps(WEB_TARGET)));
+    t.line(&format!(
+        "if ($LASTEXITCODE -ne 0) {{ throw 'adding the target {WEB_TARGET} failed' }}"
+    ));
     if cfg.worlds.iter().any(|w| w.kind == Kind::Ace) {
         t.line("");
         t.line("# The ACE mod is built here, for .NET 10.");

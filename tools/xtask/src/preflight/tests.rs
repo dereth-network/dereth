@@ -27,7 +27,18 @@ struct Fake {
     pid: u32,
     /// The repository's files, by path from its root: what `git worktree add` checks out.
     tree: BTreeMap<String, String>,
+    /// What each address answers over HTTP, in turn, the last again and again; an address not here
+    /// answers as a dev hub that runs, with every world linked ([`Fake::http`]).
+    http: BTreeMap<String, Vec<Result<String, String>>>,
 }
+
+/// The dev hub's world list as it answers once it runs.
+const WORLD_LIST: &str = r#"{"data": [], "nextOffset": null}"#;
+
+/// The dev hub's answer when the dev worlds' slugs (Empyrean's `dev`, ACE's `acedev`) are linked.
+const ALL_LINKED: &str = r#"{"hub": "dereth-network-hub", "worlds": [
+    {"slug": "dev", "name": "Dev", "online": true},
+    {"slug": "acedev", "name": "ACE Dev", "online": true}]}"#;
 
 fn key(p: &Path) -> String {
     p.display().to_string().replace('\\', "/")
@@ -46,6 +57,18 @@ impl Fake {
 
     fn there(mut self, at: &str, text: &str) -> Self {
         self.remote.insert(at.to_owned(), text.to_owned());
+        self
+    }
+
+    /// What `url` answers over HTTP, each answer in turn, the last again and again.
+    fn http(mut self, url: &str, answers: &[Result<&str, &str>]) -> Self {
+        self.http.insert(
+            url.to_owned(),
+            answers
+                .iter()
+                .map(|a| a.map(str::to_owned).map_err(str::to_owned))
+                .collect(),
+        );
         self
     }
 
@@ -373,6 +396,29 @@ impl Machine for Fake {
         self.services.insert(name.to_owned(), to);
         Ok(())
     }
+
+    fn get(&mut self, url: &str) -> Result<String, String> {
+        self.log.push(format!("get {url}"));
+        match self.http.get_mut(url) {
+            Some(answers) if answers.len() > 1 => answers.remove(0),
+            Some(answers) => answers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| Err("no answer".to_owned())),
+            None if url.ends_with("/v1/servers") => Ok(WORLD_LIST.to_owned()),
+            None if url.ends_with("/v1/network") => Ok(ALL_LINKED.to_owned()),
+            None => Err(format!("{url}: no answer")),
+        }
+    }
+
+    fn pause(&mut self, ms: u64) {
+        self.log.push(format!("pause {ms}"));
+    }
+}
+
+/// A registry key, as the hub makes them: `drth_` and 43 characters of base64url.
+fn registry_key() -> String {
+    format!("drth_{}", "Ab-_9".repeat(9).split_at(43).0)
 }
 
 const SETUP: &str = r#"
@@ -382,6 +428,7 @@ work_dir = 'D:\preflight'
 ssh = "owner@vps.example.org"
 remote_db = "/srv/hub/hub.sqlite"
 public_url = "https://dev-hub.example.org"
+site_origins = ["https://dev-site.example.org"]
 admins = ["1001"]
 discord_client_id = "555"
 discord_client_secret_file = 'D:\secrets\dev-client-secret.txt'
@@ -514,6 +561,9 @@ fn fake() -> Fake {
             "D:/preflight/target/x86_64-unknown-linux-gnu/release/empyrean-server",
             "empyrean 0.3.2-rc.1 for linux",
         )
+        .file("D:/secrets/dev-client-secret.txt", "the dev client secret\n")
+        .file("D:/secrets/dev-bot-token.txt", "the dev bot token\n")
+        .file("D:/secrets/ace.key", &format!("{}\r\n", registry_key()))
         .file("D:/worlds/emp/empyrean-server.exe", "empyrean 0.3.1")
         .file("D:/worlds/emp/empyrean.toml", EMP_TOML)
         .file("D:/worlds/emp/shard.db", "the shard")
@@ -532,6 +582,10 @@ fn fake() -> Fake {
 /// configuration.
 fn remote_fake() -> Fake {
     fake()
+        .reply(
+            "ssh owner@world-box # box-ace on world-box: its registry key's file looked at",
+            Ok("a key\r\n"),
+        )
         .there("owner@world-box:.dereth-preflight/box-emp/config", EMP_TOML)
         .there(
             "owner@world-box:.dereth-preflight/box-ace/config",
@@ -636,6 +690,12 @@ impl Machine for Counting {
     }
     fn service(&mut self, name: &str, to: Service) -> Result<(), String> {
         self.inner.service(name, to)
+    }
+    fn get(&mut self, url: &str) -> Result<String, String> {
+        Machine::get(&mut self.inner, url)
+    }
+    fn pause(&mut self, ms: u64) {
+        self.inner.pause(ms);
     }
 }
 
@@ -1041,6 +1101,30 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         of(&["Cargo.lock"]),
         [Product::Hub, Product::Empyrean, Product::Dereth]
     );
+    // The web client carries Dereth's version: a change to it alone is a Dereth release, and the
+    // plan says so.
+    assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
+    assert_eq!(of(&["dereth\\web\\src\\front.rs"]), [Product::Dereth]);
+    let web_alone = |paths: &[&str]| {
+        let changed: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+        plan::web_alone(&changed, &packages, &depends)
+    };
+    assert!(web_alone(&["dereth/web/www/front.js", "docs/x.md"]));
+    assert!(!web_alone(&[
+        "dereth/web/www/front.js",
+        "dereth/client/src/main.rs"
+    ]));
+    assert!(!web_alone(&["core/primitives/src/lib.rs"]), "the client's");
+    assert!(!web_alone(&["docs/x.md"]), "no Dereth release at all");
+    let (bump, why) = plan::dereth_bump(true);
+    assert_eq!(bump, Bump::Patch);
+    assert!(
+        why.starts_with("the web client's changes alone: it carries Dereth's version"),
+        "{why}"
+    );
+    assert!(plan::dereth_bump(false)
+        .1
+        .contains("the web client's changes"));
 
     assert_eq!(
         plan::next_version("0.3.1", Bump::Patch).as_deref(),
@@ -1422,86 +1506,186 @@ fn a_preflight_runs_on_a_clean_branch_alone() {
     assert!(m.inner.log.is_empty(), "nothing done");
 }
 
+/// The releases a ship cut, as (product, version), in order.
+type Cuts = std::rc::Rc<std::cell::RefCell<Vec<(Product, String)>>>;
+
+/// A stand-in for `cargo xtask release`'s own steps, run in this process: it records each release
+/// it is asked to cut, and fails `failing`'s.
+fn cutter(
+    cuts: &Cuts,
+    failing: Option<Product>,
+) -> impl FnMut(Product, &str) -> Result<(), String> {
+    let cuts = cuts.clone();
+    move |product, version| {
+        cuts.borrow_mut().push((product, version.to_owned()));
+        if failing == Some(product) {
+            return Err("tier 0 failed; no tag was made".to_owned());
+        }
+        Ok(())
+    }
+}
+
+/// A ship of the commit preflighted on the branch `release` (`commit`), of `products`, where the
+/// branch is at `here` here and `there` on the remote, and main is behind it when `ancestor`.
+fn shipping(products: &[Product], here: &str, there: &str, ancestor: bool) -> (Fake, Ledger) {
+    let commit = "c0ffee0000000000000000000000000000000001";
+    let mut f = Fake::default()
+        .reply("git rev-parse refs/heads/release", Ok(here))
+        .reply("git rev-parse --verify --quiet origin/release", Ok(there))
+        .reply("git rev-parse main", Ok("beef"))
+        .reply("git rev-parse dereth-v0.4.4^{commit}", Ok("d00d\n"));
+    if !ancestor {
+        f = f.reply("git merge-base --is-ancestor", Err("not an ancestor"));
+    }
+    let mut l = Ledger {
+        stage: Stage::Preflighted,
+        commit: Some(commit.to_owned()),
+        branch: Some("release".to_owned()),
+        ..Ledger::default()
+    };
+    let mut stamped = BTreeMap::new();
+    l.releases = super::releases(&repo(products), &mut stamped).expect("releases");
+    (f, l)
+}
+
 #[test]
 fn ship_fast_forwards_main_to_exactly_the_preflighted_commit_and_releases_each_product() {
     let commit = "c0ffee0000000000000000000000000000000001";
-    let shipping = |here: &str, there: &str, ancestor: bool| {
-        let mut f = Fake::default()
-            .reply("git rev-parse refs/heads/release", Ok(here))
-            .reply("git rev-parse --verify --quiet origin/release", Ok(there))
-            .reply("git rev-parse main", Ok("beef"));
-        if !ancestor {
-            f = f.reply("git merge-base --is-ancestor", Err("not an ancestor"));
-        }
-        let mut l = Ledger {
-            stage: Stage::Preflighted,
-            commit: Some(commit.to_owned()),
-            branch: Some("release".to_owned()),
-            ..Ledger::default()
-        };
-        let mut stamped = BTreeMap::new();
-        l.releases = super::releases(&repo(&[Product::Hub, Product::Empyrean]), &mut stamped)
-            .expect("releases");
-        (f, l)
+    let products = [Product::Hub, Product::Empyrean];
+    let ship = |f: &mut Fake, l: &mut Ledger, cuts: &Cuts, dry_run: bool| {
+        ship::ship(
+            f,
+            Path::new("D:/repo"),
+            "origin",
+            &mut cutter(cuts, None),
+            l,
+            dry_run,
+        )
     };
-    let env = [("DERETH_ACE_DIR".to_owned(), "D:\\ACE\\Server".to_owned())];
+    let cuts = Cuts::default();
 
-    let (mut f, mut l) = shipping("feed", commit, true);
-    let e = ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, false)
-        .expect_err("refused");
+    let (mut f, mut l) = shipping(&products, "feed", commit, true);
+    let e = ship(&mut f, &mut l, &cuts, false).expect_err("refused");
     assert!(e.starts_with("release has moved"), "{e}");
-    assert!(f.done("git checkout").is_empty() && f.done("cargo").is_empty());
+    assert!(f.done("git checkout").is_empty() && cuts.borrow().is_empty());
 
-    let (mut f, mut l) = shipping(commit, "feed", true);
-    let e = ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, false)
-        .expect_err("refused");
+    let (mut f, mut l) = shipping(&products, commit, "feed", true);
+    let e = ship(&mut f, &mut l, &cuts, false).expect_err("refused");
     assert!(e.starts_with("origin/release has moved"), "{e}");
-    assert!(f.done("git checkout").is_empty() && f.done("cargo").is_empty());
+    assert!(f.done("git checkout").is_empty() && cuts.borrow().is_empty());
 
     // A branch never pushed is checked here alone.
-    let (mut f, mut l) = shipping(commit, "", true);
-    ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, true)
-        .expect("not on the remote");
+    let (mut f, mut l) = shipping(&products, commit, "", true);
+    ship(&mut f, &mut l, &cuts, true).expect("not on the remote");
 
-    let (mut f, mut l) = shipping(commit, commit, false);
-    let e = ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, false)
-        .expect_err("refused");
+    let (mut f, mut l) = shipping(&products, commit, commit, false);
+    let e = ship(&mut f, &mut l, &cuts, false).expect_err("refused");
     assert!(e.contains("cannot be fast-forwarded"), "{e}");
 
-    let (mut f, mut l) = shipping(commit, commit, true);
-    ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, true).expect("a dry run");
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    ship(&mut f, &mut l, &cuts, true).expect("a dry run");
     assert!(
-        f.done("git checkout").is_empty() && f.done("cargo").is_empty(),
+        f.done("git checkout").is_empty() && cuts.borrow().is_empty(),
         "a dry run changes nothing"
     );
     assert_eq!(l.stage, Stage::Preflighted);
 
-    let (mut f, mut l) = shipping(commit, commit, true);
-    ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, false).expect("shipped");
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    ship(&mut f, &mut l, &cuts, false).expect("shipped");
     assert!(f.at("git fetch origin") < f.at("git checkout main"));
     assert!(f.at("git checkout main") < f.at(&format!("git merge --ff-only {commit}")));
     assert_eq!(
-        f.done("cargo xtask release"),
+        *cuts.borrow(),
         [
-            "cargo xtask release network-hub 0.2.2 --push --remote origin [DERETH_ACE_DIR=D:/ACE/Server]",
-            "cargo xtask release empyrean 0.3.2 --push --remote origin [DERETH_ACE_DIR=D:/ACE/Server]",
-        ]
+            (Product::Hub, "0.2.2".to_owned()),
+            (Product::Empyrean, "0.3.2".to_owned())
+        ],
+        "each release cut in this process, in the ledger's order"
     );
-    assert_eq!(l.stage, Stage::Shipped);
+    // Not one through a cargo child: its build of this program could not replace it while it
+    // runs.
     assert!(
-        ship::ship(&mut f, Path::new("D:/repo"), "origin", &env, &mut l, false)
-            .is_err_and(|e| e.contains("shipped already"))
+        f.record().iter().all(|l| !l.starts_with("cargo")),
+        "{:#?}",
+        f.record()
     );
+    assert!(f.done("git tag").is_empty(), "no web client without Dereth");
+    assert_eq!(l.stage, Stage::Shipped);
+    assert!(ship(&mut f, &mut l, &cuts, false).is_err_and(|e| e.contains("shipped already")));
     let mut idle = Ledger::default();
-    assert!(ship::ship(
+    assert!(
+        ship(&mut f, &mut idle, &cuts, false).is_err_and(|e| e.contains("nothing is preflighted"))
+    );
+
+    // A release that fails stops the ship there, and says which.
+    let cuts = Cuts::default();
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    let e = ship::ship(
         &mut f,
         Path::new("D:/repo"),
         "origin",
-        &env,
-        &mut idle,
-        false
+        &mut cutter(&cuts, Some(Product::Hub)),
+        &mut l,
+        false,
     )
-    .is_err_and(|e| e.contains("nothing is preflighted")));
+    .expect_err("stopped");
+    assert!(
+        e.starts_with("releasing network-hub 0.2.2: tier 0 failed"),
+        "{e}"
+    );
+    assert_eq!(cuts.borrow().len(), 1, "nothing after it");
+    assert_eq!(l.stage, Stage::Preflighted);
+}
+
+#[test]
+fn ship_tags_the_web_client_on_dereths_release_commit_and_pushes_the_tag() {
+    let commit = "c0ffee0000000000000000000000000000000001";
+    let ship = |f: &mut Fake, l: &mut Ledger, cuts: &Cuts, dry_run: bool| {
+        ship::ship(
+            f,
+            Path::new("D:/repo"),
+            "origin",
+            &mut cutter(cuts, None),
+            l,
+            dry_run,
+        )
+    };
+    let cuts = Cuts::default();
+    let (mut f, mut l) = shipping(&[Product::Empyrean, Product::Dereth], commit, commit, true);
+    ship(&mut f, &mut l, &cuts, false).expect("shipped");
+    assert_eq!(
+        *cuts.borrow(),
+        [
+            (Product::Empyrean, "0.3.2".to_owned()),
+            (Product::Dereth, "0.4.4".to_owned())
+        ]
+    );
+    assert_eq!(
+        f.done("git tag"),
+        ["git tag -a dereth-web-v0.4.4 -m Dereth (Web) 0.4.4 d00d"],
+        "on the commit Dereth's release tag names"
+    );
+    assert!(f.at("git rev-parse dereth-v0.4.4^{commit}") < f.at("git tag -a dereth-web-v0.4.4"));
+    assert!(f.at("git tag -a dereth-web-v0.4.4") < f.at("git push origin dereth-web-v0.4.4"));
+
+    // A web tag already there, here or on the remote, stops the ship before anything moves.
+    for (at, reply) in [
+        (
+            "git rev-parse --verify --quiet refs/tags/dereth-web-v0.4.4",
+            "b0a7\n",
+        ),
+        (
+            "git ls-remote --tags origin refs/tags/dereth-web-v0.4.4",
+            "b0a7\trefs/tags/dereth-web-v0.4.4\n",
+        ),
+    ] {
+        let cuts = Cuts::default();
+        let (f, mut l) = shipping(&[Product::Dereth], commit, commit, true);
+        let mut f = f.reply(at, Ok(reply));
+        let e = ship(&mut f, &mut l, &cuts, false).expect_err("refused");
+        assert!(e.contains("dereth-web-v0.4.4 is there already"), "{e}");
+        assert!(f.done("git checkout").is_empty() && cuts.borrow().is_empty());
+    }
 }
 
 #[test]
@@ -1569,7 +1753,11 @@ fn the_setup_script_here_grants_the_services_makes_the_ace_service_the_tunnel_an
         "nssm set 'AceDev' AppDirectory 'D:\\ACE\\Server'",
         "nssm set 'AceDev' DependOnService 'MariaDB'",
         "throw ('There is no service ' + 'MariaDB' + ' for ' + 'ace' + ' to wait for: name its mariadb_dir",
-        "DERETH_NETWORK_KEY=",
+        "}\n$keyFile = 'D:\\secrets\\ace.key'\n",
+        "Where-Object { $_ -and -not $_.StartsWith('DERETH_NETWORK_KEY=') }",
+        "$program = 'D:\\worlds\\emp\\empyrean-server.exe'\n$rule = 'dereth-world-emp'\n",
+        "$program = (Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\AceDev\\Parameters' -Name Application).Application",
+        "$rule = 'dereth-world-ace'\n",
         "'cloudflared' tunnel route dns 'dev-hub' 'dev-hub.example.org'",
         "if (-not (Test-Path $cert)) { throw \"No Cloudflare login at ${cert}: run 'cloudflared tunnel login'",
         "if ($LASTEXITCODE -ne 0) { throw \"cloudflared tunnel create failed ($LASTEXITCODE)\" }",
@@ -2086,9 +2274,10 @@ fn each_ace_world_takes_the_mod_built_against_its_own_ace_server() {
     let mut m = counting(remote_fake());
     preflight_on(&mut m, &setup).expect("preflighted");
     let f = &m.inner;
-    // The other machine's server's assemblies, copied here first.
+    // The other machine's server's assemblies, copied here first, after its key file is looked
+    // at.
     assert_eq!(
-        f.scripts_on("owner@world-box")[0],
+        f.scripts_on("owner@world-box")[1],
         format!(
             "# box-ace on world-box: its ACE server's assemblies staged, for the mod's build
 {SETTINGS}if (-not (Test-Path -LiteralPath (Join-Path 'D:\\Games\\ACE Server\\Server' 'ACE.Server.dll'))) {{ throw ('There is no ACE.Server.dll in ' + 'D:\\Games\\ACE Server\\Server' + ': the world''s dir is the folder that holds it.') }}
@@ -2209,6 +2398,7 @@ fn a_setup_with_nothing_here_drives_a_windows_machine_and_a_linux_one_and_builds
     assert_eq!(
         labels,
         [
+            "# box-ace on world-box: its registry key's file looked at",
             "# box-ace on world-box: its ACE server's assemblies staged, for the mod's build",
             "# box-emp on world-box: stopped, and its configuration staged",
             "# box-emp on world-box: its files as they are, kept beside it",
@@ -2431,6 +2621,7 @@ fn the_setup_writes_a_script_for_each_machine() {
         "winget install --exact --id zig.zig",
         "cargo install --locked cargo-zigbuild",
         "rustup target add 'x86_64-unknown-linux-gnu'",
+        "rustup target add 'wasm32-unknown-unknown'",
         "winget install --exact --id Microsoft.DotNet.SDK.10",
         "# world-box: run setup-world-box.ps1 there, once.",
         "# world-vm: run setup-world-vm.sh there, once.",
@@ -2465,10 +2656,56 @@ fn the_setup_writes_a_script_for_each_machine() {
         "nssm set 'MariaDB' AppStderr (Join-Path $dbHome 'mariadb.log')",
         "nssm set 'MariaDB' AppStopMethodConsole 60000",
         "Start-Service -Name 'MariaDB'",
-        "(Get-Content 'D:\\keys\\ace.key' -Raw)",
         "(A;;RPWPLCLORC;;;$sid)",
     ] {
         assert!(windows.contains(want), "{want}\n{windows}");
+    }
+    // The key is set whether the script made the service or it was there before: after the block
+    // that makes it, never inside it. Only DERETH_NETWORK_KEY is replaced; the service's other
+    // environment entries are kept, and the key is never shown.
+    let key_block = "  nssm set 'ACEDev' DependOnService 'MariaDB'
+}
+$keyFile = 'D:\\keys\\ace.key'
+if (-not (Test-Path -LiteralPath $keyFile -PathType Leaf)) { throw \"There is no key file at $keyFile\" }
+$key = (Get-Content -LiteralPath $keyFile -Raw).Trim()
+$params = 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\ACEDev\\Parameters'
+$extra = @((Get-ItemProperty -LiteralPath $params -Name AppEnvironmentExtra -ErrorAction SilentlyContinue).AppEnvironmentExtra | Where-Object { $_ -and -not $_.StartsWith('DERETH_NETWORK_KEY=') })
+Set-ItemProperty -LiteralPath $params -Name AppEnvironmentExtra -Type MultiString -Value ([string[]]($extra + \"DERETH_NETWORK_KEY=$key\"))
+Write-Host ('ACEDev' + ': its registry key is set from ' + $keyFile + ', its other environment kept; it takes the key when it next starts')
+";
+    assert!(windows.contains(key_block), "{key_block}\n{windows}");
+    assert!(
+        !windows.contains("Write-Host $key") && !windows.contains("Write-Host \"$key"),
+        "the key is never shown"
+    );
+    // Each world's program may be reached from the network: Empyrean's server, and the dotnet the
+    // ACE world's service runs, as that machine finds it; the rule is brought up to date when it
+    // is there.
+    let firewall = |program: &str, world: &str| {
+        format!(
+            "{program}
+$rule = 'dereth-world-{world}'
+if (Get-NetFirewallRule -Name $rule -ErrorAction SilentlyContinue) {{
+  Set-NetFirewallRule -Name $rule -Program $program -Direction Inbound -Action Allow -Enabled True
+}} else {{
+  New-NetFirewallRule -Name $rule -DisplayName 'Dereth world {world}' -Program $program -Direction Inbound -Action Allow | Out-Null
+}}
+Write-Host ('{world}' + ': ' + $program + ' may be reached from the network')
+"
+        )
+    };
+    for rule in [
+        firewall(
+            &format!("$program = '{BOX_EMP}\\empyrean-server.exe'"),
+            "box-emp",
+        ),
+        firewall(
+            "$program = (Get-ItemProperty -LiteralPath 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\ACEDev\\Parameters' -Name Application).Application
+if (-not [System.IO.Path]::IsPathRooted($program)) { $program = (Get-Command $program -CommandType Application | Select-Object -First 1).Source }",
+            "box-ace",
+        ),
+    ] {
+        assert!(windows.contains(&rule), "{rule}\n{windows}");
     }
     assert!(!windows.contains("systemctl") && !windows.contains("cloudflared"));
     // The account may change each world's folder; an ACE world's mod folder and settings too.
@@ -2553,4 +2790,413 @@ fn a_dry_run_shows_the_steps_on_another_windows_machine_and_changes_nothing() {
         },
     )
     .expect("a dry run");
+}
+
+/// Where the dev hub of [`SETUP`] and [`REMOTE`] answers, on this machine.
+const DEV_LIST: &str = "http://127.0.0.1:8650/v1/servers";
+const DEV_NETWORK: &str = "http://127.0.0.1:8650/v1/network";
+
+/// The record's lines that start with any of `starts`.
+fn touched(f: &Fake, starts: &[&str]) -> Vec<String> {
+    f.record()
+        .into_iter()
+        .filter(|l| starts.iter().any(|s| l.starts_with(s)))
+        .collect()
+}
+
+#[test]
+fn what_the_setup_file_names_is_checked_before_anything_and_every_problem_said_at_once() {
+    // The bot token's file is not there, the client secret's is empty, the Discord application has
+    // no site to return to, and the ACE world's key file holds something that is not a key; the
+    // Linux world's builds lack cargo zigbuild.
+    let not_a_key = "drth_not-a-whole-key";
+    let mut f = fake()
+        .file("D:/secrets/dev-client-secret.txt", "  \r\n")
+        .file("D:/secrets/ace.key", not_a_key)
+        .reply("cargo-zigbuild --version", Err("no zigbuild"));
+    f.remove(Path::new("D:/secrets/dev-bot-token.txt"))
+        .expect("removed");
+    let setup =
+        Config::parse(&SETUP.replace("site_origins = [\"https://dev-site.example.org\"]\n", ""))
+            .expect("parses");
+    let mut m = counting(f);
+    let e = run(
+        &mut m,
+        &setup,
+        Path::new("D:/repo"),
+        &repo(&[Product::Hub, Product::Empyrean]),
+        &Options {
+            with: vec!["vm".to_owned()],
+            dry_run: false,
+        },
+    )
+    .expect_err("refused");
+    for want in [
+        "The builds made here need tools this machine lacks:\n  cargo zigbuild",
+        "The setup file names what is not there or will not do:",
+        "the dev Discord application's client secret, `discord_client_secret_file` (D:\\secrets\\dev-client-secret.txt): the file is empty",
+        "the dev Discord bot's token, `discord_bot_token_file` (D:\\secrets\\dev-bot-token.txt): there is no such file",
+        "`discord_client_id` without `site_origins`: the hub refuses a Discord application",
+        "ace: its `key_file` (D:\\secrets\\ace.key): it holds no registry key",
+        "Nothing was built or stopped.",
+    ] {
+        assert!(e.contains(want), "{want}\n{e}");
+    }
+    assert!(
+        !e.contains(not_a_key),
+        "a key file's text is never shown: {e}"
+    );
+    assert!(
+        touched(
+            &m.inner,
+            &["git", "cargo", "ssh", "service", "spawn", "get"]
+        )
+        .is_empty(),
+        "only asked: {:#?}",
+        m.inner.record()
+    );
+
+    // A key file with nothing in it, and one that is not there.
+    for (text, why) in [
+        (Some(" \n"), "the file is empty"),
+        (None, "there is no such file"),
+    ] {
+        let mut f = fake();
+        match text {
+            Some(t) => f = f.file("D:/secrets/ace.key", t),
+            None => f.remove(Path::new("D:/secrets/ace.key")).expect("removed"),
+        }
+        let mut m = counting(f);
+        let e = preflight(&mut m, &[Product::Hub], &[]).expect_err("refused");
+        assert!(
+            e.contains(&format!(
+                "ace: its `key_file` (D:\\secrets\\ace.key): {why}"
+            )),
+            "{e}"
+        );
+    }
+}
+
+#[test]
+fn a_key_file_on_another_windows_machine_is_looked_at_there_and_its_key_never_leaves_it() {
+    // Not there: said with the machine, before anything is built or stopped.
+    let (m, r) = remote_preflight(remote_fake().reply(
+        "ssh owner@world-box # box-ace on world-box: its registry key's file looked at",
+        Ok("missing\r\n"),
+    ));
+    let e = r.expect_err("refused");
+    assert!(
+        e.contains(
+            "box-ace: its `key_file` (D:\\keys\\ace.key on world-box): there is no such file"
+        ),
+        "{e}"
+    );
+    let f = &m.inner;
+    let scripts = f.scripts_on("owner@world-box");
+    assert_eq!(scripts.len(), 1, "nothing else is sent: {scripts:#?}");
+    assert_eq!(
+        scripts[0],
+        format!(
+            "# box-ace on world-box: its registry key's file looked at
+{SETTINGS}$file = 'D:\\keys\\ace.key'
+if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {{ 'missing'; return }}
+$text = Get-Content -LiteralPath $file -Raw
+if ($null -eq $text -or $text.Trim() -eq '') {{ 'empty'; return }}
+if ($text.Trim() -cmatch '^drth_[A-Za-z0-9_-]{{43}}$') {{ 'a key' }} else {{ 'not a key' }}
+"
+        ),
+        "it answers a word, never the key"
+    );
+    assert!(touched(f, &["git", "cargo", "service", "spawn", "send", "fetch"]).is_empty());
+
+    // A machine that cannot be reached is said too, before anything.
+    let (_, r) = remote_preflight(remote_fake().reply(
+        "ssh owner@world-box # box-ace on world-box: its registry key's file looked at",
+        Err("ssh: connect to host world-box port 22: Connection timed out"),
+    ));
+    let e = r.expect_err("refused");
+    assert!(
+        e.contains("box-ace: its `key_file` (D:\\keys\\ace.key on world-box): could not be looked at: ssh: connect")
+            && e.contains("Nothing was built or stopped"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_dev_hub_that_never_answers_stops_the_run_before_any_world_is_touched_with_its_log() {
+    let mut m = counting(
+        fake()
+            .http(DEV_LIST, &[Err("connection refused")])
+            .file(
+                "D:/preflight/hub/hub.log",
+                "starting\nerror: the operator API needs --public-url and --site-origin as well as the Discord client\n",
+            ),
+    );
+    let e = preflight(&mut m, &[Product::Hub, Product::Empyrean], &[]).expect_err("stopped");
+    for want in [
+        "The dev hub did not answer at http://127.0.0.1:8650/v1/servers in 30 seconds",
+        "(the last try: connection refused)",
+        "so no world was touched, and it is stopped",
+        "The end of its log,",
+        "error: the operator API needs --public-url and --site-origin",
+    ] {
+        assert!(e.contains(want), "{want}\n{e}");
+    }
+    let f = &m.inner;
+    assert_eq!(
+        f.done(&format!("get {DEV_LIST}")).len(),
+        steps::HUB_TRIES as usize,
+        "a bounded number of tries"
+    );
+    assert_eq!(
+        f.done("pause"),
+        vec![format!("pause {}", steps::HUB_PAUSE_MS); steps::HUB_TRIES as usize - 1]
+    );
+    assert!(f.done("service").is_empty(), "no world is touched");
+    assert!(f.done("get http://127.0.0.1:8650/v1/network").is_empty());
+    assert_eq!(
+        f.done("kill"),
+        ["kill 102", "kill 101"],
+        "the dev hub stopped"
+    );
+    let l = ledger(&mut m);
+    assert!(l.hub.is_none() && l.worlds.is_empty());
+
+    // Answering on the third try, with its list: the worlds follow.
+    let mut m = counting(fake().http(
+        DEV_LIST,
+        &[
+            Err("connection refused"),
+            Ok("<html>starting</html>"),
+            Ok(WORLD_LIST),
+        ],
+    ));
+    preflight(&mut m, &[Product::Hub, Product::Empyrean], &[]).expect("preflighted");
+    let f = &m.inner;
+    assert_eq!(f.done(&format!("get {DEV_LIST}")).len(), 3);
+    assert!(f.last(&format!("get {DEV_LIST}")) < f.at("service EmpyreanDev Stopped"));
+    assert!(f.at("spawn cloudflared") < f.at(&format!("get {DEV_LIST}")));
+
+    // When an earlier preflight's worlds link to it, the message says how to put them back.
+    m.inner.http.insert(
+        DEV_LIST.to_owned(),
+        vec![Err("connection refused".to_owned())],
+    );
+    m.counts = vec![String::new(), String::new()];
+    let e = preflight(&mut m, &[Product::Hub, Product::Empyrean], &[]).expect_err("stopped");
+    assert!(
+        e.contains("The worlds an earlier preflight installed still link to the dev hub: `cargo xtask preflight rollback` puts them back."),
+        "{e}"
+    );
+}
+
+#[test]
+fn each_world_is_watched_for_at_the_dev_hub_and_one_that_never_links_is_named_with_its_log() {
+    let none = r#"{"hub": "dereth-network-hub", "worlds": [
+        {"slug": "dev", "name": "Dev", "online": false},
+        {"slug": "acedev", "name": "ACE Dev", "online": false}]}"#;
+    let empyrean_only = r#"{"hub": "dereth-network-hub", "worlds": [
+        {"slug": "dev", "name": "Dev", "online": true},
+        {"slug": "acedev", "name": "ACE Dev", "online": false}]}"#;
+    // The run goes on to its end, and asks a bounded number of times.
+    let mut m = counting(fake().http(DEV_NETWORK, &[Ok(none), Ok(empyrean_only)]));
+    preflight(&mut m, &[Product::Hub, Product::Empyrean], &[]).expect("not stopped");
+    let f = &m.inner;
+    assert_eq!(
+        f.done(&format!("get {DEV_NETWORK}")).len(),
+        steps::LINK_TRIES as usize
+    );
+    assert!(f.at(&format!("get {DEV_NETWORK}")) > f.last("service AceDev Running"));
+    let pauses = f.done(&format!("pause {}", steps::LINK_PAUSE_MS)).len();
+    assert_eq!(pauses, steps::LINK_TRIES as usize - 1);
+
+    // What the run says of it.
+    let setup = cfg();
+    let worlds: Vec<(&super::config::World, Option<String>)> = setup
+        .worlds
+        .iter()
+        .take(2)
+        .zip([Some("dev".to_owned()), Some("acedev".to_owned())])
+        .collect();
+    let mut f = fake().http(DEV_NETWORK, &[Ok(none), Ok(empyrean_only)]);
+    let links = steps::await_links(&mut f, &setup, &worlds);
+    assert_eq!(
+        links
+            .iter()
+            .map(|l| (l.world.as_str(), l.linked))
+            .collect::<Vec<_>>(),
+        [("emp", true), ("ace", false)]
+    );
+    let said = steps::links_summary(&setup, &links);
+    for want in [
+        "Linked to the dev hub: emp.\n",
+        "NOT LINKED to the dev hub after 3 minutes, so offline on the network: ace.\n",
+        "  ace (as acedev): read ACE's log, D:\\ACE\\Server\\ACE_Log.txt on this machine\n",
+        "  and the dev hub's log, D:",
+    ] {
+        assert!(said.contains(want), "{want}\n{said}");
+    }
+
+    // Every world linked at the first ask: asked once, no wait.
+    let mut f = fake();
+    let links = steps::await_links(&mut f, &setup, &worlds);
+    assert!(links.iter().all(|l| l.linked));
+    assert_eq!(f.done("get").len(), 1);
+    assert!(f.done("pause").is_empty());
+    assert_eq!(
+        steps::links_summary(&setup, &links),
+        "Linked to the dev hub: emp, ace.\n"
+    );
+
+    // A world that names no slug cannot link: it is not waited for, and the run says why.
+    let mut f = fake();
+    let unnamed = vec![
+        (worlds[0].0, None),
+        (worlds[1].0, Some("acedev".to_owned())),
+    ];
+    let links = steps::await_links(&mut f, &setup, &unnamed);
+    assert_eq!(f.done("get").len(), 1, "the other linked at once");
+    let said = steps::links_summary(&setup, &links);
+    assert!(
+        said.contains(
+            "  emp: its configuration (D:\\worlds\\emp\\empyrean.toml) names no slug to link as"
+        ),
+        "{said}"
+    );
+
+    // The log to read on another machine.
+    let remote = remote_cfg();
+    let away: Vec<(&super::config::World, Option<String>)> = remote
+        .worlds
+        .iter()
+        .map(|w| (w, Some("dev".to_owned())))
+        .collect();
+    let mut f = fake().http(DEV_NETWORK, &[Ok(none)]);
+    let said = steps::links_summary(&remote, &steps::await_links(&mut f, &remote, &away));
+    for want in [
+        "  box-emp (as dev): read Empyrean's log, the error output of its service EmpyreanDev on world-box",
+        "  box-ace (as dev): read ACE's log, D:\\Games\\ACE Server\\Server\\ACE_Log.txt on world-box",
+        "  infiltration (as dev): read Empyrean's log, `journalctl -u empyrean` on world-vm",
+    ] {
+        assert!(said.contains(want), "{want}\n{said}");
+    }
+}
+
+#[test]
+fn a_worlds_slug_is_read_from_its_configuration() {
+    assert_eq!(edit::slug(EMP_TOML, false).as_deref(), Some("dev"));
+    assert_eq!(edit::slug(ACE_SETTINGS, true).as_deref(), Some("acedev"));
+    assert_eq!(edit::slug("[federation]\nslug = \"\"\n", false), None);
+    assert_eq!(edit::slug("[server]\n", false), None);
+    assert_eq!(edit::slug("{}", true), None);
+    assert_eq!(edit::slug("", true), None);
+    assert!(steps::holds_key(&format!("{}\r\n", registry_key())));
+    assert!(!steps::holds_key(&format!("{}x", registry_key())));
+    assert!(!steps::holds_key(&registry_key().replace("drth_", "drth-")));
+    assert!(!steps::holds_key(&registry_key().replace('A', "+")));
+}
+
+/// [`fake`], with the web client's crate and page in the tree, and its target installed.
+fn web_fake() -> Fake {
+    fake()
+        .tracked(
+            "dereth/web/Cargo.toml",
+            "[package]\nname = \"dereth-web\"\nversion = \"0.4.3\"\n",
+        )
+        .tracked("dereth/web/www/index.html", "<p>the page</p>")
+        .reply(
+            "rustup target list --installed",
+            Ok("x86_64-pc-windows-msvc\nx86_64-unknown-linux-gnu\nwasm32-unknown-unknown\n"),
+        )
+}
+
+#[test]
+fn a_dereth_release_builds_the_web_client_as_a_candidate_and_play_web_serves_it_here_alone() {
+    let mut m = counting(web_fake());
+    preflight(&mut m, &[Product::Hub, Product::Dereth], &[]).expect("preflighted");
+    let f = &m.inner;
+    assert!(f
+        .get("D:/preflight/src/dereth/web/Cargo.toml")
+        .is_some_and(|t| t.contains("version = \"0.4.4-rc.1\"")));
+    assert_eq!(
+        f.done("cargo run"),
+        ["cargo run --release -q -p dereth-web-dev -- --build-only [CARGO_TARGET_DIR=D:/preflight/target]"]
+    );
+    let built = f.at("cargo run --release -q -p dereth-web-dev");
+    let copied =
+        f.at("copy D:/preflight/src/dereth/web/www D:/preflight/builds/dereth-web-0.4.4-rc.1");
+    assert!(built < copied && copied < f.last("git worktree remove"));
+    assert_eq!(
+        f.get("D:/preflight/builds/dereth-web-0.4.4-rc.1/index.html"),
+        Some("<p>the page</p>")
+    );
+    assert!(f.at("probe rustup target list --installed") < f.at("git worktree add"));
+    let l = ledger(&mut m);
+    let summary = steps::summary(&cfg(), &l);
+    assert!(
+        summary.contains("the web client 0.4.4-rc.1 is in D:")
+            && summary.contains("`cargo xtask preflight play --web` serves it"),
+        "{summary}"
+    );
+
+    // Served on this machine alone, on the dev hub's world list; nothing opens it.
+    let (pid, url) =
+        super::play_web(&mut m, &cfg(), &l, Path::new("D:/repo"), 8081).expect("served");
+    assert_eq!(
+        url,
+        "http://127.0.0.1:8081/?hub=https%3A%2F%2Fdev-hub.example.org%2Fv1%2Fservers"
+    );
+    let f = &m.inner;
+    assert_eq!(f.done("cargo build --release -p dereth-web-dev").len(), 1);
+    let spawned = f.done("spawn ");
+    let runner = spawned.last().expect("the runner");
+    assert!(
+        runner.contains("dereth-web-dev")
+            && runner.ends_with(" --www D:/preflight/builds/dereth-web-0.4.4-rc.1 --port 8081 --hub https://dev-hub.example.org/v1/servers"),
+        "{runner}"
+    );
+    assert_eq!(pid, 103, "the runner, after the dev hub and its tunnel");
+
+    // No Dereth release, no web client: what serves this checkout's instead.
+    let mut m = counting(web_fake());
+    preflight(&mut m, &[Product::Hub], &[]).expect("preflighted");
+    assert!(m.inner.done("cargo run").is_empty());
+    let l = ledger(&mut m);
+    let e = super::play_web(&mut m, &cfg(), &l, Path::new("D:/repo"), 8080).expect_err("none");
+    assert!(
+        e.contains("this preflight built no web client")
+            && e.contains("`cargo xtask web --hub https://dev-hub.example.org/v1/servers`"),
+        "{e}"
+    );
+    assert_eq!(
+        m.inner.done("spawn ").len(),
+        2,
+        "only the dev hub and its tunnel"
+    );
+
+    // Without the web client's target, nothing is built or stopped.
+    let mut m = counting(web_fake().reply(
+        "rustup target list --installed",
+        Ok("x86_64-pc-windows-msvc\n"),
+    ));
+    let e = preflight(&mut m, &[Product::Hub, Product::Dereth], &[]).expect_err("refused");
+    assert!(
+        e.contains("the wasm32-unknown-unknown standard library: `rustup target add wasm32-unknown-unknown`"),
+        "{e}"
+    );
+    assert!(m.inner.record().iter().all(|l| l.starts_with("probe ")));
+}
+
+#[test]
+fn play_takes_the_web_client_and_its_port_or_nothing() {
+    let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    assert_eq!(super::parse_play(&args(&[])), Ok(None));
+    assert_eq!(super::parse_play(&args(&["--web"])), Ok(Some(8080)));
+    assert_eq!(
+        super::parse_play(&args(&["--web", "--port", "9090"])),
+        Ok(Some(9090))
+    );
+    assert!(super::parse_play(&args(&["--port", "9090"])).is_err());
+    assert!(super::parse_play(&args(&["--web", "--port", "x"])).is_err());
+    assert!(super::parse_play(&args(&["--launcher"])).is_err());
 }

@@ -2,19 +2,23 @@
 //! own dev setup before anything is pushed, then shipped in one command.
 //!
 //! - **`preflight`** (on the branch checked out): works out which products it changed since `main` and the
-//!   release each takes, and why; builds each in a temporary worktree of the commit, stamped
-//!   `<next version>-rc.N`; runs the dev hub on a copy of the real hub's registry, backed up over
-//!   ssh, migrated by the candidate and defanged (no Discord mirror, no sign-in, no person's link
-//!   but the dev hub's admins'), behind its tunnel; and for each dev world stops it, backs it up,
-//!   installs the candidate, points its hub setting at the dev hub (keeping the original) and
-//!   starts it. A world on another machine, Windows or Linux, is reached over ssh, and takes a
-//!   build made here: nothing is built on a world's machine.
+//!   release each takes, and why; checks that what the builds need here and what the setup file
+//!   names are there, before anything is built or stopped; builds each in a temporary worktree of
+//!   the commit, stamped `<next version>-rc.N` (Dereth's as the web client); runs the dev hub on a
+//!   copy of the real hub's registry, backed up over ssh, migrated by the candidate and defanged
+//!   (no Discord mirror, no sign-in, no person's link but the dev hub's admins'), behind its
+//!   tunnel, and waits for it to answer; and for each dev world stops it, backs it up, installs
+//!   the candidate, points its hub setting at the dev hub (keeping the original) and starts it,
+//!   then says which worlds linked to the dev hub and which did not. A world on another machine,
+//!   Windows or Linux, is reached over ssh, and takes a build made here: nothing is built on a
+//!   world's machine.
 //! - **`preflight play`**: the client and the launcher built, and the launcher started on the dev
-//!   hub's world list.
+//!   hub's world list; with `--web`, the web client the preflight built served on this machine
+//!   alone, on the same list.
 //! - **`preflight rollback`**: every world put back from its backup, the dev hub stopped.
 //! - **`ship`**: `main` fast-forwarded to exactly the preflighted commit (refused when the branch
 //!   has moved since), and each changed product released and pushed, as `cargo xtask release`
-//!   does it.
+//!   does it, in this process; with Dereth, the web client's release tagged on Dereth's.
 //! - **`preflight finish`**: the final builds, from `main`, installed in the dev worlds, each
 //!   pointed back at the hub it named, and the dev hub stopped.
 //! - **`preflight setup`**: the one-time setup scripts, one per machine, written from the setup
@@ -49,6 +53,7 @@ use crate::util::workspace_root;
 const USAGE: &str = "\
 usage: cargo xtask preflight [--with <world>]... [--dry-run]   on a branch: build, dev hub, dev worlds
        cargo xtask preflight play                             the client and launcher on the dev hub
+       cargo xtask preflight play --web [--port <n>]          the web client's build, served here alone
        cargo xtask preflight rollback                         every world put back, the dev hub stopped
        cargo xtask preflight finish                           after ship: the final builds, the real hub
        cargo xtask preflight status                           what is installed where
@@ -182,6 +187,11 @@ fn packages(root: &Path) -> Result<(Packages, Depends), String> {
         };
         let mut seen = BTreeSet::new();
         let mut todo = vec![root_pkg.to_owned()];
+        // The web client is Dereth's too, and carries its version, though the client does not
+        // depend on it.
+        if p == Product::Dereth {
+            todo.push("dereth-web".to_owned());
+        }
         while let Some(x) = todo.pop() {
             if seen.insert(x.clone()) {
                 todo.extend(deps.get(&x).cloned().unwrap_or_default());
@@ -207,6 +217,7 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         .collect();
     let (dirs, depends) = packages(root)?;
     let products = plan::products_of(&changed, &dirs, &depends);
+    let web_alone = plan::web_alone(&changed, &dirs, &depends);
     let mut versions = BTreeMap::new();
     versions.insert(
         Product::Hub,
@@ -236,13 +247,7 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     let refusal = crate::package::declaration::for_release(root, &patch).err();
     bumps.insert(Product::Empyrean, plan::empyrean_bump(refusal.as_deref()));
     bumps.insert(Product::Ace, (Bump::Patch, "the mod's changes".to_owned()));
-    bumps.insert(
-        Product::Dereth,
-        (
-            Bump::Patch,
-            "the client's or the launcher's changes".to_owned(),
-        ),
-    );
+    bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
     Ok(Repo {
         branch,
         commit,
@@ -256,7 +261,21 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
 /// `cargo xtask preflight ...`.
 pub fn preflight(args: &[String]) -> i32 {
     let outcome = match args.first().map(String::as_str) {
-        Some("play") => with_config(|cfg, _| play(cfg)),
+        Some("play") => match parse_play(&args[1..]) {
+            Ok(None) => with_config(|cfg, _| play(cfg)),
+            Ok(Some(port)) => with_config(|cfg, _| {
+                let m = &mut Real;
+                let ledger = Ledger::load(m, &cfg.work_dir)?;
+                let (pid, url) = play_web(m, cfg, &ledger, &workspace_root(), port)?;
+                println!(
+                    "The web client is served on this machine alone (process {pid}, its log {}), on \
+                     the dev hub's world list. Open {url}",
+                    cfg.work_dir.join("web.log").display()
+                );
+                Ok(())
+            }),
+            Err(e) => Err(e),
+        },
         Some("rollback") => {
             with_config(|cfg, _| {
                 let m = &mut Real;
@@ -422,8 +441,9 @@ pub fn run(
         versions.remove(&Product::Ace);
     }
     let targets = steps::targets(&versions, &worlds);
-    // Before anything is built or stopped.
-    steps::check_tools(m, &targets, versions.contains_key(&Product::Ace))?;
+    // Before anything is built or stopped: the tools the builds need here, and what the setup file
+    // names, all of it in one answer.
+    steps::check_ahead(m, cfg, &worlds, &versions, opts.dry_run)?;
     println!("Preflighting {} at {}:", repo.branch, repo.commit);
     if releases.is_empty() {
         println!("  no product changed since main");
@@ -469,20 +489,43 @@ pub fn run(
         .clone();
     steps::dev_hub(m, cfg, &hub, &mut ledger)?;
     ledger.save(m, &cfg.work_dir)?;
+    // No world is moved onto a dev hub that is not there.
+    if opts.dry_run {
+        println!(
+            "would wait for the dev hub to answer at http://{}/v1/servers",
+            cfg.hub.listen
+        );
+    } else {
+        let answered = steps::await_dev_hub(m, cfg, &mut ledger);
+        ledger.save(m, &cfg.work_dir)?;
+        answered?;
+    }
+    let mut started = Vec::new();
     for w in worlds {
         let product = steps::product_of(w);
         let changed = ledger.releases.iter().any(|r| r.product == product);
         let build = builds.for_world(w).filter(|_| changed);
         let r = steps::install(m, cfg, w, build, &mut ledger);
         ledger.save(m, &cfg.work_dir)?;
-        r.map_err(|e| {
+        let slug = r.map_err(|e| {
             format!(
                 "{}: {e}\nWhat was done is kept: `cargo xtask preflight rollback` undoes it.",
                 w.name
             )
         })?;
+        started.push((w, slug));
     }
-    print!("\n{}", steps::summary(cfg, &ledger));
+    let links = if opts.dry_run {
+        println!("would wait for each world to link to the dev hub");
+        String::new()
+    } else {
+        println!(
+            "Waiting up to {} minutes for each world to link to the dev hub...",
+            u64::from(steps::LINK_TRIES) * steps::LINK_PAUSE_MS / 60_000
+        );
+        steps::links_summary(cfg, &steps::await_links(m, cfg, &started))
+    };
+    print!("\n{}{links}", steps::summary(cfg, &ledger));
     Ok(())
 }
 
@@ -535,6 +578,108 @@ fn play(cfg: &Config) -> Result<(), String> {
     )?;
     println!("The launcher runs (process {pid}) on the dev hub's world list, {list}.");
     Ok(())
+}
+
+/// The port the web client is served on by default, as `cargo xtask web` serves it.
+const WEB_PORT: u16 = 8080;
+
+/// `preflight play`'s options: `None` for the desktop client and launcher, or the port the web
+/// client is served on (`--web`, `--port`).
+fn parse_play(args: &[String]) -> Result<Option<u16>, String> {
+    let mut web = false;
+    let mut port = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--web" => web = true,
+            "--port" => {
+                let p = it.next().ok_or(USAGE)?;
+                port = Some(p.parse().map_err(|e| format!("--port {p}: {e}"))?);
+            }
+            other => return Err(format!("unexpected `{other}`\n\n{USAGE}")),
+        }
+    }
+    match (web, port) {
+        (false, Some(_)) => Err(format!("--port is the web client's: give --web\n\n{USAGE}")),
+        (false, None) => Ok(None),
+        (true, port) => Ok(Some(port.unwrap_or(WEB_PORT))),
+    }
+}
+
+/// `s` as a URL's query value: every byte but the unreserved ones percent-encoded.
+fn query_value(s: &str) -> String {
+    s.bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
+/// The web client the preflight built, served from `root`'s web runner on this machine alone (it
+/// listens on loopback only) at `port`, its page reading the dev hub's world list. Answers the
+/// runner's process and the page's address. Nothing opens it.
+fn play_web(
+    m: &mut dyn Machine,
+    cfg: &Config,
+    ledger: &Ledger,
+    root: &Path,
+    port: u16,
+) -> Result<(u32, String), String> {
+    let list = format!("{}/v1/servers", cfg.hub.public_url.trim_end_matches('/'));
+    let Some(r) = ledger
+        .releases
+        .iter()
+        .find(|r| r.product == Product::Dereth)
+    else {
+        return Err(format!(
+            "this preflight built no web client: Dereth did not change since main, so it is not \
+             released. `cargo xtask web --hub {list}` serves this checkout's on the dev hub's \
+             world list."
+        ));
+    };
+    let bundle = steps::web_path(&cfg.work_dir, &r.candidate);
+    if !m.exists(&bundle) {
+        return Err(format!(
+            "the web client {} is not in {}: run `cargo xtask preflight` again",
+            r.candidate,
+            bundle.display()
+        ));
+    }
+    m.run(
+        Some(root),
+        "cargo",
+        &[
+            "build".into(),
+            "--release".into(),
+            "-p".into(),
+            "dereth-web-dev".into(),
+        ],
+        &[],
+    )?;
+    let runner = crate::util::target_dir()
+        .join("release")
+        .join(format!("dereth-web-dev{}", std::env::consts::EXE_SUFFIX));
+    let pid = m.spawn(
+        &runner.display().to_string(),
+        &[
+            "--www".into(),
+            bundle.display().to_string(),
+            "--port".into(),
+            port.to_string(),
+            "--hub".into(),
+            list.clone(),
+        ],
+        &[],
+        &cfg.work_dir.join("web.log"),
+    )?;
+    Ok((
+        pid,
+        format!("http://127.0.0.1:{port}/?hub={}", query_value(&list)),
+    ))
 }
 
 /// After `ship`: the final builds, from `main`, installed in the dev worlds.
@@ -597,13 +742,25 @@ pub fn ship_command(args: &[String]) -> i32 {
         let root = workspace_root();
         let m = &mut Real;
         let mut ledger = Ledger::load(m, &cfg.work_dir)?;
-        // The mod's release checks what needs ACE against this ACE server.
-        let env: Vec<(String, String)> =
-            match (cfg.release_ace_dir(), std::env::var_os("DERETH_ACE_DIR")) {
-                (Some(ace), None) => vec![("DERETH_ACE_DIR".to_owned(), ace.display().to_string())],
-                _ => Vec::new(),
-            };
-        let r = ship::ship(m, &root, &cfg.remote, &env, &mut ledger, dry_run);
+        // The mod's release checks what needs ACE against this ACE server: `DERETH_ACE_DIR`'s, as
+        // the release command reads it, or else the setup file's.
+        let ace = std::env::var_os("DERETH_ACE_DIR")
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| cfg.release_ace_dir());
+        let remote = cfg.remote.clone();
+        // Each release cut here, as `cargo xtask release` cuts it: never by starting cargo, whose
+        // build of this program could not replace it while it runs.
+        let mut cut = |product: Product, version: &str| {
+            crate::release::cut(
+                product.command_name(),
+                version,
+                true,
+                &remote,
+                ace.as_deref(),
+            )
+        };
+        let r = ship::ship(m, &root, &cfg.remote, &mut cut, &mut ledger, dry_run);
         ledger.save(m, &cfg.work_dir)?;
         r?;
         if !dry_run {

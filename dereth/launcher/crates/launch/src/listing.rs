@@ -3,8 +3,10 @@
 //! At start the day's copy is shown, and the list is read from its sources ([`crate::serverlist`])
 //! when there is no copy or it is not the day's; the player can have it read again. A list read
 //! whole is shown and becomes the day's copy. When no source answers with its list, the list shown
-//! before stands. A copy that does not read is no copy. While the list shown is the hub's, the
-//! hub's word on each world is read beside it ([`crate::hubstatus`]).
+//! before stands. A copy that does not read is no copy, and nor is one read from other sources (a
+//! launcher started on another hub's list, or on a list the player names, never shows the copy of
+//! the usual one, and the other way about). While the list shown is the hub's, the hub's word on
+//! each world is read beside it ([`crate::hubstatus`]).
 //!
 //! The launcher's window and the web client's front page keep one each and fetch every address it
 //! names their own way, so the two show the same worlds from the same answers. What each adds of
@@ -17,6 +19,15 @@ use crate::state::LauncherState;
 use crate::status::LiveStatus;
 use crate::world::World;
 use crate::worlds;
+
+/// Sources' addresses as a person reads them: in order, or that none is recorded.
+fn names(urls: &[String]) -> String {
+    if urls.is_empty() {
+        "sources it does not record".to_owned()
+    } else {
+        urls.join(", ")
+    }
+}
 
 /// The world list a launcher shows, its day's copy, and the hub's word on its worlds.
 #[derive(Debug, Clone)]
@@ -36,7 +47,7 @@ impl Default for WorldList {
 
 impl WorldList {
     /// The list read from `sources`, showing `copy` (the day's copy kept from before) until it is
-    /// read again. A copy that does not read is no copy.
+    /// read again. A copy that does not read is no copy, and nor is one read from other sources.
     #[must_use]
     pub fn new(sources: Vec<ListSource>, copy: Option<ListCache>) -> Self {
         let mut list = Self {
@@ -67,19 +78,30 @@ impl WorldList {
     /// Show `copy`, the day's copy kept from before. Answers how many worlds it lists.
     ///
     /// # Errors
-    /// The copy does not read; the list shown before stands.
-    pub fn show_copy(&mut self, copy: ListCache) -> Result<usize, MalformedList> {
-        self.worlds = copy.worlds()?;
+    /// The copy was read from other sources than the list's, or does not read; the list shown
+    /// before stands.
+    pub fn show_copy(&mut self, copy: ListCache) -> Result<usize, String> {
+        if !copy.is_from(&self.sources) {
+            return Err(format!(
+                "the copy is of the list read from {}, not from {}",
+                names(&copy.sources),
+                names(&serverlist::source_urls(&self.sources))
+            ));
+        }
+        self.worlds = copy.worlds().map_err(|e: MalformedList| e.to_string())?;
         self.hub.copy_shown(&copy);
         self.copy = Some(copy);
         Ok(self.worlds.len())
     }
 
     /// Whether the list is to be read at `now` (seconds since the epoch) when a launcher starts:
-    /// there is no copy, or it is not the day's.
+    /// there is no copy, it is not the day's, or it was read from other sources than the list's.
     #[must_use]
     pub fn wants_reading(&self, now: u64) -> bool {
-        !self.copy.as_ref().is_some_and(|c| c.is_fresh(now))
+        !self
+            .copy
+            .as_ref()
+            .is_some_and(|c| c.is_fresh(now) && c.is_from(&self.sources))
     }
 
     /// A reading of the list from its sources, for the launcher to fetch an address at a time
@@ -250,6 +272,7 @@ mod tests {
             fetched_at: now,
             list: "<html/>".into(),
             hub: Vec::new(),
+            sources: serverlist::source_urls(&serverlist::sources(None)),
         };
         let mut list = WorldList::new(serverlist::sources(None), Some(damaged.clone()));
         assert!(list.worlds().is_empty() && list.copy().is_none());
@@ -261,5 +284,57 @@ mod tests {
             fixture::from_the_hub().len(),
             "it stands"
         );
+    }
+
+    /// A copy is shown at start only by a launcher that reads the sources it was read from: one
+    /// started on another hub's list reads that hub's at once, whatever the age of the copy of the
+    /// network's, and the next started on the usual sources reads the network's again, whatever the
+    /// age of the other hub's copy.
+    #[test]
+    fn a_copy_read_from_other_sources_is_not_shown_and_the_list_is_read_both_ways() {
+        const DEV: &str = "https://dev-hub.example.org/v1/servers";
+        let now = fixture::READ_AT;
+        let usual = serverlist::sources(None);
+        let dev = serverlist::sources_from(None, Some(DEV));
+        let mut first = WorldList::new(usual.clone(), None);
+        let networks = first.read_with(now, fixture::fetch(true)).unwrap().clone();
+
+        // Started on the dev hub's list an hour later: the network's copy is not the dev hub's.
+        let mut on_dev = WorldList::new(dev.clone(), Some(networks.clone()));
+        assert!(on_dev.worlds().is_empty() && on_dev.copy().is_none());
+        assert!(
+            on_dev.wants_reading(now + 3_600),
+            "the dev hub's list is read at once"
+        );
+        assert!(on_dev.show_copy(networks.clone()).is_err());
+        let mut asked = Vec::new();
+        let devs = on_dev
+            .read_with(now + 3_600, |url| {
+                asked.push(url.to_owned());
+                fixture::fetch(true)(url)
+            })
+            .unwrap()
+            .clone();
+        assert!(asked[0].starts_with(DEV), "{asked:?}");
+        assert!(devs.is_from(&dev));
+
+        // The ordinary launcher after it: the dev hub's copy is not the network's.
+        let again = WorldList::new(usual.clone(), Some(devs.clone()));
+        assert!(again.copy().is_none());
+        assert!(
+            again.wants_reading(now + 7_200),
+            "the network's list is read again"
+        );
+        // And each copy stands in for its own sources, as before.
+        assert!(!WorldList::new(dev, Some(devs)).wants_reading(now + 7_200));
+        assert!(!WorldList::new(usual.clone(), Some(networks)).wants_reading(now + 7_200));
+
+        // A copy kept before copies recorded their sources is read again.
+        let older = ListCache {
+            sources: Vec::new(),
+            ..first.copy().unwrap().clone()
+        };
+        let list = WorldList::new(usual, Some(older));
+        assert!(list.copy().is_none() && list.wants_reading(now));
     }
 }

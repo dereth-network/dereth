@@ -68,15 +68,18 @@ export function startFront({ call, launch, params, log }) {
     const now = Date.now() / 1000;
     // The copy's worlds are the list until a fetch brings another. A copy that does not read
     // (damaged, or in a shape this page does not know) is no copy, and the list is fetched; so is
-    // one that is not the day's, by the desktop launcher's rule.
-    if (cached && !(await call('listCopy', JSON.stringify(cached)).then(() => true, () => false))) {
+    // one read from other sources than the page's (another hub's, or a list it names), and one
+    // that is not the day's, by the desktop launcher's rule.
+    if (cached && !(await call('listCopy', JSON.stringify(cached), params.get('list'), params.get('hub'))
+      .then(() => true, () => false))) {
       cached = null;
     }
     if (!force && !(await call('listWanted', Math.floor(now)))) return '';
-    // The launcher in the worker names each address to fetch: the hub's list a page at a time,
-    // then the community's own when the hub does not answer with its list; a list the page's
-    // `list` parameter names is read alone.
-    let url = await call('listStart', params.get('list'));
+    // The launcher in the worker names each address to fetch: the hub's list (the one the page's
+    // `hub` parameter names, else the network's) a page at a time, then the community's own when
+    // the hub does not answer with its list; a list the page's `list` parameter names is read
+    // alone.
+    let url = await call('listStart', params.get('list'), params.get('hub'));
     while (url) {
       let body = null;
       let error = null;
@@ -113,7 +116,7 @@ export function startFront({ call, launch, params, log }) {
     if (readingHub || ui.playing || document.hidden) return;
     readingHub = true;
     try {
-      let url = await call('hubStart', params.get('list'), Math.floor(Date.now() / 1000));
+      let url = await call('hubStart', params.get('list'), params.get('hub'), Math.floor(Date.now() / 1000));
       if (!url) return;
       while (url) {
         let body = null;

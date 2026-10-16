@@ -248,9 +248,9 @@ pub struct Machine {
 }
 
 impl Machine {
-    /// This machine as `part`'s release needs it: `dotnet` and `DERETH_ACE_DIR` are read for the
-    /// mod alone.
-    fn read(part: Part) -> Self {
+    /// This machine as `part`'s release needs it: `dotnet` and the ACE server folder `ace_dir`
+    /// (`DERETH_ACE_DIR`'s) are read for the mod alone.
+    fn read(part: Part, ace_dir: Option<std::ffi::OsString>) -> Self {
         if part != Part::Ace {
             return Self::default();
         }
@@ -258,13 +258,11 @@ impl Machine {
             .arg("--version")
             .output()
             .is_ok_and(|o| o.status.success());
-        let ace_dir = std::env::var_os("DERETH_ACE_DIR")
-            .filter(|v| !v.is_empty())
-            .map(|v| {
-                let dir = std::path::absolute(PathBuf::from(&v)).unwrap_or_else(|_| v.into());
-                let whole = ACE_ASSEMBLIES.iter().all(|f| dir.join(f).is_file());
-                (dir.display().to_string(), whole)
-            });
+        let ace_dir = ace_dir.filter(|v| !v.is_empty()).map(|v| {
+            let dir = std::path::absolute(PathBuf::from(&v)).unwrap_or_else(|_| v.into());
+            let whole = ACE_ASSEMBLIES.iter().all(|f| dir.join(f).is_file());
+            (dir.display().to_string(), whole)
+        });
         Self { dotnet, ace_dir }
     }
 }
@@ -564,9 +562,27 @@ fn notes_preview(ws: &Path, part: Part) -> Result<String, String> {
 
 /// `cargo xtask release network-hub|network-ace <version>`.
 pub fn run(part: Part, requested: &str, push: bool, remote: &str) -> Result<(), String> {
+    run_with(
+        part,
+        requested,
+        push,
+        remote,
+        std::env::var_os("DERETH_ACE_DIR"),
+    )
+}
+
+/// [`run`], with the ACE server folder the mod is checked against given as `ace_dir` in place of
+/// `DERETH_ACE_DIR`.
+pub fn run_with(
+    part: Part,
+    requested: &str,
+    push: bool,
+    remote: &str,
+    ace_dir: Option<std::ffi::OsString>,
+) -> Result<(), String> {
     let ws = workspace_root();
     let name = part.display_name();
-    let machine = Machine::read(part);
+    let machine = Machine::read(part, ace_dir);
     let state = repo_state(&ws, part.tag_prefix(), part.version(&ws)?, remote)?;
     let plan = preconditions(part, requested, &state, &machine).map_err(|p| p.join("\n"))?;
 

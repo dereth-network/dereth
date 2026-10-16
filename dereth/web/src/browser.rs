@@ -505,12 +505,13 @@ pub fn server_url_problem(url: &str) -> Option<String> {
 // ---- the front page's launcher ---------------------------------------------------------------
 
 /// Start reading the world list, by the desktop launcher's rule: the `Servers.xml` `named` (the
-/// page's `list` parameter) alone when one is named, and otherwise the Dereth Network hub's list,
-/// then the community's own. Answers the first address to fetch.
+/// page's `list` parameter) alone when one is named, and otherwise the Dereth Network hub's list
+/// (or the one `hub` names, the page's `hub` parameter), then the community's own. Answers the
+/// first address to fetch.
 #[wasm_bindgen(js_name = frontListStart)]
 #[must_use]
-pub fn front_list_start(named: Option<String>) -> Option<String> {
-    FRONT.with(|f| f.borrow_mut().list_start(named.as_deref()))
+pub fn front_list_start(named: Option<String>, hub: Option<String>) -> Option<String> {
+    FRONT.with(|f| f.borrow_mut().list_start(named.as_deref(), hub.as_deref()))
 }
 
 /// What fetching the address last given brought: its `body`, or the `error` that kept it from
@@ -536,14 +537,23 @@ pub fn front_list_done(now: f64) -> Result<String, JsError> {
         .map_err(js_err)
 }
 
-/// Take the day's copy of the world list, as the page kept it; answers how many worlds it lists.
+/// Take the day's copy of the world list, as the page kept it, for the list read from the sources
+/// the page names (`named`, its `list` parameter; `hub`, its `hub` parameter); answers how many
+/// worlds it lists.
 ///
 /// # Errors
-/// The copy does not read; the worlds read before stand.
+/// The copy does not read, or was read from other sources; the worlds read before stand.
 #[wasm_bindgen(js_name = frontListCopy)]
-pub fn front_list_copy(copy: &str) -> Result<u32, JsError> {
+pub fn front_list_copy(
+    copy: &str,
+    named: Option<String>,
+    hub: Option<String>,
+) -> Result<u32, JsError> {
     let n = FRONT
-        .with(|f| f.borrow_mut().set_copy(copy))
+        .with(|f| {
+            f.borrow_mut()
+                .set_copy(copy, named.as_deref(), hub.as_deref())
+        })
         .map_err(js_err)?;
     Ok(u32::try_from(n).unwrap_or(u32::MAX))
 }
@@ -587,14 +597,17 @@ pub fn front_status_failed(slug: &str) {
     FRONT.with(|f| f.borrow_mut().status_failed(slug));
 }
 
-/// Start reading the hub's list for each world's status, when a read is due at `now` (seconds
-/// since the epoch): about a minute after the last, while the worlds shown are the hub's list's and
-/// the page names no list of its own (`named`, its `list` parameter). Answers the first address to
-/// fetch; nothing when no read is due.
+/// Start reading the hub's list (the network's, or the one `hub` names) for each world's status,
+/// when a read is due at `now` (seconds since the epoch): about a minute after the last, while the
+/// worlds shown are the hub's list's and the page names no list of its own (`named`, its `list`
+/// parameter). Answers the first address to fetch; nothing when no read is due.
 #[wasm_bindgen(js_name = frontHubStart)]
 #[must_use]
-pub fn front_hub_start(named: Option<String>, now: f64) -> Option<String> {
-    FRONT.with(|f| f.borrow_mut().hub_start(named.as_deref(), whole(now)))
+pub fn front_hub_start(named: Option<String>, hub: Option<String>, now: f64) -> Option<String> {
+    FRONT.with(|f| {
+        f.borrow_mut()
+            .hub_start(named.as_deref(), hub.as_deref(), whole(now))
+    })
 }
 
 /// What fetching the address last given for the status brought: its `body`, or the `error` that

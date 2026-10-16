@@ -1,6 +1,8 @@
-//! The preflight's steps, on a [`Machine`]: the builds, the dev hub on a defanged copy of the real
-//! registry, and each dev world stopped, backed up, given the new build, pointed at the dev hub
-//! and started; then rolling it all back, or finishing with the final builds. Every build is made
+//! The preflight's steps, on a [`Machine`]: what must be ready, checked before anything is built or
+//! stopped; the builds; the dev hub on a defanged copy of the real registry, which must answer
+//! before any world is touched; and each dev world stopped, backed up, given the new build, pointed
+//! at the dev hub, started, and watched for at the dev hub until it links; then rolling it all
+//! back, or finishing with the final builds. Every build is made
 //! here, a world on another machine taking its copy over scp: Empyrean for a Linux machine with
 //! `cargo zigbuild`, the mod against the ACE server of the world it goes to. A world is in the
 //! [`Ledger`] from the moment its backup is whole, and the ledger is saved then and after every
@@ -137,6 +139,8 @@ pub struct Builds {
     pub empyrean: BTreeMap<Option<String>, Build>,
     /// The mod, by the ACE world it was built against.
     pub mods: BTreeMap<String, Build>,
+    /// The web client: the folder of files a host serves.
+    pub web: Option<Build>,
 }
 
 impl Builds {
@@ -205,6 +209,9 @@ fn args(a: &[&str]) -> Vec<String> {
     a.iter().map(|x| (*x).to_owned()).collect()
 }
 
+/// The target the web client's module is built for.
+pub const WEB_TARGET: &str = "wasm32-unknown-unknown";
+
 /// What building for `targets` needs here, asked before anything is built or stopped: for a Linux
 /// machine's target, `cargo zigbuild`, the zig it runs, and the target's standard library.
 pub fn check_tools(
@@ -212,6 +219,18 @@ pub fn check_tools(
     targets: &BTreeSet<Option<String>>,
     ace: bool,
 ) -> Result<(), String> {
+    finish_check(tools_missing(m, targets, ace, false), Vec::new())
+}
+
+/// The tools the builds need here that this machine lacks: the .NET 10 SDK for the ACE mod (`ace`);
+/// for a Linux machine's target (`targets`), `cargo zigbuild`, the zig it runs and the target's
+/// standard library; and for the web client (`web`), its target's standard library.
+fn tools_missing(
+    m: &mut dyn Machine,
+    targets: &BTreeSet<Option<String>>,
+    ace: bool,
+    web: bool,
+) -> Vec<String> {
     let mut missing = Vec::new();
     // The ACE mod is built here, for .NET 10.
     if ace {
@@ -226,24 +245,30 @@ pub fn check_tools(
         }
     }
     let linux: BTreeSet<&str> = targets.iter().flatten().map(|t| rust_target(t)).collect();
-    if linux.is_empty() {
-        return finish_check(missing);
+    if !linux.is_empty() {
+        // Its own binary: `cargo zigbuild` takes no `--version`, and refuses one.
+        if m.probe("cargo-zigbuild", &args(&["--version"])).is_err() {
+            missing.push("cargo zigbuild: `cargo install --locked cargo-zigbuild`".to_owned());
+        }
+        if m.probe("zig", &args(&["version"])).is_err()
+            && m.probe("python3", &args(&["-m", "ziglang", "version"]))
+                .is_err()
+        {
+            missing.push(
+                "zig, which cargo zigbuild runs: `winget install --exact --id zig.zig`".to_owned(),
+            );
+        }
     }
-    // Its own binary: `cargo zigbuild` takes no `--version`, and refuses one.
-    if m.probe("cargo-zigbuild", &args(&["--version"])).is_err() {
-        missing.push("cargo zigbuild: `cargo install --locked cargo-zigbuild`".to_owned());
+    let mut needed = linux;
+    if web {
+        needed.insert(WEB_TARGET);
     }
-    if m.probe("zig", &args(&["version"])).is_err()
-        && m.probe("python3", &args(&["-m", "ziglang", "version"]))
-            .is_err()
-    {
-        missing.push(
-            "zig, which cargo zigbuild runs: `winget install --exact --id zig.zig`".to_owned(),
-        );
+    if needed.is_empty() {
+        return missing;
     }
     match m.probe("rustup", &args(&["target", "list", "--installed"])) {
         Ok(installed) => {
-            for t in linux {
+            for t in needed {
                 if !installed.lines().any(|l| l.trim() == t) {
                     missing.push(format!("the {t} standard library: `rustup target add {t}`"));
                 }
@@ -253,21 +278,151 @@ pub fn check_tools(
             "rustup, which says what targets are installed: {e}"
         )),
     }
-    finish_check(missing)
+    missing
 }
 
-/// The tools check's answer: nothing missing, or what is, before anything was built or stopped.
-fn finish_check(missing: Vec<String>) -> Result<(), String> {
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "The builds made here need tools this machine lacks:\n  {}\nNothing was built or \
-             stopped. The setup script for this machine (`cargo xtask preflight setup`) installs \
-             them.",
-            missing.join("\n  ")
-        ))
+/// What a run needs ready before anything is built or stopped, asked all at once: the tools its
+/// builds need here ([`tools_missing`]) and what its setup file names ([`setup_missing`]). A dry run
+/// (`dry_run`) takes a check on another machine it could not make as passed.
+pub fn check_ahead(
+    m: &mut dyn Machine,
+    cfg: &Config,
+    worlds: &[&World],
+    versions: &BTreeMap<Product, String>,
+    dry_run: bool,
+) -> Result<(), String> {
+    let tools = tools_missing(
+        m,
+        &targets(versions, worlds),
+        versions.contains_key(&Product::Ace),
+        versions.contains_key(&Product::Dereth),
+    );
+    let setup = setup_missing(m, cfg, worlds, dry_run);
+    finish_check(tools, setup)
+}
+
+/// Whether `text` holds a registry key and nothing else: `drth_` and 43 characters of base64url,
+/// as the hub makes them.
+pub fn holds_key(text: &str) -> bool {
+    let key = text.trim();
+    key.len() == 48
+        && key.starts_with("drth_")
+        && key[5..]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// What the setup file names that is not there or will not do, for a run of `worlds`: the dev
+/// Discord application's secret files, which must be there and not empty; its client id, which
+/// the hub refuses without a site origin; and each ACE world's key file, which must hold a key.
+/// A key is looked at where it is and never shown.
+fn setup_missing(
+    m: &mut dyn Machine,
+    cfg: &Config,
+    worlds: &[&World],
+    dry_run: bool,
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    let h = &cfg.hub;
+    for (what, setting, file) in [
+        (
+            "the dev Discord application's client secret",
+            "discord_client_secret_file",
+            &h.discord_client_secret_file,
+        ),
+        (
+            "the dev Discord bot's token",
+            "discord_bot_token_file",
+            &h.discord_bot_token_file,
+        ),
+    ] {
+        let Some(file) = file else { continue };
+        let at = format!("{what}, `{setting}` ({})", file.display());
+        if !m.exists(file) {
+            missing.push(format!("{at}: there is no such file"));
+        } else if m.read(file).map_or(true, |t| t.trim().is_empty()) {
+            missing.push(format!("{at}: the file is empty"));
+        }
     }
+    if h.discord_client_id.is_some() && h.site_origins.is_empty() {
+        missing.push(
+            "`discord_client_id` without `site_origins`: the hub refuses a Discord application \
+             with no site for its sign-in to return to, and does not start; name the dev site's \
+             origin in `site_origins`, or take the Discord settings out"
+                .to_owned(),
+        );
+    }
+    for w in worlds.iter().filter(|w| w.kind == Kind::Ace) {
+        let Some(file) = &w.key_file else { continue };
+        let (answer, on) = match w.place() {
+            Place::Here => {
+                let path = Path::new(file);
+                let answer = if !m.exists(path) {
+                    Ok("missing".to_owned())
+                } else {
+                    m.read(path).map(|t| {
+                        if t.trim().is_empty() {
+                            "empty"
+                        } else if holds_key(&t) {
+                            windows::KEY_HELD
+                        } else {
+                            "not a key"
+                        }
+                        .to_owned()
+                    })
+                };
+                (answer, String::new())
+            }
+            Place::Windows(host) => (
+                m.ssh(&host.ssh, &powershell(&windows::key_check(w, file))),
+                format!(" on {}", host.name),
+            ),
+            // The setup file refuses an ACE world on a Linux machine.
+            Place::Linux(_) => continue,
+        };
+        let at = format!("{}: its `key_file` ({file}{on})", w.name);
+        match answer.as_ref().map(|a| a.trim()) {
+            Ok(windows::KEY_HELD) => {}
+            Ok("missing") => missing.push(format!("{at}: there is no such file")),
+            Ok("empty") => missing.push(format!("{at}: the file is empty")),
+            Ok("not a key") => missing.push(format!(
+                "{at}: it holds no registry key (`drth_` and 43 characters)"
+            )),
+            // A dry run sends nothing to another machine, and hears nothing back.
+            _ if dry_run => {}
+            Ok(other) => missing.push(format!("{at}: could not be looked at: `{other}`")),
+            Err(e) => missing.push(format!("{at}: could not be looked at: {e}")),
+        }
+    }
+    missing
+}
+
+/// The answer to the checks made before anything is built or stopped: nothing missing, or
+/// everything that is, in one message.
+fn finish_check(tools: Vec<String>, setup: Vec<String>) -> Result<(), String> {
+    if tools.is_empty() && setup.is_empty() {
+        return Ok(());
+    }
+    let mut text = String::new();
+    if !tools.is_empty() {
+        text.push_str(&format!(
+            "The builds made here need tools this machine lacks:\n  {}\n",
+            tools.join("\n  ")
+        ));
+    }
+    if !setup.is_empty() {
+        text.push_str(&format!(
+            "The setup file names what is not there or will not do:\n  {}\n",
+            setup.join("\n  ")
+        ));
+    }
+    text.push_str("Nothing was built or stopped.");
+    if !tools.is_empty() {
+        text.push_str(
+            " The setup script for this machine (`cargo xtask preflight setup`) installs the tools.",
+        );
+    }
+    Err(text)
 }
 
 /// The ACE server folder the mod is built against for each ACE world of `worlds`: its own folder
@@ -335,6 +490,12 @@ fn mod_path(work: &Path, version: &str, world: &str) -> PathBuf {
         .join("Dereth.Network")
 }
 
+/// The folder the web client's build `version` is served from: the page's files, the module
+/// beside them.
+pub fn web_path(work: &Path, version: &str) -> PathBuf {
+    work.join("builds").join(format!("dereth-web-{version}"))
+}
+
 /// Where the builds `wanted` would be, nothing built (a dry run).
 pub fn planned(work: &Path, wanted: &Wanted) -> Builds {
     let mut out = Builds::default();
@@ -356,6 +517,10 @@ pub fn planned(work: &Path, wanted: &Wanted) -> Builds {
             out.mods
                 .insert(world.clone(), build(v, mod_path(work, v, world)));
         }
+    }
+    // The web client carries Dereth's version, and is released with it.
+    if let Some(v) = wanted.versions.get(&Product::Dereth) {
+        out.web = Some(build(v, web_path(work, v)));
     }
     out
 }
@@ -533,6 +698,28 @@ fn build_in(
             out.mods.insert(world, b);
         }
     }
+    if let Some(b) = paths.web {
+        // As `cargo xtask package web` builds it: the module and its bindings beside the page,
+        // stamped as the candidate. The folder is what a host serves.
+        stamp(m, &[src.join("dereth/web/Cargo.toml")], &b.version)?;
+        m.run(
+            Some(src),
+            "cargo",
+            &args(&[
+                "run",
+                "--release",
+                "-q",
+                "-p",
+                "dereth-web-dev",
+                "--",
+                "--build-only",
+            ]),
+            &env,
+        )?;
+        m.remove(&b.path)?;
+        m.copy(&src.join(crate::package::web::WWW), &b.path)?;
+        out.web = Some(b);
+    }
     Ok(out)
 }
 
@@ -666,6 +853,198 @@ pub fn dev_hub(
     Ok(())
 }
 
+/// How many times the dev hub is asked for its list before it is taken never to have started, and
+/// the wait between two tries: half a minute in all.
+pub const HUB_TRIES: u32 = 60;
+pub const HUB_PAUSE_MS: u64 = 500;
+
+/// How many times the dev hub is asked which worlds are linked to it, and the wait between two
+/// tries: three minutes in all, long enough for a world to start and link.
+pub const LINK_TRIES: u32 = 36;
+pub const LINK_PAUSE_MS: u64 = 5_000;
+
+/// How many of the last lines of the dev hub's log a failure shows.
+const LOG_LINES: usize = 20;
+
+/// The last `n` lines of `text` that say something.
+fn tail(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// The dev hub, just started, answering with its world list (`/v1/servers` where it listens), asked
+/// [`HUB_TRIES`] times at most. When it never does, it is stopped, and the end of its log says why:
+/// no world has been touched.
+pub fn await_dev_hub(m: &mut dyn Machine, cfg: &Config, ledger: &mut Ledger) -> Result<(), String> {
+    let url = format!("http://{}/v1/servers", cfg.hub.listen);
+    let mut last = String::new();
+    for i in 0..HUB_TRIES {
+        if i > 0 {
+            m.pause(HUB_PAUSE_MS);
+        }
+        match m.get(&url) {
+            Ok(body) if is_world_list(&body) => return Ok(()),
+            Ok(_) => last = "it answered with something other than its world list".to_owned(),
+            Err(e) => last = e,
+        }
+    }
+    stop_dev_hub(m, ledger);
+    let log = cfg.work_dir.join("hub").join("hub.log");
+    let end = m
+        .read(&log)
+        .map(|t| tail(&t, LOG_LINES))
+        .unwrap_or_else(|e| format!("(it does not read: {e})"));
+    let earlier = if ledger.worlds.is_empty() {
+        String::new()
+    } else {
+        "\nThe worlds an earlier preflight installed still link to the dev hub: `cargo xtask \
+         preflight rollback` puts them back."
+            .to_owned()
+    };
+    Err(format!(
+        "The dev hub did not answer at {url} in {} seconds (the last try: {last}), so no world \
+         was touched, and it is stopped.{earlier}\nThe end of its log, {}:\n{end}",
+        u64::from(HUB_TRIES) * HUB_PAUSE_MS / 1000,
+        log.display()
+    ))
+}
+
+/// Whether `body` is a page of the hub's world list.
+fn is_world_list(body: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body).is_ok_and(|v| v["data"].is_array())
+}
+
+/// The slugs of the worlds linked to the hub now, from its `/v1/network` answer `body`.
+fn linked_slugs(body: &str) -> BTreeSet<String> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return BTreeSet::new();
+    };
+    v["worlds"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|w| w["online"].as_bool() == Some(true))
+        .filter_map(|w| w["slug"].as_str())
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+/// Whether a dev world linked to the dev hub after the run started it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Link {
+    pub world: String,
+    /// The slug its configuration links it under; none when it names none.
+    pub slug: Option<String>,
+    pub linked: bool,
+}
+
+/// Each of `worlds` (with the slug its configuration names) watched for at the dev hub, which says
+/// which worlds are linked to it (`/v1/network`), until every one is or [`LINK_TRIES`] tries are
+/// spent. A world that names no slug cannot link, and is not waited for.
+pub fn await_links(
+    m: &mut dyn Machine,
+    cfg: &Config,
+    worlds: &[(&World, Option<String>)],
+) -> Vec<Link> {
+    let url = format!("http://{}/v1/network", cfg.hub.listen);
+    let wanted: BTreeSet<String> = worlds
+        .iter()
+        .filter_map(|(_, slug)| slug.as_deref().map(str::to_ascii_lowercase))
+        .collect();
+    let mut seen = BTreeSet::new();
+    for i in 0..LINK_TRIES {
+        if wanted.is_subset(&seen) {
+            break;
+        }
+        if i > 0 {
+            m.pause(LINK_PAUSE_MS);
+        }
+        if let Ok(body) = m.get(&url) {
+            seen.extend(linked_slugs(&body));
+        }
+    }
+    worlds
+        .iter()
+        .map(|(w, slug)| Link {
+            world: w.name.clone(),
+            slug: slug.clone(),
+            linked: slug
+                .as_deref()
+                .is_some_and(|s| seen.contains(&s.to_ascii_lowercase())),
+        })
+        .collect()
+}
+
+/// Where to read why `w` did not link: ACE's own log beside its server, or what Empyrean's service
+/// writes, on the machine it runs on.
+fn log_of(w: &World) -> String {
+    let on = w
+        .host
+        .as_ref()
+        .map_or_else(|| "this machine".to_owned(), |h| h.name.clone());
+    match (w.kind, w.place()) {
+        (Kind::Ace, _) => format!(
+            "ACE's log, {}\\ACE_Log.txt on {on}",
+            w.dir.trim_end_matches(['/', '\\'])
+        ),
+        (Kind::Empyrean, Place::Linux(_)) => {
+            format!("Empyrean's log, `journalctl -u {}` on {on}", w.service)
+        }
+        (Kind::Empyrean, _) => format!(
+            "Empyrean's log, the error output of its service {} on {on} (the file nssm's \
+             AppStderr names)",
+            w.service
+        ),
+    }
+}
+
+/// What the run says of `links`: plainly, which worlds linked to the dev hub and which did not,
+/// and for each that did not, the log to read.
+pub fn links_summary(cfg: &Config, links: &[Link]) -> String {
+    let (linked, not): (Vec<&Link>, Vec<&Link>) = links.iter().partition(|l| l.linked);
+    let mut out = String::new();
+    if !linked.is_empty() {
+        out.push_str(&format!(
+            "Linked to the dev hub: {}.\n",
+            linked
+                .iter()
+                .map(|l| l.world.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !not.is_empty() {
+        out.push_str(&format!(
+            "NOT LINKED to the dev hub after {} minutes, so offline on the network: {}.\n",
+            u64::from(LINK_TRIES) * LINK_PAUSE_MS / 60_000,
+            not.iter()
+                .map(|l| l.world.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        for l in not {
+            let Some(w) = cfg.worlds.iter().find(|w| w.name == l.world) else {
+                continue;
+            };
+            match &l.slug {
+                Some(slug) => {
+                    out.push_str(&format!("  {} (as {slug}): read {}\n", l.world, log_of(w)))
+                }
+                None => out.push_str(&format!(
+                    "  {}: its configuration ({}) names no slug to link as\n",
+                    l.world,
+                    w.config_file()
+                )),
+            }
+        }
+        out.push_str(&format!(
+            "  and the dev hub's log, {}\n",
+            cfg.work_dir.join("hub").join("hub.log").display()
+        ));
+    }
+    out
+}
+
 /// The dev hub and its tunnel stopped, if the ledger has them running.
 pub fn stop_dev_hub(m: &mut dyn Machine, ledger: &mut Ledger) {
     if let Some(h) = ledger.hub.take() {
@@ -770,24 +1149,30 @@ fn copied_config(cfg: &Config, w: &World) -> PathBuf {
 /// One dev world given `build` (when its product changed) and pointed at the dev hub: stopped,
 /// backed up the first time (its server or mod, its configuration and Empyrean's databases) and
 /// recorded, the build put in place, its hub address changed (the original kept), and started.
+/// Answers the slug its configuration links it under, if it names one.
 pub fn install(
     m: &mut dyn Machine,
     cfg: &Config,
     w: &World,
     build: Option<&Build>,
     ledger: &mut Ledger,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let link = cfg.dev_hub_link();
     let first = ledger.world(&w.name).is_none();
-    match w.place() {
+    let slug = match w.place() {
         Place::Here => install_here(m, cfg, w, build, &link, first, ledger)?,
         Place::Windows(h) => install_windows(m, cfg, w, h, build, &link, first, ledger)?,
         Place::Linux(h) => install_linux(m, cfg, w, h, build, &link, first, ledger)?,
-    }
+    };
     if let Some(x) = ledger.worlds.iter_mut().find(|x| x.name == w.name) {
         x.version = build.map(|b| b.version.clone()).or(x.version.take());
     }
-    Ok(())
+    Ok(slug)
+}
+
+/// The slug `w`'s configuration `text` links it under.
+fn slug_of(w: &World, text: &str) -> Option<String> {
+    edit::slug(text, w.kind == Kind::Ace)
 }
 
 #[allow(clippy::too_many_arguments)] // one world, and the run's facts
@@ -799,7 +1184,7 @@ fn install_here(
     link: &str,
     first: bool,
     ledger: &mut Ledger,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let backup = cfg.work_dir.join("backups").join(&w.name);
     let config = PathBuf::from(w.config_file());
     let replaced = PathBuf::from(w.replaced());
@@ -836,7 +1221,8 @@ fn install_here(
         m.copy(&b.path, &replaced)?;
     }
     m.write(&config, &edited)?;
-    m.service(&w.service, Service::Running)
+    m.service(&w.service, Service::Running)?;
+    Ok(slug_of(w, &text))
 }
 
 #[allow(clippy::too_many_arguments)] // one world, its machine, and the run's facts
@@ -849,7 +1235,7 @@ fn install_windows(
     link: &str,
     first: bool,
     ledger: &mut Ledger,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let local = copied_config(cfg, w);
     let text = windows_config(m, w, host, &local)?;
     let (edited, old) = to_link(w, &text, link)?;
@@ -869,7 +1255,8 @@ fn install_windows(
             },
         )?;
     }
-    windows_put(m, w, host, build, &local, &edited)
+    windows_put(m, w, host, build, &local, &edited)?;
+    Ok(slug_of(w, &text))
 }
 
 /// `w`, a world on another Windows machine, stopped, and its configuration copied down to `local`
@@ -915,7 +1302,7 @@ fn install_linux(
     link: &str,
     first: bool,
     ledger: &mut Ledger,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     m.ssh(&host.ssh, &format!("sudo -n systemctl stop {}", w.service))?;
     let local = cfg.work_dir.join("remote").join(format!("{}.toml", w.name));
     m.fetch(&host.ssh, &w.config_file(), &local)?;
@@ -937,7 +1324,8 @@ fn install_linux(
             },
         )?;
     }
-    linux_put(m, w, host, build, &local, &edited)
+    linux_put(m, w, host, build, &local, &edited)?;
+    Ok(slug_of(w, &text))
 }
 
 /// `build` (when there is one) copied up beside `w`'s server and copied over it, which keeps the
@@ -1104,6 +1492,18 @@ pub fn summary(cfg: &Config, ledger: &Ledger) -> String {
             r.version,
             r.candidate,
             r.why
+        ));
+    }
+    if let Some(r) = ledger
+        .releases
+        .iter()
+        .find(|r| r.product == Product::Dereth)
+    {
+        out.push_str(&format!(
+            "  the web client {} is in {}; `cargo xtask preflight play --web` serves it on the \
+             dev hub's world list\n",
+            r.candidate,
+            web_path(&cfg.work_dir, &r.candidate).display()
         ));
     }
     if let Some(h) = &ledger.hub {

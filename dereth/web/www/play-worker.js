@@ -330,12 +330,12 @@ function input(ev) {
 // What the front page asks of the launcher: the module's own calls, and the files kept in this
 // browser. Each answers a value, or throws with what to tell the player.
 const calls = {
-  listStart: (named) => dereth.frontListStart(named || undefined),
+  listStart: (named, hub) => dereth.frontListStart(named || undefined, hub || undefined),
   listNext: (body, error) => dereth.frontListNext(body ?? undefined, error ?? undefined),
   listDone: (now) => JSON.parse(dereth.frontListDone(now)),
   listWanted: (now) => dereth.frontListWanted(now),
-  listCopy: (copy) => dereth.frontListCopy(copy),
-  hubStart: (named, now) => dereth.frontHubStart(named || undefined, now),
+  listCopy: (copy, named, hub) => dereth.frontListCopy(copy, named || undefined, hub || undefined),
+  hubStart: (named, hub, now) => dereth.frontHubStart(named || undefined, hub || undefined, now),
   hubNext: (body, error) => dereth.frontHubNext(body ?? undefined, error ?? undefined),
   hubDone: (now) => dereth.frontHubDone(now),
   setState: (json) => dereth.frontSetState(json),

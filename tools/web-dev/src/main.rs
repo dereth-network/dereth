@@ -11,7 +11,7 @@
 //! deployment tool (the web client's `DEPLOY.md` is that).
 //!
 //! ```text
-//! dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <url | host:port>]
+//! dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <url | host:port>] [--www <dir>] [--hub <url>]
 //! ```
 //!
 //! - It builds `dereth-web` for `wasm32-unknown-unknown` (the `web-release` profile, or `release`
@@ -28,6 +28,10 @@
 //! - With `--server`, it prints the page's address with the server filled in: a `ws://` or `wss://`
 //!   URL is an Empyrean's WebSocket endpoint and is used as it is; a `host:port` is a server that
 //!   speaks only UDP, for which it builds and starts `dereth-web-relay` on `127.0.0.1:9180`.
+//! - With `--www`, it serves that folder, a web client built before (a release's files, or a
+//!   release candidate's), in place of `www/`, and builds nothing.
+//! - With `--hub`, it prints the page's address with another hub's world list named (`hub=`): the
+//!   address of its `/v1/servers`, such as a hub run on a copy of the registry to try a release.
 //!
 //! The pages use no `SharedArrayBuffer`, so no cross-origin isolation headers are sent. A page
 //! opened with `?echo=1` posts its log lines to `/log`, and the runner prints them.
@@ -77,11 +81,15 @@ struct Options {
     dat_dir: Option<PathBuf>,
     classic_dat_dir: Option<PathBuf>,
     server: Option<Server>,
+    /// A folder of a web client built before, served in place of `www/`.
+    www: Option<PathBuf>,
+    /// Another hub's world list, named in the page's address.
+    hub: Option<String>,
 }
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>]"
+        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>]"
     );
     std::process::exit(2);
 }
@@ -95,6 +103,8 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         dat_dir: None,
         classic_dat_dir: None,
         server: None,
+        www: None,
+        hub: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -107,8 +117,17 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             "--dat-dir" => o.dat_dir = Some(PathBuf::from(value()?)),
             "--classic-dat-dir" => o.classic_dat_dir = Some(PathBuf::from(value()?)),
             "--server" => o.server = Some(server(value()?)?),
+            "--www" => o.www = Some(PathBuf::from(value()?)),
+            "--hub" => o.hub = Some(value()?.clone()),
             other => return Err(format!("unknown argument {other}")),
         }
+    }
+    if o.www.is_some() {
+        if !o.serve {
+            return Err("--www serves a client built before: there is nothing to build".to_owned());
+        }
+        // A folder built before is served as it is: the build writes into `www/`, not there.
+        o.build = false;
     }
     Ok(o)
 }
@@ -262,14 +281,17 @@ fn start_relay(ws: &Path, server: &str) -> Result<Child, String> {
         .map_err(|e| format!("{}: {e}", exe.display()))
 }
 
-/// The page's address, with the data source and the server filled in.
-fn page_url(port: u16, dats: bool, server: Option<&str>) -> String {
+/// The page's address, with the data source, the server and another hub's world list filled in.
+fn page_url(port: u16, dats: bool, server: Option<&str>, hub: Option<&str>) -> String {
     let mut params = Vec::new();
     if dats {
         params.push("dats=http".to_owned());
     }
     if let Some(s) = server {
         params.push(format!("server={}", percent_encode(s)));
+    }
+    if let Some(h) = hub {
+        params.push(format!("hub={}", percent_encode(h)));
     }
     let query = if params.is_empty() {
         String::new()
@@ -523,13 +545,15 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>]\n\n\
+            "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>]\n\n\
              Builds the web client into dereth/web/www/pkg and serves dereth/web/www on 127.0.0.1\n\
              (--build-only stops after the build). --dat-dir serves the retail data files from\n\
              that folder to the page (the four client_*.dat files, and portal.dat and cell.dat from\n\
              before Throne of Destiny when it holds them; --classic-dat-dir names another folder for\n\
              those two); --server fills the page's server: a ws:// or wss:// URL as it is, a\n\
-             host:port through dereth-web-relay on {RELAY_LISTEN}."
+             host:port through dereth-web-relay on {RELAY_LISTEN}. --www serves a web client built\n\
+             before from that folder, building nothing; --hub names another hub's world list (its\n\
+             /v1/servers) in the page's address."
         );
         return;
     }
@@ -538,10 +562,13 @@ fn main() {
         usage()
     });
     let ws = workspace();
-    let www = ws.join("dereth").join("web").join("www");
+    let www = options
+        .www
+        .clone()
+        .unwrap_or_else(|| ws.join("dereth").join("web").join("www"));
     if !www.is_dir() {
         eprintln!(
-            "{} is not here: this checkout has no web client",
+            "{} is not here: there is no web client to serve",
             www.display()
         );
         std::process::exit(1);
@@ -613,7 +640,8 @@ fn main() {
         page_url(
             options.port,
             dats.later.is_some() || dats.classic.is_some(),
-            url.as_deref()
+            url.as_deref(),
+            options.hub.as_deref()
         ),
         [
             ("data files", options.dat_dir.as_ref()),
@@ -658,11 +686,35 @@ mod tests {
     }
 
     #[test]
-    fn the_page_address_carries_the_data_source_and_the_server() {
-        assert_eq!(page_url(8080, false, None), "http://127.0.0.1:8080/");
+    fn the_page_address_carries_the_data_source_the_server_and_another_hubs_list() {
+        assert_eq!(page_url(8080, false, None, None), "http://127.0.0.1:8080/");
         assert_eq!(
-            page_url(8080, true, Some("ws://127.0.0.1:9180/")),
+            page_url(8080, true, Some("ws://127.0.0.1:9180/"), None),
             "http://127.0.0.1:8080/?dats=http&server=ws%3A%2F%2F127.0.0.1%3A9180%2F"
+        );
+        assert_eq!(
+            page_url(
+                8081,
+                false,
+                None,
+                Some("https://dev-hub.example.org/v1/servers")
+            ),
+            "http://127.0.0.1:8081/?hub=https%3A%2F%2Fdev-hub.example.org%2Fv1%2Fservers"
+        );
+    }
+
+    #[test]
+    fn a_folder_built_before_is_served_as_it_is_and_nothing_is_built() {
+        let o = parse_args(&args(
+            "--www built --hub https://dev/v1/servers --port 8081",
+        ))
+        .unwrap();
+        assert_eq!(o.www, Some(PathBuf::from("built")));
+        assert!(!o.build && o.serve, "served, never built into");
+        assert_eq!(o.hub.as_deref(), Some("https://dev/v1/servers"));
+        assert!(
+            parse_args(&args("--www built --build-only")).is_err(),
+            "nothing to build"
         );
     }
 

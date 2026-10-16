@@ -1,11 +1,19 @@
-//! `cargo xtask ship`: `main` fast-forwarded to exactly the commit that was preflighted, and every product it changed released (its version commit and tag, as
-//! `cargo xtask release` makes them) and pushed. It refuses when the branch preflighted has moved since,
-//! here or on the remote: what was checked is what ships.
+//! `cargo xtask ship`: `main` fast-forwarded to exactly the commit that was preflighted, and every
+//! product it changed released (its version commit and tag, as `cargo xtask release` makes them)
+//! and pushed, each release cut in this process. A Dereth release brings the web client's, which
+//! carries Dereth's version: its tag on Dereth's release commit, pushed. It refuses when the branch
+//! preflighted has moved since, here or on the remote: what was checked is what ships.
 
 use std::path::Path;
 
 use super::machine::Machine;
+use super::plan::Product;
 use super::steps::{Ledger, Stage};
+use crate::package::version::DERETH_TAG_PREFIX;
+
+/// One product's release cut and pushed, `cargo xtask release <product> <version> --push`'s
+/// steps run in this process: the product and the version.
+pub type Cut<'a> = dyn FnMut(Product, &str) -> Result<(), String> + 'a;
 
 fn s(x: &str) -> String {
     x.to_owned()
@@ -17,14 +25,19 @@ fn git(m: &mut dyn Machine, root: &Path, args: &[&str]) -> Result<String, String
         .map(|o| o.trim().to_owned())
 }
 
-/// Ships what the ledger preflighted: each product's release cut and pushed with `cargo xtask
-/// release <product> <version> --push`, with `env` added, in the order the ledger lists them. With
-/// `dry_run`, says what it would do and does nothing past the checks.
+/// The web client's release tag for Dereth's `version`.
+pub fn web_tag(version: &str) -> String {
+    format!("{}{version}", crate::package::web::TAG_PREFIX)
+}
+
+/// Ships what the ledger preflighted: each product's release cut and pushed with `cut`, in the
+/// order the ledger lists them, and after Dereth's, the web client's tag. With `dry_run`, says
+/// what it would do and does nothing past the checks.
 pub fn ship(
     m: &mut dyn Machine,
     root: &Path,
     remote: &str,
-    env: &[(String, String)],
+    cut: &mut Cut<'_>,
     ledger: &mut Ledger,
     dry_run: bool,
 ) -> Result<(), String> {
@@ -77,6 +90,41 @@ pub fn ship(
             short(&commit)
         ));
     }
+    // The web client's tag is made after Dereth's release is pushed: one already there would
+    // stop the run halfway, so it is asked after first.
+    let web = ledger
+        .releases
+        .iter()
+        .find(|r| r.product == Product::Dereth)
+        .map(|r| web_tag(&r.version));
+    if let Some(tag) = &web {
+        let here = git(
+            m,
+            root,
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/tags/{tag}"),
+            ],
+        )
+        .unwrap_or_default();
+        let there = git(
+            m,
+            root,
+            &["ls-remote", "--tags", remote, &format!("refs/tags/{tag}")],
+        )?;
+        if !here.is_empty() || !there.is_empty() {
+            return Err(format!(
+                "the web client's tag {tag} is there already{}: nothing is shipped",
+                if here.is_empty() {
+                    " on the remote"
+                } else {
+                    ""
+                }
+            ));
+        }
+    }
     println!(
         "main {} -> {} ({branch}, as preflighted)",
         short(&main),
@@ -90,6 +138,9 @@ pub fn ship(
             r.why
         );
     }
+    if let Some(tag) = &web {
+        println!("  and tag {tag} on Dereth's release, for the web client");
+    }
     if dry_run {
         println!("A dry run: nothing is changed.");
         return Ok(());
@@ -97,25 +148,46 @@ pub fn ship(
     git(m, root, &["checkout", "main"])?;
     git(m, root, &["merge", "--ff-only", &commit])?;
     for r in ledger.releases.clone() {
-        let args = [
-            "xtask",
-            "release",
-            r.product.command_name(),
-            &r.version,
-            "--push",
-            "--remote",
-            remote,
-        ]
-        .map(s);
-        let said = m
-            .run(Some(root), "cargo", &args, env)
+        cut(r.product, &r.version)
             .map_err(|e| format!("releasing {} {}: {e}", r.product.command_name(), r.version))?;
-        print!("{said}");
+        if r.product == Product::Dereth {
+            tag_web(m, root, remote, &r.version)
+                .map_err(|e| format!("the web client's release {}: {e}", r.version))?;
+        }
     }
     if ledger.releases.is_empty() {
         git(m, root, &["push", remote, "main"])?;
     }
     ledger.stage = Stage::Shipped;
+    Ok(())
+}
+
+/// The web client's release of Dereth's `version`: its tag on the commit Dereth's release tag
+/// names, pushed, which starts its release workflow.
+fn tag_web(m: &mut dyn Machine, root: &Path, remote: &str, version: &str) -> Result<(), String> {
+    let tag = web_tag(version);
+    let at = git(
+        m,
+        root,
+        &[
+            "rev-parse",
+            &format!("{DERETH_TAG_PREFIX}{version}^{{commit}}"),
+        ],
+    )?;
+    git(
+        m,
+        root,
+        &[
+            "tag",
+            "-a",
+            &tag,
+            "-m",
+            &format!("Dereth (Web) {version}"),
+            &at,
+        ],
+    )?;
+    git(m, root, &["push", remote, &tag])?;
+    println!("tagged {tag} at {at} and pushed it: its workflow drafts the web client's release");
     Ok(())
 }
 
