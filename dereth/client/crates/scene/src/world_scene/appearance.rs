@@ -281,6 +281,8 @@ impl SceneDraw {
         );
         self.fold_object_counters(counters);
         done?;
+        #[cfg(feature = "hifi")]
+        self.drawn_ground_step(ws, store, gpu);
         self.stats.server_object_setups = self.object_meshes.len();
         // `server_object_batches` and `server_object_triangles` are what one
         // frame **draws**, so they are written by [`Self::refresh_part_levels`]. Seeded here

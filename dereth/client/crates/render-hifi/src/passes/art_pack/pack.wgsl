@@ -18,7 +18,8 @@ struct Frame {
     view_from_render: mat4x4<f32>,
     // xyz the eye.
     eye: vec4<f32>,
-    // xyz toward the sun.
+    // xyz toward the sun; w how much of the light its retail object's surfaces give off a model
+    // keeps.
     sun_dir: vec4<f32>,
     // The sun as the old light took it, 0..1 a channel.
     sun_legacy: vec4<f32>,
@@ -37,7 +38,8 @@ struct Material {
     // x metalness, y roughness, z normal strength, w occlusion strength.
     pbr: vec4<f32>,
     // x the alpha a pixel is cut below (0: none), y 1 for cut-out growth, z 1 when both faces
-    // are drawn.
+    // are drawn, w the light the surface gives off itself, which the old light added to what it
+    // took from the sun and the sky.
     flags: vec4<f32>,
     // The crown of the model's leaves, for cut-out growth: xy the axis it stands round, z the
     // height of its lowest leaves and w of its highest, in the model's own space; all nought for
@@ -162,17 +164,29 @@ fn leaf_class(share: f32, open: f32) -> f32 {
     return 5.0 + (round(share * 15.0) * 16.0 + open) / 256.0;
 }
 
+// The light the surface gives off itself, as much of it as the model keeps.
+fn glow() -> f32 {
+    return material.flags.w * frame.sun_dir.w;
+}
+
 // The light a surface facing `ndl` of the sun took from the old light, linear, as the light per
-// pixel works it out.
+// pixel works it out, with the light the surface gives off itself, which the light per pixel
+// leaves in as it leaves in a retail surface's.
 fn legacy_light(share: f32) -> vec3<f32> {
-    let legacy = min(frame.amb_legacy.rgb + frame.sun_legacy.rgb * share, vec3<f32>(1.0));
+    let legacy = min(
+        frame.amb_legacy.rgb + frame.sun_legacy.rgb * share + vec3<f32>(glow()),
+        vec3<f32>(1.0),
+    );
     return pow(max(legacy, vec3<f32>(0.03)), vec3<f32>(2.2));
 }
 
 // The light an object's surface facing `ndl` of the sun took from the old light, linear: as
 // `legacy_light`, with the objects' ambient.
 fn object_light(share: f32) -> vec3<f32> {
-    let legacy = min(frame.amb_objects.rgb + frame.sun_legacy.rgb * share, vec3<f32>(1.0));
+    let legacy = min(
+        frame.amb_objects.rgb + frame.sun_legacy.rgb * share + vec3<f32>(glow()),
+        vec3<f32>(1.0),
+    );
     return pow(max(legacy, vec3<f32>(0.03)), vec3<f32>(2.2));
 }
 
@@ -283,10 +297,22 @@ struct ImpostorOut {
     @location(3) @interpolate(flat) r0: vec4<f32>,
     @location(4) @interpolate(flat) r1: vec4<f32>,
     @location(5) @interpolate(flat) r2: vec4<f32>,
+    // For a far tree, which casts no shadow, how much of its crown's shade on itself is worked
+    // out here: 1 for a far tree, nought for any other.
+    @location(6) @interpolate(flat) far: f32,
+    // How many levels coarser than the quad calls for the pictures are read: a far tree's are
+    // read coarser, so leaves finer than a pixel do not flicker as the anti-aliasing's jitter
+    // moves them.
+    @location(7) @interpolate(flat) coarser: f32,
 };
 
 @vertex
 fn vs_impostor(v: Vertex, i: Instance) -> ImpostorOut {
+    return impostor_vertex(v, i);
+}
+
+// A level of pictures' vertex `v` for the placement `i`.
+fn impostor_vertex(v: Vertex, i: Instance) -> ImpostorOut {
     var o: ImpostorOut;
     // The eye in the model's own space: the placement's rows are its turn times its scale.
     let d = frame.eye.xyz - vec3<f32>(i.r0.w, i.r1.w, i.r2.w);
@@ -308,8 +334,122 @@ fn vs_impostor(v: Vertex, i: Instance) -> ImpostorOut {
     o.r0 = i.r0;
     o.r1 = i.r1;
     o.r2 = i.r2;
+    o.far = 0.0;
+    o.coarser = 0.0;
     return o;
 }
+
+// The far trees: the same pictures, each tree's placement read from the set the culling kept
+// rather than from an instance's rows.
+
+struct FarTree {
+    at: vec3<f32>,
+    scale: f32,
+    rotation: vec4<f32>,
+    model: u32,
+    seed: u32,
+    block: u32,
+    spare: u32,
+};
+
+struct FarModel {
+    bounds: vec4<f32>,
+    base: u32,
+    spare0: u32,
+    spare1: u32,
+    spare2: u32,
+};
+
+struct FarFrame {
+    // xy where render space's origin lies in the world, meters; z how far a tree is sunk into
+    // the ground, meters a meter of distance; w unused.
+    global: vec4<f32>,
+    // xyz the eye, render space; w how many levels coarser a far tree's pictures are read than
+    // its quad calls for.
+    eye: vec4<f32>,
+};
+
+@group(2) @binding(0) var<storage, read> far_trees: array<FarTree>;
+@group(2) @binding(1) var<storage, read> far_visible: array<vec2<u32>>;
+@group(2) @binding(2) var<storage, read> far_models: array<FarModel>;
+@group(2) @binding(3) var<uniform> far_frame: FarFrame;
+
+// The rows of the transform turning by `q` and scaling by `s`, then moving to `p`.
+fn rows_of(q: vec4<f32>, s: f32, p: vec3<f32>) -> array<vec4<f32>, 3> {
+    let x = q.x;
+    let y = q.y;
+    let z = q.z;
+    let w = q.w;
+    let r0 = vec3<f32>(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - w * z), 2.0 * (x * z + w * y));
+    let r1 = vec3<f32>(2.0 * (x * y + w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - w * x));
+    let r2 = vec3<f32>(2.0 * (x * z - w * y), 2.0 * (y * z + w * x), 1.0 - 2.0 * (x * x + y * y));
+    return array<vec4<f32>, 3>(
+        vec4<f32>(r0 * s, p.x),
+        vec4<f32>(r1 * s, p.y),
+        vec4<f32>(r2 * s, p.z),
+    );
+}
+
+@vertex
+fn vs_far(v: Vertex, @builtin(instance_index) k: u32) -> ImpostorOut {
+    let model = far_models[u32(material.views.w)];
+    let entry = far_visible[model.base + k];
+    let t = far_trees[entry.x];
+    let fade = unpack2x16float(entry.y);
+    var foot = t.at - vec3<f32>(far_frame.global.xy, 0.0);
+    // Sunk a little, more the farther off it stands, where the far ground's mesh is coarser.
+    let off = length(foot - far_frame.eye.xyz);
+    foot.z = foot.z - far_frame.global.z * off;
+    // A tree going is drawn smaller, down to nothing, rather than dithered away: nothing of it
+    // changes from one frame to the next while the eye stands still.
+    let rows = rows_of(normalize(t.rotation), t.scale * fade.x, foot);
+    var i: Instance;
+    i.r0 = rows[0];
+    i.r1 = rows[1];
+    i.r2 = rows[2];
+    i.keep = vec4<f32>(0.0, 1.0, 0.0, 0.0);
+    // Wider by the share the thinning asks, about its axis.
+    var w = v;
+    w.position = vec3<f32>(v.position.x * fade.y, v.position.y, v.position.z);
+    var o = impostor_vertex(w, i);
+    o.far = 1.0;
+    o.coarser = far_frame.eye.w;
+    return o;
+}
+
+// How much of the sun reaches a point at `local` (the model's own space) through its own crown,
+// the sun toward `sun` there: 0 where the way to the sun passes through the crown's solid middle
+// (most of its reach), 1 where it leaves the crown at once. The shade a crown casts on itself,
+// for a tree that casts none into the sun's shadows.
+fn crown_sun(local: vec3<f32>, sun: vec3<f32>) -> f32 {
+    let f = material.crown_frame;
+    let span = f.w - f.z;
+    if (span <= 1e-3) {
+        return 1.0;
+    }
+    var widest = 0.0;
+    for (var j: u32 = 0u; j < 8u; j = j + 1u) {
+        widest = max(widest, crown_reach(j));
+    }
+    var inside = 0.0;
+    for (var k = 1; k <= 6; k = k + 1) {
+        let q = local + sun * (widest * 0.3 * f32(k));
+        let t = (q.z - f.z) / span;
+        if (t < 0.0 || t > 1.0) {
+            continue;
+        }
+        let b = clamp(t * 8.0 - 0.5, 0.0, 7.0);
+        let i = u32(floor(b));
+        let reach = mix(crown_reach(i), crown_reach(min(i + 1u, 7u)), b - floor(b));
+        let r = length(q.xy - f.xy);
+        inside = inside + 1.0 - smoothstep(0.6 * reach, 0.85 * reach, r);
+    }
+    return 1.0 - clamp(inside * 0.6, 0.0, 1.0);
+}
+
+// The share of the sun a leaf in its crown's own shade keeps: what the crowns scatter between
+// their leaves and pass through them.
+const SELF_SHADE_KEPT: f32 = 0.35;
 
 // A level of pictures' outputs: a leaf's, and the depth of the surface the picture shows there.
 struct ImpostorFrag {
@@ -324,23 +464,24 @@ fn fs_impostor(in: ImpostorOut) -> ImpostorFrag {
     if (fading < in.keep.x || fading >= in.keep.y) {
         discard;
     }
-    // The view nearest the eye's bearing; near the middle between two, one or the other by the
-    // dither, so frames of it blend them as the eye turns past.
+    // The view nearest the eye's bearing, whole: a blend of two by the frame's dither would change
+    // from one frame to the next, and their leaves do not lie alike.
     let views = max(material.views.x, 1.0);
     let columns = max(material.views.y, 1.0);
     let rows = max(material.views.z, 1.0);
-    let first = floor(in.bearing);
-    let toward = smoothstep(0.35, 0.65, in.bearing - first);
-    var k = select(first, first + 1.0, dither_at(in.position.xy + vec2<f32>(11.0, 23.0)) < toward);
+    var k = round(in.bearing);
     k = k - floor(k / views) * views;
     let tile = vec2<f32>(k - floor(k / columns) * columns, floor(k / columns));
     let grid = vec2<f32>(columns, rows);
     let at = (tile + clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0))) / grid;
-    // The pictures are read at the level of detail the quad itself calls for, whichever view.
-    let gx = dpdx(in.uv) / grid;
-    let gy = dpdy(in.uv) / grid;
+    // The pictures are read at the level of detail the quad itself calls for, whichever view, or
+    // coarser for a far tree. Their coverage is cut as it is, with no dither: its smaller levels
+    // hold the share of each texel the model covers.
+    let bias = exp2(in.coarser);
+    let gx = dpdx(in.uv) / grid * bias;
+    let gy = dpdy(in.uv) / grid * bias;
     let base = textureSampleGrad(base_tex, samp, at, gx, gy) * material.base_color;
-    if (dithered_alpha(base.a, in.position.xy) < material.flags.x) {
+    if (base.a < material.flags.x) {
         discard;
     }
     let nd = textureSampleGrad(normal_tex, samp, at, gx, gy);
@@ -355,7 +496,18 @@ fn fs_impostor(in: ImpostorOut) -> ImpostorFrag {
         + vec3<f32>(0.0, 0.0, mix(material.quad.z, material.quad.y, in.uv.y))
         + inward * ((nd.w - 0.5) * 2.0 * half_width);
     let n = vec3<f32>(dot(in.r0.xyz, normal), dot(in.r1.xyz, normal), dot(in.r2.xyz, normal));
-    let leaf = leaf_out(base.rgb, normalize(n), local, in.position.xy);
+    var leaf = leaf_out(base.rgb, normalize(n), local, in.position.xy);
+    if (in.far > 0.5) {
+        // A far tree casts no shadow, so its own crown shades it as the solid stand-in in the
+        // sun's shadows shades a tree nearer: drawn with that much less of the sun, which the
+        // light per pixel's new light keeps in proportion.
+        let l = frame.sun_dir.xyz;
+        let sun = normalize(in.r0.xyz * l.x + in.r1.xyz * l.y + in.r2.xyz * l.z);
+        let kept = mix(1.0, mix(SELF_SHADE_KEPT, 1.0, crown_sun(local, sun)), in.far);
+        let share = round(clamp(dot(normalize(n), l) * 0.5 + 0.5, 0.0, 1.0) * 15.0) / 15.0;
+        let ratio = legacy_light(share * kept) / max(legacy_light(share), vec3<f32>(1e-4));
+        leaf.colour = vec4<f32>(leaf.colour.rgb * ratio, leaf.colour.a);
+    }
     // The depth of the surface itself, not the quad's, so it meets the ground and its shadows
     // where the model would.
     let q = vec4<f32>(local, 1.0);

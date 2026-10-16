@@ -321,6 +321,13 @@ pub trait Presentation: std::fmt::Debug {
     fn offer_art_pack(&mut self, dir: &std::path::Path) {
         let _ = dir;
     }
+    /// The file the drawn ground's knobs are read from, read again whenever it changes and
+    /// written with every knob at its default when there is none: a presentation that draws the
+    /// ground itself reads it for every world loaded from now on. A presentation that draws none
+    /// ignores it.
+    fn offer_terrain_tuning(&mut self, file: &std::path::Path) {
+        let _ = file;
+    }
 
     // ---------------------------------------------------------------------------------------
     // the overlay, any UI's -- see `dereth_client_contract::overlay`

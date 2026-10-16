@@ -21,13 +21,17 @@
 use std::collections::HashMap;
 
 use dereth_client_runtime::render_prefs::{FidelityFeature, FidelityPreferences};
+use dereth_render_hifi::snapshot::HifiPackLight;
 use dereth_render_hifi::snapshot::{
-    AskedFall, HifiArtPack, HifiCamera, HifiFog, HifiFrame, HifiGround, HifiGroundMaterial,
-    HifiLamp, HifiLight, HifiMaterials, HifiPackBlock, HifiPackImage, HifiPackLod,
-    HifiPackMaterial, HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyObject,
-    HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock, HifiTextureMaterial, LampSource,
+    AskedFall, HifiArtPack, HifiCamera, HifiDrawnGround, HifiFog, HifiFrame, HifiGround,
+    HifiGroundKnobs, HifiGroundMaterial, HifiGroundTile, HifiLamp, HifiLight, HifiMaterials,
+    HifiPackBlock, HifiPackImage, HifiPackLod, HifiPackMaterial, HifiPackModel, HifiPackPlacement,
+    HifiPackPrimitive, HifiSky, HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch,
+    HifiStaticBlock, HifiTerrainBlock, HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
+use dereth_terrain::land::drawn::{Knob, Knobs};
+use std::sync::Arc;
 
 use super::{Gpu, SceneDraw, WorldState};
 
@@ -57,6 +61,22 @@ pub(crate) struct Shadow {
     /// Each resident block's cell layers, with the block's generation and cells a side they were
     /// worked out for.
     ground_cells: HashMap<u16, ((u32, u8), CellLayers)>,
+    /// The world's landscape vertices as the presentation draws the drawn ground from them, made
+    /// once per read (by its serial).
+    drawn_world: Option<(
+        u64,
+        std::sync::Arc<dereth_render_hifi::snapshot::HifiWorldGround>,
+    )>,
+    /// The far trees as the presentation draws them, made once per change (by their serial).
+    far_trees: Option<(
+        u64,
+        std::sync::Arc<dereth_render_hifi::snapshot::HifiFarTrees>,
+    )>,
+    /// The forest cover as the presentation draws it, made once per cover (by its serial).
+    cover: Option<(
+        u64,
+        std::sync::Arc<dereth_render_hifi::snapshot::HifiForestCover>,
+    )>,
 }
 
 /// A block's cell layers, as the presentation reads them.
@@ -98,15 +118,21 @@ fn ground_for_presentation(
     use crate::art_pack::Ground;
     let mut materials = Vec::new();
     let mut of_ground = vec![None; 33];
+    let mut steep_of = vec![None; 33];
     for g in &pack.grounds {
         let index = u16::try_from(materials.len()).ok();
+        let to = if g.steep {
+            &mut steep_of
+        } else {
+            &mut of_ground
+        };
         for k in &g.grounds {
             let n = match k {
                 Ground::Type(t) => usize::from(*t),
                 Ground::Road => 32,
             };
-            if n < of_ground.len() {
-                of_ground[n] = index;
+            if n < to.len() {
+                to[n] = index;
             }
         }
         materials.push(HifiGroundMaterial {
@@ -141,6 +167,7 @@ fn ground_for_presentation(
         serial: retail.serial,
         materials,
         of_ground,
+        steep_of,
         masks: retail.masks.iter().map(|(_, i)| picture(i)).collect(),
         broad: retail
             .broad
@@ -220,9 +247,13 @@ fn pack_placement(p: &crate::art_pack::PackPlacement) -> HifiPackPlacement {
     }
 }
 
-/// The art pack `pack` as the presentation draws it. Its vertices and pictures are shared, not
-/// copied.
-fn pack_for_presentation(pack: &crate::art_pack::ArtPack) -> HifiArtPack {
+/// The art pack `pack` as the presentation draws it, each model with the light its retail
+/// object's surfaces give off (`glow`, by id). Its vertices and pictures are shared, not copied.
+fn pack_for_presentation(
+    pack: &crate::art_pack::ArtPack,
+    // ORDER-OK: only looked up, by id.
+    glow: &HashMap<dereth_primitives::DataId, (f32, f32)>,
+) -> HifiArtPack {
     HifiArtPack {
         serial: pack.serial,
         models: pack
@@ -262,6 +293,7 @@ fn pack_for_presentation(pack: &crate::art_pack::ArtPack) -> HifiArtPack {
                     })
                     .collect(),
                 bounds: (glam::Vec3::from(m.bounds.0), m.bounds.1),
+                glow: glow.get(&m.id).copied().unwrap_or_default(),
             })
             .collect(),
         images: pack.images.iter().map(picture).collect(),
@@ -298,6 +330,230 @@ fn drawn_vertices(batch: &super::StaticBatch, placements: &[super::DegradePlacem
 fn levels_key(placements: &[super::DegradePlacement]) -> u32 {
     placements.iter().fold(0x811C_9DC5u32, |h, p| {
         (h ^ p.level).wrapping_mul(0x0100_0193)
+    })
+}
+
+// --- the drawn ground ------------------------------------------------------------------
+
+/// The most bodies the presentation levels the fine relief under.
+const LEVELED_BODIES: usize = 32;
+/// How far from the eye a body's ground is leveled, meters: past it the fine relief is too small
+/// to see under a body.
+const LEVELED_WITHIN: f32 = 80.0;
+
+/// The drawn ground's knobs as the presentation reads them.
+fn ground_knobs(k: &Knobs) -> HifiGroundKnobs {
+    let ground = |knob: Knob| {
+        // LINT-OK: a terrain type knob, 0 to 31.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let t = k.get(knob).round() as u8;
+        t
+    };
+    HifiGroundKnobs {
+        detail: k.get(Knob::Detail),
+        micro: (k.get(Knob::Micro), k.get(Knob::MicroScale)),
+        level: k
+            .on(Knob::Level)
+            .then(|| (k.get(Knob::LevelRadius), k.get(Knob::LevelFade))),
+        terraces: k.on(Knob::Terraces).then(|| {
+            (
+                k.get(Knob::TerraceBand),
+                k.get(Knob::TerraceCap),
+                k.get(Knob::TerraceFrom),
+            )
+        }),
+        morph: (k.get(Knob::MorphStart), k.get(Knob::MorphEnd)),
+        far: k.on(Knob::Far).then(|| {
+            (
+                k.get(Knob::FarRound),
+                k.get(Knob::FarDetail),
+                k.get(Knob::FarDetailScale),
+                k.get(Knob::Horizon),
+            )
+        }),
+        haze: k.get(Knob::Haze),
+        slope: k.on(Knob::Slope).then(|| HifiSlopeMaterials {
+            scree: (k.get(Knob::ScreeFrom), k.get(Knob::ScreeBlend)),
+            rock: (k.get(Knob::RockFrom), k.get(Knob::RockBlend)),
+            strength: k.get(Knob::SlopeStrength),
+            smooth: k.get(Knob::SlopeSmooth),
+            on_snow: k.get(Knob::SlopeOnSnow),
+            grounds: (ground(Knob::ScreeGround), ground(Knob::RockGround)),
+        }),
+        water: k.on(Knob::Water).then(|| HifiWater {
+            color: k.get(Knob::WaterColor),
+            clarity: k.get(Knob::WaterClarity),
+            depth: k.get(Knob::WaterDepth),
+            shelf: k.get(Knob::WaterShelf),
+            ripple_scale: k.get(Knob::RippleScale),
+            ripple_speed: k.get(Knob::RippleSpeed),
+            ripple_strength: k.get(Knob::RippleStrength),
+            calm: k.get(Knob::RippleCalm),
+            rings: k.get(Knob::WaterRings),
+            reflection: k.get(Knob::WaterReflection),
+            shore_soft: k.get(Knob::ShoreSoft),
+            shore_wet: k.get(Knob::ShoreWet),
+            bed: ground(Knob::WaterBed),
+            bank_green: k.get(Knob::BankGreen),
+            bank_grass: ground(Knob::BankGrass),
+        }),
+        // LINT-OK: a view number, 0 to 4.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        view: k.get(Knob::View).round() as u32,
+    }
+}
+
+/// One tree far off, as the presentation draws it: the far trees' thread writes them so, and
+/// each block's list is handed over as it is.
+pub(crate) type FarTree = dereth_render_hifi::snapshot::HifiFarTree;
+
+/// How the far trees and the forest cover are drawn, from the knobs.
+fn far_knobs(k: &Knobs) -> dereth_render_hifi::snapshot::HifiFarKnobs {
+    dereth_render_hifi::snapshot::HifiFarKnobs {
+        trees: k.on(Knob::FarTrees),
+        reach: k.get(Knob::TreeReach),
+        thin_from: k.get(Knob::TreeThinFrom),
+        widen: k.get(Knob::TreeWiden),
+        soften: k.get(Knob::TreeSoften),
+        cover: k.get(Knob::ForestCover),
+        canopy: k.get(Knob::ForestCanopy),
+    }
+}
+
+/// The far trees within reach as the presentation draws them.
+fn far_trees_for_presentation(
+    far: &super::far_trees::FarTrees,
+) -> dereth_render_hifi::snapshot::HifiFarTrees {
+    let blocks = far
+        .within()
+        .map(|((bx, by), list)| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            // LINT-OK: block indices are 0..=0xFE. Not a float conversion.
+            let id = ((bx as u16) << 8) | (by as u16);
+            (id, std::sync::Arc::clone(list))
+        })
+        .collect();
+    dereth_render_hifi::snapshot::HifiFarTrees {
+        serial: far.serial,
+        blocks,
+    }
+}
+
+/// The light on an art pack's art as the presentation reads it.
+fn pack_light(k: &Knobs) -> HifiPackLight {
+    HifiPackLight {
+        exposure: k.get(Knob::PackExposure),
+        leaf_exposure: k.get(Knob::LeafExposure),
+        ground_exposure: k.get(Knob::GroundExposure),
+        glow: k.get(Knob::PackGlow),
+        inner_sky: k.get(Knob::LeafInnerSky),
+        scatter: k.get(Knob::LeafScatter),
+        scatter_deep: k.get(Knob::LeafScatterDeep),
+    }
+}
+
+/// The near offsets of `tiles` the presentation holds, for the viewer's block `viewer` and the
+/// blocks `reach` round it: the near texture has a slot for each of those alone. The scene keeps
+/// the blocks a ring farther out a while after the viewer moves on, and each would share a slot
+/// with a block on the other side and take it from it.
+fn near_tiles(
+    tiles: &HashMap<(i32, i32), super::drawn_ground::Tile>,
+    viewer: (i32, i32),
+    reach: u8,
+) -> Vec<HifiGroundTile> {
+    let within = |bx: i32, by: i32| {
+        (bx - viewer.0).abs() <= i32::from(reach) && (by - viewer.1).abs() <= i32::from(reach)
+    };
+    tiles
+        .iter()
+        .filter(|(&(bx, by), _)| within(bx, by))
+        .filter_map(|(&(bx, by), t)| {
+            Some(HifiGroundTile {
+                block: (u16::try_from(bx).ok()? << 8) | u16::try_from(by).ok()?,
+                generation: t.generation,
+                offset: Arc::clone(&t.offset),
+                weight: Arc::clone(&t.weight),
+            })
+        })
+        .collect()
+}
+
+/// The drawn ground as the presentation draws it this frame, while it is drawn; `world` keeps
+/// the presentation's copy of the world's vertices between frames.
+fn drawn_for_presentation(
+    draw: &SceneDraw,
+    ws: &WorldState,
+    world: &mut Option<(u64, Arc<HifiWorldGround>)>,
+    cover: &mut Option<(u64, Arc<dereth_render_hifi::snapshot::HifiForestCover>)>,
+) -> Option<HifiDrawnGround> {
+    let d = &draw.drawn;
+    if !d.active {
+        return None;
+    }
+    let (vertices, serial) = d.world()?;
+    if world.as_ref().is_none_or(|(s, _)| *s != serial) {
+        *world = Some((
+            serial,
+            Arc::new(HifiWorldGround {
+                serial,
+                // LINT-OK: 2041.
+                #[allow(clippy::cast_possible_truncation)]
+                side: super::drawn_ground::WORLD_SIDE as u32,
+                heights: Arc::clone(&vertices.heights),
+                words: Arc::clone(&vertices.words),
+                water: Arc::clone(&vertices.water),
+            }),
+        ));
+    }
+    // LINT-OK: a knob of 1 to 6.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let reach = d.knobs.get(Knob::NearBlocks).round() as u8;
+    let tiles = near_tiles(d.tiles(), d.viewer, reach);
+    let eye = d.eye;
+    let near = |p: &dereth_primitives::Vec3| {
+        (p.x - eye.x).powi(2) + (p.y - eye.y).powi(2) < LEVELED_WITHIN.powi(2)
+    };
+    let mut bodies: Vec<glam::Vec3> = ws
+        .character
+        .as_ref()
+        .map(|c| c.render_frame().origin)
+        .into_iter()
+        .chain(
+            ws.objects
+                .values()
+                .filter(|o| o.drawn)
+                .map(|o| o.frame.origin),
+        )
+        .filter(near)
+        .map(|p| glam::Vec3::new(p.x, p.y, p.z))
+        .collect();
+    bodies.truncate(LEVELED_BODIES);
+    match draw.far.cover.as_ref() {
+        Some((serial, made)) => {
+            if cover.as_ref().is_none_or(|(s, _)| s != serial) {
+                *cover = Some((
+                    *serial,
+                    Arc::new(dereth_render_hifi::snapshot::HifiForestCover {
+                        serial: *serial,
+                        // LINT-OK: 2041.
+                        #[allow(clippy::cast_possible_truncation)]
+                        side: super::drawn_ground::WORLD_SIDE as u32,
+                        colour: Arc::new(made.colour.clone()),
+                        canopy: Arc::new(made.canopy.clone()),
+                    }),
+                ));
+            }
+        }
+        None => *cover = None,
+    }
+    Some(HifiDrawnGround {
+        world: Arc::clone(&world.as_ref()?.1),
+        tiles,
+        reach,
+        global: glam::Vec2::new(d.global.0, d.global.1),
+        knobs: ground_knobs(&d.knobs),
+        bodies,
+        cover: cover.as_ref().map(|(_, c)| Arc::clone(c)),
     })
 }
 
@@ -347,6 +603,9 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
         // asked for; so is the anti-aliasing, unless it is turned off.
         art_pack: lit && raw(FidelityFeature::RetailLook) == 0,
         anti_aliasing: lit && raw(FidelityFeature::NoAntiAliasing) == 0,
+        // And the scree and rock an art pack's ground lays on steep slopes, until they are
+        // turned off.
+        slope_materials: lit && raw(FidelityFeature::NoSlopeMaterials) == 0,
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
 }
@@ -703,13 +962,31 @@ fn snapshot(
             {
                 sh.pack = Some((
                     pack.serial,
-                    std::sync::Arc::new(pack_for_presentation(pack)),
+                    std::sync::Arc::new(pack_for_presentation(pack, &draw.land.pack_glow)),
                 ));
                 sh.sent_pack.clear();
             }
             sh.pack.as_ref().map(|(_, p)| std::sync::Arc::clone(p))
         }
         None => None,
+    };
+    frame.pack_light = pack_light(&draw.drawn.knobs);
+    frame.far = far_knobs(&draw.drawn.knobs);
+    frame.far_trees = if draw.far.active && frame.art_pack.is_some() {
+        if sh
+            .far_trees
+            .as_ref()
+            .is_none_or(|(serial, _)| *serial != draw.far.serial)
+        {
+            sh.far_trees = Some((
+                draw.far.serial,
+                std::sync::Arc::new(far_trees_for_presentation(&draw.far)),
+            ));
+        }
+        sh.far_trees.as_ref().map(|(_, t)| std::sync::Arc::clone(t))
+    } else {
+        sh.far_trees = None;
+        None
     };
     // --- the art pack's materials for retail pictures ---------------------------------------
     frame.materials = match draw
@@ -736,6 +1013,8 @@ fn snapshot(
             None
         }
     };
+    // --- the drawn ground ---------------------------------------------------------------
+    frame.drawn = drawn_for_presentation(draw, ws, &mut sh.drawn_world, &mut sh.cover);
     // --- the art pack's ground ------------------------------------------------------------
     frame.ground = match (
         draw.land.art_pack.as_deref(),
@@ -772,6 +1051,7 @@ fn snapshot(
             }
             frame.pack_feed.push(HifiPackBlock {
                 block: id,
+                objects: block.baked && block.baked_side_cell_count == 8,
                 generation: block.hifi_generation,
                 placements: block.art_pack.iter().map(pack_placement).collect(),
             });
@@ -973,8 +1253,51 @@ mod tests {
             n::WEATHER => s.weather.is_on(),
             n::RETAIL_LOOK => s.lighting.is_on() && !s.art_pack,
             n::NO_ANTI_ALIASING => s.lighting.is_on() && !s.anti_aliasing,
+            n::NO_SLOPE_MATERIALS => s.lighting.is_on() && !s.slope_materials,
             _ => unreachable!("{name}"),
         }
+    }
+
+    /// Behaviour: none (experimental hi-fi art packs)
+    #[test]
+    fn the_light_on_an_art_packs_art_starts_from_the_presentations_own_defaults() {
+        assert_eq!(pack_light(&Knobs::default()), HifiPackLight::default());
+        let (k, notes) = Knobs::parse("pack_exposure = 0.5\nleaf_inner_sky = 0.3\npack_glow = 0");
+        assert!(notes.is_empty(), "{notes:?}");
+        let light = pack_light(&k);
+        assert!((light.exposure - 0.5).abs() < 1e-6);
+        assert!((light.inner_sky - 0.3).abs() < 1e-6);
+        assert!(light.glow.abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_presentation_holds_the_near_offsets_of_one_block_a_slot() {
+        use dereth_render_hifi::passes::drawn::slot_of;
+        let tile = |g: u64| super::super::drawn_ground::Tile {
+            generation: g,
+            offset: Arc::new(Vec::new()),
+            weight: Arc::new(Vec::new()),
+        };
+        // The viewer moved one block east: the blocks three round it are worked out, and those
+        // four to its west are kept a while.
+        let viewer = (100, 100);
+        let mut tiles = HashMap::new();
+        for bx in 96..=103 {
+            for by in 97..=103 {
+                tiles.insert(
+                    (bx, by),
+                    tile(u64::try_from(bx * 1000 + by).expect("a number")),
+                );
+            }
+        }
+        let held = near_tiles(&tiles, viewer, 3);
+        assert_eq!(held.len(), 49);
+        let n = 7;
+        let mut slots: Vec<(u32, u32)> = held.iter().map(|t| slot_of(t.block, n)).collect();
+        slots.sort_unstable();
+        slots.dedup();
+        assert_eq!(slots.len(), 49, "every block its own slot");
+        assert!(held.iter().all(|t| t.block >> 8 != 96));
     }
 
     /// Behaviour: hifi.options.the-presentation-settings-follow-the-preferences-in-effect
@@ -1008,14 +1331,20 @@ mod tests {
         assert_eq!(on.weather, Level::High);
         assert!(!on.art_pack, "the retail look's box is ticked too");
         assert!(!on.anti_aliasing, "the anti-aliasing's box is ticked too");
+        assert!(
+            !on.slope_materials,
+            "the slope materials' box is ticked too"
+        );
         assert_eq!(on.debug, DebugView::Off);
         // The art pack is drawn with the better lighting, until the retail look is asked for.
         let lit = settings(&boxes(0b1), true);
         assert!(lit.art_pack);
         assert!(!settings(&boxes(0), true).art_pack);
-        // So is the anti-aliasing, until it is turned off.
+        // So is the anti-aliasing, until it is turned off, and so are the slope materials.
         assert!(lit.anti_aliasing);
         assert!(!settings(&boxes(0), true).anti_aliasing);
+        assert!(lit.slope_materials);
+        assert!(!settings(&boxes(0), true).slope_materials);
         // A capture's level past a tick is kept.
         let mut rig = FidelityPreferences::parse_switch("Lighting=3,Shadows=4,Debug=6").unwrap();
         assert_eq!(settings(&rig, true).lighting, Level::High);

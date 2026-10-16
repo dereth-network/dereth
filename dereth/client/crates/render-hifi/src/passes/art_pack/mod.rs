@@ -32,6 +32,8 @@ use std::sync::Arc;
 use glam::{Mat4, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
+
+mod far;
 use crate::passes::lighting::{legacy_light, object_ambient, CASCADES};
 use crate::reshade::ReshadePlan;
 use crate::shared::camera::HEIGHT_UP;
@@ -40,6 +42,7 @@ use crate::snapshot::{HifiArtPack, HifiPackImage, HifiPackMaterial, HifiPackPlac
 use crate::{
     Caps, DrawAction, DrawNote, HifiError, HifiFrame, HifiSettings, Mark, ReplayFilter, SkipRule,
 };
+pub use far::pixels_a_meter;
 
 const PACK_WGSL: &str = include_str!("pack.wgsl");
 
@@ -59,11 +62,16 @@ const CASTER_STRIDE: u64 = 256;
 /// The same, as an index into their bytes.
 const CASTER_BLOCK: usize = 256;
 
-/// The art pack pass, and the handle the sun's shadows draw its models through.
+/// The art pack pass, the handle the sun's shadows draw its models through, and the pass that
+/// culls its far trees before the world is drawn.
 #[must_use]
-pub fn pass() -> (ArtPack, PackCasters) {
+pub fn pass() -> (ArtPack, PackCasters, FarCull) {
     let state = Rc::new(RefCell::new(State::default()));
-    (ArtPack(Rc::clone(&state)), PackCasters(state))
+    (
+        ArtPack(Rc::clone(&state)),
+        PackCasters(Rc::clone(&state)),
+        FarCull(state),
+    )
 }
 
 /// The art pack pass: it leaves the replaced objects out of the world's replay and draws the
@@ -75,6 +83,11 @@ pub struct ArtPack(Rc<RefCell<State>>);
 /// models drawn into each cascade.
 #[derive(Debug, Clone)]
 pub struct PackCasters(Rc<RefCell<State>>);
+
+/// The far trees' culling, on the device before the world is drawn: which of the far trees the
+/// view keeps, model by model, for the draws in the world.
+#[derive(Debug)]
+pub struct FarCull(Rc<RefCell<State>>);
 
 /// One run of instances of one level of detail of one model.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,8 +126,9 @@ struct State {
     pack: Option<Arc<HifiArtPack>>,
     /// Its models on the device.
     gpu: Option<PackGpu>,
-    /// Each resident block's placements, with the block's build they belong to.
-    blocks: HashMap<u16, (u32, Vec<HifiPackPlacement>)>,
+    /// Each resident block's placements, with the block's build they belong to and whether its
+    /// own objects stand in the world.
+    blocks: HashMap<u16, (u32, bool, Vec<HifiPackPlacement>)>,
     /// The command ranges of the replaced objects' draws this frame.
     covered: crate::shared::runs::Runs,
     /// The blocks that noted their objects this frame.
@@ -133,6 +147,18 @@ struct State {
     drawn: bool,
     /// The instances drawn into the view in the last frame.
     drawn_instances: u64,
+    /// The far trees on the device, for the set the frames carry.
+    far: Option<far::FarGpu>,
+    /// The command the far trees are drawn at: the end of the first landscape cell's ground,
+    /// where the drawn ground they stand on is drawn too.
+    far_mark: Option<u32>,
+    /// Whether the far trees are drawn in this frame, and whether they have been.
+    far_active: bool,
+    far_drawn: bool,
+    /// Microseconds the far trees took on this frame's processor: the last frame's upkeep, and
+    /// the last time the set changed, its taking in.
+    far_prepare_us: u64,
+    far_taken_us: u64,
 }
 
 /// A model on the device.
@@ -189,6 +215,14 @@ struct PackGpu {
     caster_bind: wgpu::BindGroup,
     view_instances: Option<(wgpu::Buffer, u64)>,
     caster_instances: Option<(wgpu::Buffer, u64)>,
+    /// The far trees' layouts and culling.
+    far: far::FarPipelines,
+    /// The far trees' pictures, placed from the set the culling kept.
+    view_far: wgpu::RenderPipeline,
+    /// Each model with far pictures, in the order the far trees name them, and the place of a
+    /// retail object's model among them.
+    far_models: Vec<far::FarModel>,
+    far_of: HashMap<u32, usize>,
 }
 
 fn uniform_entry(binding: u32, dynamic: bool) -> wgpu::BindGroupLayoutEntry {
@@ -524,6 +558,8 @@ fn material_constants(
     foliage: bool,
     crown: Option<&Crown>,
     pictures: Option<Pictures>,
+    glow: (f32, f32),
+    far: usize,
 ) -> Vec<f32> {
     let foliage = is_foliage(m, foliage);
     let mut c = Vec::with_capacity(12 + 4 + CROWN_RINGS + 8);
@@ -538,14 +574,15 @@ fn material_constants(
         m.alpha_cutoff.unwrap_or(0.0),
         f32::from(u8::from(foliage)),
         f32::from(u8::from(m.double_sided || foliage)),
-        0.0,
+        if foliage { glow.0 } else { glow.1 },
     ]);
     c.extend(Crown::constants(crown.filter(|_| foliage)));
     let p = pictures.unwrap_or(Pictures {
         grid: [0.0; 3],
         quad: [0.0; 3],
     });
-    c.extend([p.grid[0], p.grid[1], p.grid[2], 0.0]);
+    #[allow(clippy::cast_precision_loss)] // a model's place among a pack's, far inside f32's range
+    c.extend([p.grid[0], p.grid[1], p.grid[2], far as f32]);
     c.extend([p.quad[0], p.quad[1], p.quad[2], 0.0]);
     c
 }
@@ -577,16 +614,19 @@ impl Materials<'_> {
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
-    /// `p` on the device: its vertices, indices and material, of a model that is cut-out growth
-    /// when `foliage`, whose leaves make `crown`; of a level of pictures laid out as `views`.
+    /// `p` on the device: its vertices, indices and material, of `model` (cut-out growth or not,
+    /// and the light its retail object gives off), whose leaves make `crown`; of a level of
+    /// pictures laid out as `views`, the model's place among those the far trees draw `far`.
+    #[allow(clippy::too_many_arguments)]
     fn upload(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         p: &crate::snapshot::HifiPackPrimitive,
-        foliage: bool,
+        model: &crate::snapshot::HifiPackModel,
         crown: Option<&Crown>,
         views: Option<(u32, u32)>,
+        far: usize,
     ) -> GpuPrimitive {
         let m = &p.material;
         let pictures = views.map(|v| Pictures::of(v, &p.vertices));
@@ -595,7 +635,14 @@ impl Materials<'_> {
             queue,
             "art pack material",
             wgpu::BufferUsages::UNIFORM,
-            &floats(&material_constants(m, foliage, crown, pictures)),
+            &floats(&material_constants(
+                m,
+                model.foliage,
+                crown,
+                pictures,
+                model.glow,
+                far,
+            )),
         );
         let f = self.fallbacks;
         let views = [
@@ -643,7 +690,7 @@ impl Materials<'_> {
             ),
             count: u32::try_from(p.indices.len()).unwrap_or(u32::MAX),
             material,
-            double_sided: m.double_sided || is_foliage(m, foliage),
+            double_sided: m.double_sided || is_foliage(m, model.foliage),
             cut_out: m.alpha_cutoff.is_some(),
         }
     }
@@ -737,6 +784,57 @@ impl PackGpu {
                 cache: None,
             })
         };
+        let far_pipelines = far::FarPipelines::new(device);
+        let far_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("art pack far trees"),
+            bind_group_layouts: &[
+                Some(&frame_layout),
+                Some(&material_layout),
+                Some(&far_pipelines.draw_layout),
+            ],
+            immediate_size: 0,
+        });
+        let view_far = {
+            let targets = [
+                Some(wgpu::ColorTargetState {
+                    format: crate::derive::pipeline::HDR_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::COLOR,
+                }),
+                Some(wgpu::ColorTargetState {
+                    format: crate::derive::pipeline::NORMAL_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                }),
+            ];
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("art pack far trees"),
+                layout: Some(&far_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_far"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[Some(buffers[0].clone())],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: crate::SidecarContext::depth_format(),
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_impostor"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &targets,
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
         let view_culled = view_pipeline(Some(wgpu::Face::Back), "vs_main", "fs_main");
         let view_both = view_pipeline(None, "vs_main", "fs_main");
         let view_pictures = view_pipeline(None, "vs_impostor", "fs_impostor");
@@ -810,9 +908,27 @@ impl PackGpu {
         };
         let mut models = Vec::with_capacity(pack.models.len());
         let mut by_id = HashMap::new();
+        let mut far_models = Vec::new();
+        let mut far_of = HashMap::new();
         for (k, model) in pack.models.iter().enumerate() {
             by_id.insert(model.id, k);
             let crown = Crown::of_model(model);
+            // The last level of pictures, with a quad to draw, is what the far trees draw.
+            let pictures = model.lods.iter().rposition(|l| {
+                l.views.is_some()
+                    && l.primitives
+                        .first()
+                        .is_some_and(|p| p.indices.len() == 6 && !p.vertices.is_empty())
+            });
+            let far = pictures.map_or(0, |lod| {
+                far_of.insert(model.id, far_models.len());
+                far_models.push(far::FarModel {
+                    model: k,
+                    lod,
+                    bounds: model.bounds,
+                });
+                far_models.len() - 1
+            });
             let lods = model
                 .lods
                 .iter()
@@ -827,9 +943,10 @@ impl PackGpu {
                                 device,
                                 queue,
                                 p,
-                                model.foliage,
+                                model,
                                 crown.as_ref(),
                                 lod.views,
+                                far,
                             )
                         })
                         .collect(),
@@ -919,6 +1036,10 @@ impl PackGpu {
             caster_bind,
             view_instances: None,
             caster_instances: None,
+            far: far_pipelines,
+            view_far,
+            far_models,
+            far_of,
         }
     }
 }
@@ -1137,7 +1258,7 @@ impl State {
         let band = lod_band();
         let only = lod_only();
         for t in &frame.terrain {
-            let Some((_, placements)) = self.blocks.get(&t.block) else {
+            let Some((_, _, placements)) = self.blocks.get(&t.block) else {
                 continue;
             };
             let marked = self.marked.contains(&t.block);
@@ -1181,6 +1302,92 @@ impl State {
                 }
             }
         }
+    }
+
+    /// The far trees for `frame`: the set on the device (made again when the set or the pack
+    /// changes) and this frame's constants, the blocks whose own objects stand in the world left
+    /// out; nothing while the frame carries no far trees.
+    fn prepare_far(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: &HifiFrame,
+        clip_from_render: Mat4,
+    ) {
+        let (Some(gpu), Some(set), true) = (
+            self.gpu.as_ref(),
+            frame.far_trees.as_ref(),
+            frame.far.trees && frame.far.reach > 0.0,
+        ) else {
+            self.far = None;
+            return;
+        };
+        if self.far.as_ref().is_none_or(|f| f.serial != set.serial) {
+            let started = std::time::Instant::now();
+            let of = |id: u32| gpu.far_of.get(&id).copied();
+            let taken = self.far.as_mut().is_some_and(|f| f.take(queue, set, &of));
+            if !taken {
+                // Room for half as many again as the set, so the blocks coming within reach fit
+                // however the room the blocks leaving free is cut up, and a thicker forest ahead
+                // fits for a good while before the buffers are made again.
+                let room = far::FarGpu::room_for(set, &of);
+                let room = room.saturating_add(room / 2).max(4096);
+                let mut made = far::FarGpu::new(device, &gpu.far, gpu.far_models.clone(), room);
+                made.take(queue, set, &of);
+                self.far = Some(made);
+            }
+            self.far_taken_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        }
+        let Some(far) = self.far.as_mut() else {
+            return;
+        };
+        let Some(global) = render_origin(frame) else {
+            return;
+        };
+        let left_out: HashSet<u16> = self
+            .blocks
+            .iter()
+            .filter(|(_, (_, objects, _))| *objects)
+            .map(|(b, _)| *b)
+            .collect();
+        let cam = &frame.camera;
+        let index_count = |m: &far::FarModel| {
+            gpu.models[m.model].lods[m.lod]
+                .primitives
+                .first()
+                .map_or(0, |p| p.count)
+        };
+        far.prepare(
+            queue,
+            clip_from_render,
+            cam.eye,
+            global,
+            &frame.far,
+            far::pixels_a_meter(cam.projection, cam.viewport[3]),
+            &left_out,
+            &index_count,
+        );
+    }
+
+    /// Draw the far trees into `pass`, the re-shaded world's, model by model, each draw's count
+    /// written by the culling.
+    fn draw_far(&self, pass: &mut wgpu::RenderPass<'_>) -> bool {
+        let (Some(gpu), Some(far)) = (self.gpu.as_ref(), self.far.as_ref()) else {
+            return false;
+        };
+        pass.set_pipeline(&gpu.view_far);
+        pass.set_bind_group(0, &gpu.frame_bind, &[]);
+        pass.set_bind_group(2, &far.draw_bind, &[]);
+        for (k, m) in far.models.iter().enumerate() {
+            let Some(p) = gpu.models[m.model].lods[m.lod].primitives.first() else {
+                continue;
+            };
+            pass.set_bind_group(1, &p.material, &[]);
+            pass.set_vertex_buffer(0, p.vertices.slice(..));
+            pass.set_index_buffer(p.indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed_indirect(&far.draws, far::FarGpu::draw_offset(k));
+        }
+        true
     }
 
     /// Draw the view's runs into `pass`, the re-shaded world's.
@@ -1271,7 +1478,8 @@ impl PackCasters {
         }
     }
 
-    /// Draw the models cascade `c` holds into `pass`, one of the sun's shadow cascades.
+    /// Draw the models cascade `c` holds into `pass`, one of the sun's shadow cascades. The far
+    /// trees cast no shadow: each shades itself by its own crown.
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, c: usize) {
         let s = self.0.borrow();
         let (Some(gpu), Some(batches)) = (s.gpu.as_ref(), s.casters.get(c)) else {
@@ -1325,6 +1533,17 @@ impl PackCasters {
     }
 }
 
+/// Where render space's origin lies in the world, meters east and north: the drawn ground's,
+/// or worked out from a resident block's place.
+fn render_origin(frame: &HifiFrame) -> Option<Vec2> {
+    if let Some(d) = frame.drawn.as_ref() {
+        return Some(d.global);
+    }
+    let t = frame.terrain.first()?;
+    let block = Vec2::new(f32::from(t.block >> 8), f32::from(t.block & 0xFF)) * 192.0;
+    Some(block - t.origin.xy())
+}
+
 /// The frame's constants: the transforms to clip and view space, the eye, the sun, the old light
 /// the light per pixel divides out, the frame's place in the anti-aliasing's dither, and the
 /// ambient light the world's objects are drawn with.
@@ -1337,7 +1556,7 @@ fn frame_constants(frame: &HifiFrame, clip_from_render: Mat4) -> Vec<f32> {
     c.extend(clip_from_render.to_cols_array());
     c.extend((cam.view * HEIGHT_UP).to_cols_array());
     c.extend([cam.eye.x, cam.eye.y, cam.eye.z, 0.0]);
-    c.extend([l.x, l.y, l.z, 0.0]);
+    c.extend([l.x, l.y, l.z, frame.pack_light.glow]);
     c.extend([sun[0], sun[1], sun[2], 0.0]);
     c.extend([amb[0], amb[1], amb[2], 0.0]);
     c.extend([cam.dither, 0.0, 0.0, 0.0]);
@@ -1353,6 +1572,16 @@ impl HifiPass for ArtPack {
     fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
         let s = self.0.borrow();
         notes.push(("art pack models drawn", s.drawn_instances));
+        notes.push((
+            "art pack far trees",
+            s.far.as_ref().map_or(0, |f| u64::from(f.standing())),
+        ));
+        notes.push((
+            "art pack far tree bytes",
+            s.far.as_ref().map_or(0, |f| f.bytes),
+        ));
+        notes.push(("art pack far trees prepare us", s.far_prepare_us));
+        notes.push(("art pack far trees taken us", s.far_taken_us));
         notes.push(("art pack draws replaced", s.covered.len() as u64));
         notes.push(("art pack runs looked at", s.covered.looked()));
         notes.push((
@@ -1369,7 +1598,7 @@ impl HifiPass for ArtPack {
         s.pack.clone_from(&frame.art_pack);
         for b in &frame.pack_feed {
             s.blocks
-                .insert(b.block, (b.generation, b.placements.clone()));
+                .insert(b.block, (b.generation, b.objects, b.placements.clone()));
         }
         let resident = crate::shared::resident::ResidentBlocks::of(&frame.terrain);
         s.blocks.retain(|id, _| resident.holds(*id));
@@ -1393,6 +1622,7 @@ impl HifiPass for ArtPack {
         s.covered.clear();
         s.marked.clear();
         s.first_mark = None;
+        s.far_mark = None;
         let mut open = None;
         for (at, mark) in &cx.seam.tables().marks {
             match mark {
@@ -1405,6 +1635,9 @@ impl HifiPass for ArtPack {
                 Mark::ArtPackBlock { block } => {
                     s.marked.insert(*block);
                     s.first_mark.get_or_insert(*at);
+                }
+                Mark::TerrainCellEnd => {
+                    s.far_mark.get_or_insert(*at);
                 }
                 _ => {}
             }
@@ -1431,6 +1664,9 @@ impl HifiPass for ArtPack {
             );
             write_instances(&device, &queue, &mut gpu.view_instances, &rows);
         }
+        let started = std::time::Instant::now();
+        s.prepare_far(&device, &queue, cx.frame, clip_from_render);
+        s.far_prepare_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
         Ok(())
     }
 
@@ -1442,9 +1678,42 @@ impl HifiPass for ArtPack {
         let mut s = self.0.borrow_mut();
         s.active = s.gpu.is_some()
             && plan.is_some_and(|p| s.first_mark.is_some_and(|m| p.opaque.contains(&m)));
+        s.far_active = s.far.is_some()
+            && plan.is_some_and(|p| s.far_mark.is_some_and(|m| p.opaque.contains(&m)));
+        s.far_drawn = false;
     }
 
     fn encode(&mut self, _cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
+        Ok(())
+    }
+}
+
+impl HifiPass for FarCull {
+    fn name(&self) -> &'static str {
+        "far trees cull"
+    }
+
+    fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
+        s.art_pack && s.lighting.is_on() && f.art_pack.is_some() && f.far_trees.is_some()
+    }
+
+    fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
+        Ok(())
+    }
+
+    fn encode(&mut self, cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
+        let s = self.0.borrow();
+        let (Some(gpu), Some(far), true) = (s.gpu.as_ref(), s.far.as_ref(), s.far_active) else {
+            return Ok(());
+        };
+        let timestamps = cx.timer.compute_writes("far trees cull");
+        let mut pass = cx.encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("far trees cull"),
+            timestamp_writes: timestamps,
+        });
+        far.cull(&mut pass, &gpu.far);
+        drop(pass);
+        cx.seam.count_pass();
         Ok(())
     }
 }
@@ -1460,17 +1729,24 @@ impl ReplayFilter for ArtPack {
     }
 
     fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) -> bool {
-        if !matches!(mark, Mark::ArtPackBlock { .. }) {
+        if !matches!(mark, Mark::ArtPackBlock { .. } | Mark::TerrainCellEnd) {
             return false;
         }
         let mut s = self.0.borrow_mut();
-        if !s.active || s.drawn {
-            return false;
+        let mut drew = false;
+        // The far trees at the end of the first landscape cell's ground in the opaque world,
+        // once, where the drawn ground is drawn.
+        if matches!(mark, Mark::TerrainCellEnd) && s.far_active && !s.far_drawn {
+            s.far_drawn = true;
+            drew |= s.draw_far(pass);
+        }
+        if !matches!(mark, Mark::ArtPackBlock { .. }) || !s.active || s.drawn {
+            return drew;
         }
         // The first block's note in the opaque world: every noted block's models are drawn
         // here, once.
         s.drawn = true;
-        s.draw_view(pass)
+        drew | s.draw_view(pass)
     }
 }
 
@@ -1502,11 +1778,30 @@ mod tests {
                 "vs_main",
                 "fs_main",
                 "vs_impostor",
+                "vs_far",
                 "fs_impostor",
                 "vs_caster",
                 "fs_caster_cut"
             ]
         );
+    }
+
+    #[test]
+    fn the_far_trees_culling_shader_parses_and_validates() {
+        let module = naga::front::wgsl::parse_str(far::FAR_WGSL)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(far::FAR_WGSL)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+        let entries: Vec<&str> = module
+            .entry_points
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(entries, ["cs_cull"]);
     }
 
     #[test]

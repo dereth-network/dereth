@@ -184,6 +184,8 @@ pub struct PackGround {
     pub size: f32,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// Laid on the steep slopes of its grounds rather than on their flat ground.
+    pub steep: bool,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -342,6 +344,7 @@ fn ground(
         surface,
         size: entry.size,
         normal_scale: entry.normal_scale,
+        steep: entry.steep,
         credit: entry.credit.clone(),
     })
 }
@@ -569,6 +572,8 @@ struct PendingPicture {
     bytes: Vec<u8>,
     srgb: bool,
     cutoff: Option<f32>,
+    /// A picture of a level of pictures of its model seen from round it.
+    views: bool,
 }
 
 /// The next pack's serial.
@@ -632,7 +637,7 @@ impl ArtPack {
         let mut models = Vec::new();
         // Each picture once, by path and whether it holds colour, read here and decoded below.
         let mut pending: Vec<PendingPicture> = Vec::new();
-        let mut by_path: HashMap<(String, bool), u32> = HashMap::new();
+        let mut by_path: HashMap<(String, bool, bool), u32> = HashMap::new();
         for entry in &manifest.models {
             let label = gltf::label(entry.id);
             let mut lods = Vec::with_capacity(entry.lods.len());
@@ -656,12 +661,13 @@ impl ArtPack {
             }
             let mut picture = |path: &Option<String>,
                                srgb: bool,
-                               cutoff: Option<f32>|
+                               cutoff: Option<f32>,
+                               views: bool|
              -> Result<Option<u32>, String> {
                 let Some(path) = path else {
                     return Ok(None);
                 };
-                if let Some(i) = by_path.get(&(path.clone(), srgb)) {
+                if let Some(i) = by_path.get(&(path.clone(), srgb, views)) {
                     return Ok(Some(*i));
                 }
                 let bytes = read(path)?;
@@ -671,26 +677,33 @@ impl ArtPack {
                     bytes,
                     srgb,
                     cutoff,
+                    views,
                 });
-                by_path.insert((path.clone(), srgb), i);
+                by_path.insert((path.clone(), srgb, views), i);
                 Ok(Some(i))
             };
             let mut built = Vec::with_capacity(lods.len());
             let mut broken = None;
             for (lod, primitives) in lods {
                 let mut parts = Vec::with_capacity(primitives.len());
+                let views = lod.views.is_some();
                 for p in primitives {
                     let m = &p.material;
                     let material = (|| -> Result<PackMaterial, String> {
                         Ok(PackMaterial {
                             base_color: m.base_color,
-                            base_color_image: picture(&m.base_color_image, true, m.alpha_cutoff)?,
-                            normal_image: picture(&m.normal_image, false, None)?,
+                            base_color_image: picture(
+                                &m.base_color_image,
+                                true,
+                                m.alpha_cutoff,
+                                views,
+                            )?,
+                            normal_image: picture(&m.normal_image, false, None, views)?,
                             normal_scale: m.normal_scale,
-                            metal_rough_image: picture(&m.metal_rough_image, false, None)?,
+                            metal_rough_image: picture(&m.metal_rough_image, false, None, views)?,
                             metallic: m.metallic,
                             roughness: m.roughness,
-                            occlusion_image: picture(&m.occlusion_image, false, None)?,
+                            occlusion_image: picture(&m.occlusion_image, false, None, views)?,
                             occlusion_strength: m.occlusion_strength,
                             alpha_cutoff: m.alpha_cutoff,
                             double_sided: m.double_sided,
@@ -736,10 +749,12 @@ impl ArtPack {
             let (w, h, rgba) =
                 images::decode_png(&p.bytes).map_err(|e| format!("{}: {e}", p.path))?;
             let (w, h, rgba) = images::to_whole_blocks(w, h, rgba);
-            Ok::<_, String>(images::compressed(
-                images::with_levels(w, h, rgba, p.srgb, p.cutoff),
-                images::BlockFormat::Bc7,
-            ))
+            let levels = if p.views {
+                images::with_view_levels(w, h, rgba, p.srgb)
+            } else {
+                images::with_levels(w, h, rgba, p.srgb, p.cutoff)
+            };
+            Ok::<_, String>(images::compressed(levels, images::BlockFormat::Bc7))
         });
         let failed: HashMap<u32, String> = (0u32..)
             .zip(&decoded)
@@ -851,7 +866,17 @@ impl ArtPack {
     /// The pack's material for `ground`, if it has one.
     #[must_use]
     pub fn ground(&self, ground: Ground) -> Option<&PackGround> {
-        self.grounds.iter().find(|g| g.grounds.contains(&ground))
+        self.grounds
+            .iter()
+            .find(|g| !g.steep && g.grounds.contains(&ground))
+    }
+
+    /// The material laid on `ground`'s steep slopes, if the pack has one.
+    #[must_use]
+    pub fn steep_ground(&self, ground: Ground) -> Option<&PackGround> {
+        self.grounds
+            .iter()
+            .find(|g| g.steep && g.grounds.contains(&ground))
     }
 
     /// How many triangles every level of every model holds.
@@ -1369,6 +1394,7 @@ license = "CC0-1.0"
             surface: one,
             size: 4.0,
             normal_scale: 1.0,
+            steep: false,
             credit: Credit::default(),
         });
         let mut asked = Vec::new();

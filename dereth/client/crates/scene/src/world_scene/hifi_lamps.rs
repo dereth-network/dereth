@@ -325,6 +325,64 @@ fn top_of(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> Option<Vec
     (hi.z >= lo.z).then(|| Vec3::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, hi.z - 0.1))
 }
 
+/// The surface type's cut-out bit: the picture's alpha cuts the surface (leaves, grass).
+const CLIPMAP: u32 = 0x4;
+
+/// The light an object's own surfaces give off, which no time of day takes away: the luminosity
+/// of its cut-out surfaces and of its other surfaces, each weighed by how much of its area they
+/// cover (0 where none of that kind glows, or the object has none of that kind).
+pub(crate) fn surface_glow(store: &RetailDatStore, id: DataId) -> (f32, f32) {
+    let setup = match divine_type(id) {
+        Some(DbType::Setup) => decode::<Setup>(store, DbType::Setup, id),
+        _ => None,
+    };
+    let part_list: Vec<(DataId, Frame, Vec3)> = match &setup {
+        Some(s) => parts(s),
+        None if divine_type(id) == Some(DbType::GfxObj) => {
+            vec![(id, Frame::default(), Vec3::ONE)]
+        }
+        None => return (0.0, 0.0),
+    };
+    // Per kind (cut out, other): the area, and the area times the luminosity.
+    let mut sums = [(0.0f32, 0.0f32); 2];
+    for (gid, frame, scale) in &part_list {
+        let Some(gfx) = decode::<GfxObj>(store, DbType::GfxObj, *gid) else {
+            continue;
+        };
+        let looks: Vec<(usize, f32)> = gfx
+            .surfaces
+            .iter()
+            .map(|s| {
+                decode::<Surface>(store, DbType::Surface, *s).map_or((1, 0.0), |surf| {
+                    (
+                        usize::from(surf.surface_type & CLIPMAP == 0),
+                        surf.luminosity.max(0.0),
+                    )
+                })
+            })
+            .collect();
+        let verts = &gfx.vertex_array.vertices;
+        for p in &gfx.polygons {
+            let Some(&(kind, glow)) = looks.get(usize::from(p.pos_surface)) else {
+                continue;
+            };
+            let pts: Vec<Vec3> = p
+                .vertex_ids
+                .iter()
+                .filter_map(|v| verts.get(usize::from(*v)))
+                .map(|v| place(frame, *scale, g(v.position)))
+                .collect();
+            let area: f32 = (1..pts.len().saturating_sub(1))
+                .map(|k| 0.5 * (pts[k] - pts[0]).cross(pts[k + 1] - pts[0]).length())
+                .sum();
+            sums[kind].0 += area;
+            sums[kind].1 += area * glow;
+        }
+    }
+    let mean = |(area, lit): (f32, f32)| if area > 0.0 { lit / area } else { 0.0 };
+    (mean(sums[0]), mean(sums[1]))
+}
+
 /// What one object id gives light with, found from the data.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn examine(store: &RetailDatStore, id: DataId) -> LampObject {
@@ -914,5 +972,32 @@ mod survey_blocks {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod glow_tests {
+    //! Behaviour: none (experimental hi-fi art packs)
+    use super::*;
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn an_objects_glow_is_its_glowing_surfaces_luminosity_over_the_area_of_their_kind() {
+        let store = dereth_dat::testing::open_store_or_fail();
+        // Sho's olive tree: one of its two leaf pictures glows (a luminosity of 60 of 255) over
+        // about two thirds of its leaves; its trunk does not.
+        let (leaves, trunk) = surface_glow(&store, DataId(0x0200_07D9));
+        assert!((0.13..0.18).contains(&leaves), "{leaves}");
+        assert!(trunk.abs() < 1e-6, "{trunk}");
+        // The tall swamp grass glows all over.
+        let (grass, _) = surface_glow(&store, DataId(0x0200_03D3));
+        assert!((grass - 60.0 / 255.0).abs() < 0.01, "{grass}");
+        // A basalt column's stone glows where one of its pictures is laid (a luminosity of 0.75
+        // over a small share of it).
+        let (none, stone) = surface_glow(&store, DataId(0x0200_0D68));
+        assert!(none.abs() < 1e-6, "{none}");
+        assert!((0.02..0.2).contains(&stone), "{stone}");
+        // The most common conifer gives off nothing.
+        assert_eq!(surface_glow(&store, DataId(0x0200_0258)), (0.0, 0.0));
     }
 }

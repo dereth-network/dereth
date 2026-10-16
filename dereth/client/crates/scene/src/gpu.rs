@@ -98,6 +98,10 @@ mod imp {
         /// world loaded after is baked for it.
         #[cfg(feature = "hifi")]
         art_pack: Option<std::sync::Arc<crate::art_pack::ArtPack>>,
+        /// The drawn ground's tuning file the application named
+        /// ([`Self::offer_terrain_tuning`]), read by every world loaded from now on.
+        #[cfg(feature = "hifi")]
+        terrain_tuning: Option<std::path::PathBuf>,
     }
 
     /// A decoded retail surface and the six vertices that stretch it over the back buffer.
@@ -221,6 +225,8 @@ mod imp {
                 object_identity: None,
                 #[cfg(feature = "hifi")]
                 art_pack: None,
+                #[cfg(feature = "hifi")]
+                terrain_tuning: None,
             })
         }
 
@@ -249,6 +255,8 @@ mod imp {
                 #[cfg(feature = "hifi")]
                 self.art_pack.clone(),
             )?;
+            #[cfg(feature = "hifi")]
+            scene.set_terrain_tuning_file(self.terrain_tuning.clone());
             if cfg.character {
                 // The region is re-read rather than threaded through `load`: it is one
                 // record, the data cache memoises it in the client, and keeping `load`'s signature is
@@ -422,6 +430,15 @@ mod imp {
                 Err(e) => {
                     tracing::warn!("the art pack in {} is not drawn: {e}", dir.display());
                 }
+            }
+        }
+
+        /// Read the drawn ground's knobs from `file`, in the world loaded now and every one after.
+        #[cfg(feature = "hifi")]
+        pub fn offer_terrain_tuning(&mut self, file: &Path) {
+            self.terrain_tuning = Some(file.to_path_buf());
+            if let Some(world) = self.world.as_mut() {
+                world.set_terrain_tuning_file(Some(file.to_path_buf()));
             }
         }
 

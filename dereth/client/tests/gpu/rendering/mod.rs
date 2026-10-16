@@ -21,6 +21,10 @@ mod hifi_atmosphere;
 #[cfg(feature = "hifi")]
 mod hifi_cost;
 #[cfg(feature = "hifi")]
+mod hifi_drawn_ground;
+#[cfg(feature = "hifi")]
+mod hifi_far_trees;
+#[cfg(feature = "hifi")]
 mod hifi_indoor;
 #[cfg(feature = "hifi")]
 mod hifi_lighting;
@@ -31,11 +35,15 @@ mod hifi_off;
 mod hifi_options;
 #[cfg(feature = "hifi")]
 mod hifi_outdoor;
+#[cfg(feature = "hifi")]
+mod hifi_pack_light;
 mod hifi_render_scale;
 #[cfg(feature = "hifi")]
 mod hifi_replay_binds;
 mod hifi_reshade;
 mod hifi_visual_only;
+#[cfg(feature = "hifi")]
+mod hifi_water;
 #[cfg(feature = "hifi")]
 mod hifi_weather;
 mod highres_texture_policy;

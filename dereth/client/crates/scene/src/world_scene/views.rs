@@ -37,8 +37,36 @@ impl SceneDraw {
         let (vw, vh) = (viewport.width.max(1) as f32, viewport.height.max(1) as f32);
         let aspect =
             dereth_render::camera::compute_aspect_for_viewport(vw, vh, display_aspect, false);
+        // While the presentation draws the drawn ground, the camera is drawn moved with it,
+        // rising as the body it follows does (see `DrawnGround::camera_offset`), and sees to its
+        // horizon. A camera in a room or a dungeon stays where it is: the ground is not under
+        // it, and lifted clear of it the camera would leave the rooms.
+        #[allow(unused_mut)]
+        let mut eye = ws.camera.frame();
+        #[allow(unused_mut)]
+        let mut zfar = dereth_render::camera::ZFAR;
+        #[cfg(feature = "hifi")]
+        if self.drawn.active {
+            if ws.viewer_cell().is_none() {
+                let body = ws.character.as_ref().map(|c| c.render_frame().origin);
+                let offset = self.drawn.camera_offset(eye.origin, body);
+                eye.origin = Vec3::new(
+                    eye.origin.x + offset.x,
+                    eye.origin.y + offset.y,
+                    eye.origin.z + offset.z,
+                );
+            }
+            if self.drawn.knobs.on(dereth_terrain::land::drawn::Knob::Far) {
+                zfar = zfar.max(
+                    self.drawn
+                        .knobs
+                        .get(dereth_terrain::land::drawn::Knob::Horizon)
+                        * 1.1,
+                );
+            }
+        }
         ViewParams {
-            view: dereth_render::camera::view_from_frame(&ws.camera.frame()),
+            view: dereth_render::camera::view_from_frame(&eye),
             // The game field of view, which default-FOV setup
             // builds as `Render.FieldOfView * 0.017453292` and the render-preference
             // poll re-applies whenever its shadow copy changes.
@@ -59,6 +87,7 @@ impl SceneDraw {
             // the landscape time update left them on the device, not `FogParams::default()`
             // -- the default device states' grey 400..2000 with fog *off*.
             fog: self.fog,
+            zfar,
             ..ViewParams::default()
         }
     }

@@ -1429,6 +1429,14 @@ impl Shot {
         };
         cfg.render.automatic_degrades = false;
         cfg.terrain_splat = splat;
+        // `DERETH_HIFI_SCENERY_RADIUS=<blocks>`: the scenery drawn that far round the viewer's
+        // block (0 for the bare ground).
+        if let Some(r) = std::env::var("DERETH_HIFI_SCENERY_RADIUS")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+        {
+            cfg.scenery_radius = r;
+        }
         let mut scene = WorldScene::load(store, gpu, cfg).expect("the station's scene loads");
         match station.place {
             Place::Free {
@@ -1615,7 +1623,18 @@ impl Shot {
 
     /// Step the station one frame and draw it, leaving the frame on the device.
     pub(crate) fn step(&mut self, gpu: &mut Gpu) {
-        self.now += self.frame_seconds;
+        self.step_by(gpu, self.frame_seconds);
+    }
+
+    /// Step the station one frame with its clock held, so nothing the clock moves (the sun, the
+    /// clouds, the water, what sways) moves, and draw it.
+    pub(crate) fn step_held(&mut self, gpu: &mut Gpu) {
+        self.step_by(gpu, 0.0);
+    }
+
+    /// Step the station one frame, its clock moved on `seconds`, and draw it.
+    fn step_by(&mut self, gpu: &mut Gpu, seconds: f64) {
+        self.now += seconds;
         let now = LocalTime(self.now);
         #[allow(clippy::cast_possible_truncation)] // a frame's seconds
         let dt = self.frame_seconds as f32;

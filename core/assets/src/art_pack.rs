@@ -69,6 +69,10 @@
 //! Only `base_color`, `size` and the credit are required. The pictures of every material are
 //! square and repeat seamlessly, seen from straight above with north up.
 //!
+//! A `[[steep]]` material, with the same keys, is laid on the steep slopes of the terrain types
+//! it names, in place of the scree and rock the presentation lays on steep ground of a type with
+//! none: an obsidian cliff, a sandstone face. A type may have one of each kind.
+//!
 //! A pack may also draw a picture of its own in place of a retail picture, wherever a retail
 //! object or room is drawn with it: buildings, statics, rooms, dungeon pieces and what the
 //! server places alike. Each such material names the retail pictures (texture records, `0x05...`)
@@ -165,6 +169,9 @@ pub struct ManifestGround {
     pub size: f32,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// Laid on the steep slopes of its grounds rather than on their flat ground: a `[[steep]]`
+    /// table's.
+    pub steep: bool,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -276,24 +283,30 @@ impl ArtPackManifest {
             }
             models.push(model);
         }
-        let listed = match table.get("terrain") {
-            None => &empty,
-            Some(toml::Value::Array(a)) => a,
-            Some(_) => return fail("`terrain` is not a list of [[terrain]] tables"),
-        };
-        let mut grounds: Vec<ManifestGround> = Vec::with_capacity(listed.len());
-        for (i, g) in listed.iter().enumerate() {
-            let Some(g) = g.as_table() else {
-                return fail(format!("terrain {} is not a table", i + 1));
+        let mut grounds: Vec<ManifestGround> = Vec::new();
+        for (kind, steep) in [("terrain", false), ("steep", true)] {
+            let listed = match table.get(kind) {
+                None => &empty,
+                Some(toml::Value::Array(a)) => a,
+                Some(_) => return fail(format!("`{kind}` is not a list of [[{kind}]] tables")),
             };
-            let ground =
-                ground(g).map_err(|e| ManifestError(format!("terrain {}: {}", i + 1, e.0)))?;
-            for k in &ground.grounds {
-                if grounds.iter().any(|o| o.grounds.contains(k)) {
-                    return fail(format!("terrain {}: {k:?} has a material already", i + 1));
+            for (i, g) in listed.iter().enumerate() {
+                let Some(g) = g.as_table() else {
+                    return fail(format!("{kind} {} is not a table", i + 1));
+                };
+                let mut ground =
+                    ground(g).map_err(|e| ManifestError(format!("{kind} {}: {}", i + 1, e.0)))?;
+                ground.steep = steep;
+                for k in &ground.grounds {
+                    if grounds
+                        .iter()
+                        .any(|o| o.steep == steep && o.grounds.contains(k))
+                    {
+                        return fail(format!("{kind} {}: {k:?} has a material already", i + 1));
+                    }
                 }
+                grounds.push(ground);
             }
-            grounds.push(ground);
         }
         let listed = match table.get("material") {
             None => &empty,
@@ -337,7 +350,17 @@ impl ArtPackManifest {
     /// The material drawn for `ground`, if the pack has one.
     #[must_use]
     pub fn ground(&self, ground: Ground) -> Option<&ManifestGround> {
-        self.grounds.iter().find(|g| g.grounds.contains(&ground))
+        self.grounds
+            .iter()
+            .find(|g| !g.steep && g.grounds.contains(&ground))
+    }
+
+    /// The material laid on `ground`'s steep slopes, if the pack has one.
+    #[must_use]
+    pub fn steep_ground(&self, ground: Ground) -> Option<&ManifestGround> {
+        self.grounds
+            .iter()
+            .find(|g| g.steep && g.grounds.contains(&ground))
     }
 
     /// The model drawn in place of `id`, if the pack has one.
@@ -451,6 +474,7 @@ fn ground(t: &toml::Table) -> Result<ManifestGround, ManifestError> {
         occlusion: picture("occlusion")?,
         size,
         normal_scale,
+        steep: false,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -934,6 +958,48 @@ author = "a"
 tool = "t"
 license = "CC0-1.0"
 "#;
+
+    #[test]
+    fn a_steep_material_is_laid_on_its_grounds_steep_slopes_and_not_on_their_flat_ground() {
+        let text = format!(
+            "{GROUND}\n[[steep]]\nground = [9, 13]\n\
+             base_color = \"ground/scrub_steep_albedo.png\"\nsize = 8\n\
+             author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n"
+        );
+        let m = ArtPackManifest::parse(&text).expect("the manifest reads");
+        assert_eq!(m.grounds.len(), 3);
+        let flat = m.ground(Ground::Type(9)).expect("type 9's material");
+        assert!(!flat.steep);
+        assert_eq!(flat.base_color, "ground/grass_albedo.png");
+        let steep = m
+            .steep_ground(Ground::Type(9))
+            .expect("type 9's steep material");
+        assert!(steep.steep);
+        assert_eq!(steep.base_color, "ground/scrub_steep_albedo.png");
+        assert!(m.steep_ground(Ground::Type(13)).is_some());
+        assert!(
+            m.ground(Ground::Type(13)).is_none(),
+            "a type with a steep material alone keeps retail's flat ground"
+        );
+        assert!(m.steep_ground(Ground::Type(1)).is_none());
+        let bad = text.replace("ground = [9, 13]", "ground = [9, 40]");
+        assert!(ArtPackManifest::parse(&bad).is_err());
+        let twice = format!(
+            "{text}
+[[steep]]
+ground = 13
+base_color = \"b.png\"
+size = 8
+author = \"a\"
+tool = \"t\"
+license = \"CC0-1.0\"
+"
+        );
+        assert!(
+            ArtPackManifest::parse(&twice).is_err(),
+            "one steep material a type"
+        );
+    }
 
     #[test]
     fn a_manifest_names_a_material_for_each_retail_picture_it_stands_for() {

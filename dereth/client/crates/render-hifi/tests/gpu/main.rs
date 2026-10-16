@@ -5,6 +5,7 @@
 //! device tier sits behind, one GPU run at a time; without it they are ignored.
 
 mod atmosphere;
+mod drawn;
 
 use dereth_render::wgpu::sidecar::wgpu;
 

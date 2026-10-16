@@ -221,11 +221,15 @@ impl SceneDraw {
             retail_ground: None,
             #[cfg(feature = "hifi")]
             material_keys: Vec::new(),
+            #[cfg(feature = "hifi")]
+            pack_glow: HashMap::new(),
         };
         #[cfg(feature = "hifi")]
         land.refresh_retail_ground(store);
         #[cfg(feature = "hifi")]
         land.refresh_material_keys(store);
+        #[cfg(feature = "hifi")]
+        land.refresh_pack_glow(store);
 
         // The terrain pipeline state. Row 1 of the catalogue -- an opaque textured surface --
         // with the two terrain-specific overrides land polygon drawing makes:
@@ -263,6 +267,10 @@ impl SceneDraw {
             render_shadow: cfg.render,
             #[cfg(feature = "hifi")]
             hifi: RefCell::new(hifi_bridge::Shadow::default()),
+            #[cfg(feature = "hifi")]
+            drawn: drawn_ground::DrawnGround::default(),
+            #[cfg(feature = "hifi")]
+            far: far_trees::FarTrees::default(),
             // Region installation applies the detail-texturing preference to
             // both enabled detail classes; this scene's equivalent is the
             // `apply_detail_texturing` below, once `gpu` is reachable.
@@ -1099,6 +1107,7 @@ impl SceneDraw {
         self.land.bake_epoch += 1;
         self.land.refresh_retail_ground(store);
         self.land.refresh_material_keys(store);
+        self.land.refresh_pack_glow(store);
         self.flush_graphics_resources(ws, gpu);
         let radius = ws.streamer.window.mid_radius();
         self.rebuild_window(ws, store, gpu, radius)

@@ -34,6 +34,15 @@ mod bake_worker;
 #[path = "cells.rs"]
 mod cells;
 #[cfg(feature = "hifi")]
+#[path = "drawn_ground.rs"]
+mod drawn_ground;
+#[cfg(feature = "hifi")]
+#[path = "far_trees.rs"]
+mod far_trees;
+#[cfg(feature = "hifi")]
+#[path = "forest_cover.rs"]
+mod forest_cover;
+#[cfg(feature = "hifi")]
 #[path = "hifi_bridge.rs"]
 mod hifi_bridge;
 #[cfg(feature = "hifi")]
@@ -496,6 +505,10 @@ struct BlockDraw {
     /// The outdoor placements the art pack has models for, block-local.
     #[cfg(feature = "hifi")]
     art_pack: Vec<crate::art_pack::PackPlacement>,
+    /// The drawn ground's bake generation the block's scenery was baked moved by, or nought
+    /// when it was baked where it stands.
+    #[cfg(feature = "hifi")]
+    drawn_baked: u64,
 }
 
 /// The number the next block build takes, so the high-fidelity presentation tells a block whose
@@ -1116,6 +1129,12 @@ pub struct SceneDraw {
     /// What the high-fidelity bridge remembers between frames.
     #[cfg(feature = "hifi")]
     hifi: RefCell<hifi_bridge::Shadow>,
+    /// The drawn ground, while the presentation draws the landscape itself.
+    #[cfg(feature = "hifi")]
+    drawn: drawn_ground::DrawnGround,
+    /// The art pack's trees far off, while the presentation draws them.
+    #[cfg(feature = "hifi")]
+    far: far_trees::FarTrees,
     /// The four generated detail surfaces and their tiling values.
     detail: dereth_world_render::detail::DetailTexturing,
     /// The device texture each generated detail surface wraps, loaded from database type
@@ -2596,10 +2615,30 @@ struct LandContext {
     /// index: the high-fidelity presentation finds the slots holding them each frame.
     #[cfg(feature = "hifi")]
     material_keys: Vec<(dereth_render::TextureKey, u32)>,
+    /// The light the retail objects the art pack's models stand for give off themselves, by
+    /// object id: their cut-out surfaces' and their other surfaces' (`hifi_lamps::surface_glow`).
+    #[cfg(feature = "hifi")]
+    // ORDER-OK: only looked up, by id.
+    pack_glow: HashMap<DataId, (f32, f32)>,
 }
 
 #[cfg(feature = "hifi")]
 impl LandContext {
+    /// Work out the light the retail objects the art pack has models for give off themselves,
+    /// or forget it when no pack is set.
+    fn refresh_pack_glow(&mut self, store: &RetailDatStore) {
+        self.pack_glow.clear();
+        let Some(pack) = self.art_pack.as_ref() else {
+            return;
+        };
+        for m in &pack.models {
+            let glow = hifi_lamps::surface_glow(store, m.id);
+            if glow != (0.0, 0.0) {
+                self.pack_glow.insert(m.id, glow);
+            }
+        }
+    }
+
     /// Work out the texture keys of the retail pictures the art pack has materials for, or
     /// forget them when no pack has any. A picture an object recolors with a palette of its own
     /// is held under no key, so a material never reaches it.

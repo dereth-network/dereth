@@ -166,6 +166,9 @@ pub struct HifiSettings {
     /// `lighting` on): each frame is drawn a fraction of a pixel off the last, and the frames
     /// are blended, following what moved, into edges that neither stair-step nor crawl.
     pub anti_aliasing: bool,
+    /// Scree and rock laid by slope over an art pack's ground, as its knobs lay them (asked for
+    /// with `lighting` on, whose light the ground is laid for).
+    pub slope_materials: bool,
     /// A diagnostic view.
     pub debug: DebugView,
 }
@@ -600,6 +603,12 @@ impl HifiRenderer {
         // Empty on a frame drawn without the anti-aliasing, or not re-shaded.
         self.compositor.jitter_with(&self.jittered_frames);
         let mut jittered = passes::taa::JitteredFrames(&self.jittered_frames);
+        // Whether a pass draws the landscape's ground itself this frame.
+        let ground_drawn = self
+            .graph
+            .passes()
+            .zip(&self.wanted)
+            .any(|((_, p), wanted)| *wanted && p.draws_ground());
         for slot in Slot::ORDER {
             if matches!(slot, Slot::WorldReplay | Slot::AlphaReplay) {
                 let mut filters: Vec<&mut dyn ReplayFilter> = self
@@ -713,15 +722,18 @@ impl HifiRenderer {
                                 }
                                 unstamped = Some(u);
                             }
-                            self.reshader.ground_normals(
-                                cx,
-                                encoder,
-                                rt,
-                                &depth,
-                                frame,
-                                &mut self.resources,
-                                timer.writes("landscape normals"),
-                            );
+                            // Unless a pass draws the ground itself, with its own normals.
+                            if !ground_drawn {
+                                self.reshader.ground_normals(
+                                    cx,
+                                    encoder,
+                                    rt,
+                                    &depth,
+                                    frame,
+                                    &mut self.resources,
+                                    timer.writes("landscape normals"),
+                                );
+                            }
                             if let Some(step) = &plan.step {
                                 // The rooms, over the outdoors: the depth the outdoors is seen
                                 // at is kept for what the rooms' openings show, the step's

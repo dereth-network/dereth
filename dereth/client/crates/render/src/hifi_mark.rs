@@ -31,8 +31,21 @@ pub enum Mark {
         /// The cell within the block, 0..64.
         cell: u8,
     },
+    /// The landscape cell [`Mark::TerrainCell`] opened has drawn its ground; what follows is
+    /// what stands in it.
+    TerrainCellEnd,
     /// The landscape cells have all been drawn.
     TerrainEnd,
+    /// A landscape cell with a building is about to draw the building's openings and rooms: the
+    /// cell, as its block draws its cells `side` a side.
+    BuildingCell {
+        /// The landblock id, `0xXXYY`.
+        block: u16,
+        /// The cell within the block, `x * side + y`.
+        cell: u8,
+        /// The block's drawn cells a side: 8 at full detail, fewer farther off.
+        side: u8,
+    },
     /// The building interiors interleaved with the landscape begin.
     Interiors,
     /// The building interiors end.

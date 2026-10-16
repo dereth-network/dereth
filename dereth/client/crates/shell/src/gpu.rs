@@ -1045,6 +1045,11 @@ mod imp {
             SceneRenderer::offer_art_pack(self, dir);
         }
 
+        #[cfg(feature = "hifi")]
+        fn offer_terrain_tuning(&mut self, file: &std::path::Path) {
+            SceneRenderer::offer_terrain_tuning(self, file);
+        }
+
         fn overlay_upload(
             &mut self,
             texture: OverlayTexture,

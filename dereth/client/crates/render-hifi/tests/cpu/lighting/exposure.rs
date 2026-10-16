@@ -146,3 +146,51 @@ fn the_eye_eases_toward_the_exposure_more_slowly_into_the_dark_and_stays_once_th
     }
     assert!((e - 4.0).abs() < 0.05, "{e}");
 }
+
+/// How much a pixel of class `kind` counts in the outdoor hold, with an art pack's lit surfaces,
+/// leaves and ground counting `lit`, `leaf` and `ground`.
+fn class_weight(eval: &Evaluator, kind: f32, lit: f32, leaf: f32, ground: f32) -> f32 {
+    eval.call(
+        "class_weight",
+        &[
+            Value::F32(kind),
+            Value::F32(lit),
+            Value::F32(leaf),
+            Value::F32(ground),
+        ],
+    )
+    .f32()
+}
+
+#[test]
+fn an_art_packs_surfaces_count_in_the_outdoor_hold_as_its_light_says_and_the_worlds_own_wholly() {
+    let eval = exposure_shader();
+    let light = dereth_render_hifi::snapshot::HifiPackLight::default();
+    let weigh = |kind: f32| {
+        class_weight(
+            &eval,
+            kind,
+            light.exposure,
+            light.leaf_exposure,
+            light.ground_exposure,
+        )
+    };
+    // An art pack's models' lit surfaces and its materials (a dielectric 1.02 to 1.18, a metal
+    // 1.32 to 1.48) count as the world's own, and so does its ground (3.05 to 3.35).
+    for kind in [1.02, 1.1, 1.18, 1.32, 1.48, 3.05, 3.35] {
+        assert!((weigh(kind) - 1.0).abs() < 1e-6, "{kind}");
+    }
+    // Its leaves (5 and their code over 256) count for a tenth.
+    for kind in [5.0, 5.5, 5.99] {
+        assert!((weigh(kind) - 0.1).abs() < 1e-6, "{kind}");
+    }
+    // The world's own surfaces count wholly: lit, lit without the sun, a room's, the landscape,
+    // the world's own leaves.
+    for kind in [0.0, 1.0, 1.25, 1.75, 2.0, 3.0, 4.0, 4.3] {
+        assert!((weigh(kind) - 1.0).abs() < 1e-6, "{kind}");
+    }
+    // Each of the art pack's kinds takes its own knob.
+    assert!((class_weight(&eval, 1.1, 0.3, 0.6, 0.9) - 0.3).abs() < 1e-6);
+    assert!((class_weight(&eval, 5.5, 0.3, 0.6, 0.9) - 0.6).abs() < 1e-6);
+    assert!((class_weight(&eval, 3.2, 0.3, 0.6, 0.9) - 0.9).abs() < 1e-6);
+}

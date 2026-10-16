@@ -66,6 +66,18 @@ pub enum ResourceName {
     /// How bright the outdoor frame would be drawn at each of a ladder of exposures, against the
     /// ordinary picture: what the tone map holds the outdoor exposure to.
     OutdoorMeasure,
+    /// The world's landscape terrain words, while the drawn ground is drawn: what the art pack's
+    /// ground lays far off, past the blocks whose cells it holds.
+    DrawnGroundWords,
+    /// The world's landscape vertex heights, while the drawn ground is drawn: the smooth
+    /// surface the art pack's ground lays scree and rock by.
+    DrawnGroundHeights,
+    /// Where the world's water lies about each landscape vertex, while the drawn ground is drawn:
+    /// how far inside it, and how far below the vertex its level lies.
+    DrawnGroundWater,
+    /// The forest cover, while the drawn ground is drawn: the crowns' colour and how much of
+    /// the ground they cover, which the art pack's ground lays far off.
+    ForestCover,
     /// A copy of the normals and classes as the opaque span left them, for the pass that
     /// rewrites the landscape's.
     ScratchNormal,

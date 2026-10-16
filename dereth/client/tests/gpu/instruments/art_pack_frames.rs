@@ -7,7 +7,8 @@
 //! - `DERETH_HIFI_CAPTURE_DIR`: where the files go (default: `art-pack/` in cargo's scratch folder
 //!   for integration tests).
 //! - `DERETH_ART_PACK_STATIONS`: a comma list of the places to draw, or `all` (the default).
-//! - `DERETH_ART_PACK_TIMES`: a comma list of `day`, `overcast` and `dusk` (default all three).
+//! - `DERETH_ART_PACK_TIMES`: a comma list of `day`, `overcast`, `dusk` and `night` (default all
+//!   four).
 //! - `DERETH_ART_PACK_WAYS`: a comma list of `retail`, `hifi` and `pack` (default all three).
 //! - `DERETH_ART_PACK_VIEWS`: `0` leaves out the pack's normals and sun shadow views.
 //! - `DERETH_ART_PACK_AT`: `<name>,<block hex>,<x>,<y>,<eye>,<yaw>,<pitch>`, more places, a `;`
@@ -18,21 +19,34 @@
 //!   at, each way, percent (default 100).
 //! - `DERETH_ART_PACK_WARM`: how many frames a set is stepped before its frame is taken
 //!   (default 24).
+//! - `DERETH_ART_PACK_LAND_RADIUS`: the blocks of landscape loaded round the viewer's each way
+//!   (default 3; the client's own default is 8).
 //! - `DERETH_ART_PACK_BLENDING`: `composite` to draw the landscape from its cells' composites;
 //!   otherwise its layers are blended as it is drawn, the client's own default.
 //! - `DERETH_ART_PACK_FIDELITY`: more of the presentation's boxes, `Name=value` a comma between,
 //!   for every frame drawn with it (`NoAntiAliasing=1`, say).
 //! - `DERETH_ART_PACK_MOTION`: for the frames in motion, a comma list of `pan`, `walk` and
-//!   `still` (default `pan,walk`); `DERETH_ART_PACK_MOTION_FRAMES`, how many frames each draws
-//!   (default 40); `DERETH_ART_PACK_STILL_AT`, the place `still` stands at (default `forest`).
+//!   `still` (default `pan,walk`), or `dolly` (the free camera moving forward);
+//!   `DERETH_ART_PACK_MOTION_FRAMES`, how many frames each draws (default 40);
+//!   `DERETH_ART_PACK_STILL_AT`, the place `still` and `dolly` stand at (default `forest`);
+//!   `DERETH_ART_PACK_PAN_AT`, the place `pan` slides from (default `forest`);
+//!   `DERETH_ART_PACK_MOTION_TIME`, the time of day they are drawn at, one of the times below
+//!   (default `day`).
 //! - `DERETH_ART_PACK_IN`: `<name>,<cell hex>,<facing>[,<x>,<y>,<z>]`, more places, a `;`
 //!   between them: each a body standing in an indoor cell (a room or a dungeon's), facing that
 //!   many degrees, at the block-local point when one is named (a standable point of the cell
 //!   otherwise), seen from its chase camera.
+//! - `DERETH_ART_PACK_WALK_AT`: `<name>,<block hex>,<x>,<y>,<facing>`, a body standing on the
+//!   ground at the block-local point, facing that many degrees, for `walk` (default the forest's
+//!   `player`).
+//! - `DERETH_TERRAIN_KNOBS`: the drawn ground's knobs for the frames drawn with the pack, in the
+//!   tuning file's form with `;` between lines (`walk_cap = 0.3; cliffs = false`); the frames wait
+//!   for the world's landscape vertices the drawn ground is drawn from.
 //!
 //! The places: the south edge of Holtburg at a standing eye's height; the block where the most
-//! common tree stands thickest; a block where the boulder is most common; and a player's view
-//! from behind a body standing in that forest. The device is the one `DERETH_TEST_RENDERER`
+//! common tree stands thickest; a block where the boulder is most common; a player's view from
+//! behind a body standing in that forest; and five places a player stood at, each a body standing
+//! there, seen from its chase camera. The device is the one `DERETH_TEST_RENDERER`
 //! names, a fresh one for every frame set; the presentation draws on `wgpu` alone.
 
 #![cfg(all(gpu, feature = "hifi"))]
@@ -107,8 +121,25 @@ fn places() -> Vec<Station> {
         place,
         clock: Clock::Sunny(0.5),
         weather: false,
-        land_radius: 3,
+        land_radius: env("DERETH_ART_PACK_LAND_RADIUS")
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(3),
     };
+    let walk = env("DERETH_ART_PACK_WALK_AT").and_then(|v| {
+        let f: Vec<&str> = v.split(',').map(str::trim).collect();
+        let num = |i: usize| f.get(i)?.parse::<f32>().ok();
+        let name: &'static str = Box::leak(f.first()?.to_string().into_boxed_str());
+        Some(at(
+            name,
+            "a body standing on the ground named for this run",
+            Place::Ground {
+                block: u16::from_str_radix(f.get(1)?.trim_start_matches("0x"), 16).ok()?,
+                x: num(2)?,
+                y: num(3)?,
+                yaw: num(4)?,
+            },
+        ))
+    });
     let more = env("DERETH_ART_PACK_AT").unwrap_or_default();
     let extra = more
         .split(';')
@@ -201,17 +232,95 @@ fn places() -> Vec<Station> {
             },
         ),
     ];
+    // Places a player stood at, from where they stood and the turn they faced (twice the angle of
+    // the position's quaternion): a body standing there, seen from its chase camera.
+    for (name, why, block, x, y, yaw) in [
+        (
+            "cliff_bands",
+            "the plateau's edge, walking toward the cliffs' rock bands",
+            0x2780,
+            115.372,
+            173.655,
+            43.8,
+        ),
+        (
+            "holtburg_hill",
+            "Holtburg's hill beside a stone house, over the town and the far water",
+            0xA9B4,
+            73.087,
+            45.066,
+            -15.2,
+        ),
+        (
+            "woodsman_camp",
+            "the woodsman's camp and its row of snowy firs",
+            0xA9B5,
+            8.857,
+            142.057,
+            152.2,
+        ),
+        (
+            "wading",
+            "wading in the river below Holtburg, its far shore and the trees on the far bank",
+            0xA9B5,
+            59.952,
+            140.634,
+            -117.2,
+        ),
+        (
+            "river_bank",
+            "the foot of a bank by the river below Holtburg, where the rounded ground dips",
+            0xA9B5,
+            65.008,
+            59.555,
+            53.4,
+        ),
+    ] {
+        all.push(at(name, why, Place::Ground { block, x, y, yaw }));
+    }
     all.extend(extra);
     all.extend(rooms);
+    all.extend(walk);
     all
 }
 
+/// The drawn ground's knobs for the frames drawn with the pack, from `DERETH_TERRAIN_KNOBS`.
+fn terrain_knobs() -> Option<dereth_terrain::land::drawn::Knobs> {
+    let text = env("DERETH_TERRAIN_KNOBS")?.replace(';', "\n");
+    let (knobs, notes) = dereth_terrain::land::drawn::Knobs::parse(&text);
+    assert!(notes.is_empty(), "DERETH_TERRAIN_KNOBS: {notes:?}");
+    Some(knobs)
+}
+
+/// Step `shot` once and wait for the world's landscape vertices the drawn ground is drawn from,
+/// so it is drawn from the frames that follow; then step it while the blocks bake again for the
+/// drawn ground, and poll the preferences as a running client does every frame, which looks for
+/// the lamps of the blocks baked again.
+fn settle_drawn_ground(shot: &mut Shot, gpu: &mut Gpu) {
+    shot.step(gpu);
+    shot.scene.wait_for_drawn_ground();
+    for _ in 0..8 {
+        shot.step(gpu);
+    }
+    // The art pack's far trees within reach, worked out before the frames are taken.
+    let started = Instant::now();
+    shot.scene.wait_for_far_trees();
+    let (blocks, trees, thread_ms, _) = shot.scene.far_trees_counts();
+    eprintln!(
+        "far trees: {blocks} blocks, {trees} trees within reach, worked out in {thread_ms:.0} ms on their thread ({:.0} ms waited)",
+        started.elapsed().as_secs_f64() * 1000.0
+    );
+    shot.step(gpu);
+    shot.poll(gpu);
+}
+
 /// The times of day: noon on a sunny day, noon on the rainy day without its rain (overcast),
-/// and the evening with the sun five degrees up.
-const TIMES: [(&str, Clock); 3] = [
+/// the evening with the sun five degrees up, and midnight on the sunny day.
+const TIMES: [(&str, Clock); 4] = [
     ("day", Clock::Sunny(0.5)),
     ("overcast", Clock::Rainy(0.5)),
     ("dusk", Clock::SunUp(5.0)),
+    ("night", Clock::Sunny(0.0)),
 ];
 
 /// The three ways a set is drawn.
@@ -345,8 +454,14 @@ fn run(
             .expect("the blocks bake for the pack");
         shot.scene.draw.cfg.render.fidelity =
             FidelityPreferences::parse_switch(&fidelity(way, debug)).expect("the boxes parse");
+        if let Some(k) = terrain_knobs().filter(|_| way == Way::Pack) {
+            shot.scene.set_terrain_knobs(k);
+        }
     }
     shot.poll(gpu);
+    if way == Way::Pack {
+        settle_drawn_ground(&mut shot, gpu);
+    }
     for _ in 0..warm() {
         shot.step(gpu);
         assert!(
@@ -363,6 +478,14 @@ fn run(
         );
     }
     let rgba = capture(gpu);
+    if way == Way::Pack {
+        let eye = shot.scene.camera.position;
+        eprintln!(
+            "{} drawn ground under the eye: {}",
+            station.name,
+            shot.scene.drawn_ground_probe(eye)
+        );
+    }
     let placements = shot.scene.draw.art_pack_placements();
     let timed = debug.is_none().then(|| time_frames(&mut shot, gpu));
     (rgba, timed, placements)
@@ -436,6 +559,7 @@ fn capture_an_art_pack_beside_the_retail_look() {
                         .iter()
                         .filter(|(n, _)| {
                             n.starts_with("art pack")
+                                || n.starts_with("drawn ground")
                                 || n.starts_with("anti-aliasing")
                                 || *n == "re-shaded"
                         })
@@ -523,7 +647,7 @@ fn capture_an_art_pack_in_motion() {
             .expect("the place is one of the places")
     };
     let asked = env("DERETH_ART_PACK_MOTION").unwrap_or_else(|| "pan,walk".to_owned());
-    for sequence in ["pan", "walk", "still"] {
+    for sequence in ["pan", "walk", "still", "dolly"] {
         if !asked
             .split(',')
             .any(|s| s.trim().eq_ignore_ascii_case(sequence))
@@ -531,11 +655,22 @@ fn capture_an_art_pack_in_motion() {
             continue;
         }
         let still_at = env("DERETH_ART_PACK_STILL_AT").unwrap_or_else(|| "forest".to_owned());
-        let station = find(match sequence {
-            "walk" => "player",
-            "still" => &still_at,
-            _ => "forest",
+        let pan_at = env("DERETH_ART_PACK_PAN_AT").unwrap_or_else(|| "forest".to_owned());
+        let walk_at = env("DERETH_ART_PACK_WALK_AT")
+            .and_then(|v| v.split(',').next().map(|n| n.trim().to_owned()))
+            .unwrap_or_else(|| "player".to_owned());
+        let mut station = find(match sequence {
+            "walk" => &walk_at,
+            "still" | "dolly" => &still_at,
+            _ => &pan_at,
         });
+        if let Some((_, clock)) = env("DERETH_ART_PACK_MOTION_TIME").and_then(|t| {
+            TIMES
+                .into_iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(t.trim()))
+        }) {
+            station.clock = clock;
+        }
         for way in Way::ALL
             .into_iter()
             .filter(|w| listed("DERETH_ART_PACK_WAYS", w.name()))
@@ -550,8 +685,14 @@ fn capture_an_art_pack_in_motion() {
                 shot.scene.draw.cfg.render.fidelity =
                     FidelityPreferences::parse_switch(&fidelity(way, None))
                         .expect("the boxes parse");
+                if let Some(k) = terrain_knobs().filter(|_| way == Way::Pack) {
+                    shot.scene.set_terrain_knobs(k);
+                }
             }
             shot.poll(gpu);
+            if way == Way::Pack {
+                settle_drawn_ground(&mut shot, gpu);
+            }
             for _ in 0..warm() {
                 shot.step(gpu);
                 assert!(
@@ -567,8 +708,15 @@ fn capture_an_art_pack_in_motion() {
                     ..Default::default()
                 };
             }
-            let folder = out.join(format!("{sequence}-{}", way.name()));
+            let folder = out.join(format!("{sequence}-{}-{}", station.name, way.name()));
             for k in 0..frames {
+                if sequence == "dolly" {
+                    // Forward along the heading, three and a half metres a second at thirty
+                    // frames a second, at the same height over the ground.
+                    #[allow(clippy::cast_precision_loss)] // a short sequence
+                    let t = k as f32;
+                    shot.walk_to(&station, 0.12 * t);
+                }
                 if sequence == "pan" {
                     // A metre and a half a second sideways at thirty frames a second, turning a
                     // third of a degree a frame.
@@ -607,4 +755,266 @@ fn capture_an_art_pack_in_motion() {
         }
     }
     eprintln!("wrote {}", out.display());
+}
+
+/// How many frames a still camera is drawn for its measure.
+fn still_frames() -> usize {
+    env("DERETH_ART_PACK_STILL_FRAMES")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(24)
+}
+
+/// The pixels of two frames whose color changes by more than `threshold` levels in any channel.
+fn changed(a: &[u8], b: &[u8], threshold: u8) -> usize {
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .filter(|(p, q)| (0..3).any(|c| p[c].abs_diff(q[c]) > threshold))
+        .count()
+}
+
+/// Each place drawn from a camera that does not move, the world stepped with its clock held (the
+/// sun, the weather and everything the clock animates held; `DERETH_ART_PACK_STILL_CLOCK=running`
+/// lets it run), once settled: `DERETH_ART_PACK_STILL_FRAMES` frames
+/// (default 24), the anti-aliasing stepping through its jitter as it does. For each place and way
+/// (`DERETH_ART_PACK_WAYS`, default `pack,hifi`), `<root>/still/still.csv` counts the pixels
+/// that change from one frame to the next by more than 8 and by more than 32 levels (the most and
+/// the mean over the frames), `<place>-<way>-first.png` is the first frame and
+/// `<place>-<way>-change.png` shows where it changed (red, four times the largest change of each
+/// pixel, over the frame darkened). `DERETH_ART_PACK_STILL_KEEP=1` writes every frame too.
+#[test]
+#[ignore = "instrument: writes PNGs; run with DERETH_ART_PACK set and --ignored"]
+#[allow(clippy::too_many_lines)]
+fn measure_a_still_camera() {
+    use dereth_client_runtime::render_prefs::FidelityPreferences;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack's folder");
+    let pack = Arc::new(
+        dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+    );
+    let (width, height) = size();
+    let out = root().join("still");
+    std::fs::create_dir_all(&out).expect("the capture folder");
+    let frames = still_frames().max(2);
+    let ways = env("DERETH_ART_PACK_WAYS").unwrap_or_else(|| "pack,hifi".to_owned());
+    let mut csv = String::from("place,way,frames,over8_max,over8_mean,over32_max,over32_mean\n");
+    for station in places()
+        .into_iter()
+        .filter(|s| listed("DERETH_ART_PACK_STATIONS", s.name))
+    {
+        for way in [Way::Pack, Way::Hifi, Way::Retail] {
+            if !ways
+                .split(',')
+                .any(|w| w.trim().eq_ignore_ascii_case(way.name()))
+            {
+                continue;
+            }
+            let mut device = device(width, height);
+            let gpu = &mut device;
+            let mut shot = Shot::open_blending(&store, gpu, &station, splat());
+            if way != Way::Retail {
+                shot.scene
+                    .set_art_pack(&store, gpu, Some(Arc::clone(&pack)))
+                    .expect("the blocks bake for the pack");
+                shot.scene.draw.cfg.render.fidelity =
+                    FidelityPreferences::parse_switch(&fidelity(way, None))
+                        .expect("the boxes parse");
+                if let Some(k) = terrain_knobs().filter(|_| way == Way::Pack) {
+                    shot.scene.set_terrain_knobs(k);
+                }
+            }
+            shot.poll(gpu);
+            if way == Way::Pack {
+                settle_drawn_ground(&mut shot, gpu);
+            }
+            for _ in 0..warm() {
+                shot.step(gpu);
+                assert!(
+                    gpu.hifi_settle(std::time::Duration::from_secs(60)),
+                    "the presentation's pipelines were not built in a minute"
+                );
+            }
+            // Stepped with the camera where it is, the clock held unless asked to run.
+            let running = env("DERETH_ART_PACK_STILL_CLOCK").is_some_and(|v| v == "running");
+            let step = |shot: &mut Shot, gpu: &mut Gpu| {
+                if running {
+                    shot.step(gpu);
+                } else {
+                    shot.step_held(gpu);
+                }
+            };
+            for _ in 0..16 {
+                step(&mut shot, gpu);
+            }
+            let mut taken: Vec<Vec<u8>> = Vec::with_capacity(frames);
+            for _ in 0..frames {
+                step(&mut shot, gpu);
+                taken.push(capture(gpu));
+            }
+            let pairs: Vec<(usize, usize)> = taken
+                .windows(2)
+                .map(|w| (changed(&w[0], &w[1], 8), changed(&w[0], &w[1], 32)))
+                .collect();
+            let max8 = pairs.iter().map(|p| p.0).max().unwrap_or(0);
+            let max32 = pairs.iter().map(|p| p.1).max().unwrap_or(0);
+            #[allow(clippy::cast_precision_loss)] // pixel counts
+            let mean = |f: &dyn Fn(&(usize, usize)) -> usize| {
+                pairs.iter().map(f).sum::<usize>() as f64 / pairs.len().max(1) as f64
+            };
+            let (mean8, mean32) = (mean(&|p| p.0), mean(&|p| p.1));
+            let mut heat = taken[0].clone();
+            for px in heat.as_chunks_mut::<4>().0 {
+                for c in px.iter_mut().take(3) {
+                    *c /= 3;
+                }
+            }
+            for w in taken.windows(2) {
+                for (i, (p, q)) in w[0]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(w[1].as_chunks::<4>().0)
+                    .enumerate()
+                {
+                    let d = (0..3).map(|c| p[c].abs_diff(q[c])).max().unwrap_or(0);
+                    let v = d.saturating_mul(4);
+                    let h = &mut heat[i * 4..i * 4 + 4];
+                    if v > h[0] {
+                        h[0] = v;
+                    }
+                }
+            }
+            let name = format!("{}-{}", station.name, way.name());
+            write_png(
+                &out.join(format!("{name}-first.png")),
+                width,
+                height,
+                &taken[0],
+            );
+            write_png(
+                &out.join(format!("{name}-change.png")),
+                width,
+                height,
+                &heat,
+            );
+            if env("DERETH_ART_PACK_STILL_KEEP").is_some() {
+                for (k, rgba) in taken.iter().enumerate() {
+                    write_png(
+                        &out.join(format!("{name}-f{k:02}.png")),
+                        width,
+                        height,
+                        rgba,
+                    );
+                }
+            }
+            eprintln!(
+                "{name}: {frames} frames still; over 8 levels {max8} at most ({mean8:.0} a frame), over 32 {max32} ({mean32:.0})"
+            );
+            let _ = writeln!(
+                csv,
+                "{},{},{frames},{max8},{mean8:.1},{max32},{mean32:.1}",
+                station.name,
+                way.name()
+            );
+            std::fs::write(out.join("still.csv"), &csv).expect("still.csv");
+        }
+    }
+    eprintln!("wrote {}", out.display());
+}
+
+/// The far trees' upkeep on the processor as the eye travels: from `DERETH_ART_PACK_STILL_AT`'s
+/// place (default `forest`), the free camera moved east twelve meters a frame for
+/// `DERETH_ART_PACK_MOTION_FRAMES` frames (default 96, six blocks crossed), drawn with the pack.
+/// For each frame, the milliseconds the scene spent keeping the far trees, and the microseconds
+/// the presentation spent on them and on taking in a changed set, with the trees standing; the
+/// most and the mean of each are printed, and every frame's in `<root>/upkeep.csv`.
+#[test]
+#[ignore = "instrument: measures; run with DERETH_ART_PACK set and --ignored"]
+fn measure_far_trees_upkeep() {
+    use dereth_client_runtime::render_prefs::FidelityPreferences;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack's folder");
+    let pack = Arc::new(
+        dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+    );
+    let (width, height) = size();
+    let frames = env("DERETH_ART_PACK_MOTION_FRAMES")
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(96usize);
+    let at = env("DERETH_ART_PACK_STILL_AT").unwrap_or_else(|| "forest".to_owned());
+    let station = places()
+        .into_iter()
+        .find(|s| s.name == at)
+        .expect("the place is one of the places");
+    let mut device = device(width, height);
+    let gpu = &mut device;
+    let mut shot = Shot::open_blending(&store, gpu, &station, splat());
+    shot.scene
+        .set_art_pack(&store, gpu, Some(Arc::clone(&pack)))
+        .expect("the blocks bake for the pack");
+    shot.scene.draw.cfg.render.fidelity =
+        FidelityPreferences::parse_switch(&fidelity(Way::Pack, None)).expect("the boxes parse");
+    if let Some(k) = terrain_knobs() {
+        shot.scene.set_terrain_knobs(k);
+    }
+    shot.poll(gpu);
+    settle_drawn_ground(&mut shot, gpu);
+    for _ in 0..warm() {
+        shot.step(gpu);
+    }
+    let note = |gpu: &Gpu, name: &str| {
+        gpu.hifi_report()
+            .map(|r| r.notes)
+            .unwrap_or_default()
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map_or(0, |(_, v)| *v)
+    };
+    let mut csv = String::from("frame,scene_ms,prepare_us,taken_us,standing\n");
+    let (mut scene_ms, mut prepare_us, mut taken) = (Vec::new(), Vec::new(), Vec::new());
+    let mut last_taken = note(gpu, "art pack far trees taken us");
+    for k in 0..frames {
+        // The window re-centres on the camera, carrying its position with it: step it from
+        // where it stands.
+        shot.scene.camera.position.x += 12.0;
+        let (_, _, _, before) = shot.scene.far_trees_counts();
+        shot.step(gpu);
+        let (_, _, _, after) = shot.scene.far_trees_counts();
+        let (p, t) = (
+            note(gpu, "art pack far trees prepare us"),
+            note(gpu, "art pack far trees taken us"),
+        );
+        let standing = note(gpu, "art pack far trees");
+        scene_ms.push(after - before);
+        prepare_us.push(p);
+        if t != last_taken {
+            taken.push(t);
+            last_taken = t;
+        }
+        let _ = writeln!(csv, "{k},{:.3},{p},{t},{standing}", after - before);
+    }
+    #[allow(clippy::cast_precision_loss)] // frame counts
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len().max(1) as f64;
+    let max = |v: &[f64]| v.iter().copied().fold(0.0, f64::max);
+    #[allow(clippy::cast_precision_loss)] // microseconds
+    let us: Vec<f64> = prepare_us.iter().map(|v| *v as f64).collect();
+    #[allow(clippy::cast_precision_loss)] // microseconds
+    let took: Vec<f64> = taken.iter().map(|v| *v as f64).collect();
+    let (blocks, trees, thread_ms, _) = shot.scene.far_trees_counts();
+    eprintln!(
+        "{at}: {frames} frames, {:.0} m east: the scene's upkeep {:.3} ms a frame ({:.3} at most); the presentation's {:.0} us a frame ({:.0} at most); the set taken in {} times, {:.0} us at most; {blocks} blocks worked out on their thread in {thread_ms:.0} ms; {trees} trees within reach at the end",
+        12.0 * frames as f64,
+        mean(&scene_ms),
+        max(&scene_ms),
+        mean(&us),
+        max(&us),
+        took.len(),
+        max(&took),
+    );
+    let out = root();
+    std::fs::create_dir_all(&out).expect("the capture folder");
+    std::fs::write(out.join("upkeep.csv"), csv).expect("upkeep.csv");
 }

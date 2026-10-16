@@ -718,6 +718,24 @@ impl SceneDraw {
             }
             None => None,
         };
+        // What the scenery is baked moved by: the drawn ground's offset, while it is drawn. A
+        // bake off the frame took it when it was asked for, and was baked for that generation.
+        #[cfg(feature = "hifi")]
+        let (drawn_baked, scenery_shift) = match prepared.as_ref() {
+            Some((_, key)) => (key.drawn, None),
+            None if self.drawn.active && wants_objects => (
+                self.drawn.bake_generation,
+                self.drawn.scenery_shift_for(store, (bx, by)),
+            ),
+            None => (0, None),
+        };
+        #[cfg(feature = "hifi")]
+        let scenery_field = match prepared.as_ref() {
+            Some((_, key)) => key.drawn != 0,
+            None => scenery_shift.is_some(),
+        };
+        #[cfg(feature = "hifi")]
+        let reused_drawn = previous.as_ref().map_or(0, |b| b.drawn_baked);
         let built = match (work, previous) {
             // A resize or a restitch keeps the block's objects — **and this arm is reachable
             // only because `reuse` above has already established that the detail level did not
@@ -763,6 +781,15 @@ impl SceneDraw {
                 }
                 None => {
                     self.land.objects_baked.0 += 1;
+                    #[cfg(feature = "hifi")]
+                    let shift = scenery_shift
+                        .as_ref()
+                        .map(|s| move |x: f32, y: f32, z: f32| s.shift(x, y, z));
+                    #[cfg(feature = "hifi")]
+                    let scenery_shift: Option<&dyn Fn(f32, f32, f32) -> f32> =
+                        shift.as_ref().map(|f| f as &dyn Fn(f32, f32, f32) -> f32);
+                    #[cfg(not(feature = "hifi"))]
+                    let scenery_shift: Option<&dyn Fn(f32, f32, f32) -> f32> = None;
                     self.land.bake(
                         store,
                         gpu,
@@ -775,6 +802,7 @@ impl SceneDraw {
                         self.cfg.degrade_levels,
                         self.cfg.static_billboards,
                         self.cfg.lod_object_guard,
+                        scenery_shift,
                     )?
                 }
             },
@@ -838,6 +866,14 @@ impl SceneDraw {
                 hifi_lamps: built.hifi_lamps,
                 #[cfg(feature = "hifi")]
                 art_pack: built.art_pack,
+                #[cfg(feature = "hifi")]
+                drawn_baked: if reuse {
+                    reused_drawn
+                } else if scenery_field {
+                    drawn_baked
+                } else {
+                    0
+                },
             },
         );
         Ok(())

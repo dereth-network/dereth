@@ -298,6 +298,10 @@ pub struct Config {
     pub art_pack: Option<PathBuf>,
     /// Whether [`Self::art_pack`] came from the command line, which nothing overrides.
     pub art_pack_argument: bool,
+    /// The drawn ground's tuning file, which the high-fidelity presentation reads its knobs from
+    /// and reads again whenever it changes: `DERETH_TERRAIN_TUNING` in the environment, which
+    /// the desktop host reads. `None`: `terrain-tuning.toml` beside the preferences file.
+    pub terrain_tuning: Option<PathBuf>,
     /// `--era <name>`: the era the server says its world plays (`eor`, `infiltration`), as the
     /// launcher reads it from the world's status. It wins over the era read from the data files,
     /// and chooses which of [`Self::dat_dir`]'s sets draws the world; `None`: the end of retail's
@@ -548,6 +552,7 @@ impl Default for Config {
             object_visuals: None,
             art_pack: None,
             art_pack_argument: false,
+            terrain_tuning: None,
             classic_dat_dir: None,
             overlay_dat_dir: None,
             world_base: None,

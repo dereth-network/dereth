@@ -136,6 +136,11 @@ pub trait HifiPass {
 
     /// Counts the pass reports with the frame: what it holds, for the capture and timing tools.
     fn notes(&self, _notes: &mut Vec<(&'static str, u64)>) {}
+    /// Whether the pass draws the landscape's ground itself this frame, with its own normals:
+    /// the landscape-normal pass then leaves the ground alone.
+    fn draws_ground(&self) -> bool {
+        false
+    }
 }
 
 /// The passes, each in its slot.

@@ -301,6 +301,78 @@ pub fn with_levels(
     }
 }
 
+/// The level below a far picture's `level` (`w` by `h`): for its colour picture (`srgb`), each
+/// texel's colour the average of the two by two above it weighted by their coverage, in linear
+/// light, and its coverage their plain average, so a level holds the share of it the model
+/// covers; for its normal picture, the normal the plain average and the depth in alpha the
+/// nearest of the four, so a texel stands where the nearest surface it covers does.
+fn shrink_view(level: &[u8], w: u32, h: u32, srgb: bool) -> (u32, u32, Vec<u8>) {
+    let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+    let mut out = Vec::with_capacity((nw * nh * 4) as usize);
+    let lut: Vec<f32> = (0..=255u8).map(to_linear).collect();
+    for y in 0..nh {
+        for x in 0..nw {
+            let mut texels = [[0.0f32; 4]; 4];
+            for (k, (dx, dy)) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().enumerate() {
+                let sx = (x * 2 + dx).min(w - 1);
+                let sy = (y * 2 + dy).min(h - 1);
+                let i = ((sy * w + sx) * 4) as usize;
+                for c in 0..3 {
+                    texels[k][c] = if srgb {
+                        lut[level[i + c] as usize]
+                    } else {
+                        f32::from(level[i + c]) / 255.0
+                    };
+                }
+                texels[k][3] = f32::from(level[i + 3]) / 255.0;
+            }
+            if srgb {
+                let cover: f32 = texels.iter().map(|t| t[3]).sum();
+                for c in 0..3 {
+                    let v = if cover > 1e-4 {
+                        texels.iter().map(|t| t[c] * t[3]).sum::<f32>() / cover
+                    } else {
+                        texels.iter().map(|t| t[c]).sum::<f32>() / 4.0
+                    };
+                    out.push(to_byte(v, true));
+                }
+                out.push(to_byte(cover / 4.0, false));
+            } else {
+                for c in 0..3 {
+                    out.push(to_byte(
+                        texels.iter().map(|t| t[c]).sum::<f32>() / 4.0,
+                        false,
+                    ));
+                }
+                let nearest = texels.iter().map(|t| t[3]).fold(f32::MAX, f32::min);
+                out.push(to_byte(nearest, false));
+            }
+        }
+    }
+    (nw, nh, out)
+}
+
+/// `rgba` (`width` by `height`), a picture of a level of pictures of its model seen from round
+/// it, with every smaller level down to one texel, as [`shrink_view`] makes them.
+#[must_use]
+pub fn with_view_levels(width: u32, height: u32, rgba: Vec<u8>, srgb: bool) -> Image {
+    let mut levels = vec![Arc::new(rgba)];
+    let (mut w, mut h) = (width, height);
+    while w > 1 || h > 1 {
+        let (nw, nh, next) =
+            shrink_view(levels.last().map_or(&[][..], |l| l.as_slice()), w, h, srgb);
+        levels.push(Arc::new(next));
+        (w, h) = (nw, nh);
+    }
+    Image {
+        width,
+        height,
+        srgb,
+        levels,
+        format: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Behaviour: none (experimental hi-fi art packs)
@@ -365,6 +437,51 @@ mod tests {
         for l in &kept.levels[1..] {
             assert!(share(l) >= 0.25, "{}", share(l));
         }
+    }
+
+    #[test]
+    fn a_far_pictures_smaller_levels_hold_the_share_covered_and_the_nearest_surface() {
+        // Leaves one texel wide in every fourth row, as in the cut-out picture above: a quarter
+        // of the picture is covered, green, and the rest is filled with a red no leaf has.
+        let (w, h) = (16u32, 16u32);
+        let mut colour = Vec::new();
+        let mut normal = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let leaf = y % 4 == 0;
+                colour.extend(if leaf {
+                    [40, 200, 60, 255]
+                } else {
+                    [255, 0, 0, 0]
+                });
+                // The depth in alpha: the leaves near (64), what lies between them far (192),
+                // and nearer leaves at the picture's left.
+                let depth = if leaf {
+                    64 - u8::try_from(x).expect("a column") * 2
+                } else {
+                    192
+                };
+                normal.extend([128, 128, 255, depth]);
+            }
+        }
+        let c = with_view_levels(w, h, colour, true);
+        let n = with_view_levels(w, h, normal, false);
+        for (k, level) in c.levels.iter().enumerate().skip(1) {
+            let texels = level.as_chunks::<4>().0;
+            let mean = texels.iter().map(|t| f32::from(t[3])).sum::<f32>() / texels.len() as f32;
+            // The share covered stays a quarter at every level, as a mean of the texels' alpha:
+            // the leaves neither thin away nor fill the gaps between them.
+            assert!((mean / 255.0 - 0.25).abs() < 0.02, "level {k}: {mean}");
+            // The colour is the leaves', not the fill's.
+            for t in texels.iter().filter(|t| t[3] > 0) {
+                assert!(t[1] > t[0], "level {k}: {t:?}");
+            }
+        }
+        // Each smaller texel stands where the nearest surface it covers does.
+        let one = &n.levels[1];
+        assert_eq!(one[3], 64 - 2, "{:?}", &one[..4]);
+        let last = n.levels.last().expect("a last level");
+        assert_eq!(last[3], 64 - 30, "{last:?}");
     }
 
     #[test]

@@ -318,6 +318,10 @@ impl LandContext {
         degrade_levels: bool,
         static_billboards: bool,
         lod_object_guard: bool,
+        // How far a piece of scenery baked at block-local (x, y, z) is drawn above it: the
+        // drawn ground's offset, while the presentation draws one. The collision records are
+        // taken before it is applied.
+        scenery_shift: Option<&dyn Fn(f32, f32, f32) -> f32>,
     ) -> Result<BakedObjects, WorldError> {
         let knobs = ObjectKnobs {
             part_degrades,
@@ -332,7 +336,14 @@ impl LandContext {
                 self.objects.as_ref().is_some_and(|l| l.takes(id, building))
             };
             #[cfg_attr(not(feature = "hifi"), allow(unused_mut))]
-            let mut placed = place_objects(store, &self.region, (lb, mesh, bx, by), knobs, &takes);
+            let mut placed = place_objects(
+                store,
+                &self.region,
+                (lb, mesh, bx, by),
+                knobs,
+                &takes,
+                scenery_shift,
+            );
             #[cfg(feature = "hifi")]
             cover_with_pack(&mut placed, self.art_pack.as_deref(), &takes);
             placed
@@ -1004,13 +1015,16 @@ pub(super) struct PreparedObjects {
 /// scenery alone: static-object and building initialization carry the same guard, so a block on
 /// an outer ring is bare terrain.
 ///
-/// `takes` says which placements another era's look draws.
+/// `takes` says which placements another era's look draws. `scenery_shift` says how far a piece
+/// of scenery placed at block-local (x, y, z) is drawn above it: the drawn ground's offset, while
+/// the presentation draws one. The collision records are taken before it is applied.
 pub(super) fn place_objects(
     store: &RetailDatStore,
     region: &dereth_assets::Region,
     (lb, mesh, bx, by): (&CellLandblock, &LandblockMesh, i32, i32),
     knobs: ObjectKnobs,
     takes: &dyn Fn(DataId, bool) -> bool,
+    scenery_shift: Option<&dyn Fn(f32, f32, f32) -> f32>,
 ) -> PlacedObjects {
     // The bake turns the same placements into batches in the same order -- scenery, then
     // building shells, then statics -- and pairs every placement whose setup names a
@@ -1021,11 +1035,17 @@ pub(super) fn place_objects(
     let LandContent {
         lbi,
         full_detail,
-        placed,
+        mut placed,
         object_slots,
         land_statics,
         cell_restrictions,
     } = land_content(store, region, lb, mesh, bx, by, knobs.lod_object_guard);
+    if let Some(shift) = scenery_shift {
+        for p in &mut placed {
+            let o = p.frame.origin;
+            p.frame.origin.z += shift(o.x, o.y, o.z);
+        }
+    }
     // The scenery, the building shells and the statics, each drawn wholly from one era:
     // the objects' look when it is another era's and stands for the object
     // ([`ObjectLook::takes`]), the world's otherwise. Their collision records above are
@@ -1668,6 +1688,8 @@ impl SceneDraw {
                             &detail_vertices,
                         )?;
                     }
+                    #[cfg(feature = "hifi")]
+                    gpu.hifi_mark(Mark::TerrainCellEnd);
                 }
 
                 // Block drawing reaches a building through its owning land cell's
@@ -1689,6 +1711,17 @@ impl SceneDraw {
                             AlphaFlush::Building,
                         )?;
                         alpha_pending.clear();
+                    }
+                    #[cfg(feature = "hifi")]
+                    if has_building {
+                        // LINT-OK: block indices are 0..=0xFE and a cell is 0..64. Not a float
+                        // conversion.
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        gpu.hifi_mark(Mark::BuildingCell {
+                            block: ((slot.block_x as u16) << 8) | (slot.block_y as u16),
+                            cell: draw_cell as u8,
+                            side: n,
+                        });
                     }
                     #[cfg(feature = "hifi")]
                     gpu.hifi_mark(Mark::Interiors);

@@ -13,10 +13,12 @@
 // more than a little brighter than the ordinary picture (or, by day, darker) the exposure is moved
 // just so far that it is not (`main`). What the light adds in shade, contrast and color is kept:
 // only the whole is brought down or up; and the weather, drawn after, darkens the wet world as it
-// would. An art pack's models count for little in the measure: the picture before the light holds
-// the new art under the old light, not the world's own objects, so it is no picture of the world
-// to hold the frame to, and the new art's own brightness (a darker stone, a canopy in shade) is
-// left to show against the world it stands in.
+// would. An art pack's lit surfaces, its materials and its ground are drawn under the old light as
+// the world's own surfaces are, so they count in the measure as the world's own do. Its leaves
+// count for little: their crowns' own shading (their depth, their shadows on one another) darkens
+// them under the new light where the picture before the light knows nothing of it, so counted
+// wholly a dense crown would raise the exposure of the whole frame. How much each counts is the
+// art pack's light's to say.
 
 struct Params {
     viewport: vec4<f32>,
@@ -31,7 +33,9 @@ struct Params {
     // does, w the light its brightest share may be brought to at most.
     rate: vec4<f32>,
     // x 1 to hold the outdoor exposure to the ordinary picture; y the least and z the most the
-    // frame's mean brightness may be of the ordinary picture's; w unused.
+    // frame's mean brightness may be of the ordinary picture's; w how much a pixel of an art
+    // pack's lit surface (its models' and its materials') counts in the measure, against one of
+    // the world's own.
     anchor: vec4<f32>,
     // The tone map's look: x the slope of its toe, y its contrast, z its vignette; w unused.
     look: vec4<f32>,
@@ -44,6 +48,9 @@ struct Params {
     // xyz the eye, render space; w unused.
     eye: vec4<f32>,
     clip_to_render: mat4x4<f32>,
+    // How much a pixel of an art pack's leaves (x) and of its ground (y) counts in the measure;
+    // zw unused.
+    pack: vec4<f32>,
 };
 
 @group(0) @binding(0) var picture: texture_2d<f32>;
@@ -60,16 +67,21 @@ struct Params {
 // The re-shaded world's normals, whose classes tell an art pack's models (for `measure`).
 @group(0) @binding(6) var normals: texture_2d<f32>;
 
-// How much an art pack's model's pixel counts in the measure, against one of the world's own.
-const PACK_WEIGHT: f32 = 0.1;
+// How much a pixel of class `kind` counts in the measure: an art pack's lit surface `lit`, its
+// leaf `leaf` and its ground `ground`, and any surface of the world's own wholly.
+fn class_weight(kind: f32, lit: f32, leaf: f32, ground: f32) -> f32 {
+    let leafy = select(false, (kind < 6.0), (kind > 4.99));
+    let dielectric = select(false, (kind < 1.19), (kind > 1.01));
+    let metal = select(false, (kind < 1.49), (kind > 1.31));
+    let laid = select(false, (kind < 3.4), (kind > 3.02));
+    let surface = select(select(1.0, ground, laid), lit, select(dielectric, true, metal));
+    return select(surface, leaf, leafy);
+}
 
-// How much the pixel `px` counts in the measure: an art pack's leaf or lit surface little, the
-// rest of the world wholly.
+// How much the pixel `px` counts in the measure, as the art pack's light asks.
 fn measure_weight(px: vec2<i32>) -> f32 {
     let kind = textureLoad(normals, px, 0).w;
-    let pack = (kind > 4.99 && kind < 6.0) || (kind > 1.01 && kind < 1.19)
-        || (kind > 1.31 && kind < 1.49);
-    return select(1.0, PACK_WEIGHT, pack);
+    return class_weight(kind, params.anchor.w, params.pack.x, params.pack.y);
 }
 
 const SIDE: u32 = 16u;

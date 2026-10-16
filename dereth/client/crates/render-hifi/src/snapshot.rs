@@ -39,9 +39,14 @@ pub struct HifiFrame {
     /// Where the art pack's models stand in blocks whose contents changed since the last
     /// snapshot.
     pub pack_feed: Vec<HifiPackBlock>,
+    /// How the light falls on an art pack's art, as the scene's tuning has it.
+    pub pack_light: HifiPackLight,
     /// The art pack's ground and what it is laid with, while a pack that lays one is open and
     /// the ground is laid as retail lays it by blending pictures.
     pub ground: Option<Arc<HifiGround>>,
+    /// The drawn ground, while the presentation draws the landscape itself: retail's surface with
+    /// a visual offset near the viewer, and the smooth surface far off, out to the horizon.
+    pub drawn: Option<HifiDrawnGround>,
     /// The art pack's materials drawn in place of retail pictures, while a pack that has them is
     /// open.
     pub materials: Option<Arc<HifiMaterials>>,
@@ -49,6 +54,119 @@ pub struct HifiFrame {
     /// for, each with that material's index: a draw that binds such a slot is drawn with the
     /// material.
     pub material_slots: Vec<(u32, u32)>,
+    /// The trees an art pack draws far off, while a pack with far pictures is open and its
+    /// models are drawn: retail's scenery out to the reach, past the blocks whose own objects
+    /// stand in the world.
+    pub far_trees: Option<Arc<HifiFarTrees>>,
+    /// How the far trees and the forest cover are drawn, as the scene's tuning has it.
+    pub far: HifiFarKnobs,
+}
+
+/// The trees an art pack draws far off: retail's scenery of the models the pack has far pictures
+/// for, in every block out to the reach. A block whose own objects stand in the world draws its
+/// trees itself, so the presentation leaves that block's far trees out. Each block's trees are
+/// worked out off the frame once and shared: a block that stays within reach is handed over as
+/// the same list, so the presentation takes in only the blocks that are new to it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiFarTrees {
+    /// A number of its own, so a set made again is told from the one before.
+    pub serial: u64,
+    /// Each block's landblock id and its trees.
+    pub blocks: Vec<(u16, Arc<Vec<HifiFarTree>>)>,
+}
+
+/// One far tree.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct HifiFarTree {
+    /// Where its foot stands, world meters east and north of the world's south-west corner, and
+    /// its height.
+    pub at: Vec3,
+    /// How it is turned.
+    pub rotation: Quat,
+    /// How it is scaled, the same on every axis.
+    pub scale: f32,
+    /// The retail object it is drawn in place of, which names the model.
+    pub id: u32,
+    /// A number of its own, the same for the same tree whenever it is made: it decides which
+    /// trees are left out where they are thinned.
+    pub seed: u32,
+}
+
+/// How the far trees and the forest cover are drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HifiFarKnobs {
+    /// The far trees at all.
+    pub trees: bool,
+    /// How far from the eye they are drawn, meters.
+    pub reach: f32,
+    /// How far every one of them is drawn; past it they are thinned, fewer and fewer to the
+    /// reach.
+    pub thin_from: f32,
+    /// How much of a thinned forest's coverage the trees left standing make up by standing
+    /// wider, 0 none.
+    pub widen: f32,
+    /// How many halvings of their pictures' detail softer the far trees are drawn than their
+    /// size on screen calls for.
+    pub soften: f32,
+    /// How strongly the forest cover tints the far ground, 0 none.
+    pub cover: f32,
+    /// How high the forest cover raises the far ground's skyline, as a share of its trees'
+    /// height.
+    pub canopy: f32,
+}
+
+impl Default for HifiFarKnobs {
+    fn default() -> Self {
+        Self {
+            trees: true,
+            reach: 6000.0,
+            thin_from: 3000.0,
+            widen: 0.5,
+            soften: 1.0,
+            cover: 1.0,
+            canopy: 0.5,
+        }
+    }
+}
+
+/// How the light falls on an art pack's art: its models, its leaves, its materials and its
+/// ground. Nothing here changes a surface of the world's own.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HifiPackLight {
+    /// How much an art pack's models' lit surfaces and its materials count, against the world's
+    /// own surfaces, when the outdoor exposure is held to the ordinary picture.
+    pub exposure: f32,
+    /// How much an art pack's leaves count there.
+    pub leaf_exposure: f32,
+    /// How much an art pack's ground counts there.
+    pub ground_exposure: f32,
+    /// How much of the light its retail object's own surfaces give off an art pack's model
+    /// keeps.
+    pub glow: f32,
+    /// The share of the open sky a leaf deep inside an art pack's crown still sees, between the
+    /// leaves around it.
+    pub inner_sky: f32,
+    /// The share of the sun a leaf on the outside of an art pack's crown keeps in shade: the
+    /// light the crowns about it scatter between their leaves and pass through them. An art
+    /// pack's crown casts its own gaps, so this is the light that reaches past them, not a
+    /// stand-in for them.
+    pub scatter: f32,
+    /// How much of that a leaf deep inside its crown still takes, against one on the outside.
+    pub scatter_deep: f32,
+}
+
+impl Default for HifiPackLight {
+    fn default() -> Self {
+        Self {
+            exposure: 1.0,
+            leaf_exposure: 0.1,
+            ground_exposure: 1.0,
+            glow: 1.0,
+            inner_sky: 0.15,
+            scatter: 0.4,
+            scatter_deep: 0.5,
+        }
+    }
 }
 
 /// An art pack's materials drawn in place of retail pictures. Made once when the pack is opened;
@@ -72,6 +190,185 @@ pub struct HifiTextureMaterial {
     pub normal: HifiPackImage,
     /// The roughness and the ambient occlusion, in red and green.
     pub surface: HifiPackImage,
+}
+
+/// The landscape the presentation draws itself.
+///
+/// Near the viewer it is retail's surface plus the offset the scene worked out for each block
+/// (the tiles); far off, the smooth surface through retail's vertices with an eroded relief over
+/// it, the two meeting in a band. The scene draws everything that stands on the ground moved by
+/// the same offset, so the presentation draws only the ground.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HifiDrawnGround {
+    /// The whole world's landscape vertices.
+    pub world: Arc<HifiWorldGround>,
+    /// The near offset of each block round the viewer that has one.
+    pub tiles: Vec<HifiGroundTile>,
+    /// How many blocks the tiles reach from the viewer's block, each way.
+    pub reach: u8,
+    /// Where render space's origin lies in the world, meters east and north: a render-space
+    /// point `p` stands over the world's point `p.xy + global`.
+    pub global: Vec2,
+    /// The knobs the presentation reads.
+    pub knobs: HifiGroundKnobs,
+    /// Where bodies stand, render space: the fine relief is leveled under each.
+    pub bodies: Vec<Vec3>,
+    /// The forest cover the far ground is laid with past the far trees, once worked out.
+    pub cover: Option<Arc<HifiForestCover>>,
+}
+
+/// The forest cover: for each of the world's landscape vertices, how much of its cell the crowns
+/// of an art pack's far trees cover, their colour and how high they stand, where retail's
+/// scenery grows them on average. Sent once.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiForestCover {
+    /// A number of its own, so a cover made again is told from the one before.
+    pub serial: u64,
+    /// Vertices a side, as the world's.
+    pub side: u32,
+    /// Each vertex's crown colour in the display's encoding and the share covered, four bytes,
+    /// rows from the south.
+    pub colour: Arc<Vec<u8>>,
+    /// Each vertex's canopy: the share covered times the crowns' height, quarter meters.
+    pub canopy: Arc<Vec<u8>>,
+}
+
+/// The world's landscape vertices, sent once.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiWorldGround {
+    /// Bumped whenever the vertices are read again.
+    pub serial: u64,
+    /// Vertices along a side.
+    pub side: u32,
+    /// Each vertex's height, meters, row by row from the south: `north * side + east`.
+    pub heights: Arc<Vec<f32>>,
+    /// Each vertex's terrain word, in the same order.
+    pub words: Arc<Vec<u16>>,
+    /// Where the water lies about each vertex, in the same order: how far inside it, meters
+    /// (negative outside it), and how far below the vertex its level lies, meters, each already a
+    /// half float's value. Empty for a world with no water.
+    pub water: Arc<Vec<[f32; 2]>>,
+}
+
+/// One block's near offset: a sample a meter, 193 a side with both edges, row by row from the
+/// south.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HifiGroundTile {
+    /// The landblock id, `0xXXYY`.
+    pub block: u16,
+    /// Bumped whenever the offset is worked out again.
+    pub generation: u64,
+    /// The offset bodies stand on, meters.
+    pub offset: Arc<Vec<f32>>,
+    /// How much of it the pins leave: 0 at a building, a road or water, 1 clear of them.
+    pub weight: Arc<Vec<f32>>,
+}
+
+/// The drawn ground's knobs the presentation reads, as the scene's tuning has them.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct HifiGroundKnobs {
+    /// How densely the ground is meshed: 1 a meter a quad near the eye, 2 half a meter.
+    pub detail: f32,
+    /// The fine relief's height and size, meters.
+    pub micro: (f32, f32),
+    /// The fine relief and the terraces leveled under bodies, with the level round's radius and
+    /// fade, meters.
+    pub level: Option<(f32, f32)>,
+    /// Terraces on steep walkable ground: their height and cap, meters, and the slope they start
+    /// at, degrees.
+    pub terraces: Option<(f32, f32, f32)>,
+    /// Where the near ground starts and ends giving way to the far, meters from the eye.
+    pub morph: (f32, f32),
+    /// Ground to the horizon: the share of the rounding kept far off, the eroded relief's height
+    /// and size, meters, and how far the ground is drawn.
+    pub far: Option<(f32, f32, f32, f32)>,
+    /// How thick the air over the far ground is, as a share of the sky's own.
+    pub haze: f32,
+    /// Scree and rock by the drawn slope: where each starts and blends in over, degrees; how
+    /// much of them is laid; and the terrain types they are drawn with.
+    pub slope: Option<HifiSlopeMaterials>,
+    /// The water drawn as water: its look, while it is.
+    pub water: Option<HifiWater>,
+    /// A diagnostic view: 0 none, 1 the offset, 2 the pins, 3 the slope's materials, 4 walkable
+    /// and unwalkable ground.
+    pub view: u32,
+}
+
+/// How the water is drawn, where the drawn ground lays retail's water.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HifiWater {
+    /// The water's own color, as a share of retail's water picture under the same light.
+    pub color: f32,
+    /// How far the eye sees into the water, meters: the bed fades into the water's own color
+    /// over about this much of it.
+    pub clarity: f32,
+    /// The deepest the bed lies below the surface, meters.
+    pub depth: f32,
+    /// How far from the shore the bed reaches that depth, meters.
+    pub shelf: f32,
+    /// The ripples' size, a multiple of their own.
+    pub ripple_scale: f32,
+    /// How fast the ripples move, a multiple of their own speed.
+    pub ripple_speed: f32,
+    /// How much the ripples bend the surface.
+    pub ripple_strength: f32,
+    /// How far from the eye the ripples have calmed, meters.
+    pub calm: f32,
+    /// How strongly the water rings round a body standing in it: 0 not at all.
+    pub rings: f32,
+    /// How strongly the water reflects the sky and the land.
+    pub reflection: f32,
+    /// How far from its edge the water takes to come in, meters.
+    pub shore_soft: f32,
+    /// How much darker the bank is where retail lays water above the water's edge.
+    pub shore_wet: f32,
+    /// The terrain type the bed is drawn with away from the shore.
+    pub bed: u8,
+    /// How much grass grows in over a muddy bank, 0..1.
+    pub bank_green: f32,
+    /// The terrain type grown in over a muddy bank where no other lies beside it.
+    pub bank_grass: u8,
+}
+
+impl Default for HifiWater {
+    fn default() -> Self {
+        Self {
+            color: 1.0,
+            clarity: 1.6,
+            depth: 2.5,
+            shelf: 30.0,
+            ripple_scale: 1.0,
+            ripple_speed: 1.0,
+            ripple_strength: 1.0,
+            calm: 120.0,
+            rings: 1.0,
+            reflection: 1.0,
+            shore_soft: 1.5,
+            shore_wet: 0.35,
+            bed: 11,
+            bank_green: 0.7,
+            bank_grass: 9,
+        }
+    }
+}
+
+/// Scree and rock laid by the drawn slope.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct HifiSlopeMaterials {
+    /// The slope scree starts at and blends in over, degrees.
+    pub scree: (f32, f32),
+    /// The slope rock starts at and blends in over, degrees.
+    pub rock: (f32, f32),
+    /// How much of them is laid, 0..1.
+    pub strength: f32,
+    /// How much the slope they are laid by is the smooth surface's rather than the drawn
+    /// ground's, 0..1.
+    pub smooth: f32,
+    /// How much of them shows through snow and ice, 0..1.
+    pub on_snow: f32,
+    /// The terrain types scree and rock are drawn with.
+    pub grounds: (u8, u8),
 }
 
 /// The camera of the frame. The matrices are the frame's own, in the column-vector convention.
@@ -363,6 +660,10 @@ pub struct HifiPackModel {
     /// A sphere holding every level, in the model's own space (height up): its centre and
     /// radius.
     pub bounds: (Vec3, f32),
+    /// The light the retail object's own surfaces give off, which the time of day does not take
+    /// away: its cut-out growth's and its other surfaces' luminosity, 0..1 (0 for none). The
+    /// model's surfaces of each kind are drawn under the old light with the same glow.
+    pub glow: (f32, f32),
 }
 
 /// One level of detail of a model.
@@ -474,6 +775,9 @@ pub struct HifiGround {
     /// For each retail ground (terrain types 0 to 31, and 32 the road), the index of the
     /// material drawn for it; `None` where none is, and for a ground past the list's end.
     pub of_ground: Vec<Option<u16>>,
+    /// For each retail ground likewise, the index of the material drawn on its steep slopes;
+    /// `None` where the pack has none, which lays the generic scree and rock there.
+    pub steep_of: Vec<Option<u16>>,
     /// Retail's blend masks, by the index a cell's layers name them with: each picture's red
     /// keeps what lies under the layer (255) or takes the layer (0).
     pub masks: Vec<HifiPackImage>,
@@ -507,6 +811,9 @@ pub struct HifiGroundMaterial {
 pub struct HifiPackBlock {
     /// The landblock id.
     pub block: u16,
+    /// Whether the block's own objects stand in the world: its trees are then drawn from its
+    /// placements, and its far trees are left out.
+    pub objects: bool,
     /// The block's build these placements belong to.
     pub generation: u32,
     /// The placements.

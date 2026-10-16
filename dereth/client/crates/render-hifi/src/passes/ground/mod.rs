@@ -39,7 +39,10 @@ const GROUND_WGSL: &str = include_str!("ground.wgsl");
 /// The pass's shader, for validation without a device.
 #[must_use]
 pub fn shader_source() -> String {
-    format!("{GROUND_WGSL}\n{COLOUR_WGSL}")
+    format!(
+        "{GROUND_WGSL}\n{COLOUR_WGSL}\n{}",
+        crate::passes::water::SHORE_WGSL
+    )
 }
 
 /// The most overlays a cell lays over its ground: three of terrain and two of road.
@@ -247,20 +250,32 @@ fn cell_signature(blocks: &[HifiTerrainBlock]) -> CellSignature {
     s
 }
 
-/// The two vectors of each retail ground in the shader's table (see `grounds` in the shader).
+/// Where the shader's table holds each ground's material for its steep slopes: that many rows
+/// past the ground's own.
+pub const STEEP_ROWS: usize = 64;
+/// The rows of the shader's table: the retail grounds, then their steep materials.
+pub const TABLE_ROWS: usize = STEEP_ROWS + GROUNDS;
+
+/// The two vectors of each row of the shader's table (see `grounds` in the shader): each retail
+/// ground's material, then from [`STEEP_ROWS`] each ground's material for its steep slopes.
 #[must_use]
 pub fn ground_table(ground: &HifiGround) -> Vec<f32> {
-    let mut t = Vec::with_capacity(GROUNDS * 8);
-    for g in 0..GROUNDS {
+    let mut t = Vec::with_capacity(TABLE_ROWS * 8);
+    for row in 0..TABLE_ROWS {
+        let (g, of) = if row >= STEEP_ROWS {
+            (row - STEEP_ROWS, &ground.steep_of)
+        } else {
+            (row, &ground.of_ground)
+        };
         // The ground's broad picture's repeats across a cell; nought where it has none.
         // LINT-OK: a handful of repeats.
         #[allow(clippy::cast_precision_loss)]
         let broad = ground.broad.get(g).map_or(0.0, |(_, k)| *k as f32);
-        let m = ground
-            .of_ground
+        let m = of
             .get(g)
             .copied()
             .flatten()
+            .filter(|_| g < GROUNDS)
             .and_then(|i| ground.materials.get(usize::from(i)).map(|m| (i, m)));
         match m {
             Some((i, m)) => {
@@ -309,7 +324,13 @@ fn tune() -> [f32; 8] {
 }
 
 /// The frame's constants, as the shader's `Params` lays them out.
-fn params(frame: &HifiFrame, viewport: [f32; 4], fogged: bool, window: &CellWindow) -> Vec<f32> {
+fn params(
+    frame: &HifiFrame,
+    settings: &HifiSettings,
+    viewport: [f32; 4],
+    fogged: bool,
+    window: &CellWindow,
+) -> Vec<f32> {
     let cam = &frame.camera;
     let clip_from_render = cam.jittered(cam.projection * cam.view * HEIGHT_UP);
     let (sun, amb) = legacy_light(frame);
@@ -343,11 +364,54 @@ fn params(frame: &HifiFrame, viewport: [f32; 4], fogged: bool, window: &CellWind
         p.extend([cx as f32, cy as f32, 0.0, 0.0]);
     }
     p.extend(tune());
+    // The drawn ground: where render space lies in the world, and the scree and rock laid by its
+    // slope, unless they are turned off.
+    match frame.drawn.as_ref() {
+        Some(drawn) => {
+            p.extend([1.0, drawn.global.x, drawn.global.y, 0.0]);
+            match drawn.knobs.slope.filter(|_| settings.slope_materials) {
+                Some(s) => {
+                    p.extend([s.scree.0, s.scree.1, s.rock.0, s.rock.1]);
+                    p.extend([
+                        s.strength,
+                        f32::from(s.grounds.0),
+                        f32::from(s.grounds.1),
+                        s.smooth,
+                    ]);
+                    p.extend([s.on_snow, 0.0, 0.0, 0.0]);
+                }
+                None => p.extend([0.0; 12]),
+            }
+            // The forest cover: how strongly it tints the far ground (nought while there is none),
+            // where it comes in, and how much its crowns shade the ground past the sun's shadows.
+            let (from, to) = crate::passes::drawn::cover_band(&frame.far);
+            let strength = if drawn.cover.is_some() {
+                frame.far.cover
+            } else {
+                0.0
+            };
+            p.extend([strength, from, to, FLOOR_SHADE * strength.min(1.0)]);
+        }
+        None => p.extend([0.0; 20]),
+    }
+    // The water, while it is drawn as water: its bed's ground, how dark its wet bank is, and the
+    // grass grown in over a muddy bank.
+    match frame.drawn.as_ref().and_then(|d| d.knobs.water) {
+        Some(w) => {
+            p.extend([1.0, f32::from(w.bed.min(31)), w.shore_wet, w.bank_green]);
+            p.extend([f32::from(w.bank_grass.min(31)), 0.0, 0.0, 0.0]);
+        }
+        None => p.extend([0.0; 8]),
+    }
     p
 }
 
+/// How much of the light the crowns of the forest cover keep off the ground under them, past
+/// the reach of the sun's shadows: there their trees cast none.
+const FLOOR_SHADE: f32 = 0.45;
+
 /// The floats of the shader's `Params`.
-const PARAM_FLOATS: usize = 76;
+const PARAM_FLOATS: usize = 104;
 
 fn floats(values: &[f32]) -> Vec<u8> {
     values.iter().flat_map(|f| f.to_le_bytes()).collect()
@@ -411,6 +475,14 @@ struct Pipeline {
     wrap: wgpu::Sampler,
     clamp: wgpu::Sampler,
     params: wgpu::Buffer,
+    /// One terrain word, bound where the world's are not.
+    no_words: wgpu::TextureView,
+    /// One height, likewise.
+    no_heights: wgpu::TextureView,
+    /// One vertex's water, likewise.
+    no_water: wgpu::TextureView,
+    /// No forest cover, likewise.
+    no_cover: wgpu::TextureView,
 }
 
 /// A ground's materials and masks on the device, with its table.
@@ -500,6 +572,11 @@ fn make_pipeline(device: &wgpu::Device) -> Pipeline {
             layout_entry(9, uniform),
             layout_entry(10, texture(filtered, D::D2Array)),
             layout_entry(11, texture(filtered, D::D2Array)),
+            layout_entry(12, texture(S::Uint, D::D2)),
+            layout_entry(13, texture(S::Float { filterable: false }, D::D2)),
+            layout_entry(14, texture(S::Float { filterable: false }, D::D2)),
+            layout_entry(15, texture(S::Float { filterable: false }, D::D2)),
+            layout_entry(16, texture(filtered, D::D2)),
         ],
     });
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -567,6 +644,70 @@ fn make_pipeline(device: &wgpu::Device) -> Pipeline {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
+        no_words: device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("art pack ground, no words"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R16Uint,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default()),
+        no_heights: device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("art pack ground, no heights"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default()),
+        no_water: device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("art pack ground, no water"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rg16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default()),
+        no_cover: device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("art pack ground, no forest cover"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default()),
     }
 }
 
@@ -715,7 +856,13 @@ impl HifiPass for Ground {
                 },
                 |v| [v.x as f32, v.y as f32, v.width as f32, v.height as f32],
             );
-            let values = params(cx.frame, viewport, fogged(cx.settings, cx.frame), &c.window);
+            let values = params(
+                cx.frame,
+                cx.settings,
+                viewport,
+                fogged(cx.settings, cx.frame),
+                &c.window,
+            );
             queue.write_buffer(&p.params, 0, &floats(&values));
         }
         Ok(())
@@ -748,6 +895,34 @@ impl HifiPass for Ground {
         ) else {
             return Ok(());
         };
+        let words = match (
+            cx.frame.drawn.as_ref(),
+            cx.resources.get(ResourceName::DrawnGroundWords),
+        ) {
+            (Some(_), Some(Resource::Texture(_, view))) => view.clone(),
+            _ => p.no_words.clone(),
+        };
+        let heights = match (
+            cx.frame.drawn.as_ref(),
+            cx.resources.get(ResourceName::DrawnGroundHeights),
+        ) {
+            (Some(_), Some(Resource::Texture(_, view))) => view.clone(),
+            _ => p.no_heights.clone(),
+        };
+        let cover = match (
+            cx.frame.drawn.as_ref(),
+            cx.resources.get(ResourceName::ForestCover),
+        ) {
+            (Some(_), Some(Resource::Texture(_, view))) => view.clone(),
+            _ => p.no_cover.clone(),
+        };
+        let water = match (
+            cx.frame.drawn.as_ref(),
+            cx.resources.get(ResourceName::DrawnGroundWater),
+        ) {
+            (Some(_), Some(Resource::Texture(_, view))) => view.clone(),
+            _ => p.no_water.clone(),
+        };
         cx.encoder.copy_texture_to_texture(
             from.as_image_copy(),
             to.as_image_copy(),
@@ -757,6 +932,13 @@ impl HifiPass for Ground {
                 depth_or_array_layers: 1,
             },
         );
+        // While the presentation draws the ground itself, its pixels hold their distance from the
+        // eye: a copy of the picture to read them from as the pass draws over it.
+        let places = if cx.frame.drawn.is_some() {
+            crate::reshade::hdr_copy(cx.seam, cx.resources, cx.encoder)?
+        } else {
+            prior.clone()
+        };
         let bind = cx
             .seam
             .device()
@@ -811,6 +993,26 @@ impl HifiPass for Ground {
                     wgpu::BindGroupEntry {
                         binding: 11,
                         resource: wgpu::BindingResource::TextureView(&m.surface),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 12,
+                        resource: wgpu::BindingResource::TextureView(&words),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 13,
+                        resource: wgpu::BindingResource::TextureView(&heights),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 14,
+                        resource: wgpu::BindingResource::TextureView(&places),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 15,
+                        resource: wgpu::BindingResource::TextureView(&water),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 16,
+                        resource: wgpu::BindingResource::TextureView(&cover),
                     },
                 ],
             });
@@ -1004,7 +1206,7 @@ mod tests {
         ground.of_ground[1] = Some(0);
         ground.of_ground[usize::from(ROAD)] = Some(1);
         let t = ground_table(&ground);
-        assert_eq!(t.len(), GROUNDS * 8);
+        assert_eq!(t.len(), TABLE_ROWS * 8);
         let row = |g: usize| &t[g * 8..g * 8 + 8];
         assert_eq!(row(1), [0.0, 0.0, 6.0, 0.8, 384.0, 1536.0, 116.0, 0.0]);
         // With the retail ground's broad pictures, each ground's repeats.
@@ -1013,5 +1215,14 @@ mod tests {
         // Retail's own picture, two repeats to a cell.
         assert_eq!(&row(usize::from(ROAD))[..4], [1.0, 1.0, 2.0, 1.0]);
         assert!(row(0)[0] < 0.0, "a ground with no material");
+        // A ground's material for its steep slopes, that many rows on; none for the rest.
+        assert!((0..TABLE_ROWS).skip(GROUNDS).all(|r| row(r)[0] < 0.0));
+        ground.steep_of = vec![None; GROUNDS];
+        ground.steep_of[1] = Some(1);
+        let t = ground_table(&ground);
+        let row = |g: usize| &t[g * 8..g * 8 + 8];
+        assert_eq!(row(STEEP_ROWS + 1)[0], 1.0);
+        assert!(row(1)[0].abs() < 1e-6, "the flat ground keeps its own");
+        assert!(row(STEEP_ROWS + 2)[0] < 0.0);
     }
 }

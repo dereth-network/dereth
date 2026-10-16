@@ -190,6 +190,14 @@ impl<S: Shell> App<S> {
         // The art pack, before any world is loaded, so the first one is drawn with it.
         if let Some(dir) = cfg.art_pack.as_deref() {
             present.offer_art_pack(dir);
+            // And the drawn ground's tuning file, beside the preferences unless one is named.
+            let tuning = cfg.terrain_tuning.clone().or_else(|| {
+                (!cfg.preferences_file.as_os_str().is_empty())
+                    .then(|| cfg.preferences_file.with_file_name("terrain-tuning.toml"))
+            });
+            if let Some(file) = tuning.as_deref() {
+                present.offer_terrain_tuning(file);
+            }
         }
 
         let timer = Clock::init();

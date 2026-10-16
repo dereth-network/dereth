@@ -43,19 +43,11 @@ const CASTER_REACH: f32 = 900.0;
 pub const MAX_LIGHTS: usize = 128;
 const CASTER_STRIDE: u64 = 256;
 const BLOOM_LEVELS: u32 = 6;
-/// The share of the open sky a leaf deep inside an art pack's crown still sees, between the
-/// leaves around it.
-const LEAF_INNER_SKY: f32 = 0.15;
 /// The share of the sun a leaf of the world's own trees keeps in its plant's shadow. Those trees
 /// are a few crossed cards, whose shadows hold none of the gaps a crown has between its leaves:
-/// without it their canopies go black in patches.
+/// without it their canopies go black in patches. (An art pack's leaves take theirs from the
+/// light the scene tunes for its art, `HifiFrame::pack_light`.)
 const LEAF_SHADOW_FLOOR: f32 = 0.4;
-/// The share of the sun a leaf on the outside of an art pack's crown keeps in shade: the light
-/// the crowns about it scatter between their leaves and pass through them. An art pack's crown
-/// casts its own gaps, so this is the light that reaches past them, not a stand-in for them.
-const LEAF_PACK_SCATTER: f32 = 0.4;
-/// How much of that a leaf deep inside its crown still takes, against one on the outside.
-const LEAF_PACK_SCATTER_DEEP: f32 = 0.5;
 
 pub(crate) fn env_f32(name: &str, default: f32) -> f32 {
     std::env::var(name)
@@ -359,7 +351,7 @@ fn outdoor_constants(frame: &HifiFrame, sky_on: bool, held: bool) -> Vec<f32> {
         f32::from(u8::from(held)),
         hold.least,
         hold.most,
-        0.0,
+        frame.pack_light.exposure,
         env_f32("DERETH_HIFI_TOE", 0.36),
         env_f32("DERETH_HIFI_CONTRAST", 1.04),
         env_f32("DERETH_HIFI_VIGNETTE", 0.28),
@@ -378,6 +370,8 @@ fn outdoor_constants(frame: &HifiFrame, sky_on: bool, held: bool) -> Vec<f32> {
     let cam = &frame.camera;
     c.extend([cam.eye.x, cam.eye.y, cam.eye.z, 0.0]);
     c.extend(render_from_clip(cam.view, cam.projection).to_cols_array());
+    let pack = &frame.pack_light;
+    c.extend([pack.leaf_exposure, pack.ground_exposure, 0.0, 0.0]);
     c
 }
 
@@ -397,6 +391,9 @@ struct CasterBlock {
     generation: u32,
     buffer: Option<wgpu::Buffer>,
     vertices: u32,
+    /// How many of `vertices`, first, are the landscape's: left out while the drawn ground casts
+    /// in their place.
+    landscape: u32,
     /// The objects an art pack has models for, apart: they cast no shadow while the pack's
     /// models are drawn in their place.
     covered: Option<(wgpu::Buffer, u32)>,
@@ -966,6 +963,9 @@ pub struct Lighting {
     /// The art pack's models, which cast the sun's shadows in place of the objects they replace
     /// while they are drawn.
     pack: Option<crate::passes::art_pack::PackCasters>,
+    /// The drawn ground, which casts the sun's shadows in place of the landscape's triangles
+    /// while it is drawn.
+    drawn: Option<crate::passes::drawn::DrawnCasters>,
     gpu: Option<LightingGpu>,
     blocks: HashMap<u16, CasterBlock>,
     /// Whether this frame steps indoors: the pass then leaves it as re-shaded.
@@ -995,6 +995,19 @@ impl Lighting {
     pub fn with_art_pack(pack: crate::passes::art_pack::PackCasters) -> Self {
         Self {
             pack: Some(pack),
+            ..Self::default()
+        }
+    }
+
+    /// The pass, with the art pack's models and the drawn ground to cast shadows through.
+    #[must_use]
+    pub fn with_casters(
+        pack: crate::passes::art_pack::PackCasters,
+        drawn: crate::passes::drawn::DrawnCasters,
+    ) -> Self {
+        Self {
+            pack: Some(pack),
+            drawn: Some(drawn),
             ..Self::default()
         }
     }
@@ -1087,6 +1100,8 @@ impl HifiPass for Lighting {
             let positions = caster_positions(block, false);
             #[allow(clippy::cast_possible_truncation)]
             let vertices = (positions.len() / 3) as u32;
+            #[allow(clippy::cast_possible_truncation)]
+            let landscape = (block.terrain_triangles.len() * 3) as u32;
             let buffer = (!positions.is_empty()).then(|| upload(&positions));
             let covered = caster_positions(block, true);
             #[allow(clippy::cast_possible_truncation)]
@@ -1110,6 +1125,7 @@ impl HifiPass for Lighting {
                     generation: block.generation,
                     buffer,
                     vertices,
+                    landscape: landscape.min(vertices),
                     covered,
                     cutouts,
                 },
@@ -1238,6 +1254,11 @@ impl HifiPass for Lighting {
             if let Some(p) = pack {
                 p.prepare(&device, &queue, &cas.matrices);
             }
+            // While the drawn ground is drawn, it casts in place of the landscape's triangles.
+            let drawn = self.drawn.as_ref().filter(|d| d.replacing());
+            if let Some(d) = drawn {
+                d.prepare(&queue, &cas.matrices);
+            }
             let mut leaves: HashMap<u32, wgpu::BindGroup> = HashMap::new();
             for ((block, _), block_slots) in draws.iter().zip(&slots) {
                 if block_slots.iter().all(Option::is_none) {
@@ -1301,16 +1322,20 @@ impl HifiPass for Lighting {
                     #[allow(clippy::cast_possible_truncation)]
                     let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
                     let covered = block.covered.as_ref().filter(|_| pack.is_none());
-                    for (buffer, n) in block
+                    let from = if drawn.is_some() { block.landscape } else { 0 };
+                    for (buffer, range) in block
                         .buffer
                         .as_ref()
-                        .map(|b| (b, block.vertices))
+                        .map(|b| (b, from..block.vertices))
                         .into_iter()
-                        .chain(covered.map(|(b, n)| (b, *n)))
+                        .chain(covered.map(|(b, n)| (b, 0..*n)))
                     {
+                        if range.is_empty() {
+                            continue;
+                        }
                         pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
                         pass.set_vertex_buffer(0, buffer.slice(..));
-                        pass.draw(0..n, 0..1);
+                        pass.draw(range, 0..1);
                     }
                 }
                 pass.set_pipeline(&gpu.cutout_pipeline);
@@ -1335,6 +1360,9 @@ impl HifiPass for Lighting {
                 }
                 if let Some(p) = pack {
                     p.draw(&mut pass, c);
+                }
+                if let Some(d) = drawn {
+                    d.draw(&mut pass, c);
                 }
             }
         }
@@ -1552,11 +1580,12 @@ impl HifiPass for Lighting {
         let sun_lin = sun.map(|c| dereth_primitives::num::math::powf(c.max(0.0), 2.2));
         let (all_round, about_sun) = day.sky_light(sun_lin, if sun_on { sun_gain } else { 0.0 });
         p.extend([all_round, about_sun, day.penumbra(), 0.0]);
+        let pack = &frame.pack_light;
         p.extend([
-            env_f32("DERETH_HIFI_LEAF_INNER", LEAF_INNER_SKY),
+            pack.inner_sky,
             env_f32("DERETH_HIFI_LEAF_FLOOR", LEAF_SHADOW_FLOOR),
-            env_f32("DERETH_HIFI_LEAF_SCATTER", LEAF_PACK_SCATTER),
-            env_f32("DERETH_HIFI_LEAF_SCATTER_DEEP", LEAF_PACK_SCATTER_DEEP),
+            pack.scatter,
+            pack.scatter_deep,
         ]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);

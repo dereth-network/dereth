@@ -547,6 +547,8 @@ pub enum FidelityFeature {
     RetailLook,
     /// `Fidelity.NoAntiAliasing`.
     NoAntiAliasing,
+    /// `Fidelity.NoSlopeMaterials`.
+    NoSlopeMaterials,
     /// `Fidelity.Debug`.
     Debug,
 }
@@ -554,7 +556,7 @@ pub enum FidelityFeature {
 #[cfg(feature = "hifi")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Lighting,
         Self::Shadows,
         Self::GlobalIllumination,
@@ -564,6 +566,7 @@ impl FidelityFeature {
         Self::Weather,
         Self::RetailLook,
         Self::NoAntiAliasing,
+        Self::NoSlopeMaterials,
         Self::Debug,
     ];
 
@@ -580,18 +583,19 @@ impl FidelityFeature {
             Self::Weather => fidelity::WEATHER,
             Self::RetailLook => fidelity::RETAIL_LOOK,
             Self::NoAntiAliasing => fidelity::NO_ANTI_ALIASING,
+            Self::NoSlopeMaterials => fidelity::NO_SLOPE_MATERIALS,
             Self::Debug => fidelity::DEBUG,
         }
     }
 
     /// The highest value the option takes: 4 for an effect (Ultra), 1 for the switches that
-    /// turn something off (the retail look's, the anti-aliasing's), the last view for the
-    /// diagnostic views.
+    /// turn something off (the retail look's, the anti-aliasing's, the slope materials'), the last
+    /// view for the diagnostic views.
     #[must_use]
     pub const fn max(self) -> u32 {
         match self {
             Self::Debug => 7,
-            Self::RetailLook | Self::NoAntiAliasing => 1,
+            Self::RetailLook | Self::NoAntiAliasing | Self::NoSlopeMaterials => 1,
             _ => 4,
         }
     }
@@ -618,7 +622,7 @@ impl FidelityFeature {
 pub struct FidelityPreferences {
     /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
     /// ticked box is 1.
-    pub values: [u32; 10],
+    pub values: [u32; 11],
     /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
     /// interface choice at start-up and follows the interface shown after that. Off, every option
     /// is off in effect, whatever it stores.
@@ -679,8 +683,8 @@ impl FidelityPreferences {
     }
 
     /// Whether any option is on in effect. Without one the presentation is not installed. The
-    /// switches that turn something off (the retail look's, the anti-aliasing's) draw nothing of
-    /// their own, so they alone are none.
+    /// switches that turn something off (the retail look's, the anti-aliasing's, the slope
+    /// materials') draw nothing of their own, so they alone are none.
     #[must_use]
     pub fn any_effective(&self) -> bool {
         FidelityFeature::ALL
@@ -688,7 +692,9 @@ impl FidelityPreferences {
             .filter(|f| {
                 !matches!(
                     f,
-                    FidelityFeature::RetailLook | FidelityFeature::NoAntiAliasing
+                    FidelityFeature::RetailLook
+                        | FidelityFeature::NoAntiAliasing
+                        | FidelityFeature::NoSlopeMaterials
                 )
             })
             .any(|f| self.effective(f) != 0)

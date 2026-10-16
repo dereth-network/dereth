@@ -3,7 +3,11 @@
 //! retail pictures, pixel for pixel as Better Lighting draws them with no pack at all.
 //!
 //! The pack is made in the test: one flat magenta material for each of the pictures the houses
-//! along a Holtburg street are drawn with, a color nothing in the town has.
+//! along a Holtburg street are drawn with, a color nothing in the town has, and a ground for the
+//! land's grass, so Better Lighting draws the land itself.
+//!
+//! Underground, the camera stays in the dungeon the body stands in, though the land the pack's
+//! ground lays is far over it.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware `wgpu` device off screen.
 //!
@@ -17,6 +21,8 @@ use std::sync::Arc;
 use dereth_client_runtime::render_prefs::FidelityPreferences;
 use dereth_render::device::{AdapterKind, Backend, DeviceConfig, Gpu};
 use dereth_scene::art_pack::ArtPack;
+
+use dereth_primitives::Vec3;
 
 use crate::instruments::hifi_stations::{capture, Clock, Place, Shot, Station};
 
@@ -42,7 +48,8 @@ const TOWN_PICTURES: [u32; 14] = [
     0x0500_28F7,
 ];
 
-/// A pack of one flat magenta material for each of [`TOWN_PICTURES`].
+/// A pack of one flat magenta material for each of [`TOWN_PICTURES`], and a flat green ground for
+/// the land's grass (terrain type 1).
 fn magenta_pack() -> Arc<ArtPack> {
     let mut png = Vec::new();
     {
@@ -53,14 +60,26 @@ fn magenta_pack() -> Arc<ArtPack> {
         w.write_image_data(&[255, 0, 255, 255].repeat(16))
             .expect("data");
     }
-    let mut manifest = String::from("[pack]\nname = \"Magenta\"\nformat = 1\n");
+    let mut grass = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut grass, 4, 4);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        let mut w = enc.write_header().expect("header");
+        w.write_image_data(&[70, 110, 40, 255].repeat(16))
+            .expect("data");
+    }
+    let mut manifest = String::from(
+        "[pack]\nname = \"Magenta\"\nformat = 1\n[[terrain]]\nground = 1\nbase_color = \"g.png\"\n\
+         size = 4\nauthor = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n",
+    );
     for t in TOWN_PICTURES {
         manifest.push_str(&format!(
             "[[material]]\ntexture = \"{t:#010X}\"\nbase_color = \"m.png\"\nauthor = \"a\"\n\
              tool = \"t\"\nlicense = \"CC0-1.0\"\n"
         ));
     }
-    let files: HashMap<&str, Vec<u8>> = HashMap::from([("m.png", png)]);
+    let files: HashMap<&str, Vec<u8>> = HashMap::from([("m.png", png), ("g.png", grass)]);
     Arc::new(
         ArtPack::open(&manifest.replace("0X", "0x"), &mut |path| {
             files
@@ -91,9 +110,25 @@ fn street() -> Station {
     }
 }
 
-/// The street drawn in Better Lighting with `boxes`, with `pack` when one is given, on a device of
+/// A body standing in a cave passage of a dungeon, thirty metres below the land.
+fn cave() -> Station {
+    Station {
+        name: "cave",
+        why: "a dungeon below the land",
+        place: Place::Body {
+            cell: 0x00D1_0180,
+            origin: Vec3::ZERO,
+            yaw: 90.0,
+        },
+        clock: Clock::Sunny(0.5),
+        weather: false,
+        land_radius: 2,
+    }
+}
+
+/// `station` drawn in Better Lighting with `boxes`, with `pack` when one is given, on a device of
 /// its own: the frame, and how many draws the pack's materials drew.
-fn drawn(pack: Option<&Arc<ArtPack>>, boxes: &str) -> (Vec<u8>, u64) {
+fn drawn(station: &Station, pack: Option<&Arc<ArtPack>>, boxes: &str) -> (Vec<u8>, u64) {
     let store = crate::common::dats();
     let cfg = DeviceConfig {
         width: SIZE.0,
@@ -110,7 +145,7 @@ fn drawn(pack: Option<&Arc<ArtPack>>, boxes: &str) -> (Vec<u8>, u64) {
         device.adapter_name()
     );
     let gpu = &mut device;
-    let mut shot = Shot::open(&store, gpu, &street());
+    let mut shot = Shot::open(&store, gpu, station);
     if let Some(p) = pack {
         shot.scene
             .set_art_pack(&store, gpu, Some(Arc::clone(p)))
@@ -118,6 +153,13 @@ fn drawn(pack: Option<&Arc<ArtPack>>, boxes: &str) -> (Vec<u8>, u64) {
     }
     shot.scene.draw.cfg.render.fidelity =
         FidelityPreferences::parse_switch(boxes).expect("the boxes parse");
+    shot.poll(gpu);
+    // The land the pack's ground lays, once the world's landscape it is drawn from is read: every
+    // run takes the same steps, so they draw the same moment.
+    shot.step(gpu);
+    if pack.is_some() {
+        shot.scene.wait_for_drawn_ground();
+    }
     shot.poll(gpu);
     for _ in 0..12 {
         shot.step(gpu);
@@ -165,9 +207,9 @@ fn better_lighting_draws_the_houses_with_the_packs_material_and_the_retail_look_
         "{:?}",
         pack.problems
     );
-    let (plain, none) = drawn(None, LIGHT);
-    let (with_pack, drew) = drawn(Some(&pack), LIGHT);
-    let (retail_look, kept) = drawn(Some(&pack), &format!("{LIGHT},RetailLook=1"));
+    let (plain, none) = drawn(&street(), None, LIGHT);
+    let (with_pack, drew) = drawn(&street(), Some(&pack), LIGHT);
+    let (retail_look, kept) = drawn(&street(), Some(&pack), &format!("{LIGHT},RetailLook=1"));
     // The frames, in cargo's scratch folder, to look at when this fails.
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("hifi-materials");
     std::fs::create_dir_all(&dir).expect("the scratch folder");
@@ -202,5 +244,45 @@ fn better_lighting_draws_the_houses_with_the_packs_material_and_the_retail_look_
     assert_eq!(
         differ, 0,
         "the retail look differs from no pack in {differ} bytes"
+    );
+}
+
+/// The frame's mean brightness, 0 to 255.
+fn brightness(rgba: &[u8]) -> f64 {
+    let px = rgba.as_chunks::<4>().0;
+    let sum: u64 = px
+        .iter()
+        .map(|p| u64::from(p[0]) + u64::from(p[1]) + u64::from(p[2]))
+        .sum();
+    #[allow(clippy::cast_precision_loss)] // pixel sums
+    let mean = sum as f64 / (px.len() as f64 * 3.0);
+    mean
+}
+
+#[test]
+fn underground_the_camera_stays_in_the_dungeon_while_the_packs_land_is_drawn_far_over_it() {
+    let _gpu = crate::common::gpu_lock();
+    let pack = magenta_pack();
+    assert_eq!(pack.grounds.len(), 1, "{:?}", pack.problems);
+    let (retail_look, _) = drawn(&cave(), Some(&pack), &format!("{LIGHT},RetailLook=1"));
+    let (with_pack, _) = drawn(&cave(), Some(&pack), LIGHT);
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("hifi-materials");
+    for (name, rgba) in [
+        ("cave-retail-look", &retail_look),
+        ("cave-pack", &with_pack),
+    ] {
+        crate::instruments::hifi_stations::write_png(
+            &dir.join(format!("{name}.png")),
+            SIZE.0,
+            SIZE.1,
+            rgba,
+        );
+    }
+    let (look, pack) = (brightness(&retail_look), brightness(&with_pack));
+    assert!(look > 20.0, "the passage is lit: {look}");
+    // The same passage, lit the same way: lifted out of it the camera sees nothing.
+    assert!(
+        pack > look * 0.6 && pack < look * 1.6,
+        "with the pack {pack}, the retail look {look}"
     );
 }

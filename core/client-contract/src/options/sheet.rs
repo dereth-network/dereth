@@ -1026,7 +1026,7 @@ const CLIENT_SHARED: [Heading; 5] = [
 const CLIENT: [Heading; 5] = CLIENT_SHARED;
 
 /// With the optional high-fidelity presentation built in, the Client Options page ends with its
-/// nine boxes under a heading of their own, on the Horizon interface's page alone: it is the only
+/// ten boxes under a heading of their own, on the Horizon interface's page alone: it is the only
 /// interface the presentation draws under.
 #[cfg(feature = "hifi")]
 const CLIENT: [Heading; 6] = {
@@ -1045,9 +1045,9 @@ const CLIENT: [Heading; 6] = {
     ]
 };
 
-/// The nine boxes, each off by default and on the Horizon page alone.
+/// The ten boxes, each off by default and on the Horizon page alone.
 #[cfg(feature = "hifi")]
-const FIDELITY_ROWS: [Row; 9] = [
+const FIDELITY_ROWS: [Row; 10] = [
     fidelity_box(0),
     fidelity_box(1),
     fidelity_box(2),
@@ -1057,6 +1057,7 @@ const FIDELITY_ROWS: [Row; 9] = [
     fidelity_box(6),
     fidelity_box(7),
     fidelity_box(8),
+    fidelity_box(9),
 ];
 
 /// The row of the `i`th box.

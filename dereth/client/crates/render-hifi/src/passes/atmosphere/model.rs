@@ -278,7 +278,34 @@ impl Haze {
     pub fn reach(&self) -> f32 {
         self.range - 0.5 * HAZE_SOFT_START
     }
+
+    /// The same haze reaching its calibrated depth, `thickness` times over, `reach` meters off
+    /// instead (never nearer than it does): for ground drawn to a horizon past the authored
+    /// fog's end, which the haze would otherwise wash out long before it.
+    #[must_use]
+    pub fn reaching(self, reach: f32, thickness: f32) -> Self {
+        let reach = reach.max(self.reach());
+        let depth = self.extinction * self.reach();
+        Self {
+            range: reach + 0.5 * HAZE_SOFT_START,
+            extinction: depth * thickness.max(0.0) / reach,
+            ..self
+        }
+    }
 }
+
+/// How far the far ground is drawn and how thick the air over it is, while the presentation
+/// draws ground to the horizon.
+fn far_ground(frame: &HifiFrame) -> Option<(f32, f32)> {
+    let drawn = frame.drawn.as_ref()?;
+    drawn
+        .knobs
+        .far
+        .map(|(_, _, _, horizon)| (horizon, drawn.knobs.haze))
+}
+
+/// How much of the far ground's horizon the haze takes its depth over.
+const FAR_HAZE_REACH: f32 = 0.85;
 
 /// Whether the sky object drawn `index`th in the sky pass before the landscape, with
 /// `properties`, is the authored sky dome. Every day group lists its dome first, always present,
@@ -343,6 +370,11 @@ pub const EXPOSURE: f32 = 9.5;
 /// when no block is resident.
 #[must_use]
 pub fn window(frame: &HifiFrame) -> Vec4 {
+    // Ground drawn to the horizon ends there.
+    if let Some((horizon, _)) = far_ground(frame) {
+        let e = frame.camera.eye;
+        return Vec4::new(e.x - horizon, e.y - horizon, e.x + horizon, e.y + horizon);
+    }
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
     for b in &frame.terrain {
@@ -413,6 +445,10 @@ pub fn constants(frame: &HifiFrame, level: Level) -> Vec<u8> {
     let weather = Weather::of(&sky.day_group);
     let weight = day_weight(sky);
     let haze = Haze::for_fog(sky.fog.as_ref(), weather, weight);
+    let haze = match far_ground(frame) {
+        Some((horizon, thickness)) => haze.reaching(horizon * FAR_HAZE_REACH, thickness),
+        None => haze,
+    };
     let illuminance = sun_illuminance(sky);
     let (sky_w, sky_h, steps) = sky_view_quality(level);
     let height_km = (cam.eye.z.max(0.0) + 2.0) * 0.001;

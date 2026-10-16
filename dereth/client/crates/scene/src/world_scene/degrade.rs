@@ -135,6 +135,16 @@ impl SceneDraw {
             d.part_levels.resize(d.meshes.len(), 0);
             d.part_draw_pos.resize(d.meshes.len(), Frame::default());
             d.part_cypt.resize(d.meshes.len(), 0.0);
+            // Drawn on the drawn ground, outdoors, while the presentation draws one.
+            #[cfg(feature = "hifi")]
+            let lift = if ws
+                .object_draw_cell(o)
+                .is_some_and(dereth_physics::landdefs::is_outdoors)
+            {
+                self.drawn.shift_at(o.frame.origin)
+            } else {
+                0.0
+            };
             for (i, pl) in d.meshes.iter().enumerate() {
                 resident += pl.triangles_held();
                 if pl.info.is_some() {
@@ -158,6 +168,10 @@ impl SceneDraw {
                     if d.part_draw_pos[i] != part.pos {
                         part_turns += 1;
                     }
+                }
+                #[cfg(feature = "hifi")]
+                {
+                    d.part_draw_pos[i].origin.z += lift;
                 }
                 if d.part_levels[i] != level {
                     d.part_levels[i] = level;
@@ -240,6 +254,12 @@ impl SceneDraw {
                 .resize(self.character_parts.len(), Frame::default());
             self.character_part_cypt
                 .resize(self.character_parts.len(), 0.0);
+            #[cfg(feature = "hifi")]
+            let lift = if dereth_physics::landdefs::is_outdoors(c.position().cell) {
+                self.drawn.shift_at(c.render_frame().origin)
+            } else {
+                0.0
+            };
             for (i, pl) in self.character_parts.iter().enumerate() {
                 body_resident += pl.triangles_held();
                 if pl.info.is_some() {
@@ -266,6 +286,10 @@ impl SceneDraw {
                     if self.character_part_draw_pos[i] != part.pos {
                         part_turns += 1;
                     }
+                }
+                #[cfg(feature = "hifi")]
+                {
+                    self.character_part_draw_pos[i].origin.z += lift;
                 }
                 if self.character_part_levels[i] != level {
                     self.character_part_levels[i] = level;

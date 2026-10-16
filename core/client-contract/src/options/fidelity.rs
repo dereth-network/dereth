@@ -1,4 +1,4 @@
-//! The words and rules of the optional high-fidelity presentation's options: nine check boxes on
+//! The words and rules of the optional high-fidelity presentation's options: ten check boxes on
 //! the Horizon interface's Client page, under a heading of their own, each off until the player
 //! ticks it.
 //!
@@ -10,7 +10,8 @@
 //! indoors and underground, where it draws nothing, the occlusion is drawn.) An art pack's models
 //! are drawn inside the better lighting too, and the retail look box draws the original models in
 //! their place. The better lighting smooths the world's edges with temporal anti-aliasing, which
-//! the last box turns off.
+//! the ninth box turns off; an art pack's ground lays scree and rock on steep slopes, which the
+//! last box turns off.
 //!
 //! In a build with the `hifi` feature the options are registered with the value store
 //! ([`register`]), so the page reads and writes them like any other option and the profile keeps
@@ -43,8 +44,8 @@ pub struct FidelityOption {
     pub needs: Needs,
 }
 
-/// The nine boxes, in page order.
-pub const OPTIONS: [FidelityOption; 9] = [
+/// The ten boxes, in page order.
+pub const OPTIONS: [FidelityOption; 10] = [
     FidelityOption {
         name: fidelity::LIGHTING,
         caption: "Better Lighting (HDR Sun and Sky Light)",
@@ -107,6 +108,13 @@ pub const OPTIONS: [FidelityOption; 9] = [
         caption: "No Anti-Aliasing",
         note: "Draws the better lighting without the temporal anti-aliasing that smooths the \
                world's edges: a little sharper, but edges stair-step and shimmer in motion.",
+        needs: Needs::Lighting,
+    },
+    FidelityOption {
+        name: fidelity::NO_SLOPE_MATERIALS,
+        caption: "No Slope Materials",
+        note: "Lays an art pack's ground without the scree and rock it lays on steep slopes, \
+               to compare the two. It changes at once.",
         needs: Needs::Lighting,
     },
 ];
