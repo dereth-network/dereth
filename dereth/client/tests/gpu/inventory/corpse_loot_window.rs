@@ -242,7 +242,7 @@ fn recorded_corpse_contents_open_an_effectively_visible_dat_window() {
         "external window starts closed"
     );
     let requests = click_use(&mut app, CORPSE);
-    assert_action(&requests, row(&rows, 6586));
+    assert_action(&requests, row(rows, 6586));
     assert_eq!(app.objects().world.ground_object, Some(CORPSE));
     assert!(
         !drawn(&app, element(&app, PAGE)),
@@ -327,7 +327,7 @@ fn recorded_corpse_contents_open_an_effectively_visible_dat_window() {
         .any(|r| matches!(r, Request::PutItemInContainer(_))));
     assert_eq!(app.objects().world.selected, Some(loot));
     let requests = pointer_click(&mut app, slot, 100_100);
-    assert_action(&requests, row(&rows, 6610));
+    assert_action(&requests, row(rows, 6610));
     assert_eq!(app.objects().world.request_lock.object, Some(loot));
     assert!(app.frame());
     assert!(
@@ -381,7 +381,7 @@ fn recorded_corpse_contents_open_an_effectively_visible_dat_window() {
         .unwrap()
         .handle;
     let requests = gesture(&mut app, slot, dereth_ui::msg::element::id::MOUSE_PRESS, 10);
-    assert_action(&requests, row(&rows, 6629));
+    assert_action(&requests, row(rows, 6629));
     assert_eq!(app.objects().world.request_lock.object, Some(refused));
     for r in rows.iter().filter(|r| (6630..=6639).contains(&r.idx)) {
         feed(&mut app, r);
@@ -417,7 +417,7 @@ fn recorded_corpse_contents_open_an_effectively_visible_dat_window() {
         dereth_ui::msg::element::id::BUTTON_CLICKED,
         0,
     );
-    assert_action(&requests, row(&rows, 6661));
+    assert_action(&requests, row(rows, 6661));
     assert!(!drawn(&app, element(&app, PAGE)));
     assert_eq!(panel(&app).ground_object, None);
     assert!(panel(&app)
@@ -432,8 +432,8 @@ fn recorded_corpse_contents_open_an_effectively_visible_dat_window() {
         Some(CORPSE),
         "local close awaits the server's ground-object change"
     );
-    feed(&mut app, row(&rows, 6662));
-    feed(&mut app, row(&rows, 6663));
+    feed(&mut app, row(rows, 6662));
+    feed(&mut app, row(rows, 6663));
     for _ in 0..2 {
         assert!(app.frame());
         assert!(
@@ -470,7 +470,7 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
         dereth_primitives::ServerTime(0.0),
     );
     assert_eq!(app.objects().world.ground_object, Some(CORPSE));
-    feed(&mut app, row(&rows, 6588));
+    feed(&mut app, row(rows, 6588));
     app.probe_mut()
         .objects_mut()
         .world
@@ -502,7 +502,7 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
     assert_eq!(panel(&app).ground_object, None);
     assert!(!drawn(&app, element(&app, PAGE)));
 
-    feed(&mut app, row(&rows, 6588));
+    feed(&mut app, row(rows, 6588));
     assert!(app.frame());
     assert_eq!(panel(&app).ground_object, Some(CORPSE));
     assert!(app
@@ -515,7 +515,7 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
         "fresh notice reaches the new subscriber"
     );
     let old = panel(&app).root.unwrap();
-    feed(&mut app, row(&rows, 6588));
+    feed(&mut app, row(rows, 6588));
     app.queue_ui_mode(dereth_ui::framework::mode::GAME_PLAY);
     assert!(app.frame());
     assert_ne!(
@@ -558,7 +558,7 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
         host,
     )
     .apply(width_before, height_before);
-    feed(&mut app, row(&rows, 6588));
+    feed(&mut app, row(rows, 6588));
     assert!(app.frame());
     assert!(
         drawn(&app, element(&app, PAGE)),
@@ -583,7 +583,7 @@ fn notices_do_not_replay_into_late_or_rebuilt_gameplay_and_fresh_notices_can_reo
     );
 
     // The server closes a window that is still open (distinct from the close-button journey).
-    feed(&mut app, row(&rows, 6662));
+    feed(&mut app, row(rows, 6662));
     for _ in 0..2 {
         assert!(app.frame());
         assert!(!app.interaction().last_sent.iter().any(|r| matches!(
@@ -674,8 +674,8 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
             .position()
     };
     assert!(app.objects().physics.handle(CORPSE).is_none());
-    assert_action(&click_use(&mut app, CORPSE), row(&rows, 6586));
-    feed(&mut app, row(&rows, 6588));
+    assert_action(&click_use(&mut app, CORPSE), row(rows, 6586));
+    feed(&mut app, row(rows, 6588));
     assert!(app.frame());
     assert!(drawn(&app, element(&app, PAGE)));
     assert!(app
@@ -741,7 +741,7 @@ fn app_range_exit_closes_the_window_once_and_preserves_an_in_range_control() {
                 .cloned(),
         );
     }
-    assert_action(&uses, row(&rows, 6661));
+    assert_action(&uses, row(rows, 6661));
     assert!(!drawn(&app, element(&app, PAGE)));
     assert_eq!(panel(&app).ground_object, None);
     assert!(!app

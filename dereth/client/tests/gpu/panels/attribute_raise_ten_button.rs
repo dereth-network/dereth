@@ -35,10 +35,6 @@ use dereth_ui_screens::screens::gameplay::GamePlayScreen;
 const CAPTURE_PLAYER: dereth_primitives::ObjectId = dereth_primitives::ObjectId(0x5000_0001);
 const SESSION: &str = "short-play-with-training";
 
-fn dat_store() -> dereth_dat::RetailDatStore {
-    crate::common::dat_store()
-}
-
 fn app_in_gameplay(frames: u32) -> App {
     let cfg = Config {
         ui: true,
@@ -162,16 +158,6 @@ fn replay(session: &str) -> (ClientNetwork, Vec<SessionEvent>) {
     (net, events)
 }
 
-fn player_description(events: &[SessionEvent]) -> &dereth_protocol::login::LoginPlayerDescription {
-    events
-        .iter()
-        .find_map(|e| match e {
-            SessionEvent::PlayerDescription(d) => Some(&**d),
-            _ => None,
-        })
-        .expect("the capture's 0x0013")
-}
-
 /// Re-point the world at the identity the capture carries.
 fn embody(app: &mut App) {
     let player = app.hud().player.unwrap_or(CAPTURE_PLAYER);
@@ -212,36 +198,6 @@ fn wire_actions(app: &mut App) -> Vec<SentAction> {
         .expect("app_with_capture attaches the capture's own replay endpoint")
         .take_outgoing();
     actions_in(&out)
-}
-
-fn xp_table() -> dereth_assets::tables::XpTable {
-    use dereth_assets::Decode;
-    use dereth_primitives::AssetSource as _;
-    let id = dereth_primitives::DataId(0x0E00_0018);
-    let b = dat_store()
-        .read(id)
-        .expect("the experience progression table is in the dats");
-    dereth_assets::tables::XpTable::decode_payload(id, &b).expect("experience progression table")
-}
-
-/// The signed 64-bit quality at key 2 as the panels read it, and the synthetic write behind it.
-fn set_available_xp(app: &mut App, n: i64) {
-    let q = app
-        .probe_mut()
-        .objects_mut()
-        .world
-        .player_qualities_mut()
-        .expect("the capture's 0x0013 was installed on the player's own weenie");
-    assert!(
-        q.set(
-            dereth_client_model::StatKey::new(
-                dereth_client_model::StatType::Int64,
-                dereth_client_runtime::hud::AVAILABLE_EXPERIENCE
-            ),
-            dereth_client_model::StatValue::Int64(n),
-        ),
-        "an Int64 is always storable"
-    );
 }
 
 fn available_xp(app: &App) -> i64 {
@@ -444,52 +400,6 @@ fn attribute_row(app: &App, stat: u32, secondary: bool) -> ElemHandle {
         .find(|r| r.stat == stat && r.secondary == secondary)
         .unwrap_or_else(|| panic!("no attribute row for stat {stat} secondary={secondary}"))
         .element
-}
-
-fn skill_row(app: &App, skill: u32) -> ElemHandle {
-    app.hud()
-        .panels
-        .skills
-        .rows
-        .iter()
-        .find(|r| r.skill == skill)
-        .unwrap_or_else(|| panic!("no skill row for skill {skill}"))
-        .element
-}
-
-/// One station: the row selected, `AvailableExperience` at `xp`, and what the `+10` button
-/// under the resolved footer container reads and does under a real press.
-struct Station {
-    disabled_attr: Option<bool>,
-    state: u32,
-    hit: Option<(ElemHandle, u32)>,
-    sent: Vec<SentAction>,
-}
-
-fn run_station(app: &mut App, panel: ElementId, row: ElemHandle, xp: i64) -> Station {
-    set_available_xp(app, xp);
-    assert_eq!(
-        available_xp(app),
-        xp,
-        "the synthetic AvailableExperience took"
-    );
-    press_row(app, row);
-    let button = footer_child(app, panel, statmgmt::child::BUTTON_10);
-    let disabled_attr = disabled_attr(app, button);
-    let state = node_state(app, button);
-    let _ = wire_actions(app);
-    let hit = pointer_press(app, button);
-    let sent = wire_actions(app);
-    Station {
-        disabled_attr,
-        state,
-        hit,
-        sent,
-    }
-}
-
-fn deselect(app: &mut App, row: ElemHandle) {
-    press_row(app, row);
 }
 
 // =============================================================================================

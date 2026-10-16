@@ -16,8 +16,8 @@ There is one command for each moment, and each covers the client and the server 
   instead), clippy over the crates that depend on them, and the fast rules: formatting, the
   comment and test lints, the seams, the crate headers.
 - **`ci tier0` is exactly what CI runs. Run it before you push.** It builds everything, runs every
-  test that needs no game data, clippy with every warning an error, every rule and the
-  documentation check.
+  test that needs no game data, clippy with every warning an error (over the tests that need the
+  game data too: clippy only reads them), every rule and the documentation check.
 - **`ci tier1`** runs every crate's data tier and the server's real-content tests.
 - **`ci tier2`** runs the tests that draw on a real graphics device and the comparisons against
   the original game.

@@ -1324,8 +1324,10 @@ fn the_round_trip_changes_the_frame_at_home_by_the_same_pixels_in_both_arms() {
     let (hx, hy) = block_xy(DEFAULT_LANDBLOCK);
 
     let diff = |a: &[u8], b: &[u8]| -> usize {
-        a.chunks_exact(4)
-            .zip(b.chunks_exact(4))
+        a.as_chunks::<4>()
+            .0
+            .iter()
+            .zip(b.as_chunks::<4>().0)
             .filter(|(p, q)| p != q)
             .count()
     };

@@ -237,10 +237,11 @@ fn without_a_body_the_checks_are_skipped_rather_than_run_against_nothing() {
         .is_watching(RangeHandler::Vendor, VENDOR));
 }
 
-/// Through the frame, the selection range watch arms at the radar radius the player's own cell
-/// chooses: 75 m on the landscape, 25 m in an interior cell, and back to 75 m when the body walks
-/// out again.
 mod range_watch {
+    //! Through the frame, the selection range watch arms at the radar radius the player's own cell
+    //! chooses: 75 m on the landscape, 25 m in an interior cell, and back to 75 m when the body
+    //! walks out again.
+    //!
     //! # How the radius is chosen
     //!
     //! `Interaction::run_object_range_checks` arms its watches at

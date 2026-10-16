@@ -70,7 +70,6 @@ fn registered_default(name: &str) -> PrefValue {
         .find(|p| p.name == name)
         .unwrap_or_else(|| panic!("{name} is a registered UI preference"))
         .registered_default
-        .clone()
         .into()
 }
 

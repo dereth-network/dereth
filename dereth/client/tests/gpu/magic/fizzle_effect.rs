@@ -81,18 +81,22 @@ fn script_of(store: &RetailDatStore, id: DataId) -> dereth_assets::PhysicsScript
 // The recording, read rather than transcribed.
 // ---------------------------------------------------------------------------------------------
 
-/// Every decoded server `0xF755` of script type 0x51 in every recording, with its session, raw
-/// blob, target and intensity, plus a heuristic player: the first decoded create id with high
-/// nibble 5 and that create's script table. Decode failures are skipped. This selection does not
-/// derive the player identity from `LoginCreatePlayer`.
-fn recorded_fizzle_scripts() -> Vec<(
+/// One recorded fizzle: its session, raw blob, target and intensity, and the session's player
+/// and that player's script table.
+type RecordedFizzle = (
     &'static str,
     Vec<u8>,
     ObjectId,
     f32,
     Option<ObjectId>,
     Option<u32>,
-)> {
+);
+
+/// Every decoded server `0xF755` of script type 0x51 in every recording, with its session, raw
+/// blob, target and intensity, plus a heuristic player: the first decoded create id with high
+/// nibble 5 and that create's script table. Decode failures are skipped. This selection does not
+/// derive the player identity from `LoginCreatePlayer`.
+fn recorded_fizzle_scripts() -> Vec<RecordedFizzle> {
     let mut out = Vec::new();
     for c in dereth_client_net::client_session::testing::Corpus::shared_all() {
         let s: &'static str = &c.name;

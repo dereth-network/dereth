@@ -210,7 +210,7 @@ fn the_shipped_resolution_dropdown_holds_a_row_per_enumerated_mode() {
 
     let n = dereth_ui::widgets::menu::num_items(&ui, menu);
     assert_eq!(
-        usize::try_from(n).unwrap_or(0),
+        n,
         store::display_choices(RESOLUTION).len(),
         "the resolution drop-down holds {n} row(s); user-choice registration inserts one row per \
          enumerated mode"

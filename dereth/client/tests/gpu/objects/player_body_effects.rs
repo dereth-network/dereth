@@ -68,9 +68,12 @@ fn table_of(store: &RetailDatStore, id: u32) -> dereth_assets::PhysicsScriptTabl
 // The recording, read rather than transcribed.
 // ---------------------------------------------------------------------------------------------
 
-/// Every level-up in the selected recordings, as `(session, target, intensity, that session's
-/// player, that player's `phstable_id`)`.
-fn recorded_level_ups() -> Vec<(&'static str, ObjectId, f32, Option<ObjectId>, Option<u32>)> {
+/// One recorded level-up: `(session, target, intensity, that session's player, that player's
+/// `phstable_id`)`.
+type RecordedLevelUp = (&'static str, ObjectId, f32, Option<ObjectId>, Option<u32>);
+
+/// Every level-up in the selected recordings.
+fn recorded_level_ups() -> Vec<RecordedLevelUp> {
     let mut out = Vec::new();
     for s in [
         "first-login-walk-jump",

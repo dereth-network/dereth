@@ -127,8 +127,10 @@ impl Bench {
 }
 
 fn diff(a: &[u8], b: &[u8]) -> usize {
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .filter(|(p, q)| p[..3] != q[..3])
         .count()
 }

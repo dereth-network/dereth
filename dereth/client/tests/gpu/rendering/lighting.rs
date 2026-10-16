@@ -256,9 +256,11 @@ fn the_holtburg_starter_cell_has_the_complete_indoor_lighting_chain() {
         indoor_cfg(REPORTED_STATION_CANDIDATE, false),
     );
     let lighting_pixels = lit
-        .chunks_exact(4)
-        .zip(unlit.chunks_exact(4))
-        .filter(|(a, b)| (luma(a) - luma(b)).abs() > 2.0)
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(unlit.as_chunks::<4>().0)
+        .filter(|(a, b)| (luma(*a) - luma(*b)).abs() > 2.0)
         .count();
     let detail_pixels = lit.iter().zip(&no_detail).filter(|(a, b)| a != b).count();
     eprintln!(
@@ -470,6 +472,8 @@ fn a_torch_lit_wall_falls_off_with_distance_as_calc_point_light_says() {
     let mut sums = [0.0f64; BINS];
     let mut counts = [0usize; BINS];
     for (d, v) in &samples {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // LINT-OK: a distance in metres, never negative, to its bin
         let b = ((d / BIN_M) as usize).min(BINS - 1);
         sums[b] += f64::from(*v);
         counts[b] += 1;
@@ -588,13 +592,13 @@ fn retail_minimize(pools: &LightPools, centre: Vec3, radius: f32) -> Vec<(i32, i
     let mut out = Vec::new();
     for (i, l) in pools.dynamics.iter().enumerate() {
         if used < 8 && reach(&l.info) {
-            out.push((2, i as i32));
+            out.push((2, i32::try_from(i).expect("a pool index")));
             used += 1;
         }
     }
     for (i, l) in pools.statics.iter().enumerate() {
         if used < 8 && reach(&l.info) {
-            out.push((1, i as i32));
+            out.push((1, i32::try_from(i).expect("a pool index")));
             used += 1;
         }
     }

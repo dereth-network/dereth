@@ -26,7 +26,8 @@ pub(crate) const HOLTBURG: u16 = 0xA9B4;
 /// A recorded player pose, as retail's `/loc` reads it: `0xA9B40029 [136.289993 5.155000
 /// 94.082001] 0.707107 0.000000 0.000000 -0.707107`.
 pub(crate) const RECORDED_CELL: u32 = 0xA9B4_0029;
-pub(crate) const RECORDED_ORIGIN: Vec3 = Vec3::new(136.289_993, 5.155, 94.082_001);
+pub(crate) const RECORDED_ORIGIN: Vec3 = Vec3::new(136.29, 5.155, 94.082);
+#[allow(clippy::approx_constant)] // the recorded rotation, as `/loc` prints it
 pub(crate) const RECORDED_ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
 
 pub(crate) fn store() -> Arc<RetailDatStore> {
@@ -383,8 +384,10 @@ fn the_closed_holtburg_door_naturally_crosses_the_outdoor_indoor_boundary() {
     .expect("the NODRAW control also requires D3D12 WARP");
     let changed = with
         .rgba
-        .chunks_exact(4)
-        .zip(hidden.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(hidden.rgba.as_chunks::<4>().0)
         .filter(|(a, b)| a[..3] != b[..3])
         .count();
     eprintln!(
@@ -469,7 +472,7 @@ fn the_closed_holtburg_door_naturally_crosses_the_outdoor_indoor_boundary() {
 // ---------------------------------------------------------------------------------------------
 
 const EXTERIOR_CELL: u32 = 0xA9B4_002A;
-const EXTERIOR_ORIGIN: Vec3 = Vec3::new(133.168_503, 27.490_582, 94.005_005);
+const EXTERIOR_ORIGIN: Vec3 = Vec3::new(133.168_5, 27.490_582, 94.005_005);
 const EXTERIOR_ROT: Quat = Quat::new(-0.991_022, 0.0, 0.0, -0.133_696);
 
 fn exterior_shot(store: &Arc<RetailDatStore>, portals: bool, tag: &str) -> Option<DoorShot> {
@@ -557,8 +560,10 @@ fn the_recorded_outdoor_pose_confines_static_interiors_to_building_openings() {
     let mut terrain_leak = 0usize;
     for (i, (a, b)) in off
         .rgba
-        .chunks_exact(4)
-        .zip(on.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(on.rgba.as_chunks::<4>().0)
         .enumerate()
     {
         if a[..3] == b[..3] {
@@ -613,7 +618,8 @@ fn the_recorded_outdoor_pose_confines_static_interiors_to_building_openings() {
 /// The doorway cell `0xA9B40145` is x [136.30, 136.70], y [4.20, 6.10] — the house's **front
 /// door**, facing west. The recorded pose `[136.289993 5.155000 94.082001]` is approximately the
 /// centre of that doorway's west face (y 5.15).
-pub(crate) const DOORWAY: Vec3 = Vec3::new(136.289_993, 5.155, 94.082_001);
+pub(crate) const DOORWAY: Vec3 = Vec3::new(136.29, 5.155, 94.082);
+#[allow(clippy::approx_constant)] // the recorded rotation, as `/loc` prints it
 pub(crate) const DOOR_ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
 
 // ---------------------------------------------------------------------------------------------
@@ -630,7 +636,7 @@ pub(crate) const DOOR_ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
 // ---------------------------------------------------------------------------------------------
 
 /// The same door, two metres into the room, with nothing between it and the camera.
-const IN_THE_ROOM: Vec3 = Vec3::new(138.60, 7.00, 94.082_001);
+const IN_THE_ROOM: Vec3 = Vec3::new(138.60, 7.00, 94.082);
 /// Where the body stands. **Not** x >= 140.50: the stairwell head `0xA9B40146` is
 /// x [140.50, 142.10], y [3.90, 8.70] with its floor at z 93.80, and a body put there walks into
 /// the cellar before the first frame is captured, which the premise assertion below reports.
@@ -661,8 +667,10 @@ fn door_pixels_in(
         &format!("{tag}-without"),
     )?;
     let n = with
-        .chunks_exact(4)
-        .zip(base.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(base.as_chunks::<4>().0)
         .filter(|(a, b)| a[..3] != b[..3])
         .count();
     Some((n, with.len() / 4))
@@ -783,8 +791,10 @@ fn the_buildings_wall_occludes_an_object_inside_it_from_outdoors() {
         )
         .expect("the control also requires D3D12 WARP");
         with.rgba
-            .chunks_exact(4)
-            .zip(base.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(base.as_chunks::<4>().0)
             .filter(|(a, b)| a[..3] != b[..3])
             .count()
     };

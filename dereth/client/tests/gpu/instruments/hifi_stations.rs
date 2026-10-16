@@ -251,10 +251,10 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
             Some((b, at(lo), at(hi)))
         })
         .max_by(|a, b| {
-            let rise = |(_, l, h): &(u16, (f32, f32, f32), (f32, f32, f32))| {
-                (h.2 - l.2) / ((h.0 - l.0).hypot(h.1 - l.1)).max(24.0)
+            let rise = |l: (f32, f32, f32), h: (f32, f32, f32)| {
+                (h.2 - l.2) / math::hypotf(h.0 - l.0, h.1 - l.1).max(24.0)
             };
-            rise(a).total_cmp(&rise(b))
+            rise(a.1, a.2).total_cmp(&rise(b.1, b.2))
         })
         .unwrap_or((HOLTBURG, (0.0, 0.0, 0.0), (96.0, 96.0, 0.0)));
     let mut extra = Vec::new();
@@ -471,8 +471,8 @@ pub(crate) fn stations(store: &RetailDatStore) -> Vec<Station> {
                 x: lx.clamp(4.0, 188.0),
                 y: ly.clamp(4.0, 188.0),
                 eye: 1.8,
-                yaw: f32::atan2(hx - lx, hy - ly),
-                pitch: ((hz - lz) / (hx - lx).hypot(hy - ly).max(1.0)).atan() * 0.5,
+                yaw: math::atan2f(hx - lx, hy - ly),
+                pitch: math::atanf((hz - lz) / math::hypotf(hx - lx, hy - ly).max(1.0)) * 0.5,
             },
             clock: Clock::Sunny(0.4),
             weather: false,
@@ -849,7 +849,7 @@ pub(crate) fn isolation_stations(store: &RetailDatStore) -> Vec<Station> {
 fn ridge_yaw(vx: f32, vy: f32) -> f32 {
     let dx = if vx > 96.0 { 70.0 } else { -70.0 };
     let dy = if vy > 96.0 { 70.0 } else { -70.0 };
-    f32::atan2(dx, dy)
+    math::atan2f(dx, dy)
 }
 
 /// Close views of objects, captured by the instrument but not part of the nine stations the
@@ -1022,7 +1022,7 @@ pub(crate) fn close_stations(store: &RetailDatStore) -> Vec<Station> {
               the Horizon interface's orbit camera sees it: the smoke rises in front of a tree",
         place: Place::Orbit {
             block: 0xADB2,
-            feet: Vec3::new(1.037_519, 112.863_31, 30.005_091),
+            feet: Vec3::new(1.037_519, 112.863_31, 30.005_09),
             // The heading of a body turned 2 * atan2(-0.999646, -0.026617) about the vertical.
             yaw: -3.194_84,
         },
@@ -1115,7 +1115,7 @@ fn wade_stations(store: &RetailDatStore) -> Vec<Station> {
         n as f32 * 24.0 - dy as f32 * 4.0,
     );
     #[allow(clippy::cast_precision_loss)] // LINT-OK: -1..1
-    let yaw = (-(dx as f32)).atan2(dy as f32).to_degrees();
+    let yaw = math::atan2f(-(dx as f32), dy as f32).to_degrees();
     #[allow(clippy::cast_precision_loss)] // LINT-OK: -1..1
     let (wx, wy) = (x + dx as f32 * 30.0, y + dy as f32 * 30.0);
     vec![
@@ -1462,7 +1462,11 @@ impl Shot {
                     let (fx, fy) = (-math::sinf(r), math::cosf(r));
                     let cam = Vec3::new(x + fx * dist, y + fy * dist, ground + eye);
                     let head = ground + 1.55;
-                    front = Some((cam, r + std::f32::consts::PI, (head - cam.z).atan2(dist)));
+                    front = Some((
+                        cam,
+                        r + std::f32::consts::PI,
+                        math::atan2f(head - cam.z, dist),
+                    ));
                 }
                 scene
                     .attach_character(store, &region, gpu)
@@ -1505,8 +1509,8 @@ impl Shot {
                     at[2]
                 };
                 let (dx, dy, dz) = (at[0] - x, at[1] - y, target - z);
-                scene.camera.yaw = (-dx).atan2(dy);
-                scene.camera.pitch = dz.atan2((dx * dx + dy * dy).sqrt());
+                scene.camera.yaw = math::atan2f(-dx, dy);
+                scene.camera.pitch = math::atan2f(dz, (dx * dx + dy * dy).sqrt());
                 scene.set_weather_enabled(station.weather);
             }
             Place::Orbit { feet, yaw, .. } => {

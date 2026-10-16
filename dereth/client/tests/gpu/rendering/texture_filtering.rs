@@ -59,7 +59,7 @@ fn actual_dat_preview_sharp_flag_changes_minified_samples() {
     };
     let plain = draw(&mut gpu, &preview);
     assert!(
-        plain.chunks_exact(4).any(|p| p[..3] != [0, 0, 0]),
+        plain.as_chunks::<4>().0.iter().any(|p| p[..3] != [0, 0, 0]),
         "real preview draws pixels"
     );
     assert_eq!(
@@ -70,8 +70,10 @@ fn actual_dat_preview_sharp_flag_changes_minified_samples() {
     preview.mode.use_sharp_mode();
     let sharp = draw(&mut gpu, &preview);
     let changed = plain
-        .chunks_exact(4)
-        .zip(sharp.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(sharp.as_chunks::<4>().0)
         .filter(|(a, b)| a[..3] != b[..3])
         .count();
     eprintln!("preview Sharp changed {changed}/4096 pixels");

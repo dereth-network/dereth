@@ -274,7 +274,9 @@ fn mean_luma(gpu: &mut Gpu, store: &Arc<RetailDatStore>, scene: &mut WorldScene,
     gpu.end_frame().expect("end");
     let rgba = gpu.capture().expect("capture").to_rgba();
     let sum: f64 = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|p| 0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2]))
         .sum();
     sum / (rgba.len() / 4) as f64
@@ -1183,6 +1185,7 @@ fn the_environment_texture_detail_reuploads_object_textures_on_the_next_frame() 
 /// The point of asserting it is that "the preference is unreachable" and "the preference is not
 /// being polled" would otherwise print alike.
 #[test]
+#[allow(clippy::assertions_on_constants)] // the pass is a build fact; the test names it
 fn environment_detail_textures_is_polled_and_reaches_no_subsystem_in_this_build() {
     // The poll's own flag and what the subsystem did are two separate measurements, so
     // "unreachable" and "not polled" cannot print alike. The subsystem is asserted in

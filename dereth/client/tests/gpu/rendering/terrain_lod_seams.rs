@@ -125,9 +125,13 @@ fn slot(
     Some((m, side_cell_count(lod_div), dir))
 }
 
+/// Two blocks that meet, by their offsets from the viewer's block, with the first's edge that
+/// faces the second and the second's matching edge.
+type Seam = ((i32, i32), (i32, i32), Edge, Edge);
+
 /// The ring-2 cardinal offsets, each with the inward step that reaches its full-detail neighbour,
 /// the coarse block's edge that faces it and the fine block's matching edge.
-const RING2_CARDINALS: [((i32, i32), (i32, i32), Edge, Edge); 12] = [
+const RING2_CARDINALS: [Seam; 12] = [
     ((2, -1), (1, -1), Edge::West, Edge::East),
     ((2, 0), (1, 0), Edge::West, Edge::East),
     ((2, 1), (1, 1), Edge::West, Edge::East),
@@ -269,7 +273,7 @@ fn the_outward_edge_of_a_stitched_block_is_exactly_its_coarser_neighbours_polyli
     let viewer = block_xy(HOLTBURG);
 
     // (ring-2 -> ring-3) and (ring-4 -> ring-5) on each of the four cardinals.
-    let cases: [((i32, i32), (i32, i32), Edge, Edge); 8] = [
+    let cases: [Seam; 8] = [
         ((2, 0), (3, 0), Edge::East, Edge::West),
         ((-2, 0), (-3, 0), Edge::West, Edge::East),
         ((0, 2), (0, 3), Edge::North, Edge::South),

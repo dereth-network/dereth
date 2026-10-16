@@ -528,7 +528,7 @@ fn the_click_sound_still_obeys_the_three_shipped_bugs() {
         .len();
     if rows >= 2 {
         let last = rows - 1;
-        for u in [0.0f32, 0.25, 0.5, 0.75, 0.999_999_88] {
+        for u in [0.0f32, 0.25, 0.5, 0.75, 0.999_999_9] {
             assert_ne!(
                 dereth_audio::table::row_index(rows, u),
                 Some(last),

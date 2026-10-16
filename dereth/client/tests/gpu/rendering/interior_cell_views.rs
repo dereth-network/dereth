@@ -465,12 +465,15 @@ fn glyphs_that_appeared(before: &[UiDrawCmd], after: &[UiDrawCmd]) -> String {
         .collect()
 }
 
+/// A reached cell: its id, its published view polygons and their summed area.
+type ReachedCell = (u32, Vec<Vec<(f32, f32)>>, f32);
+
 /// Reached interior cells other than the body's current cell, with their published view
 /// polygons and summed areas, largest sum first. Overlapping polygons are not unioned.
-fn reached_cells(app: &App) -> Vec<(u32, Vec<Vec<(f32, f32)>>, f32)> {
+fn reached_cells(app: &App) -> Vec<ReachedCell> {
     let scene = app.world_scene().expect("a world scene");
     let here = scene.viewer_cell_id().map_or(0, |c| c.0);
-    let mut out: Vec<(u32, Vec<Vec<(f32, f32)>>, f32)> = SceneReads::drawn_cells(&scene)
+    let mut out: Vec<ReachedCell> = SceneReads::drawn_cells(&scene)
         .unwrap_or_default()
         .iter()
         .filter(|id| **id != here && !dereth_physics::landdefs::is_outdoors(CellId(**id)))

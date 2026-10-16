@@ -330,8 +330,8 @@ fn fixed_function_bracket(scene: &WorldScene, p: Vec3, radius: f32) -> ([f64; 3]
         if dist >= l.range {
             continue;
         }
-        for c in 0..3 {
-            hi[c] += f64::from(l.diffuse[c]) / f64::from(dist.max(1e-6));
+        for (h, d) in hi.iter_mut().zip(l.diffuse) {
+            *h += f64::from(d) / f64::from(dist.max(1e-6));
         }
     }
     for c in 0..3 {
@@ -347,7 +347,7 @@ fn pair(store: &Arc<RetailDatStore>, gpu: &mut Gpu, metres: f32) -> Pair {
     let b = STATION_BEARING_DEGREES;
     let (scene, site, on) = walk(store, gpu, base_cfg(), b, metres, true);
     let (_, _, off) = walk(store, gpu, base_cfg(), b, metres, false);
-    let (_, _, unlit_on) = walk(store, gpu, unlit.clone(), b, metres, true);
+    let (_, _, unlit_on) = walk(store, gpu, unlit, b, metres, true);
     let (_, _, unlit_off) = walk(store, gpu, unlit, b, metres, false);
     Pair {
         scene,
@@ -483,7 +483,8 @@ fn a_non_luminous_particle_is_lit_by_the_scene() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
 
-    let mut rows: Vec<(&str, [f64; 3], [f64; 3], [f64; 3])> = Vec::new();
+    type Rgb = [f64; 3];
+    let mut rows: Vec<(&str, Rgb, Rgb, Rgb)> = Vec::new();
     for (name, metres) in [("far", FAR_METRES), ("near", NEAR_METRES)] {
         let p = pair(&store, &mut gpu, metres);
         let lit = contribution(&p, true);

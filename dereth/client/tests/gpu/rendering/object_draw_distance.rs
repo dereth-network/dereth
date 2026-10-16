@@ -647,8 +647,10 @@ fn terrain_occludes_a_distant_object_the_client_still_submits() {
             fb = b.draw();
         }
         let px = fa
-            .chunks_exact(4)
-            .zip(fb.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(fb.as_chunks::<4>().0)
             .filter(|(p, q)| p != q)
             .count();
         let n = b.submitted();

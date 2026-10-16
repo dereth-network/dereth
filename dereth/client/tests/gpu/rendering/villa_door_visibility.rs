@@ -135,7 +135,7 @@ fn door_shot(no_draw: bool, interior: bool) -> Shot {
         Position::new(
             CellId(0x9DAF_0127),
             Frame::new(
-                Vec3::new(134.657_913, 34.905_537, 138.004_990),
+                Vec3::new(134.657_91, 34.905_537, 138.004_99),
                 Quat::new(0.499316, 0.0, 0.0, -0.866420),
             ),
         )
@@ -143,7 +143,7 @@ fn door_shot(no_draw: bool, interior: bool) -> Shot {
         Position::new(
             CellId(0x9DAF_002A),
             Frame::new(
-                Vec3::new(140.038_086, 28.935_699, 138.004_990),
+                Vec3::new(140.038_09, 28.935_7, 138.004_99),
                 Quat::new(-0.960095, 0.0, 0.0, -0.279675),
             ),
         )
@@ -274,8 +274,10 @@ fn assert_visible_door(interior: bool) {
     );
     let pixels = visible
         .rgba
-        .chunks_exact(4)
-        .zip(hidden.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(hidden.rgba.as_chunks::<4>().0)
         .filter(|(a, b)| a != b)
         .count();
     eprintln!("villa door: interior={interior} door changes {pixels} pixels");
@@ -339,7 +341,7 @@ fn a_continuous_villa_crossing_does_not_reuse_preclear_building_cells_after_dept
             .teleport(Position::new(
                 CellId(0x9DAF_002A),
                 Frame::new(
-                    Vec3::new(140.038_086, 28.935_699, 138.004_990),
+                    Vec3::new(140.038_09, 28.935_7, 138.004_99),
                     Quat::new(-0.960095, 0.0, 0.0, -0.279675),
                 ),
             ));

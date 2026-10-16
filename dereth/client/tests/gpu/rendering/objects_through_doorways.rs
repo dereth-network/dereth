@@ -303,7 +303,13 @@ fn opening_mask(polys: &[Vec<(f32, f32)>]) -> Vec<bool> {
 /// Pixels that differ between the two frames, split by the opening mask.
 fn changed(a: &[u8], b: &[u8], mask: &[bool]) -> (usize, usize) {
     let (mut din, mut dout) = (0, 0);
-    for (i, (pa, pb)) in a.chunks_exact(4).zip(b.chunks_exact(4)).enumerate() {
+    for (i, (pa, pb)) in a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .enumerate()
+    {
         if pa[..3] != pb[..3] {
             if mask[i] {
                 din += 1;

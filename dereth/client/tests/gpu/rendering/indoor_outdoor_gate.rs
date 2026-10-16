@@ -89,7 +89,11 @@ fn is_black(px: &[u8]) -> bool {
 }
 
 fn nonblack(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4).filter(|p| !is_black(p)).count()
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| !is_black(*p))
+        .count()
 }
 
 /// The same, outdoors over Holtburg with no body — the control that says the gate is about the
@@ -277,8 +281,10 @@ fn an_outdoor_viewer_is_untouched() {
     let b = outdoor_frame(&store, &mut gpu, true);
     assert_eq!(a.len(), b.len());
     let changed = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .filter(|(x, y)| x != y)
         .count();
     let painted = nonblack(&a);

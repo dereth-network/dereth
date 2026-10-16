@@ -647,10 +647,8 @@ fn choose_physical_tab(app: &mut App, rent: bool) {
 /// control. Everything this helper *decides* — player ownership, payment eligibility, remaining
 /// balance, row insertion, refusal strings and button states — is production.
 fn drop_on_the_window(app: &mut App, id: ObjectId) -> bool {
-    let out = app
-        .with_panels(|ui, panels, view| panels.slumlord.accept_drag_object(ui, id, view))
-        .expect("a ui shell");
-    out
+    app.with_panels(|ui, panels, view| panels.slumlord.accept_drag_object(ui, id, view))
+        .expect("a ui shell")
 }
 
 /// …and the frames that carry whatever it emitted into the game.

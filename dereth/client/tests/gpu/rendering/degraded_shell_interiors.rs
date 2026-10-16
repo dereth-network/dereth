@@ -32,14 +32,14 @@ const H: u32 = 600;
 const ROOM: u32 = 0xA9B4_0143;
 /// In the room, on the line from the body through the middle of the front doorway (y 4.20 to
 /// 6.10 in the west wall at x 136.30).
-const IN_THE_ROOM: Vec3 = Vec3::new(139.00, 5.15, 94.082_001);
+const IN_THE_ROOM: Vec3 = Vec3::new(139.00, 5.15, 94.082);
 /// The body: 33 metres west of the doorway on the same line, in land cell 0x21. The house's
 /// shell switches to its next level at 24 metres past the Degrade Distance.
 const BODY_CELL: u32 = 0xA9B4_0021;
 const BODY_AT: Vec3 = Vec3::new(103.00, 5.15, 95.00);
 /// In the room but standing in its front doorway: the object's body crosses the doorway into
 /// the land cell outside, 0x29.
-const IN_THE_DOORWAY: Vec3 = Vec3::new(136.75, 5.155, 94.082_001);
+const IN_THE_DOORWAY: Vec3 = Vec3::new(136.75, 5.155, 94.082);
 /// In the open between the body and the house, in land cell 0x29: the object's own control.
 const OPEN_CELL: u32 = 0xA9B4_0029;
 const IN_THE_OPEN: Vec3 = Vec3::new(122.00, 5.15, 94.50);

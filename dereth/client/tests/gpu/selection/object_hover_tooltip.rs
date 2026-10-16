@@ -282,7 +282,9 @@ fn aim(app: &App, world: Vec3) -> (i32, i32) {
         cos > 0.9999,
         "the pick ray through ({px}, {py}) points at the point: cos = {cos}"
     );
-    (px.round() as i32, py.round() as i32)
+    #[allow(clippy::cast_possible_truncation)] // LINT-OK: a pixel of the window
+    let pixel = (px.round() as i32, py.round() as i32);
+    pixel
 }
 
 /// Aim half a metre above the chest's scene-frame origin to intersect its body rather than

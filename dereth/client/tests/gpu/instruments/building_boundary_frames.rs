@@ -296,8 +296,10 @@ fn probe_door_differential() {
         let mut diff = vec![0u8; with.len()];
         let mut n = 0usize;
         for (i, (a, b)) in with
-            .chunks_exact(4)
-            .zip(without.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(without.as_chunks::<4>().0)
             .enumerate()
         {
             let changed = a[..3] != b[..3];

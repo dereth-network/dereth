@@ -1021,13 +1021,14 @@ fn a_release_event_runs_the_use_arm() {
     );
 }
 
-/// A defender notification stamps the last-attacked clock and runs automatic targeting, which
-/// re-selects the last attacker. Both handlers, standard `0x01B2` and evasion `0x01B4`, are
-/// asserted separately: the stamp is unconditional (but an undecodable body stamps nothing), only
-/// melee and missile auto-target, and the option and any existing selection gate the arm. Every
-/// notification is a real encoded body pushed through `interaction::apply_events` and then
-/// `interaction::use_time`, in `App::frame`'s order.
 mod defender_notification {
+    //! A defender notification stamps the last-attacked clock and runs automatic targeting, which
+    //! re-selects the last attacker. Both handlers, standard `0x01B2` and evasion `0x01B4`, are
+    //! asserted separately: the stamp is unconditional (but an undecodable body stamps nothing),
+    //! only melee and missile auto-target, and the option and any existing selection gate the arm.
+    //! Every notification is a real encoded body pushed through `interaction::apply_events` and
+    //! then `interaction::use_time`, in `App::frame`'s order.
+    //!
     //! # What the tail is
     //!
     //! Both handlers end in the same shared tail, the `dereth-client-model` world's
@@ -1820,12 +1821,13 @@ mod defender_notification {
     }
 }
 
-/// A deselect raises the selection-changed notice, and its handler is the one path from which
-/// auto-targeting can reach the 15-second fallback: the boundary is exclusive, the defender path
-/// never reaches it, a willingly lost target is refused once and cleared, each gate refuses on its
-/// own, and losing the target aborts an automatic attack. Objects sit on 3/4/5 headings so
-/// distance and compass ordering are independently visible.
 mod selection_change {
+    //! A deselect raises the selection-changed notice, and its handler is the one path from which
+    //! auto-targeting can reach the 15-second fallback: the boundary is exclusive, the defender
+    //! path never reaches it, a willingly lost target is refused once and cleared, each gate
+    //! refuses on its own, and losing the target aborts an automatic attack. Objects sit on 3/4/5
+    //! headings so distance and compass ordering are independently visible.
+    //!
     //! # Why only a selection change reaches the fallback
     //!
     //! Auto-targeting has two arms. The first re-selects the object that last hit you; the second —

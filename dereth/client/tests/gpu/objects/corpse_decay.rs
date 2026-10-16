@@ -154,7 +154,7 @@ impl Peer {
     fn send_recorded(&mut self, app: &mut App, row: &CorpusBlob) {
         assert_eq!(row.dir, Direction::ServerToClient);
         assert_eq!(row.queue, dereth_primitives::NetQueue::WorldObjects);
-        self.send_batch(app, &[row.payload.clone()], None);
+        self.send_batch(app, std::slice::from_ref(&row.payload), None);
     }
 
     fn send_batch(&mut self, app: &mut App, blobs: &[Vec<u8>], server_time: Option<f64>) {

@@ -90,7 +90,8 @@ Rules (each a row of `check` or `ci tier0`):
                             one does
 
 Tests:
-  build | test | clippy     cargo build / test / clippy -D warnings over the whole workspace
+  build | test | clippy     cargo build / test / clippy -D warnings over the whole workspace (clippy
+                            with `retail-dats` on, so the data and device tests are linted too)
   gate <name>               one area's whole suite, data and device tiers included (--serial);
                             names: {GATES}
   gates                     every area's gate, one table
@@ -208,7 +209,7 @@ fn main() {
         Some("test-inventory") => testsrc::test_inventory(&args[1..]),
         Some("test-lint") => test_lint::test_lint(&args[1..]),
         Some("fmt-check") => i32::from(!run(&workspace_root(), "cargo", FMT_CHECK)),
-        Some("doc") => i32::from(!doc_gate(&workspace_root())),
+        Some("doc") => i32::from(!doc_gate(&workspace_root(), DOC_ARGS)),
         Some("separation") => separation::separation(&args[1..]),
         Some("output-hygiene") => output_hygiene::output_hygiene(&args[1..]),
         Some("line-endings") => line_endings::line_endings(&args[1..]),
@@ -338,7 +339,17 @@ fn tier0(profile: Profile) -> i32 {
     ];
     reports.extend(server::unit_tier(profile));
     reports.push(clippy_step(&ws));
-    reports.push(step("xtask doc (rustdoc warnings denied)", doc_gate(&ws)));
+    reports.push(step(
+        "xtask doc (rustdoc warnings denied)",
+        doc_gate(&ws, DOC_ARGS),
+    ));
+    // One workspace doc build merges the features every member asks of the runtime, the test
+    // kit's test support among them, which the client is shipped without. So the runtime is also
+    // documented on its own, with its own features, as the client has it.
+    reports.push(step(
+        "xtask doc -p dereth-client-runtime (the runtime as shipped)",
+        doc_gate(&ws, RUNTIME_DOC_ARGS),
+    ));
     reports.extend(cheap_lints());
     reports.push(source_rule("separation", || {
         separation::report(&separation::check(&ws, false))
@@ -447,19 +458,14 @@ fn ci(args: &[String]) -> i32 {
     }
 }
 
-/// `cargo clippy --workspace --all-targets -- -D warnings`, but naming the crates responsible when
-/// it fails.
+/// [`CLIPPY_ARGS`], but naming the crates responsible when it fails.
 ///
 /// A workspace-wide gate that just says "clippy failed" makes everyone read the whole log to
 /// find out whether the problem is theirs. This names the crates; whoever owns them decides.
 fn clippy_step(ws: &std::path::Path) -> Report {
     let (ok, out) = util::run_captured(ws, "cargo", CLIPPY_ARGS);
     if ok {
-        return Report::new(
-            "cargo clippy --workspace --all-targets",
-            Outcome::Pass,
-            String::new(),
-        );
+        return Report::new(CLIPPY_ROW, Outcome::Pass, String::new());
     }
     print!("{out}");
     // With `-D warnings` a lint becomes an error, so the summary line reads
@@ -478,22 +484,25 @@ fn clippy_step(ws: &std::path::Path) -> Report {
     } else {
         format!("warnings in: {}", crates.join(", "))
     };
-    Report::new(
-        "cargo clippy --workspace --all-targets",
-        Outcome::Fail,
-        detail,
-    )
+    Report::new(CLIPPY_ROW, Outcome::Fail, detail)
 }
 
-/// Clippy over every crate and target, every warning an error.
+/// Clippy over every crate and target, every warning an error. `retail-dats` is on, or
+/// `--all-targets` would leave out every test binary that reads the retail dats (each crate's
+/// `dat` and `gpu` tiers) without a word; it only selects targets, so nothing needs the dats.
 const CLIPPY_ARGS: &[&str] = &[
     "clippy",
     "--workspace",
     "--all-targets",
+    "--features",
+    "retail-dats",
     "--",
     "-D",
     "warnings",
 ];
+
+/// The tier row [`CLIPPY_ARGS`] reports as.
+const CLIPPY_ROW: &str = "cargo clippy --workspace --all-targets --features retail-dats";
 
 /// The workspace is rustfmt-clean; this keeps it so.
 const FMT_CHECK: &[&str] = &["fmt", "--all", "--check"];
@@ -516,14 +525,22 @@ const DOC_ARGS: &[&str] = &[
 /// ambiguous link, a bare URL, a stray HTML tag) is a real defect and fails the gate.
 const DOC_FLAGS: &str = "-D warnings -A rustdoc::private_intra_doc_links";
 
-/// Run the documentation gate: [`DOC_ARGS`] with [`DOC_FLAGS`] as `RUSTDOCFLAGS`.
-fn doc_gate(ws: &std::path::Path) -> bool {
-    println!(
-        "$ RUSTDOCFLAGS=\"{DOC_FLAGS}\" cargo {}",
-        DOC_ARGS.join(" ")
-    );
+/// `cargo doc` of the client runtime alone, with its own features: the workspace's docs turn on
+/// its test support, which the client is shipped without.
+const RUNTIME_DOC_ARGS: &[&str] = &[
+    "doc",
+    "-p",
+    "dereth-client-runtime",
+    "--no-deps",
+    "--document-private-items",
+];
+
+/// Run the documentation gate: `args` ([`DOC_ARGS`], or one crate's) with [`DOC_FLAGS`] as
+/// `RUSTDOCFLAGS`.
+fn doc_gate(ws: &std::path::Path, args: &[&str]) -> bool {
+    println!("$ RUSTDOCFLAGS=\"{DOC_FLAGS}\" cargo {}", args.join(" "));
     std::process::Command::new("cargo")
-        .args(DOC_ARGS)
+        .args(args)
         .env("RUSTDOCFLAGS", DOC_FLAGS)
         .current_dir(ws)
         .status()
@@ -556,6 +573,19 @@ mod tests {
 
     fn argv(words: &[&str]) -> Vec<String> {
         words.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    /// **Clippy lints the tests that read the retail dats too**: the workspace's clippy, which
+    /// `xtask clippy` and tier 0 run, turns `retail-dats` on, so `--all-targets` takes in every
+    /// crate's `dat` and `gpu` binaries.
+    #[test]
+    fn clippy_turns_retail_dats_on() {
+        let features = CLIPPY_ARGS.iter().position(|a| *a == "--features");
+        assert_eq!(
+            features.and_then(|i| CLIPPY_ARGS.get(i + 1)),
+            Some(&"retail-dats")
+        );
+        assert!(CLIPPY_ARGS.contains(&"--all-targets"));
     }
 
     /// **The test tiers run in `test-release` unless `--debug` is given**, from either side of the

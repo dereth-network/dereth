@@ -895,7 +895,7 @@ fn shape_a_cycle(app: &mut App, peer: &mut Peer, n: usize, stamp: &mut u16, inst
     *stamp = stamp.wrapping_add(4);
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     // LINT-OK: `n` is bounded by CYCLES + WARMUP, far inside f32's exact integer range.
-    let back = beside(app, REMOTE, if n % 2 == 0 { 3.0 } else { -3.0 });
+    let back = beside(app, REMOTE, if n.is_multiple_of(2) { 3.0 } else { -3.0 });
     peer.send(
         app,
         &create(

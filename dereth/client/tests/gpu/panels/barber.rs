@@ -643,7 +643,7 @@ fn penumbraen_female_crown_and_no_crown_take_their_exact_apply_paths() {
         "the toggle remains private"
     );
     let no_crown_wire = finish_oracle(&app, &no_crown, Some(FEMALE_NO_CROWN), 0);
-    let before_zero = app.world_scene().expect("scene").draw.stats.clone();
+    let before_zero = app.world_scene().expect("scene").draw.stats;
     let apply = child(&app, BARBER, APPLY);
     click_handle(&mut app, apply);
     let after_zero = &app.world_scene().expect("scene").draw.stats;
@@ -882,7 +882,7 @@ fn undead_female_zombie_flame_and_no_flame_take_their_exact_apply_paths() {
         DataId(FEMALE_ZOMBIE_NO_FLAME)
     );
     let no_flame_wire = finish_oracle(&app, &flame, Some(FEMALE_ZOMBIE_NO_FLAME), 0);
-    let before_zero = app.world_scene().expect("scene").draw.stats.clone();
+    let before_zero = app.world_scene().expect("scene").draw.stats;
     let apply = child(&app, BARBER, APPLY);
     click_handle(&mut app, apply);
     let after_zero = &app.world_scene().expect("scene").draw.stats;
@@ -1456,8 +1456,10 @@ fn dwords(bytes: &[u8]) -> Vec<u32> {
         "the ordered action body is dword aligned"
     );
     bytes
-        .chunks_exact(4)
-        .map(|b| u32::from_le_bytes(b.try_into().expect("four bytes")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| u32::from_le_bytes(*b))
         .collect()
 }
 

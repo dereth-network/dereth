@@ -1187,6 +1187,9 @@ fn the_control_is_the_noise_floor() {
 ///
 /// `tested` / `outside` / `culled` are printed beside the pixel count at every station so the
 /// denominator is visible.
+/// The bounds of the pixels that changed.
+type Bounds = (u32, u32, u32, u32);
+
 #[test]
 fn the_cull_changes_no_pixel_at_any_station() {
     let store = store();
@@ -1194,7 +1197,7 @@ fn the_cull_changes_no_pixel_at_any_station() {
 
     let mut total_culled = 0u32;
     let mut total_changed = 0usize;
-    let mut worst: Option<(&'static str, usize, Option<(u32, u32, u32, u32)>)> = None;
+    let mut worst: Option<(&'static str, usize, Option<Bounds>)> = None;
 
     let stations = stations();
     let offs = tour(&store, &records, false, &stations);

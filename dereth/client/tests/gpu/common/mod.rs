@@ -33,6 +33,7 @@ pub use device::{dat_store, dats, test_gpu};
 pub mod app;
 
 #[path = "../../common/chat.rs"]
+#[allow(dead_code)] // shared with the dat binary, which uses the rest
 pub mod chat;
 
 /// A loopback port no server answers on, for the stations that connect.

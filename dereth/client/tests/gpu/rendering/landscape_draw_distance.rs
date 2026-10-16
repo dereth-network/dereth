@@ -454,8 +454,10 @@ impl Bench {
 
 /// Pixels that differ between two RGBA frames.
 fn differing(a: &[u8], b: &[u8]) -> usize {
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .filter(|(p, q)| p != q)
         .count()
 }
@@ -485,8 +487,10 @@ fn the_recorded_frame_loses_the_far_terrain_to_the_window() {
     let row = |f: &[u8], y: u32| -> usize {
         let s = (y * W * 4) as usize;
         f[s..s + (W * 4) as usize]
-            .chunks_exact(4)
-            .zip(retail[s..s + (W * 4) as usize].chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(retail[s..s + (W * 4) as usize].as_chunks::<4>().0)
             .filter(|(p, q)| p != q)
             .count()
     };

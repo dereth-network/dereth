@@ -469,8 +469,6 @@ fn a_toolbar_button_opens_its_page_and_closing_it_puts_the_stack_away() {
 // 2. It draws over the world, and only where it said it would.
 // ---------------------------------------------------------------------------------------------
 
-/// One rendered frame taken for a named vitals value: `(value, BGRA, width, height)`.
-
 // ---------------------------------------------------------------------------------------------
 // 3. It updates from server state, and the state comes from the capture corpus.
 // ---------------------------------------------------------------------------------------------

@@ -596,7 +596,7 @@ fn squelch_db_blob(rows: &[(ObjectId, &str)]) -> Vec<u8> {
         },
     });
     let mut blob = dereth_protocol::write_blob(&m).expect("the squelch database encodes");
-    while blob.len() % 4 != 0 {
+    while !blob.len().is_multiple_of(4) {
         blob.push(0);
     }
     blob

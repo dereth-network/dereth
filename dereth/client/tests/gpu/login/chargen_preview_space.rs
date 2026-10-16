@@ -27,6 +27,13 @@ use {
     dereth_scene::preview::ENUM_PORTALSPACE_BACKGROUND, dereth_scene::preview::UIASSET_GROUP,
 };
 
+/// The portal update's frame rate, as the preview takes it.
+fn portal_framerate() -> f32 {
+    #[allow(clippy::cast_possible_truncation)] // LINT-OK: forty frames a second, exact in f32
+    let rate = timing::PORTAL_FRAMERATE as f32;
+    rate
+}
+
 /// Every fixture path is an `expect`: a missing dat or device fails the test.
 fn store() -> Arc<dereth_dat::RetailDatStore> {
     let d = client_dir();
@@ -187,7 +194,7 @@ fn the_portal_sequence_advances_at_forty_frames_a_second_of_elapsed_time() {
         .expect("the space is there");
     // `low_frame = 1`, `framerate = 40.0`, `clear = 1` -- the portal update's arguments.
     assert!(
-        space.set_sequence_animation(0, anim, true, 1, timing::PORTAL_FRAMERATE as f32),
+        space.set_sequence_animation(0, anim, true, 1, portal_framerate()),
         "the sequence really started -- an animation the dat does not hold is dropped silently"
     );
     assert_eq!(
@@ -224,7 +231,7 @@ fn the_same_duration_at_two_frame_rates_reaches_the_same_frame() {
         let space = r
             .preview_mut(PreviewId::Portal)
             .expect("the space is there");
-        assert!(space.set_sequence_animation(0, anim, true, 1, timing::PORTAL_FRAMERATE as f32));
+        assert!(space.set_sequence_animation(0, anim, true, 1, portal_framerate()));
         let dt = seconds / f64::from(steps);
         for _ in 0..steps {
             space.use_time(dt);
@@ -282,7 +289,7 @@ fn the_exit_window_is_reachable_only_once_the_sequence_animation_has_started() {
     let space = r
         .preview_mut(PreviewId::Portal)
         .expect("the space is there");
-    assert!(space.set_sequence_animation(0, anim, true, 1, timing::PORTAL_FRAMERATE as f32));
+    assert!(space.set_sequence_animation(0, anim, true, 1, portal_framerate()));
     let mut opened_at = Vec::new();
     for _ in 0..400 {
         space.use_time(0.025);
@@ -296,7 +303,7 @@ fn the_exit_window_is_reachable_only_once_the_sequence_animation_has_started() {
         "the exit window opens once the sequence is running"
     );
     for f in &opened_at {
-        let remaining = (timing::PORTAL_EXIT_FRAME - f) as f32 / timing::PORTAL_FRAMERATE as f32;
+        let remaining = (timing::PORTAL_EXIT_FRAME - f) as f32 / portal_framerate();
         assert!(
             remaining > timing::PORTAL_EXIT_WINDOW.0 && remaining < timing::PORTAL_EXIT_WINDOW.1,
             "frame {f} claims to be in the window at {remaining} s remaining"
@@ -549,8 +556,8 @@ fn preview_part_translucency_reaches_the_draw_and_preserves_the_panel() {
         silhouette += usize::from(body);
         half_changed += usize::from(changed);
         outside_silhouette += usize::from(changed && !body);
-        let x = (i % 800) as i32;
-        let y = (i / 800) as i32;
+        let x = i32::try_from(i % 800).expect("a column of the frame");
+        let y = i32::try_from(i / 800).expect("a row of the frame");
         outside_viewport +=
             usize::from(changed && (x < area.x0 || x > area.x1 || y < area.y0 || y > area.y1));
     }

@@ -1242,7 +1242,8 @@ fn leaving_and_returning_to_the_npc_landblock_leaves_one_body_per_npc() {
         .map(|(i, name)| {
             #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
             let spot = near_player(&app, (i as f32 - 1.0) * 3.0, 8.0);
-            (ObjectId(0x5000_1D00 + i as u32), *name, spot)
+            let id = 0x5000_1D00 + u32::try_from(i).expect("a handful of objects");
+            (ObjectId(id), *name, spot)
         })
         .collect();
     let mut stamp: u16 = 1;

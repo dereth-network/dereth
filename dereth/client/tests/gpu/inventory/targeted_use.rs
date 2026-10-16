@@ -499,7 +499,7 @@ fn recorded_targeted_pairs_have_independent_source_and_target_descriptors() {
         let rows = &Corpus::shared(session).blobs;
         let mut objects = ObjectStream::new();
         for row in rows {
-            if let Some(e) = event(&row) {
+            if let Some(e) = event(row) {
                 objects.apply_event(
                     &e,
                     LocalTime(std::time::Duration::from_micros(row.t_rel_micros).as_secs_f64()),

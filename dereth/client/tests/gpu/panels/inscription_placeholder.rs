@@ -900,9 +900,7 @@ fn the_three_psr_qualities_unlock_only_a_live_inscribable_object() {
     // Install a synthetic player description through the production 0x0013 consumer.
     // Typed private-update bodies are then dispatched directly to the HUD event entry point;
     // their accepted values are checked in the authoritative World quality store.
-    app.apply_hud_events(&[SessionEvent::PlayerDescription(Box::new(
-        dereth_protocol::login::LoginPlayerDescription::default(),
-    ))]);
+    app.apply_hud_events(&[SessionEvent::PlayerDescription(Box::default())]);
 
     let signed = profile(Some("Aldwyne"), Some("Bob's"));
     identify(&mut app, &mut peer, SIGNED_NOT_MINE, &signed);

@@ -668,7 +668,9 @@ fn creature_through_an_opening(portal_clip: bool) -> (usize, bool, bool, String,
     let mut tried: Vec<Vec3> = Vec::new();
     let mut body_blocked = 0usize;
     let mut live: Vec<ObjectId> = Vec::new();
-    let mut answer: Option<(usize, bool, bool, String, (f32, f32), (i32, i32), ObjectId)> = None;
+    // Parts, published, picked, the hovered name, the pixel, its point and what the ray hit.
+    type Answer = (usize, bool, bool, String, (f32, f32), (i32, i32), ObjectId);
+    let mut answer: Option<Answer> = None;
     for &(_, cell, origin, px) in &ranked {
         if tried
             .iter()

@@ -72,7 +72,7 @@ const BLOCK: u16 = 0xA9B3;
 /// one cylinder of radius 1.530 and height 34.606, no spheres and no part BSP. The census asserts
 /// this position and the first cylinder's scaled radius and prints the other shape details.
 const TREE_CELL: u32 = 0xA9B3_000B;
-const TREE_AT: Vec3 = Vec3::new(30.869_141, 68.728_27, 94.0);
+const TREE_AT: Vec3 = Vec3::new(30.869_14, 68.728_27, 94.0);
 const TREE_SETUP: u32 = 0x0200_02D9;
 /// The selected first cylinder's radius after applying the placement scale.
 const TREE_RADIUS: f32 = 1.530;

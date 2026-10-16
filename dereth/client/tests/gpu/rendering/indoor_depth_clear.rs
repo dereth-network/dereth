@@ -44,7 +44,11 @@ fn is_black(p: &[u8]) -> bool {
 }
 
 fn painted(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4).filter(|p| !is_black(p)).count()
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| !is_black(*p))
+        .count()
 }
 
 /// A point the body can stand on inside `cell`, searched over the cell's **own** extent.
@@ -456,8 +460,10 @@ fn the_ground_over_the_stairwell_is_the_outdoor_passs_depth() {
     let mut cleared: Vec<(u32, u32, bool)> = Vec::new();
     for (i, (a, b)) in pre
         .rgba
-        .chunks_exact(4)
-        .zip(post.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(post.rgba.as_chunks::<4>().0)
         .enumerate()
     {
         if a == b {
@@ -556,8 +562,10 @@ fn the_land_still_draws_through_the_openings() {
         let k = m.iter().filter(|b| **b).count();
         let d = pre
             .rgba
-            .chunks_exact(4)
-            .zip(post.rgba.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(post.rgba.as_chunks::<4>().0)
             .enumerate()
             .filter(|(i, (a, b))| m[*i] && a != b)
             .count();
@@ -578,8 +586,10 @@ fn the_land_still_draws_through_the_openings() {
     let (mut differ, mut lit) = (0usize, 0usize);
     for (i, (a, b)) in pre
         .rgba
-        .chunks_exact(4)
-        .zip(post.rgba.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(post.rgba.as_chunks::<4>().0)
         .enumerate()
     {
         if !mask[i] {
@@ -619,8 +629,10 @@ fn an_outdoor_viewer_is_untouched() {
     let before = outdoor_shot(&store, false);
     let after = outdoor_shot(&store, true);
     let differ = before
-        .chunks_exact(4)
-        .zip(after.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(after.as_chunks::<4>().0)
         .filter(|(a, b)| a != b)
         .count();
     eprintln!(

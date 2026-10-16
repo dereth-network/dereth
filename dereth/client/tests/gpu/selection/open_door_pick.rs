@@ -918,7 +918,7 @@ mod in_the_doorway {
                     .map(|c| (c, p))
             })
             .expect("a free point in a cell beyond the doorway");
-        let name = place_the_corpus_chest(&mut app, &rows, behind_cell, behind_at);
+        let name = place_the_corpus_chest(&mut app, rows, behind_cell, behind_at);
         eprintln!(
             "{name:?} {:#010X} placed at {behind_at:?} in {behind_cell:#010X}",
             BEHIND.0
@@ -1121,7 +1121,7 @@ mod in_the_doorway {
         );
 
         // ---- 4. closing: solid again ----------------------------------------------------------
-        send_motion(&mut app, &rows, MotionCommand::OFF, 2, 60.0);
+        send_motion(&mut app, rows, MotionCommand::OFF, 2, 60.0);
         send_state(&mut app, 0x0001_0018, 60.1);
         frames(&mut app, SWING);
         let shut_leaves = leaves(&app);

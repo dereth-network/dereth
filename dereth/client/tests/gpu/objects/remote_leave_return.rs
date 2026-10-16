@@ -10,6 +10,7 @@
 //!   is cancelled only when it becomes newly visible. A return while it remains visible can leave
 //!   the expiry queued; a later cell entry after expiry can produce a new create for a client
 //!   that kept its body.
+//!
 //! These tests construct those schedules; they do not run the server or prove every teleport
 //! emits only this sequence of messages.
 //!

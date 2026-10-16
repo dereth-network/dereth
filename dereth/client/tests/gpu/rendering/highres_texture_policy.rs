@@ -154,8 +154,11 @@ const STATION_CELL: CellId = CellId(0x8602_01B1);
 const STATION_ORIGIN: Vec3 = Vec3::new(18.061_283, -30.180_618, 0.005);
 const STATION_HEADING: Quat = Quat::new(0.115_688, 0.0, 0.0, -0.993_286);
 
+/// A rectangle of viewport pixels.
+type Rect = (usize, usize, usize, usize);
+
 /// The station's regions, viewport pixels.
-const REGIONS: &[(&str, (usize, usize, usize, usize))] = &[
+const REGIONS: &[(&str, Rect)] = &[
     ("near-left-wall", (120, 113, 200, 263)),
     ("near-floor-left", (130, 393, 330, 483)),
     ("near-floor-right", (480, 393, 640, 483)),
@@ -259,8 +262,10 @@ fn the_station_bakes_the_original_art_and_its_region_means_do_not_move() {
     assert!(store.grant_highres().expect("client_highres.dat opens"));
     let high = station_frame(&store, HIGHEST);
     let changed = original
-        .chunks_exact(4)
-        .zip(high.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(high.as_chunks::<4>().0)
         .filter(|(a, b)| a != b)
         .count();
     eprintln!("highres station: {changed} pixels differ between the original and the high-res art");

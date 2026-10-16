@@ -577,7 +577,12 @@ fn diff(a: &Frame, b: &Frame) -> (u64, Option<(u32, u32, u32, u32)>) {
 
 /// One captured frame as `(width, height, colour triples)`; alpha is not compared.
 fn image_of(f: &Frame) -> (u32, u32, Vec<[u8; 3]>) {
-    let rgb = f.2.chunks_exact(4).map(|p| [p[0], p[1], p[2]]).collect();
+    let rgb =
+        f.2.as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| [p[0], p[1], p[2]])
+            .collect();
     (f.0, f.1, rgb)
 }
 

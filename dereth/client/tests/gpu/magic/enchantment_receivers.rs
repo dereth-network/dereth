@@ -134,7 +134,7 @@ fn a_multiple_removal_announces_and_a_multiple_dispel_does_not() {
     );
     settle(&mut app);
 
-    let s = app.interaction().stats.clone();
+    let s = app.interaction().stats;
     assert_eq!(s.multi_enchantment_removals, 1);
     assert_eq!(s.multi_enchantments_removed, 2);
     assert_eq!(
@@ -170,7 +170,7 @@ fn a_multiple_removal_announces_and_a_multiple_dispel_does_not() {
     );
     settle(&mut app);
 
-    let s = app.interaction().stats.clone();
+    let s = app.interaction().stats;
     assert_eq!(
         s.multi_enchantment_dispels, 1,
         "counted apart from the announcing arm"

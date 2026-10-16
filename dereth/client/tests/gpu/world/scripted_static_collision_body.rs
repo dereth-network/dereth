@@ -55,7 +55,7 @@ fn setups_raising(store: &RetailDatStore, hook: u32) -> Vec<(DataId, u32)> {
                 continue;
             };
             for step in &sc.script_data {
-                if u32::from(step.hook.hook_type) == hook {
+                if step.hook.hook_type == hook {
                     hits += 1;
                 }
                 if let dereth_assets::HookData::CallPes(dereth_primitives::records::HookCallPes {

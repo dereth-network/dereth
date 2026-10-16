@@ -350,8 +350,8 @@ fn interpreted_state(
 #[test]
 fn the_two_reassemblies_agree_on_the_server_side() {
     let records = load();
-    let mine = reassemble(&records, false);
-    let theirs = server_messages(&records);
+    let mine = reassemble(records, false);
+    let theirs = server_messages(records);
     assert!(
         !mine.is_empty(),
         "no server-to-client blob in combat-mode-while-moving"
@@ -378,7 +378,7 @@ fn the_two_reassemblies_agree_on_the_server_side() {
     );
     // And a positive on the side actually being measured, so a c2s loop that silently found
     // nothing cannot read as a clean zero.
-    let c2s = reassemble(&records, true);
+    let c2s = reassemble(records, true);
     assert!(
         !c2s.is_empty(),
         "no client-to-server blob in combat-mode-while-moving"
@@ -389,13 +389,13 @@ fn the_two_reassemblies_agree_on_the_server_side() {
 #[test]
 fn the_capture_records_both_transitions() {
     let records = load();
-    let actions = client_actions(&records);
+    let actions = client_actions(records);
     assert!(
         !actions.is_empty(),
         "no ordered client game action in combat-mode-while-moving"
     );
 
-    let toggles = toggles(&records);
+    let toggles = toggles(records);
     assert_eq!(
         toggles.len(),
         4,
@@ -450,7 +450,7 @@ fn the_capture_records_both_transitions() {
     );
 
     // **The server's answer.** Four buffers, all server-authored, alternating stance.
-    let answers = stance_answers(&records);
+    let answers = stance_answers(records);
     let bufs: Vec<MovementBuffer> = answers.iter().map(|(_, b)| b.clone()).collect();
     for ((t, _), (at, _)) in toggles.iter().zip(answers.iter()) {
         assert!(
@@ -526,7 +526,7 @@ fn the_conversion_is_the_one_the_frame_uses() {
     );
 
     let records = load();
-    let bufs: Vec<MovementBuffer> = stance_answers(&records)
+    let bufs: Vec<MovementBuffer> = stance_answers(records)
         .into_iter()
         .map(|(_, b)| b)
         .collect();
@@ -685,7 +685,7 @@ fn running_body() -> (Character, MovementCommands, CharacterInput) {
 
 /// The recorded server answer to toggle `n` (0-based), off disk.
 fn answer(n: usize) -> MovementBuffer {
-    stance_answers(&load()).remove(n).1
+    stance_answers(load()).remove(n).1
 }
 
 /// **Station 1 — auto-run.** The stance change stops him and he never starts again.

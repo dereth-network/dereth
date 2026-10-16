@@ -32,10 +32,11 @@ const OWNER_CELL: u32 = 0xA9B4_0029;
 /// The room that geometrically contains the point below.
 const ROOM_CELL: u32 = 0xA9B4_0143;
 /// The selected point inside that room, two metres in front of the camera.
-const IN_THE_ROOM: Vec3 = Vec3::new(138.60, 7.00, 94.082_001);
+const IN_THE_ROOM: Vec3 = Vec3::new(138.60, 7.00, 94.082);
 /// The station's standing point and heading.
 const STAND: Vec3 = Vec3::new(139.50, 7.00, 94.00);
 const FACING_WEST: f32 = 90.0;
+#[allow(clippy::approx_constant)] // the recorded rotation at that door, as `/loc` prints it
 const DOOR_ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
 
 /// The recorded door setup at this landblock and the station's synthetic object id.

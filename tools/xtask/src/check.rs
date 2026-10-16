@@ -80,10 +80,12 @@ fn base_ref(dir: &Path, explicit: Option<&str>) -> Option<String> {
         .map(|c| (*c).to_owned())
 }
 
-/// The workspace crates: name, directory (normalised), and each one's workspace dependencies.
+/// The workspace crates: name, directory (normalised), each one's workspace dependencies, and
+/// the crates with a `retail-dats` feature.
 struct Workspace {
     dirs: Vec<(String, String)>,
     deps: BTreeMap<String, BTreeSet<String>>,
+    retail_dats: BTreeSet<String>,
 }
 
 fn workspace(ws: &Path) -> Result<Workspace, String> {
@@ -108,6 +110,7 @@ fn workspace(ws: &Path) -> Result<Workspace, String> {
         .collect();
     let mut name_of = BTreeMap::new();
     let mut dirs = Vec::new();
+    let mut retail_dats = BTreeSet::new();
     for p in meta["packages"]
         .as_array()
         .ok_or("cargo metadata: no packages")?
@@ -123,6 +126,9 @@ fn workspace(ws: &Path) -> Result<Workspace, String> {
             continue;
         }
         name_of.insert(id.to_owned(), name.to_owned());
+        if p["features"].get("retail-dats").is_some() {
+            retail_dats.insert(name.to_owned());
+        }
         let dir = Path::new(manifest)
             .parent()
             .map(|d| norm(&d.to_string_lossy()))
@@ -141,7 +147,11 @@ fn workspace(ws: &Path) -> Result<Workspace, String> {
             }
         }
     }
-    Ok(Workspace { dirs, deps })
+    Ok(Workspace {
+        dirs,
+        deps,
+        retail_dats,
+    })
 }
 
 /// What a set of changed files selects.
@@ -245,6 +255,19 @@ fn package_args(names: &BTreeSet<String>) -> Vec<&str> {
     names.iter().flat_map(|n| ["-p", n.as_str()]).collect()
 }
 
+/// Clippy's arguments for `linted`: every target, with `retail-dats` on when one of them has the
+/// feature (cargo turns it on in each selected crate that has it, and refuses it when none does),
+/// so the tests that read the retail dats are linted too.
+fn clippy_args<'a>(linted: &'a BTreeSet<String>, retail_dats: &BTreeSet<String>) -> Vec<&'a str> {
+    let mut argv = vec!["clippy", "--all-targets", "--no-deps"];
+    if !linted.is_disjoint(retail_dats) {
+        argv.extend(["--features", "retail-dats"]);
+    }
+    argv.extend(package_args(linted));
+    argv.extend(["--", "-D", "warnings"]);
+    argv
+}
+
 pub fn check(args: &[String]) -> i32 {
     let ws = workspace_root();
     let profile = Profile::from_args(args);
@@ -317,9 +340,7 @@ pub fn check(args: &[String]) -> i32 {
 
     let mut reports = Vec::new();
     if !linted.is_empty() {
-        let mut argv = vec!["clippy", "--all-targets", "--no-deps"];
-        argv.extend(package_args(&linted));
-        argv.extend(["--", "-D", "warnings"]);
+        let argv = clippy_args(&linted, &meta.retail_dats);
         reports.push(step(
             "cargo clippy -D warnings",
             run(&ws, "cargo", &argv),
@@ -427,6 +448,36 @@ mod tests {
             ["client", "dat", "ui"]
         );
         assert!(reverse_dependents(&BTreeSet::new(), &deps).is_empty());
+    }
+
+    /// **Clippy lints the retail-dats tests of the crates that have them**: the feature is asked
+    /// for when a linted crate has it, and not when none does, which cargo would refuse.
+    #[test]
+    fn clippy_turns_retail_dats_on_when_a_linted_crate_has_it() {
+        let set = |names: &[&str]| -> BTreeSet<String> {
+            names.iter().map(|s| (*s).to_owned()).collect()
+        };
+        let with = set(&["dereth-client", "dereth-scene"]);
+        let linted = set(&["dereth-client", "dereth-primitives"]);
+        assert_eq!(
+            clippy_args(&linted, &with),
+            [
+                "clippy",
+                "--all-targets",
+                "--no-deps",
+                "--features",
+                "retail-dats",
+                "-p",
+                "dereth-client",
+                "-p",
+                "dereth-primitives",
+                "--",
+                "-D",
+                "warnings"
+            ]
+        );
+        let without = set(&["dereth-primitives"]);
+        assert!(!clippy_args(&without, &with).contains(&"--features"));
     }
 
     /// `-p` is read wherever it appears, in either spelling.

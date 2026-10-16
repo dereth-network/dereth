@@ -373,7 +373,7 @@ fn a_timed_ban_names_the_expiry_and_a_permanent_one_names_no_date() {
         })
         .collect();
     assert!(
-        admissible.iter().any(|a| *a == shown),
+        admissible.contains(&shown),
         "{shown:?} is not one of {} admissible renderings for a clock in [{before}, {after}]",
         admissible.len()
     );
@@ -523,6 +523,7 @@ fn the_process_stays_up_on_a_boot_and_ends_only_when_the_player_asks() {
 /// * Exit Game (`0x10000617`) reaches the epilogue without a disconnect error.
 /// * The server's orderly `0xF653 Login_ExecuteLogOff` event leaves no error and must not put the
 ///   flow in the disconnected screen. That second arm does not assert an epilogue transition.
+///
 /// Treating every session end as a boot would incorrectly show the new error screen.
 #[test]
 fn a_clean_logout_reaches_the_epilogue_and_never_the_disconnect_screen() {

@@ -91,7 +91,9 @@ fn station(
         gpu.end_frame().expect("end");
         let rgba = gpu.capture().expect("capture").to_rgba();
         painted = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|p| p[0] | p[1] | p[2] != 0)
             .count();
     }
@@ -232,7 +234,9 @@ fn the_academy_rooms_draw_and_the_window_stays_on_their_own_block() {
 fn an_outdoor_viewer_still_re_centres() {
     let store = store();
     let mut gpu = crate::common::test_gpu(W, H);
-    let mut run = |gate: bool| -> (Option<(i32, i32)>, Option<(i32, i32)>) {
+    // The viewer's block before the crossing and after it.
+    type Blocks = (Option<(i32, i32)>, Option<(i32, i32)>);
+    let mut run = |gate: bool| -> Blocks {
         let region = dereth_world_data::landblock::load_region(&store).expect("the region decodes");
         let cfg = SceneConfig {
             indoor_viewpoint_gate: gate,
@@ -403,7 +407,9 @@ mod teleport_into_a_dungeon {
     const ACADEMY_ROOMS: [u32; 3] = [0x8602_0102, 0x8602_0110, 0x8602_0120];
 
     fn painted(rgba: &[u8]) -> usize {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .filter(|p| p[0] | p[1] | p[2] != 0)
             .count()
     }

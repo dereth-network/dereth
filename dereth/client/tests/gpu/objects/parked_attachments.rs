@@ -507,7 +507,8 @@ fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reente
         body.set_velocity(Vec3::new(1.0, 0.0, 0.0), 1001.0);
     }
     assert!(physics.use_time(LocalTime(1001.1), false));
-    let placed = Some(physics.get(handle).unwrap().position);
+    let placed_pose = physics.get(handle).unwrap().position;
+    let placed = Some(placed_pose);
     assert_eq!(physics.get(handle).unwrap().cell, Some(cell));
     assert_ne!(
         placed,
@@ -580,7 +581,7 @@ fn real_indoor_release_cannot_republish_stale_body_cell_and_same_position_reente
     // floor-following placement cannot equal a pose that never touched the floor; the check is
     // the two facts that hold: x, y, cell and rotation are kept, and z settles by the ramp height.
     let body = physics.get(handle).unwrap().position;
-    let want = placed.unwrap();
+    let want = placed_pose;
     assert_eq!(
         s.presence(HOLDER).unwrap().position,
         Some(body),

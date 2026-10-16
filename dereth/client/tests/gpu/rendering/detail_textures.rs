@@ -356,6 +356,7 @@ fn still_frame(on: bool) -> Option<(u64, Vec<u8>)> {
 /// "The poll noticed" and "the subsystem did something" are two separate measurements, and both
 /// move when the preference changes.
 #[test]
+#[allow(clippy::assertions_on_constants)] // the pass is a build fact; the test names it
 fn the_preference_is_still_polled_and_counted() {
     assert!(
         dereth_scene::world_scene::DETAIL_TEXTURE_PASS,

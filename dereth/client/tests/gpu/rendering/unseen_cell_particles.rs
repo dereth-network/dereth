@@ -52,7 +52,7 @@ fn shot(particles: bool, inside: bool) -> Vec<u8> {
             .teleport(Position::new(
                 CellId(0x9DAF_0127),
                 Frame::new(
-                    Vec3::new(134.657_913, 34.905_537, 138.004_990),
+                    Vec3::new(134.657_91, 34.905_537, 138.004_99),
                     Quat::new(0.499316, 0.0, 0.0, -0.866420),
                 ),
             ));
@@ -149,8 +149,10 @@ fn the_same_villas_visible_room_keeps_its_candelabra_particles() {
     let off = shot(false, true);
     let on = shot(true, true);
     let changed = off
-        .chunks_exact(4)
-        .zip(on.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(on.as_chunks::<4>().0)
         .filter(|(a, b)| a != b)
         .count();
     eprintln!("visible-room particle pixels={changed}");

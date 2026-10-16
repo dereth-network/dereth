@@ -302,7 +302,7 @@ fn a_login_made_long_after_start_up_keeps_its_connection() {
         seg[0].t + LATE_LOGIN_START
     );
 
-    let (events, status, rejected) = replay_link(&seg, LATE_LOGIN_START);
+    let (events, status, rejected) = replay_link(seg, LATE_LOGIN_START);
     assert_eq!(
         status,
         dereth_client_runtime::net::LinkStatus::Connected,

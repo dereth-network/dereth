@@ -76,10 +76,10 @@ fn the_profile_s_camera_preferences_reach_the_camera_manager() {
     // is not the camera's and must come back untouched, in order.
     use dereth_ui_screens::{PrefValue, UiRequest};
     let requests = vec![
-        UiRequest::SetPreference("Camera.Stiffness".into(), PrefValue::Float(0.6)),
-        UiRequest::SetPreference("Sound.SoundVolume".into(), PrefValue::Float(0.5)),
-        UiRequest::SetPreference("camera.alignToSlope".into(), PrefValue::Bool(true)),
-        UiRequest::SetPreference("Camera.AdjustmentSpeed".into(), PrefValue::Float(55.0)),
+        UiRequest::SetPreference("Camera.Stiffness", PrefValue::Float(0.6)),
+        UiRequest::SetPreference("Sound.SoundVolume", PrefValue::Float(0.5)),
+        UiRequest::SetPreference("camera.alignToSlope", PrefValue::Bool(true)),
+        UiRequest::SetPreference("Camera.AdjustmentSpeed", PrefValue::Float(55.0)),
     ];
     let left = dereth_client_runtime::camera::apply_preference_requests(
         scene.character.as_mut(),

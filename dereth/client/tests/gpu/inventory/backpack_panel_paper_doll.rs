@@ -1093,7 +1093,7 @@ fn the_paper_doll_draws_with_its_own_45_degree_lens_whatever_the_space_was_given
             .expect("the doll's space");
         (space.mode.fov_radians, space.mode.use_world_fov)
     };
-    assert_eq!(lens(&mut app), (0.785_398_2, false));
+    assert_eq!(lens(&mut app), (std::f32::consts::FRAC_PI_4, false));
     // Another front end's narrower lens on the same space.
     app.renderer_mut()
         .preview_mut(PreviewId::PaperDoll)
@@ -1103,7 +1103,7 @@ fn the_paper_doll_draws_with_its_own_45_degree_lens_whatever_the_space_was_given
     app.frame();
     assert_eq!(
         lens(&mut app),
-        (0.785_398_2, false),
+        (std::f32::consts::FRAC_PI_4, false),
         "the retail doll is drawn with its own lens again"
     );
     app.shutdown();

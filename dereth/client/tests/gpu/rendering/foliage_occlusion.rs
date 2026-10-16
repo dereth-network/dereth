@@ -464,8 +464,10 @@ impl Bench {
 }
 
 fn differing(a: &[u8], b: &[u8]) -> usize {
-    a.chunks_exact(4)
-        .zip(b.chunks_exact(4))
+    a.as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .filter(|(p, q)| p != q)
         .count()
 }
@@ -474,7 +476,13 @@ fn differing(a: &[u8], b: &[u8]) -> usize {
 /// every count so that a number can be read as a shape.
 fn diff_box(a: &[u8], b: &[u8]) -> (u32, u32, u32, u32, usize) {
     let (mut x0, mut y0, mut x1, mut y1, mut n) = (W, H, 0u32, 0u32, 0usize);
-    for (i, (p, q)) in a.chunks_exact(4).zip(b.chunks_exact(4)).enumerate() {
+    for (i, (p, q)) in a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .enumerate()
+    {
         if p != q {
             // LINT-OK: an index into a 640x480 frame. Not a float conversion.
             #[allow(clippy::cast_possible_truncation)]

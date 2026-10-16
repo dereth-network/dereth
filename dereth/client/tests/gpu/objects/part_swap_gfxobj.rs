@@ -280,6 +280,7 @@ fn objdesc_event(id: ObjectId, od: ProtocolObjDesc, ts: u16) -> SessionEvent {
 /// 2. The failed replacement keeps the full prior part/LOD array, not merely the setup default,
 ///    and increments the failure count exactly once.
 /// 3. Another shipped replacement changes the id again without another failure.
+///
 /// The readings are part ids, LOD data and counters, not a pixel measurement of a limb.
 #[test]
 fn the_local_body_keeps_the_limb_when_a_swap_names_an_absent_gfxobj() {

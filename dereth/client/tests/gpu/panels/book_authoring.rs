@@ -932,9 +932,7 @@ fn book_menu_decorates_authors_with_accounts_for_an_authoritative_psr_viewer() {
     // Establish the player-description lifetime through the production 0x0013 consumer before its
     // authoritative Boolean-quality update, matching the PSR fixture of the inscription tests.
     app.apply_hud_events(&[
-        dereth_client_net::client_session::SessionEvent::PlayerDescription(Box::new(
-            dereth_protocol::login::LoginPlayerDescription::default(),
-        )),
+        dereth_client_net::client_session::SessionEvent::PlayerDescription(Box::default()),
     ]);
     assert!(
         app.objects().world.player_qualities().is_some(),

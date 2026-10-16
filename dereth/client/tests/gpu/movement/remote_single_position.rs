@@ -167,11 +167,13 @@ impl Bench {
         scene
             .sync_objects(store, gpu, objects)
             .expect("sync_objects");
+        #[allow(clippy::cast_possible_truncation)] // LINT-OK: a thirtieth of a second
+        let dt = DT as f32;
         scene.update(
             dereth_client_runtime::camera::CameraInput::default(),
             dereth_client_runtime::character::CharacterInput::default(),
             LocalTime(now),
-            DT as f32,
+            dt,
         );
         // `App::frame` runs this immediately after `world.update`, which is the physics step and
         // `finish_object_physics`. It publishes the body's cell *and* its `position` onto the
