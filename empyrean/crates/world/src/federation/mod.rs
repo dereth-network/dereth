@@ -248,6 +248,11 @@ pub struct FederationSettings {
     pub global_room_named: bool,
     /// A character must have played this many seconds before it may send to the network.
     pub min_character_age_secs: u32,
+    /// Where a browser reaches the world, told to the hub in its `hello`: its WebSocket endpoint,
+    /// when it has one ([`dereth_network_protocol::web`]).
+    pub websocket_url: Option<String>,
+    /// Its status document, when it serves one at an address it names.
+    pub status_url: Option<String>,
 }
 
 /// One character's network record: whether it is on the network, its remote friends and squelches.
@@ -1153,6 +1158,8 @@ pub fn on_link_up(w: &mut World) {
     f.control = vec![Message::Hello {
         proto: PROTOCOL,
         software: concat!("empyrean ", env!("CARGO_PKG_VERSION")).to_owned(),
+        websocket_url: f.settings.websocket_url.clone(),
+        status_url: f.settings.status_url.clone(),
     }];
     log::info!("Dereth Network: connected to the hub; greeting");
 }

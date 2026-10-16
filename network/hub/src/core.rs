@@ -30,6 +30,7 @@ use dereth_network_protocol::person::{
     within_view_limits, MAX_PERSON_CHARACTERS, MAX_PERSON_FRIENDS,
 };
 use dereth_network_protocol::rooms::OWN_ROOMS;
+use dereth_network_protocol::web;
 use dereth_network_protocol::wire::{ErrorCode, MAX_MESSAGE_BYTES, PROTOCOL};
 use dereth_network_protocol::{
     Address, ChannelOp, ChannelOutcome, DirectoryMessage, Federation, ListingOutcome, Message,
@@ -356,6 +357,14 @@ pub enum Out {
     },
     /// The channels changed; save [`Hub::channels`].
     ChannelsChanged,
+    /// Where a browser reaches a world, as its `hello` named it, for the registry: each address
+    /// only within the rule of [`dereth_network_protocol::web`], and none where the `hello` named
+    /// none.
+    WebAddresses {
+        slug: String,
+        websocket_url: Option<String>,
+        status_url: Option<String>,
+    },
 }
 
 /// The rooms the hub carries.
@@ -1685,7 +1694,13 @@ impl Hub {
             return out;
         };
         if !link.greeted {
-            let Message::Hello { proto, .. } = m else {
+            let Message::Hello {
+                proto,
+                websocket_url,
+                status_url,
+                ..
+            } = m
+            else {
                 // A link closed before it was greeted was never announced: it is simply gone.
                 self.links.remove(slug);
                 out.push(Self::error(slug, ErrorCode::Order, "hello first"));
@@ -1706,6 +1721,12 @@ impl Hub {
             if let Some(l) = self.links.get_mut(slug) {
                 l.greeted = true;
             }
+            // Kept before the welcome goes, so the world is listed with them once it is welcomed.
+            out.push(Out::WebAddresses {
+                slug: slug.to_owned(),
+                websocket_url: websocket_url.filter(|u| web::is_websocket_url(u)),
+                status_url: status_url.filter(|u| web::is_status_url(u)),
+            });
             let worlds: Vec<WorldInfo> = self
                 .links
                 .iter()
@@ -2944,6 +2965,8 @@ mod tests {
                 Message::Hello {
                     proto: PROTOCOL,
                     software: "t".into(),
+                    websocket_url: None,
+                    status_url: None,
                 },
                 0.0,
             );
@@ -2977,6 +3000,72 @@ mod tests {
         })
     }
 
+    /// Spec: hub: the web addresses a world's hello names go to the registry before its welcome,
+    /// each only within the rule; a second hello, refused, changes nothing.
+    #[test]
+    fn a_hellos_web_addresses_are_kept_within_the_rule_before_the_welcome() {
+        let d = dir();
+        let hello = |ws: Option<&str>, status: Option<&str>| Message::Hello {
+            proto: PROTOCOL,
+            software: "t".into(),
+            websocket_url: ws.map(str::to_owned),
+            status_url: status.map(str::to_owned),
+        };
+        let addresses = |out: &[Out]| {
+            out.iter()
+                .position(|o| matches!(o, Out::WebAddresses { .. }))
+                .map(|at| (at, out[at].clone()))
+        };
+        let mut h = hub_with(&[]);
+        h.connect("aa", "AA");
+        let out = h.receive(
+            &d,
+            "aa",
+            hello(
+                Some("wss://aa.example.org/ws"),
+                Some("https://aa.example.org/status"),
+            ),
+            0.0,
+        );
+        let (at, kept) = addresses(&out).expect("the addresses go to the registry");
+        assert_eq!(
+            kept,
+            Out::WebAddresses {
+                slug: "aa".into(),
+                websocket_url: Some("wss://aa.example.org/ws".into()),
+                status_url: Some("https://aa.example.org/status".into()),
+            }
+        );
+        let welcome = out
+            .iter()
+            .position(|o| matches!(o, Out::Send(_, Message::Welcome { .. })))
+            .expect("welcomed");
+        assert!(at < welcome, "{out:?}");
+        let again = h.receive(&d, "aa", hello(None, None), 0.0);
+        assert_eq!(addresses(&again), None, "a second hello is refused");
+
+        let mut h = hub_with(&[]);
+        h.connect("aa", "AA");
+        let out = h.receive(
+            &d,
+            "aa",
+            hello(
+                Some("ws://aa.example.org/ws"),
+                Some("http://aa.example.org/status"),
+            ),
+            0.0,
+        );
+        assert_eq!(
+            addresses(&out).map(|(_, o)| o),
+            Some(Out::WebAddresses {
+                slug: "aa".into(),
+                websocket_url: None,
+                status_url: None,
+            }),
+            "plain addresses to another machine are not kept"
+        );
+    }
+
     /// Spec: hub: a world speaks only after hello, and is welcomed with the other worlds.
     #[test]
     fn a_world_is_welcomed_after_hello_and_announced_to_the_others() {
@@ -2992,6 +3081,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "t".into(),
+                websocket_url: None,
+                status_url: None,
             },
             0.0,
         );
@@ -3011,6 +3102,8 @@ mod tests {
                 Message::Hello {
                     proto: PROTOCOL + 1,
                     software: "t".into(),
+                    websocket_url: None,
+                    status_url: None,
                 },
                 0.0,
             )
@@ -3095,6 +3188,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "t".into(),
+                websocket_url: None,
+                status_url: None,
             },
             30.0,
         );
@@ -3521,6 +3616,8 @@ mod tests {
                 Message::Hello {
                     proto: PROTOCOL,
                     software: "t".into(),
+                    websocket_url: None,
+                    status_url: None,
                 },
                 0.0,
             );
@@ -3532,6 +3629,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "t".into(),
+                websocket_url: None,
+                status_url: None,
             },
             0.0,
         );
@@ -3781,6 +3880,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "t".into(),
+                websocket_url: None,
+                status_url: None,
             },
             10.0,
         );
@@ -3810,6 +3911,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "t".into(),
+                websocket_url: None,
+                status_url: None,
             },
             11.0,
         );
@@ -5261,6 +5364,8 @@ mod tests {
         let hello = Message::Hello {
             proto: PROTOCOL,
             software: "t".into(),
+            websocket_url: None,
+            status_url: None,
         };
         h.receive(&d, "aa", hello.clone(), 0.0);
         assert!(matches!(
@@ -6147,6 +6252,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "t".into(),
+                websocket_url: None,
+                status_url: None,
             },
             0.0,
         )

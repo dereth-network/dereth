@@ -448,6 +448,8 @@ impl Net {
                     global_room: Some(RoomSlot::Roleplay),
                     global_room_named: false,
                     min_character_age_secs: 0,
+                    websocket_url: None,
+                    status_url: None,
                 },
                 NetworkStore::default(),
             );
@@ -573,7 +575,7 @@ impl Net {
                         federation::on_link_down(&mut w.ts.world);
                     }
                 }
-                Out::Heartbeat { .. } | Out::ChannelsChanged => {}
+                Out::Heartbeat { .. } | Out::ChannelsChanged | Out::WebAddresses { .. } => {}
             }
         }
         // The directory's messages are a family of their own, handed on after the link's.

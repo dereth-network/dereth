@@ -396,6 +396,11 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
+    /// The worlds with a link up.
+    fn linked(&self) -> BTreeSet<String> {
+        self.linked.lock().map(|l| l.clone()).unwrap_or_default()
+    }
+
     pub(crate) fn registry(&self) -> MutexGuard<'_, Registry> {
         self.registry
             .lock()
@@ -551,8 +556,12 @@ impl Shared {
                 None => self.registry(),
             },
         };
-        let worlds = registry.all()?;
+        let mut worlds = registry.all()?;
         drop(registry);
+        let linked = self.linked();
+        for w in &mut worlds {
+            web_addresses_while_linked(w, &linked);
+        }
         let now = std::time::SystemTime::now();
         let fresh = Arc::new(Public {
             built: Instant::now(),
@@ -1220,6 +1229,15 @@ fn wire_line(f: &mut std::fs::File, way: &str, kind: &str) {
     let _ = writeln!(f, "{now} {way}: {kind}");
 }
 
+/// A world's web addresses, as the public answers show them: only while its link is up.
+fn web_addresses_while_linked(world: &mut Value, linked: &BTreeSet<String>) {
+    let up = world["slug"].as_str().is_some_and(|s| linked.contains(s));
+    if !up {
+        world["websocketUrl"] = Value::Null;
+        world["statusUrl"] = Value::Null;
+    }
+}
+
 fn set_linked(shared: &Shared, links: &BTreeMap<String, Routed>) {
     if let Ok(mut l) = shared.linked.lock() {
         *l = links.keys().cloned().collect();
@@ -1307,6 +1325,23 @@ fn apply(
                 continue;
             }
             Work::Routed(Out::ChannelsChanged) => continue,
+            Work::Routed(Out::WebAddresses {
+                slug,
+                websocket_url,
+                status_url,
+            }) => {
+                if let Err(e) = shared.registry().set_web_addresses(
+                    &slug,
+                    websocket_url.as_deref(),
+                    status_url.as_deref(),
+                ) {
+                    log(
+                        "debug",
+                        &format!("{slug}: web addresses not kept: {}", e.message),
+                    );
+                }
+                continue;
+            }
         };
         let Some(l) = links.get(&slug) else {
             continue;
@@ -1957,13 +1992,19 @@ fn http(shared: &Shared, head: &Head, body: &[u8], ip: IpAddr) -> (u16, String, 
             let slug = slug.strip_suffix(&suffix).unwrap_or(slug).to_owned();
             let server = shared.registry().public_server(&slug);
             match server {
-                Ok(Some(s)) => resolve(s, &shared.resolver, shared.config.loopback_allowed),
+                Ok(Some(mut s)) => {
+                    web_addresses_while_linked(&mut s, &shared.linked());
+                    resolve(s, &shared.resolver, shared.config.loopback_allowed)
+                }
                 Ok(None) => (404, error_json(404, "Server not found")),
                 Err(e) => reg_result(Err(e)),
             }
         }
         (_, ["v1", "servers", slug]) if get => match shared.registry().public_server(slug) {
-            Ok(Some(s)) => (200, s.to_string()),
+            Ok(Some(mut s)) => {
+                web_addresses_while_linked(&mut s, &shared.linked());
+                (200, s.to_string())
+            }
             Ok(None) => (404, error_json(404, "Server not found")),
             Err(e) => reg_result(Err(e)),
         },

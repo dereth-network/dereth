@@ -45,7 +45,7 @@ its own characters. A message whose own-world field names another world is refus
 
 | type | from → to | fields | means |
 |---|---|---|---|
-| `hello` | world → hub | `proto` (1), `software` | first message on a link |
+| `hello` | world → hub | `proto` (1), `software`, `websocket_url`?, `status_url`? | first message on a link; where a browser reaches the world, as far as it has those (field rules) |
 | `welcome` | hub → world | `proto`, `world` (the world's own slug), `hub`, `worlds` [{`slug`, `name`, `online`}], `rooms`, `limits` | the answer to `hello`; `worlds` names the worlds linked now, as many as fit the frame, and a `world` message follows for each of the rest |
 | `world` | hub → world | `slug`, `name`, `online` | a federated world's link came up or went down (or, after `welcome`, is up) |
 | `status` | world → hub | `state` (`online`, `maintenance`, `degraded`, `offline`), `players_online`? | the registry heartbeat, about once a minute |
@@ -94,6 +94,19 @@ An example tell, and its answer:
   before it sends it.
 - **A status's `state`** is one of `online`, `maintenance`, `degraded` and `offline`; anything else
   is malformed.
+- **A world's web addresses** (`hello`'s `websocket_url` and `status_url`) say where a browser
+  reaches it without the game's UDP: its WebSocket endpoint, which a web client connects to in
+  place of UDP, and its status document. A world names only what it has; a world of the first
+  version names neither, and the ACE mod names neither. Since the game protocol is not encrypted
+  and its login carries the password, `websocket_url` is `wss://` to any host or `ws://` only to
+  this machine (`127.0.0.0/8`, `[::1]` or `localhost`), and `status_url` likewise `https://`, or
+  `http://` only to this machine. Each is at most 200 bytes of printable ASCII without a quote, an
+  angle bracket, a backslash or a backtick, and names a host (letters, digits, dots and hyphens, or
+  an IPv6 address in brackets) with no user in it, and an optional port from 1 to 65535. An address
+  that breaks the rule is not kept, and the `hello` stands. The hub keeps what each `hello` names,
+  in place of what the last named, and lists it while the world's link is up
+  ([05](05-hub.md) section 1). A launcher follows only a `wss://` endpoint, or a `ws://` one to
+  this machine, whatever a hub's list names.
 - **A line's mark** (`via`, on `room.say` and `room.line`) says where its speaker's person said
   it, when that was not in the game: 2 to 20 of `a-z`, `0-9` and inner hyphens, as a room's name.
   This version names `discord`. A world that predates it ignores it, as any field it does not

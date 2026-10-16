@@ -100,3 +100,40 @@ fn the_registry_answers_over_http_and_a_heartbeat_needs_the_key() {
     assert_eq!(http(addr, "GET", "/v1/nothing", None, "").0, 404);
     running.shutdown();
 }
+
+/// Spec: hub: the list of worlds names a world's web addresses while its link is up, as its
+/// `hello` named them, and none for a world whose link is down.
+#[test]
+fn the_list_names_a_linked_worlds_web_addresses() {
+    let (running, worlds, _) = super::conformance::hub();
+    let addr = running.local_addr();
+    let base = format!("ws://{addr}");
+    let (aa, ka) = &worlds[0];
+    let mut la = dereth_network_conformance::hub::Link::open(&base, aa, ka).expect("aa links");
+    la.send(&dereth_network_protocol::Message::Hello {
+        proto: dereth_network_protocol::wire::PROTOCOL,
+        software: "test".into(),
+        websocket_url: Some("wss://aa.example.org/ws".into()),
+        status_url: Some("https://aa.example.org/status".into()),
+    })
+    .expect("hello");
+    la.expect(std::time::Duration::from_secs(5), "welcome", |m| {
+        matches!(m, dereth_network_protocol::Message::Welcome { .. }).then_some(())
+    })
+    .expect("welcomed");
+    let (status, body) = http(addr, "GET", "/v1/servers?limit=100", None, "");
+    assert_eq!(status, 200, "{body}");
+    let list: serde_json::Value = serde_json::from_str(&body).expect("JSON");
+    let world = |slug: &str| {
+        list["data"]
+            .as_array()
+            .and_then(|a| a.iter().find(|w| w["slug"] == slug))
+            .cloned()
+            .unwrap_or_else(|| panic!("{slug} listed: {body}"))
+    };
+    assert_eq!(world("aa")["websocketUrl"], "wss://aa.example.org/ws");
+    assert_eq!(world("aa")["statusUrl"], "https://aa.example.org/status");
+    assert!(world("bb")["websocketUrl"].is_null() && world("bb")["statusUrl"].is_null());
+    la.close();
+    running.shutdown();
+}

@@ -108,6 +108,10 @@ pub struct CustomWorld {
     /// The emulator the player said it runs; unknown when they did not say.
     #[serde(default)]
     pub emulator: Emulator,
+    /// The address the player added it by, when that was a URL: its WebSocket endpoint, or its
+    /// status document, which names one ([`crate::direct`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl CustomWorld {
@@ -123,6 +127,13 @@ impl CustomWorld {
             transport: None,
         });
         w.description = Some(format!("Added by you: {}:{}", self.host, self.port));
+        if let Some(url) = &self.url {
+            if crate::direct::is_websocket_url(url) {
+                w.websocket_url = Some(url.trim().to_owned());
+            } else if crate::direct::is_status_url(url) {
+                w.status_url = Some(url.trim().to_owned());
+            }
+        }
         w
     }
 }
@@ -435,8 +446,20 @@ impl LauncherState {
             port,
             ruleset,
             emulator,
+            url: None,
         });
         Ok(slug)
+    }
+
+    /// The URL the server the player added as `slug` was added by (its WebSocket endpoint or its
+    /// status document), or none. Nothing for a slug that is no server the player added.
+    pub fn set_custom_world_url(&mut self, slug: &str, url: Option<&str>) {
+        if let Some(w) = self.custom_worlds.iter_mut().find(|w| w.slug == slug) {
+            w.url = url
+                .map(str::trim)
+                .filter(|u| !u.is_empty())
+                .map(str::to_owned);
+        }
     }
 
     /// Remove a server the player added, with its accounts, favourites and remembered choices. The

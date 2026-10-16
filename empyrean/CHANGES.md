@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Worlds tell the Dereth Network their WebSocket address.
+
 ## 0.3.2 (2026-10-15)
 
 - Fixed players showing up in the wrong place after taking a portal.

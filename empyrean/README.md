@@ -135,6 +135,8 @@ for. Keys that are Empyrean's own:
 - `[server] log_level` (default `info`): `error`, `warn`, `info`, `debug` or `trace`; any other value
   is a start-up warning and the server logs at `info`.
 - `[server] status_address` (default empty, off): the status endpoint's `<ip>:<port>`.
+- `[server] status_public_url` (default empty): where players reach `/status` from outside; with
+  the Dereth Network on, the world tells its hub this and the WebSocket endpoint's URL.
 - `[server] interactive_console` (default `true`): read console commands from standard input.
 - `[server] source_url` (default empty: the repository the build came from): where players are told
   the server's source is (see [Licence](#licence)).

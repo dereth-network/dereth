@@ -17,9 +17,9 @@
 //! character's profile and the directory's own link messages), [`reach`] (the question the hub asks
 //! a world before it carries a tell to an offline character's person elsewhere), [`say`] (the line
 //! the hub asks a world to say as one of its characters, said by its person elsewhere), [`rooms`]
-//! (which of a world's own rooms carries the Global room, and which the hub mirrors into Discord)
-//! and [`challenge`] (the datagram the hub sends a world's game port when its operator verifies it
-//! in game).
+//! (which of a world's own rooms carries the Global room, and which the hub mirrors into Discord),
+//! [`web`] (where a browser reaches a world) and [`challenge`] (the datagram the hub sends a
+//! world's game port when its operator verifies it in game).
 
 pub mod address;
 pub mod challenge;
@@ -32,6 +32,7 @@ pub mod say;
 pub mod settings;
 pub mod standin;
 pub mod text;
+pub mod web;
 pub mod wire;
 
 pub use address::Address;

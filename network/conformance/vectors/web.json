@@ -1,0 +1,59 @@
+{
+  "about": "A world's web addresses (docs/network/02-link-protocol.md, section 2): `hello` frames that name them or not, which a hub must read with the values `expect` gives (null: not named); the WebSocket endpoints (`websocket`) and status documents (`status`) a hub keeps (`kept`), and those it must not keep (`refused`). A world names only what it has, and a world of the first version names neither. In a frame or a URL, `${c*N}` stands for the character c written N times.",
+  "hello": [
+    { "frame": "{\"type\":\"hello\",\"proto\":1,\"software\":\"example 1.0\",\"websocket_url\":\"wss://play.example.org/ws\",\"status_url\":\"https://play.example.org/status\"}",
+      "expect": { "websocket_url": "wss://play.example.org/ws", "status_url": "https://play.example.org/status" } },
+    { "frame": "{\"type\":\"hello\",\"proto\":1,\"software\":\"example 1.0\",\"status_url\":\"https://play.example.org/status\"}",
+      "expect": { "websocket_url": null, "status_url": "https://play.example.org/status" },
+      "note": "a world with its status document and no WebSocket endpoint" },
+    { "frame": "{\"type\":\"hello\",\"proto\":1,\"software\":\"example 1.0\"}",
+      "expect": { "websocket_url": null, "status_url": null },
+      "note": "a world of the first version, or one with neither" }
+  ],
+  "websocket": {
+    "kept": [
+      "wss://play.example.org/ws",
+      "wss://play.example.org:9443/",
+      "WSS://Play.Example.org",
+      "wss://[2001:db8::1]:9443/",
+      "ws://127.0.0.1:9180/",
+      "ws://127.0.0.2:9180",
+      "ws://localhost:9180/",
+      "ws://[::1]:9180/",
+      "wss://a.example.org/${x*180}"
+    ],
+    "refused": [
+      "",
+      "ws://play.example.org/ws",
+      "ws://192.168.1.5:9180/",
+      "ws://127.0.0.1.example.org/",
+      "ws://127.0.0.1@example.org/",
+      "wss://user@play.example.org/",
+      "wss://",
+      "wss:///ws",
+      "wss://play.example.org:0/",
+      "wss://play.example.org:99999/",
+      "wss://play.example.org:/",
+      "wss://play example.org/",
+      "wss://play.example.org/\"",
+      "wss://play_example.org/",
+      "wss://[::1/",
+      "https://play.example.org/ws",
+      "javascript:alert(1)",
+      "127.0.0.1:9000",
+      "wss://a.example.org/${x*181}"
+    ]
+  },
+  "status": {
+    "kept": [
+      "https://play.example.org/status",
+      "http://127.0.0.1:9100/status",
+      "http://[::1]:9100/status"
+    ],
+    "refused": [
+      "http://play.example.org/status",
+      "wss://play.example.org/status",
+      "https://user:pw@play.example.org/status"
+    ]
+  }
+}

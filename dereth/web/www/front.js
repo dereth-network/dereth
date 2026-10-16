@@ -3,11 +3,13 @@
 // does not answer), the launcher's table of worlds that run a client of their own, and the
 // servers the player adds; a world's page names the data sets kept in this browser
 // that it takes (matched by what the files report, as the desktop library matches them), its
-// overlay, and how it is reached: directly, for an Empyrean world with its WebSocket endpoint on,
-// or through dereth-web-relay on this machine for any other. What the client is told about the
-// world (its era, base, systems, logon version and rules) is the launcher's one description of it. The logic is the launcher's own, in the module: this page asks the worker, which runs
-// it, and keeps what the launcher keeps (its state record, the day's copy of the list) in the
-// browser's local storage.
+// overlay, and how it is reached: directly, at the WebSocket endpoint the hub's list names for a
+// world linked to it or a server the player added names, or through dereth-web-relay on this
+// machine for any other. A server the player added that the hub's list names too is shown once,
+// as the hub's world. What the client is told about the world (its era, base, systems, logon
+// version and rules) is the launcher's one description of it. The logic is the launcher's own, in
+// the module: this page asks the worker, which runs it, and keeps what the launcher keeps (its
+// state record, the day's copy of the list) in the browser's local storage.
 //
 // While the page shows its worlds, the launcher reads the hub's list again about once a minute
 // for whether each world is up and how many are on, from each world's heartbeat to the hub; it
@@ -52,7 +54,7 @@ const iterLabel = (files) => files.map((f) => `${f.role} ${f.iterations ?? '?'}`
 export function startFront({ call, launch, params, log }) {
   const ui = {
     worlds: [], eras: [], features: [], page: null, slug: load(CHOSEN_KEY, null),
-    search: '', kept: [], overlays: [], blocklist: [], picked: null, adding: null, direct: {},
+    search: '', kept: [], overlays: [], blocklist: [], picked: null, adding: null,
     connect: load(CONNECT_KEY, {}), playing: false,
   };
   const save = async () => keep(STATE_KEY, await call('state'));
@@ -145,7 +147,7 @@ export function startFront({ call, launch, params, log }) {
     }
   }
 
-  // A world added by a status address is asked for its status; its WebSocket URL comes from it.
+  // A world added by a status address is asked for its status, which names its WebSocket URL.
   async function askStatus(slug) {
     const url = ui.connect[slug];
     if (!url || !/^https?:\/\//i.test(url)) return null;
@@ -154,9 +156,7 @@ export function startFront({ call, launch, params, log }) {
       if (target.pathname === '/' || target.pathname === '') target.pathname = '/status';
       const text = await (await fetch(target, { cache: 'no-store' })).text();
       await call('status', slug, text);
-      const status = JSON.parse(text);
-      ui.direct[slug] = !!status.websocket_url;
-      return status;
+      return JSON.parse(text);
     } catch (e) {
       log(`status of ${url}: ${e?.message ?? e}`);
       await call('statusFailed', slug);
@@ -172,9 +172,10 @@ export function startFront({ call, launch, params, log }) {
     renderList();
   }
 
-  // Whether the browser reaches a world itself: an Empyrean world with its WebSocket endpoint on.
-  // Every other world is reached through dereth-web-relay on this machine.
-  const direct = (w) => !!ui.direct[w.slug] || /^wss?:\/\//i.test(ui.connect[w.slug] ?? '');
+  // Whether the browser reaches a world itself: one whose WebSocket endpoint the launcher knows
+  // (the hub's list names it, or the world's own status). Every other world is reached through
+  // dereth-web-relay on this machine.
+  const direct = (w) => !!w.websocket_url;
 
   function visible() {
     const q = ui.search.trim().toLowerCase();
@@ -238,6 +239,7 @@ export function startFront({ call, launch, params, log }) {
     if (url) {
       ui.connect[slug] = url;
       keep(CONNECT_KEY, ui.connect);
+      await call('addedBy', slug, url);
     }
     await save();
     await askStatus(slug);
@@ -271,13 +273,12 @@ export function startFront({ call, launch, params, log }) {
     await renderWorld();
   }
 
-  // Where a world is reached: what the player last used there, else its status's WebSocket URL,
-  // else the relay on this machine.
+  // Where a world is reached: the WebSocket URL it was added by, else the one the launcher knows
+  // for it, else the relay on this machine.
   function connectFor(w, status) {
     const saved = ui.connect[w.slug];
     if (saved && /^wss?:\/\//i.test(saved)) return saved;
-    if (status?.websocket_url) return status.websocket_url;
-    return RELAY;
+    return w.websocket_url ?? status?.websocket_url ?? RELAY;
   }
 
   // A world's facts: its state, software, rules, players and address.
@@ -297,6 +298,12 @@ export function startFront({ call, launch, params, log }) {
   async function renderWorld() {
     const page = ui.slug ? await call('world', ui.slug) : null;
     ui.page = page;
+    // A server the player added that the hub lists too is chosen as the hub's world.
+    if (page && page.world.slug !== ui.slug) {
+      ui.slug = page.world.slug;
+      keep(CHOSEN_KEY, ui.slug);
+      renderList();
+    }
     $('no-world').classList.toggle('hidden', !!page);
     $('form').classList.toggle('hidden', !page);
     if (!page) return;
@@ -334,7 +341,9 @@ export function startFront({ call, launch, params, log }) {
 
     // How it is reached.
     const status = ui.connect[w.slug] && /^https?:/i.test(ui.connect[w.slug]) ? await askStatus(w.slug) : null;
-    $('server').value = ui.connect[`${w.slug}#used`] ?? connectFor(w, status);
+    // What the player last used, unless that was the relay for a world now reached directly.
+    const used = ui.connect[`${w.slug}#used`];
+    $('server').value = used && !(used === RELAY && w.websocket_url) ? used : connectFor(w, status);
     describeConnect(w);
     $('account').value = prefs.account ?? params.get('account') ?? '';
     await renderOverlay();
@@ -343,7 +352,7 @@ export function startFront({ call, launch, params, log }) {
   function describeConnect(w) {
     const v = $('server').value.trim();
     const origin = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname) ? '' : ` --allow-origin ${location.origin}`;
-    if (/^ws:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(v) && ui.page?.address && !ui.connect[w.slug]) {
+    if (/^ws:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(v) && v !== w.websocket_url && ui.page?.address && !ui.connect[w.slug]) {
       $('w-connect').innerHTML = `Start the <a href="${RELAY_README}" target="_blank" rel="noopener noreferrer">web relay</a> first:\n<code>dereth-web-relay --server ${esc(ui.page.address)}${esc(origin)}</code>`;
     } else if (/^wss:\/\//i.test(v) || /^ws:\/\//i.test(v)) {
       $('w-connect').textContent = 'Connects directly.';
@@ -572,7 +581,12 @@ export function startFront({ call, launch, params, log }) {
       }
       await save();
     }
-    for (const slug of Object.keys(ui.connect)) if (!slug.includes('#')) await askStatus(slug);
+    for (const [slug, url] of Object.entries(ui.connect)) {
+      if (slug.includes('#')) continue;
+      // What the launcher keeps of a server added by its URL, for one added before it kept it.
+      await call('addedBy', slug, url).catch(() => {});
+      await askStatus(slug);
+    }
     await refresh();
     await renderKept();
     if (ui.slug) await choose(ui.slug);

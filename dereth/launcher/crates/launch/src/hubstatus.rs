@@ -24,6 +24,10 @@
 //! What a world says of itself (Empyrean's status ping or document) goes before the hub's word,
 //! and the hub's before whether the world answered a probe ([`crate::worlds::shown`]).
 //!
+//! The same read brings where a browser reaches each world, as the hub names it while the world
+//! is linked ([`crate::direct`]): the hub's word on that goes before the day's copy, which a
+//! world's link coming or going since has made stale.
+//!
 //! [`slug_for`]: crate::serverlist::slug_for
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -38,14 +42,19 @@ use crate::world::WorldState;
 /// How long after one read of the hub's list for status the next is due, in seconds.
 pub const READ_EVERY_SECS: u64 = 60;
 
-/// A world's status as the hub has it from the world's own heartbeat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A world's status as the hub has it from the world's own heartbeat, and where a browser reaches
+/// the world, as the hub names it while the world is linked.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HubStatus {
     pub state: WorldState,
     /// How many are on, when the world said.
     pub players: Option<u32>,
     /// When the heartbeat stops counting, in seconds since the epoch.
     pub expires_at: u64,
+    /// The world's WebSocket endpoint ([`crate::direct`]).
+    pub websocket_url: Option<String>,
+    /// The world's status document.
+    pub status_url: Option<String>,
 }
 
 impl HubStatus {
@@ -73,6 +82,8 @@ impl HubStatus {
             state,
             players,
             expires_at,
+            websocket_url: None,
+            status_url: None,
         })
     }
 
@@ -96,7 +107,14 @@ pub fn read_pages(pages: &[String]) -> Result<BTreeMap<String, HubStatus>, Malfo
         let Some(key) = hub_key(&row) else {
             continue;
         };
-        let status = row.get("status").and_then(HubStatus::read);
+        let status = row.get("status").and_then(HubStatus::read).map(|s| {
+            let (websocket_url, status_url) = crate::serverlist::hub_web_addresses(&row);
+            HubStatus {
+                websocket_url,
+                status_url,
+                ..s
+            }
+        });
         if by_key.insert(key.clone(), status).is_some() {
             namesakes.insert(key);
         }
@@ -452,6 +470,32 @@ mod tests {
         assert_eq!(statuses["unfamiliar-shores"].players, Some(7));
         assert_eq!(statuses["moved-down"].state, WorldState::Online);
         assert!(read_pages(&["<html/>".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn a_read_brings_where_a_browser_reaches_a_linked_world_within_the_rule() {
+        let online = heartbeat("online", Some(2), 180);
+        let mut linked = row("linked", "Linked", &online);
+        linked["websocketUrl"] = json!("wss://linked.example.org/ws");
+        linked["statusUrl"] = json!("https://linked.example.org/status");
+        let mut plain = row("plain", "Plain", &online);
+        plain["websocketUrl"] = json!("ws://plain.example.org/ws");
+        plain["statusUrl"] = json!("http://plain.example.org/status");
+        let statuses =
+            read_pages(&[page(&[linked, plain, row("bare", "Bare", &online)], None)]).unwrap();
+        let web = |key: &str| {
+            let s = &statuses[key];
+            (s.websocket_url.as_deref(), s.status_url.as_deref())
+        };
+        assert_eq!(
+            web("linked"),
+            (
+                Some("wss://linked.example.org/ws"),
+                Some("https://linked.example.org/status")
+            )
+        );
+        assert_eq!(web("plain"), (None, None), "plain to another machine");
+        assert_eq!(web("bare"), (None, None));
     }
 
     #[test]

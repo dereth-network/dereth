@@ -220,10 +220,15 @@ carries it): pick a world or type an address, choose or add the data files, and 
   expires, by the desktop launcher's rules. A browser cannot ask a server over UDP whether it is
   up, so any other world is shown with its state unknown. A list the `list` parameter names, and
   the community's own list read when the hub does not answer, bring no status.
-- **Reaching a world.** The browser connects directly only to Empyrean servers that have their
-  WebSocket endpoint on. Any other server (ACE, GDLE, ClassicACE, or an Empyrean without it) needs
-  [`dereth-web-relay`](../../tools/web-relay/README.md) running on the player's machine; the page
-  says so on each such world and gives the command line. Worlds reached directly are listed first.
+- **Reaching a world.** The browser connects directly to a world whose WebSocket endpoint it
+  knows: the one the hub's list names for a world linked to the Dereth Network (an Empyrean world
+  with its endpoint on tells its hub), or the one a server the player added names (its `wss://`
+  URL, or its status document's). Whoever names it, the page follows a `wss://` URL to any host
+  and a `ws://` one only to this machine. Any other world (ACE, GDLE, ClassicACE, or an Empyrean
+  without the endpoint) needs [`dereth-web-relay`](../../tools/web-relay/README.md) running on the
+  player's machine; the page says so on each such world and gives the command line. Worlds reached
+  directly are listed first. A server the player added that the hub's list names too, by its
+  status address or its WebSocket URL, is shown once, as the hub's world.
 
 ## The picture
 
@@ -314,7 +319,8 @@ for them.
 The world's **Connect through** field takes a WebSocket URL:
 
 - **An Empyrean server with its WebSocket endpoint on** (its `[server.websocket]`, described in
-  its `SETUP.md`). Use its `wss://` URL, or its status address (`https://…/status`); the page reads
+  its `SETUP.md`). The field holds the URL the hub's list names for a world linked to the network;
+  otherwise use its `wss://` URL, or its status address (`https://…/status`), and the page reads
   the WebSocket URL from the status. The server must list the page's origin in `allowed_origins`.
 - **Any other server** (ACE, GDLE, or an Empyrean with the endpoint off). The player runs
   `dereth-web-relay` on their own machine and uses `ws://127.0.0.1:9180/` (the field's default). For

@@ -52,8 +52,11 @@ pub mod world_list {
     pub const READ_AT: u64 = 1_791_741_600;
 
     /// The hub's list, one page: two ACE worlds whose heartbeats say they are up (twelve on) and
-    /// starting (none on), and a world the launcher's table knows by its list id, whose heartbeat
-    /// says it is down. Every heartbeat counts until 2099.
+    /// starting (none on), a world the launcher's table knows by its list id, whose heartbeat
+    /// says it is down, and an Empyrean world linked to the hub, up (three on), which the hub
+    /// names a WebSocket endpoint and a status document for. One ACE world's row names a plain
+    /// `ws://` endpoint on another machine, which no launcher follows. Every heartbeat counts
+    /// until 2099.
     #[must_use]
     pub fn hub_page() -> String {
         let row = |name: &str,
@@ -72,13 +75,41 @@ pub mod world_list {
                            "source": "server-heartbeat", "expiresAt": "2099-01-01T00:00:00.000Z"},
             })
         };
+        let mut frostfell = row(
+            "Frostfell",
+            "ACE",
+            "192.0.2.11",
+            9010,
+            "6b1f8d6e-0c55-4c1a-9d0e-31a2c7d0a002",
+            "maintenance",
+            Some(0),
+        );
+        frostfell["websocketUrl"] = serde_json::json!("ws://192.0.2.11:9180/");
+        let mut ironwood = row(
+            "Ironwood",
+            "Empyrean",
+            "192.0.2.13",
+            9060,
+            "6b1f8d6e-0c55-4c1a-9d0e-31a2c7d0a004",
+            "online",
+            Some(3),
+        );
+        ironwood["websocketUrl"] = serde_json::json!(IRONWOOD_WEBSOCKET);
+        ironwood["statusUrl"] = serde_json::json!(IRONWOOD_STATUS);
         serde_json::json!({"data": [
             row("Coldeve", "ACE", "192.0.2.10", 9000, "6b1f8d6e-0c55-4c1a-9d0e-31a2c7d0a001", "online", Some(12)),
-            row("Frostfell", "ACE", "192.0.2.11", 9010, "6b1f8d6e-0c55-4c1a-9d0e-31a2c7d0a002", "maintenance", Some(0)),
+            frostfell,
             row("Seedsow", "GDL", "192.0.2.12", 9050, "394C58D0-885D-466B-B17F-D7E0B96FE3E2", "offline", None),
+            ironwood,
         ], "nextOffset": null})
         .to_string()
     }
+
+    /// The WebSocket endpoint the hub names for Ironwood, the world linked to it.
+    pub const IRONWOOD_WEBSOCKET: &str = "wss://ironwood.example.org/ws";
+
+    /// Ironwood's status document, as the hub names it.
+    pub const IRONWOOD_STATUS: &str = "https://ironwood.example.org/status";
 
     /// The community's own list: a plain ACE world, and the world the launcher's table knows.
     pub const COMMUNITY: &str = r"<?xml version='1.0' encoding='utf-8'?>
@@ -116,7 +147,8 @@ pub mod world_list {
     }
 
     /// A world as a launcher shows it, in brief: its key, its name, the server software it runs, the
-    /// era it plays (none: the end of retail), the address it is reached at, and how many are on.
+    /// era it plays (none: the end of retail), the address it is reached at, how many are on, and
+    /// the WebSocket endpoint a browser reaches it at directly (none: through the relay).
     pub type Summary = (
         String,
         String,
@@ -124,6 +156,7 @@ pub mod world_list {
         Option<String>,
         Option<String>,
         Option<u32>,
+        Option<String>,
     );
 
     /// `w` in brief.
@@ -138,6 +171,7 @@ pub mod world_list {
                 .as_ref()
                 .map(|e| format!("{}:{}", e.address, e.port)),
             w.players,
+            w.websocket_url.clone(),
         )
     }
 
@@ -156,6 +190,7 @@ pub mod world_list {
             era.map(str::to_owned),
             Some(address.to_owned()),
             players,
+            None,
         )
     }
 
@@ -187,7 +222,25 @@ pub mod world_list {
                 "192.0.2.12:9050",
                 None,
             ),
+            reached(
+                IRONWOOD_WEBSOCKET,
+                of(
+                    "ironwood",
+                    "Ironwood",
+                    Emulator::Empyrean,
+                    None,
+                    "192.0.2.13:9060",
+                    Some(3),
+                ),
+            ),
         ]
+    }
+
+    /// `s`, reached directly at the WebSocket endpoint `websocket`.
+    fn reached(websocket: &str, s: Summary) -> Summary {
+        let (slug, name, emulator, era, address, players, _) = s;
+        let websocket = Some(websocket.to_owned());
+        (slug, name, emulator, era, address, players, websocket)
     }
 
     /// The worlds a launcher shows from the community's list, when the hub does not answer.

@@ -105,9 +105,19 @@ pub enum ChannelOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Message {
-    /// World to hub, first: the protocol version it speaks and its software.
+    /// World to hub, first: the protocol version it speaks, its software, and where a browser
+    /// reaches it, as far as it has those ([`crate::web`]).
     #[serde(rename = "hello")]
-    Hello { proto: u32, software: String },
+    Hello {
+        proto: u32,
+        software: String,
+        /// Its WebSocket endpoint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        websocket_url: Option<String>,
+        /// Its status document.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_url: Option<String>,
+    },
     /// Hub to world, the answer to `hello`: the world's own slug, every federated world, the
     /// rooms and the limits.
     #[serde(rename = "welcome")]
@@ -614,6 +624,8 @@ mod tests {
             Message::Hello {
                 proto: PROTOCOL,
                 software: "test 1".into(),
+                websocket_url: None,
+                status_url: None,
             },
             Message::Welcome {
                 proto: PROTOCOL,
@@ -747,6 +759,13 @@ mod tests {
             );
             assert_eq!(Message::from_json(&json), Ok(m), "{json}");
         }
+        let named = Message::Hello {
+            proto: PROTOCOL,
+            software: "test 1".into(),
+            websocket_url: Some("wss://aa.example.org/ws".into()),
+            status_url: Some("https://aa.example.org/status".into()),
+        };
+        assert_eq!(Message::from_json(&named.to_json()), Ok(named.clone()));
     }
 
     /// Spec: link messages: an unknown type is skipped, not an error; a bad field is malformed.

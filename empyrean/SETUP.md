@@ -505,6 +505,13 @@ Things to know:
 A launcher or the web client finds the URL at `GET /status` (`websocket_url`). Without a status
 endpoint, the URL is `wss://<host>:<port>/`, or wherever the proxy serves it (`public_url`).
 
+With the Dereth Network on (`[federation]`), the world tells its hub the URL too, and the hub's
+list names it while the world is linked, so the web client reaches the world directly without the
+player adding it. Set `[server] status_public_url` to where players reach `/status` from outside
+(`https://play.example.org/status`) and the hub lists that as well. The hub takes only a `wss://`
+URL (an `https://` one for the status), or a plain one to `127.0.0.1` for a world and its players
+on one machine.
+
 ---
 
 ## 5. Connect a client

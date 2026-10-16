@@ -171,7 +171,8 @@ impl WorldList {
 
     /// Every world as it is shown at `now`: the list's, then the servers the player added
     /// (`state`), each with what it says of itself and whether it answered when asked (`heard`,
-    /// by the world's key), else the hub's word ([`worlds::shown`]).
+    /// by the world's key), else the hub's word ([`worlds::shown`]). A server the player added
+    /// that is a world of the list ([`worlds::same_world`]) is shown once, as the list's world.
     pub fn shown<'a, F>(
         &'a self,
         state: &'a LauncherState,
@@ -181,11 +182,57 @@ impl WorldList {
     where
         F: Fn(&str) -> (Option<&'a LiveStatus>, Option<bool>) + 'a,
     {
-        worlds::all(&self.worlds, state).map(move |w| {
-            let (live, answered) = heard(&w.slug);
-            let hub = self.hub.current(&w.slug, now);
-            worlds::shown(w, answered, live, hub, state)
-        })
+        let all = self.every_world(state, now, heard);
+        let (listed, added) = all.split_at(self.worlds.len());
+        let added: Vec<World> = added
+            .iter()
+            .filter(|a| !listed.iter().any(|l| worlds::same_world(l, a)))
+            .cloned()
+            .collect();
+        let mut shown = listed.to_vec();
+        shown.extend(added);
+        shown.into_iter()
+    }
+
+    /// The world shown for `slug` at `now` ([`Self::shown`]): the world itself, or, for a server
+    /// the player added that is a world of the list, that world. `None` for a slug no world has.
+    pub fn shown_as<'a, F>(
+        &'a self,
+        state: &'a LauncherState,
+        now: u64,
+        heard: F,
+        slug: &str,
+    ) -> Option<World>
+    where
+        F: Fn(&str) -> (Option<&'a LiveStatus>, Option<bool>) + 'a,
+    {
+        let all = self.every_world(state, now, heard);
+        let (listed, added) = all.split_at(self.worlds.len());
+        if let Some(w) = listed.iter().find(|w| w.slug == slug) {
+            return Some(w.clone());
+        }
+        let w = added.iter().find(|w| w.slug == slug)?;
+        Some(
+            listed
+                .iter()
+                .find(|l| worlds::same_world(l, w))
+                .unwrap_or(w)
+                .clone(),
+        )
+    }
+
+    /// The list's worlds, then the servers the player added, each as shown at `now`.
+    fn every_world<'a, F>(&'a self, state: &'a LauncherState, now: u64, heard: F) -> Vec<World>
+    where
+        F: Fn(&str) -> (Option<&'a LiveStatus>, Option<bool>) + 'a,
+    {
+        worlds::all(&self.worlds, state)
+            .map(|w| {
+                let (live, answered) = heard(&w.slug);
+                let hub = self.hub.current(&w.slug, now);
+                worlds::shown(w, answered, live, hub, state)
+            })
+            .collect()
     }
 }
 
@@ -245,6 +292,69 @@ mod tests {
             "{e}"
         );
         assert_eq!(summaries(&list, now), fixture::from_the_community());
+    }
+
+    /// A server the player added by the status document or the WebSocket endpoint the hub names
+    /// for a linked world is shown once, as the hub's world, and asking for it finds that world;
+    /// one the hub names nothing alike for is shown as it was added.
+    #[test]
+    fn a_server_added_by_a_listed_worlds_address_is_shown_once_as_the_listed_world() {
+        let now = fixture::READ_AT;
+        let mut list = WorldList::default();
+        list.read_with(now, fixture::fetch(true))
+            .expect("the hub answers");
+        let mut state = LauncherState::default();
+        let add = |state: &mut LauncherState, host: &str, url: &str| {
+            let slug = state
+                .add_custom_world("", host, "9000", None, crate::world::Emulator::Unknown)
+                .unwrap();
+            state.set_custom_world_url(&slug, Some(url));
+            slug
+        };
+        let by_status = add(
+            &mut state,
+            "ironwood.example.org",
+            "https://ironwood.example.org",
+        );
+        let by_ws = add(
+            &mut state,
+            "play.ironwood.example.org",
+            fixture::IRONWOOD_WEBSOCKET,
+        );
+        let other = add(&mut state, "play.example.org", "wss://play.example.org/ws");
+        let shown: Vec<String> = list
+            .shown(&state, now, |_| (None, None))
+            .map(|w| w.slug)
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                "coldeve",
+                "frostfell",
+                "seedsow",
+                "ironwood",
+                other.as_str()
+            ],
+            "one row for Ironwood, the hub's"
+        );
+        for slug in [&by_status, &by_ws, &"ironwood".to_owned()] {
+            let w = list
+                .shown_as(&state, now, |_| (None, None), slug)
+                .expect("a world");
+            assert_eq!(
+                (w.slug.as_str(), w.websocket_url.as_deref()),
+                ("ironwood", Some(fixture::IRONWOOD_WEBSOCKET)),
+                "{slug}"
+            );
+        }
+        assert_eq!(
+            list.shown_as(&state, now, |_| (None, None), &other)
+                .map(|w| w.slug),
+            Some(other)
+        );
+        assert!(list
+            .shown_as(&state, now, |_| (None, None), "nowhere")
+            .is_none());
     }
 
     /// The day's copy is shown at start, and the list is read only once the copy is a day old; a

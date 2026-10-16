@@ -132,6 +132,7 @@ fn the_protocol_crate_agrees_with_every_vector() {
         "reach",
         "say",
         "rooms",
+        "web addresses",
     ] {
         assert!(
             checks.iter().any(|c| c.suite == suite),

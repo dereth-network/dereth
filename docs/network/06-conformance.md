@@ -9,7 +9,7 @@ stay the definition.
 
 ## 1. The vectors
 
-Eight JSON files in `network/conformance/vectors/`, readable from any language:
+Nine JSON files in `network/conformance/vectors/`, readable from any language:
 
 | file | pins |
 |---|---|
@@ -20,6 +20,7 @@ Eight JSON files in `network/conformance/vectors/`, readable from any language:
 | `reach.json` | the reach messages ([02](02-link-protocol.md) section 8): frames that must read, write back covering every field and read back unchanged, with the values some fields must read as; a later version's frames that must read, leaving out what they add; frames a reader of the reach messages alone skips, the other link messages and the directory's among them; and frames that must be refused, a channel in place of a character among them |
 | `say.json` | the say messages ([02](02-link-protocol.md) section 9): frames that must read, write back covering every field and read back unchanged, with the values some fields must read as, a reason this version does not name among them; a later version's frames that must read, leaving out what they add; frames a reader of the say messages alone skips, the room's marked lines and the reach messages among them; and frames that must be refused, a channel in place of a character, a mark that is not a word and a reason with `said` among them; and names a player gives with the mark a line said from Discord shows beside its speaker, each with the name it gives once the mark is off ([03](03-world-behaviour.md) section 1) |
 | `rooms.json` | the rooms messages ([02](02-link-protocol.md) section 10): frames that must read, write back covering every field and read back unchanged, with the values some fields must read as; a later version's frames that must read, leaving out what they add; frames a reader of the rooms messages alone skips, the other link messages among them; and frames that must be refused, a room that is none of a world's own, a mirrored room twice or carrying the Global room, and a seed that is not true or false among them |
+| `web.json` | a world's web addresses ([02](02-link-protocol.md) section 2): `hello` frames that name them or not, which a hub must read with the values given (null: not named); and the WebSocket endpoints and status documents a hub keeps, and those it must not keep, every bound of the rule among them |
 | `challenge.json` | challenge datagrams ([05](05-hub.md) section 2.5), in hex: those that must read as their slug and nonce and be written again byte for byte from them, a later version's that must read ignoring what it appends, and those that must not read as a challenge (the status ping's magic, another kind, version 0, a size a packet could have, a datagram cut short, a slug that cannot be carried) |
 
 `dereth-network-conformance vectors` runs them against this repository's protocol crate.
@@ -48,6 +49,7 @@ held to them.
 | `rooms.a_worlds_rooms_message_is_refused_as_the_hubs_own` | `error {malformed}` for a `rooms` a world sends |
 | `identity.a_world_cannot_watch_say_or_ask_as_another_worlds_character` | `error {identity}` for a spoofed `watch.owner`, `room.say.from` and `channel.by`, and nothing forwarded |
 | `world.a_link_up_and_down_is_announced` | `world {online}` both ways |
+| `link.a_worlds_web_addresses_are_listed_only_while_its_link_is_up` | a world's `/v1/servers/<slug>` names the `websocketUrl` and `statusUrl` its `hello` named while its link is up, and `null` once it is down; a plain address to another machine is never named |
 | `tell.is_routed_and_answered_under_the_senders_id` | the target gets the tell under an id of the hub's own, not the sender's; the sender the answer under its own |
 | `tell.a_world_cannot_send_as_another_worlds_character` | `error {identity}`, nothing forwarded |
 | `tell.to_a_world_not_on_the_network_is_not_on_network` | an unknown world, and an `off` one |

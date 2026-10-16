@@ -280,6 +280,8 @@ fn a_listing_the_hub_has_not_answered_survives_a_restart_and_goes_after_the_welc
             global_room: Some(RoomSlot::Roleplay),
             global_room_named: false,
             min_character_age_secs: 0,
+            websocket_url: None,
+            status_url: None,
         },
         store,
     );

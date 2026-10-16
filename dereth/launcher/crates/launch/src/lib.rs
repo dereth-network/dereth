@@ -22,6 +22,7 @@
 //! | [`serverlist`] | the community's world list, and its day-old copy |
 //! | [`listing`] | the world list a launcher shows, read and kept alike in every launcher |
 //! | [`hubstatus`] | whether each world is up and how many are on, as the hub has it from the world's heartbeat |
+//! | [`direct`] | how a browser reaches a world itself, and the rule for the addresses a launcher connects to |
 //! | [`known`] | the worlds that run a client of their own, by list id: logon, files, rules |
 //! | [`worlds`] | the worlds a launcher shows, each with what it said of itself and what the player chose |
 //! | [`eras`] | the eras and systems a world can play, as the launcher names them; a world that does not say plays the end of retail |
@@ -58,6 +59,7 @@ pub mod copy;
 pub mod dat;
 pub mod datset;
 pub mod desktop;
+pub mod direct;
 pub mod discord;
 pub mod eras;
 pub mod folders;

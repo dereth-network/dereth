@@ -510,8 +510,21 @@ fn hub_world(row: &Value, taken: &mut HashSet<String>) -> Option<World> {
         discord: text("/discord").map(str::to_owned),
         ..Links::default()
     };
+    (w.websocket_url, w.status_url) = hub_web_addresses(row);
     crate::known::apply(&mut w);
     Some(w)
+}
+
+/// Where a browser reaches the world a hub row shows, as the hub names it while the world is
+/// linked: its WebSocket endpoint and its status document, each only within the rule a launcher
+/// connects by ([`crate::direct`]).
+pub(crate) fn hub_web_addresses(row: &Value) -> (Option<String>, Option<String>) {
+    let url =
+        |at: &str, ok: fn(&str) -> bool| hub_text(row, at).filter(|u| ok(u)).map(str::to_owned);
+    (
+        url("/websocketUrl", crate::direct::is_websocket_url),
+        url("/statusUrl", crate::direct::is_status_url),
+    )
 }
 
 /// The addresses of `sources`, in order: what a copy of the list read from them records.

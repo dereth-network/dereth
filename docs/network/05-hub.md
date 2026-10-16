@@ -143,6 +143,15 @@ hub's own `<public URL>/v1/servers/<slug>/status` and `<public URL>/v1/resolve/<
 neither takes itself to be at `https://hub.<domain>` and its site at `https://<domain>`. A world
 has no host name of its own under the domain: where players connect is its `endpoint`.
 
+Each world in the public answers also carries `websocketUrl` and `statusUrl`: where a browser
+reaches it, its WebSocket endpoint and its status document, as its link's `hello` named them
+within the rule of [02](02-link-protocol.md) section 2, while that link is up; `null` while it is
+down, and for a world that named none. A launcher's web page connects to `websocketUrl` itself,
+in place of a relay on the player's machine. The hub keeps what each `hello` named in the world's
+registry record (`websocketUrl` and `statusUrl` beside its other fields, so the registry's schema
+does not change, and a hub of an earlier version reading it leaves them be), each in place of the
+last, and a `hello` naming neither clears both.
+
 `GET /v1/config` answers `{"baseDomain", "heartbeatTtlSeconds", "authEnabled", "signIn",
 "broker"}`, where `authEnabled` says whether operators can sign in on this hub, `signIn` is the
 route that starts it (`/v1/auth/discord`), and `broker` is `{"discordTells", "mirrors",

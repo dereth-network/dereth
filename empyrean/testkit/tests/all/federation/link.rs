@@ -285,6 +285,61 @@ fn a_tell_the_hub_never_takes_is_dropped_after_a_minute_and_the_sender_told() {
 }
 
 /// Divergence: V451
+/// A world's hello names where a browser reaches it, as the server's settings give it, on every
+/// link; a world that serves neither names neither.
+#[test]
+fn the_hello_names_the_worlds_websocket_endpoint_and_status_address() {
+    let ann = seed("ann", 0x5000_0001, "Ann");
+    let mut net = Net::new(&[("aa", &[ann]), ("bb", &[])]);
+    let settings = &mut net.world("aa").ts.world.federation.settings;
+    settings.websocket_url = Some("wss://aa.example.org/ws".into());
+    settings.status_url = Some("https://aa.example.org/status".into());
+    net.link("aa");
+    net.link("bb");
+    let hellos: Vec<_> = net
+        .sent
+        .0
+        .iter()
+        .filter_map(|(slug, m)| match m {
+            dereth_network_protocol::Message::Hello {
+                websocket_url,
+                status_url,
+                ..
+            } => Some((*slug, websocket_url.clone(), status_url.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        hellos,
+        [
+            (
+                "aa",
+                Some("wss://aa.example.org/ws".to_owned()),
+                Some("https://aa.example.org/status".to_owned())
+            ),
+            ("bb", None, None),
+        ]
+    );
+    net.unlink("aa");
+    let mark = net.sent.0.len();
+    net.link("aa");
+    assert!(
+        matches!(
+            &net.sent.0[mark],
+            (
+                "aa",
+                dereth_network_protocol::Message::Hello {
+                    websocket_url: Some(_),
+                    status_url: Some(_),
+                    ..
+                }
+            )
+        ),
+        "named again on the next link"
+    );
+}
+
+/// Divergence: V451
 #[test]
 fn a_world_that_goes_away_shows_its_characters_offline_without_a_line() {
     let mut net = two_worlds(true);

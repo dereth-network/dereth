@@ -1495,6 +1495,43 @@ impl Registry {
         Ok(self.row(slug)?.map(|r| (r.metadata.name, r.federation)))
     }
 
+    /// Keeps where a browser reaches a world, as its link's `hello` named it: its WebSocket
+    /// endpoint and its status document, each in place of the last, and none clearing it. Kept in
+    /// the world's registry record (`websocketUrl`, `statusUrl`), written only when they change;
+    /// the public answers show them only while the world's link is up.
+    ///
+    /// # Errors
+    /// 404, and database errors.
+    pub fn set_web_addresses(
+        &self,
+        slug: &str,
+        websocket_url: Option<&str>,
+        status_url: Option<&str>,
+    ) -> Result<()> {
+        let row = self.row(slug)?.ok_or_else(RegistryError::not_found)?;
+        let mut registry = row.registry.clone();
+        let Some(record) = registry.as_object_mut() else {
+            return Ok(());
+        };
+        for (key, value) in [("websocketUrl", websocket_url), ("statusUrl", status_url)] {
+            match value {
+                Some(v) => {
+                    record.insert(key.to_owned(), json!(v));
+                }
+                None => {
+                    record.remove(key);
+                }
+            }
+        }
+        if registry != row.registry {
+            self.db.execute(
+                "UPDATE servers SET registry = ? WHERE id = ?",
+                params![registry.to_string(), row.id],
+            )?;
+        }
+        Ok(())
+    }
+
     /// Records a heartbeat from a world. For an observed endpoint, `source` is the address it came
     /// from, which becomes the world's address.
     ///
@@ -1624,6 +1661,8 @@ impl Registry {
             "ip": ip, "port": port, "software": software, "transport": "udp",
             "createdAt": row.created_at,
             "status": self.status(row, at),
+            "websocketUrl": row.registry["websocketUrl"],
+            "statusUrl": row.registry["statusUrl"],
             "links": {
                 "web": format!("{}/worlds/?q={}", self.site, row.slug),
                 "status": format!("{}/v1/servers/{}/status", self.public_url, row.slug),
@@ -2915,6 +2954,46 @@ mod tests {
             Err(RegistryError::conflict(
                 "The slug \"coldeve\" is already registered"
             ))
+        );
+    }
+
+    /// Spec: registry: a world's web addresses are kept in its record, each in place of the last,
+    /// none clearing it, and shown with the world; a world that never named one shows none.
+    #[test]
+    fn a_worlds_web_addresses_are_kept_replaced_and_cleared() {
+        let (_, c) = clock();
+        let r = Registry::open(":memory:", "dereth.network", c).expect("open");
+        r.register(&reg("coldeve")).expect("registered");
+        let shown = |r: &Registry| {
+            let w = r.server("coldeve").expect("read").expect("present");
+            (w["websocketUrl"].clone(), w["statusUrl"].clone())
+        };
+        assert_eq!(shown(&r), (Value::Null, Value::Null));
+        r.set_web_addresses(
+            "coldeve",
+            Some("wss://coldeve.example.org/ws"),
+            Some("https://coldeve.example.org/status"),
+        )
+        .expect("kept");
+        assert_eq!(
+            shown(&r),
+            (
+                json!("wss://coldeve.example.org/ws"),
+                json!("https://coldeve.example.org/status")
+            )
+        );
+        r.set_web_addresses("coldeve", Some("wss://coldeve.example.org/play"), None)
+            .expect("kept");
+        assert_eq!(
+            shown(&r),
+            (json!("wss://coldeve.example.org/play"), Value::Null)
+        );
+        r.set_web_addresses("coldeve", None, None).expect("cleared");
+        assert_eq!(shown(&r), (Value::Null, Value::Null));
+        assert_eq!(
+            r.set_web_addresses("frost", None, None)
+                .map_err(|e| e.status),
+            Err(404)
         );
     }
 

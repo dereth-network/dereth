@@ -197,6 +197,15 @@ pub const SECTIONS: &[Section] = &[
                  line wins. It has no authentication: keep it on loopback or a private network.",
             ),
             e(
+                "status_public_url",
+                "StatusPublicUrl",
+                "Where players reach /status from outside, for example\n\
+                 \"https://play.example.org/status\" behind a proxy. With [federation] on, the world\n\
+                 tells the Dereth Network's hub this address and the WebSocket endpoint's, so its\n\
+                 list can name both. It must be https://, or http:// on this machine. Empty tells it\n\
+                 none.",
+            ),
+            e(
                 "interactive_console",
                 "InteractiveConsole",
                 "Read console commands from standard input. Set it false when the server runs as a\n\

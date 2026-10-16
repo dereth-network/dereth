@@ -663,6 +663,12 @@ pub fn front_add_world(
         .map_err(js_err)
 }
 
+/// The URL the server the player added as `slug` was added by.
+#[wasm_bindgen(js_name = frontAddedBy)]
+pub fn front_added_by(slug: &str, url: &str) {
+    FRONT.with(|f| f.borrow_mut().added_by(slug, url));
+}
+
 /// Take a server the player added off the list.
 #[wasm_bindgen(js_name = frontRemoveWorld)]
 pub fn front_remove_world(slug: &str) {

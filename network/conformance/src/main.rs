@@ -8,8 +8,8 @@ const USAGE: &str = "\
 dereth-network-conformance -- the Dereth Network's conformance suite
 
   dereth-network-conformance vectors
-      the address, text-rule, message, challenge, directory, reach, say and rooms vectors, against
-      this build's protocol crate
+      the address, text-rule, message, challenge, directory, reach, say, rooms and web address
+      vectors, against this build's protocol crate
 
   dereth-network-conformance hub --url ws://127.0.0.1:8650 --world <slug>=<key> --world <slug>=<key>
                                  [--world <slug>=<key>] [--off <slug>=<key>] [--slow]

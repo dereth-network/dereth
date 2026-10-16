@@ -348,6 +348,7 @@ const calls = {
     return page ? JSON.parse(page) : null;
   },
   addWorld: (name, host, port, ruleset, emulator) => dereth.frontAddWorld(name, host, port, ruleset, emulator),
+  addedBy: (slug, url) => dereth.frontAddedBy(slug, url),
   removeWorld: (slug) => dereth.frontRemoveWorld(slug),
   remember: (slug, prefs) => dereth.frontRemember(slug, JSON.stringify(prefs)),
   scanSets: (known, again) => scanSets(dereth, known, again),

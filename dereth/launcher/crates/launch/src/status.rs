@@ -38,6 +38,10 @@ pub struct LiveStatus {
     /// The world's own name for itself.
     #[serde(default)]
     pub world_name: Option<String>,
+    /// The WebSocket endpoint a browser reaches the world at, when the document names one a
+    /// launcher may connect to ([`crate::direct`]).
+    #[serde(default)]
+    pub websocket_url: Option<String>,
 }
 
 /// Read a status ping's reply ([`StatusReply`]). The systems are kept by name, as far as this
@@ -129,6 +133,11 @@ pub fn parse_world_document(body: &[u8]) -> Option<LiveStatus> {
             .get("world_name")
             .and_then(Value::as_str)
             .filter(|n| !n.trim().is_empty())
+            .map(str::to_owned),
+        websocket_url: v
+            .get("websocket_url")
+            .and_then(Value::as_str)
+            .filter(|u| crate::direct::is_websocket_url(u))
             .map(str::to_owned),
     })
 }

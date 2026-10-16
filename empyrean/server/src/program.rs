@@ -179,7 +179,14 @@ pub fn main(options: &Options) -> ExitCode {
     // that does not fit, rather than run with the network silently off.
     let federation_prepared =
         match empyrean_server::federation_link::prepare(&config.federation, |p| paths.resolve(p)) {
-            Ok(prepared) => prepared,
+            Ok(prepared) => prepared.map(|mut prepared| {
+                // Where a browser reaches the world, which its hello tells the hub.
+                (
+                    prepared.settings.websocket_url,
+                    prepared.settings.status_url,
+                ) = empyrean_server::federation_link::web_addresses(&config.server);
+                prepared
+            }),
             Err(e) => {
                 log::error!("Dereth Network: {e}. Empyrean will now abort startup.");
                 return ExitCode::FAILURE;

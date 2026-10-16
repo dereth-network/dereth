@@ -202,8 +202,15 @@ impl Front {
         })
     }
 
+    /// The world shown for `slug` at `now`: the world itself, or, for a server the player added
+    /// that the list names too, the list's world.
     fn world_of(&self, slug: &str, now: u64) -> Option<World> {
-        self.shown(now).find(|w| w.slug == slug)
+        self.list.shown_as(
+            &self.state,
+            now,
+            |slug| (self.live.get(slug), self.unanswered.get(slug).copied()),
+            slug,
+        )
     }
 
     /// Every world as it is shown at `now` (seconds since the epoch), with the eras and systems
@@ -281,6 +288,12 @@ impl Front {
         self.state
             .add_custom_world(name, host, port, ruleset, Emulator::parse(emulator))
             .map_err(|e| e.to_string())
+    }
+
+    /// The URL the server the player added as `slug` was added by: its WebSocket endpoint, or its
+    /// status document. A server the list names too, by either, is shown once, as the list's world.
+    pub fn added_by(&mut self, slug: &str, url: &str) {
+        self.state.set_custom_world_url(slug, Some(url));
     }
 
     /// Take a server the player added off the list, with what was kept for it.
@@ -507,6 +520,48 @@ mod tests {
         let mut f = Front::default();
         assert_eq!(read(&mut f, true), fixture::from_the_hub());
         assert_eq!(read(&mut f, false), fixture::from_the_community());
+    }
+
+    /// The page reaches a world the hub names a WebSocket endpoint for directly, and a server the
+    /// player added by that world's status document or WebSocket endpoint is one world with it:
+    /// the list shows it once, and its page is the hub's world's.
+    #[test]
+    fn a_hub_world_with_a_websocket_is_reached_directly_and_shown_once() {
+        use dereth_launch::testing::world_list as fixture;
+        let mut f = Front::default();
+        let mut fetch = fixture::fetch(true);
+        let mut url = f.list_start(None, None);
+        while let Some(u) = url {
+            url = f.list_next(fetch(&u));
+        }
+        f.list_done(fixture::READ_AT).unwrap();
+        let direct = |f: &Front| -> Vec<(String, Option<String>)> {
+            f.worlds(fixture::READ_AT)["worlds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|w| {
+                    (
+                        w["slug"].as_str().unwrap().to_owned(),
+                        w["websocket_url"].as_str().map(str::to_owned),
+                    )
+                })
+                .collect()
+        };
+        let before = direct(&f);
+        let added = f
+            .add_world("", "ironwood.example.org", "9000", "", "unknown")
+            .unwrap();
+        f.added_by(&added, fixture::IRONWOOD_STATUS);
+        assert_eq!(direct(&f), before, "one row for Ironwood");
+        assert!(before.contains(&(
+            "ironwood".to_owned(),
+            Some(fixture::IRONWOOD_WEBSOCKET.to_owned())
+        )));
+        assert!(before.contains(&("frostfell".to_owned(), None)));
+        let page = f.world(&added, fixture::READ_AT).expect("a page");
+        assert_eq!(page["world"]["slug"], "ironwood");
+        assert_eq!(page["world"]["websocket_url"], fixture::IRONWOOD_WEBSOCKET);
     }
 
     /// A row of the hub's list: the world `name`, its status `state`, a heartbeat's counting until

@@ -1063,6 +1063,8 @@ fn a_name_holding_the_network_separator_is_banned_only_while_the_network_is_on()
             global_room: None,
             global_room_named: false,
             min_character_age_secs: 0,
+            websocket_url: None,
+            status_url: None,
         },
         empyrean_world::federation::NetworkStore::default(),
     );

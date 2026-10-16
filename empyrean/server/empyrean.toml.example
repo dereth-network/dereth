@@ -97,6 +97,14 @@ log_level = "info"
 # line wins. It has no authentication: keep it on loopback or a private network.
 status_address = ""
 
+# default: "" (Empyrean only)
+# Where players reach /status from outside, for example
+# "https://play.example.org/status" behind a proxy. With [federation] on, the world
+# tells the Dereth Network's hub this address and the WebSocket endpoint's, so its
+# list can name both. It must be https://, or http:// on this machine. Empty tells it
+# none.
+status_public_url = ""
+
 # default: true (Empyrean only)
 # Read console commands from standard input. Set it false when the server runs as a
 # service or in a container with no terminal.

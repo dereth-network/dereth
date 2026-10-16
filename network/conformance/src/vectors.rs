@@ -1,5 +1,5 @@
-//! The vectors: the address, text-rule, message, challenge, directory, reach, say and rooms
-//! examples every implementation must agree on.
+//! The vectors: the address, text-rule, message, challenge, directory, reach, say, rooms and web
+//! address examples every implementation must agree on.
 //!
 //! The JSON files in `vectors/` are the data, readable from any language; this module loads them
 //! and runs them against this repository's own protocol crate, which is how a Rust implementation
@@ -32,6 +32,8 @@ pub const REACH: &str = include_str!("../vectors/reach.json");
 pub const SAY: &str = include_str!("../vectors/say.json");
 /// `vectors/rooms.json`.
 pub const ROOMS: &str = include_str!("../vectors/rooms.json");
+/// `vectors/web.json`.
+pub const WEB: &str = include_str!("../vectors/web.json");
 
 fn parse(json: &str) -> Value {
     serde_json::from_str(json).expect("the vector files are JSON")
@@ -857,5 +859,49 @@ pub fn all() -> Vec<Check> {
     v.extend(reach());
     v.extend(say());
     v.extend(rooms());
+    v.extend(web());
     v
+}
+
+/// Every web address vector, against `dereth-network-protocol`: each `hello` reads with the
+/// addresses it names, and each URL is kept or refused by its rule.
+#[must_use]
+pub fn web() -> Vec<Check> {
+    use dereth_network_protocol::web::{is_status_url, is_websocket_url};
+    let v = parse(WEB);
+    let mut out = Vec::new();
+    for case in v["hello"].as_array().into_iter().flatten() {
+        let frame = expand(s(&case["frame"]));
+        let want = |field: &str| case["expect"][field].as_str().map(str::to_owned);
+        let result = match Message::from_json(&frame) {
+            Ok(Message::Hello {
+                websocket_url,
+                status_url,
+                ..
+            }) => {
+                let got = (websocket_url, status_url);
+                let want = (want("websocket_url"), want("status_url"));
+                (got == want)
+                    .then_some(())
+                    .ok_or_else(|| format!("{frame}: got {got:?}, want {want:?}"))
+            }
+            other => Err(format!("{frame}: read as {other:?}")),
+        };
+        out.push(Check::new("web addresses", "web.hello", result));
+    }
+    type Rule = fn(&str) -> bool;
+    let rules: [(&str, Rule); 2] = [("websocket", is_websocket_url), ("status", is_status_url)];
+    for (kind, rule) in rules {
+        for (verdict, keep) in [("kept", true), ("refused", false)] {
+            for url in v[kind][verdict].as_array().into_iter().flatten() {
+                let url = expand(s(url));
+                let result = (rule(&url) == keep)
+                    .then_some(())
+                    .ok_or_else(|| format!("{kind} {url:?} should be {verdict}"));
+                let name = if keep { "web.keep" } else { "web.refuse" };
+                out.push(Check::new("web addresses", name, result));
+            }
+        }
+    }
+    out
 }

@@ -16,6 +16,23 @@ pub fn all<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Ite
         .chain(state.custom_worlds.iter().map(|c| c.to_world()))
 }
 
+/// Whether a server the player added (`added`, as shown) is a world of the list (`listed`, as
+/// shown): one status document, or one WebSocket endpoint ([`crate::direct`]). Such a server is
+/// shown once, as the list's world.
+#[must_use]
+pub fn same_world(listed: &World, added: &World) -> bool {
+    let one = |a: &Option<String>, b: &Option<String>, same: fn(&str, &str) -> bool| matches!((a, b), (Some(a), Some(b)) if same(a, b));
+    one(
+        &listed.status_url,
+        &added.status_url,
+        crate::direct::same_status,
+    ) || one(
+        &listed.websocket_url,
+        &added.websocket_url,
+        crate::direct::same_websocket,
+    )
+}
+
 /// `w` as it is shown, with what it says of itself (`live`: its state, players, software, era,
 /// systems and files).
 ///
@@ -27,6 +44,9 @@ pub fn all<'a>(list: &'a [World], state: &'a LauncherState) -> impl Iterator<Ite
 /// Whether it is up and how many are on is the world's own word (`live`) when it has one; else
 /// the hub's from the world's heartbeat (`hub`, while it counts), for a world of the list; else
 /// whether it answered a probe (`probed`).
+///
+/// A browser reaches it at the WebSocket endpoint the hub names while the world is linked, or a
+/// server the player added at the one it was added by or its status document names.
 #[must_use]
 pub fn shown(
     mut w: World,
@@ -37,6 +57,18 @@ pub fn shown(
 ) -> World {
     // The hub speaks for the worlds it lists, never for a server the player added.
     let hub = hub.filter(|_| !state.custom_worlds.iter().any(|c| c.slug == w.slug));
+    // Where a browser reaches it: the hub's latest word, which a link coming or going since the
+    // list was read changes; else the list's own; else, for a world with none, its status
+    // document's.
+    if let Some(h) = hub {
+        w.websocket_url.clone_from(&h.websocket_url);
+        if h.status_url.is_some() {
+            w.status_url.clone_from(&h.status_url);
+        }
+    }
+    if w.websocket_url.is_none() {
+        w.websocket_url = live.and_then(|l| l.websocket_url.clone());
+    }
     if live.is_none() {
         if let Some(h) = hub {
             w.state = h.state;
@@ -158,7 +190,92 @@ mod tests {
             state,
             players,
             expires_at: 1_000,
+            websocket_url: None,
+            status_url: None,
         }
+    }
+
+    /// A browser reaches a world of the list at the WebSocket endpoint the hub's latest word
+    /// names, which may take the list's own away; a server the player added, at the one it was
+    /// added by, or its status document's; and nothing else.
+    #[test]
+    fn a_world_is_reached_directly_where_the_hub_or_its_own_status_says() {
+        let mut state = LauncherState::default();
+        let mut listed = World::new("ironwood", "Ironwood");
+        listed.websocket_url = Some("wss://ironwood.example.org/old".into());
+        let linked = HubStatus {
+            websocket_url: Some("wss://ironwood.example.org/ws".into()),
+            status_url: Some("https://ironwood.example.org/status".into()),
+            ..hub(WorldState::Online, Some(3))
+        };
+        let w = shown(listed.clone(), None, None, Some(&linked), &state);
+        assert_eq!(
+            (w.websocket_url.as_deref(), w.status_url.as_deref()),
+            (
+                Some("wss://ironwood.example.org/ws"),
+                Some("https://ironwood.example.org/status")
+            )
+        );
+        let unlinked = hub(WorldState::Online, Some(3));
+        let w = shown(listed.clone(), None, None, Some(&unlinked), &state);
+        assert_eq!(w.websocket_url, None, "the hub names none now");
+        let w = shown(listed, None, None, None, &state);
+        assert_eq!(
+            w.websocket_url.as_deref(),
+            Some("wss://ironwood.example.org/old"),
+            "without the hub's word, the list's"
+        );
+
+        let by_ws = state
+            .add_custom_world("", "play.example.org", "9000", None, Emulator::Unknown)
+            .unwrap();
+        state.set_custom_world_url(&by_ws, Some("wss://play.example.org/ws"));
+        let by_status = state
+            .add_custom_world("", "other.example.org", "9000", None, Emulator::Unknown)
+            .unwrap();
+        state.set_custom_world_url(&by_status, Some("https://other.example.org/status"));
+        let added: Vec<World> = state.custom_worlds.iter().map(|c| c.to_world()).collect();
+        let w = shown(added[0].clone(), None, None, Some(&linked), &state);
+        assert_eq!(
+            w.websocket_url.as_deref(),
+            Some("wss://play.example.org/ws"),
+            "the hub never speaks for a server the player added"
+        );
+        let w = shown(added[1].clone(), None, None, None, &state);
+        assert_eq!(
+            (w.websocket_url.as_deref(), w.status_url.as_deref()),
+            (None, Some("https://other.example.org/status"))
+        );
+        let says = LiveStatus {
+            websocket_url: Some("wss://other.example.org/ws".into()),
+            ..LiveStatus::default()
+        };
+        let w = shown(added[1].clone(), None, Some(&says), None, &state);
+        assert_eq!(
+            w.websocket_url.as_deref(),
+            Some("wss://other.example.org/ws")
+        );
+    }
+
+    /// A server the player added is a world of the list when the two name one status document or
+    /// one WebSocket endpoint, however each spells it; an address only one of them names makes
+    /// nothing one.
+    #[test]
+    fn a_server_added_is_a_listed_world_by_its_status_document_or_its_websocket() {
+        let mut listed = World::new("ironwood", "Ironwood");
+        listed.websocket_url = Some("wss://ironwood.example.org/ws".into());
+        listed.status_url = Some("https://ironwood.example.org/status".into());
+        let mut added = World::new("custom-1", "ironwood.example.org");
+        assert!(!same_world(&listed, &added));
+        added.status_url = Some("https://Ironwood.example.org/".into());
+        assert!(same_world(&listed, &added), "one status document");
+        added.status_url = Some("https://ironwood.example.org/other".into());
+        assert!(!same_world(&listed, &added));
+        added.websocket_url = Some("wss://ironwood.example.org:443/ws/".into());
+        assert!(same_world(&listed, &added), "one WebSocket endpoint");
+        listed.websocket_url = None;
+        listed.status_url = None;
+        assert!(!same_world(&listed, &added), "the list names neither");
     }
 
     /// Each step wins where the one before it says nothing: the world's own answer, then the

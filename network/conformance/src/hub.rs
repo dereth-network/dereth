@@ -429,6 +429,8 @@ impl Link {
         self.send(&Message::Hello {
             proto: PROTOCOL,
             software: "conformance suite".into(),
+            websocket_url: None,
+            status_url: None,
         })?;
         self.expect(Duration::from_secs(5), "welcome", |m| {
             matches!(m, Message::Welcome { .. }).then(|| m.clone())
@@ -570,6 +572,8 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
         l.send(&Message::Hello {
             proto: PROTOCOL + 100,
             software: "x".into(),
+            websocket_url: None,
+            status_url: None,
         })?;
         let code = l.expect(WAIT, "error", |m| match m {
             Message::Error { code, .. } => Some(code.clone()),
@@ -673,6 +677,64 @@ pub fn run(t: &HubTarget) -> Vec<Check> {
         la.close();
         Ok(())
     });
+    check(
+        "link.a_worlds_web_addresses_are_listed_only_while_its_link_is_up",
+        &mut || {
+            let listed = |slug: &str| -> Result<(serde_json::Value, serde_json::Value), String> {
+                let w =
+                    http::get(&t.base, &format!("/v1/servers/{}", http::encode(slug)))?.json()?;
+                Ok((w["websocketUrl"].clone(), w["statusUrl"].clone()))
+            };
+            let none = (serde_json::Value::Null, serde_json::Value::Null);
+            let link_naming = |ws: String, status: String| -> Result<Link, String> {
+                let mut l =
+                    Link::open(&t.base, &b, &t.worlds[1].1).map_err(|e| format!("{e:?}"))?;
+                l.send(&Message::Hello {
+                    proto: PROTOCOL,
+                    software: "conformance suite".into(),
+                    websocket_url: Some(ws),
+                    status_url: Some(status),
+                })?;
+                l.expect(WAIT, "welcome", |m| {
+                    matches!(m, Message::Welcome { .. }).then_some(())
+                })?;
+                Ok(l)
+            };
+            let ws = format!("wss://{b}.example.org/ws");
+            let status = format!("https://{b}.example.org/status");
+            let mut la = open_greeted(t, 0)?;
+            let lb = link_naming(ws.clone(), status.clone())?;
+            // This link's coming up, so that the going down awaited below is this link's.
+            la.expect(WAIT, "world up", |m| match m {
+                Message::World(w) if w.slug == b && w.online => Some(()),
+                _ => None,
+            })?;
+            let up = listed(&b)?;
+            if up != (serde_json::json!(ws), serde_json::json!(status)) {
+                return Err(format!("while its link is up: {up:?}"));
+            }
+            lb.close();
+            la.expect(WAIT, "world down", |m| match m {
+                Message::World(w) if w.slug == b && !w.online => Some(()),
+                _ => None,
+            })?;
+            let down = listed(&b)?;
+            if down != none {
+                return Err(format!("once its link is down: {down:?}"));
+            }
+            let lb = link_naming(
+                format!("ws://{b}.example.org/ws"),
+                format!("http://{b}.example.org/status"),
+            )?;
+            let plain = listed(&b)?;
+            lb.close();
+            la.close();
+            if plain != none {
+                return Err(format!("plain addresses to another machine: {plain:?}"));
+            }
+            Ok(())
+        },
+    );
     check(
         "tell.is_routed_and_answered_under_the_senders_id",
         &mut || {

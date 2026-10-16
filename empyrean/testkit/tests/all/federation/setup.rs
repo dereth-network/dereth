@@ -322,6 +322,8 @@ fn a_world_keeps_its_rooms_across_a_restart_and_starts_right_without_the_hub() {
             global_room: Some(RoomSlot::Roleplay),
             global_room_named: true,
             min_character_age_secs: 0,
+            websocket_url: None,
+            status_url: None,
         },
         store,
     );

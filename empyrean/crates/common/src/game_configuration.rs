@@ -115,6 +115,13 @@ pub struct GameConfiguration {
     #[serde(rename = "StatusAddress")]
     pub status_address: String,
 
+    /// Not ACE: the address the status endpoint's `/status` is reached at from outside
+    /// (`https://play.example.org/status`), told to the Dereth Network's hub with the WebSocket
+    /// endpoint's URL, so its list can name both. Empty tells it none.
+    /// DIVERGE: an extra key; ACE has no status endpoint.
+    #[serde(rename = "StatusPublicUrl")]
+    pub status_public_url: String,
+
     /// Not ACE: whether the server reads console commands from its standard input (default true).
     /// DIVERGE: ACE turns its console off with the environment variable `ACE_NONINTERACTIVE_CONSOLE`.
     #[serde(rename = "InteractiveConsole")]
@@ -208,6 +215,7 @@ impl Default for GameConfiguration {
             world_base_patches: Vec::new(),
             log_level: DEFAULT_LOG_LEVEL.to_owned(),
             status_address: String::new(),
+            status_public_url: String::new(),
             interactive_console: true,
             source_url: String::new(),
             update: DEFAULT_UPDATE.to_owned(),

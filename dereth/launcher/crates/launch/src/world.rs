@@ -245,6 +245,11 @@ pub struct World {
     pub reset_url: Option<String>,
     pub status_method: StatusMethod,
     pub status_url: Option<String>,
+    /// Where a browser reaches the world itself, in place of the game's UDP: its WebSocket
+    /// endpoint, as the hub's list names it while the world is linked to the hub, or as a server
+    /// the player added says ([`crate::direct`]). `None`: through `dereth-web-relay`.
+    #[serde(default)]
+    pub websocket_url: Option<String>,
     pub state: WorldState,
     pub players: Option<u32>,
     pub links: Links,

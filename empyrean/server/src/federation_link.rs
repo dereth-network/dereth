@@ -259,12 +259,54 @@ pub fn prepare(
             global_room,
             global_room_named: config.global_room.is_some(),
             min_character_age_secs: config.min_character_age_seconds,
+            websocket_url: None,
+            status_url: None,
         },
         store,
         url,
         key,
         store_path,
     }))
+}
+
+/// Where a browser reaches this world, for its `hello`: the WebSocket endpoint's URL while
+/// `[server.websocket]` serves one (the URL the status endpoint reports), and
+/// `server.status_public_url`. Each only within the network's rule (`wss://` or `https://`, or a
+/// plain one on this machine): one outside it is left out, and the log says why.
+#[must_use]
+pub fn web_addresses(
+    server: &empyrean_common::game_configuration::GameConfiguration,
+) -> (Option<String>, Option<String>) {
+    use dereth_network_protocol::web::{is_status_url, is_websocket_url};
+    let ws = &server.web_socket;
+    let websocket = ws
+        .enabled
+        .then(|| ws.validate().ok().map(|(listen, tls)| ws.url(listen, tls)))
+        .flatten()
+        .filter(|url| {
+            let ok = is_websocket_url(url);
+            if !ok {
+                log::warn!(
+                    "Dereth Network: the hub is not told the WebSocket endpoint {url:?}: it must be \
+                     wss://, or ws:// on this machine (server.websocket.public_url names it)"
+                );
+            }
+            ok
+        });
+    let status = Some(server.status_public_url.trim())
+        .filter(|url| !url.is_empty())
+        .filter(|url| {
+            let ok = is_status_url(url);
+            if !ok {
+                log::warn!(
+                    "Dereth Network: the hub is not told server.status_public_url {url:?}: it \
+                     must be https://, or http:// on this machine"
+                );
+            }
+            ok
+        })
+        .map(str::to_owned);
+    (websocket, status)
 }
 
 /// `federation.global_room`: the room the world carries the Global room in until its hub keeps
@@ -853,6 +895,46 @@ fn carry(
 mod tests {
     use super::*;
 
+    /// Divergence: V451
+    /// A world tells the hub its WebSocket endpoint while it serves one, as the status endpoint
+    /// reports it, and its status document's public address, each only as `wss://` or
+    /// `https://`, or a plain one on this machine.
+    #[test]
+    fn the_hub_is_told_the_websocket_endpoint_and_the_public_status_address() {
+        use empyrean_common::game_configuration::GameConfiguration;
+        let mut server = GameConfiguration::default();
+        assert_eq!(web_addresses(&server), (None, None), "neither is on");
+        server.web_socket.enabled = true;
+        server.web_socket.listen = "127.0.0.1:9180".into();
+        server.status_public_url = "http://127.0.0.1:9100/status".into();
+        assert_eq!(
+            web_addresses(&server),
+            (
+                Some("ws://127.0.0.1:9180/".into()),
+                Some("http://127.0.0.1:9100/status".into())
+            )
+        );
+        server.web_socket.listen = "10.0.0.5:9180".into();
+        server.web_socket.behind_tls_proxy = true;
+        server.status_public_url = "http://play.example.org/status".into();
+        assert_eq!(
+            web_addresses(&server),
+            (None, None),
+            "plain addresses to another machine are not told"
+        );
+        server.web_socket.public_url = "wss://play.example.org/ws".into();
+        server.status_public_url = " https://play.example.org/status ".into();
+        assert_eq!(
+            web_addresses(&server),
+            (
+                Some("wss://play.example.org/ws".into()),
+                Some("https://play.example.org/status".into())
+            )
+        );
+        server.web_socket.enabled = false;
+        assert_eq!(web_addresses(&server).0, None, "the endpoint is off");
+    }
+
     /// A hub on loopback that challenges quickly, and a world `slug` an operator registered on it
     /// at `port` of 127.0.0.1: the hub, the world's key and its token.
     fn hub_with_world(
@@ -979,6 +1061,8 @@ mod tests {
                 global_room: None,
                 global_room_named: false,
                 min_character_age_secs: 0,
+                websocket_url: None,
+                status_url: None,
             },
             NetworkStore::default(),
         );
@@ -1292,6 +1376,8 @@ mod tests {
                 global_room: None,
                 global_room_named: false,
                 min_character_age_secs: 0,
+                websocket_url: None,
+                status_url: None,
             },
             store: NetworkStore::default(),
             url: HubUrl::parse(&format!("ws://127.0.0.1:{port}")).expect("a loopback hub"),
