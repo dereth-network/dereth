@@ -138,7 +138,7 @@ fn assert_at_the_fire(scene: &SimWorld, when: &str) -> usize {
     for p in &particles {
         let (dx, dy) = (p.x - at.x, p.y - at.y);
         assert!(
-            dx.hypot(dy) < NEAR,
+            dereth_primitives::num::math::hypotf(dx, dy) < NEAR,
             "{when}: a particle is drawn at {p:?}, ({:.2}, {:.2}) landblocks from the campfire at \
              {at:?}",
             dx / BLOCK,

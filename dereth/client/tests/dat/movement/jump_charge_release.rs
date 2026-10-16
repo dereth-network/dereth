@@ -144,6 +144,8 @@ fn next_manual_move_and_release(app: &mut App, time: u32) {
     // without any loss of control. Wait for that transition instead: the budget is every
     // current node's full frame range (one cycle included) at its own rate, doubled for the
     // 30 Hz physics gate, plus ten settled frames.
+    // A few seconds of frames: a small, positive count.
+    #[allow(clippy::cast_possible_truncation)]
     let (budget, station) = {
         let d = body(app).driver();
         let seconds: f64 = d
@@ -861,7 +863,7 @@ fn accepted_server_loss_cancels_but_bare_teleport_does_not_invent_finish_jump() 
     space(&mut app, false, 604_001);
     frames(&mut app, 2);
     assert!(!body(&app).on_ground());
-    let success = app.probe().last_jump_request().unwrap().clone();
+    let success = *app.probe().last_jump_request().unwrap();
     space(&mut app, true, 604_050);
     frames(&mut app, 1);
     assert!(
@@ -1136,11 +1138,10 @@ fn real_space_press_charges_without_launching_and_release_jumps() {
         .as_ref()
         .unwrap()
         .on_ground());
-    let request = app
+    let request = *app
         .probe()
         .last_jump_request()
-        .expect("actual successful release packet")
-        .clone();
+        .expect("actual successful release packet");
     assert_eq!(
         request.0.extent.to_bits(),
         0.3_f32.to_bits(),

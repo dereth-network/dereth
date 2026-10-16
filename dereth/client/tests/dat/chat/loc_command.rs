@@ -26,7 +26,7 @@ fn holtburg() -> Position {
         CellId(0xA9B4_002A),
         Frame::new(
             Vec3 {
-                x: 133.168_503,
+                x: 133.168_5,
                 y: 27.490_582,
                 z: 94.005_005,
             },

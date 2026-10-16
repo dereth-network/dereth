@@ -172,11 +172,11 @@ pub(super) fn the_gauge_keys_step_by_a_sixth_in_both_modes() {
         let mut now = 100.0;
         both_modes_hold &= (bench.world().combat.ui_requested_power - 0.5).abs() < 1e-6;
 
-        let mut step = |a: u32,
-                        bench: &mut keys::Bench,
-                        shell: &mut dereth_client_shell::input::InputShell,
-                        d: &mut maps::Driver,
-                        now: &mut f64| {
+        let step = |a: u32,
+                    bench: &mut keys::Bench,
+                    shell: &mut dereth_client_shell::input::InputShell,
+                    d: &mut maps::Driver,
+                    now: &mut f64| {
             let qc = maps::the_shipped_control(shell, imap.0, a);
             let (down, _) = d.press_release(shell, &qc);
             assert!(

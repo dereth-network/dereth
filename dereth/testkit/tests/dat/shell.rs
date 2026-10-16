@@ -525,8 +525,7 @@ fn the_shipped_keymap_binds_use_to_r_and_the_step_presses_it() {
 
 use dereth_chargen::Attr;
 use dereth_ui_screens::screens::chargen::{
-    EcgProgress, ATTRIBUTE_SLIDERS, FINISH_BUTTON, LEFT_BUTTON, RIGHT_BUTTON, STATE_TAB_OFF,
-    STATE_TAB_ON,
+    EcgProgress, ATTRIBUTE_SLIDERS, FINISH_BUTTON, RIGHT_BUTTON, STATE_TAB_OFF, STATE_TAB_ON,
 };
 
 use dereth_chargen::{CharGenRng, CharGenState, HERITAGE_OLTHOI, HERITAGE_OLTHOI_ACID};

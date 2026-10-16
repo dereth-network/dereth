@@ -164,6 +164,8 @@ const ROWS: usize = 20;
 /// `21 * 16 = 336` px tall, not `20 * 16 = 320`. `dereth_ui::text::glyph::wrap` has that arm, and
 /// text layout sums every stored line's height, so the extra row is in the extent the layout
 /// publishes.
+// Twenty rows: an i32 holds them.
+#[allow(clippy::cast_possible_truncation)]
 const LINES: i32 = ROWS as i32 + 1;
 
 /// The scroll clamp: content less view, and no further.
@@ -346,10 +348,12 @@ fn a_wheel_click_over_a_chat_log_scrolls_it_by_one_line() {
         (0, LINE * 2),
         "each click is one step, and it does not grow"
     );
-    assert!(
-        LINE < 100,
-        "a line, not the 100 px view a track click pages by"
-    );
+    const {
+        assert!(
+            LINE < 100,
+            "a line, not the 100 px view a track click pages by"
+        );
+    }
 
     // And back, exactly.
     ui.mouse_down(action::WHEEL_UP, 100, 50);

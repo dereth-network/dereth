@@ -192,6 +192,8 @@ fn the_endpoint_receives_the_waves_amplitude_times_the_rows_own_volume() {
     // to -19 and predicts a sound 1 dB too loud. This constant is the oracle, written out
     // independently rather than called out of the code under test.
     const DB_PER_OCTAVE: f64 = 6.0206;
+    // A gain of a few decibels either side of one: an f32 holds it.
+    #[allow(clippy::cast_possible_truncation)]
     let expected: Vec<f32> = rows
         .iter()
         .map(|r| {

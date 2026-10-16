@@ -376,8 +376,11 @@ fn find(app: &App, id: ElementId) -> ElemHandle {
         .unwrap_or_else(|| panic!("{id:?} is in the shipped layout"))
 }
 
+/// A window's name, its position and its size.
+type WindowRect = (&'static str, (i32, i32), (i32, i32));
+
 /// Every one of the sixteen windows' live rectangle, in file order.
-fn rects(app: &App) -> Vec<(&'static str, (i32, i32), (i32, i32))> {
+fn rects(app: &App) -> Vec<WindowRect> {
     let shell = app.ui().expect("shell");
     dereth_ui::persist::WINDOWS
         .iter()
@@ -421,7 +424,7 @@ fn a_moved_panel_survives_a_save_an_exit_and_a_reload_through_the_automatic_file
     let _ = std::fs::remove_file(&expected_path);
 
     // ---- half one: move a window, save, and drop the application ---------------------------
-    let moved: Vec<(&'static str, (i32, i32), (i32, i32))>;
+    let moved: Vec<WindowRect>;
     {
         let mut app = app_in_gameplay(4, TEST);
         // A missing file is a normal unsuccessful load, not an I/O failure. Check that the

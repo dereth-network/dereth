@@ -148,7 +148,7 @@ fn no_academy_cell_surface_can_paint_the_indoor_grey() {
         }
         match textures.bgra8(did) {
             Ok(img) => {
-                if img.pixels.iter().any(|p| is_d0(p)) {
+                if img.pixels.iter().any(is_d0) {
                     culprits.push(format!("{id:08X} texel"));
                 }
             }

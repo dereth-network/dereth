@@ -79,15 +79,6 @@ fn a_pile(n: u16) -> PublicWeenieDesc {
     }
 }
 
-/// Every line the world has waiting, with the channel it went out on.
-fn lines(w: &World) -> Vec<(u32, String)> {
-    w.scroll
-        .pending()
-        .iter()
-        .map(|f| (f.chat_type, f.body.clone()))
-        .collect()
-}
-
 // -----------------------------------------------------------------------------------------
 // The decision: what a use on a loose thing does that a use on anything else does not.
 // -----------------------------------------------------------------------------------------

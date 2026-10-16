@@ -239,7 +239,7 @@ pub(super) fn a_move_request_ghosts_its_own_item_at_once() {
 
     c.assert_behaviour(
         "inventory.pack.a-request-the-player-made-ghosts-its-own-item-at-once",
-        { move |_| starts_clear && gate_live && ghosted_now && cleared },
+        move |_| starts_clear && gate_live && ghosted_now && cleared,
     );
     c.shutdown();
 }
@@ -287,7 +287,7 @@ pub(super) fn the_grid_follows_the_containers_own_capacity() {
 
     c.assert_behaviour(
         "inventory.pack.the-grid-draws-as-many-slots-as-the-container-can-hold",
-        { move |_| gate_live && widened },
+        move |_| gate_live && widened,
     );
     c.shutdown();
 }
@@ -751,7 +751,7 @@ pub(super) fn the_eighteen_tiles_fill_and_hold_still() {
 
     c.assert_behaviour(
         "shortcut.bar.the-eighteen-tiles-fill-and-an-unchanged-frame-redraws-nothing",
-        { move |_| found && filled && gate_live && not_welded },
+        move |_| found && filled && gate_live && not_welded,
     );
     c.shutdown();
 }
@@ -836,7 +836,7 @@ pub(super) fn a_tile_follows_every_thing_it_draws() {
 
     c.assert_behaviour(
         "shortcut.bar.a-tile-is-redrawn-when-anything-it-draws-about-its-item-changes",
-        { move |_| gate_live && singular && count_moved && plain && overlay_moved && name_moved },
+        move |_| gate_live && singular && count_moved && plain && overlay_moved && name_moved,
     );
     c.shutdown();
 }

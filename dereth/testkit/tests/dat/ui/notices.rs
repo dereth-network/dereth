@@ -68,8 +68,8 @@ pub(super) fn the_notice_bubble_clears_itself() {
 
     c.assert_behaviour("notice.bubble.clears-itself-after-five-seconds", move |v| {
         up == vec![want.clone()]
-            && drawn.iter().any(|t| *t == want)
-            && still_there.iter().any(|t| *t == want)
+            && drawn.contains(&want)
+            && still_there.contains(&want)
             && gone
             && v.expect_app().hud().panels.spew.model.items.is_empty()
     });

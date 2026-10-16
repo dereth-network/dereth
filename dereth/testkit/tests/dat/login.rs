@@ -719,7 +719,7 @@ pub fn every_front_end_follows_one_game_flow() {
     );
 
     // The retail wizard, with no server: the screen is up, so the phase is creation.
-    let mut c = HeadlessClient::new(ClientSpec::screen(dereth_ui::framework::mode::CHAR_GEN, 3));
+    let c = HeadlessClient::new(ClientSpec::screen(dereth_ui::framework::mode::CHAR_GEN, 3));
     let phase = c.view().expect_app().host_state().phase.clone();
     c.shutdown();
     assert_eq!(phase, GamePhase::CharacterCreation);

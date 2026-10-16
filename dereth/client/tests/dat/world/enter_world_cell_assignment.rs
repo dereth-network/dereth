@@ -19,6 +19,8 @@ use dereth_world_data::landblock::load_region;
 const HOLTBURG: u16 = 0xA9B4;
 /// The **outdoor** landcell a Holtburg house's front doorway falls in.
 const OUTDOOR: u32 = 0xA9B4_0029;
+/// A quarter turn, written to six places as it was placed: not the exact constant's bits.
+#[allow(clippy::approx_constant)]
 const ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
 
 fn world() -> (Arc<DatLandSource>, PhysicsWorld) {
@@ -71,18 +73,13 @@ fn enter_world_keeps_outdoor_points_and_refuses_points_inside_a_building() {
     // Bare terrain, well clear of the house: the control. Nothing may refuse this.
     let open = enter(&mut w, 1, OUTDOOR, Vec3::new(133.00, 5.15, 94.20));
     // The west face of doorway cell `0xA9B40145`, still outside the shell.
-    let doorway = enter(
-        &mut w,
-        2,
-        OUTDOOR,
-        Vec3::new(136.289_993, 5.155, 94.082_001),
-    );
+    let doorway = enter(&mut w, 2, OUTDOOR, Vec3::new(136.29, 5.155, 94.082));
     // About 0.61 m farther east, inside the doorway shell for this station.
-    let inner = enter(&mut w, 3, OUTDOOR, Vec3::new(136.90, 5.155, 94.082_001));
+    let inner = enter(&mut w, 3, OUTDOOR, Vec3::new(136.90, 5.155, 94.082));
     // Inner-room point 0xA9B40143, also used by gpu/world/unplaceable_object_lifetime.rs.
-    let room = enter(&mut w, 4, OUTDOOR, Vec3::new(138.60, 7.00, 94.082_001));
+    let room = enter(&mut w, 4, OUTDOOR, Vec3::new(138.60, 7.00, 94.082));
     // The same room point, carrying the cell that contains it.
-    let interior = enter(&mut w, 5, 0xA9B4_0143, Vec3::new(138.60, 7.00, 94.082_001));
+    let interior = enter(&mut w, 5, 0xA9B4_0143, Vec3::new(138.60, 7.00, 94.082));
 
     // **The premises.** An instrument that refuses everything reports the same "NONE" as one
     // pointed at a building, so the two positions that must succeed are asserted first.

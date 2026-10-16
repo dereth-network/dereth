@@ -164,7 +164,7 @@ fn data_msg(id: DataId, payload: &[u8], version: u32, iteration: u32) -> DddData
         iteration,
         compressed: 0,
         version,
-        data_size: payload.len() as u32 + 4,
+        data_size: dword_len(payload.len()) + 4,
         data: payload.to_vec(),
     }
 }
@@ -172,7 +172,7 @@ fn data_msg(id: DataId, payload: &[u8], version: u32, iteration: u32) -> DddData
 /// The same, compressed: `[u32 uncompressed_length][zlib stream]`, which is
 /// `DDDManager.PrependUncompressedFileSize(Compress(buffer), fileSize)`.
 fn compressed_msg(id: DataId, uncompressed_len: usize, zlib: &[u8], version: u32) -> DddData {
-    let mut data = (uncompressed_len as u32).to_le_bytes().to_vec();
+    let mut data = dword_len(uncompressed_len).to_le_bytes().to_vec();
     data.extend_from_slice(zlib);
     DddData {
         dat_file_type: 1,
@@ -182,7 +182,7 @@ fn compressed_msg(id: DataId, uncompressed_len: usize, zlib: &[u8], version: u32
         iteration: 0,
         compressed: 1,
         version,
-        data_size: data.len() as u32 + 4,
+        data_size: dword_len(data.len()) + 4,
         data,
     }
 }
@@ -203,9 +203,16 @@ fn begin(iteration: u32, download: &[u32], expected: u32) -> DddBeginDdd {
     }
 }
 
+/// A length as the dword the wire carries it in.
+fn dword_len(n: usize) -> u32 {
+    u32::try_from(n).expect("a test payload's length fits a dword")
+}
+
 /// A deterministic payload, deliberately not a valid `StringTable` payload: the container stores
 /// bytes and decoding is a separate concern, so this suite asserts byte-exactness and leaves
 /// decoding to the crate that owns it.
+// The pattern repeats every 256 bytes: the index is cut to a byte on purpose.
+#[allow(clippy::cast_possible_truncation)]
 fn payload(seed: u8, n: usize) -> Vec<u8> {
     (0..n)
         .map(|i| (i as u8).wrapping_mul(37).wrapping_add(seed))
@@ -646,7 +653,7 @@ fn a_whole_exchange_records_its_iteration_and_asks_to_end() {
 
     p.on_interrogation();
     let body = payload(0xC3, 2048);
-    let (_, action) = p.on_begin(&begin(next, &[NEW_STRING.raw()], body.len() as u32));
+    let (_, action) = p.on_begin(&begin(next, &[NEW_STRING.raw()], dword_len(body.len())));
     assert!(!action.send_end);
     assert_eq!(p.phase(), DddPhase::Patching);
 
@@ -1024,7 +1031,7 @@ fn the_wire_bytes_decode_to_the_event_the_patcher_applies() {
     }
     want.push(0);
     want.extend_from_slice(&3u32.to_le_bytes());
-    want.extend_from_slice(&(body.len() as u32 + 4).to_le_bytes());
+    want.extend_from_slice(&(dword_len(body.len()) + 4).to_le_bytes());
     want.extend_from_slice(&body);
     assert_eq!(
         blob, want,
@@ -1365,7 +1372,7 @@ fn manifest(
                 .map(|(id, b)| OverlayRecord {
                     id: id.raw(),
                     iteration,
-                    size: b.len() as u32,
+                    size: dword_len(b.len()),
                     sha256: dereth_dat::overlay::record_hash(b),
                 })
                 .collect(),

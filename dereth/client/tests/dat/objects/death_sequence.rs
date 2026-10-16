@@ -487,7 +487,7 @@ impl Station {
                 if self.dense > 0 {
                     self.dense -= 1;
                     self.app.frame();
-                } else if i % 24 == 0 {
+                } else if i.is_multiple_of(24) {
                     self.app.frame();
                 }
                 continue;
@@ -561,7 +561,7 @@ impl Station {
     }
 
     /// Put the flow on the gameplay screen, where every drawn assertion below is made.
-    fn into_gameplay(&mut self) {
+    fn enter_gameplay(&mut self) {
         self.app.queue_ui_mode(mode::GAME_PLAY);
         for _ in 0..16 {
             self.app.frame();
@@ -802,7 +802,7 @@ fn the_recorded_death_is_the_bytes_this_station_replays() {
         .map(|at9| f32::from_le_bytes(at(9).bytes[at9 + 56..at9 + 60].try_into().expect("4")));
     assert_eq!(
         login_vitae,
-        Some(0.949_999_99),
+        Some(0.95),
         "`0x0013` blob 9 carries spell 666 at 0.95 -- an earlier death, off camera"
     );
     assert!(
@@ -1181,7 +1181,7 @@ fn the_death_sequence_from_the_fight_to_the_vitae_wearing_off() {
         vec![IDX_LOG_ON_1],
         "the client's own `0xF7C8`, at its own position"
     );
-    s.into_gameplay();
+    s.enter_gameplay();
     assert_eq!(
         s.app.objects().world.player,
         Some(VICTIM),
@@ -1279,7 +1279,7 @@ fn the_death_sequence_from_the_fight_to_the_vitae_wearing_off() {
     // stat-mod value.
     assert_eq!(
         s.vitae(),
-        Some(0.949_999_99),
+        Some(0.95),
         "the vitae reader returns the `0x0013`'s own `_vitae` slot"
     );
     assert_ne!(
@@ -1614,7 +1614,7 @@ fn the_death_sequence_from_the_fight_to_the_vitae_wearing_off() {
 fn neither_corpse_is_ever_a_radar_blip() {
     let mut s = Station::new();
     s.feed_to(IDX_LOG_ON_1 + 20);
-    s.into_gameplay();
+    s.enter_gameplay();
     s.feed_to(IDX_CORPSE_CREATE);
     s.settle(6);
     let entry = |s: &Station, id: ObjectId| {

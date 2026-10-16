@@ -331,7 +331,7 @@ fn conversion_journey(code_page: u32, input: &str, native: &[u8], room_text: &st
         .collect();
     want.extend(u16::try_from(native.len()).expect("short").to_le_bytes());
     want.extend(native);
-    while want.len() % 4 != 0 {
+    while !want.len().is_multiple_of(4) {
         want.push(0);
     }
     let framed = wire.payload == want && (wire.queue, wire.ordered) == (NetQueue::Weenie, true);

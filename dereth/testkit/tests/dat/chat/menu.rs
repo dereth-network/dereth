@@ -725,7 +725,7 @@ pub fn the_selection_field_follows_what_is_picked_and_clears() {
         w.pwd.obj_type = 1;
         c.world_mut().tables.weenies.insert(id, w);
     }
-    let mut choose = |c: &mut HeadlessClient, id: Option<ObjectId>| {
+    let choose = |c: &mut HeadlessClient, id: Option<ObjectId>| {
         c.world_mut().set_selected_object(
             id,
             false,

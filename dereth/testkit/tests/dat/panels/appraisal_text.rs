@@ -642,11 +642,8 @@ pub(super) fn a_failed_assessment_draws_every_value_cell_in_the_unknown_colour()
 
     let succeeded = base.success_flag != 0;
     // The recording's own answer: all nine stats enchanted and all nine raised.
-    let recorded_bits = base
-        .creature_profile
-        .clone()
-        .and_then(|p| p.enchantment_bitfield)
-        == Some(0x01FF_01FF);
+    let recorded_bits =
+        base.creature_profile.and_then(|p| p.enchantment_bitfield) == Some(0x01FF_01FF);
     let all_raised = creature_row_colors(&mut c) == vec![examination::MOD_HIGH_FONT; 9];
     let raised = palette[usize::from(examination::MOD_HIGH_FONT)];
     let unknown = palette[usize::from(examination::UNKNOWN_FONT)];
@@ -691,7 +688,6 @@ pub(super) fn a_failed_assessment_keeps_the_numbers_and_reduces_health_to_a_perc
     let (mut c, mut peer, base) = assessing_the_recorded(ARMOUR_SESSION, APPRAISED_PLAYER);
     let creature = base
         .creature_profile
-        .clone()
         .expect("the recorded answer carries a creature");
     let described = creature.attributes.is_some();
 

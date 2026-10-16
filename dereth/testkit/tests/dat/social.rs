@@ -1609,8 +1609,7 @@ pub fn every_typed_allegiance_command_sends_its_own_message() {
     ];
 
     let mut every_line_holds = true;
-    let mut stamp = 1_u32;
-    for (line, want, body) in &cases {
+    for (stamp, (line, want, body)) in (1_u32..).zip(&cases) {
         let (unimplemented, refused, lines) = {
             let s = &c.view().expect_app().interaction().stats;
             (
@@ -1641,7 +1640,6 @@ pub fn every_typed_allegiance_command_sends_its_own_message() {
             .expect("one datagram per request");
         let framed = (packet.queue, packet.ordered) == (dereth_primitives::NetQueue::Weenie, true)
             && packet.payload == action(stamp, opcode_of(want), body);
-        stamp += 1;
 
         c.tick(1);
         let not_repeated = c.view().expect_app().interaction().last_sent.is_empty();

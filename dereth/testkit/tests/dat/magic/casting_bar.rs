@@ -68,13 +68,12 @@ pub fn the_instructions_move_the_selection_and_the_cast_keys_cast() {
     let view = bar::StubView::with_spells(vec![101, 202, 303]);
     p.update(&mut ui, &view);
     let tab = p.spellcasting.open_sub_menu_index(&ui);
-    let mut tell =
-        |n: MagicNotice,
-         ui: &mut dereth_ui::UiSystem,
-         p: &mut dereth_ui_screens::panels::remaining::RemainingPanels| {
-            let moved = p.spellcasting.recv_magic_notice(ui, n, &view);
-            (moved, p.spellcasting.sub_menus[tab].selected_spell)
-        };
+    let tell = |n: MagicNotice,
+                ui: &mut dereth_ui::UiSystem,
+                p: &mut dereth_ui_screens::panels::remaining::RemainingPanels| {
+        let moved = p.spellcasting.recv_magic_notice(ui, n, &view);
+        (moved, p.spellcasting.sub_menus[tab].selected_spell)
+    };
 
     let nothing_at_first = p.spellcasting.sub_menus[tab].selected_spell == 0;
     let first = tell(MagicNotice::NextSpellSelection, &mut ui, &mut p) == (true, 101);

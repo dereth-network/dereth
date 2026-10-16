@@ -1145,7 +1145,7 @@ fn actual_app_prepares_a_same_batch_new_target_and_its_bounds_before_move_to_obj
         // what it last sent. What must survive the later frames is the subscription and the
         // approach, and the one update sent when it was registered.
         assert!(
-            c.stats.target_updates >= updates + 1,
+            c.stats.target_updates > updates,
             "the new target subscription must be fed its first update"
         );
         assert_eq!(

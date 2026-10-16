@@ -42,7 +42,6 @@ fn outline_property_types(s: &dereth_dat::RetailDatStore) -> dereth_assets::ui::
 /// is current and missing one would undercount -- which reads exactly like the census being right.
 fn outline_census(s: &dereth_dat::RetailDatStore) -> Vec<(dereth_primitives::DataId, u32, bool)> {
     use dereth_assets::ui::{ElementDesc, LayoutDesc, PropertyValue};
-    use dereth_assets::Decode as _;
     use dereth_primitives::AssetSource as _;
 
     fn walk(e: &ElementDesc, out: &mut Vec<(u32, bool)>) {
@@ -94,7 +93,6 @@ fn outline_census(s: &dereth_dat::RetailDatStore) -> Vec<(dereth_primitives::Dat
 /// an oracle rather than a restatement of the thing under test.
 fn resolved_outlines(s: &dereth_dat::RetailDatStore) -> std::collections::BTreeMap<u32, bool> {
     use dereth_assets::ui::{ElementDesc, LayoutDesc, PropertyValue};
-    use dereth_assets::Decode as _;
     use dereth_primitives::{AssetSource as _, DataId};
 
     let types = outline_property_types(s);
@@ -195,7 +193,6 @@ fn resolved_outlines(s: &dereth_dat::RetailDatStore) -> std::collections::BTreeM
 /// Build every shipped layout and record, per element, whether what it drew carried an outline.
 fn drawn_outlines(s: &dereth_dat::RetailDatStore) -> std::collections::BTreeMap<u32, Option<u32>> {
     use dereth_assets::ui::LayoutDesc;
-    use dereth_assets::Decode as _;
     use dereth_primitives::AssetSource as _;
 
     let types = outline_property_types(s);

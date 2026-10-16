@@ -396,7 +396,7 @@ fn merge_keys_for_every_retail_cell_are_four_rotations_of_one_pattern() {
     }
     assert!(cells > 0, "checked {cells} cells");
     assert!(
-        unique.len() > 0,
+        !unique.is_empty(),
         "the world uses {} distinct merge keys",
         unique.len()
     );
@@ -440,7 +440,7 @@ fn get_terrain_over_the_whole_world_never_emits_the_forbidden_mask() {
             *seen_codes.entry(c).or_default() += 1;
         }
     }
-    assert!(keys.len() > 0, "{} distinct keys", keys.len());
+    assert!(!keys.is_empty(), "{} distinct keys", keys.len());
     // The world exercises both corner and side masks; if only one kind appeared the two alpha
     // tables would never both be reached.
     assert!(

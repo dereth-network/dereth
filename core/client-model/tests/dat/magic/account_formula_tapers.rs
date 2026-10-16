@@ -133,7 +133,7 @@ fn the_shipped_table_carries_these_formulas_and_has_no_holed_one() {
         *versions.entry(b.formula_version).or_default() += 1;
         let d = dat_slots(b);
         let n = num_spell_components(&d);
-        if d[..n].iter().any(|c| *c == 0) {
+        if d[..n].contains(&0) {
             holed.push(*id);
         }
         // ACE's `SpellBase.cs:136` clamps a decrypted component above 198 with `& 0xFF`; the

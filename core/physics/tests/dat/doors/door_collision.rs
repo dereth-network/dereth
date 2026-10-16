@@ -827,7 +827,8 @@ fn the_head_on_collapse_is_symmetric_and_is_the_narrowest_region_left() {
     );
     // And one step off the normal, the same door stops the body cleanly on both faces. This is
     // the contrast that makes the collapse worth a pin rather than a footnote.
-    for deg in [10.0f32] {
+    {
+        let deg = 10.0f32;
         let of = profile_at(&s, 1.0, lateral, deg);
         let ob = profile_at(&s, -1.0, lateral, deg);
         assert!(

@@ -342,29 +342,6 @@ pub struct StubView {
     pub bar: Option<CombatBar>,
 }
 
-impl StubView {
-    pub fn with_spells(spells: Vec<u32>) -> Self {
-        let spell_entries = spells
-            .iter()
-            .map(|id| SpellEntry {
-                id: *id,
-                name: format!("Spell {id}"),
-                icon: Some(DataId(0x0600_13A5)),
-                school: 4,
-                level: 1,
-                icon_power: 1,
-                display_order: i32::try_from(*id).expect("a small id"),
-                bitfield: 0,
-            })
-            .collect();
-        Self {
-            spells,
-            spell_entries,
-            ..Self::default()
-        }
-    }
-}
-
 impl GameView for StubView {
     fn spellbook(&self) -> &[SpellEntry] {
         &self.spell_entries

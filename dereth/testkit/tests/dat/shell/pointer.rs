@@ -140,8 +140,7 @@ pub(super) fn the_same_box_still_answers_a_click_and_so_does_the_bar() {
                     .downcast_ref::<dereth_ui::widgets::listbox::ListBox>()
             })
             .expect("the option list is a list box")
-            .scroll
-            .clone();
+            .scroll;
         s.scrollbar(ui, list, false)
             .expect("the option list names a vertical bar")
     });

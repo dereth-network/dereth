@@ -166,7 +166,8 @@ fn numerals(c: &mut HeadlessClient, item: ObjectId) -> Vec<(i32, bool, Option<Da
 pub(super) fn an_assigned_thing_draws_its_slot_number_wherever_its_picture_appears() {
     let mut c = a_client_with_shortcuts();
 
-    let mut seen: Vec<(ObjectId, i32, Vec<(i32, bool, Option<DataId>)>)> = Vec::new();
+    type Tiles = Vec<(i32, bool, Option<DataId>)>;
+    let mut seen: Vec<(ObjectId, i32, Tiles)> = Vec::new();
     for (item, slot) in [(NUM_ROCK, 0), (WORN_SHIRT, 3), (NUM_PACK, 6)] {
         let tiles = numerals(&mut c, item);
         assert!(

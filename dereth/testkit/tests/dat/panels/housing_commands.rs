@@ -301,10 +301,9 @@ pub(super) fn every_house_sub_command_that_sends_puts_its_own_message_on_the_wir
     let mut session = dereth_client_net::client_session::Session::new(
         dereth_client_net::client_session::testing::MockTransport::new(),
     );
-    let mut stamp = 1_u32;
     let mut every_line_holds = true;
 
-    for (line, want, body) in &cases {
+    for (stamp, (line, want, body)) in (1_u32..).zip(&cases) {
         let unimplemented = c.view().interaction().stats.chat_commands_unimplemented;
         let refused = c.view().interaction().stats.chat_commands_refused;
         let before = c.view().outbound().len();
@@ -329,7 +328,6 @@ pub(super) fn every_house_sub_command_that_sends_puts_its_own_message_on_the_wir
             (packet.queue, packet.ordered) == (dereth_primitives::NetQueue::Weenie, true);
         every_line_holds &=
             packet.payload == house_action_bytes(stamp, house_opcode_of(want), body);
-        stamp += 1;
     }
 
     // The census: every opcode this ladder can reach without a question first. The one that is
@@ -507,7 +505,7 @@ fn guest_table_body(guests: &[(u32, i32, &str)]) -> Vec<u8> {
         b.extend_from_slice(&house_pstr(name));
     }
     b.extend_from_slice(&0_u32.to_le_bytes()); // an empty roommate list
-    while b.len() % 4 != 0 {
+    while !b.len().is_multiple_of(4) {
         b.push(0);
     }
     b

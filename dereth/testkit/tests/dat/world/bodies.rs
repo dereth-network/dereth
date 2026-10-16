@@ -107,6 +107,8 @@ pub fn enter_world_refuses_a_body_inside_a_building() {
     const OUTDOOR: u32 = 0xA9B4_0029;
     /// A room of the house.
     const ROOM: u32 = 0xA9B4_0143;
+    /// A quarter turn, written to six places as it was placed: not the exact constant's bits.
+    #[allow(clippy::approx_constant)]
     const ROT: Quat = Quat::new(0.707_107, 0.0, 0.0, -0.707_107);
 
     let mut c = HeadlessClient::new(ClientSpec::retail());
@@ -138,13 +140,13 @@ pub fn enter_world_refuses_a_body_inside_a_building() {
             // Bare terrain, well clear of the house: nothing may refuse this.
             let open = enter(1, OUTDOOR, Vec3::new(133.00, 5.15, 94.20));
             // The doorway's outer face: still outside the shell.
-            let doorway = enter(2, OUTDOOR, Vec3::new(136.289_993, 5.155, 94.082_001));
+            let doorway = enter(2, OUTDOOR, Vec3::new(136.29, 5.155, 94.082));
             // Half a metre further in: inside the shell, carrying the outdoor cell.
-            let inner = enter(3, OUTDOOR, Vec3::new(136.90, 5.155, 94.082_001));
+            let inner = enter(3, OUTDOOR, Vec3::new(136.90, 5.155, 94.082));
             // Two metres into the room, still carrying the outdoor cell.
-            let room_as_outdoor = enter(4, OUTDOOR, Vec3::new(138.60, 7.00, 94.082_001));
+            let room_as_outdoor = enter(4, OUTDOOR, Vec3::new(138.60, 7.00, 94.082));
             // The same point, carrying the room that contains it.
-            let interior = enter(5, ROOM, Vec3::new(138.60, 7.00, 94.082_001));
+            let interior = enter(5, ROOM, Vec3::new(138.60, 7.00, 94.082));
 
             // The premises first: an instrument that refuses everything would report the same
             // "nothing" as one that is measuring a building.
@@ -156,11 +158,6 @@ pub fn enter_world_refuses_a_body_inside_a_building() {
         },
     );
     c.shutdown();
-}
-
-#[cfg(not(windows))]
-pub fn enter_world_refuses_a_body_inside_a_building() {
-    panic!("the collision walk this scenario drives is built on Windows only");
 }
 
 // -------------------------------------------------------------------------------------------

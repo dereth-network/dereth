@@ -37,8 +37,6 @@ pub(super) fn with_wizard<R>(
         &mut dereth_ui_screens::screens::chargen::CharGenScreen,
     ) -> R,
 ) -> R {
-    use dereth_ui::framework::Screen as _;
-
     let shell = c.app_mut().ui_mut().expect("the UI shell is up");
     let screen = shell.flow.current_mut().expect("a screen is current");
     let any: &mut dyn std::any::Any = &mut **screen;

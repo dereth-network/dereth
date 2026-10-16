@@ -707,8 +707,7 @@ pub fn the_name_label_is_wider_than_its_box_and_wraps() {
             n.region.box_,
             n.merged_properties()
                 .0
-                .get(&dereth_ui::props::attr::TEXT_ONE_LINE)
-                .is_some(),
+                .contains_key(&dereth_ui::props::attr::TEXT_ONE_LINE),
         )
     };
     // The shipped layout carries no instruction to keep it on one line; its neighbours do.

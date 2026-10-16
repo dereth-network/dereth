@@ -111,7 +111,7 @@ pub fn a_recorded_teleport_moves_the_body_and_the_reports_follow() {
                 && (character.position().frame.origin.z - last.pos.frame.origin.z).abs() < 5.0;
         }
     }
-    let stale = cells.iter().any(|c| *c == start.cell.0);
+    let stale = cells.contains(&start.cell.0);
     let wrong_block = cells.iter().any(|c| c >> 16 != block);
     println!(
         "teleport lands: {} position reports over five seconds after the teleport, {} of them more \

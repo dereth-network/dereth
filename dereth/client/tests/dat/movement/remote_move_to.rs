@@ -341,7 +341,7 @@ fn runtime_params(p: &dereth_protocol::movement::MovementParameters) -> RtParams
             min_distance,
             fail_distance,
             speed,
-            walk_run_threshold: walk_run_threshold,
+            walk_run_threshold,
             desired_heading,
             ..RtParams::default()
         },

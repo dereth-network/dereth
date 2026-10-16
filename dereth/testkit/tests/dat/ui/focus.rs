@@ -53,14 +53,12 @@ fn taking_typing(c: &mut HeadlessClient) -> bool {
 /// How many characters have reached an element, which is what tells "typed and refused" from
 /// "never delivered".
 fn characters_delivered(c: &HeadlessClient) -> u64 {
-    u64::from(
-        c.view()
-            .expect_app()
-            .ui()
-            .expect("the UI shell is up")
-            .stats
-            .characters_delivered,
-    )
+    c.view()
+        .expect_app()
+        .ui()
+        .expect("the UI shell is up")
+        .stats
+        .characters_delivered
 }
 
 /// What is actually in a text box.

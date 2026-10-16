@@ -162,7 +162,7 @@ pub(super) fn the_figure_says_whether_it_could_take_what_is_carried() {
     let mask = figure(&mut c);
     let silent_at_first = figure_answer(&mut c) != paper_doll_drag_overlay::ACCEPT;
 
-    let mut over_the_figure = |c: &mut HeadlessClient, item: ObjectId| {
+    let over_the_figure = |c: &mut HeadlessClient, item: ObjectId| {
         let tile = pack_slot(c, item);
         let from = point_of(c, tile);
         c.when(Grab(from));
@@ -422,7 +422,7 @@ pub(super) fn an_occupied_place_names_what_is_in_the_way() {
 
     c.assert_behaviour(
         "inventory.body.an-occupied-place-names-what-is-in-the-way",
-        { move |_| names_the_blocker && asked_nothing && not_greyed },
+        move |_| names_the_blocker && asked_nothing && not_greyed,
     );
     c.shutdown();
 }
@@ -454,7 +454,7 @@ pub(super) fn something_already_worn_is_told_so_when_it_is_dropped() {
 
     c.assert_behaviour(
         "inventory.body.something-already-worn-is-told-so-when-it-is-dropped",
-        { move |_| says_so && asked_nothing && not_greyed },
+        move |_| says_so && asked_nothing && not_greyed,
     );
     c.shutdown();
 }
@@ -516,18 +516,6 @@ fn recorded_placements(c: &HeadlessClient) -> Vec<(ObjectId, u32)> {
         .iter()
         .map(|p| (p.iid, p.loc))
         .collect()
-}
-
-/// Show the places on the body that are hidden by default.
-///
-/// The figure is shipped with nine of its places switched off so that the drawing of the
-/// character can be seen, and the window's own checkbox swaps them back -- which is what a
-/// player does in retail too. A place that is not on screen is not under the pointer, so a drag
-/// aimed at one needs the checkbox first. This restores a precondition; it relaxes nothing.
-fn show_every_place_on_the_body(c: &mut HeadlessClient) {
-    let (ui, screen) = gameplay_screen(c.app_mut());
-    screen.inventory.set_slot_view(ui, true);
-    c.tick(1);
 }
 
 // ---------------------------------------------------------------------------------------------

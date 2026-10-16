@@ -569,8 +569,8 @@ pub(super) fn a_pane_measures_its_whole_paragraph_and_the_blank_row_after_it() {
         let widest = lines.iter().map(|l| l.width).max() == Some(226);
         margins && wrapped && count && one_height && trailing_is_empty && widest
     };
-    let measured = (s.width, s.height) == (226 + 9 + 26, 31 * 14 + 15 + 15)
-        && (s.width, s.height) == (261, 464);
+    // 261 by 464.
+    let measured = (s.width, s.height) == (226 + 9 + 26, 31 * 14 + 15 + 15);
 
     let bar = bound_bar(&c, s, pane).expect("its own bar");
     let live = s.height > b.height()

@@ -135,7 +135,7 @@ pub(super) fn a_pack_slot_answers_the_pointer_at_its_own_centre() {
 
     c.assert_behaviour(
         "inventory.drag.a-pack-slot-answers-the-pointer-at-its-own-centre",
-        { move |_| all_of_them && every_slot_can_be_lifted_from },
+        move |_| all_of_them && every_slot_can_be_lifted_from,
     );
     c.shutdown();
 }

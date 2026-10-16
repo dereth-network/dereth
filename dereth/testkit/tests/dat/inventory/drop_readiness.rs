@@ -69,7 +69,7 @@ pub(super) fn a_give_in_mid_air_is_not_refused() {
 
     c.assert_behaviour(
         "inventory.give.handing-something-over-in-mid-air-is-not-refused",
-        { move |_| given },
+        move |_| given,
     );
     c.shutdown();
 }

@@ -325,11 +325,12 @@ fn the_shipped_bindings_drive_the_five_other_motion_slots() {
     let mut app = app_in_gameplay(4);
     let mut hand = Hand::new();
 
-    let cases: [(
+    type Case = (
         KeyCode,
-        &str,
+        &'static str,
         fn(dereth_client_runtime::character::CharacterInput) -> bool,
-    ); 5] = [
+    );
+    let cases: [Case; 5] = [
         (KeyCode::KeyX, "DIK_X -> 0x2A Move Backward", |c| c.back),
         (KeyCode::KeyZ, "DIK_Z -> 0x2D Strafe Left", |c| c.step_left),
         (KeyCode::KeyC, "DIK_C -> 0x2C Strafe Right", |c| {
@@ -628,11 +629,12 @@ fn the_numpad_camera_keys_reach_the_look_flags_and_the_barrier_gates_them() {
     let mut app = app_in_gameplay(4);
     let mut hand = Hand::new();
 
-    let cases: [(
+    type Case = (
         KeyCode,
-        &str,
+        &'static str,
         fn(dereth_client_runtime::camera::CameraInput) -> bool,
-    ); 4] = [
+    );
+    let cases: [Case; 4] = [
         (
             KeyCode::Numpad4,
             "DIK_NUMPAD4 -> 0x35 Rotate Camera Left",

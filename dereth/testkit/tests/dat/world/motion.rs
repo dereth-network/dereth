@@ -1161,7 +1161,7 @@ const OBSTACLE_RADIUS: f32 = 1.5;
 /// How far ahead the obstacle stands, and on what bearing. **Not a cardinal**: a body starts
 /// facing north, so an obstacle due north would need no turn at all and the calibration below
 /// would be measuring a body that was already pointed the right way.
-const OBSTACLE_OFFSET: (f32, f32) = (3.0, 5.196_152_4);
+const OBSTACLE_OFFSET: (f32, f32) = (3.0, 5.196_152);
 /// A flat patch of the default landblock. A body walking off a ridge is airborne, passes
 /// *under* an obstacle anchored to the old height and never touches it -- which reads as "the
 /// obstacle stopped nothing" for a reason that has nothing to do with the obstacle.

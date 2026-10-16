@@ -119,7 +119,7 @@ fn setup() -> App {
         },
         LocalTime(1.0),
     );
-    unhide_the_player(&mut app, &corpus, id);
+    unhide_the_player(&mut app, corpus, id);
     frames(&mut app, 60);
     let c = app.world_state().unwrap().character.as_ref().unwrap();
     assert!(c.on_ground());

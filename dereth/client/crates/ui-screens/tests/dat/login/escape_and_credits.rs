@@ -15,10 +15,13 @@ use dereth_ui::{Delivery, ElemHandle, ElementId, UiSystem};
 use dereth_ui_screens::screens::charmgmt::{CharacterManagementScreen, DialogContext};
 use dereth_ui_screens::screens::credits::{self, CreditsScreen};
 
+/// Each string table read so far, by its id: its strings by id, or `None` when it would not read.
+type Tables = BTreeMap<DataId, Option<BTreeMap<u32, Vec<String>>>>;
+
 #[derive(Debug)]
 struct Strings {
     store: dereth_dat::RetailDatStore,
-    tables: RefCell<BTreeMap<DataId, Option<BTreeMap<u32, Vec<String>>>>>,
+    tables: RefCell<Tables>,
 }
 
 impl dereth_ui::text::StringResolver for Strings {

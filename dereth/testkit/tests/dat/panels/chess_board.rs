@@ -110,8 +110,7 @@ fn chess_chat_log(c: &mut HeadlessClient) -> String {
 fn chess_last_said(c: &mut HeadlessClient) -> String {
     chess_chat_log(c)
         .lines()
-        .filter(|l| !l.trim().is_empty())
-        .next_back()
+        .rfind(|l| !l.trim().is_empty())
         .unwrap_or_default()
         .to_owned()
 }

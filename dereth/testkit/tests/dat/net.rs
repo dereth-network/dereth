@@ -150,7 +150,7 @@ fn cell_data_msg(id: DataId, payload: &[u8], version: u32, iteration: u32) -> Ve
         iteration,
         compressed: 0,
         version,
-        data_size: payload.len() as u32 + 4,
+        data_size: u32::try_from(payload.len()).expect("a test payload's length fits a dword") + 4,
         data: payload.to_vec(),
     };
     dereth_protocol::write_blob(&m).expect("the answer encodes")

@@ -183,7 +183,7 @@ pub(super) fn the_autorun_line_reaches_the_strip_and_the_chat_windows_drop_it() 
     // who asks for this kind of line does get it.
     let m = ChatMessage {
         feedback: dereth_client_contract::feedback::Feedback::ORDINARY,
-        ty: CLIENT_FEEDBACK_CHANNEL as u8,
+        ty: u8::try_from(CLIENT_FEEDBACK_CHANNEL).expect("a chat type is a byte"),
         body: AUTORUN_ON.to_owned(),
         prefix: None,
         window: 0,

@@ -308,7 +308,7 @@ fn restore_the_character(c: &mut HeadlessClient, hands: &mut Hands, who: ObjectI
 
 /// The shard's answer to a delete: the bare acknowledgement, which carries no list at all.
 fn the_shard_acknowledges_the_delete(c: &mut HeadlessClient, peer: &mut Peer) {
-    let blob = dereth_protocol::write_blob(&dereth_protocol::login::CharacterDeleteAck::default())
+    let blob = dereth_protocol::write_blob(&dereth_protocol::login::CharacterDeleteAck)
         .expect("the acknowledgement encodes");
     peer.send(c, LOGIN_QUEUE, blob);
     c.tick(2);

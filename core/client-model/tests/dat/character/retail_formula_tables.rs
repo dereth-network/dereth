@@ -5,15 +5,11 @@
 
 use dereth_assets::tables::{Attribute2ndTable, SkillTable, XpTable};
 use dereth_assets::Decode;
-use dereth_client_model::advancement as adv;
 use dereth_client_model::qualities::Qualities;
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_protocol::types::qualities::{Attribute, AttributeCache, SecondaryAttribute, Skill};
-use {
-    dereth_client_model::attributes, dereth_rules::attributes::attribute,
-    dereth_rules::attributes::vital,
-};
-use {dereth_client_model::skills, dereth_rules::skills::skill, dereth_rules::skills::Sac};
+use {dereth_rules::attributes::attribute, dereth_rules::attributes::vital};
+use {dereth_rules::skills::skill, dereth_rules::skills::Sac};
 
 fn store() -> RetailDatStore {
     dereth_dat::testing::open_store_or_fail()

@@ -739,7 +739,6 @@ const AVAILABLE: u64 = 20_887_465;
 /// distance from where the character is to ten ranks on; a skill's cost the distance between the
 /// same two entries of its own table, and **not** the distance to the table's last entry.
 pub(super) fn ten_points_cost_the_distance_between_two_entries_of_the_shipped_table() {
-    use dereth_client_model::advancement as adv;
     use dereth_client_model::qualities::Qualities;
     use dereth_protocol::types::qualities::Skill;
     use dereth_rules::skills::Sac;
@@ -791,7 +790,6 @@ pub(super) fn ten_points_cost_the_distance_between_two_entries_of_the_shipped_ta
 /// **At rank 30.** The `+10` and the `+1` are both affordable against the experience that
 /// character had not spent, both from the literal cost and from the cost the table really answers.
 pub(super) fn the_plus_ten_button_lights_when_the_unassigned_experience_covers_it() {
-    use dereth_client_model::advancement as adv;
     use dereth_ui_screens::panels::statmgmt::{button_state, Footer};
 
     let mut c = HeadlessClient::new(ClientSpec::retail());

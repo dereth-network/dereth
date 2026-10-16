@@ -416,9 +416,9 @@ pub(super) fn a_deferred_change_is_flushed_by_the_frame() {
     // **Driven from the frame's own entry point and not from the method.** A scenario that called
     // the timer directly would survive deleting its call site in the frame: it structurally could
     // not see the change.
-    let mut frame = |inter: &mut Interaction,
-                     objects: &mut dereth_client_runtime::objects::ObjectStream,
-                     t: f64| {
+    let frame = |inter: &mut Interaction,
+                 objects: &mut dereth_client_runtime::objects::ObjectStream,
+                 t: f64| {
         dereth_client_runtime::interaction::use_time(
             inter,
             &store,
@@ -483,7 +483,7 @@ pub(super) fn with_no_description_nothing_is_sent() {
     module.timestamp_format = Some("%H:%M".to_owned());
     module.spell_bars.truncate(5);
     module.option_flags = (module.option_flags & !0x0400) | 0x0080 | 0x0004;
-    let mut shaped = world_with(&module);
+    let shaped = world_with(&module);
     let packed = shaped
         .player_system
         .client_packed_module()

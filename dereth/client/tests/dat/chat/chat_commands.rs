@@ -504,8 +504,7 @@ fn every_wired_chat_command_reaches_the_wire_from_a_typed_line() {
         ),
     ];
 
-    let mut stamp = 1u32;
-    for (line, want, body) in &cases {
+    for (stamp, (line, want, body)) in (1u32..).zip(&cases) {
         let unimplemented = app.interaction().stats.chat_commands_unimplemented;
         let refused = app.interaction().stats.chat_commands_refused;
         let lines = app.interaction().stats.chat_lines_sent;
@@ -550,7 +549,6 @@ fn every_wired_chat_command_reaches_the_wire_from_a_typed_line() {
             action(stamp, opcode_of(want), body),
             "{line}: the bytes"
         );
-        stamp += 1;
         assert!(app.frame());
         assert!(
             app.interaction().last_sent.is_empty(),
@@ -1493,7 +1491,7 @@ fn typed_squelch_commands_send_the_native_character_and_account_requests() {
         hand.submit(&mut app, line);
         assert_eq!(
             app.interaction().last_sent.as_slice(),
-            &[expected.clone()],
+            std::slice::from_ref(&expected),
             "{line}"
         );
         assert!(
@@ -1693,7 +1691,7 @@ fn typed_filter_commands_send_literal_global_squelch_requests_without_predicting
         hand.submit(&mut app, line);
         assert_eq!(
             app.interaction().last_sent.as_slice(),
-            &[expected.clone()],
+            std::slice::from_ref(&expected),
             "{line}"
         );
         assert!(

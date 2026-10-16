@@ -826,28 +826,27 @@ mod sound_defaults {
     #[test]
     fn the_other_option_pages_defaults_buttons_do_not_write_the_sound_preferences() {
         let (mut ui, all, mut screen) = gameplay_screen();
-        for page in [ElementId(0x1000_050C)] {
-            let h = find_under(&ui, &all, page, config::button::DEFAULTS);
-            ui.requests.clear();
-            screen.on_element_message(
-                &mut dereth_ui::framework::ScreenCx::new(&mut ui),
-                &dereth_ui::msg::ElementMessage {
-                    source_id: config::button::DEFAULTS,
-                    source: h,
-                    id: dereth_ui::msg::element::id::BUTTON_CLICKED,
-                    p1: 0,
-                    p2: 0,
-                    point: dereth_ui::msg::MessagePoint::default(),
-                    serial: 1,
-                },
-            );
-            let out = ui.requests.take();
-            assert!(
-                out.iter()
-                    .all(|r| !matches!(r, UiRequest::SetPreference(..))),
-                "{page:?}'s Defaults button wrote a preference: {out:?}"
-            );
-        }
+        let page = ElementId(0x1000_050C);
+        let h = find_under(&ui, &all, page, config::button::DEFAULTS);
+        ui.requests.clear();
+        screen.on_element_message(
+            &mut dereth_ui::framework::ScreenCx::new(&mut ui),
+            &dereth_ui::msg::ElementMessage {
+                source_id: config::button::DEFAULTS,
+                source: h,
+                id: dereth_ui::msg::element::id::BUTTON_CLICKED,
+                p1: 0,
+                p2: 0,
+                point: dereth_ui::msg::MessagePoint::default(),
+                serial: 1,
+            },
+        );
+        let out = ui.requests.take();
+        assert!(
+            out.iter()
+                .all(|r| !matches!(r, UiRequest::SetPreference(..))),
+            "{page:?}'s Defaults button wrote a preference: {out:?}"
+        );
     }
 
     /// The client options page is built with its rows in it.

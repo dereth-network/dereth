@@ -577,9 +577,8 @@ pub fn a_new_animation_table_alone_reaches_the_body() {
         }
         let mut probe = body(&store);
         if probe.set_setup_id(own_setup, Some(id)).is_ok() {
-            let after = style(&probe);
-            if after.is_some() && after != Some(before) {
-                other = Some((id, after.expect("just checked")));
+            if let Some(after) = style(&probe).filter(|after| *after != before) {
+                other = Some((id, after));
                 break;
             }
         }
@@ -1880,7 +1879,7 @@ pub fn the_selection_read_out_follows_one_change_once() {
 // out of the recording that carries it, framed the way the shard framed it. Two of them belong
 // under a panel subject and one under the social one.
 
-/// Every scenario of this section, appended to [`ALL`] above.
+// Every scenario of this section, appended to [`ALL`] above.
 // -------------------------------------------------------------------------------------------
 // shard-message.pop-up.*
 // -------------------------------------------------------------------------------------------
@@ -2317,7 +2316,7 @@ mod shell_support {
         /// reached -- replaying that verbatim into a session whose counter starts at zero stalls
         /// every blob behind a stamp that never arrives, which is how a replay can
         /// pass while delivering nothing at all.
-        pub fn replay(&mut self, mut blob: Vec<u8>) {
+        pub fn replay(&mut self, blob: Vec<u8>) {
             assert!(blob.len() >= 16, "a game event is at least a wrapper");
             assert_eq!(
                 u32::from_le_bytes(blob[0..4].try_into().expect("four bytes")),
@@ -3490,14 +3489,14 @@ mod held {
                 want, resting,
                 "{did} named placement must differ from Resting"
             );
-            let drawn = resolve_parts_at(&*store, did, named);
+            let drawn = resolve_parts_at(&store, did, named);
             assert_eq!(drawn.len(), s.parts.len());
             assert_eq!(want.len(), s.parts.len());
             for (index, part) in drawn.iter().enumerate() {
                 assert_eq!(part.frame, want[index]);
                 every_part &= part.frame == want[index];
             }
-            let installed = resolve_parts(&*store, did);
+            let installed = resolve_parts(&store, did);
             assert_eq!(installed.len(), s.parts.len());
             assert_eq!(resting.len(), s.parts.len());
             for (index, part) in installed.iter().enumerate() {
@@ -3594,7 +3593,7 @@ mod held {
         );
         let armed_hit = pick.find_object(399, 299, viewport);
         assert!(armed_hit);
-        let hit = pick.draw_no_blit(&*store, &scene, &posed, screen, viewport);
+        let hit = pick.draw_no_blit(&store, &scene, &posed, screen, viewport);
         assert_eq!(hit, Some(ObjectId(ITEM)));
 
         let mut resting_objects = objects();
@@ -3604,7 +3603,7 @@ mod held {
         );
         let armed_miss = pick.find_object(399, 299, viewport);
         assert!(armed_miss);
-        let miss = pick.draw_no_blit(&*store, &scene, &resting_objects, screen, viewport);
+        let miss = pick.draw_no_blit(&store, &scene, &resting_objects, screen, viewport);
         assert_eq!(miss, Some(ObjectId(0)));
         lateral > radius + 0.2
             && armed_hit
@@ -3640,7 +3639,7 @@ mod held {
         let mut pick = WorldPicker::new();
         let armed_held = pick.find_object(399, 299, viewport);
         assert!(armed_held);
-        let held_pick = pick.draw_no_blit(&*store, &scene, &held, screen, viewport);
+        let held_pick = pick.draw_no_blit(&store, &scene, &held, screen, viewport);
         assert_eq!(held_pick, Some(ObjectId(ITEM)));
 
         let mut contained = objects();
@@ -3648,7 +3647,7 @@ mod held {
         let mut pick = WorldPicker::new();
         let armed_contained = pick.find_object(399, 299, viewport);
         assert!(armed_contained);
-        let contained_pick = pick.draw_no_blit(&*store, &scene, &contained, screen, viewport);
+        let contained_pick = pick.draw_no_blit(&store, &scene, &contained, screen, viewport);
         assert_eq!(contained_pick, Some(ObjectId(0)));
         really_held
             && armed_held

@@ -33,7 +33,9 @@ const RECORDED_ALTAR: &str = concat!(
 fn bytes_of(hex: &str) -> Vec<u8> {
     assert_eq!(hex.len() % 2, 0);
     hex.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| {
             let digit = |b: u8| match b {
                 b'0'..=b'9' => b - b'0',

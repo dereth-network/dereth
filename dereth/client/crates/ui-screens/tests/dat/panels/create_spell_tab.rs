@@ -295,11 +295,11 @@ fn components_laid_on_the_create_spell_page_are_what_test_sends_and_clear_emptie
     // Every slot stands in front of the empty item slot's frame: a carried component's icon is
     // drawn over it, and an empty slot is the frame alone.
     let window = page.page().expect("the page");
-    for (i, &slot) in grid.iter().enumerate() {
+    for (i, &slot) in (0u32..).zip(grid.iter()) {
         let frame = ui
             .get_child_recursive(
                 window,
-                dereth_ui::ElementId(research::FIRST_SLOT_FRAME + 8 + i as u32),
+                dereth_ui::ElementId(research::FIRST_SLOT_FRAME + 8 + i),
             )
             .expect("a frame behind the slot");
         assert_eq!(

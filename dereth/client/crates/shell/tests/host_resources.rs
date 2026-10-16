@@ -40,7 +40,7 @@ impl Host for ResourceHost {
     }
     fn install_default_output() {}
     fn clipboard() -> Self::Clipboard {
-        Self::Clipboard::default()
+        dereth_client_shell::clipboard::NoClipboard
     }
     fn cursor_images(window: Option<isize>) -> Box<dyn dereth_client_shell::cursor::CursorImages> {
         NullHost::cursor_images(window)

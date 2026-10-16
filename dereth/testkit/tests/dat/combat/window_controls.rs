@@ -134,7 +134,7 @@ pub(super) fn pressing_the_chosen_height_again_keeps_it_chosen() {
         == Some(true);
     ui.register_for_element_messages(group, receiver);
     ui.drain_outbox();
-    let mut heard = |ui: &mut dereth_ui::UiSystem| {
+    let heard = |ui: &mut dereth_ui::UiSystem| {
         ui.drain_outbox()
             .into_iter()
             .filter(|d| {

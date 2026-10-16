@@ -191,7 +191,7 @@ pub(super) fn a_salvage_row_dragged_out_leaves_the_list() {
 
     c.assert_behaviour(
         "salvage.row.dragging-one-out-takes-it-off-the-list-and-sends-nothing",
-        { move |_| a_click_is_not_a_drag && taken_off },
+        move |_| a_click_is_not_a_drag && taken_off,
     );
     c.shutdown();
 }
@@ -240,7 +240,7 @@ pub(super) fn a_refusal_naming_the_list_starts_nothing() {
 
     c.assert_behaviour(
         "salvage.row.a-message-naming-the-whole-list-starts-no-drag",
-        { move |_| untouched && no_drag },
+        move |_| untouched && no_drag,
     );
     c.shutdown();
 }

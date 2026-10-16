@@ -270,12 +270,12 @@ pub fn a_removed_spell_leaves_the_book_the_bar_and_the_copy() {
     let packed_lost_it = {
         let w = c.view().world();
         !w.player_system.spell_tabs[0].contains(&doomed)
-            && w.player_system
+            && !w
+                .player_system
                 .client_packed_module()
                 .expect("a module to re-pack")
                 .spell_bars[0]
                 .contains(&doomed)
-                == false
     };
 
     c.assert_behaviour(

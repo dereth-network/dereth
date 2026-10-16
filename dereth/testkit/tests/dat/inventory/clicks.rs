@@ -40,7 +40,7 @@ pub fn a_click_on_a_thing_in_the_pack_picks_it() {
 
     c.assert_behaviour(
         "inventory.selection.a-click-on-a-thing-in-the-pack-picks-it",
-        { move |_| nothing_yet && asked && picked },
+        move |_| nothing_yet && asked && picked,
     );
     c.shutdown();
 }

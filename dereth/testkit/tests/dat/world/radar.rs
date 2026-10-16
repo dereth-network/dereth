@@ -816,9 +816,9 @@ pub fn the_radar_zooms_when_the_player_goes_inside() {
         }
         let block = recorded.0 & 0xFFFF_0000;
 
-        let mut arm = |cell: CellId,
-                       ui: &mut dereth_ui::UiSystem,
-                       screen: &mut Box<dyn dereth_ui::framework::Screen>|
+        let arm = |cell: CellId,
+                   ui: &mut dereth_ui::UiSystem,
+                   screen: &mut Box<dyn dereth_ui::framework::Screen>|
          -> Arm {
             let mut p = pos;
             p.cell = cell;
@@ -1307,7 +1307,6 @@ pub fn the_name_over_a_thing_is_the_shards_own() {
 /// blob the shard sends it in.
 pub fn the_lock_is_one_bit_of_the_players_options() {
     use dereth_protocol::login::PlayerModule;
-    use dereth_protocol::Message as _;
 
     /// The bit, as a number: reading it back through the client's own name would not notice a
     /// wrong one.

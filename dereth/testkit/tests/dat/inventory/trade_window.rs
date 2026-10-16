@@ -382,7 +382,7 @@ pub fn the_registration_raises_the_window_and_names_the_partner() {
 
     c.assert_behaviour(
         "trade.window.the-shards-registration-raises-it-and-names-the-partner",
-        { move |_| down_first && up && named == "Jorune" && one_registration && no_other_opener },
+        move |_| down_first && up && named == "Jorune" && one_registration && no_other_opener,
     );
     c.shutdown();
 }
@@ -444,7 +444,7 @@ pub fn your_own_half_lights_for_something_you_are_carrying() {
 
     c.assert_behaviour(
         "trade.drag-hint.your-own-half-lights-for-something-you-are-carrying",
-        { move |_| never_answered && lit && offered },
+        move |_| never_answered && lit && offered,
     );
     c.shutdown();
 }
@@ -1222,7 +1222,7 @@ pub fn something_already_on_the_table_is_shown_as_refused() {
 
     c.assert_behaviour(
         "trade.drag-hint.something-already-on-the-table-is-shown-as-refused",
-        { move |_| green_first && on_the_table && refused && nothing_asked && still_one_row },
+        move |_| green_first && on_the_table && refused && nothing_asked && still_one_row,
     );
     c.shutdown();
 }

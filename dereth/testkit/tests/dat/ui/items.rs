@@ -309,8 +309,10 @@ pub(super) fn the_players_own_cell_draws_a_backpack_and_not_a_second_backdrop() 
     let b = tile_only.levels.first().expect("one level");
     let pixels = a.len() / 4;
     let changed = a
-        .chunks_exact(4)
-        .zip(b.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
         .filter(|(x, y)| x != y)
         .count();
     let something_was_drawn = changed > 0;
@@ -476,7 +478,9 @@ pub(super) fn what_follows_the_cursor_is_the_icon_alone() {
         .levels
         .first()
         .expect("one level")
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|px| px[3] == 0);
 
     c.assert_behaviour(

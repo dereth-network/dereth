@@ -188,7 +188,7 @@ pub(super) fn a_drag_that_ends_over_nothing_takes_the_mark_off() {
 
     c.assert_behaviour(
         "inventory.busy-mark.a-drag-that-ends-over-nothing-takes-it-off",
-        { move |_| the_pack_is_clean && the_loose_thing_is_clean },
+        move |_| the_pack_is_clean && the_loose_thing_is_clean,
     );
     c.shutdown();
 }
@@ -208,7 +208,7 @@ pub(super) fn a_drop_that_moves_nothing_takes_the_mark_off() {
 
     c.assert_behaviour(
         "inventory.busy-mark.a-drop-that-moves-nothing-takes-it-off",
-        { move |_| clean },
+        move |_| clean,
     );
     c.shutdown();
 }
@@ -230,7 +230,7 @@ pub(super) fn a_drop_on_the_shortcut_bar_takes_the_mark_off() {
 
     c.assert_behaviour(
         "inventory.busy-mark.a-drop-on-the-shortcut-bar-takes-it-off",
-        { move |_| clean },
+        move |_| clean,
     );
     c.shutdown();
 }
@@ -327,7 +327,7 @@ pub(super) fn every_tile_mirrors_the_things_own_state() {
 
     c.assert_behaviour(
         "inventory.busy-mark.every-tile-mirrors-the-things-own-state",
-        { move |_| clean_to_start && follows_it_up && follows_it_down },
+        move |_| clean_to_start && follows_it_up && follows_it_down,
     );
     c.shutdown();
 }

@@ -109,7 +109,6 @@ impl Bench {
         let notices = self.objects.world.combat.take_power_bar_notices();
         let view = self.hud.view(&self.objects);
         let _ = self.panels.update(&mut self.ui, &view);
-        drop(view);
         let _ = dereth_client_shell::hud_drive::deliver_power_bar_notices(
             &mut self.ui,
             &mut self.panels,

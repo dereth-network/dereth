@@ -1973,7 +1973,7 @@ pub fn the_split_key_puts_the_caret_in_the_quantity_and_does_nothing_else() {
 
     // And the three selections there is nothing to split about: nothing is focused and the
     // key is still consumed rather than left to expire.
-    let mut a_no_op = |c: &mut HeadlessClient| -> bool {
+    let a_no_op = |c: &mut HeadlessClient| -> bool {
         commit_by_leaving_the_box(c);
         let before = c.app_mut().actions.stats().expired;
         press_the_split_key(c);
@@ -2391,7 +2391,7 @@ pub fn two_splits_in_a_row_each_go_out_and_the_shards_answers_follow_them() {
     let held = {
         let w = c.view().world();
         w.request_lock.object == Some(source)
-                && w.pending_split.is_some_and(|p| u32::from(p.stack_size) == first_amount)
+                && w.pending_split.is_some_and(|p| p.stack_size == first_amount)
                 && w.weenie(source).expect("the stack").waiting
                 // Nothing is predicted: the stack still says what it said before.
                 && u32::from(w.weenie(source).expect("the stack").pwd.stack_size.unwrap_or(0))

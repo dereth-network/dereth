@@ -224,7 +224,6 @@ dereth_testkit::scenarios! {
     scenario_a_refusal_about_something_the_player_asked_for_names_it_and_says_why => a_refusal_about_something_the_player_asked_for_names_it_and_says_why ["notice.refusal.a-refusal-about-something-the-player-asked-for-names-it-and-says-why"],
 }
 
-use dereth_ui::framework::mode;
 use dereth_ui::{ElemHandle, ElementId, StateId, UiSystem};
 use dereth_ui_screens::panels::{attributes, skills, statmgmt};
 use dereth_ui_screens::screens::gameplay::{window, GamePlayScreen};

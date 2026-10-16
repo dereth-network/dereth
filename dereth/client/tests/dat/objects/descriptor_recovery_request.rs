@@ -86,15 +86,18 @@ fn sack_creates() -> [ItemCreateObject; 2] {
     let corpus = Corpus::load("long-solo-play")
         .expect("fixture lookup")
         .expect("long-solo-play is promoted");
-    let mut creates = corpus.blobs.iter().filter_map(|blob| {
-        (blob.dir == Direction::ServerToClient
-            && blob.opcode == 0xF745
-            && blob.payload.get(4..8) == Some(SACK.0.to_le_bytes().as_slice()))
-        .then(|| {
+    let mut creates = corpus
+        .blobs
+        .iter()
+        .filter(|blob| {
+            blob.dir == Direction::ServerToClient
+                && blob.opcode == 0xF745
+                && blob.payload.get(4..8) == Some(SACK.0.to_le_bytes().as_slice())
+        })
+        .map(|blob| {
             ItemCreateObject::read(&mut dereth_protocol::Reader::new(&blob.payload[4..]))
                 .expect("recorded Sack create decodes")
-        })
-    });
+        });
     let login = creates.next().expect("login create");
     let drop = creates.next().expect("drop create");
     assert!(creates.next().is_none(), "exactly two Sack creates");

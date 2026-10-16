@@ -1055,8 +1055,11 @@ fn the_spell_composite_layers_the_background_the_icon_the_tint_and_the_badge() {
 // 4. The corpus coverage
 // =================================================================================================
 
+/// An object's five icon fields.
+type IconFields = (u32, u32, u32, Option<DataId>, Option<DataId>);
+
 /// Collect each object's five icon fields at the first busiest instant of every discovered recording.
-fn corpus_objects() -> Vec<(u32, u32, u32, Option<DataId>, Option<DataId>)> {
+fn corpus_objects() -> Vec<IconFields> {
     let mut out = Vec::new();
     for session in corpus_sessions() {
         let (objects, _) = replay_to(&session, busiest_instant(&session));

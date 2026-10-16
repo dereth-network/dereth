@@ -118,8 +118,7 @@ pub(super) fn a_wrapped_right_justified_caption_is_flush_with_its_box() {
         .collect();
     let last = first_line
         .iter()
-        .filter(|g| g.ch != u16::from(b' '))
-        .next_back()
+        .rfind(|g| g.ch != u16::from(b' '))
         .expect("the line has ink");
     let advance = t
         .glyphs
@@ -305,10 +304,7 @@ fn what_is_visible(
     glyphs
         .iter()
         .filter(|g| {
-            g.y <= clip.y1
-                && g.y + line_height - 1 >= clip.y0
-                && g.x <= clip.x1
-                && g.x >= clip.x0 - 64
+            g.y <= clip.y1 && g.y + line_height > clip.y0 && g.x <= clip.x1 && g.x >= clip.x0 - 64
         })
         .map(|g| char::from_u32(u32::from(g.ch)).unwrap_or('?'))
         .collect()
@@ -368,8 +364,6 @@ fn a_shipped_gameplay_tree() -> (
 
 /// A caption too tall for its box shows its first line at the top of it.
 pub(super) fn a_caption_too_tall_for_its_box_shows_its_first_line_at_the_top() {
-    use dereth_ui::framework::Screen as _;
-
     /// The squelch panel's caption, and the social panel it is on.
     const SQUELCH_CAPTION: dereth_ui::ElementId = dereth_ui::ElementId(0x1000_053F);
     const SOCIAL_PANEL: u32 = 0x0C;
@@ -473,8 +467,6 @@ pub(super) fn a_caption_too_tall_for_its_box_shows_its_first_line_at_the_top() {
 
 /// A caption that fits and asks to be centred is still centred.
 pub(super) fn a_caption_that_fits_is_still_centred() {
-    use dereth_ui::framework::Screen as _;
-
     let (mut ui, screen) = a_shipped_gameplay_tree();
     let root = screen.root().expect("a root");
     let mut all = Vec::new();

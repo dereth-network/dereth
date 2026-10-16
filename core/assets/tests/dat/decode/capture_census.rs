@@ -6,7 +6,7 @@
 //! Fixture: the historical dat captures (`DERETH_TEST_DAT_CAPTURES_DIR`).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use dereth_assets::ui::PropertyTypes;
 use dereth_assets::{exhaustive_decode_file, Decode, MasterProperty, VerifyReport};
@@ -102,7 +102,7 @@ fn property_types(f: &DatFile) -> PropertyTypes {
     }
 }
 
-fn census(path: &PathBuf, name: &str, portal: Option<&PathBuf>) -> VerifyReport {
+fn census(path: &Path, name: &str, portal: Option<&PathBuf>) -> VerifyReport {
     let f = DatFile::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     // A language file's interface records are typed by the property map of a portal of its time.
     let types = match portal {

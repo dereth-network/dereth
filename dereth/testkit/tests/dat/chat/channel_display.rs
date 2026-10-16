@@ -126,7 +126,7 @@ pub fn a_recorded_broadcast_that_names_its_speaker_is_drawn() {
     let (ty, line) =
         dereth_client_model::chat::composition::channel_broadcast_line(channel, &sender, &message);
     let trimmed = dereth_client_model::chat::composition::add_text_to_scroll_trim(&line);
-    let visible = without_tell_markup(&trimmed);
+    let visible = without_tell_markup(trimmed);
 
     let mut c = a_client_listening();
     let before = colour_runs(&mut c).len();
@@ -190,7 +190,7 @@ pub fn every_channel_draws_its_own_line_in_its_own_colour() {
         let before = colour_runs(&mut c).len();
         hear_on_a_channel(&mut c, channel, &who, &message);
         let visible = without_tell_markup(
-            &dereth_client_model::chat::composition::add_text_to_scroll_trim(&line),
+            dereth_client_model::chat::composition::add_text_to_scroll_trim(&line),
         );
         let reached = colour_runs(&mut c).len() > before;
         let (joined, colour) = drawn_line(&mut c, &message);

@@ -176,6 +176,8 @@ pub(super) use support as world_support;
 pub(super) mod motion;
 
 mod bodies;
+#[cfg(windows)]
+use bodies::enter_world_refuses_a_body_inside_a_building;
 use bodies::{
     a_body_not_yet_simulated_is_put_straight_onto_the_shards_position,
     a_correction_out_of_reach_is_taken_in_one_step,
@@ -189,7 +191,7 @@ use bodies::{
     a_teleport_out_of_the_world_drops_a_glide_in_flight,
     an_arrival_through_the_login_path_lands_on_the_other_players_spot,
     an_update_with_no_ground_contact_moves_the_body_nowhere,
-    enter_world_refuses_a_body_inside_a_building, running_reports_walk_with_the_run_hold_key,
+    running_reports_walk_with_the_run_hold_key,
     turning_run_on_mid_walk_speeds_the_body_and_changes_the_report,
     two_player_bodies_collide_only_for_the_pairs_that_are_not_exempt,
     walking_forward_reports_a_walk_with_no_hold_key,

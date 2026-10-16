@@ -222,8 +222,8 @@ fn the_attenuation_sweep_is_exact() {
 /// Oracle: the recovered four-row bearing table and the client's pan arithmetic transcribed in
 /// `src/atten.rs`.
 ///
-/// The magnitude at a cardinal is **14, not 15**: the client's pi/180 is a 32-bit float, so `sin(90
-/// * DEG_TO_RAD)` is `1 - 2^-53` and the integer conversion truncates `14.999999999999998` down.
+/// The magnitude at a cardinal is **14, not 15**: the client's pi/180 is a 32-bit float, so
+/// `sin(90 * DEG_TO_RAD)` is `1 - 2^-53` and the integer conversion truncates `14.999999999999998` down.
 /// The knowledge base said 15; it is corrected in place, and the playback path's +/-15 clamp is
 /// therefore dead code.
 #[test]

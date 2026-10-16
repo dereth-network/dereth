@@ -333,7 +333,7 @@ pub(super) fn while_the_shop_has_not_answered_the_refusal_still_fires() {
 
     c.assert_behaviour(
         "vendor.busy.while-the-shop-has-not-answered-the-refusal-still-fires",
-        { move |_| refused && still_latched },
+        move |_| refused && still_latched,
     );
     c.shutdown();
 }
@@ -507,7 +507,7 @@ pub(super) fn each_money_line_follows_its_own_source() {
 
     c.assert_behaviour(
         "vendor.money.each-of-the-four-lines-is-written-by-its-own-source",
-        { move |_| each_line && buy_alone && sell_alone && purse_alone },
+        move |_| each_line && buy_alone && sell_alone && purse_alone,
     );
     c.shutdown();
 }
@@ -804,7 +804,7 @@ pub(super) fn the_purse_is_filled_from_the_players_own_coin() {
 
     c.assert_behaviour(
         "vendor.purse.is-filled-from-the-players-own-coin-when-the-shop-opens",
-        { move |_| penniless && refused && filled && bought },
+        move |_| penniless && refused && filled && bought,
     );
     c.shutdown();
 }
@@ -858,7 +858,7 @@ pub(super) fn the_shop_shows_the_players_own_coin_and_follows_it() {
 
     c.assert_behaviour(
         "vendor.purse.the-open-shop-shows-the-players-own-coin-and-follows-it",
-        { move |_| at_open && bought && sold },
+        move |_| at_open && bought && sold,
     );
     c.shutdown();
 }
@@ -1041,13 +1041,13 @@ fn a_client_at_the_shop_selling() -> HeadlessClient {
     c
 }
 
+/// A thing's tile in the pack and the thing, when there is one.
+type PackThing = Option<(ElemHandle, ObjectId)>;
+
 /// A thing in the player's pack the shop would buy, and one she would not.
 fn something_she_takes_and_something_she_will_not(
     c: &mut HeadlessClient,
-) -> (
-    Option<(ElemHandle, ObjectId)>,
-    Option<(ElemHandle, ObjectId)>,
-) {
+) -> (PackThing, PackThing) {
     let app = c.view().expect_app();
     let world = &app.objects().world;
     let shell = app.ui().expect("the UI shell");

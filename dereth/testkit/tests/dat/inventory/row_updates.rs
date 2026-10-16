@@ -1059,7 +1059,7 @@ pub(super) fn an_item_on_the_table_wears_the_traded_mark() {
 
     c.assert_behaviour(
         "trade.table.an-item-put-on-the-table-wears-the-traded-mark-on-its-slot",
-        { move |_| marked && on_the_slot && on_the_screen },
+        move |_| marked && on_the_slot && on_the_screen,
     );
     c.shutdown();
 }
@@ -1139,7 +1139,7 @@ pub(super) fn the_tooltip_reaches_the_slot_itself() {
 
     c.assert_behaviour(
         "trade.table.the-tooltip-reaches-the-slot-itself-and-not-only-the-panels-record",
-        { move |_| text == Some("250 Arrows".to_owned()) && on == Some(true) },
+        move |_| text == Some("250 Arrows".to_owned()) && on == Some(true),
     );
     c.shutdown();
 }
@@ -1871,7 +1871,7 @@ pub(super) fn the_attribute_rows_compare_the_text_they_write() {
 
     c.assert_behaviour(
         "panels.redraw.the-attribute-rows-compare-the-very-text-they-write",
-        { move |_| starts_at_100 && gate_live && redrew && moved && unknown },
+        move |_| starts_at_100 && gate_live && redrew && moved && unknown,
     );
     c.shutdown();
 }

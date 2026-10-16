@@ -45,7 +45,14 @@ fn click(id: u32) -> ElementMessage {
 #[test]
 fn the_five_contexts_read_the_shared_table_and_agree_with_it_row_for_row() {
     // context, kind, accept, cancel — read off each subclass's own `listen_to_element_message`.
-    let rows: [(DialogContext, DialogKind, Option<u32>, Option<u32>, &str); 5] = [
+    type Row = (
+        DialogContext,
+        DialogKind,
+        Option<u32>,
+        Option<u32>,
+        &'static str,
+    );
+    let rows: [Row; 5] = [
         (
             DialogContext::ConfirmExit,
             DialogKind::Confirmation,

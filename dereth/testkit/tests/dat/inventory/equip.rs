@@ -1,19 +1,18 @@
 use std::collections::BTreeMap;
 
 use super::{
-    carry_over, clear_requests, doll_tile, gameplay_root, gameplay_screen, open_pack, pack_slot,
-    point_of, shipped, strip_lines, Grab, LetGo, Over, DOLL_SHIELD_SLOT, DOLL_WEAPON_SLOT,
+    carry_over, clear_requests, doll_tile, gameplay_screen, open_pack, pack_slot, point_of,
+    shipped, strip_lines, Grab, LetGo, DOLL_SHIELD_SLOT, DOLL_WEAPON_SLOT,
 };
-use dereth_client::app::App;
-use dereth_client_model::inventory::equip::{WieldPlan, WIELD_SLOT_ORDER};
+use dereth_client_model::inventory::equip::WIELD_SLOT_ORDER;
 use dereth_client_model::inventory::requests::RequestLock;
 use dereth_client_model::inventory::SplitState;
 use dereth_client_model::Request;
 use dereth_client_net::client_session::testing::{Corpus, Direction};
 use dereth_primitives::ObjectId;
 use dereth_testkit::adapters_inventory::{recorded_equips, EQUIP_SESSIONS};
-use dereth_testkit::{ClientSpec, Given, HeadlessClient, Inbound, Player, ScreenPoint, Target};
-use dereth_ui::{ElemHandle, ElementId, StateId};
+use dereth_testkit::{ClientSpec, Given, HeadlessClient, Inbound, Player};
+use dereth_ui::ElementId;
 use dereth_ui_screens::view::{DropTarget, UiRequest};
 use {
     dereth_rules::slots::loc, dereth_rules::slots::SlotSide, dereth_rules::slots::PAPERDOLL_REGIONS,
@@ -3024,7 +3023,7 @@ pub fn typing_a_number_into_the_box_and_leaving_it_sets_how_many_a_drag_moves() 
         screen.splitter = Splitter::new(20);
     }
 
-    let mut type_and_leave = |c: &mut HeadlessClient, text: &str| {
+    let type_and_leave = |c: &mut HeadlessClient, text: &str| {
         {
             let (ui, _screen) = gameplay_screen(c.app_mut());
             ui.set_focus_element(Some(entry));

@@ -340,7 +340,7 @@ pub fn the_open_pack_is_the_one_wearing_the_frame() {
 
     c.assert_behaviour(
         "inventory.pack.the-pack-that-is-open-is-the-one-wearing-the-frame",
-        { move |_| at_rest && moved },
+        move |_| at_rest && moved,
     );
     c.shutdown();
 }
