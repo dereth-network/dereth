@@ -1446,8 +1446,8 @@ impl Gpu {
         self.queue.submit([buffer]);
         if let Some(t) = surface_texture {
             self.queue.present(t);
+            self.last_present_sync_interval = self.surface_interval();
         }
-        self.last_present_sync_interval = Some(self.present_sync_interval);
         self.frame_stamp += 1;
         self.uniform_arena.truncate(recorded_uniform_len);
         if let Some(why) = failed {

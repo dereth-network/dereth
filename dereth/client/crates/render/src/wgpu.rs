@@ -99,6 +99,8 @@ enum Target {
     Surface {
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
+        /// The present modes the surface offers.
+        modes: Vec<wgpu::PresentMode>,
     },
     /// A texture off screen, which [`Gpu::capture`] reads back.
     Offscreen { texture: wgpu::Texture },
@@ -302,14 +304,20 @@ pub async fn prepare_canvas(
     if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
         config.format = *f;
     }
-    config.present_mode = wgpu::PresentMode::Fifo;
+    // A browser presents on its own refresh, whatever is asked.
+    let modes = vec![wgpu::PresentMode::Fifo];
+    config.present_mode = present_mode(0, &modes);
     surface.configure(&device, &config);
     let format = config.format;
     Ok(prepared(
         &adapter,
         device,
         queue,
-        Target::Surface { surface, config },
+        Target::Surface {
+            surface,
+            config,
+            modes,
+        },
         format,
         (width, height),
     ))
@@ -382,20 +390,48 @@ async fn prepare_window(
     if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
         config.format = *f;
     }
-    // Immediate where the surface allows it, as the other devices present a windowed frame;
-    // the presentation-sync preference is honoured by the frame pacer.
-    if caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
-        config.present_mode = wgpu::PresentMode::Immediate;
-    }
+    // At once, as the other devices present a windowed frame, until the presentation-sync
+    // preference asks for the refresh (`Gpu::set_presentation_sync`).
+    let modes = caps.present_modes.clone();
+    config.present_mode = present_mode(0, &modes);
     surface.configure(&device, &config);
     let format = config.format;
     Ok(prepared(
         &adapter,
         device,
         queue,
-        Target::Surface { surface, config },
+        Target::Surface {
+            surface,
+            config,
+            modes,
+        },
         format,
         (width, height),
+    ))
+}
+
+/// The present mode a surface offering `offered` is configured with for the sync interval
+/// `interval`: on the display's refresh at an interval of one, as every surface offers; otherwise
+/// at once where the surface can, or the newest frame at each refresh where it cannot.
+#[must_use]
+pub fn present_mode(interval: u32, offered: &[wgpu::PresentMode]) -> wgpu::PresentMode {
+    if interval == 0 {
+        for mode in [wgpu::PresentMode::Immediate, wgpu::PresentMode::Mailbox] {
+            if offered.contains(&mode) {
+                return mode;
+            }
+        }
+    }
+    wgpu::PresentMode::Fifo
+}
+
+/// The sync interval a surface configured with `mode` presents at: one on the refresh, nought
+/// otherwise.
+#[must_use]
+pub fn present_interval(mode: wgpu::PresentMode) -> u32 {
+    u32::from(matches!(
+        mode,
+        wgpu::PresentMode::Fifo | wgpu::PresentMode::FifoRelaxed
     ))
 }
 
@@ -824,7 +860,9 @@ impl Gpu {
             .upload_high_water
             .max((self.vertex_arena.len() + self.uniform_arena.len()) as u64);
         let (surface_texture, view) = match &self.target {
-            Target::Surface { surface, config } => match surface.get_current_texture() {
+            Target::Surface {
+                surface, config, ..
+            } => match surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(t)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
                     let view = t
@@ -941,10 +979,18 @@ impl Gpu {
         self.queue.submit([encoder.finish()]);
         if let Some(t) = surface_texture {
             self.queue.present(t);
+            self.last_present_sync_interval = self.surface_interval();
         }
-        self.last_present_sync_interval = Some(self.present_sync_interval);
         self.frame_stamp += 1;
         Ok(())
+    }
+
+    /// The sync interval the surface presents at, as it is configured; `None` off screen.
+    fn surface_interval(&self) -> Option<u32> {
+        match &self.target {
+            Target::Surface { config, .. } => Some(present_interval(config.present_mode)),
+            Target::Offscreen { .. } => None,
+        }
     }
 
     /// The frame's vertex bytes on the device, in a buffer grown to fit them.
@@ -1066,7 +1112,9 @@ impl Gpu {
         }
         self.size = (width, height);
         match &mut self.target {
-            Target::Surface { surface, config } => {
+            Target::Surface {
+                surface, config, ..
+            } => {
                 config.width = width;
                 config.height = height;
                 surface.configure(&self.device, config);
@@ -1078,10 +1126,23 @@ impl Gpu {
         Ok(())
     }
 
-    /// Full screen with the refresh-sync preference presents on the refresh; a browser always
-    /// does, so this is kept for the interval the device reports.
+    /// Full screen with the refresh-sync preference presents on the refresh, and otherwise a
+    /// frame is presented at once: the window's surface is configured again when that changes.
+    /// A browser always presents on its refresh.
     pub fn set_presentation_sync(&mut self, full_screen: bool, sync_to_refresh: bool) {
         self.present_sync_interval = u32::from(full_screen && sync_to_refresh);
+        if let Target::Surface {
+            surface,
+            config,
+            modes,
+        } = &mut self.target
+        {
+            let mode = present_mode(self.present_sync_interval, modes);
+            if config.present_mode != mode {
+                config.present_mode = mode;
+                surface.configure(&self.device, config);
+            }
+        }
     }
 
     #[must_use]
@@ -2192,6 +2253,37 @@ pub(super) mod tests {
     /// A headless device that asks for the software rasteriser comes up on the same kind of
     /// adapter as one that does not, in a test build: test devices prefer the machine's GPU
     /// unless `DERETH_TEST_GPU=software` says otherwise, as the other two backends' do.
+    /// With the sync preference off a window's surface presents at once where it can, or the
+    /// newest frame at each refresh where it cannot; on, it presents on the refresh, which every
+    /// surface offers.
+    #[test]
+    fn the_sync_interval_chooses_the_surfaces_present_mode() {
+        use wgpu::PresentMode::{AutoNoVsync, Fifo, FifoRelaxed, Immediate, Mailbox};
+        assert_eq!(present_mode(0, &[Fifo, Mailbox, Immediate]), Immediate);
+        assert_eq!(present_mode(0, &[Fifo, Mailbox]), Mailbox);
+        assert_eq!(present_mode(0, &[Fifo]), Fifo);
+        assert_eq!(present_mode(1, &[Fifo, Mailbox, Immediate]), Fifo);
+        assert_eq!(present_interval(Fifo), 1);
+        assert_eq!(present_interval(FifoRelaxed), 1);
+        assert_eq!(present_interval(Immediate), 0);
+        assert_eq!(present_interval(Mailbox), 0);
+        assert_eq!(present_interval(AutoNoVsync), 0);
+    }
+
+    /// Off screen nothing is presented, so no present interval is recorded, whatever the
+    /// preference asks for.
+    #[test]
+    fn an_offscreen_device_records_no_present_interval() {
+        let Some(mut gpu) = device(64, 64) else {
+            return;
+        };
+        gpu.set_presentation_sync(true, true);
+        gpu.begin_frame().expect("begin");
+        gpu.end_frame().expect("end");
+        assert_eq!(gpu.present_sync_interval(), 1);
+        assert_eq!(gpu.last_present_sync_interval(), None);
+    }
+
     #[test]
     fn a_test_build_prefers_the_gpu_even_where_the_caller_asked_for_software() {
         if crate::device::test_adapter_override() == Some(AdapterKind::Software) {

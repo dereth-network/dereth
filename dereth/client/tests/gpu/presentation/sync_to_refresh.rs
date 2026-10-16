@@ -4,7 +4,9 @@
 //! Fixture: the options-to-application test runs a headless App on a software device, so it
 //! asserts only the interval stored for the next presentation and that no swap-chain present was
 //! fabricated. The swap-chain test owns an invisible native window and reads the interval the
-//! real present call used. Neither changes a saved profile or a monitor mode.
+//! real present call used, on the default device and on the `wgpu` device, whose window surface
+//! is configured to present on the refresh or at once. Neither changes a saved profile or a
+//! monitor mode.
 
 #![cfg(gpu)]
 
@@ -169,16 +171,31 @@ fn a_real_hidden_swap_chain_presents_with_the_configured_interval() {
     let window = invisible.0.expect("the running loop made the window");
     let handles =
         dereth_desktop::platform::window::window_handles(&window).expect("window handles");
-    let mut renderer = dereth_client_shell::gpu::Renderer::new(Some(handles), 800, 600)
+    // The default device, then the `wgpu` device the better lighting draws on, one at a time: a
+    // window holds one swap chain.
+    for backend in [None, Some(dereth_render::device::Backend::Wgpu)] {
+        let mut renderer = match backend {
+            None => dereth_client_shell::gpu::Renderer::new(Some(handles), 800, 600),
+            Some(b) => dereth_client_shell::gpu::Renderer::new_on(b, Some(handles), 800, 600),
+        }
         .expect("a real swap-chain renderer");
 
-    renderer.set_presentation_sync(true, true);
-    renderer.start_frame().expect("begin interval-one frame");
-    renderer.end_frame().expect("Present(1, 0)");
-    assert_eq!(renderer.last_present_sync_interval(), Some(1));
+        renderer.set_presentation_sync(true, true);
+        renderer.start_frame().expect("begin interval-one frame");
+        renderer.end_frame().expect("Present(1, 0)");
+        assert_eq!(
+            renderer.last_present_sync_interval(),
+            Some(1),
+            "{backend:?}"
+        );
 
-    renderer.set_presentation_sync(false, true);
-    renderer.start_frame().expect("begin immediate frame");
-    renderer.end_frame().expect("Present(0, 0)");
-    assert_eq!(renderer.last_present_sync_interval(), Some(0));
+        renderer.set_presentation_sync(false, true);
+        renderer.start_frame().expect("begin immediate frame");
+        renderer.end_frame().expect("Present(0, 0)");
+        assert_eq!(
+            renderer.last_present_sync_interval(),
+            Some(0),
+            "{backend:?}"
+        );
+    }
 }

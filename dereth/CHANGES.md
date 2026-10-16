@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Web: Empyrean worlds with WebSocket on are played without the relay.
+- Sync to refresh now works in full screen with Better Lighting.
 
 ## 0.4.4 (2026-10-15)
 
