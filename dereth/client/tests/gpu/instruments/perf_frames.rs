@@ -9,7 +9,7 @@
 //! the presentation's passes are timed by its timestamps. A frame's time as the client sees it
 //! is the larger of the processor's and the device's: the two overlap with frames in flight.
 //!
-//! - `DERETH_ART_PACK`: the pack's folder (for `hifi` and `pack`).
+//! - `DERETH_ART_PACK`: the pack's folder or packed file (for `hifi` and `pack`).
 //! - `DERETH_HIFI_CAPTURE_DIR`: where the files go (default `perf/` in cargo's scratch folder).
 //! - `DERETH_PERF_PLACES`: a comma list of the places below (default all).
 //! - `DERETH_PERF_WAYS`: a comma list of `retail`, `hifi` and `pack` (default all three).
@@ -400,7 +400,7 @@ fn run(
         shot.apply_report(report);
     }
     if way != Way::Retail {
-        let pack = pack.expect("DERETH_ART_PACK names the art pack's folder");
+        let pack = pack.expect("DERETH_ART_PACK names the art pack");
         shot.scene
             .set_art_pack(store, gpu, Some(Arc::clone(pack)))
             .expect("the blocks bake for the pack");
@@ -579,7 +579,8 @@ fn measure_frame_costs() {
     let store = crate::common::dats();
     let pack = env("DERETH_ART_PACK").map(|dir| {
         Arc::new(
-            dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+            dereth_scene::art_pack::ArtPack::open_path(Path::new(&dir))
+                .expect("the art pack opens"),
         )
     });
     let (width, height) = size();

@@ -24,9 +24,9 @@
 //! | [`textures`], [`mip_worker`] | the dat texture lookup, and compressed mip chains built off thread |
 //! | [`render_prefs`] | the `Render.*` owners on the device and on the scene |
 //! | [`camera`] | camera comparisons against the renderer's view matrix |
-//! | `art_pack` | art packs' models and which look draws an object, behind the `hifi` feature |
+//! | `art_pack` | art packs' models and which look draws an object, behind the `art-pack` feature (which `hifi` turns on) |
 
-#[cfg(feature = "hifi")]
+#[cfg(feature = "art-pack")]
 pub mod art_pack;
 /// Compare runtime cameras against the renderer's view matrix.
 pub mod camera;

@@ -473,22 +473,23 @@ mod imp {
             self.world.as_mut()
         }
 
-        /// Open the art pack in the folder `dir`, for every world loaded from now on. A pack that
-        /// will not open is reported and the world is drawn without one; a model of it that will
-        /// not read is reported and left out.
+        /// Open the art pack at `path`, a folder or the file it was packed into, for every world
+        /// loaded from now on. A pack that will not open (a packed file that is damaged among
+        /// them) is reported and the world is drawn without one; a model of it that will not read
+        /// is reported and left out.
         #[cfg(feature = "hifi")]
-        pub fn offer_art_pack(&mut self, dir: &Path) {
+        pub fn offer_art_pack(&mut self, path: &Path) {
             let started = web_time::Instant::now();
-            match crate::art_pack::ArtPack::open_dir(dir) {
+            match crate::art_pack::ArtPack::open_path(path) {
                 Ok(pack) => {
                     for problem in &pack.problems {
-                        tracing::warn!("art pack {}: {problem}", dir.display());
+                        tracing::warn!("art pack {}: {problem}", path.display());
                     }
                     tracing::info!(
                         "art pack {:?} from {}: {} models, {} triangles, {} pictures, opened in \
                          {:.2} s",
                         pack.name,
-                        dir.display(),
+                        path.display(),
                         pack.models.len(),
                         pack.triangles(),
                         pack.images.len(),
@@ -497,7 +498,7 @@ mod imp {
                     self.art_pack = Some(std::sync::Arc::new(pack));
                 }
                 Err(e) => {
-                    tracing::warn!("the art pack in {} is not drawn: {e}", dir.display());
+                    tracing::warn!("the art pack {} is not drawn: {e}", path.display());
                 }
             }
         }

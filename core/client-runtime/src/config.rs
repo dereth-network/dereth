@@ -291,9 +291,9 @@ pub struct Config {
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
     /// the switch was not given and the preference stands; `Some(None)`: the world's own.
     pub object_visuals: Option<Option<crate::render_prefs::RegionStyle>>,
-    /// `--art-pack <dir>`: the folder of an art pack, whose models the high-fidelity
-    /// presentation draws in place of the objects it has replacements for, in a build that has
-    /// it. `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
+    /// `--art-pack <path>`: an art pack's folder, or the file it was packed into, whose models
+    /// the high-fidelity presentation draws in place of the objects it has replacements for, in a
+    /// build that has it. `[Fidelity] ArtPack` names one too; the command line wins over it, and so does
     /// `DERETH_ART_PACK` in the environment, which the desktop host reads. `None`: no art pack.
     pub art_pack: Option<PathBuf>,
     /// Whether [`Self::art_pack`] came from the command line, which nothing overrides.
@@ -731,7 +731,7 @@ const REBUILD_SWITCHES: &[Switch] = &[
         short: None,
         arity: Arity::Required,
     },
-    // The folder of the art pack the high-fidelity presentation draws.
+    // The art pack the high-fidelity presentation draws: its folder, or its packed file.
     Switch {
         long: "art-pack",
         short: None,
@@ -1214,8 +1214,8 @@ impl Config {
         // as set there because it is a `SceneConfig` field of its own; `self.render` carries the
         // same value so that the live options-page path and the start-up path agree.
         self.render = crate::render_prefs::RenderPreferences::from_preferences(prefs);
-        // `[Fidelity] ArtPack=`: a folder, read at start-up. The command line, parsed after the
-        // preferences, wins over it.
+        // `[Fidelity] ArtPack=`: a folder or a packed file, read at start-up. The command line,
+        // parsed after the preferences, wins over it.
         if let Some(dir) = prefs
             .get(dereth_client_contract::options::names::fidelity::ART_PACK)
             .map(str::trim)

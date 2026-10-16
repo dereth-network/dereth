@@ -2,11 +2,11 @@
 //! model's levels of detail and the distances they are drawn to, and who made each model, with
 //! what, under which license.
 //!
-//! A pack is a folder for now: `manifest.toml` at its top, beside the glTF 2.0 models it names.
-//! Every file is named by a path relative to the folder, with `/` between its parts and nothing
-//! that climbs out of the folder, so the manifest says nothing about where the folder is. That
-//! is what lets a pack be packed later into one data file: each file the manifest names becomes
-//! a record keyed by its path, and the manifest itself one more, read through the same paths.
+//! A pack is a folder: `manifest.toml` at its top, beside the glTF 2.0 models it names. Every
+//! file is named by a path relative to the folder, with `/` between its parts and nothing that
+//! climbs out of the folder, so the manifest says nothing about where the folder is. That is what
+//! lets a pack be packed into one data file: each file the manifest names becomes a record keyed
+//! by its path, and the manifest itself one more, read through the same paths.
 //!
 //! ```toml
 //! [pack]

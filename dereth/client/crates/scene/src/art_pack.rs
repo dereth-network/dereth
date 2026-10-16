@@ -8,9 +8,13 @@
 //!
 //! **A pack is a folder** ([`ArtPack::open_dir`]): `manifest.toml` at its top
 //! ([`dereth_assets::art_pack`]), naming glTF 2.0 models by path, with their pictures beside them.
-//! Everything is read through one function of a path ([`ArtPack::open`]), so a pack packed into a
-//! data file later is read the same way, each path a record. A model that will not read is left
-//! out with a line saying why, and the rest of the pack is drawn.
+//! Everything is read through one function of a path ([`ArtPack::open`]). A model that will not
+//! read is left out with a line saying why, and the rest of the pack is drawn.
+//!
+//! **Or the folder packed into one file** ([`ArtPack::open_packed`], [`packed`]): the same files,
+//! read through the same paths, each a record, beside every picture already made as it is made
+//! here, so the file opens without decoding or compressing a picture. [`ArtPack::open_path`]
+//! opens either.
 //!
 //! **A pack may lay the ground** ([`PackGround`]): a material for each retail terrain type it
 //! covers, its pictures packed three to a material and brought to one size, so the presentation
@@ -30,8 +34,9 @@
 pub mod gltf;
 pub mod images;
 pub mod materials;
+pub mod packed;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -190,6 +195,24 @@ pub struct PackGround {
     pub credit: Credit,
 }
 
+impl PackGround {
+    /// The ground material `entry` drawn with `pictures`: its base colour, normal and surface, as
+    /// [`ground`] makes them.
+    fn with_pictures(entry: &ManifestGround, pictures: [Image; 3]) -> Self {
+        let [albedo, normal, surface] = pictures;
+        Self {
+            grounds: entry.grounds.clone(),
+            albedo,
+            normal,
+            surface,
+            size: entry.size,
+            normal_scale: entry.normal_scale,
+            steep: entry.steep,
+            credit: entry.credit.clone(),
+        }
+    }
+}
+
 /// What a ground material takes where it names no picture: a level height, a flat normal, a
 /// rough surface and no occlusion.
 const GROUND_DEFAULTS: [u8; 4] = [128, 128, 230, 255];
@@ -336,17 +359,10 @@ fn ground(
             255,
         ]);
     }
-    let [albedo, normal, surface] = ground_pictures(side, albedo, bent, &surface);
-    Ok(PackGround {
-        grounds: entry.grounds.clone(),
-        albedo,
-        normal,
-        surface,
-        size: entry.size,
-        normal_scale: entry.normal_scale,
-        steep: entry.steep,
-        credit: entry.credit.clone(),
-    })
+    Ok(PackGround::with_pictures(
+        entry,
+        ground_pictures(side, albedo, bent, &surface),
+    ))
 }
 
 /// The terrain types drawn as water, whose retail pictures keep a wet sheen when the pack has no
@@ -568,14 +584,79 @@ pub struct ArtPack {
 /// Why a pack could not be opened at all, as a sentence.
 pub type OpenError = String;
 
-/// A picture of a pack as read, to be decoded.
+/// A picture of a pack's models, to be made from its file or read as packed.
 struct PendingPicture {
     path: String,
-    bytes: Vec<u8>,
+    /// The file's bytes, read to make the picture from; none where it is read as packed.
+    bytes: Option<Vec<u8>>,
     srgb: bool,
     cutoff: Option<f32>,
     /// A picture of a level of pictures of its model seen from round it.
     views: bool,
+}
+
+impl PendingPicture {
+    /// What a packed pack keeps the picture under.
+    fn key(&self) -> String {
+        packed::model_key(&self.path, self.srgb, self.cutoff, self.views)
+    }
+
+    /// The picture made from its file's `bytes`: decoded, stretched to whole blocks, given its
+    /// levels and compressed.
+    fn make(&self, bytes: &[u8]) -> Result<Image, String> {
+        let (w, h, rgba) = images::decode_png(bytes).map_err(|e| format!("{}: {e}", self.path))?;
+        let (w, h, rgba) = images::to_whole_blocks(w, h, rgba);
+        let levels = if self.views {
+            images::with_view_levels(w, h, rgba, self.srgb)
+        } else {
+            images::with_levels(w, h, rgba, self.srgb, self.cutoff)
+        };
+        Ok(images::compressed(levels, images::BlockFormat::Bc7))
+    }
+}
+
+/// Where an opening pack's pictures come from.
+#[derive(Clone, Copy)]
+enum Pictures<'a> {
+    /// Made from the files they are made from, as those are read: a folder.
+    Made,
+    /// Read from a packed file, as they were made when it was packed.
+    Packed(&'a packed::PackedFile),
+}
+
+/// What opening a pack read and made, kept while it is packed into one file.
+#[derive(Default)]
+struct Recording {
+    /// Every file read for itself (the manifest, the models and their buffers), by path.
+    files: BTreeMap<String, Vec<u8>>,
+    /// Every picture made, by what a packed pack keeps it under.
+    pictures: BTreeMap<String, Vec<Image>>,
+}
+
+/// What an opening pack reads its files through: each hashed as it is read, and the files read
+/// for themselves kept while the pack is packed.
+struct Reader<'r> {
+    read: &'r mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+    hash: dereth_client_runtime::report::ContentHash,
+    kept: Option<BTreeMap<String, Vec<u8>>>,
+}
+
+impl Reader<'_> {
+    /// The file at `path`, read for itself: a model or one of its buffers.
+    fn file(&mut self, path: &str) -> Result<Vec<u8>, String> {
+        let bytes = self.for_picture(path)?;
+        if let Some(kept) = self.kept.as_mut() {
+            kept.insert(path.to_owned(), bytes.clone());
+        }
+        Ok(bytes)
+    }
+
+    /// The file at `path`, read to make a picture from.
+    fn for_picture(&mut self, path: &str) -> Result<Vec<u8>, String> {
+        let bytes = (self.read)(path)?;
+        self.hash.part(path, &bytes);
+        Ok(bytes)
+    }
 }
 
 /// The next pack's serial.
@@ -613,6 +694,49 @@ fn bounds(lods: &[PackLod]) -> ([f32; 3], f32) {
 }
 
 impl ArtPack {
+    /// The pack at `path`: the folder of one ([`Self::open_dir`]), or the file it was packed into
+    /// ([`Self::open_packed`]).
+    ///
+    /// # Errors
+    /// As theirs.
+    pub fn open_path(path: &Path) -> Result<Self, OpenError> {
+        if path.is_dir() {
+            Self::open_dir(path)
+        } else {
+            Self::open_packed(path)
+        }
+    }
+
+    /// The pack packed into the file at `path` ([`packed`]).
+    ///
+    /// # Errors
+    /// The file is not a packed pack, was packed for another layout or manifest format, or is
+    /// damaged: a record that will not read, or is not the bytes it was packed with. A damaged
+    /// pack is refused whole.
+    pub fn open_packed(path: &Path) -> Result<Self, OpenError> {
+        Self::from_packed(&packed::PackedFile::open(path)?)
+    }
+
+    /// The pack in the packed file `file`, opened as [`Self::open`] opens a folder's, its
+    /// pictures read as they were made when it was packed.
+    ///
+    /// # Errors
+    /// As [`Self::open_packed`].
+    pub fn from_packed(file: &packed::PackedFile) -> Result<Self, OpenError> {
+        let manifest = String::from_utf8(file.file(MANIFEST_FILE)?)
+            .map_err(|_| format!("{}: its manifest is not text", file.name()))?;
+        let pack = Self::open_from(
+            &manifest,
+            &mut |path| file.file(path),
+            Pictures::Packed(file),
+            None,
+        );
+        match file.damage() {
+            Some(e) => Err(e),
+            None => pack,
+        }
+    }
+
     /// The pack in the folder `dir`.
     ///
     /// # Errors
@@ -634,19 +758,31 @@ impl ArtPack {
         manifest: &str,
         read_file: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, OpenError> {
+        Self::open_from(manifest, read_file, Pictures::Made, None)
+    }
+
+    /// The pack whose manifest is `manifest_text`, its files read through `read_file` and its
+    /// pictures made or read as `pictures` says; what it read and made kept in `recording`.
+    fn open_from(
+        manifest_text: &str,
+        read_file: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        pictures: Pictures<'_>,
+        mut recording: Option<&mut Recording>,
+    ) -> Result<Self, OpenError> {
         // Every file read is hashed as it is read, after the manifest.
-        let hash = std::cell::RefCell::new(dereth_client_runtime::report::ContentHash::new());
-        hash.borrow_mut().part(MANIFEST_FILE, manifest.as_bytes());
-        let mut hashing = |path: &str| -> Result<Vec<u8>, String> {
-            let bytes = read_file(path)?;
-            hash.borrow_mut().part(path, &bytes);
-            Ok(bytes)
+        let mut reader = Reader {
+            read: read_file,
+            hash: dereth_client_runtime::report::ContentHash::new(),
+            kept: recording.is_some().then(BTreeMap::new),
         };
-        let read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String> = &mut hashing;
-        let manifest = ArtPackManifest::parse(manifest).map_err(|e| e.to_string())?;
+        reader.hash.part(MANIFEST_FILE, manifest_text.as_bytes());
+        if let Some(kept) = reader.kept.as_mut() {
+            kept.insert(MANIFEST_FILE.to_owned(), manifest_text.as_bytes().to_vec());
+        }
+        let manifest = ArtPackManifest::parse(manifest_text).map_err(|e| e.to_string())?;
         let mut problems = Vec::new();
         let mut models = Vec::new();
-        // Each picture once, by path and whether it holds colour, read here and decoded below.
+        // Each picture once, by path and whether it holds colour, read here and made below.
         let mut pending: Vec<PendingPicture> = Vec::new();
         let mut by_path: HashMap<(String, bool, bool), u32> = HashMap::new();
         for entry in &manifest.models {
@@ -654,11 +790,10 @@ impl ArtPack {
             let mut lods = Vec::with_capacity(entry.lods.len());
             let mut failed = None;
             for lod in &entry.lods {
-                let read_model = |read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>| {
-                    let json = read(&lod.file)?;
-                    gltf::decode(&json, &lod.file, read)
-                };
-                match read_model(read) {
+                let read_model = reader
+                    .file(&lod.file)
+                    .and_then(|json| gltf::decode(&json, &lod.file, &mut |p| reader.file(p)));
+                match read_model {
                     Ok(primitives) => lods.push((lod, primitives)),
                     Err(e) => {
                         failed = Some(e);
@@ -681,7 +816,10 @@ impl ArtPack {
                 if let Some(i) = by_path.get(&(path.clone(), srgb, views)) {
                     return Ok(Some(*i));
                 }
-                let bytes = read(path)?;
+                let bytes = match pictures {
+                    Pictures::Made => Some(reader.for_picture(path)?),
+                    Pictures::Packed(_) => None,
+                };
                 let i = u32::try_from(pending.len()).map_err(|_| "too many pictures".to_owned())?;
                 pending.push(PendingPicture {
                     path: path.clone(),
@@ -754,19 +892,24 @@ impl ArtPack {
                 credit: entry.credit.clone(),
             });
         }
-        // The pictures decoded, given their levels and compressed, on every thread at once; a
-        // model whose picture will not decode is left out.
-        let decoded = images::par_map(pending, &|p| {
-            let (w, h, rgba) =
-                images::decode_png(&p.bytes).map_err(|e| format!("{}: {e}", p.path))?;
-            let (w, h, rgba) = images::to_whole_blocks(w, h, rgba);
-            let levels = if p.views {
-                images::with_view_levels(w, h, rgba, p.srgb)
-            } else {
-                images::with_levels(w, h, rgba, p.srgb, p.cutoff)
-            };
-            Ok::<_, String>(images::compressed(levels, images::BlockFormat::Bc7))
+        // The pictures made (decoded, given their levels and compressed) or read as packed, on
+        // every thread at once; a model whose picture will not make is left out.
+        let keys: Vec<String> = match recording {
+            Some(_) => pending.iter().map(PendingPicture::key).collect(),
+            None => Vec::new(),
+        };
+        let decoded = images::par_map(pending, &|p| match (pictures, &p.bytes) {
+            (Pictures::Packed(file), _) => file.picture(&p.key()),
+            (Pictures::Made, Some(bytes)) => p.make(bytes),
+            (Pictures::Made, None) => Err(format!("{}: not read", p.path)),
         });
+        if let Some(r) = recording.as_deref_mut() {
+            for (key, made) in keys.into_iter().zip(&decoded) {
+                if let Ok(image) = made {
+                    r.pictures.insert(key, vec![image.clone()]);
+                }
+            }
+        }
         let failed: HashMap<u32, String> = (0u32..)
             .zip(&decoded)
             .filter_map(|(i, d)| d.as_ref().err().map(|e| (i, e.clone())))
@@ -804,19 +947,40 @@ impl ArtPack {
             ));
         }
         // Every ground at the first one's size, so they are drawn from one array: the files read
-        // here, the pictures made on every thread at once.
-        let files: Vec<(&ManifestGround, Result<GroundFiles, String>)> = manifest
-            .grounds
-            .iter()
-            .map(|entry| (entry, GroundFiles::read(entry, read)))
-            .collect();
-        let side = files.iter().find_map(|(_, f)| {
-            let (w, h) = images::png_size(&f.as_ref().ok()?.base).ok()?;
-            Some(w.max(h))
-        });
-        let made = images::par_map(files, &|(entry, f)| {
-            (entry, f.and_then(|f| ground(entry, &f, side)))
-        });
+        // here, the pictures made on every thread at once (or read as packed).
+        let made: Vec<(&ManifestGround, Result<PackGround, String>)> = match pictures {
+            Pictures::Made => {
+                let files: Vec<(&ManifestGround, Result<GroundFiles, String>)> = manifest
+                    .grounds
+                    .iter()
+                    .map(|entry| {
+                        let files = GroundFiles::read(entry, &mut |p| reader.for_picture(p));
+                        (entry, files)
+                    })
+                    .collect();
+                let side = files.iter().find_map(|(_, f)| {
+                    let (w, h) = images::png_size(&f.as_ref().ok()?.base).ok()?;
+                    Some(w.max(h))
+                });
+                images::par_map(files, &|(entry, f)| {
+                    (entry, f.and_then(|f| ground(entry, &f, side)))
+                })
+            }
+            Pictures::Packed(file) => {
+                images::par_map(manifest.grounds.iter().collect(), &|entry| {
+                    let made = file.three(&packed::ground_key(entry));
+                    (entry, made.map(|p| PackGround::with_pictures(entry, p)))
+                })
+            }
+        };
+        if let Some(r) = recording.as_deref_mut() {
+            for (entry, g) in &made {
+                if let Ok(g) = g {
+                    let made = vec![g.albedo.clone(), g.normal.clone(), g.surface.clone()];
+                    r.pictures.insert(packed::ground_key(entry), made);
+                }
+            }
+        }
         let mut grounds: Vec<PackGround> = Vec::with_capacity(made.len());
         for (entry, g) in made {
             match g {
@@ -825,15 +989,37 @@ impl ArtPack {
             }
         }
         // The materials for retail pictures: the files read here, the pictures made on every
-        // thread at once.
-        let files: Vec<_> = manifest
-            .materials
-            .iter()
-            .map(|entry| (entry, materials::MaterialFiles::read(entry, read)))
-            .collect();
-        let made = images::par_map(files, &|(entry, f)| {
-            (entry, f.and_then(|f| materials::material(entry, &f)))
-        });
+        // thread at once (or read as packed).
+        let made: Vec<(_, Result<TextureMaterial, String>)> = match pictures {
+            Pictures::Made => {
+                let files: Vec<_> = manifest
+                    .materials
+                    .iter()
+                    .map(|entry| {
+                        let files =
+                            materials::MaterialFiles::read(entry, &mut |p| reader.for_picture(p));
+                        (entry, files)
+                    })
+                    .collect();
+                images::par_map(files, &|(entry, f)| {
+                    (entry, f.and_then(|f| materials::material(entry, &f)))
+                })
+            }
+            Pictures::Packed(file) => {
+                images::par_map(manifest.materials.iter().collect(), &|entry| {
+                    let made = file.three(&packed::material_key(entry));
+                    (entry, made.map(|p| materials::with_pictures(entry, p)))
+                })
+            }
+        };
+        if let Some(r) = recording.as_deref_mut() {
+            for (entry, m) in &made {
+                if let Ok(m) = m {
+                    let made = vec![m.albedo.clone(), m.normal.clone(), m.surface.clone()];
+                    r.pictures.insert(packed::material_key(entry), made);
+                }
+            }
+        }
         let mut retextured: Vec<TextureMaterial> = Vec::with_capacity(made.len());
         for (entry, m) in made {
             match m {
@@ -849,7 +1035,14 @@ impl ArtPack {
                 )),
             }
         }
-        let hash = hash.borrow().finish();
+        // A packed pack is named by the hash of the folder it was packed from.
+        let hash = match pictures {
+            Pictures::Packed(file) => file.hash().to_owned(),
+            Pictures::Made => reader.hash.finish(),
+        };
+        if let Some(r) = recording {
+            r.files = reader.kept.take().unwrap_or_default();
+        }
         Ok(Self {
             name: manifest.name,
             serial: next_serial(),

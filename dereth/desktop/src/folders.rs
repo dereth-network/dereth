@@ -78,8 +78,8 @@ pub const CRASH_LOGS_KEPT: usize = 20;
 /// documentation.
 pub const SETTINGS_DIR_ENV: &str = "DERETH_SETTINGS_DIR";
 
-/// The environment variable that names the folder of an art pack the high-fidelity presentation
-/// draws. It wins over `[Fidelity] ArtPack` in the profile; `--art-pack` wins over it.
+/// The environment variable that names an art pack the high-fidelity presentation draws: its
+/// folder, or the file it was packed into. It wins over `[Fidelity] ArtPack` in the profile; `--art-pack` wins over it.
 pub const ART_PACK_ENV: &str = "DERETH_ART_PACK";
 
 /// The environment variable that names the drawn ground's tuning file, in place of

@@ -1,6 +1,6 @@
 [package]
 name = "dereth-art"
-description = "Surveys the models the world is built from: where each one is used, how often, what it is made of, and a picture of it."
+description = "Surveys the models the world is built from: where each one is used, how often, what it is made of, and a picture of it; and packs an art pack's folder into one file."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,8 +25,9 @@ dereth-terrain.workspace = true
 # The landblock's outdoor contents, placed as the client places them, and the models' parts and
 # triangles.
 dereth-client-runtime.workspace = true
-# The pictures, decoded as the client decodes them (no device: the scene builds without a backend).
-dereth-scene.workspace = true
+# The pictures, decoded as the client decodes them, and an art pack opened and packed as the
+# client opens it (no device: the scene builds without a backend).
+dereth-scene = { workspace = true, features = ["art-pack"] }
 # The surface record's type bits.
 dereth-render-cpu.workspace = true
 png.workspace = true

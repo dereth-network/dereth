@@ -61,6 +61,19 @@ fn bent(v: u8, scale: f32) -> f32 {
     (f32::from(v) / 255.0 * 2.0 - 1.0) * scale
 }
 
+/// The material `entry` drawn with `pictures`: its base color, normal and surface, as
+/// [`material`] makes them.
+pub(super) fn with_pictures(entry: &ManifestMaterial, pictures: [Image; 3]) -> TextureMaterial {
+    let [albedo, normal, surface] = pictures;
+    TextureMaterial {
+        textures: entry.textures.clone(),
+        albedo,
+        normal,
+        surface,
+        credit: entry.credit.clone(),
+    }
+}
+
 /// The material `entry` from its `files`: every picture brought to the base color's size, made
 /// whole blocks of four, with its levels, and compressed.
 pub(super) fn material(
@@ -118,17 +131,18 @@ pub(super) fn material(
             BlockFormat::Bc7,
         )
     };
-    Ok(TextureMaterial {
-        textures: entry.textures.clone(),
-        albedo,
-        normal: images::compressed(
-            images::with_levels(w, h, bends, false, None),
-            BlockFormat::Bc5,
-        ),
-        surface: images::compressed(
-            images::with_levels(hw, hh, surface, false, None),
-            BlockFormat::Bc5,
-        ),
-        credit: entry.credit.clone(),
-    })
+    Ok(with_pictures(
+        entry,
+        [
+            albedo,
+            images::compressed(
+                images::with_levels(w, h, bends, false, None),
+                BlockFormat::Bc5,
+            ),
+            images::compressed(
+                images::with_levels(hw, hh, surface, false, None),
+                BlockFormat::Bc5,
+            ),
+        ],
+    ))
 }

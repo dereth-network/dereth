@@ -146,8 +146,8 @@ pub mod fidelity {
     /// presentation draws under. The client sets it as the interface changes; it is never kept
     /// in the profile.
     pub const INTERFACE: &str = "Fidelity.Interface";
-    /// `Fidelity.ArtPack`: the folder of the art pack the presentation draws, a path, read at
-    /// start-up. `--art-pack` on the command line and `DERETH_ART_PACK` in the environment win
+    /// `Fidelity.ArtPack`: the art pack the presentation draws, the path of its folder or of the
+    /// file it was packed into, read at start-up. `--art-pack` on the command line and `DERETH_ART_PACK` in the environment win
     /// over it. No box sets it.
     pub const ART_PACK: &str = "Fidelity.ArtPack";
 

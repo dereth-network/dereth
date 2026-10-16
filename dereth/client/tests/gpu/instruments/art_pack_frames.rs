@@ -3,7 +3,7 @@
 //! the presentation with the pack's models -- written as PNGs with the frame times. They assert
 //! nothing.
 //!
-//! - `DERETH_ART_PACK`: the pack's folder (required).
+//! - `DERETH_ART_PACK`: the pack's folder or packed file (required).
 //! - `DERETH_HIFI_CAPTURE_DIR`: where the files go (default: `art-pack/` in cargo's scratch folder
 //!   for integration tests).
 //! - `DERETH_ART_PACK_STATIONS`: a comma list of the places to draw, or `all` (the default).
@@ -546,10 +546,10 @@ fn run(
 fn capture_an_art_pack_beside_the_retail_look() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack's folder");
+    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack");
     let opened = Instant::now();
     let pack = Arc::new(
-        dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+        dereth_scene::art_pack::ArtPack::open_path(Path::new(&dir)).expect("the art pack opens"),
     );
     eprintln!(
         "art pack {:?}: {} models, {} triangles, {} pictures, {} materials, opened in {:.2} s;          problems {:?}",
@@ -691,7 +691,8 @@ fn capture_the_frame_a_report_describes() {
     );
     let pack = env("DERETH_ART_PACK").map(|dir| {
         Arc::new(
-            dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+            dereth_scene::art_pack::ArtPack::open_path(Path::new(&dir))
+                .expect("the art pack opens"),
         )
     });
     if let (Some(pack), Some((name, hash))) = (pack.as_ref(), report.render.art_pack.as_ref()) {
@@ -834,9 +835,9 @@ fn capture_an_art_pack_in_motion() {
     use dereth_client_runtime::render_prefs::FidelityPreferences;
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack's folder");
+    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack");
     let pack = Arc::new(
-        dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+        dereth_scene::art_pack::ArtPack::open_path(Path::new(&dir)).expect("the art pack opens"),
     );
     let (width, height) = size();
     let out = root().join("motion");
@@ -1000,9 +1001,9 @@ fn measure_a_still_camera() {
     use dereth_client_runtime::render_prefs::FidelityPreferences;
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack's folder");
+    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack");
     let pack = Arc::new(
-        dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+        dereth_scene::art_pack::ArtPack::open_path(Path::new(&dir)).expect("the art pack opens"),
     );
     let (width, height) = size();
     let out = root().join("still");
@@ -1155,9 +1156,9 @@ fn measure_far_trees_upkeep() {
     use dereth_client_runtime::render_prefs::FidelityPreferences;
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
-    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack's folder");
+    let dir = env("DERETH_ART_PACK").expect("DERETH_ART_PACK names the art pack");
     let pack = Arc::new(
-        dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+        dereth_scene::art_pack::ArtPack::open_path(Path::new(&dir)).expect("the art pack opens"),
     );
     let (width, height) = size();
     let frames = env("DERETH_ART_PACK_MOTION_FRAMES")

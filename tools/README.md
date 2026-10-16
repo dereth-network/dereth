@@ -48,7 +48,7 @@ The client builds in the classic portal's layer from `core/client-runtime/assets
 `cargo test -p dereth-pack` fails while that container is not what its manifest makes. The
 library (`dereth_pack`) is the start of an editor for these records.
 
-## `dereth-art` — the art survey
+## `dereth-art` — the art survey and art packs
 
 Surveys every model the world is built from, over your own dats: the scenery the client grows on
 every landblock (placed as the client places it), each landblock's statics and buildings, the
@@ -70,6 +70,21 @@ row per model and use), `summary.md` (the headline numbers and the rankings), `r
 sortable, filterable page that needs only the files beside it) and `thumbs/`. A `tags.tsv` there
 (`id<TAB>tags`, or `--tags <file>`) fills the report's tags column. The pictures and tables
 describe your retail data: keep them to yourself.
+
+`dereth-art pack` packs an art pack's folder into one file the client opens as it opens the
+folder (`--art-pack`, `DERETH_ART_PACK` and `[Fidelity] ArtPack` take either), but without
+decoding or compressing a picture: it holds the manifest, every model and buffer, and every
+picture already made as the client makes it. The same folder always gives the same bytes.
+
+```text
+cargo run --release -p dereth-art -- pack <folder> [--out <file>]
+cargo run --release -p dereth-art -- pack <folder> --check
+```
+
+`--out` defaults to `<folder>.dat` beside the folder. `--check` packs the folder again in memory
+and says whether the file is what it packs into now, and which records are not. What the pack
+cannot read or make is listed and left out, as the client leaves it out of the folder. One file
+holds up to 2 GB.
 
 ## `dereth-pcap` — the community-capture index
 
