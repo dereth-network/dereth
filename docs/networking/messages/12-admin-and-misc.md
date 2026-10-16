@@ -111,20 +111,29 @@ server's patch logic works unchanged. A server that knows the extension can do m
 - **The capability.** The response's flag word, which the retail client sends as 0, has bit 0 set,
   and after it comes a packed list of the base files the client holds: each a type dword, an id
   dword (the tagged list's pair) and the file's 32-byte fingerprint (the SHA-256 of its header and
-  directory). A server that reads only the first list sees a retail message.
+  directory: its layout). Bit 1 says the client also takes a base named by its records and checks
+  its own files against them, so its files may be laid out otherwise than the world's. A server
+  that reads only the first list sees a retail message.
 - **`0xF7EC` overlay manifest** (server to client, queue 5, before `0xF7E7`; outside the client's
   `0xF7E2`–`0xF7EB` range, so a retail client never dispatches it): the world's name (a string), the
   bytes the patch will send, then a packed list of files, each with its tagged pair, its base file's
   name (a string), fingerprint and iteration count, a dword whose bit 0 says the overlay carries the
-  world's own iteration list (reported as it is) rather than revisions over the base's, the
-  revisions (a packed list of dwords), the records (a packed list of id, iteration, inflated size and
-  SHA-256) and the deletions (a packed list of id, mask and iteration; a mask of 0 is the one record).
+  world's own iteration list (reported as it is) rather than revisions over the base's and whose
+  bit 1 says the base's 32-byte records digest follows it (sent only to a client that set bit 1 of
+  its flag word; see
+  [the container page](../../formats/01-dat-container.md#12-world-overlays)), the revisions (a
+  packed list of dwords), the records (a packed list of id, iteration, inflated size and SHA-256)
+  and the deletions (a packed list of id, mask and iteration; a mask of 0 is the one record).
 - **What the client does with it.** It refuses the world's overlay, writes nothing and ends the
-  patch at once when a file's base is not the one it holds, when the world is on its blocklist, or
-  when its overlay folder holds another world's overlay. Otherwise it refuses any record whose
-  inflated bytes do not have the manifest's SHA-256, and applies the single-record deletions only the
-  manifest can say (a cell purge takes a whole landblock).
-- **What the server does.** It refuses, with the reason, a client holding another base. A cell
+  patch at once when a file's base is not the one it holds (neither the fingerprint named nor, when
+  named, the records), when the world is on its blocklist, or when its overlay folder holds another
+  world's overlay. Otherwise it refuses any record whose inflated bytes do not have the manifest's
+  SHA-256, and applies the single-record deletions only the manifest can say (a cell purge takes a
+  whole landblock).
+- **What the server does.** It refuses, with the reason, a client holding another base: one whose
+  fingerprint is neither the one the overlay was written over nor the server's own file's, unless
+  the client checks records and the overlay names them, when the client checks for itself. The
+  manifest names each base by the client's own fingerprint when that is one of these. A cell
   revision downloads its records in the patch itself instead of purging them for the client to ask
   for one by one, and purges only the overlay's whole-landblock deletions.
 

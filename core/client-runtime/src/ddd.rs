@@ -589,13 +589,15 @@ impl DddPatcher {
             let Some((base, name)) = target.bases.get(&t) else {
                 continue;
             };
-            let have = dereth_dat::overlay::fingerprint(base);
-            if have != f.base_fingerprint {
+            // The same layout is the same file; another is the base when the world names the base's
+            // records and this file holds them.
+            let records = f.base_records.as_ref();
+            if !dereth_dat::overlay::is_named_base(base, &f.base_fingerprint, records) {
+                let (want, have) =
+                    dereth_dat::overlay::mismatch_names(base, &f.base_fingerprint, records);
                 mismatch = Some(format!(
-                    "the world's {name} overlay was made against {} {}, and this client holds {name} {}",
+                    "the world's {name} overlay was made against {} {want}, and this client holds {name} {have}",
                     f.base_name,
-                    dereth_dat::overlay::hex(&f.base_fingerprint),
-                    dereth_dat::overlay::hex(&have)
                 ));
                 break;
             }
@@ -1385,6 +1387,88 @@ mod tests {
         );
         drop(base);
         drop(patcher);
+        drop(scratch);
+    }
+
+    /// A language file in `dir` holding the iteration list and two records, written in the order
+    /// given and stamped `date`.
+    fn language_file(dir: &std::path::Path, ids: [u32; 2], date: u32) -> DatFile {
+        std::fs::create_dir_all(dir).expect("folder");
+        let path = DatTarget::Local.in_dir(dir);
+        {
+            let mut w = dereth_dat::write::DatWriter::create(&path, 0x400, 1, 3, 64 * 1024)
+                .expect("create");
+            for id in ids {
+                w.save(DataId(id), &id.to_le_bytes(), 1, 1, date)
+                    .expect("a record");
+            }
+            w.save(
+                dereth_dat::ITERATION_LIST,
+                &dereth_dat::iteration::encode(&[1]),
+                1,
+                0,
+                date,
+            )
+            .expect("seed iterations");
+        }
+        DatFile::open(&path).expect("the file")
+    }
+
+    /// Behaviour: none (the overlay extension's base check: a base is known by its records).
+    #[test]
+    fn a_manifest_naming_the_bases_records_is_taken_over_a_file_laid_out_otherwise() {
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("ddd-base-records").expect("scratch directory");
+        let dir = scratch.path().to_path_buf();
+        // The world's overlay was made over a file holding these records in the other order.
+        let made = language_file(&dir.join("made"), [0x2100_0001, 0x2100_0002], 1);
+        let base = language_file(&dir.join("base"), [0x2100_0002, 0x2100_0001], 9);
+        assert_ne!(
+            dereth_dat::overlay::fingerprint(&made),
+            dereth_dat::overlay::fingerprint(&base)
+        );
+        let manifest = |records: Option<[u8; 32]>| DddOverlayManifest {
+            world_key: "a world".into(),
+            total_bytes: 0,
+            files: vec![dereth_protocol::admin::OverlayFileManifest {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                base_name: "client_local_English.dat".into(),
+                base_fingerprint: dereth_dat::overlay::fingerprint(&made),
+                base_records: records,
+                base_iterations: 1,
+                exact_iterations: false,
+                revisions: vec![2],
+                records: Vec::new(),
+                tombstones: Vec::new(),
+            }],
+        };
+        let patcher = |tag: &str| {
+            let overlay = OverlayDir::new(&dir.join(tag)).expect("an overlay folder");
+            DddPatcher::new(Some(OverlayTarget::with_bases(
+                overlay,
+                [(DatTarget::Local, base.clone())],
+                "a world",
+            )))
+        };
+        let same = dereth_dat::overlay::records_digest(&made).expect("the records");
+
+        let mut taken = patcher("taken");
+        taken.on_manifest(&manifest(Some(same)));
+        assert_eq!(taken.refused(), None, "the same records are the same base");
+
+        let mut other = patcher("other");
+        other.on_manifest(&manifest(Some([0xCD; 32])));
+        assert!(
+            other.refused().is_some_and(|r| r.contains("records")),
+            "{:?}",
+            other.refused()
+        );
+
+        // A manifest that names no records names its base by its layout alone.
+        let mut layout = patcher("layout");
+        layout.on_manifest(&manifest(None));
+        assert!(layout.refused().is_some_and(|r| r.contains("made against")));
         drop(scratch);
     }
 

@@ -23,8 +23,8 @@
 //! - `0xFFFF0002`, the tombstones ([`Tombstone`]): a record id, or a family of ids under a mask,
 //!   that the world has deleted, with the revision that deleted it.
 //! - `0xFFFF0003`, the manifest ([`ContainerManifest`]): which world the overlay belongs to, which
-//!   base file it was made against (its name and [`fingerprint`]), and the SHA-256 of every record
-//!   it holds.
+//!   base file it was made against (its name, its [`fingerprint`] and its [`records_digest`]), and
+//!   the SHA-256 of every record it holds.
 //!
 //! A read through a file carrying its overlay ([`crate::DatFile::layered`]) asks the overlay
 //! first: a record it holds is the overlay's, a record a tombstone covers is not there, and every
@@ -34,6 +34,8 @@
 //! An overlay opens only over the base it was made against: a different base is refused
 //! ([`OverlayError::BaseMismatch`]), as is a folder holding another world's overlay
 //! ([`OverlayError::OtherWorld`]) and a folder holding base files ([`OverlayError::BaseFolder`]).
+//! A base is known by its records, not by where they lie in the file: the same records written in
+//! another order, as two copies of one file can be, are the same base ([`is_named_base`]).
 //!
 //! The folder is a [`DatFolder`]: a folder on disk ([`OverlayDir::new`]), or any other storage
 //! that keeps named containers ([`OverlayDir::in_folder`]), such as a browser's. The containers
@@ -136,8 +138,14 @@ pub fn decode_tombstones(bytes: &[u8]) -> Result<Vec<Tombstone>, DatError> {
 
 /// `DOVL`, the manifest record's first dword.
 const MANIFEST_MAGIC: u32 = u32::from_le_bytes(*b"DOVL");
-/// The manifest layout this reader and writer speak.
-const MANIFEST_VERSION: u32 = 1;
+/// The first manifest layout, which names its base by its layout alone.
+const MANIFEST_VERSION_LAYOUT: u32 = 1;
+/// The manifest layout that also names its base by its records.
+const MANIFEST_VERSION_RECORDS: u32 = 2;
+/// The manifest's flag: the iterations are the world's own list.
+const FLAG_EXACT_ITERATIONS: u32 = 1;
+/// The manifest's flag: the base's [`records_digest`] follows the flags.
+const FLAG_BASE_RECORDS: u32 = 2;
 
 /// What an overlay container says about itself.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -146,8 +154,11 @@ pub struct ContainerManifest {
     pub world_key: String,
     /// The base file's name (`client_portal.dat`, `portal.dat`, ...).
     pub base_name: String,
-    /// The base file's [`fingerprint`].
+    /// The base file's [`fingerprint`]: the layout it was last written over.
     pub base_fingerprint: [u8; 32],
+    /// The base file's [`records_digest`]; `None` in a manifest written before overlays named
+    /// their bases by their records, which then opens over its layout alone.
+    pub base_records: Option<[u8; 32]>,
     /// How many iterations the base file carries.
     pub base_iterations: u32,
     /// Whether the overlay's iteration list is the world's whole list, reported as it is, rather
@@ -177,17 +188,33 @@ fn get_hash(c: &mut Cursor<'_>) -> Result<[u8; 32], DatError> {
 }
 
 impl ContainerManifest {
-    /// The manifest record's bytes.
+    /// The manifest record's bytes: the first layout when it names no records of its base, which
+    /// every reader of overlays reads, and the second when it does.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(64 + self.hashes.len() * 36);
+        let mut out = Vec::with_capacity(96 + self.hashes.len() * 36);
         out.extend_from_slice(&MANIFEST_MAGIC.to_le_bytes());
-        out.extend_from_slice(&MANIFEST_VERSION.to_le_bytes());
+        let version = if self.base_records.is_some() {
+            MANIFEST_VERSION_RECORDS
+        } else {
+            MANIFEST_VERSION_LAYOUT
+        };
+        out.extend_from_slice(&version.to_le_bytes());
         put_str(&mut out, &self.world_key);
         put_str(&mut out, &self.base_name);
         out.extend_from_slice(&self.base_fingerprint);
         out.extend_from_slice(&self.base_iterations.to_le_bytes());
-        out.extend_from_slice(&u32::from(self.exact_iterations).to_le_bytes());
+        let mut flags = 0;
+        if self.exact_iterations {
+            flags |= FLAG_EXACT_ITERATIONS;
+        }
+        if self.base_records.is_some() {
+            flags |= FLAG_BASE_RECORDS;
+        }
+        out.extend_from_slice(&flags.to_le_bytes());
+        if let Some(records) = &self.base_records {
+            out.extend_from_slice(records);
+        }
         #[allow(clippy::cast_possible_truncation)]
         out.extend_from_slice(&(self.hashes.len() as u32).to_le_bytes());
         for (id, h) in &self.hashes {
@@ -205,14 +232,23 @@ impl ContainerManifest {
         let mut c = Cursor::new(bytes);
         let magic = c.u32()?;
         let version = c.u32()?;
-        if magic != MANIFEST_MAGIC || version != MANIFEST_VERSION {
+        if magic != MANIFEST_MAGIC
+            || !(MANIFEST_VERSION_LAYOUT..=MANIFEST_VERSION_RECORDS).contains(&version)
+        {
             return Err(DatError::NotFound(MANIFEST));
         }
         let world_key = get_str(&mut c)?;
         let base_name = get_str(&mut c)?;
         let base_fingerprint = get_hash(&mut c)?;
         let base_iterations = c.u32()?;
-        let exact_iterations = c.u32()? & 1 != 0;
+        let flags = c.u32()?;
+        let exact_iterations = flags & FLAG_EXACT_ITERATIONS != 0;
+        let base_records = if version >= MANIFEST_VERSION_RECORDS && flags & FLAG_BASE_RECORDS != 0
+        {
+            Some(get_hash(&mut c)?)
+        } else {
+            None
+        };
         let n = c.u32()?;
         let mut hashes = BTreeMap::new();
         for _ in 0..n {
@@ -224,6 +260,7 @@ impl ContainerManifest {
             world_key,
             base_name,
             base_fingerprint,
+            base_records,
             base_iterations,
             exact_iterations,
             hashes,
@@ -237,13 +274,19 @@ pub fn record_hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-/// A file's identity as an overlay names its base: the SHA-256 of its header and of its whole
+/// A file's layout as an overlay names its base: the SHA-256 of its header and of its whole
 /// directory (every record's id, place in the file, size, version, date and iteration). Any write
 /// to the file moves a record's place or date, so two files with the same fingerprint hold the
 /// same records; it is read from the directory walk the open already made, never from the
-/// records, so it costs nothing to check. Always the file's own, whatever overlay is over it.
+/// records, so it costs next to nothing to check. Two files holding the same records in another
+/// order have different fingerprints and the same [`records_digest`]. Always the file's own,
+/// whatever overlay is over it.
 #[must_use]
 pub fn fingerprint(file: &DatFile) -> [u8; 32] {
+    *file.identity().layout.get_or_init(|| layout_of(file))
+}
+
+fn layout_of(file: &DatFile) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(b"dereth dat fingerprint 1");
     let hd = file.header();
@@ -264,6 +307,146 @@ pub fn fingerprint(file: &DatFile) -> [u8; 32] {
         }
     }
     h.finalize().into()
+}
+
+/// What [`records_digest`] hashes first, so a change to what it covers changes every one.
+const RECORDS_MAGIC: &[u8] = b"dereth dat records 1";
+
+/// How much of the file one read of [`records_digest`] takes.
+const RECORDS_WINDOW: usize = 1 << 20;
+
+/// A file's records as an overlay names its base: the SHA-256 of `dereth dat records 1`, the
+/// header iteration (or 0), then each of the file's own records ascending by id, as its id, its
+/// size and the SHA-256 of its bytes. The iteration list is one of the records. Where a record
+/// lies in the file is not, nor its entry's flag word, date and iteration, which are stamps of
+/// the copy rather than the record: one file copied in another order, or patched on another day,
+/// holds the same records.
+///
+/// It reads the whole file, in the order the records lie in it (about a second for a portal
+/// file), once for each open of the file. Always the file's own, whatever overlay is over it.
+///
+/// # Errors
+/// A record that will not read, and a record stored compressed.
+pub fn records_digest(file: &DatFile) -> Result<[u8; 32], DatError> {
+    if let Some(d) = file.identity().records.get() {
+        return Ok(*d);
+    }
+    let d = records_of(file)?;
+    Ok(*file.identity().records.get_or_init(|| d))
+}
+
+/// A run of the file's bytes held for the block reads that fall inside it.
+struct Window<'a> {
+    file: &'a DatFile,
+    end: u64,
+    at: u64,
+    len: usize,
+    buf: Vec<u8>,
+}
+
+impl Window<'_> {
+    /// The `n` bytes at `offset`, read with the run after them when they are not held.
+    fn get(&mut self, offset: u64, n: usize) -> Result<&[u8], DatError> {
+        let held = offset >= self.at && offset + n as u64 <= self.at + self.len as u64;
+        if !held {
+            let rest = usize::try_from(self.end.saturating_sub(offset)).unwrap_or(usize::MAX);
+            let want = rest.min(self.buf.len()).max(n);
+            self.len = if self.file.read_raw(offset, &mut self.buf[..want]).is_ok() {
+                want
+            } else {
+                // A header that claims more than the storage holds: the block alone.
+                self.file.read_raw(offset, &mut self.buf[..n])?;
+                n
+            };
+            self.at = offset;
+        }
+        let from = usize::try_from(offset - self.at).unwrap_or(0);
+        Ok(&self.buf[from..from + n])
+    }
+}
+
+fn records_of(file: &DatFile) -> Result<[u8; 32], DatError> {
+    let hd = file.header();
+    let per = hd.payload_per_block();
+    let entries: Vec<(DataId, BtEntry)> = file.base_entries().map(|(id, e)| (id, *e)).collect();
+    // Front to back through the file, so the reads run through it in large pieces.
+    let mut order: Vec<usize> = (0..entries.len()).collect();
+    order.sort_unstable_by_key(|i| entries[*i].1.offset);
+    let mut digests = vec![[0u8; 32]; entries.len()];
+    let mut window = Window {
+        file,
+        end: u64::from(hd.file_size),
+        at: 0,
+        len: 0,
+        buf: vec![0; RECORDS_WINDOW.max(hd.block_size as usize)],
+    };
+    for i in order {
+        let (id, e) = entries[i];
+        if e.compressed() {
+            return Err(DatError::CompressionUnsupported(id));
+        }
+        let mut h = Sha256::new();
+        let mut remaining = e.size as usize;
+        let mut offset = e.offset;
+        while remaining > 0 && offset != 0 {
+            let take = remaining.min(per);
+            let block = window.get(u64::from(offset), take + 4)?;
+            let link = u32::from_le_bytes([block[0], block[1], block[2], block[3]]);
+            if link & 0x8000_0000 != 0 {
+                return Err(DatError::FreeBlockInChain { id, offset });
+            }
+            h.update(&block[4..]);
+            remaining -= take;
+            offset = link;
+        }
+        if remaining != 0 {
+            return Err(DatError::ChainTooShort {
+                id,
+                shortfall: remaining,
+            });
+        }
+        digests[i] = h.finalize().into();
+    }
+    let mut h = Sha256::new();
+    h.update(RECORDS_MAGIC);
+    h.update(file.base_header_iteration().unwrap_or(0).to_le_bytes());
+    for ((id, e), d) in entries.iter().zip(&digests) {
+        h.update(id.raw().to_le_bytes());
+        h.update(e.size.to_le_bytes());
+        h.update(d);
+    }
+    Ok(h.finalize().into())
+}
+
+/// Whether `base` is the file an overlay names as its base by `layout` (the base's
+/// [`fingerprint`]) and, when it names them, `records` (its [`records_digest`]). The same layout
+/// is the same file, known at once; another layout is the same base when its records are the
+/// same, which reads the whole file once for this open of it. A file that will not read whole is
+/// not the base.
+#[must_use]
+pub fn is_named_base(base: &DatFile, layout: &[u8; 32], records: Option<&[u8; 32]>) -> bool {
+    fingerprint(base) == *layout
+        || records.is_some_and(|want| records_digest(base).is_ok_and(|have| have == *want))
+}
+
+/// How a refusal names the base an overlay wants and the file found instead, in hex: by records
+/// when the overlay names them, else by layout.
+#[must_use]
+pub fn mismatch_names(
+    base: &DatFile,
+    layout: &[u8; 32],
+    records: Option<&[u8; 32]>,
+) -> (String, String) {
+    match records {
+        Some(want) => (
+            format!("records {}", hex(want)),
+            records_digest(base).map_or_else(
+                |e| format!("unreadable ({e})"),
+                |have| format!("records {}", hex(&have)),
+            ),
+        ),
+        None => (hex(layout), hex(&fingerprint(base))),
+    }
 }
 
 /// A fingerprint as lower-case hex, for log lines and file names.
@@ -365,13 +548,14 @@ impl Layer {
                 });
             }
         }
-        let found = fingerprint(base);
-        if manifest.base_fingerprint != found {
+        let (layout, records) = (&manifest.base_fingerprint, manifest.base_records.as_ref());
+        if !is_named_base(base, layout, records) {
+            let (expected, found) = mismatch_names(base, layout, records);
             return Err(OverlayError::BaseMismatch {
                 path,
                 base_name: manifest.base_name.clone(),
-                expected: hex(&manifest.base_fingerprint),
-                found: hex(&found),
+                expected,
+                found,
             });
         }
         let tombstones = match overlay.read(TOMBSTONES) {
@@ -806,7 +990,7 @@ impl OverlayWriter {
         let fp = fingerprint(&base);
         if folder.is_file(name) {
             let mut writer = DatWriter::open_in(path.clone(), folder.open_mut(name)?)?;
-            let manifest = writer
+            let mut manifest = writer
                 .read(MANIFEST)
                 .and_then(|b| ContainerManifest::decode(&b))
                 .map_err(|_| OverlayError::NotOverlay(path.clone()))?;
@@ -817,13 +1001,27 @@ impl OverlayWriter {
                     expected: world_key.to_owned(),
                 });
             }
-            if manifest.base_fingerprint != fp {
+            let (layout, records) = (&manifest.base_fingerprint, manifest.base_records.as_ref());
+            if !is_named_base(&base, layout, records) {
+                let (expected, found) = mismatch_names(&base, layout, records);
                 return Err(OverlayError::BaseMismatch {
                     path,
                     base_name: manifest.base_name,
-                    expected: hex(&manifest.base_fingerprint),
-                    found: hex(&fp),
+                    expected,
+                    found,
                 });
+            }
+            let mut dirty = false;
+            // The same records laid out otherwise: the overlay is kept over this file now.
+            if manifest.base_fingerprint != fp {
+                manifest.base_fingerprint = fp;
+                dirty = true;
+            }
+            // A container written before overlays named their bases by their records names its
+            // base's records from now on.
+            if manifest.base_records.is_none() {
+                manifest.base_records = records_digest(&base).ok();
+                dirty |= manifest.base_records.is_some();
             }
             let tombstones = match writer.read(TOMBSTONES) {
                 Ok(b) => decode_tombstones(&b)?,
@@ -834,7 +1032,7 @@ impl OverlayWriter {
                 writer,
                 tombstones,
                 manifest,
-                dirty: false,
+                dirty,
             });
         }
         let hd = base.header();
@@ -853,6 +1051,7 @@ impl OverlayWriter {
             world_key: world_key.to_owned(),
             base_name: base_name.to_owned(),
             base_fingerprint: fp,
+            base_records: records_digest(&base).ok(),
             base_iterations: base_iterations(&base).len() as u32,
             exact_iterations: false,
             hashes: BTreeMap::new(),
@@ -1096,12 +1295,22 @@ mod tests {
             world_key: "a world".into(),
             base_name: "client_portal.dat".into(),
             base_fingerprint: [7; 32],
+            base_records: Some([9; 32]),
             base_iterations: 2072,
             exact_iterations: true,
             hashes: BTreeMap::new(),
         };
         m.hashes.insert(0x0600_0001, record_hash(b"x"));
-        assert_eq!(ContainerManifest::decode(&m.encode()).unwrap(), m);
+        let named = m.encode();
+        assert_eq!(&named[4..8], &2u32.to_le_bytes(), "the second layout");
+        assert_eq!(ContainerManifest::decode(&named).unwrap(), m);
+        // A manifest that names no records is written in the first layout, which every reader of
+        // overlays reads.
+        m.base_records = None;
+        let plain = m.encode();
+        assert_eq!(&plain[4..8], &1u32.to_le_bytes(), "the first layout");
+        assert_eq!(plain.len() + 32, named.len());
+        assert_eq!(ContainerManifest::decode(&plain).unwrap(), m);
         assert!(ContainerManifest::decode(b"not a manifest at all").is_err());
     }
 }

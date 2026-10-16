@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use dereth_primitives::DataId;
 
@@ -326,6 +326,17 @@ pub struct DatFile {
     layer: Option<Arc<crate::overlay::Layer>>,
     /// The client's own records beneath the overlay, when it has them.
     client: Option<Arc<crate::overlay::Layer>>,
+    /// The file's identity as an overlay names its base, worked out once for this open of the
+    /// file and shared by every view of it.
+    identity: Arc<FileIdentity>,
+}
+
+/// What names one open file as an overlay's base: its layout ([`crate::overlay::fingerprint`]) and
+/// its records ([`crate::overlay::records_digest`]), each worked out when first asked for.
+#[derive(Debug, Default)]
+pub(crate) struct FileIdentity {
+    pub(crate) layout: OnceLock<[u8; 32]>,
+    pub(crate) records: OnceLock<[u8; 32]>,
 }
 
 impl DatFile {
@@ -377,6 +388,7 @@ impl DatFile {
             header_iteration: None,
             layer: None,
             client: None,
+            identity: Arc::default(),
         };
         let mut hdr = [0u8; 0x50];
         me.read_exact_at(HEADER_OFFSET, &mut hdr)?;
@@ -560,7 +572,13 @@ impl DatFile {
             header_iteration: self.header_iteration,
             layer: None,
             client: None,
+            identity: Arc::clone(&self.identity),
         }
+    }
+
+    /// The file's identity as an overlay names its base, kept for this open of the file.
+    pub(crate) fn identity(&self) -> &FileIdentity {
+        &self.identity
     }
 
     /// The overlay over this file, if any.

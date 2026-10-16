@@ -143,6 +143,7 @@ pub fn write(
         world_key: CLIENT_KEY.to_owned(),
         base_name: base_name.to_owned(),
         base_fingerprint: [0; 32],
+        base_records: None,
         base_iterations: 0,
         exact_iterations: false,
         hashes: records

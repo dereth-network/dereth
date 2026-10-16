@@ -274,7 +274,7 @@ mod tests {
         let none = patcher(&store, &offline);
         assert!(!none.keeps_overlay());
         let r = crate::app::ddd_interrogation_response(&store, 0, none.keeps_overlay());
-        assert_eq!(r.flags & DddInterrogationResponse::FLAG_OVERLAY, 0);
+        assert_eq!(r.flags, 0);
         assert!(r.overlay_bases.is_empty(), "no overlay, no bases");
 
         install_folders(kept);
@@ -287,6 +287,7 @@ mod tests {
         assert!(p.keeps_overlay());
         let r = crate::app::ddd_interrogation_response(&store, 0, p.keeps_overlay());
         assert_ne!(r.flags & DddInterrogationResponse::FLAG_OVERLAY, 0);
+        assert_ne!(r.flags & DddInterrogationResponse::FLAG_RECORDS, 0);
         assert_eq!(r.overlay_bases.len(), 3);
         // A folder the host does not keep is no folder.
         let elsewhere = Config {

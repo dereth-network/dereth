@@ -1470,9 +1470,11 @@ pub fn ddd_interrogation_response(
         }
     }
     // Not retail: the overlay extension. The flag says the client keeps the world's records in an
-    // overlay over its locked files, and the bases it holds follow; a server that does not know the
-    // extension reads none of it (see `dereth_protocol::admin::DddInterrogationResponse`). A run
-    // that keeps no overlay answers as retail does, with neither.
+    // overlay over its locked files, and the bases it holds follow; a second flag says it checks a
+    // base the world names by its records itself, so its files may be laid out otherwise. A server
+    // that does not know the extension reads none of it (see
+    // `dereth_protocol::admin::DddInterrogationResponse`). A run that keeps no overlay answers as
+    // retail does, with neither.
     let mut overlay_bases = Vec::new();
     let mut base = |ty: u32, id: u32, f: &dereth_dat::DatFile| {
         overlay_bases.push(dereth_protocol::admin::OverlayBase {
@@ -1499,7 +1501,7 @@ pub fn ddd_interrogation_response(
         // "a second `CAllIterationList`, always empty in practice" -- and ACE does not read it.
         iters_without_keys: Vec::new(),
         flags: if keeps_overlay {
-            DddInterrogationResponse::FLAG_OVERLAY
+            DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_RECORDS
         } else {
             0
         },

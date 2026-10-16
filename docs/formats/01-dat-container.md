@@ -340,20 +340,37 @@ Three records of each container are its own, never a world record:
 |---|---|
 | `0xFFFF0001` | The overlay's iterations, in the iteration file's encoding. |
 | `0xFFFF0002` | The deletions: a count, then `(id, mask, iteration)` per deletion. A mask of 0 deletes the one id; otherwise every id whose bits under the mask are the id's (`0xFFFF0000` is a landblock with its cells). |
-| `0xFFFF0003` | The manifest: `DOVL`, a format dword (1), the world's name and the base file's name (each a 16-bit length and UTF-8 bytes), the base file's 32-byte fingerprint, its iteration count, a flags dword (bit 0: the iterations are the world's own list), then a count and `(id, SHA-256)` per record the overlay holds. |
+| `0xFFFF0003` | The manifest: `DOVL`, a format dword (1 or 2), the world's name and the base file's name (each a 16-bit length and UTF-8 bytes), the base file's 32-byte fingerprint, its iteration count, a flags dword (bit 0: the iterations are the world's own list; bit 1, format 2 only: the base's records digest follows), the base file's 32-byte records digest when bit 1 says so, then a count and `(id, SHA-256)` per record the overlay holds. |
 
-The **fingerprint** is the SHA-256 of `dereth dat fingerprint 1`, then the block size, data set,
-data subset, tree root, master map id, whether the layout is the older one, and the header
-iteration (or 0), each a dword, then every directory entry's id, flag word, offset, size, date and
-iteration, ascending. A write to a file moves a record's place or date, so it names one state of a
-file without reading its records.
+An overlay names its base file two ways.
+
+- The **fingerprint** names its layout: the SHA-256 of `dereth dat fingerprint 1`, then the block
+  size, data set, data subset, tree root, master map id, whether the layout is the older one, and
+  the header iteration (or 0), each a dword, then every directory entry's id, flag word, offset,
+  size, date and iteration, ascending. A write to a file moves a record's place or date, so it
+  names one state of a file without reading its records.
+- The **records digest** names its records: the SHA-256 of `dereth dat records 1`, the header
+  iteration (or 0) as a dword, then for every record of the file, ascending by id, its id and size
+  (dwords) and the SHA-256 of its bytes. The iteration list is one of the records. A record's place
+  in the file, and its entry's flag word, date and iteration, are not: they are stamps of one copy,
+  and copies of one file differ in them. The same records written in another order, or patched on
+  another day, have another fingerprint and the same records digest. It reads every record, which
+  takes about a second for the portal file, half that for the cell file.
+
+The manifest is written in format 2, with bit 1 set and the records digest, whenever it names the
+base's records, which every overlay written now does; format 1 has neither, and a format-1 overlay
+is named by its fingerprint alone. A writer that opens a format-1 overlay names its base's records
+from then on, and a writer that opens an overlay over a file laid out otherwise records that
+file's fingerprint in place of the old one.
 
 **A read through the overlay** asks it first: a record the overlay holds is its own (an addition or a
 replacement, in the base file's record layout), a record a deletion covers is not there, and every
 other record is the base file's. The iteration list read through it is the base file's iterations and
 the overlay's together — or the overlay's alone when the manifest says they are the world's own
-list. An overlay opens only over the file its manifest's fingerprint names, and only for the world it
-names.
+list. An overlay opens only for the world it names, and only over its base file: a file with the
+fingerprint its manifest names, or, when the manifest names the base's records, a file laid out
+otherwise whose records digest is the one named. The fingerprint is checked first, and the records
+are read only when it differs, once for each open of the file.
 
 **Taking a world apart.** `empyrean-import dat-overlay` compares a world's files with their base by
 bytes: a record the world adds or changes goes into the overlay, a removed one becomes a deletion (a

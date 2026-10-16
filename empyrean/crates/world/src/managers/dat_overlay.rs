@@ -8,7 +8,8 @@
 //! - **The overlay extension** (V437), only for a client that sets the overlay flag in its
 //!   `DDD_InterrogationResponseMessage` (`0xF7E6`): the bases it holds are checked against the
 //!   ones the overlay was made against (a client holding another base is refused, with the reason,
-//!   rather than patched into an incoherent world); `DDD_OverlayManifestMessage` (`0xF7EC`) names
+//!   rather than patched into an incoherent world; a client that checks bases by their records is
+//!   left to check a file laid out otherwise itself); `DDD_OverlayManifestMessage` (`0xF7EC`) names
 //!   the world, the bases, every record with its SHA-256 and every deletion; and the world's cell
 //!   records come in the patch itself rather than being purged for the client to ask for one by one.
 //! - **Deletions** (V438): a record the overlay deletes from the portal, language or high-res file
@@ -71,30 +72,70 @@ pub fn overlaid(dats: &DatManager) -> Vec<DatDatabaseType> {
         .collect()
 }
 
-/// Why a client holding `bases` cannot take this world's overlay: the first overlaid file whose
-/// base it does not hold. `None` when it holds every one.
+/// What a client that keeps overlays says of its files in its `0xF7E6`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ClientBases<'a> {
+    /// The base files it holds, each by its layout.
+    pub bases: &'a [proto::OverlayBase],
+    /// It checks a base the manifest names by its records itself, so a file of its laid out
+    /// otherwise may still be the base.
+    pub checks_records: bool,
+}
+
+impl<'a> ClientBases<'a> {
+    /// What `response` says.
+    #[must_use]
+    pub fn of(response: &'a proto::DddInterrogationResponse) -> Self {
+        Self {
+            bases: &response.overlay_bases,
+            checks_records: response.flags & proto::DddInterrogationResponse::FLAG_RECORDS != 0,
+        }
+    }
+
+    /// The layout of the client's file `db`, if it named one.
+    fn held(&self, db: DatDatabaseType) -> Option<[u8; 32]> {
+        let pair = wire_pair(db);
+        self.bases
+            .iter()
+            .find(|b| (b.dat_file_type, b.dat_file_id) == pair)
+            .map(|b| b.fingerprint)
+    }
+}
+
+/// The layouts a client's file may have and hold the overlay's base: the one the overlay was
+/// written over, and that of this server's own file, which the overlay was checked against when it
+/// was opened.
+fn base_layouts(d: &DatDatabase, layer: &empyrean_dat::data_overlay::Layer) -> [[u8; 32]; 2] {
+    let made = layer.manifest().base_fingerprint;
+    [made, d.base_fingerprint().unwrap_or(made)]
+}
+
+/// Why a client holding `client`'s bases cannot take this world's overlay: the first overlaid
+/// file whose base it does not hold. `None` when it holds every one, or when the overlay names a
+/// base by its records and the client, which checks those itself, holds a file of that kind laid
+/// out otherwise.
 #[must_use]
-pub fn base_mismatch(dats: &DatManager, bases: &[proto::OverlayBase]) -> Option<String> {
+pub fn base_mismatch(dats: &DatManager, client: &ClientBases<'_>) -> Option<String> {
     for db in overlaid(dats) {
         let d = database(dats, db)?;
         let layer = d.overlay()?;
-        let (ty, id) = wire_pair(db);
-        let held = bases
-            .iter()
-            .find(|b| (b.dat_file_type, b.dat_file_id) == (ty, id))
-            .map(|b| b.fingerprint);
-        if held != Some(layer.manifest().base_fingerprint) {
-            return Some(format!(
-                "this world's {} overlay was made against {} {}, and the client holds {}",
-                d.file_path(),
-                layer.manifest().base_name,
-                empyrean_dat::data_overlay::hex(&layer.manifest().base_fingerprint),
-                held.map_or_else(
-                    || "none".to_owned(),
-                    |h| empyrean_dat::data_overlay::hex(&h)
-                )
-            ));
+        let held = client.held(db);
+        if held.is_some_and(|h| base_layouts(d, layer).contains(&h)) {
+            continue;
         }
+        if client.checks_records && held.is_some() && layer.manifest().base_records.is_some() {
+            continue;
+        }
+        return Some(format!(
+            "this world's {} overlay was made against {} {}, and the client holds {}",
+            d.file_path(),
+            layer.manifest().base_name,
+            empyrean_dat::data_overlay::hex(&layer.manifest().base_fingerprint),
+            held.map_or_else(
+                || "none".to_owned(),
+                |h| empyrean_dat::data_overlay::hex(&h)
+            )
+        ));
     }
     None
 }
@@ -116,13 +157,18 @@ pub fn deletions(dats: &DatManager) -> HashMap<(DatDatabaseType, u32), Vec<(u32,
     out
 }
 
-/// The world's overlay manifest.
+/// The world's overlay manifest, for `client`. Each file's base is named by the layout the client
+/// holds when that is one of the base's, else by the overlay's own; its records are named only to
+/// a client that checks them.
 #[must_use]
-pub fn manifest(dats: &DatManager) -> proto::DddOverlayManifest {
+pub fn manifest(dats: &DatManager, client: &ClientBases<'_>) -> proto::DddOverlayManifest {
     let mut files = Vec::new();
     let mut total: u64 = 0;
     for db in overlaid(dats) {
-        let Some(layer) = database(dats, db).and_then(DatDatabase::overlay) else {
+        let Some(d) = database(dats, db) else {
+            continue;
+        };
+        let Some(layer) = d.overlay() else {
             continue;
         };
         let m = layer.manifest();
@@ -148,7 +194,11 @@ pub fn manifest(dats: &DatManager) -> proto::DddOverlayManifest {
             dat_file_type,
             dat_file_id,
             base_name: m.base_name.clone(),
-            base_fingerprint: m.base_fingerprint,
+            base_fingerprint: client
+                .held(db)
+                .filter(|h| base_layouts(d, layer).contains(h))
+                .unwrap_or(m.base_fingerprint),
+            base_records: m.base_records.filter(|_| client.checks_records),
             base_iterations: m.base_iterations,
             exact_iterations: m.exact_iterations,
             revisions: layer.own_iterations().to_vec(),

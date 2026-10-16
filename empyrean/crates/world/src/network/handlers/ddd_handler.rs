@@ -172,9 +172,12 @@ pub fn ddd_interrogation_response_with(
         && empyrean_common::config_manager::ConfigManager::config()
             .dat_overlay
             .patching;
+    let client_bases = extension
+        .as_ref()
+        .map(dat_overlay::ClientBases::of)
+        .unwrap_or_default();
     if overlay_patching {
-        let bases = extension.as_ref().map_or(&[][..], |r| &r.overlay_bases[..]);
-        if let Some(why) = dat_overlay::base_mismatch(&dats, bases) {
+        if let Some(why) = dat_overlay::base_mismatch(&dats, &client_bases) {
             log::info!(
                 "[DDD] client {} holds other data files than this world's overlay was made against: {why}",
                 account(w, session)
@@ -183,7 +186,10 @@ pub fn ddd_interrogation_response_with(
             enqueue_send(
                 w,
                 session,
-                dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(&dats)),
+                dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(
+                    &dats,
+                    &client_bases,
+                )),
             );
             let boot =
                 game_message_boot_account(Some(&format!(" because {OVERLAY_OTHER_BASE_REASON}")));
@@ -396,7 +402,10 @@ pub fn ddd_interrogation_response_with(
                 enqueue_send(
                     w,
                     session,
-                    dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(&dats)),
+                    dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(
+                        &dats,
+                        &client_bases,
+                    )),
                 );
                 if let Some(cells) = missing_iterations.get(&DatDatabaseType::Cell) {
                     let sizes = w.ddd_manager.dat_file_sizes.get(&DatDatabaseType::Cell);

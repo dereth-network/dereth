@@ -3,8 +3,9 @@
 //! (the overlay flag and its bases in `DDD_InterrogationResponseMessage`, `0xF7E6`) is sent the
 //! overlay manifest (`0xF7EC`), then a `DDD_BeginDDDMessage` (`0xF7E7`) whose revisions download
 //! the overlay's records, the world's cell records among them, and purge its deletions, then the
-//! records; one holding another base is refused with the reason; a client without the flag is
-//! answered as ACE answers it. On the February 2005 files, whose world is otherwise never patched,
+//! records; one holding another base is refused with the reason, unless it checks the bases by
+//! their records itself, when it is sent them and patched; a client without the flag is answered as
+//! ACE answers it. On the February 2005 files, whose world is otherwise never patched,
 //! a client that keeps overlays is patched too.
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`), the February 2005 dats
 //! (`DERETH_TEST_PRETOD_DAT_DIR`) and an overlay written in a scratch folder.
@@ -228,6 +229,10 @@ fn a_client_that_keeps_overlays_is_sent_the_manifest_the_records_and_the_deletio
         .expect("the portal's part");
     let ids: Vec<u32> = portal.records.iter().map(|r| r.id).collect();
     assert!(ids.contains(&ADDED.raw()) && ids.contains(&made.replaced.raw()));
+    assert_eq!(
+        portal.base_records, None,
+        "a client that does not check records is not sent them"
+    );
     assert_eq!(portal.revisions, vec![made.portal_revision]);
     let cell = m
         .files
@@ -310,6 +315,52 @@ fn a_client_holding_another_base_is_refused_with_the_reason_and_one_without_over
         "{got:04X?}"
     );
     assert!(got.contains(&0xF7DC), "{got:04X?}");
+}
+
+#[test]
+fn a_client_that_checks_records_is_patched_over_files_laid_out_otherwise() {
+    let scratch = dereth_dat::testing::ScratchDir::new("server-overlay-records").expect("scratch");
+    let dir = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    let base_dir = dereth_dat::testing::dat_dir();
+    let base = RetailDatStore::open_dir(&base_dir).expect("the retail dats");
+    make_overlay(&base, &dir, "client_portal.dat", "client_cell_1.dat");
+    let dats = overlaid(
+        &base_dir,
+        dir.path(),
+        dereth_primitives::ContainerEra::Modern,
+    );
+
+    // Its portal file is laid out as neither the overlay's maker's nor this server's.
+    let mut answer = response(&base, true);
+    answer.flags |= DddInterrogationResponse::FLAG_RECORDS;
+    answer.overlay_bases[0].fingerprint = [0x5A; 32];
+    let (mut ts, id) = exchange(&dats, &answer);
+    ts.run_until(10.0, |ts| !ts.received::<DddBeginDdd>(id).is_empty());
+    let got: Vec<u32> = ts.received_raw(id).iter().map(|m| m.opcode).collect();
+    assert!(got.contains(&0xF7EC) && got.contains(&0xF7E7), "{got:04X?}");
+    assert!(!got.contains(&0xF7DC), "not booted: {got:04X?}");
+
+    let m = &ts.received::<DddOverlayManifest>(id)[0];
+    let portal = m
+        .files
+        .iter()
+        .find(|f| (f.dat_file_type, f.dat_file_id) == (0, 1))
+        .expect("the portal's part");
+    assert_eq!(
+        portal.base_records,
+        Some(dereth_dat::overlay::records_digest(base.portal()).expect("the records")),
+        "the client is sent the records to check its file against"
+    );
+    let cell = m
+        .files
+        .iter()
+        .find(|f| (f.dat_file_type, f.dat_file_id) == (1, 2))
+        .expect("the cell's part");
+    assert_eq!(
+        cell.base_fingerprint,
+        dereth_dat::overlay::fingerprint(base.cell()),
+        "a file laid out as the server's is named by its layout"
+    );
 }
 
 #[test]

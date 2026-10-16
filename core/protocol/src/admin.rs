@@ -616,7 +616,9 @@ impl Message for DddInterrogation {
 /// records in an overlay over its locked files sets [`Self::FLAG_OVERLAY`] and follows the flags
 /// with the base files it holds ([`OverlayBase`]); a server that knows the extension answers it
 /// with a [`DddOverlayManifest`] and the world's cell records in its patch, and any other server
-/// reads the message as a retail one.
+/// reads the message as a retail one. A client that also sets [`Self::FLAG_RECORDS`] checks a base
+/// the manifest names by its records itself, so a server may send it an overlay made over the same
+/// records in another layout.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DddInterrogationResponse {
     pub client_language: u32,
@@ -630,10 +632,13 @@ pub struct DddInterrogationResponse {
 impl DddInterrogationResponse {
     /// The client keeps the world's records in an overlay and takes the overlay manifest.
     pub const FLAG_OVERLAY: u32 = 0x0000_0001;
+    /// The client takes a manifest that names each base by its records too
+    /// ([`OverlayFileManifest::base_records`]), and checks its own files against them.
+    pub const FLAG_RECORDS: u32 = 0x0000_0002;
 }
 
 /// One base file a client holds, by the file's wire pair and its fingerprint (the SHA-256 of its
-/// header and directory).
+/// header and directory: its layout).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OverlayBase {
     pub dat_file_type: u32,
@@ -895,6 +900,11 @@ pub struct OverlayFileManifest {
     /// The base file the overlay was made against: its name, fingerprint and iteration count.
     pub base_name: String,
     pub base_fingerprint: [u8; 32],
+    /// The base file's records (the SHA-256 over each record's id, size and bytes), by which a file
+    /// laid out otherwise is still the base. Sent only to a client that set
+    /// [`DddInterrogationResponse::FLAG_RECORDS`], and only for an overlay that names them; it
+    /// follows the flags dword, whose bit 1 says it is there.
+    pub base_records: Option<[u8; 32]>,
     pub base_iterations: u32,
     /// The overlay's iteration list is the world's whole list, reported as it is, rather than
     /// revisions over the base's (a world that numbers its iterations its own way).
@@ -904,6 +914,11 @@ pub struct OverlayFileManifest {
     pub records: Vec<OverlayRecord>,
     pub tombstones: Vec<OverlayTombstone>,
 }
+
+/// A file's flag in a [`DddOverlayManifest`]: the overlay's iterations are the world's own list.
+const MANIFEST_EXACT_ITERATIONS: u32 = 1;
+/// A file's flag in a [`DddOverlayManifest`]: the base's records follow the flags.
+const MANIFEST_BASE_RECORDS: u32 = 2;
 
 /// `0xF7EC DDD_OverlayManifestMessage` (S2C), on queue 5: the overlay extension's own message,
 /// outside the retail client's `0xF7E2..=0xF7EB` dispatch, sent only to a client that set
@@ -926,13 +941,25 @@ impl Message for DddOverlayManifest {
         let world_key = r.pstring()?;
         let total_bytes = r.u32()?;
         let files = r.packed_list(|r| {
+            let dat_file_type = r.u32()?;
+            let dat_file_id = r.u32()?;
+            let base_name = r.pstring()?;
+            let base_fingerprint = read_hash(r)?;
+            let base_iterations = r.u32()?;
+            let flags = r.u32()?;
+            let base_records = if flags & MANIFEST_BASE_RECORDS != 0 {
+                Some(read_hash(r)?)
+            } else {
+                None
+            };
             Ok(OverlayFileManifest {
-                dat_file_type: r.u32()?,
-                dat_file_id: r.u32()?,
-                base_name: r.pstring()?,
-                base_fingerprint: read_hash(r)?,
-                base_iterations: r.u32()?,
-                exact_iterations: r.u32()? & 1 != 0,
+                dat_file_type,
+                dat_file_id,
+                base_name,
+                base_fingerprint,
+                base_records,
+                base_iterations,
+                exact_iterations: flags & MANIFEST_EXACT_ITERATIONS != 0,
                 revisions: r.packed_list(Reader::u32)?,
                 records: r.packed_list(|r| {
                     Ok(OverlayRecord {
@@ -967,7 +994,17 @@ impl Message for DddOverlayManifest {
             w.pstring(&f.base_name)?;
             w.bytes(&f.base_fingerprint);
             w.u32(f.base_iterations);
-            w.u32(u32::from(f.exact_iterations));
+            let mut flags = 0;
+            if f.exact_iterations {
+                flags |= MANIFEST_EXACT_ITERATIONS;
+            }
+            if f.base_records.is_some() {
+                flags |= MANIFEST_BASE_RECORDS;
+            }
+            w.u32(flags);
+            if let Some(records) = &f.base_records {
+                w.bytes(records);
+            }
             w.packed_list(&f.revisions, |w, v| {
                 w.u32(*v);
                 Ok(())
@@ -1166,6 +1203,13 @@ mod tests {
         assert_eq!(bytes[..retail.len() - 4], retail[..retail.len() - 4]);
         let back: DddInterrogationResponse = round_trip(&bytes);
         assert_eq!(back, extended);
+        // A client that checks bases by their records says so in the same flags.
+        let records = DddInterrogationResponse {
+            flags: DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_RECORDS,
+            ..extended
+        };
+        let back: DddInterrogationResponse = round_trip(&write_body(&records).unwrap());
+        assert_eq!(back, records);
     }
 
     /// Behaviour: none (the overlay manifest's own round trip)
@@ -1179,6 +1223,7 @@ mod tests {
                 dat_file_id: 2,
                 base_name: "client_cell_1.dat".into(),
                 base_fingerprint: [3; 32],
+                base_records: None,
                 base_iterations: 982,
                 exact_iterations: false,
                 revisions: vec![983],
@@ -1195,9 +1240,17 @@ mod tests {
                 }],
             }],
         };
-        let back: DddOverlayManifest = round_trip(&write_body(&m).unwrap());
+        let plain = write_body(&m).unwrap();
+        let back: DddOverlayManifest = round_trip(&plain);
         assert_eq!(back, m);
         assert_eq!(DddOverlayManifest::OPCODE.0, 0xF7EC);
+        // A base named by its records too: 32 more bytes after the flags, bit 1 of which says so.
+        let mut named = m.clone();
+        named.files[0].base_records = Some([5; 32]);
+        let bytes = write_body(&named).unwrap();
+        assert_eq!(bytes.len(), plain.len() + 32);
+        let back: DddOverlayManifest = round_trip(&bytes);
+        assert_eq!(back, named);
     }
 
     #[test]
