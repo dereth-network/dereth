@@ -2178,6 +2178,11 @@ impl SceneDraw {
         // updated in the same frame the client would have updated it.
         self.update_particles(ws, now);
         self.use_time_sky(ws, now.0, dt);
+        // The high-fidelity presentation times what it eases and animates by this clock.
+        #[cfg(feature = "hifi")]
+        {
+            self.hifi.get_mut().now = now.0;
+        }
         // Adaptive degrade runs **once per frame at the end of normal rendering**,
         // which is the last line of this function, and is next -- so the bias the
         // frame draws with is the one this call just produced.

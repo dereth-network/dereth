@@ -1425,10 +1425,10 @@ struct PostGpu {
 pub struct LightingPost {
     gpu: Option<PostGpu>,
     bloom: Option<(Held, Vec<wgpu::TextureView>, u32)>,
-    /// When the last frame was tone mapped.
-    last: Option<std::time::Instant>,
-    /// When the last frame indoors was tone mapped.
-    last_indoors: Option<std::time::Instant>,
+    /// When the last frame was tone mapped, on the scene's clock.
+    last: Option<f64>,
+    /// When the last frame indoors was tone mapped, on the scene's clock.
+    last_indoors: Option<f64>,
 }
 
 /// How the exposure of a frame is reached: keyed to the frame's own light or taken from the sun
@@ -1685,8 +1685,11 @@ impl HifiPass for LightingPost {
         let sun_gain = env_f32("DERETH_HIFI_SUN", 2.6);
         let amb_gain = env_f32("DERETH_HIFI_AMBIENT", 0.85);
         let exposure = exposure(frame, sun_gain, amb_gain);
-        let now = std::time::Instant::now();
-        let since = |t: Option<std::time::Instant>| t.map(|t| (now - t).as_secs_f32());
+        // The eye adapts over the scene's time, not the time the frames took to draw. A clock
+        // that went back (a new scene) is a gap.
+        let now = frame.time;
+        #[allow(clippy::cast_possible_truncation)] // the seconds between two frames
+        let since = |t: Option<f64>| t.filter(|t| *t <= now).map(|t| (now - t) as f32);
         let indoors = !frame.sky.outdoor;
         let step = exposure_step(indoors, since(self.last), since(self.last_indoors));
         self.last = Some(now);

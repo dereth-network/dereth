@@ -31,11 +31,13 @@ use super::{Gpu, SceneDraw, WorldState};
 const FEED_BYTES_PER_FRAME: usize = 4 << 20;
 
 /// What the bridge remembers between frames: the preferences and the device's ray queries it
-/// last applied, the previous frame's camera, and, for each block whose geometry the presentation
-/// holds, the block's generation and the detail levels its objects stood at when it was sent.
+/// last applied, the scene's clock at its last step, the previous frame's camera, and, for each
+/// block whose geometry the presentation holds, the block's generation and the detail levels its
+/// objects stood at when it was sent.
 #[derive(Debug, Default)]
 pub(crate) struct Shadow {
     applied: Option<(FidelityPreferences, bool)>,
+    pub(super) now: f64,
     previous_view_projection: Option<glam::Mat4>,
     sent: HashMap<u16, (u32, u32)>,
 }
@@ -275,6 +277,7 @@ fn snapshot(
 ) -> HifiFrame {
     let mut frame = reuse.unwrap_or_default();
     frame.stamp = stamp;
+    frame.time = sh.now;
 
     // --- the camera -----------------------------------------------------------------------
     let view = draw.view_params(ws, width, height);

@@ -10,8 +10,6 @@
 //! The lamps fade in as the sun goes down, flames flicker, and only the lamps that matter most to
 //! the view are lit: the brightest near the eye and inside the view.
 
-use std::time::Instant;
-
 use glam::{Mat4, Vec3, Vec4};
 
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
@@ -495,7 +493,9 @@ pub struct LampLight {
     still: u32,
     last_camera: Option<([f32; 16], [f32; 16])>,
     frame: u32,
-    start: Option<Instant>,
+    /// The scene's clock when the lamps were first lit, seconds: the flicker's time is counted
+    /// from it.
+    start: Option<f64>,
     /// The lamps given a halo this frame, each with its place in the lit list.
     halos: Vec<(usize, LitLamp)>,
 }
@@ -543,11 +543,15 @@ impl LampLight {
         if n <= 0.001 || frame.lamps.is_empty() {
             return None;
         }
-        let t = self
-            .start
-            .get_or_insert_with(Instant::now)
-            .elapsed()
-            .as_secs_f32();
+        // The flicker follows the scene's clock, so the same frames flicker alike however fast
+        // they are drawn. A clock that went back (a new scene) starts it again.
+        let start = match self.start {
+            Some(s) if s <= frame.time => s,
+            _ => frame.time,
+        };
+        self.start = Some(start);
+        #[allow(clippy::cast_possible_truncation)] // seconds since the lamps were first lit
+        let t = (frame.time - start) as f32;
         let (lit, halos) = choose(frame, n, t);
         if std::env::var_os("DERETH_HIFI_LAMPS_TRACE").is_some() {
             eprintln!(

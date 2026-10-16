@@ -16,6 +16,9 @@ pub struct HifiFrame {
     /// The device's frame stamp of the frame this snapshot describes. A snapshot whose stamp is
     /// not the frame being ended is not used for it.
     pub stamp: u64,
+    /// The scene's clock at this frame, seconds. What the presentation eases or animates over
+    /// time is timed by it, so the same frames come out the same however fast they are drawn.
+    pub time: f64,
     /// The camera.
     pub camera: HifiCamera,
     /// The sun, the ambient light, the fog and the sky.

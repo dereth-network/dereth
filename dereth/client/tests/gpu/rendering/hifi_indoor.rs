@@ -4,8 +4,9 @@
 //! The better lighting indoors: underground, beside a dungeon's candles, in a house's room and at
 //! a doorway seen from the room, it changes the frame, and the frame stays within a sane
 //! brightness of the ordinary one, neither dark nor brighter, and nothing near a light blown out
-//! to white; and with the lamps' rays a room's light does not reach a surface
-//! past the walls that stand between them.
+//! to white; with the lamps' rays a room's light does not reach a surface
+//! past the walls that stand between them; and a pause between two frames, as a slow machine
+//! draws them, does not change what the eye adapts to.
 //!
 //! Each frame is compared with the same station loaded again on a device of its own and stepped
 //! the same number of frames with the presentation off.
@@ -56,9 +57,22 @@ fn station(name: &str) -> Station {
         .unwrap_or_else(|| panic!("no station {name}"))
 }
 
+/// A pause longer than the half second between two frames over which the eye keeps its
+/// adaptation.
+const PAUSE: std::time::Duration = std::time::Duration::from_millis(750);
+
 /// `station` loaded with `prefs` and stepped [`STEPS`] frames on a device of its own, waiting for
 /// the presentation's background work after each: its last frame, and whether it was re-shaded.
 fn run(station: &Station, prefs: FidelityPreferences) -> (Vec<u8>, bool) {
+    run_paused(station, prefs, None)
+}
+
+/// [`run`], with `pause` before the last step: the station as a slow machine draws it.
+fn run_paused(
+    station: &Station,
+    prefs: FidelityPreferences,
+    pause: Option<std::time::Duration>,
+) -> (Vec<u8>, bool) {
     let mut device = device();
     let gpu = &mut device;
     let store = crate::common::dats();
@@ -67,7 +81,10 @@ fn run(station: &Station, prefs: FidelityPreferences) -> (Vec<u8>, bool) {
     shot.scene
         .update_from_preferences(&store, gpu)
         .expect("the preferences poll");
-    for _ in 0..STEPS {
+    for i in 0..STEPS {
+        if let Some(pause) = pause.filter(|_| i + 1 == STEPS) {
+            std::thread::sleep(pause);
+        }
         shot.step(gpu);
         assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
     }
@@ -313,5 +330,22 @@ fn in_a_cave_the_bounced_light_adds_the_light_of_its_walls_and_floor() {
     assert!(
         darker * 4 < brighter,
         "{darker} pixels darker against {brighter} brighter"
+    );
+}
+
+#[test]
+fn in_a_cave_a_pause_between_frames_does_not_change_the_bounced_light() {
+    let _gpu = crate::common::gpu_lock();
+    // The eye adapts to the cave's bounced light as it gathers, over the scene's time: a frame
+    // drawn after a pause, as a slow or busy machine draws it, is the frame drawn without one.
+    let station = station("dungeon-cave");
+    let prefs = fidelity("Lighting=1,GlobalIllumination=1");
+    let (steady, _) = run(&station, prefs);
+    let (paused, reshaded) = run_paused(&station, prefs, Some(PAUSE));
+    assert!(reshaded);
+    let changed = moved(&steady, &paused);
+    assert_eq!(
+        changed, 0,
+        "a pause before the last frame changed {changed} bytes of it"
     );
 }
