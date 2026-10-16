@@ -37,13 +37,17 @@
 //!   Its final placement result cancels destruction when a cell exists or queues destruction
 //!   when none exists. A newer instance deletes and rebuilds the object.
 //! * Advancing time past a queued deadline deletes the object.
+//! * A received position for a nearby body in a cell, with no newer teleport, is walked to when
+//!   it is within the body's blip distance (100 m outdoors, 20 m indoors) of the last position
+//!   already queued, and queued behind it; beyond that the body is put there at once.
 //! * Radar insertion rejects rows that fail the radar-eligibility predicate. Here `radar_dot`
 //!   inspects that predicate on the HUD row; it does not read rendered radar pixels.
 //!
 //! Fixture: synthetic messages encoded and admitted through the encrypted replay endpoint of a
 //! headless `App`, in ordinary `App::frame` order. A real `TimeSync` optional header advances the
 //! server clock across the 25 s deadline; the tests do not directly invoke the model's
-//! destruction routine.
+//! destruction routine. The interior-departure test also lets that silence pass on the client's
+//! own clock, so a walk its departure queued has run out before the return arrives.
 #![cfg(gpu)]
 
 use dereth_primitives::{CellId, Frame, LandblockId, LocalTime, ObjectId, Position, Quat, Vec3};
@@ -82,6 +86,8 @@ const VISIBLE: u32 = 0x0040_0408;
 const PLAYER_BIT: u32 = 0x0000_0008;
 /// Destruction is queued for current server time plus 25.0 seconds.
 const DESTRUCTION_TIME: f64 = 25.0;
+/// A departed player's silence before he comes back, seconds: past the destruction deadline.
+const SILENCE: f64 = DESTRUCTION_TIME + 5.0;
 /// The visible-state transition's 0.75 s ramp plus slack, in headless frames.
 const RAMP_FRAMES: usize = 40;
 
@@ -394,6 +400,12 @@ fn frames(app: &mut App, n: usize) {
     for _ in 0..n {
         assert!(app.frame());
     }
+}
+
+/// The headless frames in `seconds` of the client's own clock.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a few thousand frames
+fn frames_in(seconds: f64) -> usize {
+    (seconds / dereth_client_runtime::platform::clock::HEADLESS_STEP).ceil() as usize
 }
 
 fn apart(a: Vec3, b: Vec3) -> f32 {
@@ -871,11 +883,10 @@ fn landblock_resident(app: &App, block: LandblockId) -> bool {
     dereth_physics::LandSource::landblock_resident(&*land, block)
 }
 
-/// The centre of land cell `index` of `block`, on the terrain.
-fn land_cell_centre(app: &App, block: LandblockId, index: u16) -> Vec3 {
-    let i = f32::from(index - 1);
-    #[allow(clippy::cast_possible_truncation)]
-    let (x, y) = (((i / 8.0).floor()) * 24.0 + 12.0, (i % 8.0) * 24.0 + 12.0);
+/// A point inside the interior cell `cell`, in landblock space: the lowest point of a half-metre
+/// lattice round the cell's own origin that its containment tree holds and its walls and floor do
+/// not.
+fn point_inside(app: &App, cell: CellId) -> Option<Vec3> {
     let land = app
         .world_state()
         .unwrap()
@@ -884,14 +895,27 @@ fn land_cell_centre(app: &App, block: LandblockId, index: u16) -> Vec3 {
         .unwrap()
         .land()
         .clone();
-    Vec3::new(x, y, land.ground_height(block, x, y).unwrap_or(0.0) + 1.0)
+    let geometry = dereth_physics::LandSource::env_cell(&*land, cell)?;
+    let containment = geometry.cell_bsp.as_ref()?;
+    for zi in -24i16..=24 {
+        for i in -40i16..=40 {
+            for j in -40i16..=40 {
+                let local = Vec3::new(f32::from(i) * 0.5, f32::from(j) * 0.5, f32::from(zi) * 0.5);
+                let solid = geometry
+                    .physics_bsp
+                    .as_ref()
+                    .is_some_and(|b| b.point_intersects_solid(local));
+                if containment.point_inside_cell_bsp(local) && !solid {
+                    return Some(dereth_physics::math::localtoglobal(&geometry.frame, local));
+                }
+            }
+        }
+    }
+    None
 }
 
-/// Find a decoded interior referenced by a building in this block. building_cells indexes
-/// buildings by the land cell containing their frame origin. The land-cell centre plus terrain
-/// height is only an approximate position candidate: it does not prove containment in that
-/// particular interior. The test observes placement and deadline results rather than forcing
-/// them.
+/// Find a decoded interior referenced by a building in this block, and a point inside it.
+/// building_cells indexes buildings by the land cell containing their frame origin.
 fn decoded_interior(app: &App, block: LandblockId) -> Option<(CellId, Vec3)> {
     let land = app
         .world_state()
@@ -901,13 +925,10 @@ fn decoded_interior(app: &App, block: LandblockId) -> Option<(CellId, Vec3)> {
         .unwrap()
         .land()
         .clone();
-    for index in 1..=64u16 {
-        let interiors = dereth_physics::LandSource::building_cells(&*land, block.cell(index));
-        if let Some(cell) = interiors.into_iter().find(|c| !c.is_outdoor()) {
-            return Some((cell, land_cell_centre(app, block, index)));
-        }
-    }
-    None
+    (1..=64u16)
+        .flat_map(|index| dereth_physics::LandSource::building_cells(&*land, block.cell(index)))
+        .filter(|c| !c.is_outdoor())
+        .find_map(|cell| Some((cell, point_inside(app, cell)?)))
 }
 
 /// An interior cell id of `block` that the client does **not** hold geometry for.
@@ -936,6 +957,11 @@ struct EnvArm {
 /// resolves it from cached geometry without loading. Exercise a loaded block's missing index,
 /// an unloaded block and a decoded interior, twice each. Observe whether placement queues a
 /// deadline, require culling to agree with that verdict, and require every return to draw.
+///
+/// The departure is followed by a silence on both clocks before the return. A body the client
+/// keeps ends the silence in the room its departure named, and the return, an equal-instance
+/// create, is a received position: from a room, a correction further than 20 m puts the body at
+/// the return position at once rather than walking it there.
 #[test]
 fn an_interior_cell_departure_still_lets_the_return_draw() {
     let mut app = app();
@@ -950,7 +976,7 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
         landblock_resident(&app, block),
         "the block under the viewer is prefetched"
     );
-    let (decoded_cell, decoded_origin) = decoded_interior(&app, block)
+    let (decoded_cell, inside_room) = decoded_interior(&app, block)
         .expect("the viewer's landblock carries at least one building interior");
     assert!(
         env_cell_known(&app, decoded_cell),
@@ -967,7 +993,7 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
         EnvArm {
             label: "(a) resident block, an interior index it does not carry",
             cell: undecoded_interior(&app, block),
-            origin: decoded_origin,
+            origin: inside_room,
             resident: true,
             decoded: false,
         },
@@ -981,7 +1007,7 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
         EnvArm {
             label: "(c) the viewer's own block, a decoded building interior",
             cell: decoded_cell,
-            origin: decoded_origin,
+            origin: inside_room,
             resident: true,
             decoded: true,
         },
@@ -1023,10 +1049,14 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
                 arm.label
             );
 
-            // Cross the destruction deadline through a real TimeSync, whatever the verdict was.
-            let after = app.clock().cur_time + DESTRUCTION_TIME + 5.0;
+            // Cross the destruction deadline through a real TimeSync, whatever the verdict was, and
+            // let the same silence pass on the client's own clock. A departure the client can
+            // resolve is walked toward, and a return that arrives while that walk is still queued
+            // is queued behind it, to be walked only once the body has reached the departure: the
+            // silence is what lets the walk run out first, as it does before a player comes back.
+            let after = app.clock().cur_time + SILENCE;
             peer.advance_to(&mut app, REMOTE, HIDDEN, stamp, 1, after);
-            frames(&mut app, 3);
+            frames(&mut app, frames_in(SILENCE));
             let culled = app.objects().presence(REMOTE).is_none();
             assert_eq!(
                 culled,
@@ -1034,11 +1064,19 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
                 "{} cycle {cycle}: the 25 s cull follows the placement verdict and nothing else",
                 arm.label
             );
+            let stood = body_cell(&app, REMOTE).flatten();
             if culled {
                 // Held children leave visibility and are culled with their wielder.
                 assert!(
                     app.objects().presence(WAND).is_none(),
                     "{} cycle {cycle}: the held wand was culled with its wielder",
+                    arm.label
+                );
+            } else {
+                assert_eq!(
+                    stood,
+                    Some(arm.cell),
+                    "{} cycle {cycle}: the retained body stands in the room its departure named",
                     arm.label
                 );
             }
@@ -1049,6 +1087,13 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
             // ACE's create order. Use a camera-relative candidate and assert the resulting draw
             // below rather than assuming visibility from the chosen coordinates alone.
             let back = in_view(&app, 2.0);
+            if !culled {
+                assert!(
+                    pose(&app, REMOTE).is_some_and(|p| apart(p, back.frame.origin) > 20.0),
+                    "{} cycle {cycle}: the return is more than 20 m from the room",
+                    arm.label
+                );
+            }
             peer.send(
                 &mut app,
                 &create(
@@ -1084,6 +1129,17 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
                  pose every 8 frames {trajectory:?}",
                 arm.label, back.frame.origin
             );
+            if !culled {
+                // The equal-instance create is a received position. From a room, a correction
+                // further than 20 m is not walked: the body is put there at once.
+                assert_eq!(
+                    trajectory.len(),
+                    2,
+                    "{} cycle {cycle}: the body standing in the room walked back instead of \
+                     being put at the return position; pose every 8 frames {trajectory:?}",
+                    arm.label
+                );
+            }
             assert_eq!(
                 body_cell(&app, REMOTE).flatten().map(CellId::landblock),
                 Some(block),
@@ -1125,12 +1181,13 @@ fn an_interior_cell_departure_still_lets_the_return_draw() {
 
             evidence.push(format!(
                 "{:<52} cycle {cycle}: departure cell {:#010X} placed {:?} doomed {} wand-doomed {} \
-                 culled {culled} -> return parts {} wand {} radar {}",
+                 culled {culled} stood in {:?} -> return parts {} wand {} radar {}",
                 arm.label,
                 arm.cell.0,
                 placed,
                 deadline.is_some(),
                 wand_deadline.is_some(),
+                stood,
                 drawn(&app, REMOTE),
                 drawn(&app, WAND),
                 radar_dot(&app, REMOTE),
