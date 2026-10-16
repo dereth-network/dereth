@@ -719,10 +719,13 @@ fn the_client_prepares_the_verdicts_from_start_up_and_draws_a_look_asked_for_ear
         prep.build.units(),
         prep.longest_step.as_secs_f64() * 1000.0
     );
-    assert!(
-        prep.longest_step < std::time::Duration::from_millis(40),
-        "a frame gave the work {:?}",
-        prep.longest_step
+    // Every frame gave the work a share and it stopped at the first unit boundary past it: no
+    // unit was begun with nothing to stop it, so no frame gave more than its share and the unit
+    // in hand.
+    assert_eq!(
+        prep.build.unpaced_units(),
+        0,
+        "units of the work a frame did past its share"
     );
 }
 

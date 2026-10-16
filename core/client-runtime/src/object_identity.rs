@@ -1647,6 +1647,10 @@ struct PaceState {
     units: Option<u32>,
     /// Units of work begun, over every step.
     ticks: u64,
+    /// Nothing stops the step's work any more: it was given all of it, or its budget is spent.
+    unpaced: bool,
+    /// Units of work begun, over every step, with nothing to stop them.
+    unpaced_units: u64,
 }
 
 impl Pace {
@@ -1666,10 +1670,11 @@ impl Pace {
         let mut p = self.lock();
         p.deadline = None;
         p.units = None;
+        p.unpaced = false;
         match budget {
             Budget::Time(d) => p.deadline = Some(web_time::Instant::now() + d),
             Budget::Units(n) => p.units = Some(n.max(1)),
-            Budget::All => {}
+            Budget::All => p.unpaced = true,
         }
     }
 
@@ -1677,18 +1682,34 @@ impl Pace {
     fn spent(&self) -> bool {
         let mut p = self.lock();
         p.ticks += 1;
-        if let Some(n) = p.units {
-            if n == 0 {
-                return true;
+        let spent = match p.units {
+            Some(0) => true,
+            units => {
+                p.units = units.map(|n| n - 1);
+                p.deadline.is_some_and(|d| web_time::Instant::now() >= d)
             }
-            p.units = Some(n - 1);
-        }
-        p.deadline.is_some_and(|d| web_time::Instant::now() >= d)
+        };
+        p.unpaced |= spent;
+        spent
     }
 
     /// Units of work begun so far.
     fn ticks(&self) -> u64 {
         self.lock().ticks
+    }
+
+    /// A unit of work begins.
+    fn begin(&self) {
+        let mut p = self.lock();
+        if p.unpaced {
+            p.unpaced_units += 1;
+        }
+    }
+
+    /// Units of work begun so far with nothing to stop them: in a step given all of the work, or
+    /// in a step that went on past the point its budget was spent.
+    fn unpaced(&self) -> u64 {
+        self.lock().unpaced_units
     }
 
     /// The point between two units of work where a step may end.
@@ -1712,6 +1733,7 @@ impl Future for Tick<'_> {
 
     fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
         if self.yielded || !self.pace.spent() {
+            self.pace.begin();
             Poll::Ready(())
         } else {
             self.yielded = true;
@@ -1853,6 +1875,15 @@ impl IdentityBuild {
     pub fn units(&self) -> u64 {
         self.pace.ticks()
     }
+
+    /// How many units of work have been begun with nothing to stop them: in a step given
+    /// [`Budget::All`], or in a step that carried on past the point its budget was spent. Zero
+    /// while every step is given a budget and ends where it is spent, so no step does more than
+    /// its budget and the unit in hand.
+    #[must_use]
+    pub fn unpaced_units(&self) -> u64 {
+        self.pace.unpaced()
+    }
 }
 
 /// Where the client keeps the cache: `object-identity` in the host's cache folder
@@ -1903,7 +1934,8 @@ mod tests {
     }
 
     /// Behaviour: none (the pacing of long work over steps: a step ends between two units once
-    /// its budget is spent, and the next carries on where it stopped).
+    /// its budget is spent, and the next carries on where it stopped; work carried past a spent
+    /// budget, or given all at once, is counted unpaced).
     #[test]
     fn work_stopped_between_units_carries_on_where_it_stopped() {
         let mut id = ObjectIdentity::default();
@@ -1928,11 +1960,25 @@ mod tests {
             // 51 lines after the first, at most two a step.
             assert!(steps >= 26, "{budget:?}: {steps} steps");
             assert_eq!(pace.ticks(), 51, "{budget:?}: one unit a line");
+            assert_eq!(
+                pace.unpaced(),
+                0,
+                "{budget:?}: every step ended at its budget"
+            );
         }
+        // Carried on past a spent budget of one unit: only the first line is paced.
+        let pace = Pace::default();
+        pace.start(Budget::Units(1));
+        assert_eq!(
+            run_to_end(ObjectIdentity::parse_paced(&text, &pace)).as_ref(),
+            Some(&id)
+        );
+        assert_eq!(pace.unpaced(), 50);
         let pace = Pace::default();
         pace.start(Budget::All);
         let mut work = std::pin::pin!(ObjectIdentity::parse_paced(&text, &pace));
         assert_eq!(work.as_mut().poll(&mut cx), Poll::Ready(Some(id)));
+        assert_eq!(pace.unpaced(), 51, "all of the work in one step");
     }
 
     /// Behaviour: none (geometry arithmetic).
