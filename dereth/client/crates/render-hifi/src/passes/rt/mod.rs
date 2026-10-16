@@ -359,8 +359,8 @@ impl RtScene {
             self.dirty = true;
         }
         let before = self.blocks.len();
-        self.blocks
-            .retain(|id, _| frame.terrain.iter().any(|t| t.block == *id));
+        let resident = crate::shared::resident::ResidentBlocks::of(&frame.terrain);
+        self.blocks.retain(|id, _| resident.holds(*id));
         if self.blocks.len() != before {
             self.dirty = true;
         }

@@ -281,6 +281,7 @@ impl SceneDraw {
             frame_outside_view_count: std::cell::Cell::new(None),
             frame_cell_views: std::cell::RefCell::new(BTreeMap::new()),
             frame_portal_stamps: std::cell::Cell::new((0, 0)),
+            frame_building_cells: std::cell::Cell::new(0),
             detail_from: DetailSource::World,
             sky: None,
             sky_region: sky_region.map(Box::new),

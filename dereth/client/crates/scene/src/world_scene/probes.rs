@@ -579,6 +579,13 @@ impl SceneDraw {
         self.frame_portal_stamps.get()
     }
 
+    /// How many land cells the last [`Self::draw`] made ready to draw a building's rooms in.
+    /// Only a cell a building stands in is: the landscape walk passes every land cell.
+    #[must_use]
+    pub fn building_cells_drawn(&self) -> u32 {
+        self.frame_building_cells.get()
+    }
+
     /// One interior cell's newest portal view.
     #[must_use]
     pub fn cell_view_polys(&self, cell: CellId) -> Vec<Vec<(f32, f32)>> {

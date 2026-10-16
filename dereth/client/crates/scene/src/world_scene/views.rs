@@ -356,6 +356,7 @@ impl SceneDraw {
         self.frame_outside_view_count.set(None);
         self.frame_cell_views.borrow_mut().clear();
         self.frame_portal_stamps.set((0, 0));
+        self.frame_building_cells.set(0);
         // A new frame stamp, so every cell static's part may be drawn again.
         self.frame_stamp.set(self.frame_stamp.get().wrapping_add(1));
         self.frame_stamp_first.set(self.frame_stamp.get());

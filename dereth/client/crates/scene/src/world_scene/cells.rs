@@ -1169,6 +1169,17 @@ impl SceneDraw {
         };
         use dereth_world_render::objects::buildings::portal_pass;
 
+        // The landscape walk passes every land cell; most have no building in them, and nothing
+        // below is wanted for one.
+        if !block
+            .building_views
+            .iter()
+            .any(|b| b.draw_cell(side_cell_count) == draw_cell)
+        {
+            return Ok(());
+        }
+        self.frame_building_cells
+            .set(self.frame_building_cells.get().saturating_add(1));
         let (vw, vh) = gpu.size();
         let view = self.view_params(ws, vw, vh);
         let view_proj = dereth_render::camera::projection(&view) * view.view;

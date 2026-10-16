@@ -343,6 +343,58 @@ pub(crate) struct Cascades {
     pub(crate) depth_range: [f32; CASCADES],
 }
 
+/// A block's side, metres.
+const BLOCK_METRES: f32 = 192.0;
+/// How far over a block's highest ground its casters may stand, metres: past the tallest tower.
+const CASTER_HEADROOM: f32 = 250.0;
+/// How far under its lowest ground its casters may reach, metres.
+const CASTER_FOOTROOM: f32 = 50.0;
+
+/// The lowest and highest of a block's drawn ground heights; nothing known is everything.
+fn height_range(heights: &[f32]) -> (f32, f32) {
+    heights
+        .iter()
+        .fold(None, |r: Option<(f32, f32)>, &h| {
+            Some(r.map_or((h, h), |(lo, hi)| (lo.min(h), hi.max(h))))
+        })
+        .unwrap_or((-1.0e5, 1.0e5))
+}
+
+/// The box a block's shadow casters stand in, render space: its square, from under its lowest
+/// ground to over its highest.
+fn caster_bounds(origin: Vec3, (low, high): (f32, f32)) -> (Vec3, Vec3) {
+    (
+        Vec3::new(origin.x, origin.y, origin.z + low - CASTER_FOOTROOM),
+        Vec3::new(
+            origin.x + BLOCK_METRES,
+            origin.y + BLOCK_METRES,
+            origin.z + high + CASTER_HEADROOM,
+        ),
+    )
+}
+
+/// Whether anything in the box `lo..hi` falls inside cascade `m`'s map: a box wholly past one
+/// side of it would be clipped away whole, so it is not drawn into it.
+fn reaches(m: &Mat4, lo: Vec3, hi: Vec3) -> bool {
+    let mut outside = [true; 6];
+    for i in 0..8 {
+        let corner = Vec3::new(
+            if i & 1 == 0 { lo.x } else { hi.x },
+            if i & 2 == 0 { lo.y } else { hi.y },
+            if i & 4 == 0 { lo.z } else { hi.z },
+        );
+        let p = *m * corner.extend(1.0);
+        let p = p.xyz() / p.w;
+        outside[0] &= p.x < -1.0;
+        outside[1] &= p.x > 1.0;
+        outside[2] &= p.y < -1.0;
+        outside[3] &= p.y > 1.0;
+        outside[4] &= p.z < 0.0;
+        outside[5] &= p.z > 1.0;
+    }
+    !outside.iter().any(|o| *o)
+}
+
 /// Stabilised cascades around the camera's frustum slices, looking down the sun.
 #[allow(clippy::needless_range_loop)] // each cascade fills three tables at its index
 pub(crate) fn cascades(frame: &HifiFrame, size: u32) -> Cascades {
@@ -779,6 +831,9 @@ pub struct Lighting {
     blocks: HashMap<u16, CasterBlock>,
     /// Whether this frame steps indoors: the pass then leaves it as re-shaded.
     split: bool,
+    /// The last frame's sun shadows: the blocks drawn into the cascades, a block counted once for
+    /// each cascade it is drawn into, and the blocks held.
+    cascade_blocks: (u64, u64),
     shadow: Option<(
         wgpu::Texture,
         Vec<wgpu::TextureView>,
@@ -816,6 +871,8 @@ impl HifiPass for Lighting {
 
     fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
         notes.push(("room lights walked", self.cells.walked() as u64));
+        notes.push(("sun shadow cascade blocks drawn", self.cascade_blocks.0));
+        notes.push(("sun shadow blocks held", self.cascade_blocks.1));
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
@@ -890,8 +947,8 @@ impl HifiPass for Lighting {
                 },
             );
         }
-        self.blocks
-            .retain(|id, _| frame.terrain.iter().any(|t| t.block == *id));
+        let resident = crate::shared::resident::ResidentBlocks::of(&frame.terrain);
+        self.blocks.retain(|id, _| resident.holds(*id));
         if crate::passes::lamps::LampLight::wanted(cx.settings.lamps, cx.caps.ray_query) {
             self.rt.prepare(&device, &queue, frame);
         }
@@ -952,15 +1009,37 @@ impl HifiPass for Lighting {
         let Some(shadow) = self.shadow.as_ref() else {
             return Ok(());
         };
+        self.cascade_blocks = (0, 0);
         if shadows {
-            let origins: HashMap<u16, Vec3> =
-                frame.terrain.iter().map(|t| (t.block, t.origin)).collect();
-            let draws: Vec<(&CasterBlock, Vec3)> = self
+            let origins: HashMap<u16, (Vec3, (f32, f32))> = frame
+                .terrain
+                .iter()
+                .map(|t| (t.block, (t.origin, height_range(&t.heights))))
+                .collect();
+            // Each block, and which cascades it can cast into: the others would clip it all away.
+            let (draws, reach): (Vec<(&CasterBlock, Vec3)>, Vec<[bool; CASCADES]>) = self
                 .blocks
                 .iter()
-                .filter_map(|(id, b)| origins.get(id).map(|o| (b, *o)))
-                .collect();
-            let needed = (draws.len() * CASCADES) as u64;
+                .filter_map(|(id, b)| {
+                    let (o, heights) = origins.get(id)?;
+                    let (lo, hi) = caster_bounds(*o, *heights);
+                    let reach = std::array::from_fn(|c| reaches(&cas.matrices[c], lo, hi));
+                    Some(((b, *o), reach))
+                })
+                .unzip();
+            self.cascade_blocks.1 = draws.len() as u64;
+            // Each block's constants for each cascade it casts into, one after another.
+            let mut slots: Vec<[Option<u32>; CASCADES]> = vec![[None; CASCADES]; draws.len()];
+            let mut held = 0u32;
+            for c in 0..CASCADES {
+                for (k, r) in reach.iter().enumerate() {
+                    if r[c] {
+                        slots[k][c] = Some(held);
+                        held += 1;
+                    }
+                }
+            }
+            let needed = u64::from(held.max(1));
             if needed > gpu.caster_capacity {
                 gpu.caster_capacity = needed.next_power_of_two();
                 gpu.caster_uniform = uniform(
@@ -971,17 +1050,21 @@ impl HifiPass for Lighting {
                 gpu.caster_bind = caster_bind(&device, &gpu.caster_layout, &gpu.caster_uniform);
             }
             let mut bytes = vec![0u8; (needed * CASTER_STRIDE) as usize];
-            for c in 0..CASCADES {
-                for (k, (_, origin)) in draws.iter().enumerate() {
-                    let at = ((c * draws.len() + k) as u64 * CASTER_STRIDE) as usize;
-                    let mut v = cas.matrices[c].to_cols_array().to_vec();
-                    v.extend_from_slice(&[origin.x, origin.y, origin.z, 0.0]);
-                    bytes[at..at + 80].copy_from_slice(&floats(&v));
+            for ((_, origin), block_slots) in draws.iter().zip(&slots) {
+                for (c, slot) in block_slots.iter().enumerate() {
+                    let Some(slot) = slot else { continue };
+                    let at = (u64::from(*slot) * CASTER_STRIDE) as usize;
+                    bytes[at..at + 64].copy_from_slice(&floats(&cas.matrices[c].to_cols_array()));
+                    bytes[at + 64..at + 80]
+                        .copy_from_slice(&floats(&[origin.x, origin.y, origin.z, 0.0]));
                 }
             }
             queue.write_buffer(&gpu.caster_uniform, 0, &bytes);
             let mut leaves: HashMap<u32, wgpu::BindGroup> = HashMap::new();
-            for (block, _) in &draws {
+            for ((block, _), block_slots) in draws.iter().zip(&slots) {
+                if block_slots.iter().all(Option::is_none) {
+                    continue;
+                }
                 for (_, _, slot) in &block.cutouts {
                     if leaves.contains_key(slot) {
                         continue;
@@ -1012,6 +1095,7 @@ impl HifiPass for Lighting {
                     leaves.insert(*slot, bg);
                 }
             }
+            #[allow(clippy::needless_range_loop)] // a cascade's index picks its blocks and offsets
             for c in 0..CASCADES {
                 let mut pass = cx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("sun shadow cascade"),
@@ -1032,19 +1116,26 @@ impl HifiPass for Lighting {
                 cx.seam.count_pass();
                 pass.set_pipeline(&gpu.caster_pipeline);
                 for (k, (block, _)) in draws.iter().enumerate() {
+                    let Some(slot) = slots[k][c] else {
+                        continue;
+                    };
                     let Some(buffer) = block.buffer.as_ref() else {
                         continue;
                     };
+                    self.cascade_blocks.0 += 1;
                     #[allow(clippy::cast_possible_truncation)]
-                    let offset = ((c * draws.len() + k) as u64 * CASTER_STRIDE) as u32;
+                    let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
                     pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
                     pass.set_vertex_buffer(0, buffer.slice(..));
                     pass.draw(0..block.vertices, 0..1);
                 }
                 pass.set_pipeline(&gpu.cutout_pipeline);
                 for (k, (block, _)) in draws.iter().enumerate() {
+                    let Some(slot) = slots[k][c] else {
+                        continue;
+                    };
                     #[allow(clippy::cast_possible_truncation)]
-                    let offset = ((c * draws.len() + k) as u64 * CASTER_STRIDE) as u32;
+                    let offset = (u64::from(slot) * CASTER_STRIDE) as u32;
                     pass.set_bind_group(0, &gpu.caster_bind, &[offset]);
                     for (buffer, n, slot) in &block.cutouts {
                         let Some(tb) = leaves.get(slot) else {
@@ -2132,4 +2223,77 @@ pub fn shaders() -> [(&'static str, String); 7] {
             format!("{EXPOSURE_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}"),
         ),
     ]
+}
+
+#[cfg(test)]
+mod cascade_reach_tests {
+    //! Behaviour: none (experimental hi-fi presentation)
+    use super::*;
+
+    /// A camera over the middle of the longest draw distance's window, looking north and a little
+    /// down, and the sun in the south-east, part way up.
+    fn frame() -> HifiFrame {
+        let eye = Vec3::new(25.5 * BLOCK_METRES, 25.5 * BLOCK_METRES, 60.0);
+        let mut frame = HifiFrame::default();
+        frame.camera.eye = eye;
+        frame.camera.view = Mat4::look_at_rh(eye, eye + Vec3::new(0.0, 1.0, -0.2), Vec3::Z);
+        frame.camera.projection = Mat4::perspective_rh(60f32.to_radians(), 16.0 / 9.0, 0.1, 4000.0);
+        frame.camera.near = 0.1;
+        frame.camera.far = 4000.0;
+        frame.sky.sun_direction = Vec3::new(0.4, -0.3, 0.6).normalize();
+        frame
+    }
+
+    /// Every block of the window, with flat ground at 40 m: what a cascade's map holds of the
+    /// world from here.
+    fn blocks() -> Vec<(Vec3, (f32, f32))> {
+        (0..51)
+            .flat_map(|x| (0..51).map(move |y| (x, y)))
+            .map(|(x, y)| {
+                let o = Vec3::new(x as f32 * BLOCK_METRES, y as f32 * BLOCK_METRES, 0.0);
+                (o, (40.0, 40.0))
+            })
+            .collect()
+    }
+
+    fn inside(m: &Mat4, p: Vec3) -> bool {
+        let q = *m * p.extend(1.0);
+        let q = q.xyz() / q.w;
+        (-1.0..=1.0).contains(&q.x) && (-1.0..=1.0).contains(&q.y) && (0.0..=1.0).contains(&q.z)
+    }
+
+    #[test]
+    fn a_block_is_drawn_into_only_the_cascades_its_casters_can_reach() {
+        let frame = frame();
+        let cas = cascades(&frame, 2048);
+        let blocks = blocks();
+        let mut drawn = 0;
+        for (origin, heights) in &blocks {
+            let (lo, hi) = caster_bounds(*origin, *heights);
+            for c in 0..CASCADES {
+                let reach = reaches(&cas.matrices[c], lo, hi);
+                drawn += usize::from(reach);
+                // Anything of the box inside the cascade's map keeps the block in it: the box's
+                // corners, its middle and points along its edges.
+                for i in 0..=4 {
+                    for j in 0..=4 {
+                        for k in 0..=4 {
+                            let t = Vec3::new(i as f32, j as f32, k as f32) / 4.0;
+                            let p = lo + (hi - lo) * t;
+                            assert!(
+                                reach || !inside(&cas.matrices[c], p),
+                                "cascade {c} holds {p} of a block left out of it"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            drawn * 20 < blocks.len(),
+            "{drawn} block-cascade draws for {} blocks in {CASCADES} cascades",
+            blocks.len()
+        );
+        assert!(drawn > 0, "the blocks round the eye cast into the cascades");
+    }
 }

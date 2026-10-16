@@ -8,6 +8,7 @@ mod backdrop_streaming;
 mod bake_off_frame;
 mod billboards;
 pub(crate) mod building_boundary_draw;
+mod building_cell_setup;
 mod clipped_outdoor_pass;
 mod degrade_marker_parts;
 mod degraded_shell_interiors;
@@ -28,6 +29,8 @@ mod hifi_off;
 mod hifi_options;
 #[cfg(feature = "hifi")]
 mod hifi_outdoor;
+#[cfg(feature = "hifi")]
+mod hifi_replay_binds;
 mod hifi_reshade;
 mod hifi_visual_only;
 #[cfg(feature = "hifi")]

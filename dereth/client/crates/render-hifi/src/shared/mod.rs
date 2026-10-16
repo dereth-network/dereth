@@ -4,5 +4,6 @@
 pub mod camera;
 pub mod fullscreen;
 pub mod noise;
+pub mod resident;
 pub mod static_feed;
 pub mod terrain_field;

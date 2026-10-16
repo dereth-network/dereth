@@ -1354,6 +1354,9 @@ pub struct SceneDraw {
     /// opening being wholly outside that view. `Gpu::portal_stamps` counts both masks across
     /// the whole frame and cannot separate the indoor half from building drawing's.
     frame_portal_stamps: std::cell::Cell<(u64, u64)>,
+    /// How many land cells the last [`Self::draw`] made ready to draw a building's rooms in:
+    /// the view, its screen polygon and the rooms' lights, worked out for each.
+    frame_building_cells: std::cell::Cell<u32>,
     /// Where the detail textures were last taken from ([`Self::detail_source_used`]).
     detail_from: DetailSource,
     /// The sky objects, and the clock that positions them.

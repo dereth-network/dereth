@@ -17,6 +17,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Web: Empyrean worlds with WebSocket on are played without the relay.
 - Sync to refresh now works in full screen with Better Lighting.
 - Less stutter when walking into new land.
+- Faster frames at long draw distances.
 
 ## 0.4.4 (2026-10-15)
 

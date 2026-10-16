@@ -188,8 +188,8 @@ impl CoverMap {
                 },
             );
         }
-        self.blocks
-            .retain(|id, _| frame.terrain.iter().any(|t| t.block == *id));
+        let resident = crate::shared::resident::ResidentBlocks::of(&frame.terrain);
+        self.blocks.retain(|id, _| resident.holds(*id));
     }
 
     /// Whether any block's geometry is held.

@@ -155,6 +155,9 @@ pub struct Census {
     /// How often the replay put the recording's state back after a filter drew at a mark: not a
     /// draw, and not in [`Census::total`].
     pub restored: u32,
+    /// How many texture and sampler groups the replay bound: a recorded group is bound only
+    /// before a draw that is drawn, so those of draws left out are never bound. Not a draw.
+    pub bound: u32,
 }
 
 impl Census {
@@ -202,6 +205,7 @@ impl Census {
         self.skipped_covered_by_feed += other.skipped_covered_by_feed;
         self.skipped_replaced_by_pass += other.skipped_replaced_by_pass;
         self.restored += other.restored;
+        self.bound += other.bound;
     }
 }
 
@@ -507,16 +511,49 @@ impl Replayer<'_> {
         let end = range.end.min(self.commands.len());
         let start = range.start.min(end);
         let mut state = self.state_at(start);
-        let restore = |pass: &mut wgpu::RenderPass<'_>, state: &ReplayState<'_>| {
-            pass.set_bind_group(1, state.binds[1].unwrap_or(self.white), &[]);
-            pass.set_bind_group(2, state.binds[2].unwrap_or(self.white), &[]);
-            pass.set_bind_group(3, state.binds[3].unwrap_or(self.default_samplers), &[]);
-            if let Some(b) = state.binds[4] {
-                pass.set_bind_group(4, b, &[]);
+        // The texture and sampler groups (1 to 4) the pass has bound, by address. The recording's
+        // groups are bound only before a draw that is drawn: a replay leaves out the draws another
+        // replay or pass draws, and each of them may have bound a texture of its own.
+        let mut bound: [Option<*const wgpu::BindGroup>; 5] = [None; 5];
+        let (white, samplers) = (self.white, self.default_samplers);
+        fn want<'g>(
+            state: &ReplayState<'g>,
+            group: usize,
+            white: &'g wgpu::BindGroup,
+            samplers: &'g wgpu::BindGroup,
+        ) -> Option<&'g wgpu::BindGroup> {
+            match group {
+                1 | 2 => Some(state.binds[group].unwrap_or(white)),
+                3 => Some(state.binds[3].unwrap_or(samplers)),
+                4 => state.binds[4],
+                _ => None,
             }
+        }
+        let flush = |pass: &mut wgpu::RenderPass<'_>,
+                     state: &ReplayState<'_>,
+                     bound: &mut [Option<*const wgpu::BindGroup>; 5],
+                     census: &mut Census| {
+            for (group, held) in bound.iter_mut().enumerate().skip(1) {
+                let Some(b) = want(state, group, white, samplers) else {
+                    continue;
+                };
+                if *held != Some(std::ptr::from_ref(b)) {
+                    #[allow(clippy::cast_possible_truncation)] // a group index, 1 to 4
+                    pass.set_bind_group(group as u32, b, &[]);
+                    *held = Some(std::ptr::from_ref(b));
+                    census.bound += 1;
+                }
+            }
+        };
+        let restore = |pass: &mut wgpu::RenderPass<'_>,
+                       state: &ReplayState<'_>,
+                       bound: &mut [Option<*const wgpu::BindGroup>; 5],
+                       census: &mut Census| {
+            *bound = [None; 5];
+            flush(pass, state, bound, census);
             pass.set_bind_group(0, uniform_bind, &[0, 0]);
         };
-        restore(pass, &state);
+        restore(pass, &state, &mut bound, &mut census);
         if state.viewport != self.full {
             apply_viewport(pass, state.viewport);
         }
@@ -533,7 +570,7 @@ impl Replayer<'_> {
                 // back only after those.
                 if drew {
                     current = None;
-                    restore(pass, &state);
+                    restore(pass, &state, &mut bound, &mut census);
                     apply_viewport(pass, state.viewport);
                     census.restored += 1;
                 }
@@ -554,7 +591,6 @@ impl Replayer<'_> {
                     if let Some(b) = state.binds.get_mut(*group as usize) {
                         *b = Some(bind);
                     }
-                    pass.set_bind_group(*group, bind, &[]);
                 }
                 Cmd::Draw {
                     pipeline,
@@ -570,6 +606,9 @@ impl Replayer<'_> {
                     let remap = filter.frame(*frame);
                     let action = filter.draw(at32, tables.draw_note(at32));
                     census.count_framed(&action, remap.is_some());
+                    if !matches!(action, DrawAction::Skip(_)) {
+                        flush(pass, &state, &mut bound, &mut census);
+                    }
                     match action {
                         DrawAction::Legacy => {
                             if current != Some(Bound::Recorded(*pipeline)) {
