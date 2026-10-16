@@ -307,6 +307,8 @@ impl<S: Shell> App<S> {
             perf: crate::perf::FramePerf::default(),
             perf_steps: [0.0; crate::frame::STEPS],
             perf_font: false,
+            perf_capture: None,
+            build_commit: "unknown",
             playable_at: None,
             // The reporter seeds `last_sent_position_time` with the clock start, not zero.
             position: dereth_client_net::client_session::PositionReporter::new(clock_start),

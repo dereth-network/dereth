@@ -35,6 +35,7 @@ mod input;
 mod interaction;
 mod motion;
 mod movement;
+mod report;
 mod scripted;
 mod session;
 mod shutdown;
@@ -866,6 +867,10 @@ pub struct App<S: Shell> {
     perf_steps: [f32; crate::frame::STEPS],
     /// Whether the performance panel's font is on the device.
     perf_font: bool,
+    /// The performance capture `@perfcapture` started, while it records.
+    pub perf_capture: Option<crate::perf_capture::PerfCapture>,
+    /// The commit the program was built from, as its host names it, for `@report`.
+    pub build_commit: &'static str,
     /// Time when `0x0013` made the session playable, used by `--linger`.
     pub playable_at: Option<f64>,
     /// Movement-command position reporting: `0xF753` on the client's own 1.0 s schedule and

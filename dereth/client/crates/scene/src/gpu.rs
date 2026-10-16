@@ -195,6 +195,75 @@ mod imp {
             }
         }
 
+        /// How the frame is drawn, for `@report` and `@perfcapture`: the renderer and the
+        /// adapter, Better Lighting and its options, the art pack and the drawn ground's knobs,
+        /// and where the frame is drawn from for the camera in `ws`.
+        #[must_use]
+        pub fn render_context(
+            &self,
+            ws: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> dereth_client_runtime::report::RenderContext {
+            let gpu = &self.gpu;
+            #[allow(unused_mut)]
+            let mut r = dereth_client_runtime::report::RenderContext {
+                renderer: gpu.backend().name().to_owned(),
+                adapter: gpu.adapter_name().to_owned(),
+                driver: gpu.adapter_driver(),
+                present_mode: gpu.present_mode(),
+                render_scale: 100,
+                ..Default::default()
+            };
+            #[cfg(feature = "hifi")]
+            {
+                use dereth_client_runtime::render_prefs::FidelityFeature;
+                r.render_scale = gpu.hifi_render_scale();
+                r.better_lighting = gpu.hifi_report().is_some_and(|rep| rep.composited);
+                if let Some(world) = self.world.as_ref() {
+                    let f = &world.cfg.render.fidelity;
+                    r.retail_look = f.effective(FidelityFeature::RetailLook) != 0;
+                    r.effects = FidelityFeature::ALL
+                        .into_iter()
+                        .filter(|x| f.effective(*x) != 0)
+                        .map(|x| {
+                            let name = x.name();
+                            let name = name.strip_prefix("Fidelity.").unwrap_or(name);
+                            format!("{name}={}", f.effective(x))
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    r.art_pack = world.art_pack().map(|p| (p.name.clone(), p.hash.clone()));
+                    (r.knobs_hash, r.changed_knobs) = world.report_knobs();
+                    r.drawn_eye = ws.map(|ws| world.drawn_eye(ws).origin);
+                }
+            }
+            #[cfg(not(feature = "hifi"))]
+            let _ = ws;
+            r
+        }
+
+        /// What the scene's and Better Lighting's parts of the last frame took, for
+        /// `@perfcapture`. `None` while no world is drawn.
+        #[must_use]
+        pub fn present_costs(&self) -> Option<dereth_client_runtime::report::PresentCosts> {
+            let c = self.world.as_ref()?.frame_costs();
+            #[allow(unused_mut)]
+            let mut p = dereth_client_runtime::report::PresentCosts {
+                walk: c.walk,
+                snapshot: c.snapshot,
+                drawn_ground: c.drawn_ground,
+                ..Default::default()
+            };
+            #[cfg(feature = "hifi")]
+            if let Some(rep) = self.gpu.hifi_report() {
+                p.better_lighting = rep.cpu_ms;
+                p.steps = rep.cpu_steps;
+                p.prepare = rep.cpu_prepare;
+                p.encode = rep.cpu_encode;
+                p.gpu = rep.gpu_ms;
+            }
+            Some(p)
+        }
+
         /// The render device configuration as this client fills it. The same for either backend.
         fn device_config(window: Option<WindowHandles>, width: u32, height: u32) -> DeviceConfig {
             DeviceConfig {

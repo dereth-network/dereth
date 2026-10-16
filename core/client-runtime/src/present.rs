@@ -330,6 +330,27 @@ pub trait Presentation: std::fmt::Debug {
     }
 
     // ---------------------------------------------------------------------------------------
+    // what a report and a performance capture say about the frame
+    // ---------------------------------------------------------------------------------------
+
+    /// How the frame is drawn, for `@report` and `@perfcapture`: the renderer and the adapter,
+    /// Better Lighting and its options, the art pack and the drawn ground's knobs, and where the
+    /// frame is drawn from for the camera in `world`. A presentation with no device knows none of
+    /// it.
+    fn render_context(
+        &self,
+        world: Option<&crate::world_state::WorldState>,
+    ) -> crate::report::RenderContext {
+        let _ = world;
+        crate::report::RenderContext::default()
+    }
+    /// What the presentation's own parts of the last frame took, for `@perfcapture`: asked only
+    /// while a capture records. `None` from a presentation that does not time them.
+    fn frame_costs(&self) -> Option<crate::report::PresentCosts> {
+        None
+    }
+
+    // ---------------------------------------------------------------------------------------
     // the overlay, any UI's -- see `dereth_client_contract::overlay`
     // ---------------------------------------------------------------------------------------
 

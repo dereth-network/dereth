@@ -345,6 +345,14 @@ pub struct Interaction {
     /// the world the weather is drawn in and answers in that window.
     pending_weather: Vec<(dereth_client_model::cmd::weather::WeatherCommand, u32)>,
 
+    /// The report commands typed this frame, each the chat window it came from. App has the
+    /// world, the camera and the presentation the report describes, and answers in that window.
+    pending_reports: Vec<u32>,
+
+    /// The performance captures asked for this frame: the seconds to record and the chat window
+    /// each came from. App owns the frame loop the capture records.
+    pending_perf_captures: Vec<(u32, u32)>,
+
     /// Ordered payloads from the title command. The live gameplay
     /// screen and its retained `PlayerModule` write-back share one App-owned delivery point.
     pending_chat_window_titles: Vec<(u32, String)>,
@@ -1069,6 +1077,18 @@ impl Interaction {
         &mut self,
     ) -> Vec<(dereth_client_model::cmd::weather::WeatherCommand, u32)> {
         std::mem::take(&mut self.pending_weather)
+    }
+
+    /// The report commands typed since the last call, in command order, each the chat window its
+    /// answer goes to.
+    pub fn take_report_requests(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.pending_reports)
+    }
+
+    /// The performance captures asked for since the last call, in command order: the seconds to
+    /// record and the chat window the answer goes to.
+    pub fn take_perf_capture_requests(&mut self) -> Vec<(u32, u32)> {
+        std::mem::take(&mut self.pending_perf_captures)
     }
 
     /// Pending popup-title notices in command order.

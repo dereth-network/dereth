@@ -2011,6 +2011,26 @@ impl Gpu {
         self.present_sync_interval
     }
 
+    /// The driver, which this device does not ask for: empty.
+    #[must_use]
+    pub fn adapter_driver(&self) -> String {
+        String::new()
+    }
+
+    /// The swap chain's present mode and its sync interval, or `offscreen`.
+    #[must_use]
+    pub fn present_mode(&self) -> String {
+        self.swapchain.as_ref().map_or_else(
+            || "offscreen".to_owned(),
+            |s| {
+                format!(
+                    "{:?}, sync interval {}",
+                    s.present_mode, self.present_sync_interval
+                )
+            },
+        )
+    }
+
     /// The interval actually in force at the last presentation.
     ///
     /// `None` means this is the offscreen/headless target; it must not be cited as window proof.

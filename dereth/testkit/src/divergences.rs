@@ -478,6 +478,19 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A channel's conversation reads as a conversation among its members rather than as \
               the channel telling the player what each of them said.",
     },
+    Divergence {
+        id: "CD-report-commands",
+        title: "Commands to copy a report of the view and record a performance capture",
+        change: "/report (or @report) prints one line and puts it on the clipboard: where the \
+                 player stands as /loc says it, where the camera stands, how it is turned and how \
+                 wide it sees, the time of day and the weather, how the frame is drawn, the \
+                 window's size and the client's version and commit. /perfcapture (or \
+                 @perfcapture), with a number of seconds or none for ten, records every frame's \
+                 time for that long, and where it went, and saves it to a file in the settings \
+                 folder, saying where. Neither sends anything. The final client had neither.",
+        why: "A player who sees something drawn wrong, or slow frames, can hand over exactly what \
+              is needed to see it again on another machine.",
+    },
 ];
 
 /// The rows that name `id` as their divergence, in registry order.

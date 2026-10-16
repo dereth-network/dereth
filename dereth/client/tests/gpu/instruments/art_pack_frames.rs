@@ -42,6 +42,14 @@
 //! - `DERETH_TERRAIN_KNOBS`: the drawn ground's knobs for the frames drawn with the pack, in the
 //!   tuning file's form with `;` between lines (`walk_cap = 0.3; cliffs = false`); the frames wait
 //!   for the world's landscape vertices the drawn ground is drawn from.
+//! - `DERETH_REPORT`: for [`capture_the_frame_a_report_describes`], the line the client's
+//!   `@report` printed, or the name of a file holding it. The frame is drawn as the report says it
+//!   was: the body where the player stood, the camera held where it stood, the time, the weather,
+//!   the window's size, the field of view, the landscape's draw distance, Better Lighting's
+//!   effects and render scale, and the drawn ground's changed knobs; drawn the way the report says
+//!   unless `DERETH_ART_PACK_WAYS` names others. `DERETH_HIFI_SIZE`, `DERETH_HIFI_RENDER_SCALE`,
+//!   `DERETH_ART_PACK_LAND_RADIUS`, `DERETH_ART_PACK_FIDELITY` and `DERETH_TERRAIN_KNOBS` still
+//!   say otherwise where they are set.
 //!
 //! The places: the south edge of Holtburg at a standing eye's height; the block where the most
 //! common tree stands thickest; a block where the boulder is most common; a player's view from
@@ -647,6 +655,163 @@ fn capture_an_art_pack_beside_the_retail_look() {
     )
     .expect("adapter.txt");
     eprintln!("wrote {}", out.display());
+}
+
+/// The way a report's frame was drawn: the ordinary renderer without Better Lighting, the
+/// presentation with the retail look, or the presentation with the art pack.
+fn report_way(report: &dereth_client_runtime::report::VisualReport) -> Way {
+    match (report.render.better_lighting, report.render.retail_look) {
+        (false, _) => Way::Retail,
+        (true, true) => Way::Hifi,
+        (true, false) => Way::Pack,
+    }
+}
+
+/// The frame a report describes (`DERETH_REPORT`, the line the client's `@report` prints), drawn
+/// as it was drawn there: `<root>/report-<way>.png`. The camera it was drawn from, and the eye
+/// where Better Lighting draws the camera moved with the ground, are printed beside the
+/// report's, so a frame drawn from another place is seen at once.
+#[test]
+#[ignore = "instrument: writes PNGs; run with DERETH_REPORT set and --ignored"]
+#[allow(clippy::too_many_lines)]
+fn capture_the_frame_a_report_describes() {
+    use dereth_client_runtime::render_prefs::FidelityPreferences;
+    let _gpu = crate::common::gpu_lock();
+    let store = crate::common::dats();
+    let report = super::hifi_stations::report_from_env()
+        .expect("DERETH_REPORT holds the line @report printed, or names a file holding it");
+    let (width, height) = if env("DERETH_HIFI_SIZE").is_some() || report.window.0 == 0 {
+        size()
+    } else {
+        report.window
+    };
+    let station = super::hifi_stations::report_station(
+        &report,
+        env("DERETH_ART_PACK_LAND_RADIUS").and_then(|v| v.trim().parse().ok()),
+    );
+    let pack = env("DERETH_ART_PACK").map(|dir| {
+        Arc::new(
+            dereth_scene::art_pack::ArtPack::open_dir(Path::new(&dir)).expect("the art pack opens"),
+        )
+    });
+    if let (Some(pack), Some((name, hash))) = (pack.as_ref(), report.render.art_pack.as_ref()) {
+        if &pack.hash != hash {
+            eprintln!(
+                "the report's art pack is {name:?} {hash}; this one is {:?} {}: the frame may differ",
+                pack.name, pack.hash
+            );
+        }
+    }
+    let out = root();
+    std::fs::create_dir_all(&out).expect("the capture folder");
+    let ways: Vec<Way> = if env("DERETH_ART_PACK_WAYS").is_some() {
+        Way::ALL
+            .into_iter()
+            .filter(|w| listed("DERETH_ART_PACK_WAYS", w.name()))
+            .collect()
+    } else {
+        vec![report_way(&report)]
+    };
+    for way in ways {
+        let mut device = device(width, height);
+        let gpu = &mut device;
+        if env("DERETH_HIFI_RENDER_SCALE").is_none() && report.render.render_scale > 0 {
+            gpu.hifi_set_render_scale(report.render.render_scale);
+        }
+        let mut shot = Shot::open_blending(&store, gpu, &station, splat());
+        shot.apply_report(&report);
+        if way != Way::Retail {
+            if way == Way::Pack {
+                match pack.as_ref() {
+                    Some(pack) => shot
+                        .scene
+                        .set_art_pack(&store, gpu, Some(Arc::clone(pack)))
+                        .expect("the blocks bake for the pack"),
+                    None => assert!(
+                        report.render.art_pack.is_none(),
+                        "DERETH_ART_PACK names the art pack the report drew"
+                    ),
+                }
+            }
+            let mut spec = if report.render.effects.is_empty() {
+                EFFECTS.to_owned()
+            } else {
+                report.render.effects.clone()
+            };
+            if way == Way::Hifi && !spec.contains("RetailLook") {
+                spec.push_str(",RetailLook=1");
+            }
+            if way == Way::Pack {
+                spec = spec.replace("RetailLook=1", "RetailLook=0");
+            }
+            if let Some(more) = env("DERETH_ART_PACK_FIDELITY") {
+                let _ = write!(spec, ",{more}");
+            }
+            shot.scene.draw.cfg.render.fidelity =
+                FidelityPreferences::parse_switch(&spec).expect("the boxes parse");
+            if way == Way::Pack {
+                let knobs = terrain_knobs().unwrap_or_else(|| {
+                    let (knobs, notes) =
+                        dereth_terrain::land::drawn::Knobs::parse(&report.knobs_text());
+                    assert!(notes.is_empty(), "the report's knobs: {notes:?}");
+                    knobs
+                });
+                shot.scene.set_terrain_knobs(knobs);
+            }
+        }
+        shot.poll(gpu);
+        if way == Way::Pack {
+            settle_drawn_ground(&mut shot, gpu);
+        }
+        for _ in 0..warm() {
+            shot.step(gpu);
+            assert!(
+                gpu.hifi_settle(std::time::Duration::from_secs(60)),
+                "the presentation's pipelines were not built in a minute"
+            );
+        }
+        shot.step(gpu);
+        if let Some(e) = gpu.hifi_failed() {
+            panic!("report {}: the presentation failed: {e}", way.name());
+        }
+        let rgba = capture(gpu);
+        let file = out.join(format!("report-{}.png", way.name()));
+        write_png(&file, width, height, &rgba);
+        // Both as the report writes them, from the block the world is drawn around.
+        let block = shot.scene.viewer_block().unwrap_or_default();
+        let drawn = dereth_client_runtime::report::ReportCamera::from_render(
+            &shot.scene.camera,
+            block,
+            None,
+        );
+        let point = |p: dereth_primitives::Vec3| format!("[{} {} {}]", p.x, p.y, p.z);
+        let eye = shot.scene.draw.drawn_eye(&shot.scene.world).origin;
+        eprintln!(
+            "report {}: camera {:#06X} {} yaw {} pitch {}; the report's {}",
+            way.name(),
+            drawn.block,
+            point(drawn.origin),
+            drawn.yaw,
+            drawn.pitch,
+            report.camera.map_or_else(
+                || "none".to_owned(),
+                |c| format!(
+                    "{:#06X} {} yaw {} pitch {}",
+                    c.block,
+                    point(c.origin),
+                    c.yaw,
+                    c.pitch
+                )
+            ),
+        );
+        eprintln!(
+            "report {}: eye {}; the report's {}; wrote {}",
+            way.name(),
+            point(eye),
+            report.eye.map_or_else(|| "the camera".to_owned(), point),
+            file.display()
+        );
+    }
 }
 
 /// How many frames each sequence in motion draws.

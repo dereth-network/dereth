@@ -68,12 +68,16 @@ pub enum CommandHandler {
     Off,
     Olthoi,
     On,
+    /// This client's own performance capture command, not retail's (CD-report-commands).
+    PerfCapture,
     Permit,
     Pkarena,
     Pklarena,
     Pklite,
     Render,
     Reply,
+    /// This client's own report command, not retail's (CD-report-commands).
+    Report,
     Retell,
     Roleplay,
     Saveautoui,
@@ -765,9 +769,9 @@ pub const TURBINE_CHAT_COMMANDS: &[CommandEntry] = &[
     },
 ];
 
-/// This client's own commands, which retail does not have (CD-038, CD-039). They are registered
-/// after retail's first pass, only where the name is still free, and share no name with the
-/// Turbine chat pass, so a retail command is never shadowed.
+/// This client's own commands, which retail does not have (CD-038, CD-039, CD-report-commands).
+/// They are registered after retail's first pass, only where the name is still free, and share no
+/// name with the Turbine chat pass, so a retail command is never shadowed.
 pub const DERETH_COMMANDS: &[CommandEntry] = &[
     CommandEntry {
         name: "tod",
@@ -778,6 +782,16 @@ pub const DERETH_COMMANDS: &[CommandEntry] = &[
         name: "weather",
         handler: Some(CommandHandler::Weather),
         help: Some("help_weather"),
+    },
+    CommandEntry {
+        name: "report",
+        handler: Some(CommandHandler::Report),
+        help: Some("help_report"),
+    },
+    CommandEntry {
+        name: "perfcapture",
+        handler: Some(CommandHandler::PerfCapture),
+        help: Some("help_perfcapture"),
     },
 ];
 
@@ -884,5 +898,8 @@ pub const HELP_TEXTS: &[(&str, &[&str], &[&str])] = &[
     ("help_tod", &["@tod - Shows or sets the time of day this client draws.\n"], &["@tod - Shows the time of day the sky is drawn at, and whether it is the server's clock or one set on this client.\n@tod <0 to 1> - Draws the sky at that time of day and lets it run on from there: 0 is midnight, 0.25 dawn, 0.5 noon and 0.75 dusk.\n@tod midnight, dawn, noon, dusk or night - The same, by name; night is midnight.\n@tod reset - Returns to the server's clock. Also: @tod server\nOnly what this client draws changes: the sky, its light and the effects that follow it. Nothing is sent to the server.\n"]),
     // This client's own command's help (CD-039), not one of retail's.
     ("help_weather", &["@weather - Shows or sets the weather this client draws.\n"], &["@weather - Shows the weather the sky is drawn with, and whether it is the day's own or one set on this client.\n@weather clear - Draws a clear day: nothing falls.\n@weather rain - Draws a rainy day, and its rain falls as rain whatever the land.\n@weather snow - Draws a rainy day whose rain falls as snow whatever the land. The Horizon interface's Weather effect draws the snow; without it the day is a rainy one.\n@weather auto - Returns to the day's own weather.\nOnly what this client draws changes: the sky, its light and what falls from it. Nothing is sent to the server.\n"]),
+    // This client's own commands' help (CD-report-commands), not retail's.
+    ("help_report", &["@report - Prints and copies a line describing what this client draws, for a bug report.\n"], &["@report - Prints one line and copies it to the clipboard: where you stand (as @loc says), where the camera is and how it looks, the time of day and the weather, how the frame is drawn, the window's size and this client's build. Paste it into a bug report so the picture can be drawn again exactly.\nNothing is sent to the server.\n"]),
+    ("help_perfcapture", &["@perfcapture - Records the frame times for a while and saves them to a file.\n"], &["@perfcapture - Records 10 seconds of frame times and saves them to a file in the settings folder, then says where.\n@perfcapture <1 to 60> - The same, for that many seconds.\nThe file holds every frame's time, where the time went, and what @report says. Send it with a report of slow frames.\nNothing is sent to the server.\n"]),
     ("help_version", &["@version - Tells you what version of the software you are using.\n"], &["@version - Tells you what version of the software you are using.\n"]),
 ];

@@ -23,8 +23,11 @@ impl<S: Shell> App<S> {
         // The frame's spans: the frame and, as each step starts, that step. See
         // `crate::frame::FrameSpans`.
         let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
-        self.perf
+        let interval = self
+            .perf
             .frame_started(web_time::Instant::now(), self.perf_steps);
+        // `@perfcapture`, while it records: the frame just finished.
+        self.perf_capture_use_time(interval);
         self.events.drain_frame();
         // `--capture-at` and `--set-at`: a picture of the frame just drawn, then the settings for
         // the one about to be.

@@ -37,33 +37,18 @@ impl SceneDraw {
         let (vw, vh) = (viewport.width.max(1) as f32, viewport.height.max(1) as f32);
         let aspect =
             dereth_render::camera::compute_aspect_for_viewport(vw, vh, display_aspect, false);
-        // While the presentation draws the drawn ground, the camera is drawn moved with it,
-        // rising as the body it follows does (see `DrawnGround::camera_offset`), and sees to its
-        // horizon. A camera in a room or a dungeon stays where it is: the ground is not under
-        // it, and lifted clear of it the camera would leave the rooms.
-        #[allow(unused_mut)]
-        let mut eye = ws.camera.frame();
+        let eye = self.drawn_eye(ws);
+        // While the presentation draws the drawn ground, the camera sees to its horizon.
         #[allow(unused_mut)]
         let mut zfar = dereth_render::camera::ZFAR;
         #[cfg(feature = "hifi")]
-        if self.drawn.active {
-            if ws.viewer_cell().is_none() {
-                let body = ws.character.as_ref().map(|c| c.render_frame().origin);
-                let offset = self.drawn.camera_offset(eye.origin, body);
-                eye.origin = Vec3::new(
-                    eye.origin.x + offset.x,
-                    eye.origin.y + offset.y,
-                    eye.origin.z + offset.z,
-                );
-            }
-            if self.drawn.knobs.on(dereth_terrain::land::drawn::Knob::Far) {
-                zfar = zfar.max(
-                    self.drawn
-                        .knobs
-                        .get(dereth_terrain::land::drawn::Knob::Horizon)
-                        * 1.1,
-                );
-            }
+        if self.drawn.active && self.drawn.knobs.on(dereth_terrain::land::drawn::Knob::Far) {
+            zfar = zfar.max(
+                self.drawn
+                    .knobs
+                    .get(dereth_terrain::land::drawn::Knob::Horizon)
+                    * 1.1,
+            );
         }
         ViewParams {
             view: dereth_render::camera::view_from_frame(&eye),
@@ -90,6 +75,28 @@ impl SceneDraw {
             zfar,
             ..ViewParams::default()
         }
+    }
+
+    /// Where the frame is drawn from for the camera in `ws`: the camera itself, except that while
+    /// the presentation draws the drawn ground the camera is drawn moved with it, rising as the
+    /// body it follows does (see `DrawnGround::camera_offset`). A camera in a room or a dungeon
+    /// stays where it is: the ground is not under it, and lifted clear of it the camera would
+    /// leave the rooms.
+    #[must_use]
+    pub fn drawn_eye(&self, ws: &WorldState) -> Frame {
+        #[allow(unused_mut)]
+        let mut eye = ws.camera.frame();
+        #[cfg(feature = "hifi")]
+        if self.drawn.active && ws.viewer_cell().is_none() {
+            let body = ws.character.as_ref().map(|c| c.render_frame().origin);
+            let offset = self.drawn.camera_offset(eye.origin, body);
+            eye.origin = Vec3::new(
+                eye.origin.x + offset.x,
+                eye.origin.y + offset.y,
+                eye.origin.z + offset.z,
+            );
+        }
+        eye
     }
 
     /// Install the 3D viewport's rectangle through the render device's

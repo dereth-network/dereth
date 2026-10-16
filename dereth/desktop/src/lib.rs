@@ -57,6 +57,9 @@ pub trait Product: 'static {
     const BINARY_NAME: &'static str;
     /// The running program's name and version, as `@version` prints it.
     const BUILD_ID: &'static str;
+    /// The commit the program was built from, as `@report` names it; `unknown` when the build
+    /// did not say.
+    const BUILD_COMMIT: &'static str = "unknown";
     /// The folder, in the platform's Dereth settings folder, this product keeps its files in.
     const SETTINGS_DIR_NAME: &'static str;
     /// The window's title, before the account name the title adds.

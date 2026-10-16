@@ -753,6 +753,41 @@ impl Interaction {
                 }
             },
 
+            // **`@report`** and **`@perfcapture`**, this client's own (CD-report-commands), handled
+            // as `@tod` is: a line that does not read is refused here, and one that does is
+            // carried out by App, which has the world, the camera and the frame loop. Nothing is
+            // sent.
+            H::Report => match dereth_client_model::cmd::report::parse_report(args) {
+                Ok(()) => self.pending_reports.push(self.chat.current_command_source),
+                Err(refusal) => {
+                    game.scroll.add_feedback_to_scroll(
+                        &refusal,
+                        dereth_client_model::chat::text_type::LOCAL_ERROR,
+                        true,
+                        self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
+                    );
+                    self.stats.chat_command_lines += 1;
+                    self.stats.chat_commands_refused += 1;
+                }
+            },
+            H::PerfCapture => match dereth_client_model::cmd::report::parse_capture(args) {
+                Ok(seconds) => self
+                    .pending_perf_captures
+                    .push((seconds, self.chat.current_command_source)),
+                Err(refusal) => {
+                    game.scroll.add_feedback_to_scroll(
+                        &refusal,
+                        dereth_client_model::chat::text_type::LOCAL_ERROR,
+                        true,
+                        self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
+                    );
+                    self.stats.chat_command_lines += 1;
+                    self.stats.chat_commands_refused += 1;
+                }
+            },
+
             // **`@loadfile`.** The joined name is
             // passed to `fopen("rt")` exactly as typed: unlike `@log`, there is no default extension.
             // Every `fgets(0x400)` chunk is substituted, displayed, then synchronously re-enters the

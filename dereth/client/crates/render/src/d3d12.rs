@@ -1070,6 +1070,21 @@ impl Gpu {
         self.present_sync_interval
     }
 
+    /// The driver, which this device does not ask for: empty.
+    #[must_use]
+    pub fn adapter_driver(&self) -> String {
+        String::new()
+    }
+
+    /// A flip presentation and its sync interval, or `offscreen`.
+    #[must_use]
+    pub fn present_mode(&self) -> String {
+        match self.last_present_sync_interval {
+            Some(interval) => format!("flip, sync interval {interval}"),
+            None => "offscreen".to_owned(),
+        }
+    }
+
     /// The argument actually handed to the last `IDXGISwapChain::Present` call.
     ///
     /// `None` means this is the offscreen/headless target; it must not be cited as window proof.

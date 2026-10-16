@@ -23,6 +23,7 @@ pub struct Desktop<P: Product>(PhantomData<P>);
 
 impl<P: Product> Host for Desktop<P> {
     const BUILD_ID: &'static str = P::BUILD_ID;
+    const BUILD_COMMIT: &'static str = P::BUILD_COMMIT;
 
     type Clipboard = crate::clipboard::SystemClipboard;
 

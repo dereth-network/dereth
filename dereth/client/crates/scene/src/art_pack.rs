@@ -551,6 +551,8 @@ pub struct ArtPack {
     pub name: String,
     /// A number of its own, so a pack opened again is told from the one before.
     pub serial: u64,
+    /// The hash of its manifest and every file it read, so a report names exactly this pack.
+    pub hash: String,
     /// The models that read.
     pub models: Vec<PackModel>,
     /// The pictures the materials name.
@@ -630,8 +632,17 @@ impl ArtPack {
     /// The manifest will not read, or names no model that reads.
     pub fn open(
         manifest: &str,
-        read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        read_file: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, OpenError> {
+        // Every file read is hashed as it is read, after the manifest.
+        let hash = std::cell::RefCell::new(dereth_client_runtime::report::ContentHash::new());
+        hash.borrow_mut().part(MANIFEST_FILE, manifest.as_bytes());
+        let mut hashing = |path: &str| -> Result<Vec<u8>, String> {
+            let bytes = read_file(path)?;
+            hash.borrow_mut().part(path, &bytes);
+            Ok(bytes)
+        };
+        let read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String> = &mut hashing;
         let manifest = ArtPackManifest::parse(manifest).map_err(|e| e.to_string())?;
         let mut problems = Vec::new();
         let mut models = Vec::new();
@@ -838,9 +849,11 @@ impl ArtPack {
                 )),
             }
         }
+        let hash = hash.borrow().finish();
         Ok(Self {
             name: manifest.name,
             serial: next_serial(),
+            hash,
             models,
             images,
             grounds,
@@ -1380,6 +1393,7 @@ license = "CC0-1.0"
         let mut pack = ArtPack {
             name: String::new(),
             serial: 0,
+            hash: String::new(),
             models: Vec::new(),
             images: Vec::new(),
             grounds: Vec::new(),

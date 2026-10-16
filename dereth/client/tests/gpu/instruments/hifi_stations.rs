@@ -59,6 +59,8 @@ pub(crate) enum Clock {
     SunRise(f32),
     /// The first day of a day group whose name begins with this, at this fraction of the day.
     Group(&'static str, f32),
+    /// This absolute Dereth second: the calendar's day and its hour, as a report names them.
+    At(f64),
 }
 
 /// Where the viewer is.
@@ -1314,9 +1316,12 @@ fn game_time(store: &RetailDatStore, clock: Clock) -> Option<f64> {
             .map(|g| g.day_name.clone())
             .unwrap_or_default()
     };
+    if let Clock::At(abs) = clock {
+        return Some(abs);
+    }
     let sunny_day = (1..720).find(|k| group(at(*k, 0.5)).starts_with("Sunny"))?;
     match clock {
-        Clock::Rainy(_) => None,
+        Clock::Rainy(_) | Clock::At(_) => None,
         Clock::Sunny(f) => Some(at(sunny_day, f)),
         Clock::Group(name, f) => {
             let day = (1..720).find(|k| group(at(*k, 0.5)).starts_with(name))?;
@@ -1400,6 +1405,66 @@ fn point_in(store: &RetailDatStore, cell: u32) -> Option<Vec3> {
     None
 }
 
+/// The report `DERETH_REPORT` holds: the line `@report` prints, or the name of a file holding it.
+pub(crate) fn report_from_env() -> Option<dereth_client_runtime::report::VisualReport> {
+    let value = std::env::var("DERETH_REPORT")
+        .ok()
+        .filter(|v| !v.trim().is_empty())?;
+    let text = std::fs::read_to_string(value.trim()).unwrap_or(value);
+    let line = text
+        .lines()
+        .find(|l| l.contains(dereth_client_runtime::report::HEADER))
+        .unwrap_or(&text);
+    Some(
+        dereth_client_runtime::report::VisualReport::parse(line)
+            .unwrap_or_else(|e| panic!("DERETH_REPORT: {e}")),
+    )
+}
+
+/// The station a report's frame was drawn at: a body where the player stood (or a free camera
+/// where the camera stood, with no body), the report's time and weather, and the landscape drawn
+/// as far as the player draws it unless `land_radius` says otherwise. The camera is held where
+/// the report says once the station is open ([`Shot::apply_report`]).
+pub(crate) fn report_station(
+    report: &dereth_client_runtime::report::VisualReport,
+    land_radius: Option<u32>,
+) -> Station {
+    let place = match (report.loc, report.camera) {
+        (Some(loc), _) => {
+            let q = loc.frame.rotation;
+            Place::Body {
+                cell: loc.cell.0,
+                origin: loc.frame.origin,
+                yaw: (2.0 * math::atan2f(q.z, q.w)).to_degrees(),
+            }
+        }
+        (None, Some(c)) => Place::Free {
+            block: c.block,
+            x: c.origin.x.clamp(0.0, 191.9),
+            y: c.origin.y.clamp(0.0, 191.9),
+            eye: 0.0,
+            yaw: c.yaw,
+            pitch: c.pitch,
+        },
+        (None, None) => panic!("the report names neither where the player stood nor the camera"),
+    };
+    Station {
+        name: "report",
+        why: "the frame a report describes",
+        place,
+        clock: report
+            .time
+            .as_ref()
+            .map_or(Clock::Sunny(0.5), |t| Clock::At(t.clock)),
+        weather: !report.weather_off,
+        land_radius: land_radius.unwrap_or(if report.draw_distance > 0 {
+            report.draw_distance
+        } else {
+            8
+        }),
+    }
+}
+
 /// A loaded station, stepped one frame at a time.
 pub(crate) struct Shot {
     pub scene: WorldScene,
@@ -1417,6 +1482,8 @@ pub(crate) struct Shot {
     pub follow: Option<[f32; 4]>,
     /// What the player holds down each step: nothing unless an instrument walks the body.
     pub input: CharacterInput,
+    /// A camera held where a report says it stood, over the chase camera, each step.
+    pub held: Option<dereth_client_runtime::report::ReportCamera>,
     /// What the last step's parts took on the processor.
     pub last: StepTimes,
 }
@@ -1632,7 +1699,39 @@ impl Shot {
             front,
             follow: None,
             input: CharacterInput::default(),
+            held: None,
             last: StepTimes::default(),
+        }
+    }
+
+    /// Stand the frame where `report` says it was drawn: the body exactly where it stood, the
+    /// camera held where it stood, the weather asked for, and the field of view and the aspect
+    /// the player chose.
+    pub(crate) fn apply_report(&mut self, report: &dereth_client_runtime::report::VisualReport) {
+        if let (Some(loc), Some(c)) = (report.loc, self.scene.character.as_mut()) {
+            c.teleport(loc);
+        }
+        self.scene.weather = match report.weather.as_str() {
+            "clear" => dereth_client_runtime::weather::Weather::Clear,
+            "rain" => dereth_client_runtime::weather::Weather::Rain,
+            "snow" => dereth_client_runtime::weather::Weather::Snow,
+            _ => dereth_client_runtime::weather::Weather::Auto,
+        };
+        self.scene.set_weather_enabled(!report.weather_off);
+        if report.fov > 0.0 {
+            self.scene.draw.cfg.render.field_of_view = report.fov;
+        }
+        if report.aspect != 0 {
+            self.scene.draw.cfg.render.aspect_ratio = report.aspect;
+        }
+        self.held = report.camera;
+        self.hold_reported_camera();
+    }
+
+    /// The held camera, where the scene draws the world now.
+    fn hold_reported_camera(&mut self) {
+        if let (Some(c), Some(block)) = (self.held, self.scene.viewer_block()) {
+            self.scene.camera = c.to_render(block);
         }
     }
 
@@ -1741,6 +1840,7 @@ impl Shot {
             self.scene.camera.yaw = yaw;
             self.scene.camera.pitch = pitch;
         }
+        self.hold_reported_camera();
         self.last.update = ms(t);
         let t = Instant::now();
         self.scene.stream(&self.store, gpu).expect("stream");

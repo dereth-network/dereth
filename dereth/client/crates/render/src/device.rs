@@ -647,6 +647,19 @@ impl Gpu {
         dispatch!(self, g => g.adapter_name.as_str())
     }
 
+    /// The adapter's driver, where the backend can say; empty where it cannot.
+    #[must_use]
+    pub fn adapter_driver(&self) -> String {
+        dispatch!(self, g => g.adapter_driver())
+    }
+
+    /// How frames are presented, in the backend's words: the swap chain's mode, or how often the
+    /// device waits for the screen; `offscreen` without a window.
+    #[must_use]
+    pub fn present_mode(&self) -> String {
+        dispatch!(self, g => g.present_mode())
+    }
+
     /// The frame stamp, bumped once per presented frame.
     #[must_use]
     pub fn frame_stamp(&self) -> u64 {

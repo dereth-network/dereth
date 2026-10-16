@@ -2074,6 +2074,8 @@ fn the_handler_names_with_no_arm_are_exactly_these() {
         H::Render,
         H::Tod,
         H::Weather,
+        H::Report,
+        H::PerfCapture,
     ];
 
     let remaining: Vec<H> = names

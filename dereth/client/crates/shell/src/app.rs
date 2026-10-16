@@ -154,6 +154,7 @@ impl<H: Host> App<H> {
     ) -> Result<Self, StartupError> {
         let mut core = CoreApp::<H>::bring_up_with_store(cfg, store, platform, present)?;
         core.interaction.client_build_id = H::BUILD_ID;
+        core.build_commit = H::BUILD_COMMIT;
         let shell = ClientShell::with_window_events(core.window.raw_handle(), window_events);
         Ok(Self { core, shell })
     }

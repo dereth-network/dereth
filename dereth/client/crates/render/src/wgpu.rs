@@ -113,6 +113,7 @@ pub struct Prepared {
     device: wgpu::Device,
     queue: wgpu::Queue,
     adapter_name: String,
+    adapter_driver: String,
     adapter_kind: AdapterKind,
     bc: bool,
     anisotropy: bool,
@@ -282,6 +283,9 @@ fn prepared(
         device,
         queue,
         adapter_name: format!("{} on {:?}", info.name, info.backend),
+        adapter_driver: format!("{} {}", info.driver, info.driver_info)
+            .trim()
+            .to_owned(),
         adapter_kind,
         target,
         format,
@@ -546,6 +550,8 @@ pub struct Gpu {
     pub adapter_kind: AdapterKind,
     /// The adapter's own name and the native API under it, for the start-up line.
     pub adapter_name: String,
+    /// The adapter's driver and its version, as the adapter reports them.
+    adapter_driver: String,
     bc: bool,
 
     layout: wgpu::PipelineLayout,
@@ -803,6 +809,7 @@ impl Gpu {
             size: p.size,
             adapter_kind: p.adapter_kind,
             adapter_name: p.adapter_name,
+            adapter_driver: p.adapter_driver,
             bc: p.bc,
             layout,
             uniform_layout,
@@ -1199,6 +1206,25 @@ impl Gpu {
     #[must_use]
     pub fn present_sync_interval(&self) -> u32 {
         self.present_sync_interval
+    }
+
+    /// The adapter's driver and its version.
+    #[must_use]
+    pub fn adapter_driver(&self) -> String {
+        self.adapter_driver.clone()
+    }
+
+    /// The surface's present mode and the sync interval the frame pacer honours, or
+    /// `offscreen`.
+    #[must_use]
+    pub fn present_mode(&self) -> String {
+        match &self.target {
+            Target::Surface { config, .. } => format!(
+                "{:?}, sync interval {}",
+                config.present_mode, self.present_sync_interval
+            ),
+            Target::Offscreen { .. } => "offscreen".to_owned(),
+        }
     }
 
     #[must_use]

@@ -2504,6 +2504,17 @@ impl<H: Host> Shell for ClientShell<H> {
         }
     }
 
+    fn copy_text(&mut self, text: &str) -> bool {
+        use crate::clipboard::HostClipboard;
+        match self.shared.host_clipboard.set_text(text) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("clipboard write failed: {e:?}");
+                false
+            }
+        }
+    }
+
     fn compose_ui(&mut self, cx: &mut Cx<'_, H>) {
         let (front, services) = self.front_and_services();
         front.compose(cx, services);
@@ -2964,3 +2975,7 @@ mod horizon_switch_tests;
 #[cfg(test)]
 #[path = "../tests/pointer_hold_tests.rs"]
 mod pointer_hold_tests;
+
+#[cfg(test)]
+#[path = "../tests/report_command_tests.rs"]
+mod report_command_tests;

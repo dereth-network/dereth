@@ -18,6 +18,10 @@ pub trait Host: 'static {
     /// example `dereth-client 0.1.3`).
     const BUILD_ID: &'static str;
 
+    /// The commit the program was built from, as `@report` names it; `unknown` when the build
+    /// did not say.
+    const BUILD_COMMIT: &'static str = "unknown";
+
     /// The host clipboard the shell mirrors each frame.
     type Clipboard: HostClipboard;
 

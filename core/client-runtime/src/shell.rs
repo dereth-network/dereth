@@ -258,6 +258,11 @@ pub trait Shell: Sized {
     fn update_cursor(&mut self, cx: &mut UiContext<'_, Self>) {}
     /// Move text between the UI and the system clipboard.
     fn sync_clipboard(&mut self) {}
+    /// Put `text` on the system clipboard: `@report`'s line. Whether it is there; a front end
+    /// with no clipboard has nowhere to put it.
+    fn copy_text(&mut self, text: &str) -> bool {
+        false
+    }
     /// Build this frame's overlay and upload what it newly references, outside the frame bracket.
     fn compose_ui(&mut self, cx: &mut UiContext<'_, Self>) {}
     /// Draw the overlay over the finished world, inside `PresentFrame`.

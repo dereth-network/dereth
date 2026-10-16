@@ -79,11 +79,13 @@ pub struct PerfSummary {
 }
 
 impl FramePerf {
-    /// A frame is starting at `now`, and the one before it spent `steps` in its steps.
-    pub fn frame_started(&mut self, now: web_time::Instant, steps: [f32; STEPS]) {
-        if let Some(last) = self.last_start.replace(now) {
-            self.push(now.duration_since(last).as_secs_f32(), steps);
-        }
+    /// A frame is starting at `now`, and the one before it spent `steps` in its steps. The
+    /// seconds since the frame before began, once there was one.
+    pub fn frame_started(&mut self, now: web_time::Instant, steps: [f32; STEPS]) -> Option<f32> {
+        let last = self.last_start.replace(now)?;
+        let interval = now.duration_since(last).as_secs_f32();
+        self.push(interval, steps);
+        Some(interval)
     }
 
     /// Record one frame of `interval` seconds.

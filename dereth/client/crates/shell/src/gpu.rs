@@ -952,6 +952,17 @@ mod imp {
             SceneRenderer::hifi_availability(self)
         }
 
+        fn render_context(
+            &self,
+            world: Option<&dereth_client_runtime::world_state::WorldState>,
+        ) -> dereth_client_runtime::report::RenderContext {
+            SceneRenderer::render_context(self, world)
+        }
+
+        fn frame_costs(&self) -> Option<dereth_client_runtime::report::PresentCosts> {
+            SceneRenderer::present_costs(self)
+        }
+
         fn apply_device_preference_requests(
             &mut self,
             requests: Vec<dereth_ui_screens::UiRequest>,

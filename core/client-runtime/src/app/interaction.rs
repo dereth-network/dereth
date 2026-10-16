@@ -144,6 +144,9 @@ impl<S: Shell> App<S> {
                 dereth_client_contract::feedback::Feedback::LOCAL,
             );
         }
+        // The report and the performance capture describe what this client draws, and answer
+        // in the window they were typed in. Nothing is sent.
+        self.report_use_time(shell);
         // `--set-at`'s settings take the same road.
         for (name, value) in std::mem::take(&mut self.scripted_preferences) {
             unowned.push(dereth_client_contract::UiRequest::SetPreference(

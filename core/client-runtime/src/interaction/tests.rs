@@ -282,6 +282,80 @@ fn typed_weather_is_answered_by_this_client_and_nothing_reaches_the_server() {
     assert_eq!(inter.stats.chat_commands_refused, 2);
 }
 
+/// Behaviour: chat.commands.report-and-perfcapture-are-answered-by-this-client-and-never-sent
+#[test]
+fn typed_report_and_perfcapture_are_answered_by_this_client_and_nothing_reaches_the_server() {
+    use dereth_client_model::cmd::report::{CAPTURE_USAGE, REPORT_USAGE};
+    let mut game = dereth_client_model::World::new();
+    let mut inter = Interaction::new();
+    let typed = [
+        (1, "/report"),
+        (8, "@REPORT"),
+        (1, "/report now"),
+        (1, "/perfcapture"),
+        (8, "@perfcapture 30"),
+        (8, "/perfcapture 0"),
+        (1, "/perfcapture 5 10"),
+    ];
+    inter.queue(
+        Vec::new(),
+        typed
+            .iter()
+            .map(|(window, text)| UiRequest::ChatLine {
+                window: *window,
+                text: (*text).into(),
+            })
+            .collect(),
+    );
+    assert!(inter
+        .run_ui_requests(&mut game, false, ServerTime(1.0))
+        .is_empty());
+    assert_eq!(
+        inter.take_pending_requests(),
+        Vec::<Request>::new(),
+        "no line of @report or @perfcapture reaches the server"
+    );
+    assert_eq!(
+        inter.take_report_requests(),
+        vec![1, 8],
+        "each report asked for is handed on with the window it was typed in"
+    );
+    assert_eq!(
+        inter.take_perf_capture_requests(),
+        vec![(10, 1), (30, 8)],
+        "each capture that reads is handed on with its seconds and its window"
+    );
+    assert!(inter.take_report_requests().is_empty());
+    assert!(inter.take_perf_capture_requests().is_empty());
+    // The three that do not read are refused, one line each, in their own window, and none is
+    // the catch-all "not a valid command".
+    let refusals: Vec<_> = game
+        .scroll
+        .drain()
+        .into_iter()
+        .map(|line| (line.window, line.chat_type, line.body))
+        .collect();
+    assert_eq!(refusals.len(), 3, "{refusals:?}");
+    for ((window, chat_type, body), (want_window, usage)) in
+        refusals
+            .iter()
+            .zip([(1, REPORT_USAGE), (8, CAPTURE_USAGE), (1, CAPTURE_USAGE)])
+    {
+        assert_eq!(*window, want_window, "{body}");
+        assert_eq!(
+            *chat_type,
+            dereth_client_model::chat::text_type::LOCAL_ERROR,
+            "{body}"
+        );
+        assert!(body.contains(usage), "{body}");
+        assert!(
+            !body.contains(dereth_client_model::cmd::NOT_A_VALID_COMMAND),
+            "{body}"
+        );
+    }
+    assert_eq!(inter.stats.chat_commands_refused, 3);
+}
+
 /// Behaviour: spellbook.filter.changes-are-shared-before-the-server-replies
 #[test]
 fn a_spellbook_filter_change_updates_the_model_view_and_saved_module() {

@@ -179,6 +179,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.commands.perfcapture-saves-a-row-for-every-frame-of-its-seconds",
+        says: "Typing /perfcapture with a number of seconds records from the next frame on, a \
+               row for every frame until that many seconds of the client's clock have passed, \
+               then saves them to a file in the settings folder and says where, with the frame \
+               count, the median, the slowest and the hitches. The file starts with what /report \
+               would say and the graphics adapter, and every row has the frame's time, each step \
+               of the frame and the drawing's own parts. A second capture asked for while one \
+               records is refused.",
+        since: THIS_CLIENT,
+        divergence: "CD-report-commands",
+        evidence: Evidence::Private("AC-EVID-CHAT-PERFCAPTURE"),
+        station: "dereth-client-shell::lib::front_end::report_command_tests::perfcapture_saves_a_row_for_every_frame_of_its_seconds_beside_the_settings",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "chat.commands.report-and-perfcapture-are-answered-by-this-client-and-never-sent",
+        says: "Typing /report or /perfcapture is answered by this client and nothing is sent to \
+               the shard: /report takes no words, and /perfcapture takes a whole number of \
+               seconds from 1 to 60, or none for 10; anything else is refused with one line \
+               saying what it takes, in the window it was typed in. No command of the final \
+               client's own is shadowed by them.",
+        since: THIS_CLIENT,
+        divergence: "CD-report-commands",
+        evidence: Evidence::Private("AC-EVID-CHAT-REPORT-COMMANDS"),
+        station: "dereth-client-runtime::lib::interaction::tests::typed_report_and_perfcapture_are_answered_by_this_client_and_nothing_reaches_the_server",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "chat.commands.report-prints-and-copies-a-line-that-reads-back-as-the-frames-camera",
+        says: "Typing /report prints one line in the window it was typed in and puts the same \
+               line on the clipboard. Read back, the line gives the camera the frame was drawn \
+               from to the last bit, where the player stands as /loc says it, which camera it \
+               is, the window's size and the client's version and commit.",
+        since: THIS_CLIENT,
+        divergence: "CD-report-commands",
+        evidence: Evidence::Private("AC-EVID-CHAT-REPORT"),
+        station: "dereth-client-shell::lib::front_end::report_command_tests::the_report_line_reads_back_as_the_camera_the_frame_was_drawn_from",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "chat.commands.tod-is-answered-by-this-client-and-never-sent",
         says: "Typing /tod or @tod is answered by this client and nothing is sent to the shard: \
                alone it says the time of day the sky is drawn at and whether that is the \

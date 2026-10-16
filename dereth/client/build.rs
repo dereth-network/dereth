@@ -12,10 +12,13 @@
 //! `launcher/assets/dereth.ico` rather than referenced across the two trees: the launcher and the
 //! client are separate applications in separate workspaces, and either one may want a different
 //! icon without disturbing the other. Change this file's icon by replacing `assets/dereth.ico`.
+//!
+//! It also names the commit the client is built from ([`build_commit`]).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
+    build_commit();
     println!("cargo:rustc-check-cfg=cfg(gpu)");
     let feature = |name| std::env::var_os(name).is_some();
     if feature("CARGO_FEATURE_VULKAN")
@@ -41,4 +44,44 @@ fn main() {
         .manifest_optional()
         .expect("the icon resource must compile");
     }
+}
+
+/// The commit the client is built from, as `@report` and `--version` name it:
+/// `DERETH_BUILD_COMMIT` when the packaging names it, else the checkout's own `HEAD` where git can
+/// say, so a client built straight from a checkout names its commit too. Built again when `HEAD`
+/// moves.
+fn build_commit() {
+    println!("cargo:rerun-if-env-changed=DERETH_BUILD_COMMIT");
+    if std::env::var_os("DERETH_BUILD_COMMIT").is_some() {
+        return;
+    }
+    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let git = |args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(here)
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        (out.status.success() && !text.is_empty()).then_some(text)
+    };
+    let Some(commit) = git(&["rev-parse", "--short=12", "HEAD"]) else {
+        return;
+    };
+    // `HEAD`, its log (written whenever `HEAD` moves, a commit on its branch too), the branch it
+    // names and the packed branches, where each is a file.
+    let branch = git(&["symbolic-ref", "-q", "HEAD"]);
+    for name in ["HEAD", "logs/HEAD", "packed-refs"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(branch)
+    {
+        if let Some(path) = git(&["rev-parse", "--git-path", &name]) {
+            let path = here.join(path);
+            if path.is_file() {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
+    }
+    println!("cargo:rustc-env=DERETH_BUILD_COMMIT={commit}");
 }

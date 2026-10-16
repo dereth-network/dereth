@@ -26,6 +26,10 @@
 //! - `DERETH_TERRAIN_KNOBS`: the drawn ground's knobs, the tuning file's lines with `;` between.
 //! - `DERETH_ART_PACK_LAND_RADIUS`: the landscape's blocks each way (default 8, the client's).
 //! - `DERETH_HIFI_STREAM_BUDGET_MS`, `DERETH_HIFI_PARTICLES`: as for every station.
+//! - `DERETH_REPORT`: the line the client's `@report` printed, or the name of a file holding it:
+//!   one more place, `report`, stood as the report says (the body, the camera held where it
+//!   stood, the time, the weather, the field of view, the draw distance), drawn with the report's
+//!   Better Lighting effects; walking, the body runs and its chase camera follows.
 //!
 //! Files: `<root>/frames/<tag>-<place>-<way>-<size>-<motion>.csv`, a row a frame, and
 //! `<root>/summary-<tag>.csv`, a row a set.
@@ -78,6 +82,8 @@ struct PerfPlace {
     walk_yaw: f32,
     /// A crowd made to stand in front of the camera: how many.
     crowd: u32,
+    /// The report the place was stood from, for `report`.
+    report: Option<dereth_client_runtime::report::VisualReport>,
 }
 
 /// The places: Holtburg's south edge looking into town; the block where the most common tree
@@ -99,18 +105,21 @@ fn places() -> Vec<PerfPlace> {
             place: free(HOLTBURG, 110.0, 20.0, 1.8, -0.34, 0.0),
             walk_yaw: -0.34,
             crowd: 0,
+            report: None,
         },
         PerfPlace {
             name: "forest",
             place: free(0x48C6, 96.0, 96.0, 3.0, 0.6, 0.02),
             walk_yaw: 0.6,
             crowd: 0,
+            report: None,
         },
         PerfPlace {
             name: "sho",
             place: free(0xFB7E, 48.0, 48.0, 12.0, 0.785, -0.04),
             walk_yaw: 0.785,
             crowd: 0,
+            report: None,
         },
         PerfPlace {
             name: "dungeon",
@@ -121,26 +130,42 @@ fn places() -> Vec<PerfPlace> {
             },
             walk_yaw: 0.0,
             crowd: 0,
+            report: None,
         },
         PerfPlace {
             name: "lake",
             place: free(0xA8B4, 84.0, 132.0, 3.5, -0.35, -0.06),
             walk_yaw: -0.35,
             crowd: 0,
+            report: None,
         },
         PerfPlace {
             name: "neydisa",
             place: free(0x92D1, 83.0, 12.0, 6.0, -2.79, -0.122),
             walk_yaw: -2.79,
             crowd: 0,
+            report: None,
         },
         PerfPlace {
             name: "crowd",
             place: free(HOLTBURG, 96.0, 60.0, 1.8, 0.0, -0.05),
             walk_yaw: 0.0,
             crowd: 60,
+            report: None,
         },
     ]
+    .into_iter()
+    .chain(super::hifi_stations::report_from_env().map(|report| {
+        let station = super::hifi_stations::report_station(&report, None);
+        PerfPlace {
+            name: "report",
+            place: station.place,
+            walk_yaw: report.camera.map_or(0.0, |c| c.yaw),
+            crowd: 0,
+            report: Some(report),
+        }
+    }))
+    .collect()
 }
 
 /// The three ways a set is drawn.
@@ -163,10 +188,15 @@ impl Way {
     }
 }
 
-/// The presentation's boxes for a frame drawn `way`: every effect but the weather.
-fn fidelity(way: Way) -> String {
-    let mut spec =
-        "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1".to_owned();
+/// The presentation's boxes for a frame drawn `way`: every effect but the weather, or the
+/// effects `report` names.
+fn fidelity(way: Way, report: Option<&dereth_client_runtime::report::VisualReport>) -> String {
+    let mut spec = report
+        .map(|r| r.render.effects.replace("RetailLook=1", "RetailLook=0"))
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| {
+            "Lighting=1,Shadows=1,GlobalIllumination=1,AmbientOcclusion=1,Lamps=1,Sky=1".to_owned()
+        });
     if way == Way::Hifi {
         spec.push_str(",RetailLook=1");
     }
@@ -349,24 +379,34 @@ fn run(
     motion: &str,
 ) -> Vec<Row> {
     use dereth_client_runtime::render_prefs::FidelityPreferences;
-    let station = Station {
-        name: place.name,
-        why: "a place measured",
-        place: place.place,
-        clock: clock(),
-        weather: false,
-        land_radius: env_num("DERETH_ART_PACK_LAND_RADIUS", 8),
+    let station = match &place.report {
+        Some(report) => super::hifi_stations::report_station(
+            report,
+            env("DERETH_ART_PACK_LAND_RADIUS").and_then(|v| v.trim().parse().ok()),
+        ),
+        None => Station {
+            name: place.name,
+            why: "a place measured",
+            place: place.place,
+            clock: clock(),
+            weather: false,
+            land_radius: env_num("DERETH_ART_PACK_LAND_RADIUS", 8),
+        },
     };
     let mut device = device(width, height);
     let gpu = &mut device;
     let mut shot = Shot::open_blending(store, gpu, &station, true);
+    if let Some(report) = &place.report {
+        shot.apply_report(report);
+    }
     if way != Way::Retail {
         let pack = pack.expect("DERETH_ART_PACK names the art pack's folder");
         shot.scene
             .set_art_pack(store, gpu, Some(Arc::clone(pack)))
             .expect("the blocks bake for the pack");
         shot.scene.draw.cfg.render.fidelity =
-            FidelityPreferences::parse_switch(&fidelity(way)).expect("the boxes parse");
+            FidelityPreferences::parse_switch(&fidelity(way, place.report.as_ref()))
+                .expect("the boxes parse");
         if way == Way::Pack {
             if let Some(text) = env("DERETH_TERRAIN_KNOBS") {
                 let (knobs, notes) =
@@ -432,7 +472,8 @@ fn run(
         None
     };
     if walking && path.is_none() {
-        // A body walks: running forward, turning now and then.
+        // A body walks: running forward, turning now and then, its chase camera following.
+        shot.held = None;
         shot.input = dereth_client_runtime::character::CharacterInput {
             forward: true,
             run: true,

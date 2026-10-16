@@ -836,6 +836,34 @@ impl super::SceneDraw {
     pub(crate) fn set_terrain_tuning_file(&mut self, path: Option<PathBuf>) {
         self.drawn.set_tuning_file(path);
     }
+
+    /// For a report: the hash of the tuning file as it was last read, once it has been, and the
+    /// knobs that differ from their defaults, each with its value as the file writes it.
+    #[must_use]
+    pub fn report_knobs(&self) -> (Option<String>, Vec<(String, String)>) {
+        let hash = self
+            .drawn
+            .tuning
+            .text
+            .as_deref()
+            .map(|t| dereth_client_runtime::report::ContentHash::of(t.as_bytes()));
+        let changed = self
+            .drawn
+            .knobs
+            .changed_from(&Knobs::default())
+            .into_iter()
+            .map(|k| {
+                let value = self.drawn.knobs.get(k);
+                let value = if k.spec().switch {
+                    (value >= 0.5).to_string()
+                } else {
+                    value.to_string()
+                };
+                (k.spec().name.to_owned(), value)
+            })
+            .collect();
+        (hash, changed)
+    }
 }
 
 impl super::WorldScene {

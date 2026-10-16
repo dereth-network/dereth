@@ -33,6 +33,10 @@ pub struct Dereth;
 impl dereth_desktop::Product for Dereth {
     const BINARY_NAME: &'static str = "dereth-client";
     const BUILD_ID: &'static str = concat!("dereth-client ", env!("CARGO_PKG_VERSION"));
+    const BUILD_COMMIT: &'static str = match option_env!("DERETH_BUILD_COMMIT") {
+        Some(commit) => commit,
+        None => "unknown",
+    };
     const SETTINGS_DIR_NAME: &'static str = dereth_desktop::folders::CLIENT_DIR_NAME;
     const TITLE: &'static str = "Dereth";
     const ICON_PNG: &'static [u8] = include_bytes!("../assets/dereth-256.png");

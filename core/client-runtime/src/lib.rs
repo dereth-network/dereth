@@ -56,6 +56,10 @@ pub mod frame;
 /// replay harness's golden event log is built on it.
 pub mod frame_events;
 pub mod perf;
+/// `@perfcapture`: every frame's time for a few seconds, saved to a file.
+pub mod perf_capture;
+/// `@report`: one line saying where the camera is and how the frame is drawn.
+pub mod report;
 
 /// Opening the four retail dats: the seam every other module reads assets through.
 pub mod assets;
