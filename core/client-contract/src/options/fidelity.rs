@@ -1,4 +1,4 @@
-//! The words and rules of the optional high-fidelity presentation's options: seven check boxes on
+//! The words and rules of the optional high-fidelity presentation's options: eight check boxes on
 //! the Horizon interface's Client page, under a heading of their own, each off until the player
 //! ticks it.
 //!
@@ -7,7 +7,8 @@
 //! that traces rays. [`blocked`] says which of these holds for a box, and the presentation follows
 //! the same rules, so a box the page shows greyed draws nothing. (The bounced light darkens the
 //! creases itself, so the ambient occlusion stands aside in the outdoor frames it is drawn into;
-//! indoors and underground, where it draws nothing, the occlusion is drawn.)
+//! indoors and underground, where it draws nothing, the occlusion is drawn.) The better lighting
+//! smooths the world's edges with temporal anti-aliasing, which the last box turns off.
 //!
 //! In a build with the `hifi` feature the options are registered with the value store
 //! ([`register`]), so the page reads and writes them like any other option and the profile keeps
@@ -40,8 +41,8 @@ pub struct FidelityOption {
     pub needs: Needs,
 }
 
-/// The seven boxes, in page order.
-pub const OPTIONS: [FidelityOption; 7] = [
+/// The eight boxes, in page order.
+pub const OPTIONS: [FidelityOption; 8] = [
     FidelityOption {
         name: fidelity::LIGHTING,
         caption: "Better Lighting (HDR Sun and Sky Light)",
@@ -90,6 +91,13 @@ pub const OPTIONS: [FidelityOption; 7] = [
         caption: "Weather (Rain, Wet Ground, Puddles, Snow)",
         note: "On the game's rainy days: rain that roofs keep off, wet ground and puddles, and \
                falling snow instead over snowy land. It replaces the game's own falling rain.",
+        needs: Needs::Lighting,
+    },
+    FidelityOption {
+        name: fidelity::NO_ANTI_ALIASING,
+        caption: "No Anti-Aliasing",
+        note: "Draws the better lighting without the temporal anti-aliasing that smooths the \
+               world's edges: a little sharper, but edges stair-step and shimmer in motion.",
         needs: Needs::Lighting,
     },
 ];

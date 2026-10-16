@@ -25,6 +25,7 @@
 //! installed, a pass whose option is off is never prepared and allocates nothing.
 
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt;
 
 pub mod composite;
@@ -156,6 +157,10 @@ pub struct HifiSettings {
     /// Rain, snow and wet ground, when the day's own weather brings them (asked for with
     /// `lighting` on).
     pub weather: Level,
+    /// Temporal anti-aliasing of the world drawn in the light per pixel (asked for with
+    /// `lighting` on): each frame is drawn a fraction of a pixel off the last, and the frames
+    /// are blended, following what moved, into edges that neither stair-step nor crawl.
+    pub anti_aliasing: bool,
     /// A diagnostic view.
     pub debug: DebugView,
 }
@@ -182,6 +187,7 @@ impl HifiSettings {
             (self.weather, before.weather),
         ];
         pairs.iter().any(|(now, was)| was.is_on() && !now.is_on())
+            || (before.anti_aliasing && !self.anti_aliasing)
             || (before.debug != DebugView::Off && self.debug != before.debug)
     }
 }
@@ -285,6 +291,15 @@ pub struct HifiRenderer {
     /// How many translucent draws of the opaque span this frame's plan draws over the lit world.
     translucent_draws: u64,
     reshader: Reshader,
+    /// How many frames have been prepared with the anti-aliasing asked for: the next one's place
+    /// in its jitter.
+    jitter_count: u32,
+    /// For each per-frame block the world was recorded with, the block it is replayed with at
+    /// this frame's jitter; empty on a frame drawn without the anti-aliasing.
+    jittered_frames: HashMap<u32, u32>,
+    /// The size the world was last drawn at, pixels: the frame's, or a share of it at a render
+    /// scale.
+    drawn_size: (u32, u32),
 }
 
 impl HifiRenderer {
@@ -309,6 +324,9 @@ impl HifiRenderer {
             recorded_draws: (0, 0),
             translucent_draws: 0,
             reshader: Reshader::default(),
+            jitter_count: 0,
+            jittered_frames: HashMap::new(),
+            drawn_size: (0, 0),
         }
     }
 
@@ -550,7 +568,11 @@ impl HifiRenderer {
         let last_stamp = composite::last_building_stamp(cx.tables());
         let mut unstamped = None;
         let mut resolved = rt.is_none();
+        let mut enlarged = None;
         self.compositor.begin_frame();
+        // Empty on a frame drawn without the anti-aliasing, or not re-shaded.
+        self.compositor.jitter_with(&self.jittered_frames);
+        let mut jittered = passes::taa::JitteredFrames(&self.jittered_frames);
         for slot in Slot::ORDER {
             if matches!(slot, Slot::WorldReplay | Slot::AlphaReplay) {
                 let mut filters: Vec<&mut dyn ReplayFilter> = self
@@ -562,6 +584,8 @@ impl HifiRenderer {
                     .collect();
                 match (&self.plan, &rt) {
                     (Some(plan), Some(rt)) => {
+                        // Every block the re-shaded world is drawn with, at the frame's jitter.
+                        filters.insert(0, &mut jittered);
                         if slot == Slot::WorldReplay {
                             // The sky's first pass with its own pipelines, but with the passes'
                             // say in it (the physical sky over the authored dome).
@@ -946,6 +970,7 @@ impl HifiRenderer {
                     reshade: rt.as_ref(),
                     resolved: &mut resolved,
                     timer,
+                    pipelines: &self.pipelines,
                 };
                 pass.encode(&mut ecx)?;
             }
@@ -963,8 +988,9 @@ impl HifiRenderer {
             }
             if slot == Slot::Blit {
                 let writes = timer.writes("composite");
-                self.compositor.composite(
+                enlarged = self.compositor.composite(
                     cx,
+                    &mut self.resources,
                     encoder,
                     &colour,
                     &world_depth,
@@ -972,7 +998,7 @@ impl HifiRenderer {
                     self.settings.debug,
                     (frame.camera.near, frame.camera.far),
                     writes,
-                );
+                )?;
                 let census = cx.census();
                 self.reshader.debug_view(
                     cx,
@@ -986,7 +1012,9 @@ impl HifiRenderer {
             }
         }
         timer.resolve(encoder);
-        self.world_depth = Some(targets.depth);
+        // What the interface drawn over the world tests against: the world's depth, enlarged to
+        // the frame where the world was drawn at fewer pixels.
+        self.world_depth = Some(enlarged.unwrap_or(targets.depth));
         Ok(())
     }
 }
@@ -1002,6 +1030,25 @@ impl FrameSidecar for HifiRenderer {
             .begin_frame(cx.device());
         self.resources.begin_frame();
         self.wanted.clear();
+        self.jittered_frames.clear();
+        // The frame's place in the anti-aliasing's jitter, set on its camera before any pass sees
+        // it; nought when the anti-aliasing is not asked for.
+        if let Some(frame) = self.frame.as_mut() {
+            // At a render scale under a hundred percent the world is drawn at fewer pixels, and
+            // every pass works in its viewport as drawn.
+            self.drawn_size = cx.surface_size();
+            if let Some(v) = cx.world_viewport().filter(|_| cx.scaled()) {
+                frame.camera.viewport = [v.x, v.y, v.width, v.height];
+            }
+            let (jitter, dither) = if passes::taa::wanted(&self.settings) {
+                self.jitter_count = self.jitter_count.wrapping_add(1);
+                passes::taa::jitter(self.jitter_count, frame.camera.viewport)
+            } else {
+                (glam::Vec2::ZERO, 0.0)
+            };
+            frame.camera.jitter = jitter;
+            frame.camera.dither = dither;
+        }
         let Some(frame) = self.frame.as_ref() else {
             return Ok(SidecarFrame::Plain);
         };
@@ -1017,6 +1064,7 @@ impl FrameSidecar for HifiRenderer {
                 frame,
                 caps: &self.caps,
                 resources: &mut self.resources,
+                pipelines: &mut self.pipelines,
             });
             let wanted = failure.is_none() && pass.wanted(&self.settings, frame, &self.caps);
             if wanted {
@@ -1026,6 +1074,7 @@ impl FrameSidecar for HifiRenderer {
                     frame,
                     caps: &self.caps,
                     resources: &mut self.resources,
+                    pipelines: &mut self.pipelines,
                 };
                 if let Err(e) = pass.prepare(&mut pcx) {
                     failure = Some(e);
@@ -1056,6 +1105,25 @@ impl FrameSidecar for HifiRenderer {
         for ((_, pass), wanted) in self.graph.passes_mut().zip(&self.wanted) {
             if *wanted {
                 pass.planned(self.plan.as_ref());
+            }
+        }
+        // A re-shaded frame drawn with the anti-aliasing replays its world at the frame's jitter:
+        // each block it was recorded with, as the passes' say hands it on, shifted.
+        if let (Some(_), Some(frame)) = (&self.plan, self.frame.as_ref()) {
+            if frame.camera.dither > 0.0 {
+                let filters: Vec<&mut dyn ReplayFilter> = self
+                    .graph
+                    .passes_mut()
+                    .zip(&self.wanted)
+                    .filter(|(_, wanted)| **wanted)
+                    .filter_map(|((_, p), _)| p.replay_filter())
+                    .collect();
+                self.jittered_frames = passes::taa::jittered_frames(
+                    cx,
+                    &mut Chain(filters),
+                    frame.camera.jitter,
+                    frame.camera.dither,
+                );
             }
         }
         Ok(SidecarFrame::Composite)
@@ -1100,6 +1168,12 @@ impl FrameSidecar for HifiRenderer {
         report
             .notes
             .push(("re-shaded", u64::from(self.plan.is_some())));
+        report
+            .notes
+            .push(("world drawn width", u64::from(self.drawn_size.0)));
+        report
+            .notes
+            .push(("world drawn height", u64::from(self.drawn_size.1)));
         report.notes.push((
             "drawn as recorded before the re-shade",
             self.recorded_draws.0,
@@ -1123,6 +1197,10 @@ impl FrameSidecar for HifiRenderer {
         report
             .notes
             .push(("pipelines built", self.pipelines.ready_count() as u64));
+        report.notes.push((
+            "anti-aliasing jittered blocks",
+            self.jittered_frames.len() as u64,
+        ));
         for (_, pass) in self.graph.passes() {
             pass.notes(&mut report.notes);
         }

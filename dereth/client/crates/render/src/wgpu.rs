@@ -613,6 +613,9 @@ pub struct Gpu {
     /// Why the last sidecar was uninstalled, if it failed.
     #[cfg(feature = "hifi")]
     hifi_failed: Option<String>,
+    /// The share of the frame's pixels the sidecar draws the world at, each way, percent.
+    #[cfg(feature = "hifi")]
+    hifi_scale: u32,
     /// Whether the adapter traces rays, which a device asked for the high-fidelity presentation
     /// takes.
     #[cfg(feature = "hifi")]
@@ -852,6 +855,8 @@ impl Gpu {
             hifi_requested: false,
             #[cfg(feature = "hifi")]
             hifi_failed: None,
+            #[cfg(feature = "hifi")]
+            hifi_scale: 100,
             #[cfg(feature = "hifi")]
             adapter_rays: p.rays,
             #[cfg(feature = "test-support")]

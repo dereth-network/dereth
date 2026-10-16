@@ -1085,6 +1085,26 @@ impl Gpu {
         }
     }
 
+    /// Draw the high-fidelity presentation's world at `percent` of the frame's pixels each way
+    /// (fifty to a hundred), enlarged to the frame; ignored by a device without one.
+    pub fn hifi_set_render_scale(&mut self, percent: u32) {
+        #[allow(irrefutable_let_patterns)]
+        if let Gpu::Wgpu(g) = self {
+            g.hifi_set_render_scale(percent);
+        }
+    }
+
+    /// The share of the frame's pixels the high-fidelity presentation draws its world at, each
+    /// way, percent: a hundred on a device without one.
+    #[must_use]
+    pub fn hifi_render_scale(&self) -> u32 {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.hifi_render_scale(),
+            _ => 100,
+        }
+    }
+
     /// Wait up to `timeout` for the installed sidecar's background work, and whether none is
     /// left; true where there is no sidecar.
     pub fn hifi_settle(&mut self, timeout: std::time::Duration) -> bool {

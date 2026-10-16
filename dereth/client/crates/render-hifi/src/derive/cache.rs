@@ -111,6 +111,9 @@ fn targets(key: &DerivedKey) -> Result<Vec<Option<wgpu::ColorTargetState>>, Stri
     if key.variant == Variant::Surface {
         return Ok(crate::passes::lighting::derive::targets());
     }
+    if key.variant == Variant::Motion {
+        return Ok(super::motion::targets());
+    }
     key.targets(ordinary_blend(&key.key))
         .map(|t| t.into_iter().map(Some).collect())
         .ok_or_else(|| format!("no colour targets for {:?}", key.variant))
@@ -173,13 +176,22 @@ fn build(
     };
     let targets = targets(&key)?;
     let module = module_for(modules, &cx.device, key.module())?.clone();
+    // The motion of a draw is drawn over the depth its re-shaded draw left, where it meets that
+    // depth, and leaves it as it is.
+    let mut state = key.key;
+    if key.variant == Variant::Motion {
+        state.z_write = false;
+        if state.z_func == dereth_render::ZFunc::Less {
+            state.z_func = dereth_render::ZFunc::LessEqual;
+        }
+    }
     scoped(&cx.device, || {
         build_derived_pipeline(
             &cx.device,
             layout,
             &module,
             key.fragment_entry(),
-            &key.key,
+            &state,
             &targets,
         )
     })
@@ -232,8 +244,11 @@ impl PipelineCache {
     /// device has a splat layout.
     pub fn ask(&mut self, key: DerivedKey) {
         debug_assert!(
-            matches!(key.variant, Variant::Reshade | Variant::Surface),
-            "only re-shading and surfaces are derived"
+            matches!(
+                key.variant,
+                Variant::Reshade | Variant::Surface | Variant::Motion
+            ),
+            "only re-shading, surfaces and motion are derived"
         );
         if self.asked.insert(key) {
             self.queue.push_back(key);

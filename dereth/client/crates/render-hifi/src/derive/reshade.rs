@@ -10,6 +10,10 @@
 //! - Every pixel stage ends in two outputs (see Outputs below): the ordinary colour, after fog and
 //!   the brightness slider, decoded from sRGB to linear light, with the ordinary alpha for the
 //!   ordinary blend; and the view-space normal with the material class.
+//! - The alpha test is the ordinary one, except on a frame the temporal anti-aliasing draws (the
+//!   per-frame block's `screen.z` 1 and over): there the edge of a cut-out is dithered across a
+//!   fifth of the alpha's range, a new pattern each frame, so the frames average into a soft
+//!   edge.
 //!
 //! The stage chains are not computed in linear light: sRGB is not multiplicative, so a modulate
 //! or a layer blend in linear light would come out up to a dozen levels away from the ordinary
@@ -195,6 +199,9 @@ fn world_outputs(format: VertexFormat) -> String {
     out
 }
 
+/// The ordinary stage's alpha test, in each pixel stage.
+const ALPHA_TEST: &str = "    alpha_test(c.a);\n";
+
 /// The anchors of the re-shaded variant for `format`, with the splat's when `splat`.
 #[must_use]
 pub fn anchors(format: VertexFormat, splat: bool) -> Vec<Anchor> {
@@ -255,6 +262,12 @@ pub fn anchors(format: VertexFormat, splat: bool) -> Vec<Anchor> {
             scope: Scope::Function(stage),
             find: "return finish(c, i.fog);",
             with: "return hifi_out(c, i, hifi_class());".to_owned(),
+        });
+        a.push(Anchor {
+            name: "alpha-test",
+            scope: Scope::Function(stage),
+            find: ALPHA_TEST,
+            with: "    hifi_alpha_test(c.a, i.pos.xy);\n".to_owned(),
         });
     }
     if splat {
@@ -399,6 +412,33 @@ fn hifi_baked_code(i: VsOut) -> f32 {{
     let t = clamp((log2(max(l, 1e-6)) + {stops:.1}) / {stops:.1}, 0.0, 1.0);
     let n = fract(52.9829189 * fract(dot(i.pos.xy, vec2<f32>(0.06711056, 5.83715e-3)))) - 0.5;
     return {baked_lo:.2} + ({baked_hi:.2} - {baked_lo:.2}) * t + n * 0.0009;
+}}
+
+// The frame's dither for the edges of cut-outs at `at` (a pixel), 0..1: a pattern that spreads
+// its values evenly over any few pixels, moved each frame by the frame's place in the sequence.
+fn hifi_noise(at: vec2<f32>) -> f32 {{
+    let k = floor(fract(g_frame.screen.z) * 64.0);
+    let q = at + vec2<f32>(5.588238 * k);
+    return fract(52.9829189 * fract(dot(q, vec2<f32>(0.06711056, 5.83715e-3))));
+}}
+
+// The alpha a pixel at `at` is cut under: the ordinary reference, or on a frame drawn for the
+// temporal anti-aliasing the reference moved by the frame's dither across a fifth of the alpha's
+// range, so the frames of a cut-out's edge average into a soft one.
+fn hifi_alpha_ref(at: vec2<f32>) -> f32 {{
+    if (g_frame.screen.z < 1.0) {{
+        return g_draw.draw_params.x;
+    }}
+    return g_draw.draw_params.x + (hifi_noise(at) - 0.5) * 0.2;
+}}
+
+// The ordinary alpha test, against the reference at `at`.
+fn hifi_alpha_test(a: f32, at: vec2<f32>) {{
+    if (g_draw.draw_params.y > 0.5) {{
+        if (a - hifi_alpha_ref(at) + 1e-6 < 0.0) {{
+            discard;
+        }}
+    }}
 }}
 
 fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{

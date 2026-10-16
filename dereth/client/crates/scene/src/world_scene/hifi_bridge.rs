@@ -117,6 +117,8 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
         },
         sky: level_of(raw(FidelityFeature::Sky), Level::High),
         weather: inside(FidelityFeature::Weather),
+        // The anti-aliasing is drawn with the light per pixel, unless it is turned off.
+        anti_aliasing: lit && raw(FidelityFeature::NoAntiAliasing) == 0,
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
 }
@@ -310,6 +312,9 @@ fn snapshot(
             .viewer_block()
             .map_or(0, |(x, y)| ((x as u16) << 8) | (y as u16)),
         block_shift: v3(shift),
+        // The presentation sets its own jitter.
+        jitter: glam::Vec2::ZERO,
+        dither: 0.0,
     };
 
     // --- the sun, the fog and the sky -----------------------------------------------------
@@ -599,17 +604,19 @@ mod tests {
         p
     }
 
-    /// The level the settings give the box `name`.
-    fn level(s: &HifiSettings, name: &str) -> Level {
+    /// Whether the settings draw what the box `name` asks for: its effect, or for the
+    /// anti-aliasing's box the world without it.
+    fn drawn(s: &HifiSettings, name: &str) -> bool {
         use dereth_client_contract::options::names::fidelity as n;
         match name {
-            n::LIGHTING => s.lighting,
-            n::SHADOWS => s.shadows,
-            n::GLOBAL_ILLUMINATION => s.global_illumination,
-            n::AMBIENT_OCCLUSION => s.ambient_occlusion,
-            n::LAMPS => s.lamps,
-            n::SKY => s.sky,
-            n::WEATHER => s.weather,
+            n::LIGHTING => s.lighting.is_on(),
+            n::SHADOWS => s.shadows.is_on(),
+            n::GLOBAL_ILLUMINATION => s.global_illumination.is_on(),
+            n::AMBIENT_OCCLUSION => s.ambient_occlusion.is_on(),
+            n::LAMPS => s.lamps.is_on(),
+            n::SKY => s.sky.is_on(),
+            n::WEATHER => s.weather.is_on(),
+            n::NO_ANTI_ALIASING => s.lighting.is_on() && !s.anti_aliasing,
             _ => unreachable!("{name}"),
         }
     }
@@ -622,7 +629,7 @@ mod tests {
             HifiSettings::default()
         );
         // Every box ticked, under another interface: nothing on.
-        let mut every = boxes(0b111_1111);
+        let mut every = boxes((1 << OPTIONS.len()) - 1);
         every.interface = false;
         assert_eq!(settings(&every, true), HifiSettings::default());
         assert!(!settings(&every, true).any_effective());
@@ -643,7 +650,12 @@ mod tests {
         assert_eq!(on.lamps, Level::High);
         assert_eq!(on.sky, Level::High);
         assert_eq!(on.weather, Level::High);
+        assert!(!on.anti_aliasing, "the anti-aliasing's box is ticked too");
         assert_eq!(on.debug, DebugView::Off);
+        // The anti-aliasing is drawn with the better lighting, until it is turned off.
+        let lit = settings(&boxes(0b1), true);
+        assert!(lit.anti_aliasing);
+        assert!(!settings(&boxes(0), true).anti_aliasing);
         // A capture's level past a tick is kept.
         let mut rig = FidelityPreferences::parse_switch("Lighting=3,Shadows=4,Debug=6").unwrap();
         assert_eq!(settings(&rig, true).lighting, Level::High);
@@ -653,7 +665,7 @@ mod tests {
         assert!(!settings(&rig, true).any_effective());
     }
 
-    /// Every combination of the seven boxes, with and without ray queries: a box draws exactly when
+    /// Every combination of the boxes, with and without ray queries: a box draws exactly when
     /// it is ticked and the page does not grey it, nothing is re-shaded without the better
     /// lighting, and a dependent comes back when its prerequisite is ticked again.
     ///
@@ -661,7 +673,7 @@ mod tests {
     #[test]
     fn every_combination_of_the_boxes_draws_only_what_its_prerequisites_allow() {
         for rays in [false, true] {
-            for ticked in 0..128u32 {
+            for ticked in 0..(1u32 << OPTIONS.len()) {
                 let prefs = boxes(ticked);
                 let s = settings(&prefs, rays);
                 let is = |name: &str| {
@@ -671,7 +683,7 @@ mod tests {
                         .is_some_and(|i| ticked & (1 << i) != 0)
                 };
                 for o in &OPTIONS {
-                    let drawn = level(&s, o.name).is_on();
+                    let drawn = drawn(&s, o.name);
                     let greyed = blocked(o.name, is, Some(rays)).is_some();
                     assert_eq!(
                         drawn,

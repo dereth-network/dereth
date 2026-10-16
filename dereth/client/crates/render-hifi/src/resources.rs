@@ -20,6 +20,9 @@ pub enum ResourceName {
     WorldDepth,
     /// The world's depth as it stood before an indoor step cleared it.
     WorldDepthBeforeClear,
+    /// The world's depth enlarged to the frame target, where the world is drawn at fewer
+    /// pixels: what the interface drawn over the world tests against.
+    WorldDepthOutput,
     /// The world's depth with no opening stamped into it: up to the last building stamp, or
     /// the indoor step's.
     WorldDepthUnstamped,
@@ -66,6 +69,15 @@ pub enum ResourceName {
     /// A copy of the normals and classes as the opaque span left them, for the pass that
     /// rewrites the landscape's.
     ScratchNormal,
+    /// How far each pixel's surface moved on screen since the last frame, where it moved of
+    /// itself, and where a translucent draw changed the picture: the anti-aliasing's.
+    TaaMotion,
+    /// The re-shaded picture as it stood before the translucent draws, for the anti-aliasing.
+    TaaBeforeAlpha,
+    /// The anti-aliasing's two histories, one read and one written each frame.
+    TaaHistory0,
+    /// The second of them.
+    TaaHistory1,
 }
 
 /// One shared resource.

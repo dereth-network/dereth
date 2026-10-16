@@ -40,6 +40,10 @@ pub struct DrawNote {
     pub splat: bool,
     /// The offset of the per-frame constant block the draw was recorded with.
     pub frame: u32,
+    /// The offset of the per-draw constant block the draw was recorded with.
+    pub draw: u32,
+    /// How many vertices it draws.
+    pub vertices: u32,
 }
 
 /// One recorded texture bind, noted beside the first of its commands: a recorded bind group
@@ -469,6 +473,42 @@ struct Replayer<'a> {
     full: Viewport,
     vertex_buffer: Option<wgpu::Buffer>,
     uniform_bind: Option<wgpu::BindGroup>,
+    /// The frame target's size and the size the world is drawn at: the recorded viewports are
+    /// taken from the one to the other as the world is replayed.
+    sizes: ((u32, u32), (u32, u32)),
+}
+
+/// `v`, a viewport of a target `from` pixels, as the same share of a target `to` pixels.
+#[must_use]
+pub fn scale_viewport(v: Viewport, from: (u32, u32), to: (u32, u32)) -> Viewport {
+    if from == to {
+        return v;
+    }
+    let along = |p: u32, of: u32, by: u32| -> u32 {
+        let of = u64::from(of.max(1));
+        u32::try_from((u64::from(p) * u64::from(by) + of / 2) / of).unwrap_or(by)
+    };
+    let (x0, y0) = (along(v.x, from.0, to.0), along(v.y, from.1, to.1));
+    let (x1, y1) = (
+        along(v.x + v.width, from.0, to.0).min(to.0),
+        along(v.y + v.height, from.1, to.1).min(to.1),
+    );
+    Viewport {
+        x: x0.min(x1),
+        y: y0.min(y1),
+        width: x1.saturating_sub(x0).max(1),
+        height: y1.saturating_sub(y0).max(1),
+    }
+}
+
+/// The size a target `size` pixels is drawn at, `percent` of its pixels each way.
+#[must_use]
+pub fn scaled_size(size: (u32, u32), percent: u32) -> (u32, u32) {
+    let s = |v: u32| u32::try_from((u64::from(v) * u64::from(percent) + 50) / 100).unwrap_or(v);
+    (
+        s(size.0).clamp(1, size.0.max(1)),
+        s(size.1).clamp(1, size.1.max(1)),
+    )
 }
 
 impl Replayer<'_> {
@@ -496,6 +536,9 @@ impl Replayer<'_> {
     /// handing it every mark of `marks` the range reaches. The pass starts in the state the
     /// recording is in at the range's start, exactly as the one-pass replay of the whole frame
     /// would have it there.
+    /// The world's replays are `scaled` to the size the world is drawn at; the interface's, drawn
+    /// over the frame target, are not.
+    #[allow(clippy::too_many_arguments)]
     fn replay(
         &self,
         range: Range<usize>,
@@ -503,6 +546,7 @@ impl Replayer<'_> {
         tables: &SideTables,
         pass: &mut wgpu::RenderPass<'_>,
         filter: &mut dyn ReplayFilter,
+        scaled: bool,
     ) -> Census {
         let mut census = Census::default();
         let Some(uniform_bind) = self.uniform_bind.as_ref() else {
@@ -511,6 +555,13 @@ impl Replayer<'_> {
         let end = range.end.min(self.commands.len());
         let start = range.start.min(end);
         let mut state = self.state_at(start);
+        let (from, to) = if scaled {
+            self.sizes
+        } else {
+            (self.sizes.0, self.sizes.0)
+        };
+        let apply_viewport =
+            |pass: &mut wgpu::RenderPass<'_>, v| apply_viewport(pass, scale_viewport(v, from, to));
         // The texture and sampler groups (1 to 4) the pass has bound, by address. The recording's
         // groups are bound only before a draw that is drawn: a replay leaves out the draws another
         // replay or pass draws, and each of them may have bound a texture of its own.
@@ -674,6 +725,9 @@ pub struct SidecarContext<'a> {
     surface_format: wgpu::TextureFormat,
     surface_size: (u32, u32),
     world_viewport: Option<Viewport>,
+    /// The frame target's own size, and the world's viewport in it, where the world is drawn
+    /// at a share of its pixels.
+    output: ((u32, u32), Option<Viewport>),
     frame_stamp: u64,
     compute: bool,
     tables: &'a SideTables,
@@ -729,16 +783,36 @@ impl<'a> SidecarContext<'a> {
         self.surface_format
     }
 
-    /// The frame's target size in pixels.
+    /// The size the world is drawn at, pixels: the frame target's, or a share of it at a render
+    /// scale under a hundred percent ([`Gpu::hifi_set_render_scale`]).
     #[must_use]
     pub fn surface_size(&self) -> (u32, u32) {
         self.surface_size
     }
 
-    /// The viewport in force where the world begins, or `None` when the frame drew no world.
+    /// The viewport in force where the world begins, or `None` when the frame drew no world: in
+    /// the world's own pixels, at the render scale.
     #[must_use]
     pub fn world_viewport(&self) -> Option<Viewport> {
         self.world_viewport
+    }
+
+    /// The frame target's own size, pixels, whatever the render scale.
+    #[must_use]
+    pub fn output_size(&self) -> (u32, u32) {
+        self.output.0
+    }
+
+    /// The world's viewport in the frame target's own pixels, whatever the render scale.
+    #[must_use]
+    pub fn output_viewport(&self) -> Option<Viewport> {
+        self.output.1
+    }
+
+    /// Whether the world is drawn at fewer pixels than the frame target has.
+    #[must_use]
+    pub fn scaled(&self) -> bool {
+        self.surface_size != self.output.0
     }
 
     /// The stamp of the frame being ended: the device's presented-frame count before it.
@@ -765,11 +839,11 @@ impl<'a> SidecarContext<'a> {
         u32::try_from(self.replayer.commands.len()).unwrap_or(u32::MAX)
     }
 
-    /// The recorded constant block at `offset`.
+    /// The constant block at `offset`: one the frame recorded, or one appended to it since.
     #[must_use]
     fn uniform_bytes(&self, offset: u32) -> Option<&[u8; BLOCK_ALIGN]> {
         let start = usize::try_from(offset).ok()?;
-        if start + BLOCK_ALIGN > self.recorded_uniform_len {
+        if start + BLOCK_ALIGN > self.uniform_arena.len() {
             return None;
         }
         self.uniform_arena[start..start + BLOCK_ALIGN]
@@ -791,11 +865,12 @@ impl<'a> SidecarContext<'a> {
         u32::try_from(start).ok()
     }
 
-    /// The recorded per-frame block at `legacy_offset` with `edit` applied to it, appended once
-    /// per offset and edit name per frame; `None` when no such block was recorded, or once the
-    /// arenas are on the device. `name` says what the edit does: two callers asking for the same
-    /// name get the same copy, so one name must always mean one edit, and different edits of one
-    /// block must carry different names.
+    /// The per-frame block at `legacy_offset` with `edit` applied to it, appended once per offset
+    /// and edit name per frame; `None` when there is no such block, or once the arenas are on
+    /// the device. The block may be a recorded one or one appended before it, so edits compose.
+    /// `name` says what the edit does: two callers asking for the same name get the same copy,
+    /// so one name must always mean one edit, and different edits of one block must carry
+    /// different names.
     pub fn derived_frame_block(
         &mut self,
         legacy_offset: u32,
@@ -812,10 +887,35 @@ impl<'a> SidecarContext<'a> {
         Some(offset)
     }
 
-    /// The recorded per-frame block at `legacy_offset`, decoded.
+    /// The per-frame block at `legacy_offset`, recorded or appended, decoded.
     #[must_use]
     pub fn frame_block(&self, legacy_offset: u32) -> Option<PerFrameConstants> {
         self.uniform_bytes(legacy_offset).map(decode_frame_block)
+    }
+
+    /// Append `block` as a per-frame block after every recorded one, encoded as the device
+    /// records one, and return its offset; `None` once the arenas are on the device.
+    pub fn push_frame_block(&mut self, block: &PerFrameConstants) -> Option<u32> {
+        self.push_uniform_block(&encode_frame_block(block))
+    }
+
+    /// The world transform of the per-draw block at `offset`, as the device recorded it: sixteen
+    /// floats, the rows of the column-vector transform one after another (the layout the shaders
+    /// read it in). `None` when no such block was recorded.
+    #[must_use]
+    pub fn draw_world(&self, offset: u32) -> Option<[f32; 16]> {
+        let start = usize::try_from(offset).ok()?;
+        if start + 64 > self.recorded_uniform_len {
+            return None;
+        }
+        let mut out = [0.0; 16];
+        for (f, b) in out
+            .iter_mut()
+            .zip(self.uniform_arena[start..start + 64].as_chunks::<4>().0)
+        {
+            *f = f32::from_le_bytes(*b);
+        }
+        Some(out)
     }
 
     /// The length of the constant arena as the frame recorded it.
@@ -906,6 +1006,7 @@ impl<'a> SidecarContext<'a> {
             self.tables,
             pass,
             filter,
+            true,
         );
         self.census.add(&census);
         census
@@ -926,6 +1027,7 @@ impl<'a> SidecarContext<'a> {
             self.tables,
             pass,
             filter,
+            true,
         )
     }
 
@@ -1115,6 +1217,18 @@ impl Gpu {
         self.sidecar.as_ref().map(|i| i.report.clone())
     }
 
+    /// Draw the world at `percent` of the frame's pixels each way (fifty to a hundred), and
+    /// enlarge it to the frame: fewer pixels to draw, for a softer picture.
+    pub fn hifi_set_render_scale(&mut self, percent: u32) {
+        self.hifi_scale = percent.clamp(50, 100);
+    }
+
+    /// The share of the frame's pixels the world is drawn at, each way, percent.
+    #[must_use]
+    pub fn hifi_render_scale(&self) -> u32 {
+        self.hifi_scale
+    }
+
     /// Wait up to `timeout` for the installed sidecar's background work, and whether none is
     /// left; true with no sidecar.
     pub fn hifi_settle(&mut self, timeout: std::time::Duration) -> bool {
@@ -1178,7 +1292,11 @@ impl Gpu {
             let at = u32::try_from(i).unwrap_or(u32::MAX);
             match cmd {
                 Cmd::Draw {
-                    pipeline, frame, ..
+                    pipeline,
+                    frame,
+                    draw,
+                    count,
+                    ..
                 } => {
                     if let Some((key, splat)) = keys.get(pipeline) {
                         t.draws.push(DrawNote {
@@ -1186,6 +1304,8 @@ impl Gpu {
                             key: *key,
                             splat: *splat,
                             frame: *frame,
+                            draw: *draw,
+                            vertices: *count,
                         });
                     } else {
                         t.unnoted.push(at);
@@ -1260,6 +1380,11 @@ impl Gpu {
                 })
                 .unwrap_or(full)
         });
+        // The world is drawn at the render scale's share of the frame's pixels, and enlarged into
+        // the frame by the sidecar's composite.
+        let drawn_size = scaled_size(self.size, self.hifi_scale);
+        let drawn_viewport = world_viewport.map(|v| scale_viewport(v, self.size, drawn_size));
+        let output = (self.size, world_viewport);
         let recorded_uniform_len = self.uniform_arena.len();
         let default_samplers = self.sampler_pair(0, 1);
         let frame_depth = self.depth_view();
@@ -1276,8 +1401,9 @@ impl Gpu {
                     device: &self.device,
                     queue: &self.queue,
                     surface_format: self.format,
-                    surface_size: self.size,
-                    world_viewport,
+                    surface_size: drawn_size,
+                    world_viewport: drawn_viewport,
+                    output,
                     frame_stamp: self.frame_stamp,
                     compute: self.compute,
                     tables: &installed.tables,
@@ -1300,6 +1426,7 @@ impl Gpu {
                         full,
                         vertex_buffer: None,
                         uniform_bind: None,
+                        sizes: (self.size, drawn_size),
                     },
                     census: Census::default(),
                     passes: 0,
@@ -1326,8 +1453,9 @@ impl Gpu {
                     device: &self.device,
                     queue: &self.queue,
                     surface_format: self.format,
-                    surface_size: self.size,
-                    world_viewport,
+                    surface_size: drawn_size,
+                    world_viewport: drawn_viewport,
+                    output,
                     frame_stamp: self.frame_stamp,
                     compute: self.compute,
                     tables: &installed.tables,
@@ -1350,6 +1478,7 @@ impl Gpu {
                         full,
                         vertex_buffer: vertex_buffer.clone(),
                         uniform_bind: Some(uniform_bind.clone()),
+                        sizes: (self.size, drawn_size),
                     },
                     census: Census::default(),
                     passes: 0,
@@ -1398,6 +1527,7 @@ impl Gpu {
                                 &installed.tables,
                                 &mut pass,
                                 &mut LegacyReplay,
+                                false,
                             );
                         }
                         Outcome::Composited(encoder.finish())
@@ -1464,6 +1594,7 @@ impl Gpu {
                         full,
                         vertex_buffer,
                         uniform_bind: Some(uniform_bind),
+                        sizes: (self.size, self.size),
                     };
                     replayer.replay(
                         0..commands.len(),
@@ -1471,6 +1602,7 @@ impl Gpu {
                         &installed.tables,
                         &mut pass,
                         &mut LegacyReplay,
+                        false,
                     );
                 }
                 encoder.finish()
@@ -1519,6 +1651,61 @@ impl Gpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// At a render scale a target is drawn at that share of its pixels each way, rounded, and a
+    /// viewport keeps its share of the target, its edges inside it.
+    #[test]
+    fn a_viewport_keeps_its_share_of_a_target_drawn_at_fewer_pixels() {
+        assert_eq!(scaled_size((1920, 1080), 100), (1920, 1080));
+        assert_eq!(scaled_size((1920, 1080), 67), (1286, 724));
+        assert_eq!(scaled_size((3840, 2160), 50), (1920, 1080));
+        let whole = Viewport {
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2160,
+        };
+        assert_eq!(
+            scale_viewport(whole, (3840, 2160), (1920, 1080)),
+            Viewport {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080
+            }
+        );
+        let part = Viewport {
+            x: 960,
+            y: 540,
+            width: 1920,
+            height: 1080,
+        };
+        assert_eq!(
+            scale_viewport(part, (3840, 2160), (1920, 1080)),
+            Viewport {
+                x: 480,
+                y: 270,
+                width: 960,
+                height: 540
+            }
+        );
+        assert_eq!(scale_viewport(part, (3840, 2160), (3840, 2160)), part);
+        let to = scaled_size((1920, 1080), 67);
+        let v = scale_viewport(
+            Viewport {
+                x: 1,
+                y: 1,
+                width: 1919,
+                height: 1079,
+            },
+            (1920, 1080),
+            to,
+        );
+        assert!(
+            v.x + v.width <= to.0 && v.y + v.height <= to.1,
+            "{v:?} in {to:?}"
+        );
+    }
 
     /// The world span runs from the world's first mark to the end mark after it.
     #[test]

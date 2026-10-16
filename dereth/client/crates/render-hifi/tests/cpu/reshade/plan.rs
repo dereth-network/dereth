@@ -37,6 +37,8 @@ fn tables(n: u32, alpha: u32, extra: &[(u32, Mark)]) -> SideTables {
             key: key(formats[cmd as usize % formats.len()]),
             splat: cmd % 7 == 0,
             frame: 0,
+            draw: 0,
+            vertices: 3,
         });
     }
     t
@@ -281,6 +283,8 @@ fn the_catalogue_keys_cover_every_vertex_format_and_asking_twice_asks_once() {
         key: keys[0],
         splat: false,
         frame: 0,
+        draw: 0,
+        vertices: 3,
     });
     cache.ask(k);
     cache.ask(k);
@@ -295,6 +299,8 @@ fn note(cmd: u32, key: PipelineKey) -> DrawNote {
         key,
         splat: false,
         frame: 0,
+        draw: 0,
+        vertices: 3,
     }
 }
 

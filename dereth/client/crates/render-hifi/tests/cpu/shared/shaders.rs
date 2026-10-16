@@ -32,7 +32,7 @@ fn the_composite_shader_parses_and_validates() {
         (
             "composite",
             dereth_render_hifi::composite::composite_shader(),
-            &["vs", "fs_copy", "fs_depth"],
+            &["vs", "fs_copy", "fs_scale", "fs_scale_depth", "fs_depth"],
         ),
         ("seen depth", &seen, &["vs", "fs_seen", "fs_step"]),
     ];

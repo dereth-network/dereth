@@ -14,6 +14,7 @@ use dereth_render::wgpu::sidecar::{legacy_shader_source, splat_shader_source};
 use dereth_render::{PipelineKey, VertexFormat};
 
 pub mod cache;
+pub mod motion;
 pub mod pipeline;
 pub mod reshade;
 
@@ -34,17 +35,21 @@ pub enum Variant {
     /// What each surface is made of -- albedo, its own light, its normal -- for light computed
     /// per pixel.
     Surface,
+    /// How far each surface moved on screen since the last frame, for the draws of things that
+    /// moved.
+    Motion,
 }
 
 impl Variant {
     /// Every variant. A new variant is added here as well as to the enum.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Reshade,
         Self::ShadowDepth,
         Self::ShadowClip,
         Self::SwayLegacy,
         Self::SwayReshade,
         Self::Surface,
+        Self::Motion,
     ];
 }
 
@@ -262,8 +267,8 @@ pub fn legacy_source(format: VertexFormat, splat: bool) -> String {
     }
 }
 
-/// The anchors `module` applies to its ordinary source; for the surface variant, the anchors it
-/// applies to the re-shaded text after the re-shade's own.
+/// The anchors `module` applies to its ordinary source; for the surface and motion variants, the
+/// anchors they apply to the re-shaded text after the re-shade's own.
 ///
 /// # Errors
 /// [`DeriveError::NotDerived`] for a variant with no derivation yet.
@@ -271,6 +276,7 @@ pub fn anchors(module: ModuleKey) -> Result<Vec<Anchor>, DeriveError> {
     match module.variant {
         Variant::Reshade => Ok(reshade::anchors(module.format, module.splat)),
         Variant::Surface => Ok(crate::passes::lighting::derive::anchors(module.splat)),
+        Variant::Motion => Ok(motion::anchors(module.format, module.splat)),
         other => Err(DeriveError::NotDerived(other)),
     }
 }
@@ -296,6 +302,16 @@ pub fn derive_from(source: &str, module: ModuleKey) -> Result<String, DeriveErro
             )?;
             Ok(apply(&reshaded, &surface::anchors(module.splat))?
                 + &surface::prelude(module.format, module.splat))
+        }
+        Variant::Motion => {
+            let reshaded = derive_from(
+                source,
+                ModuleKey {
+                    variant: Variant::Reshade,
+                    ..module
+                },
+            )?;
+            Ok(apply(&reshaded, &motion::anchors(module.format, module.splat))? + motion::PRELUDE)
         }
         other => Err(DeriveError::NotDerived(other)),
     }

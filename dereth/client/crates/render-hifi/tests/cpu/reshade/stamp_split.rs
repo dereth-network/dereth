@@ -30,6 +30,8 @@ fn tables(n: u32, stamps: &[u32], marks: &[(u32, Mark)]) -> SideTables {
             },
             splat: false,
             frame: 0,
+            draw: 0,
+            vertices: 3,
         });
     }
     t

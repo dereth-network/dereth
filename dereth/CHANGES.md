@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting smooths jagged edges.
 - Web: Empyrean worlds with WebSocket on are played without the relay.
 - Sync to refresh now works in full screen with Better Lighting.
 - Less stutter when walking into new land.

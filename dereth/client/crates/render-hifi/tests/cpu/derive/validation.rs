@@ -71,6 +71,48 @@ fn every_derived_permutation_parses_and_validates_with_two_outputs_per_pixel_sta
     }
 }
 
+/// The location a fragment entry point writes its one output, a vector, to.
+fn single_output(module: &naga::Module, entry: &naga::EntryPoint) -> u32 {
+    let result = entry
+        .function
+        .result
+        .as_ref()
+        .expect("a pixel stage returns");
+    assert!(
+        matches!(
+            module.types[result.ty].inner,
+            naga::TypeInner::Vector { .. }
+        ),
+        "{}: the output is not one vector",
+        entry.name
+    );
+    match result.binding {
+        Some(naga::Binding::Location { location, .. }) => location,
+        ref other => panic!("{}: output binding {other:?}", entry.name),
+    }
+}
+
+/// Behaviour: hifi.derive.every-derived-shader-validates
+#[test]
+fn every_motion_permutation_parses_and_validates_with_one_output_per_pixel_stage() {
+    for m in ModuleKey::all(Variant::Motion) {
+        let name = format!("{m:?}");
+        let module = validate(&name, &derive::derive(m).expect("derives"));
+        let mut wanted: Vec<&str> = PIXEL_STAGES.to_vec();
+        if m.splat {
+            wanted.push(SPLAT_STAGE);
+        }
+        for stage in &wanted {
+            let entry = module
+                .entry_points
+                .iter()
+                .find(|e| e.name == *stage)
+                .unwrap_or_else(|| panic!("{name}: no {stage}"));
+            assert_eq!(single_output(&module, entry), 0, "{name}: {stage}");
+        }
+    }
+}
+
 /// Behaviour: hifi.derive.every-derived-shader-validates
 #[test]
 fn each_material_class_the_shader_writes_is_the_value_the_presentation_reads_back() {

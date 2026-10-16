@@ -130,6 +130,9 @@ pub mod fidelity {
     pub const SKY: &str = "Fidelity.Sky";
     /// `Fidelity.Weather`: rain, snow and wet ground, when the day's own weather brings them.
     pub const WEATHER: &str = "Fidelity.Weather";
+    /// `Fidelity.NoAntiAliasing`: the world is drawn in the better lighting without its temporal
+    /// anti-aliasing.
+    pub const NO_ANTI_ALIASING: &str = "Fidelity.NoAntiAliasing";
     /// `Fidelity.Debug`: a diagnostic view, set only by `--set-at`: 0 Off, 1 Passthrough,
     /// 2 Depth, 3 Normals, 4 AO, 5 Shadows, 6 Census, 7 Parity (re-shaded with no pass).
     pub const DEBUG: &str = "Fidelity.Debug";
@@ -138,7 +141,7 @@ pub mod fidelity {
     /// in the profile.
     pub const INTERFACE: &str = "Fidelity.Interface";
 
-    /// Every name the profile and `--set-at` may set, the seven boxes first.
+    /// Every name the profile and `--set-at` may set, the eight boxes first.
     pub const NAMES: &[&str] = &[
         LIGHTING,
         SHADOWS,
@@ -147,6 +150,7 @@ pub mod fidelity {
         LAMPS,
         SKY,
         WEATHER,
+        NO_ANTI_ALIASING,
         DEBUG,
     ];
 }

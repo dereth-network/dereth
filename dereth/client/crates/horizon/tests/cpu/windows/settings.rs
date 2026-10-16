@@ -1,5 +1,5 @@
 //! The Client page of the settings ends, in a build with the experimental rendering effects, with
-//! their seven boxes under a heading of their own: a box whose prerequisite is off is greyed and
+//! their eight boxes under a heading of their own: a box whose prerequisite is off is greyed and
 //! cannot be ticked, and the rest tick as any other.
 //!
 //! Behaviour: none (experimental Horizon interface)
@@ -40,8 +40,35 @@ fn client_page(#[cfg(feature = "hifi")] hifi: Availability) -> (Harness, GameSta
     (h, state)
 }
 
+/// Scroll the Client page so the row captioned `caption` shows whole in its list, from the page's
+/// top down a few pixels at a time; whether it was found. The effects' rows are more than the
+/// list shows at once.
+fn show(h: &mut Harness, state: &GameState, caption: &str) -> bool {
+    let whole = |h: &Harness| {
+        let page = &h.ui.windows.options_page;
+        match (page.control("list"), page.control(caption)) {
+            (Some(list), Some(r)) => r.y >= list.y && r.bottom() <= list.bottom(),
+            _ => false,
+        }
+    };
+    if whole(h) {
+        return true;
+    }
+    h.ui.windows.options_page.scroll[tab::CLIENT] = 0.0;
+    h.frame(state);
+    for _ in 0..2000 {
+        if whole(h) {
+            return true;
+        }
+        h.ui.windows.options_page.scroll[tab::CLIENT] += 6.0;
+        h.frame(state);
+    }
+    false
+}
+
 /// Click the box of the row captioned `caption`, and what the click asked the game for.
 fn tick(h: &mut Harness, state: &GameState, caption: &str) -> Vec<UiRequest> {
+    assert!(show(h, state, caption), "no {caption} row");
     let r =
         h.ui.windows
             .options_page
@@ -91,7 +118,7 @@ fn the_effects_boxes_end_the_client_page_greyed_until_what_they_need_is_ticked()
     let (mut h, state) = client_page(ready);
     for o in &fidelity::OPTIONS {
         assert!(
-            h.ui.windows.options_page.control(o.caption).is_some(),
+            show(&mut h, &state, o.caption),
             "{} is not on the page",
             o.caption
         );
@@ -178,7 +205,7 @@ fn on_a_renderer_other_than_wgpu_every_box_is_greyed() {
     let (mut h, state) = client_page(native);
     for o in &fidelity::OPTIONS {
         assert!(
-            h.ui.windows.options_page.control(o.caption).is_some(),
+            show(&mut h, &state, o.caption),
             "{} is not on the page",
             o.caption
         );
@@ -405,10 +432,11 @@ fn an_effect_s_note_is_drawn_over_every_row_of_the_page() {
         failed: None,
         wgpu_next: None,
     });
-    let page = &h.ui.windows.options_page;
-    let list = page.control("list").expect("the page's list");
     // The first box, with the others in the rows under it.
     let o = &fidelity::OPTIONS[0];
+    assert!(show(&mut h, &state, o.caption), "the first effect's box");
+    let page = &h.ui.windows.options_page;
+    let list = page.control("list").expect("the page's list");
     let r = page.control(o.caption).expect("the first effect's box");
     let (x, y) = (list.x + 40.0, r.y + r.h / 2.0);
     h.move_to(x, y);
@@ -446,9 +474,10 @@ fn an_effect_s_note_shows_only_over_the_part_of_its_row_the_list_shows() {
         failed: None,
         wgpu_next: None,
     });
+    let o = &fidelity::OPTIONS[0];
+    assert!(show(&mut h, &state, o.caption), "the first effect's box");
     let page = &h.ui.windows.options_page;
     let list = page.control("list").expect("the page's list");
-    let o = &fidelity::OPTIONS[0];
     let r = page.control(o.caption).expect("the first effect's box");
     // Scrolled back until the row's top is ten pixels above the list's foot.
     let row_top = r.y - 3.0;

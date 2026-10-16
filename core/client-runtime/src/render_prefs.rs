@@ -543,6 +543,8 @@ pub enum FidelityFeature {
     Sky,
     /// `Fidelity.Weather`.
     Weather,
+    /// `Fidelity.NoAntiAliasing`.
+    NoAntiAliasing,
     /// `Fidelity.Debug`.
     Debug,
 }
@@ -550,7 +552,7 @@ pub enum FidelityFeature {
 #[cfg(feature = "hifi")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Lighting,
         Self::Shadows,
         Self::GlobalIllumination,
@@ -558,6 +560,7 @@ impl FidelityFeature {
         Self::Lamps,
         Self::Sky,
         Self::Weather,
+        Self::NoAntiAliasing,
         Self::Debug,
     ];
 
@@ -572,16 +575,18 @@ impl FidelityFeature {
             Self::Lamps => fidelity::LAMPS,
             Self::Sky => fidelity::SKY,
             Self::Weather => fidelity::WEATHER,
+            Self::NoAntiAliasing => fidelity::NO_ANTI_ALIASING,
             Self::Debug => fidelity::DEBUG,
         }
     }
 
-    /// The highest value the option takes: 4 for an effect (Ultra), the last view for the
-    /// diagnostic views.
+    /// The highest value the option takes: 4 for an effect (Ultra), 1 for the switch that turns
+    /// something off (the anti-aliasing's), the last view for the diagnostic views.
     #[must_use]
     pub const fn max(self) -> u32 {
         match self {
             Self::Debug => 7,
+            Self::NoAntiAliasing => 1,
             _ => 4,
         }
     }
@@ -608,7 +613,7 @@ impl FidelityFeature {
 pub struct FidelityPreferences {
     /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
     /// ticked box is 1.
-    pub values: [u32; 8],
+    pub values: [u32; 9],
     /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
     /// interface choice at start-up and follows the interface shown after that. Off, every option
     /// is off in effect, whatever it stores.
@@ -668,11 +673,14 @@ impl FidelityPreferences {
         }
     }
 
-    /// Whether any option is on in effect. Without one the presentation is not installed.
+    /// Whether any option is on in effect. Without one the presentation is not installed. The
+    /// switch that turns something off (the anti-aliasing's) draws nothing of its own, so it alone
+    /// is none.
     #[must_use]
     pub fn any_effective(&self) -> bool {
         FidelityFeature::ALL
             .into_iter()
+            .filter(|f| !matches!(f, FidelityFeature::NoAntiAliasing))
             .any(|f| self.effective(f) != 0)
     }
 

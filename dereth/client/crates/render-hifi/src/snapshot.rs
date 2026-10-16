@@ -8,7 +8,7 @@
 use std::ops::Range;
 
 use dereth_render::VertexFormat;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 /// The snapshot of one frame.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -65,6 +65,16 @@ pub struct HifiCamera {
     pub viewer_landblock: u16,
     /// What render space is shifted by from world space, so far blocks keep precision.
     pub block_shift: Vec3,
+    /// How far, in normalised device coordinates, the presentation shifts the frame's world on
+    /// screen for its temporal anti-aliasing: a fraction of a pixel, a new one each frame. The
+    /// presentation sets it itself before its passes prepare; the scene leaves it nought, and it
+    /// stays nought on a frame drawn without the anti-aliasing. `projection` is never shifted:
+    /// a pass that draws the world's geometry itself draws it through [`Self::jittered`].
+    pub jitter: Vec2,
+    /// The frame's place in the anti-aliasing's sequence for the edges of cut-out surfaces, which
+    /// it dithers so that frames of them average to soft edges: 1 and over (the fraction is the
+    /// place), nought on a frame drawn without the anti-aliasing.
+    pub dither: f32,
 }
 
 impl HifiCamera {
@@ -72,6 +82,13 @@ impl HifiCamera {
     #[must_use]
     pub fn view_projection(&self) -> Mat4 {
         self.projection * self.view
+    }
+
+    /// `clip_from` (anything to clip space, through this camera) shifted on screen by the
+    /// frame's [`Self::jitter`].
+    #[must_use]
+    pub fn jittered(&self, clip_from: Mat4) -> Mat4 {
+        Mat4::from_translation(self.jitter.extend(0.0)) * clip_from
     }
 }
 

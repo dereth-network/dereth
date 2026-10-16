@@ -29,6 +29,7 @@ mod hifi_off;
 mod hifi_options;
 #[cfg(feature = "hifi")]
 mod hifi_outdoor;
+mod hifi_render_scale;
 #[cfg(feature = "hifi")]
 mod hifi_replay_binds;
 mod hifi_reshade;

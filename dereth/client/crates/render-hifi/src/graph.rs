@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use crate::derive::cache::PipelineCache;
 use crate::resources::Resources;
 use crate::timing::GpuTimer;
 use crate::{
@@ -58,6 +59,8 @@ pub struct PrepareCx<'a, 's> {
     pub caps: &'a Caps,
     /// The shared resources.
     pub resources: &'a mut Resources,
+    /// The pipelines derived from the recorded ones, which a pass may ask for.
+    pub pipelines: &'a mut PipelineCache,
 }
 
 /// What a pass sees while it records its GPU work.
@@ -92,6 +95,8 @@ pub struct EncodeCx<'a, 's> {
     pub resolved: &'a mut bool,
     /// The timestamp pool: a pass asks it for the writes of each render pass it begins.
     pub timer: &'a mut GpuTimer,
+    /// The pipelines derived from the recorded ones, those built so far.
+    pub pipelines: &'a PipelineCache,
 }
 
 /// One pass of the presentation.
