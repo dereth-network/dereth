@@ -406,19 +406,19 @@ fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_o
     store::clear();
 }
 
-/// A window that draws full screen at a share of its screen's pixels offers the drawing scale: the
+/// A window that draws full screen at a share of its screen's pixels offers the render scale: the
 /// preferences, once read, hold it at the share the window starts at, whatever the profile says. A
 /// window that cannot leaves it out.
 ///
-/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+/// Behaviour: window.full-screen.in-a-browser-the-render-scale-is-a-client-option
 #[test]
 #[cfg_attr(
     not(feature = "retail-dats"),
     ignore = "reads the retail dats: --features retail-dats"
 )]
-fn a_window_that_draws_at_a_share_of_its_screen_offers_the_drawing_scale_at_its_start() {
+fn a_window_that_draws_at_a_share_of_its_screen_offers_the_render_scale_at_its_start() {
     use crate::platform::window::WindowHost;
-    use dereth_client_contract::options::{drawing_scale, store};
+    use dereth_client_contract::options::{render_scale, store};
 
     /// A window that draws full screen at the share it holds, where it holds one.
     struct Scaled(Option<u32>);
@@ -432,7 +432,7 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_drawing_scale_at_its_
         ) -> dereth_client_contract::window::ScreenMetrics {
             crate::platform::window::headless_screen_metrics()
         }
-        fn drawing_scale(&self) -> Option<u32> {
+        fn render_scale(&self) -> Option<u32> {
             self.0
         }
     }
@@ -443,10 +443,10 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_drawing_scale_at_its_
             dereth_dat::testing::dat_dir().display()
         )
     }));
-    let folder = std::env::temp_dir().join(format!("drawing-scale-{}", std::process::id()));
+    let folder = std::env::temp_dir().join(format!("render-scale-{}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
     let profile = folder.join("UserPreferences.ini");
-    std::fs::write(&profile, "[Display]\r\nDrawingScale=50\r\n").unwrap();
+    std::fs::write(&profile, "[Display]\r\nRenderScale=50\r\n").unwrap();
     for (share, held) in [(Some(67), Some(67)), (None, None)] {
         let cfg = Config {
             headless: true,
@@ -471,9 +471,9 @@ fn a_window_that_draws_at_a_share_of_its_screen_offers_the_drawing_scale_at_its_
         .expect("bring-up");
         store::init();
         app.start_preferences();
-        assert_eq!(drawing_scale::offered(), held.is_some());
+        assert_eq!(render_scale::offered(), held.is_some());
         assert_eq!(
-            store::inq_value(drawing_scale::DRAWING_SCALE),
+            store::inq_value(render_scale::RENDER_SCALE),
             held.map(dereth_client_contract::PrefValue::Int)
         );
         store::clear();

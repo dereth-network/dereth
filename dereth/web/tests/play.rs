@@ -82,7 +82,7 @@ fn the_retail_interface_draws_on_the_web_device() {
 
 /// The client brought up in full screen on a 1600 by 900 page, with no server to answer, under
 /// the interface `interface`, its first sizes: what it draws at once its first screen is up, and
-/// then after a Client Options page sets the drawing scale to three quarters.
+/// then after a Client Options page sets the render scale to three quarters.
 fn sizes_in_full_screen(interface: &str) -> Option<[(u32, u32); 2]> {
     let store = Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
         panic!(
@@ -127,10 +127,10 @@ fn sizes_in_full_screen(interface: &str) -> Option<[(u32, u32); 2]> {
     let first = play.client_size();
     // Three quarters, as a Client Options page sets it.
     assert!(dereth_client_contract::options::store::set_value(
-        dereth_client_contract::options::drawing_scale::DRAWING_SCALE,
+        dereth_client_contract::options::render_scale::RENDER_SCALE,
         dereth_client_contract::PrefValue::Int(75)
     ));
-    assert_eq!(play.drawing_scale(), 75);
+    assert_eq!(play.render_scale(), 75);
     assert!(play.frame(), "the client stopped");
     let followed = play.client_size();
     dereth_client_runtime::platform::files::install(dereth_client_runtime::platform::files::DISK);
@@ -139,7 +139,7 @@ fn sizes_in_full_screen(interface: &str) -> Option<[(u32, u32); 2]> {
 
 /// In full screen the client fills the page: under Horizon, which draws the screens before the
 /// world at the player's own size, from its first screen, at the page's own pixels, and it follows
-/// a change of the drawing scale at the next frame. The modern interface holds those screens at
+/// a change of the render scale at the next frame. The modern interface holds those screens at
 /// its fixed 800 by 600, which the page scales to fit, whatever the page's size.
 #[test]
 #[cfg_attr(

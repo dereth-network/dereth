@@ -8,12 +8,12 @@ pub const CAMERA_ALIGN_TO_SLOPE: &str = "Camera.AlignToSlope";
 pub const CAMERA_STIFFNESS: &str = "Camera.Stiffness";
 /// `Debug.PerformancePanel`.
 pub const PERFORMANCE_PANEL: &str = "Debug.PerformancePanel";
-/// `Display.DrawingScale`.
-pub const DISPLAY_DRAWING_SCALE: &str = "Display.DrawingScale";
 /// `Display.FullScreen`.
 pub const DISPLAY_FULL_SCREEN: &str = "Display.FullScreen";
 /// `Display.RefreshRate`.
 pub const DISPLAY_REFRESH_RATE: &str = "Display.RefreshRate";
+/// `Display.RenderScale`.
+pub const DISPLAY_RENDER_SCALE: &str = "Display.RenderScale";
 /// `Display.Resolution`.
 pub const DISPLAY_RESOLUTION: &str = "Display.Resolution";
 /// `Display.SlowDownInBackground`.

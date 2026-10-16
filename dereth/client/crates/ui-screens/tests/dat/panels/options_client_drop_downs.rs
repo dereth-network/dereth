@@ -670,41 +670,38 @@ fn the_terrain_mode_drop_down_lists_the_three_named_modes_and_a_press_chooses_on
     );
 }
 
-/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
-/// Where the host offers the drawing scale, Display has it after Full Screen: the five shares as
+/// Behaviour: window.full-screen.in-a-browser-the-render-scale-is-a-client-option
+/// Where the host offers the render scale, Display has it after Full Screen: the five shares as
 /// literal text, open on the one the host started at, and a real press on a row changes the share
 /// at once. Where no host offers it, the page has no such row.
 #[test]
-fn the_drawing_scale_follows_full_screen_where_the_host_offers_it_and_a_press_chooses_a_share() {
-    use dereth_client_contract::options::drawing_scale;
+fn the_render_scale_follows_full_screen_where_the_host_offers_it_and_a_press_chooses_a_share() {
+    use dereth_client_contract::options::render_scale;
     let (_, s) = screen();
     assert!(
         s.config_page
             .options
             .iter()
-            .all(|o| o.preference != drawing_scale::DRAWING_SCALE),
+            .all(|o| o.preference != render_scale::RENDER_SCALE),
         "no host offers it"
     );
 
     let mut ui = ui_system(true);
-    drawing_scale::register(75);
+    render_scale::register(75);
     let mut s = GamePlayScreen::default();
     s.create(&mut dereth_ui::framework::ScreenCx::new(&mut ui))
         .expect("the gameplay screen builds");
     let order: Vec<&str> = s.config_page.options.iter().map(|o| o.preference).collect();
     let at = |p: &str| order.iter().position(|o| *o == p).expect("on the page");
-    assert_eq!(
-        at(drawing_scale::DRAWING_SCALE),
-        at("Display.FullScreen") + 1
-    );
-    let i = index_of(&s.config_page, drawing_scale::DRAWING_SCALE);
+    assert_eq!(at(render_scale::RENDER_SCALE), at("Display.FullScreen") + 1);
+    let i = index_of(&s.config_page, render_scale::RENDER_SCALE);
     assert_eq!(s.config_page.options[i].control, OptionControl::Menu);
     assert_eq!(
         s.config_page.options[i].label.as_deref(),
-        Some(drawing_scale::CAPTION)
+        Some(render_scale::CAPTION)
     );
     assert_eq!(s.config_page.options[i].current, PrefValue::Int(75));
-    let menu = control(&s.config_page, drawing_scale::DRAWING_SCALE);
+    let menu = control(&s.config_page, render_scale::RENDER_SCALE);
     assert_eq!(
         rows(&mut ui, menu),
         [
@@ -740,9 +737,9 @@ fn the_drawing_scale_follows_full_screen_where_the_host_offers_it_and_a_press_ch
     assert_eq!(text_of(&mut ui, half), "50%");
     ui.requests.clear();
     press(&mut ui, &mut s, half);
-    assert_eq!(drawing_scale::percent(), 50, "the choice reached the store");
+    assert_eq!(render_scale::percent(), 50, "the choice reached the store");
     assert!(ui.requests.take().contains(&UiRequest::SetPreference(
-        drawing_scale::DRAWING_SCALE,
+        render_scale::RENDER_SCALE,
         PrefValue::Int(50)
     )));
 }

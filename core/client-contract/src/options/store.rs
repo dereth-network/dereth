@@ -398,10 +398,10 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         choices: super::renderer::choice_rows,
     },
     CustomEnum {
-        recognizes: |name| name.eq_ignore_ascii_case(super::drawing_scale::DRAWING_SCALE),
-        parse: super::drawing_scale::parse_value,
-        format: super::drawing_scale::convert_to_string,
-        choices: super::drawing_scale::choice_rows,
+        recognizes: |name| name.eq_ignore_ascii_case(super::render_scale::RENDER_SCALE),
+        parse: super::render_scale::parse_value,
+        format: super::render_scale::convert_to_string,
+        choices: super::render_scale::choice_rows,
     },
 ];
 
@@ -497,11 +497,11 @@ pub fn save_into(ini: &mut UserPreferences) -> usize {
     // does not have that section yet.
     let rows: Vec<(String, String)> = REGISTRY.with(|r| {
         let all = r.borrow();
-        // The renderer option is left out while it holds no choice, and the drawing scale,
+        // The renderer option is left out while it holds no choice, and the render scale,
         // which the browser's front page keeps, always.
         let chosen = all.iter().filter(|(name, var)| {
             !super::renderer::left_out_of_save(name, &var.value)
-                && !super::drawing_scale::left_out_of_save(name)
+                && !super::render_scale::left_out_of_save(name)
         });
         #[cfg(feature = "hifi")]
         let kept =

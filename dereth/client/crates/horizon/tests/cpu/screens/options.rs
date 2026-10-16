@@ -372,27 +372,27 @@ fn the_client_page_s_slow_down_in_the_background_box_turns_the_option_off_and_on
     store::clear();
 }
 
-/// Where the host offers the drawing scale, the Client page has it, and a share chosen from its
+/// Where the host offers the render scale, the Client page has it, and a share chosen from its
 /// list is the one drawn at once.
 ///
-/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+/// Behaviour: window.full-screen.in-a-browser-the-render-scale-is-a-client-option
 #[test]
-fn the_client_page_s_drawing_scale_changes_the_share_drawn_at_once() {
-    use dereth_client_contract::options::drawing_scale;
+fn the_client_page_s_render_scale_changes_the_share_drawn_at_once() {
+    use dereth_client_contract::options::render_scale;
     store::init();
-    drawing_scale::register(100);
+    render_scale::register(100);
     let state = in_world();
     let mut h = options_on("Client", &state);
-    scroll_to(&mut h, &state, drawing_scale::CAPTION);
-    let out = choose(&mut h, &state, drawing_scale::CAPTION, 4);
+    scroll_to(&mut h, &state, render_scale::CAPTION);
+    let out = choose(&mut h, &state, render_scale::CAPTION, 4);
     assert_eq!(
         out.requests,
         [UiRequest::SetPreference(
-            drawing_scale::DRAWING_SCALE,
+            render_scale::RENDER_SCALE,
             PrefValue::Int(50)
         )]
     );
-    assert_eq!(drawing_scale::percent(), 50);
+    assert_eq!(render_scale::percent(), 50);
     store::clear();
 }
 

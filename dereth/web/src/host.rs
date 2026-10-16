@@ -45,7 +45,7 @@ impl Host for WebHost {
             window: Box::new(window::WebWindow::new(window::Page::new(
                 window::PageSize::new(cfg.width, cfg.height),
                 (cfg.width, cfg.height),
-                dereth_client_contract::options::drawing_scale::ALL,
+                dereth_client_contract::options::render_scale::ALL,
             ))),
             clock: Box::new(clock::SystemClock::new()),
             pacer: Box::new(clock::FramePaced),

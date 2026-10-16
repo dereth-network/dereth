@@ -838,13 +838,13 @@ fn the_client_page_s_slow_down_in_the_background_box_is_ticked_and_apply_turns_i
     store::clear();
 }
 
-/// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+/// Behaviour: window.full-screen.in-a-browser-the-render-scale-is-a-client-option
 #[test]
-fn the_client_page_s_drawing_scale_is_there_where_the_host_offers_it_and_apply_keeps_a_choice() {
-    use dereth_client_contract::options::{drawing_scale, store};
+fn the_client_page_s_render_scale_is_there_where_the_host_offers_it_and_apply_keeps_a_choice() {
+    use dereth_client_contract::options::{render_scale, store};
     use dereth_client_contract::PrefValue;
     let v = View::default();
-    let id = format!("row:{}", drawing_scale::DRAWING_SCALE);
+    let id = format!("row:{}", render_scale::RENDER_SCALE);
     let page = || {
         let mut p = make("sound-graphics").unwrap();
         let (words, controls) = with_context(&v, |c| {
@@ -855,13 +855,13 @@ fn the_client_page_s_drawing_scale_is_there_where_the_host_offers_it_and_apply_k
     };
     store::init();
     let (_, words, controls) = page();
-    assert!(!words.iter().any(|w| w == drawing_scale::CAPTION));
+    assert!(!words.iter().any(|w| w == render_scale::CAPTION));
     assert!(controls.iter().all(|k| k.id != id), "no host offers it");
 
-    drawing_scale::register(75);
+    render_scale::register(75);
     let (mut p, words, controls) = page();
     assert!(
-        words.iter().any(|w| w == drawing_scale::CAPTION),
+        words.iter().any(|w| w == render_scale::CAPTION),
         "{words:?}"
     );
     let menu = |controls: &[Control]| match &controls
@@ -891,16 +891,16 @@ fn the_client_page_s_drawing_scale_is_there_where_the_host_offers_it_and_apply_k
         },
         &v,
     );
-    assert_eq!(drawing_scale::percent(), 75, "nothing is kept before Apply");
+    assert_eq!(render_scale::percent(), 75, "nothing is kept before Apply");
     let applied = activate(&mut *p, "apply", &v);
     assert!(
         applied.contains(&PanelAction::Game(UiRequest::SetPreference(
-            drawing_scale::DRAWING_SCALE,
+            render_scale::RENDER_SCALE,
             PrefValue::Int(67)
         ))),
         "{applied:?}"
     );
-    assert_eq!(drawing_scale::percent(), 67);
+    assert_eq!(render_scale::percent(), 67);
     store::clear();
 }
 

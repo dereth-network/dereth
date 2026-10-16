@@ -150,10 +150,10 @@ async function start(msg) {
   const sequence = (Date.now() % 0x100000000) >>> 0;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
   pageNow = pageNow ?? msg.page;
-  // The client starts at the front page's drawing scale.
-  drawingScale = msg.page?.scale ?? 100;
+  // The client starts at the front page's render scale.
+  renderScale = msg.page?.scale ?? 100;
   play = await dereth.WebPlay.create(
-    canvas, msg.width, msg.height, [...pageArray(pageNow), drawingScale], msg.account,
+    canvas, msg.width, msg.height, [...pageArray(pageNow), renderScale], msg.account,
     msg.password, sequence, params.get('gpu') === 'webgl', args, overlay,
   );
   // The page may have changed while the client came up.
@@ -224,10 +224,10 @@ function loop() {
       lastSize = [size[0], size[1]];
       postMessage({ size: lastSize });
     }
-    // A Client Options page changed the drawing scale: the front page keeps it.
-    const scale = play.drawingScale();
-    if (scale !== drawingScale) {
-      drawingScale = scale;
+    // A Client Options page changed the render scale: the front page keeps it.
+    const scale = play.renderScale();
+    if (scale !== renderScale) {
+      renderScale = scale;
       postMessage({ scale });
     }
     const cursor = play.cursorChange();
@@ -298,7 +298,7 @@ async function showCursor(bytes) {
 }
 
 // The page's size in the device's own pixels, as the page last said: the client draws at it in
-// full screen, at the drawing scale.
+// full screen, at the render scale.
 let pageNow = null;
 const pageArray = (p) => [p?.width ?? 800, p?.height ?? 600];
 function setPage(p) {
@@ -308,7 +308,7 @@ function setPage(p) {
 
 // The share of the page's pixels the client draws in full screen, in percent, as the front page
 // last heard it.
-let drawingScale = 100;
+let renderScale = 100;
 
 // One input event from the page, in the client's terms.
 function input(ev) {

@@ -290,7 +290,7 @@ export function startFront({ call, launch, params, log }) {
       ['ADDRESS', page.address ?? 'none'],
     ];
     if (w.logon_version) facts.push(['LOGON', w.logon_version]);
-    if (w.world_profile) facts.push(['RULES OF ITS CLIENT', w.world_profile]);
+    if (w.world_profile) facts.push(['PROFILE', w.world_profile]);
     $('w-facts').innerHTML = facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join('');
   }
 
@@ -314,7 +314,7 @@ export function startFront({ call, launch, params, log }) {
     const setsAt = (kind) => st.dat_sets.filter((s) => s.kind === kind);
     const option = (s, chosen) => `<option value="${esc(s.id)}" ${s.id === chosen ? 'selected' : ''}>${esc(setName(s.path))} (${esc(iterLabel(s.files))})</option>`;
     const modernChosen = page.dat_sets.some((s) => s.id === prefs.dat_set_id) ? prefs.dat_set_id : page.dat_sets[0]?.id;
-    $('w-set').innerHTML = (page.dat_sets.length ? '' : '<option value="">None of the kept sets</option>')
+    $('w-set').innerHTML = (page.dat_sets.length ? '' : '<option value="">None</option>')
       + page.dat_sets.map((s) => option(s, modernChosen)).join('')
       + (params.get('dats') === 'http' ? `<option value="http" ${!page.dat_sets.length ? 'selected' : ''}>The dev runner's files (cargo xtask web --dat-dir)</option>` : '')
       + '<option value="visit">Pick files for this visit only…</option>'
@@ -322,13 +322,13 @@ export function startFront({ call, launch, params, log }) {
     const classicChosen = prefs.classic_set_id ?? page.classic_sets[0]?.id ?? '';
     $('w-classic').innerHTML = '<option value="">None</option>' + page.classic_sets.map((s) => option(s, classicChosen)).join('');
     const notes = [];
-    if (page.launch.set === 'classic') notes.push(`${eraText(w)} is before Throne of Destiny: its world is drawn from the older files, portal.dat and cell.dat, with the later files beside them for the interface.`);
+    if (page.launch.set === 'classic') notes.push(`${eraText(w)} also needs the older portal.dat and cell.dat.`);
     if (w.dats?.custom) {
       notes.push(page.dat_sets.length
-        ? `${w.name} plays with its own data files: the sets here are those that report what its files report (${iterLabel(Object.entries(w.dats.custom.iterations).map(([role, iterations]) => ({ role, iterations })))}).`
-        : (page.refused_sets[0]?.why ?? `${w.name} plays with its own data files. ${w.dats.custom.license_note ?? ''}`));
+        ? `${w.name} uses its own data files (${iterLabel(Object.entries(w.dats.custom.iterations).map(([role, iterations]) => ({ role, iterations })))}).`
+        : (page.refused_sets[0]?.why ?? `${w.name} uses its own data files. ${w.dats.custom.license_note ?? ''}`));
     } else if (!setsAt('modern').length || (page.launch.set === 'classic' && !setsAt('classic').length)) {
-      notes.push('Add your data files to this browser: the four client_*.dat files, and portal.dat and cell.dat for the classic interface and the early worlds.');
+      notes.push('Add your data files: the four client_*.dat files, plus portal.dat and cell.dat for early eras and the classic interface.');
     }
     $('w-files').textContent = notes.join('\n');
 
@@ -344,11 +344,11 @@ export function startFront({ call, launch, params, log }) {
     const v = $('server').value.trim();
     const origin = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname) ? '' : ` --allow-origin ${location.origin}`;
     if (/^ws:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(v) && ui.page?.address && !ui.connect[w.slug]) {
-      $('w-connect').innerHTML = `${esc(w.name)} needs a <a href="${RELAY_README}" target="_blank" rel="noopener noreferrer">local web relay</a> on this machine. Start it first:\n<code>dereth-web-relay --server ${esc(ui.page.address)}${esc(origin)}</code>`;
+      $('w-connect').innerHTML = `Start the <a href="${RELAY_README}" target="_blank" rel="noopener noreferrer">web relay</a> first:\n<code>dereth-web-relay --server ${esc(ui.page.address)}${esc(origin)}</code>`;
     } else if (/^wss:\/\//i.test(v) || /^ws:\/\//i.test(v)) {
-      $('w-connect').textContent = 'The server\'s own WebSocket endpoint (Empyrean with [server.websocket] on).';
+      $('w-connect').textContent = 'Connects directly.';
     } else {
-      $('w-connect').textContent = 'A wss:// URL, a status address (https://…/status), or ws://127.0.0.1:9180/ for dereth-web-relay.';
+      $('w-connect').textContent = 'A wss:// address, a status address, or the web relay\'s ws://127.0.0.1:9180/.';
     }
   }
   $('server').addEventListener('input', () => ui.page && describeConnect(ui.page.world));
@@ -370,7 +370,7 @@ export function startFront({ call, launch, params, log }) {
     const page = ui.page;
     const btns = [];
     if (!page?.overlay_folder) {
-      $('w-overlay').textContent = 'This world has no address, so no overlay is kept for it.';
+      $('w-overlay').textContent = '';
       $('w-overlay-btns').innerHTML = '';
       return;
     }
@@ -383,17 +383,16 @@ export function startFront({ call, launch, params, log }) {
     const blocked = key && ui.blocklist.includes(key);
     let text;
     if (!info) {
-      text = 'No overlay can be kept for this world this visit: another tab of this page holds it, or this browser keeps no files for the page. The client plays the data files alone and tells the server so.';
+      text = 'This world\'s updates can\'t be kept right now: another tab has them open, or this browser keeps no files.';
     } else if (info.error) {
-      text = `No overlay is kept for this world: ${info.error}`;
+      text = `This world's updates can't be kept: ${info.error}`;
     } else if (!kept || !info.containers?.length) {
-      text = 'No overlay is kept for this world yet. When the world updates its data files, the update is kept here, for this world alone, and your data files are never written.';
+      text = 'No updates kept for this world yet.';
     } else {
-      text = `This world's overlay is kept in this browser (${kib(kept.bytes)}, ${info.containers.join(', ')}), for the world "${key}".`
-        + (blocked ? ' You refuse it: it is not read, and the world\'s updates are not kept.' : '');
-      btns.push(`<button type="button" class="btn" data-overlay-remove="${esc(path)}">Remove this world's overlay</button>`);
+      text = `This world's updates: ${kib(kept.bytes)} (${info.containers.join(', ')}).` + (blocked ? ' Refused.' : '');
+      btns.push(`<button type="button" class="btn" data-overlay-remove="${esc(path)}">Remove updates</button>`);
     }
-    if (key) btns.push(`<button type="button" class="btn" data-block="${esc(key)}" data-on="${blocked ? 'false' : 'true'}">${blocked ? 'Accept this world\'s overlay again' : 'Refuse this world\'s overlay'}</button>`);
+    if (key) btns.push(`<button type="button" class="btn" data-block="${esc(key)}" data-on="${blocked ? 'false' : 'true'}">${blocked ? 'Accept updates' : 'Refuse updates'}</button>`);
     $('w-overlay').textContent = text;
     $('w-overlay-btns').innerHTML = btns.join('');
   }
@@ -437,7 +436,7 @@ export function startFront({ call, launch, params, log }) {
         return `<span class="what">Data files <b>${esc(setName(k.path))}</b> <span class="muted">${what}</span></span><span class="muted">${kib(k.bytes)}</span><button type="button" class="btn" data-set-remove="${esc(k.path)}">Remove</button>`;
       }).join('')
       : '<span class="what muted">No data files are kept in this browser yet.</span><span></span><span></span>';
-    $('overlays').innerHTML = ui.overlays.map((o) => `<span class="what">Overlay <b>${esc(o.path.split('/').pop())}</b> <span class="muted">a world's updates, kept by its address</span></span><span class="muted">${kib(o.bytes)}</span><button type="button" class="btn" data-overlay-remove="${esc(o.path)}">Remove</button>`).join('');
+    $('overlays').innerHTML = ui.overlays.map((o) => `<span class="what">World updates <b>${esc(o.path.split('/').pop())}</b></span><span class="muted">${kib(o.bytes)}</span><button type="button" class="btn" data-overlay-remove="${esc(o.path)}">Remove</button>`).join('');
   }
 
   // Ask the browser to keep the page's files: only a page the player acted on may ask.
@@ -509,7 +508,7 @@ export function startFront({ call, launch, params, log }) {
         if (!s.websocket_url) throw new Error(`${target}: the server has no WebSocket endpoint`);
         server = s.websocket_url;
       } catch (e) {
-        $('problem').textContent = `The server's status did not answer: ${e?.message ?? e}`;
+        $('problem').textContent = `Couldn't reach the server's status: ${e?.message ?? e}`;
         return;
       }
     }

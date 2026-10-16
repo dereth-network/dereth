@@ -2,10 +2,10 @@
 //! it.
 //!
 //! The page is the screen the client is placed on: its size in the device's own pixels. Full
-//! screen fills it: the canvas is drawn at the page's size, at the player's drawing scale, and
-//! follows the page and the scale as they change ([`Page::follow`]). The drawing scale starts at
+//! screen fills it: the canvas is drawn at the page's size, at the player's render scale, and
+//! follows the page and the scale as they change ([`Page::follow`]). The render scale starts at
 //! the front page's choice, which the window offers the client as its start
-//! ([`WindowHost::drawing_scale`]), and from then on is the option store's, which every
+//! ([`WindowHost::render_scale`]), and from then on is the option store's, which every
 //! interface's Client Options page changes. Out of full screen the canvas is the size the
 //! client asks for, and the page scales it to fit: the screens the modern and classic interfaces
 //! hold at their fixed 800 by 600 before the world are drawn that way, as is a game the player
@@ -23,7 +23,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use dereth_client_contract::options::drawing_scale;
+use dereth_client_contract::options::render_scale;
 use dereth_client_contract::window::ScreenMetrics;
 use dereth_client_runtime::config::FORCED_LOGIN_SIZE;
 use dereth_client_runtime::platform::window::{
@@ -86,12 +86,12 @@ pub struct Page {
     /// Whether the canvas fills the page: the client's full screen.
     fills: Cell<bool>,
     /// The share of the page's pixels the client starts drawing while the canvas fills it, in
-    /// percent: the front page's drawing scale.
+    /// percent: the front page's render scale.
     start_scale: u32,
 }
 
 impl Page {
-    /// A page of `size`, with the canvas `canvas` on it and not filling it, whose drawing scale
+    /// A page of `size`, with the canvas `canvas` on it and not filling it, whose render scale
     /// starts at `start_scale` percent.
     #[must_use]
     pub fn new(size: PageSize, canvas: (u32, u32), start_scale: u32) -> Rc<Self> {
@@ -120,12 +120,12 @@ impl Page {
         drawable((s.width, s.height))
     }
 
-    /// The size the canvas is drawn at while it fills the page: the page's pixels at the drawing
+    /// The size the canvas is drawn at while it fills the page: the page's pixels at the render
     /// scale the option store holds, at least 800 by 600.
     #[must_use]
     pub fn fill_size(&self) -> (u32, u32) {
         let s = self.size.get();
-        let scale = u64::from(drawing_scale::percent());
+        let scale = u64::from(render_scale::percent());
         let share = |v: u32| u32::try_from((u64::from(v) * scale + 50) / 100).unwrap_or(u32::MAX);
         drawable((share(s.width), share(s.height)))
     }
@@ -142,7 +142,7 @@ impl Page {
         self.fills.get()
     }
 
-    /// While the canvas fills the page and the page or the drawing scale has changed since, the
+    /// While the canvas fills the page and the page or the render scale has changed since, the
     /// size it is now drawn at, for the client to be told its window was resized to it; `None`
     /// otherwise.
     pub fn follow(&self) -> Option<(u32, u32)> {
@@ -213,7 +213,7 @@ impl WindowHost for WebWindow {
     }
 
     /// Full screen draws a share of the page's pixels, starting at the front page's choice.
-    fn drawing_scale(&self) -> Option<u32> {
+    fn render_scale(&self) -> Option<u32> {
         Some(self.page.start_scale)
     }
 
@@ -261,11 +261,11 @@ mod tests {
         (Rc::clone(&page), WebWindow::new(page))
     }
 
-    /// The option store with the drawing scale registered at `start` percent, as the client
+    /// The option store with the render scale registered at `start` percent, as the client
     /// registers it when it starts in a browser.
-    fn drawing_scale_at(start: u32) {
+    fn render_scale_at(start: u32) {
         store::init();
-        drawing_scale::register(start);
+        render_scale::register(start);
     }
 
     fn modes(window: &WebWindow) -> Vec<(u32, u32)> {
@@ -303,13 +303,13 @@ mod tests {
         assert!(modes(&odd).contains(&(2880, 1754)) && modes(&odd).contains(&(2560, 1440)));
     }
 
-    /// Full screen draws the canvas at the page's own pixels, at the player's drawing scale, and
+    /// Full screen draws the canvas at the page's own pixels, at the player's render scale, and
     /// follows the page and the scale as they change, once for each change.
     ///
     /// Behaviour: window.full-screen.in-a-browser-it-fills-the-page-at-its-own-pixels
     #[test]
-    fn full_screen_fills_the_page_at_the_drawing_scale_and_follows_it() {
-        drawing_scale_at(100);
+    fn full_screen_fills_the_page_at_the_render_scale_and_follows_it() {
+        render_scale_at(100);
         let (page, w) = window(2560, 1440);
         assert!(w.offers_full_screen());
         w.set_borderless_fullscreen(true);
@@ -318,7 +318,7 @@ mod tests {
         assert_eq!(page.follow(), None, "already at the page's size");
 
         assert!(store::set_value(
-            drawing_scale::DRAWING_SCALE,
+            render_scale::RENDER_SCALE,
             PrefValue::Int(50)
         ));
         assert_eq!(page.follow(), Some((1280, 720)));
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(page.follow(), None, "once for each change");
 
         assert!(store::set_value(
-            drawing_scale::DRAWING_SCALE,
+            render_scale::RENDER_SCALE,
             PrefValue::Int(100)
         ));
         page.set(PageSize::new(1700, 1000));
@@ -337,21 +337,21 @@ mod tests {
         store::clear();
     }
 
-    /// The window offers the client the drawing scale at the front page's choice, which the
+    /// The window offers the client the render scale at the front page's choice, which the
     /// canvas is drawn at once the client has taken it; a change the Client Options page makes
     /// is followed at the next frame.
     ///
-    /// Behaviour: window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option
+    /// Behaviour: window.full-screen.in-a-browser-the-render-scale-is-a-client-option
     #[test]
-    fn the_drawing_scale_starts_at_the_front_page_s_choice_and_follows_the_options_page() {
+    fn the_render_scale_starts_at_the_front_page_s_choice_and_follows_the_options_page() {
         let page = Page::new(PageSize::new(2000, 1200), (800, 600), 75);
         let w = WebWindow::new(Rc::clone(&page));
-        assert_eq!(w.drawing_scale(), Some(75));
-        drawing_scale_at(75);
+        assert_eq!(w.render_scale(), Some(75));
+        render_scale_at(75);
         w.set_borderless_fullscreen(true);
         assert_eq!(w.client_size(), (1500, 900));
         assert!(store::set_value(
-            drawing_scale::DRAWING_SCALE,
+            render_scale::RENDER_SCALE,
             PrefValue::Int(85)
         ));
         assert_eq!(page.follow(), Some((1700, 1020)));
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(w.client_size(), (1280, 1024));
     }
 
-    /// A page smaller than 800 by 600, or a drawing scale that would make the canvas smaller, is
+    /// A page smaller than 800 by 600, or a render scale that would make the canvas smaller, is
     /// drawn at least that large in the page's own shape; no side is longer than the longest a
     /// canvas is drawn at, and the scale is never below half.
     ///
@@ -392,13 +392,13 @@ mod tests {
         assert_eq!(drawable((0, 0)), (800, 800));
         assert_eq!(drawable((9000, 9000)), (LONGEST_SIDE, LONGEST_SIDE));
 
-        drawing_scale_at(50);
+        render_scale_at(50);
         let page = Page::new(PageSize::new(1366, 768), (800, 600), 50);
         assert_eq!(page.fill_size(), (1068, 600));
         assert_eq!(page.screen(), (1366, 768));
         page.set(PageSize::new(4000, 2400));
         assert!(store::set_value(
-            drawing_scale::DRAWING_SCALE,
+            render_scale::RENDER_SCALE,
             PrefValue::Int(5)
         ));
         assert_eq!(page.fill_size(), (2000, 1200), "half of the page at least");

@@ -562,11 +562,11 @@ impl<S: Shell> App<S> {
             // and the registered defaults are then what the page shows.
             None => tracing::info!("no UserPreferences.ini; registered defaults stand"),
         }
-        // A window that draws full screen at a share of its screen's pixels offers the drawing
+        // A window that draws full screen at a share of its screen's pixels offers the render
         // scale, at the share it starts at. The profile does not keep it, so it is registered
         // after the profile is read.
-        if let Some(start) = self.window.drawing_scale() {
-            dereth_client_contract::options::drawing_scale::register(start);
+        if let Some(start) = self.window.render_scale() {
+            dereth_client_contract::options::render_scale::register(start);
         }
         if let Some(first) = self.cfg.new_player_interface {
             if interface::start_new_player(ini.as_ref(), first) {

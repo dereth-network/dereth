@@ -114,13 +114,13 @@ fn overlay_path(overlay: &str) -> Option<PathBuf> {
     (!overlay.is_empty()).then(|| PathBuf::from(overlay))
 }
 
-/// The page a page names as `[width, height, scale]`, and the drawing scale it starts at; what it
+/// The page a page names as `[width, height, scale]`, and the render scale it starts at; what it
 /// leaves out is all of an 800 by 600 page.
 fn page_size(page: &[u32]) -> (crate::host::window::PageSize, u32) {
     let at = |i: usize, or: u32| page.get(i).copied().unwrap_or(or);
     (
         crate::host::window::PageSize::new(at(0, 800), at(1, 600)),
-        at(2, dereth_client_contract::options::drawing_scale::ALL),
+        at(2, dereth_client_contract::options::render_scale::ALL),
     )
 }
 
@@ -250,8 +250,8 @@ pub struct WebPlay {
 impl WebPlay {
     /// Bring the client up in `canvas` at `width` by `height`, on a page of `page`
     /// (`[width, height, scale]`: the page in the device's own pixels, as [`WebPlay::set_page`]
-    /// gives it, and the front page's drawing scale, which the client starts at: see
-    /// [`WebPlay::drawing_scale`]), and start logging in as `account`,
+    /// gives it, and the front page's render scale, which the client starts at: see
+    /// [`WebPlay::render_scale`]), and start logging in as `account`,
     /// on WebGL 2 when `webgl_only`, told about the world what the launcher tells the desktop
     /// client on its command line (`args`: its era and systems, the set its world is drawn from,
     /// its logon version and rules), with the world's overlay kept in the folder `overlay` the
@@ -286,7 +286,7 @@ impl WebPlay {
         }
         tracing::info!("settings kept: {:?}", crate::settings::paths());
         crate::overlay::hold(&overlay);
-        let (page, drawing_scale) = page_size(&page);
+        let (page, render_scale) = page_size(&page);
         let play = crate::play::Play::new(
             store,
             crate::server_url::NOMINAL_SERVER,
@@ -296,7 +296,7 @@ impl WebPlay {
             width,
             height,
             page,
-            drawing_scale,
+            render_scale,
             &args,
             overlay_path(&overlay),
         )
@@ -421,12 +421,12 @@ impl WebPlay {
     /// The share of the page's pixels the game draws while it fills the page, in percent: the
     /// front page's choice at first, and a Client Options page's after, which the front page
     /// keeps for the next visit. All of them once the client has shut down.
-    #[wasm_bindgen(js_name = drawingScale)]
+    #[wasm_bindgen(js_name = renderScale)]
     #[must_use]
-    pub fn drawing_scale(&self) -> u32 {
+    pub fn render_scale(&self) -> u32 {
         self.play.as_ref().map_or(
-            dereth_client_contract::options::drawing_scale::ALL,
-            crate::play::Play::drawing_scale,
+            dereth_client_contract::options::render_scale::ALL,
+            crate::play::Play::render_scale,
         )
     }
 

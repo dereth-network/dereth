@@ -96,8 +96,8 @@ pub fn world_config(world_args: &[String], overlay: Option<PathBuf>) -> Result<C
 
 impl Play {
     /// Bring the client up over `store` in a `width` by `height` canvas on a page of `page`
-    /// ([`Self::set_page`]) whose drawing scale starts at `drawing_scale` percent (the front
-    /// page's choice; [`Self::drawing_scale`]), on the device `dereth_render::wgpu::install`
+    /// ([`Self::set_page`]) whose render scale starts at `render_scale` percent (the front
+    /// page's choice; [`Self::render_scale`]), on the device `dereth_render::wgpu::install`
     /// prepared, and start logging in to `host` as `account`.
     /// `world_args` are what the launcher tells the desktop client about the world on its command
     /// line (its era and systems, the set its world is drawn from, its logon version and rules;
@@ -117,7 +117,7 @@ impl Play {
         width: u32,
         height: u32,
         page: PageSize,
-        drawing_scale: u32,
+        render_scale: u32,
         world_args: &[String],
         overlay: Option<PathBuf>,
     ) -> Result<Self, String> {
@@ -161,7 +161,7 @@ impl Play {
         // them.
         dereth_client_shell::hud::install_platform::<WebHost>();
         <WebHost as dereth_client_shell::platform::host::Host>::install_default_output();
-        let page = Page::new(page, (width, height), drawing_scale);
+        let page = Page::new(page, (width, height), render_scale);
         let window_page = Rc::clone(&page);
         let events = WindowEvents::default();
         let mut app = App::bring_up_with_store(
@@ -230,7 +230,7 @@ impl Play {
 
     /// One whole frame of the client, drawn. `false` when the client has shut itself down. A
     /// canvas that fills the page and has not yet followed a change of the page's size or of the
-    /// drawing scale does first: the client is told its window was resized.
+    /// render scale does first: the client is told its window was resized.
     pub fn frame(&mut self) -> bool {
         if let Some((width, height)) = self.page.follow() {
             self.event(HostEvent::Resized { width, height });
@@ -280,7 +280,7 @@ impl Play {
     }
 
     /// The size the client draws at: the canvas's drawing buffer. In full screen it is the page's
-    /// own pixels at the drawing scale; else the size the client chose (800 by 600 for the screens
+    /// own pixels at the render scale; else the size the client chose (800 by 600 for the screens
     /// before the world under the modern and classic interfaces, and the display preference out of
     /// full screen in the world). The page scales the canvas to fit and maps the pointer by it.
     #[must_use]
@@ -360,8 +360,8 @@ impl Play {
     /// front page's choice at first, and the one a Client Options page made after, which the page
     /// keeps for the next visit.
     #[must_use]
-    pub fn drawing_scale(&self) -> u32 {
-        dereth_client_contract::options::drawing_scale::percent()
+    pub fn render_scale(&self) -> u32 {
+        dereth_client_contract::options::render_scale::percent()
     }
 
     /// The cursor the interface last set, when it differs from the last one this returned: its

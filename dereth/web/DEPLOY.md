@@ -233,7 +233,7 @@ the page's scaled ones, and follows the page as the window is resized or zoomed 
 screen. Full screen is on at first in a browser, and a profile kept from before it filled the page
 is turned on once.
 
-- **Drawing scale.** The front page's Drawing scale draws a share of those pixels, from all of them
+- **Render scale.** The front page's Render scale draws a share of those pixels, from all of them
   down to half, and the browser enlarges the picture to fill the page: faster on a large or
   high-density screen, and softer. Every interface's Client Options page has it too, under Display,
   and a change there is drawn at once. The browser keeps the last choice for the next visit.
@@ -243,7 +243,7 @@ is turned on once.
 - **The modern and classic interfaces** draw their screens before the world at the fixed 800 by 600
   they were made for, scaled to fit the page, as they keep that size in a window on the desktop; in
   the world they fill the page. Horizon fills it from its first screen.
-- **Never smaller than 800 by 600.** A smaller page, or a drawing scale that would make the picture
+- **Never smaller than 800 by 600.** A smaller page, or a render scale that would make the picture
   smaller, is drawn at that size in the page's shape and scaled down to fit.
 
 ## The player's data files
@@ -265,9 +265,9 @@ The files are never uploaded, and a deployment never hosts them. The dev runner'
 ## A world's overlay
 
 A world that updates its data files (an Empyrean world with `[dat_overlay]`, for one) patches them
-during login. The page keeps each world's patch in an overlay of its own in the browser's private
-storage, as the desktop client keeps it in a folder per server, and never writes the player's data
-files:
+during login. The page keeps each world's patch in an overlay of its own (the page calls it the
+world's updates) in the browser's private storage, as the desktop client keeps it in a folder per
+server, and never writes the player's data files:
 
 - **One folder per world**, `overlays/<host>-<port>`, named by the world's address as the desktop
   client names its per-server folder: the world's game address for a listed world or one added by

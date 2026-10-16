@@ -2650,7 +2650,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "window.full-screen.in-a-browser-it-fills-the-page-at-its-own-pixels",
         says: "In a browser the page is the screen. Full Screen, on at first there, draws the game \
                at the page's own pixels (the device's, not the page's scaled ones) at the player's \
-               drawing scale, from all of them down to half, never smaller than 800 by 600 in the \
+               render scale, from all of them down to half, never smaller than 800 by 600 in the \
                page's shape, and follows the page and the scale as they change. A profile saved \
                before Full Screen did anything in a browser is turned on once; after that the \
                player's choice is kept. Out of full screen, and on the screens the modern and \
@@ -2660,12 +2660,12 @@ pub static ROWS: &[Behaviour] = &[
         since: THIS_CLIENT,
         divergence: "CD-002",
         evidence: Evidence::Private("AC-EVID-WEB-FULL-SCREEN-FILLS-PAGE"),
-        station: "dereth-web::lib::host::window::tests::full_screen_fills_the_page_at_the_drawing_scale_and_follows_it",
+        station: "dereth-web::lib::host::window::tests::full_screen_fills_the_page_at_the_render_scale_and_follows_it",
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "window.full-screen.in-a-browser-the-drawing-scale-is-a-client-option",
-        says: "In a browser every interface's Client Options page has a Drawing Scale drop-down \
+        id: "window.full-screen.in-a-browser-the-render-scale-is-a-client-option",
+        says: "In a browser every interface's Client Options page has a Render Scale drop-down \
                under Display, after Full Screen: the share of the page's own pixels the game draws \
                in full screen, 100, 85, 75, 67 or 50 percent, starting at the front page's choice. \
                A change made there (on Apply, under the classic interface) is drawn at the next \
@@ -2675,7 +2675,7 @@ pub static ROWS: &[Behaviour] = &[
         since: THIS_CLIENT,
         divergence: "CD-002",
         evidence: Evidence::Private("AC-EVID-WEB-DRAWING-SCALE-OPTION"),
-        station: "dereth-client-contract::lib::options::drawing_scale::tests::a_host_that_offers_the_drawing_scale_has_its_row_on_every_interface_s_page",
+        station: "dereth-client-contract::lib::options::render_scale::tests::a_host_that_offers_the_render_scale_has_its_row_on_every_interface_s_page",
         tier: Tier::Cpu,
     },
     behaviour! {

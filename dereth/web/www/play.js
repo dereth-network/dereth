@@ -50,10 +50,12 @@ function fit() {
   view.style.height = `${Math.floor(size[1] * scale)}px`;
 }
 
-// The drawing scale: the share of the page's own pixels the client draws in full screen, which
+// The render scale: the share of the page's own pixels the client draws in full screen, which
 // the front page chooses, the game's Client Options page changes, and this browser keeps. Fewer
 // pixels draw faster and look softer.
-const SCALE_KEY = 'dereth.drawingScale';
+const SCALE_KEY = 'dereth.renderScale';
+// The key a choice was kept under before, read while no choice is kept under the new one.
+const SCALE_KEY_BEFORE = 'dereth.drawingScale';
 const scaleBox = $('scale');
 function showScale(value) {
   if ([...scaleBox.options].some((o) => o.value === value)) scaleBox.value = value;
@@ -61,18 +63,19 @@ function showScale(value) {
 function keepScale(value) {
   try {
     localStorage.setItem(SCALE_KEY, value);
+    localStorage.removeItem(SCALE_KEY_BEFORE);
   } catch (_) {
     // Kept for this visit only.
   }
 }
 try {
-  const kept = localStorage.getItem(SCALE_KEY);
+  const kept = localStorage.getItem(SCALE_KEY) ?? localStorage.getItem(SCALE_KEY_BEFORE);
   if (kept) showScale(kept);
 } catch (_) {
   // No storage: every visit starts at the whole page.
 }
 
-// The page in the device's own pixels, and the drawing scale in percent.
+// The page in the device's own pixels, and the render scale in percent.
 function page() {
   const r = $('stage').getBoundingClientRect();
   const ratio = devicePixelRatio || 1;
@@ -144,7 +147,7 @@ worker.onmessage = (ev) => {
   if (m.log) show(m.log);
   if (m.error) show(`error: ${m.error}`);
   if (m.status !== undefined) $('status').textContent = m.status;
-  // The game's Client Options page changed the drawing scale: the next start begins there.
+  // The game's Client Options page changed the render scale: the next start begins there.
   if (m.scale !== undefined) {
     showScale(String(m.scale));
     keepScale(String(m.scale));

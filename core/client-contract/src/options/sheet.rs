@@ -12,7 +12,7 @@
 //! window's pages; the modern interface's mouse turning, its side-by-side vitals, its chat font
 //! and its floating chat windows. A row for something the world's era does not have is left out ([`Needs`]).
 //! So is a row for something only some hosts do, where the host does not ([`Row::hosted`]): the
-//! drawing scale, which only the browser offers.
+//! render scale, which only the browser offers.
 
 use crate::options::{config::PrefValueConst, interface::Interface};
 use crate::view::PlayerOption;
@@ -790,13 +790,10 @@ const CLIENT_SHARED: [Heading; 5] = [
                 Value::Check(crate::options::names::DISPLAY_FULL_SCREEN),
                 Bool(false),
             ),
-            hosted(noted(
-                crate::options::drawing_scale::NOTE,
-                pref(
-                    crate::options::drawing_scale::CAPTION,
-                    Value::Menu(crate::options::drawing_scale::DRAWING_SCALE),
-                    Int(100),
-                ),
+            hosted(pref(
+                crate::options::render_scale::CAPTION,
+                Value::Menu(crate::options::render_scale::RENDER_SCALE),
+                Int(100),
             )),
             ends(
                 "ID_Graphics_Value_Dark",

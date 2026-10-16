@@ -7,13 +7,13 @@
 pub mod background;
 pub mod classic;
 pub mod config;
-pub mod drawing_scale;
 pub mod fidelity;
 pub mod interface;
 pub mod landscape;
 pub mod names;
 pub mod performance;
 pub mod preferences;
+pub mod render_scale;
 pub mod renderer;
 pub mod sheet;
 pub mod store;
