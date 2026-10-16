@@ -845,7 +845,9 @@ pub static ROWS: &[Behaviour] = &[
         says: "The weather's clock steps by a frame's time to a hundredth of a frame after a \
                thousand hours of play as at the start, and stays within the period every motion \
                of the rain and snow repeats over, so streaks, flakes, ripples and splashes move \
-               as smoothly however long the client has run.",
+               as smoothly however long the client has run. It is the scene's clock, so a frame \
+               drawn after a pause, as a slow or busy machine draws it, is the frame drawn \
+               without one.",
         since: THIS_CLIENT,
         divergence: "CD-037",
         evidence: Evidence::Private("AC-EVID-HIFI-WEATHER-CLOCK"),

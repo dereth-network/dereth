@@ -866,8 +866,8 @@ fn orbit_follow() -> (f32, f32, f32) {
 
 /// The weather in motion: each spot of [`MOTION_SPOTS`] named in `DERETH_HIFI_STATIONS` (all by
 /// default) drawn with the first feature of `DERETH_HIFI_CAPTURE` (or off, with `off`), at the
-/// frame rate `DERETH_HIFI_WEATHER_FRAME_CLOCK` names (default 60; the weather's clock steps by
-/// frames only when it is set as the process starts), for `DERETH_HIFI_MOTION_SECONDS` seconds
+/// frame rate `DERETH_HIFI_MOTION_FPS` names (default 60; each frame moves the scene's clock, and
+/// the weather with it, by a frame's time at that rate), for `DERETH_HIFI_MOTION_SECONDS` seconds
 /// (default 1) of each move of `DERETH_HIFI_MOTION` (default `still,walk,orbit,turn`):
 ///
 /// - `still`: nothing moves but the weather;
@@ -898,14 +898,10 @@ fn capture_the_weather_in_motion() {
             .filter(|s| !s.is_empty())
             .collect()
     };
-    let fps: u32 = env("DERETH_HIFI_WEATHER_FRAME_CLOCK")
+    let fps: u32 = env("DERETH_HIFI_MOTION_FPS")
         .and_then(|v| v.trim().parse().ok())
-        .unwrap_or_else(|| {
-            eprintln!(
-                "DERETH_HIFI_WEATHER_FRAME_CLOCK is not set: the weather runs on the wall clock"
-            );
-            60
-        });
+        .filter(|fps| *fps >= 2)
+        .unwrap_or(60);
     let moves = list("DERETH_HIFI_MOTION", "still,walk,orbit,turn");
     let seconds: f32 = env("DERETH_HIFI_MOTION_SECONDS")
         .and_then(|v| v.parse().ok())
@@ -968,6 +964,7 @@ fn capture_the_weather_in_motion() {
             let mut device = device(width, height);
             let gpu = &mut device;
             let mut shot = Shot::open(&store, gpu, &station);
+            shot.frame_seconds = 1.0 / f64::from(fps);
             shot.scene.weather = asked;
             #[cfg(feature = "hifi")]
             if let Some(prefs) = (feature != "off").then(|| fidelity_for(&feature)).flatten() {

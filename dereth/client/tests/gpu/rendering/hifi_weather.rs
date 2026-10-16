@@ -35,6 +35,8 @@ const ROOF_FRAMES: usize = 8;
 const BRIGHTER_IN_ROOM_PER_TEN_THOUSAND: u32 = 15;
 /// How many pixels in a hundred of what the open door shows are drawn wet, at the least.
 const OUTSIDE_WET_PERCENT: u32 = 20;
+/// A pause between two frames, as a slow or busy machine leaves one.
+const PAUSE: std::time::Duration = std::time::Duration::from_millis(750);
 
 fn device() -> Gpu {
     let cfg = DeviceConfig {
@@ -105,7 +107,7 @@ fn run_frames(
     asked: Weather,
     count: usize,
 ) -> Run {
-    run_shot(station, prefs, count, &|shot| {
+    run_shot(station, prefs, count, None, &|shot| {
         if !game_weather {
             dereth_client_runtime::present::SceneMut::set_weather_enabled(&mut shot.scene, false);
         }
@@ -115,11 +117,12 @@ fn run_frames(
 
 /// `station` loaded with `prefs`, changed by `set` before its first frame, stepped [`STEPS`]
 /// frames and captured `count` times, [`APART`] frames apart after the first, on a device of its
-/// own.
+/// own; with `pause` before the first captured frame, as a slow machine draws it.
 fn run_shot(
     station: &Station,
     prefs: FidelityPreferences,
     count: usize,
+    pause: Option<std::time::Duration>,
     set: &dyn Fn(&mut Shot),
 ) -> Run {
     let mut device = device();
@@ -134,6 +137,9 @@ fn run_shot(
     for _ in 0..STEPS {
         shot.step(gpu);
         assert!(gpu.hifi_settle(std::time::Duration::from_secs(30)));
+    }
+    if let Some(pause) = pause {
+        std::thread::sleep(pause);
     }
     shot.step(gpu);
     let mut frames = vec![capture(gpu)];
@@ -311,8 +317,8 @@ fn from_a_doorway_the_ground_outside_stays_wet_and_the_room_dry() {
     };
     for stamped in [true, false] {
         let stamps = move |shot: &mut Shot| shot.scene.draw.cfg.portal_depth_stamp = stamped;
-        let off = run_shot(&doorway, lit(), 1, &stamps);
-        let on = run_shot(&doorway, weather(), 1, &stamps);
+        let off = run_shot(&doorway, lit(), 1, None, &stamps);
+        let on = run_shot(&doorway, weather(), 1, None, &stamps);
         let report = on.report.expect("installed");
         let what = if stamped {
             "with its openings stamped"
@@ -462,6 +468,31 @@ fn far_puddles_never_turn_white() {
     assert!(
         lifted * 1000 < far * 15,
         "{lifted} of {far} far ground pixels turned bright"
+    );
+}
+
+/// Behaviour: hifi.weather.the-weathers-motion-never-coarsens-in-a-long-session
+/// The rain falls by the scene's clock: in the town's street on the game's rainy day, the frame
+/// drawn after a pause, as a slow or busy machine draws it, is the frame drawn without one, to
+/// the byte.
+#[test]
+fn a_pause_between_frames_does_not_move_the_rain() {
+    let _gpu = crate::common::gpu_lock();
+    let street = station("rain-street");
+    let unchanged = |_: &mut Shot| {};
+    let steady = run_shot(&street, weather(), 1, None, &unchanged);
+    let paused = run_shot(&street, weather(), 1, Some(PAUSE), &unchanged);
+    let report = paused.report.expect("installed");
+    assert!(
+        report.passes.contains(&"weather"),
+        "the rain is not falling: {:?}",
+        report.passes
+    );
+    let changed = moved(&steady.rgba, &paused.rgba);
+    eprintln!("rain-street after a pause: {changed} bytes differ");
+    assert_eq!(
+        changed, 0,
+        "a pause before the last frame changed {changed} bytes of it"
     );
 }
 

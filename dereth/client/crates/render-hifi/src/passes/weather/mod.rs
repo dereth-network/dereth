@@ -36,8 +36,9 @@
 //!
 //! Nothing switches in one frame: the rain and the snow, and the weather and a dry day, ease
 //! into each other over a few seconds, and the land's share of snow must pass well over or
-//! under its mark before the form changes. Every motion repeats over a long period of the
-//! clock, so it never coarsens as a session goes on. Nothing but the picture changes.
+//! under its mark before the form changes. Every motion is timed by the scene's clock and repeats
+//! over a long period of it, so it never coarsens as a session goes on. Nothing but the picture
+//! changes.
 
 pub mod cover;
 
@@ -217,14 +218,11 @@ impl Fall {
 }
 
 /// What a capture may ask of the weather, read once when the pass is made, and only in a build
-/// for captures: a view of the masks, and a clock that steps by frames.
+/// for captures: a view of the masks.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Overrides {
     /// `DERETH_HIFI_WEATHER_DEBUG`: 1 the masks, 2 the shelter.
     debug: f32,
-    /// `DERETH_HIFI_WEATHER_FRAME_CLOCK`: the clock steps by frames, this many a second (sixty
-    /// when it names no number).
-    frame_clock: Option<f64>,
 }
 
 impl Overrides {
@@ -235,15 +233,6 @@ impl Overrides {
                 .ok()
                 .and_then(|v| v.trim().parse::<f32>().ok())
                 .unwrap_or(0.0),
-            frame_clock: std::env::var("DERETH_HIFI_WEATHER_FRAME_CLOCK")
-                .ok()
-                .map(|v| {
-                    v.trim()
-                        .parse::<f64>()
-                        .ok()
-                        .filter(|r| *r >= 2.0)
-                        .unwrap_or(60.0)
-                }),
         }
     }
 
@@ -253,37 +242,26 @@ impl Overrides {
     }
 }
 
-/// The weather's clock: seconds since the pass began, wrapped to [`TIME_PERIOD`], and the step
-/// since the frame before.
+/// The weather's clock: the scene's seconds since the weather first ticked, wrapped to
+/// [`TIME_PERIOD`], and the step since the frame before. It follows the scene's clock, so the
+/// same frames fall alike however fast they are drawn.
 #[derive(Debug, Default)]
 struct Clock {
-    #[cfg(not(target_arch = "wasm32"))]
-    start: Option<std::time::Instant>,
-    frames: u64,
+    /// The scene's clock when the weather's began.
+    start: Option<f64>,
+    /// The scene's clock at the frame before.
     last: Option<f64>,
 }
 
 impl Clock {
-    /// The clock's reading, stepped one frame: by the wall clock, or by a frame at `by_frames`
-    /// frames a second.
-    fn tick(&mut self, by_frames: Option<f64>) -> (f32, f32) {
-        self.frames += 1;
-        #[cfg(not(target_arch = "wasm32"))]
-        let wall = by_frames.is_none().then(|| {
-            self.start
-                .get_or_insert_with(std::time::Instant::now)
-                .elapsed()
-                .as_secs_f64()
-        });
-        #[cfg(target_arch = "wasm32")]
-        let wall: Option<f64> = {
-            // No wall clock in the browser: the frames are the clock.
-            let _ = by_frames;
-            None
-        };
-        #[allow(clippy::cast_precision_loss)] // a frame count, far below 2^52
-        let now = wall.unwrap_or(self.frames as f64 / by_frames.unwrap_or(60.0));
-        let reading = clock_reading(now, self.last);
+    /// The clock's reading at the scene's `now`, seconds. A scene clock that went back (a new
+    /// scene) starts the weather's again.
+    fn tick(&mut self, now: f64) -> (f32, f32) {
+        if self.last.is_some_and(|last| now < last) {
+            *self = Self::default();
+        }
+        let start = *self.start.get_or_insert(now);
+        let reading = clock_reading(now - start, self.last.map(|last| last - start));
         self.last = Some(now);
         reading
     }
@@ -475,7 +453,7 @@ impl HifiPass for Weather {
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
         self.cover.take_feed(&device, &queue, cx.frame);
-        let (time, step) = self.clock.tick(self.overrides.frame_clock);
+        let (time, step) = self.clock.tick(cx.frame.time);
         self.time = time;
         self.drift.step(step, wind(cx.frame.sky.time_of_day));
         self.fall.step(

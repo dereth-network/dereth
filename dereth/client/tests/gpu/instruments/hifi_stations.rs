@@ -1375,6 +1375,9 @@ pub(crate) struct Shot {
     store: Arc<RetailDatStore>,
     stream: ObjectStream,
     now: f64,
+    /// How far each step moves the scene's clock, seconds: the headless frame's, unless an
+    /// instrument draws at a frame rate of its own.
+    pub frame_seconds: f64,
     body: bool,
     /// The camera a facing station draws from (position, yaw, pitch), over the chase camera.
     front: Option<(Vec3, f32, f32)>,
@@ -1552,6 +1555,7 @@ impl Shot {
             store: Arc::clone(store),
             stream: ObjectStream::new(),
             now: 0.0,
+            frame_seconds: dereth_client_runtime::platform::clock::HEADLESS_STEP,
             body,
             front,
             follow: None,
@@ -1611,8 +1615,10 @@ impl Shot {
 
     /// Step the station one frame and draw it, leaving the frame on the device.
     pub(crate) fn step(&mut self, gpu: &mut Gpu) {
-        self.now += dereth_client_runtime::platform::clock::HEADLESS_STEP;
+        self.now += self.frame_seconds;
         let now = LocalTime(self.now);
+        #[allow(clippy::cast_possible_truncation)] // a frame's seconds
+        let dt = self.frame_seconds as f32;
         self.scene
             .sync_objects(&self.store, gpu, &mut self.stream)
             .expect("sync_objects");
@@ -1623,14 +1629,14 @@ impl Shot {
             dereth_client_runtime::camera::CameraInput::default(),
             self.input,
             now,
-            1.0 / 30.0,
+            dt,
         );
         if self.body {
             dereth_client_runtime::camera::update_viewer(
                 &mut self.scene,
                 dereth_client_runtime::camera::CameraInput::default(),
                 now,
-                1.0 / 30.0,
+                self.frame_seconds,
             );
             if let (Some([back, up, pitch, yaw]), Some(c)) =
                 (self.follow, self.scene.character.as_ref())
