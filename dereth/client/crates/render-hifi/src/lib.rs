@@ -28,6 +28,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 
+pub mod build;
 pub mod composite;
 pub mod derive;
 pub mod fail;
@@ -45,7 +46,7 @@ pub use dereth_render::wgpu::sidecar::{
     BindNote, Census, DrawAction, DrawNote, FrameSidecar, HifiRefused, LegacyReplay, ReplayFilter,
     SideTables, SidecarContext, SidecarError, SidecarFrame, SidecarReport, SkipRule,
 };
-pub use graph::{EncodeCx, HifiPass, PrepareCx};
+pub use graph::{EncodeCx, HifiPass, PrepareCx, WarmCx};
 
 use composite::{CompositeMode, Compositor};
 use derive::cache::{catalogue_keys, BuildContext, PipelineCache};
@@ -290,6 +291,15 @@ pub struct HifiRenderer {
     pipelines: PipelineCache,
     /// Whether the device's whole catalogue has been asked for.
     catalogue_asked: bool,
+    /// The warm-up the passes' own pipelines are built on, ahead of the frames that draw with
+    /// them.
+    warm: build::Warm,
+    /// Whether the presentation has been drawn: it is first drawn once every pipeline asked for
+    /// before it is built.
+    started: bool,
+    /// How many pipelines the frame's thread had built when this frame began: the frame's own
+    /// builds are the count at its end less this.
+    built_before_frame: u64,
     /// How this frame is re-shaded, when it is.
     plan: Option<ReshadePlan>,
     /// How the draws to re-shade stood this frame.
@@ -336,6 +346,9 @@ impl HifiRenderer {
             world_depth: None,
             pipelines: PipelineCache::new(),
             catalogue_asked: false,
+            warm: build::Warm::new(),
+            started: false,
+            built_before_frame: 0,
             plan: None,
             readiness: reshade::Readiness::default(),
             recorded_draws: (0, 0),
@@ -459,33 +472,12 @@ impl HifiRenderer {
         if let Some(m) = materials {
             self.materials.upload(cx, m);
         }
-        let build = BuildContext {
-            device: cx.device().clone(),
-            layout: cx.pipeline_layout().clone(),
-            splat_layout: cx.splat_pipeline_layout().cloned(),
-            material_layout: self.materials.pipeline_layout().cloned(),
-        };
-        let mut last = None;
-        for note in &cx.tables().draws {
-            // Draws come in runs of one pipeline: each run is asked for once.
-            let key = reshade::derived_key(note);
-            if last != Some(key) {
-                self.pipelines.ask(key);
-                last = Some(key);
-            }
-        }
-        if !self.catalogue_asked {
-            // After this frame's own: the keys the device can draw anything with.
-            for key in catalogue_keys() {
-                self.pipelines.ask(DerivedKey {
-                    key,
-                    splat: false,
-                    variant: Variant::Reshade,
-                });
-            }
-            self.catalogue_asked = true;
-        }
-        self.pipelines.pump(&build);
+        let build = Self::ask_derived(
+            cx,
+            &mut self.pipelines,
+            &self.materials,
+            &mut self.catalogue_asked,
+        );
         let Some(plan) = ReshadePlan::new(cx.tables()) else {
             return Ok(());
         };
@@ -528,6 +520,45 @@ impl HifiRenderer {
             self.plan = Some(plan);
         }
         Ok(())
+    }
+
+    /// Ask `pipelines` for the derived pipelines this frame's draws re-shade with, and the first
+    /// time (`catalogue_asked` says) the device's whole catalogue, and hand them to the worker.
+    /// What they are built against.
+    fn ask_derived(
+        cx: &SidecarContext<'_>,
+        pipelines: &mut PipelineCache,
+        materials: &materials::Materials,
+        catalogue_asked: &mut bool,
+    ) -> BuildContext {
+        let build = BuildContext {
+            device: cx.device().clone(),
+            layout: cx.pipeline_layout().clone(),
+            splat_layout: cx.splat_pipeline_layout().cloned(),
+            material_layout: materials.pipeline_layout().cloned(),
+        };
+        let mut last = None;
+        for note in &cx.tables().draws {
+            // Draws come in runs of one pipeline: each run is asked for once.
+            let key = reshade::derived_key(note);
+            if last != Some(key) {
+                pipelines.ask(key);
+                last = Some(key);
+            }
+        }
+        if !*catalogue_asked {
+            // After this frame's own: the keys the device can draw anything with.
+            for key in catalogue_keys() {
+                pipelines.ask(DerivedKey {
+                    key,
+                    splat: false,
+                    variant: Variant::Reshade,
+                });
+            }
+            *catalogue_asked = true;
+        }
+        pipelines.pump(&build);
+        build
     }
 
     /// Replay `range` of the world as recorded (unless `filter` says otherwise) into `targets`,
@@ -1095,6 +1126,7 @@ impl FrameSidecar for HifiRenderer {
         if let Some(e) = self.latch.failed() {
             return Err(SidecarError(e.to_owned()));
         }
+        self.built_before_frame = build::built_on_this_thread();
         self.caps = Caps::from_features(cx.device().features(), cx.compute());
         self.timer
             .get_or_insert_with(|| GpuTimer::new(cx.device(), cx.queue()))
@@ -1129,6 +1161,26 @@ impl FrameSidecar for HifiRenderer {
         if frame.stamp != cx.frame_stamp() || !self.settings.any_effective() {
             return Ok(SidecarFrame::Plain);
         }
+        // The pipelines the settings and the frame draw with are built ahead, on the warm-up's
+        // threads, as soon as they are wanted: no frame waits on a build. The presentation is
+        // first drawn once every one asked for by then is built, the ordinary frame until then;
+        // after that a pass whose pipelines are still being built sits out its frames.
+        let mut wcx = graph::WarmCx {
+            device: cx.device(),
+            queue: cx.queue(),
+            format: cx.surface_format(),
+            settings: &self.settings,
+            frame,
+            caps: &self.caps,
+            warm: &mut self.warm,
+        };
+        for (_, pass) in self.graph.passes_mut() {
+            pass.warm(&mut wcx);
+        }
+        self.compositor.warm(&mut wcx);
+        self.reshader.warm(&mut wcx);
+        self.started = self.started || self.warm.done();
+        let warming = !self.started;
         let mut failure = None;
         for (_, pass) in self.graph.passes_mut() {
             let watch = timing::Stopwatch::start();
@@ -1140,7 +1192,8 @@ impl FrameSidecar for HifiRenderer {
                 resources: &mut self.resources,
                 pipelines: &mut self.pipelines,
             });
-            let wanted = failure.is_none() && pass.wanted(&self.settings, frame, &self.caps);
+            let wanted =
+                !warming && failure.is_none() && pass.wanted(&self.settings, frame, &self.caps);
             if wanted {
                 let mut pcx = PrepareCx {
                     seam: cx,
@@ -1168,6 +1221,18 @@ impl FrameSidecar for HifiRenderer {
             return Err(self.fail(&e));
         }
         self.plan = None;
+        if warming {
+            // The derived pipelines are asked for meanwhile, on their own worker.
+            if CompositeMode::for_settings(&self.settings) == CompositeMode::Reshade {
+                Self::ask_derived(
+                    cx,
+                    &mut self.pipelines,
+                    &self.materials,
+                    &mut self.catalogue_asked,
+                );
+            }
+            return Ok(SidecarFrame::Plain);
+        }
         // No pass changes this frame (the weather's dry day, the sky indoors): the ordinary frame,
         // without the replay into the presentation's own targets.
         if !self.wanted.iter().any(|w| *w)
@@ -1252,7 +1317,18 @@ impl FrameSidecar for HifiRenderer {
         }
         report.cpu_prepare.clone_from(&self.cpu_prepare);
         report.cpu_encode.clone_from(&self.cpu_encode);
-        report.waiting = u32::try_from(self.pipelines.waiting()).unwrap_or(u32::MAX);
+        report.waiting =
+            u32::try_from(self.pipelines.waiting() + self.warm.unfinished()).unwrap_or(u32::MAX);
+        report.notes.push((
+            "pipelines built on the frame",
+            build::built_on_this_thread().saturating_sub(self.built_before_frame),
+        ));
+        report
+            .notes
+            .push(("pipelines built ahead", self.warm.asked() as u64));
+        report
+            .notes
+            .push(("pipelines being built ahead", self.warm.unfinished() as u64));
         report
             .notes
             .push(("re-shaded", u64::from(self.plan.is_some())));
@@ -1301,7 +1377,12 @@ impl FrameSidecar for HifiRenderer {
     }
 
     fn settle(&mut self, timeout: std::time::Duration) -> bool {
-        self.pipelines.settle(timeout)
+        // Each wait is a guard against a hang, so each takes the whole of it.
+        self.warm.settle(timeout) && self.pipelines.settle(timeout)
+    }
+
+    fn hold(&mut self, held: bool) {
+        self.warm.hold(held);
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {

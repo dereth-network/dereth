@@ -45,6 +45,8 @@ mod hifi_reshade;
 mod hifi_sky;
 mod hifi_visual_only;
 #[cfg(feature = "hifi")]
+mod hifi_warm_up;
+#[cfg(feature = "hifi")]
 mod hifi_water;
 #[cfg(feature = "hifi")]
 mod hifi_weather;

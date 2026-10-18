@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use glam::Vec3;
 
+use crate::build::Build;
 use crate::shared::static_feed::LevelRuns;
 use crate::HifiFrame;
 
@@ -222,7 +223,7 @@ impl Gpu {
             bind_group_layouts: &[Some(&blit_layout)],
             immediate_size: 0,
         });
-        let blit = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let blit = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("high-fidelity alpha atlas"),
             layout: Some(&bpl),
             vertex: wgpu::VertexState {
@@ -294,6 +295,8 @@ impl Gpu {
 #[derive(Debug, Default)]
 pub struct RtScene {
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: crate::build::Prebuilt<Gpu>,
     blocks: HashMap<u16, RtBlock>,
     tlas: Option<wgpu::Tlas>,
     layers: HashMap<u32, u32>,
@@ -382,6 +385,21 @@ pub struct SceneBindings<'a> {
 }
 
 impl RtScene {
+    /// Whether the traced scene's device objects are made, or are not being built.
+    #[must_use]
+    pub fn ready(&self) -> bool {
+        self.gpu.is_some() || !self.pre_gpu.waits()
+    }
+
+    /// Ask for the traced scene's device objects to be built ahead, when the lamps' light is
+    /// traced through it (`wanted`).
+    pub fn warm(&mut self, cx: &mut crate::graph::WarmCx<'_>, wanted: bool) {
+        if wanted && self.gpu.is_none() {
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || Gpu::new(&device));
+        }
+    }
+
     /// Takes in the frame's new or changed block geometry, `tracing` saying whether the frame
     /// traces through the scene ([`traces`]). Once [`KEEP_FRAMES`] have passed without a frame
     /// that does, the structures are let go and nothing is taken in; the next frame that traces
@@ -523,7 +541,10 @@ impl RtScene {
         if !self.tracing || self.blocks.is_empty() {
             return false;
         }
-        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device));
+        let pre = &mut self.pre_gpu;
+        let gpu = self
+            .gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| Gpu::new(device)));
 
         // --- the alpha atlas ---------------------------------------------------------------
         let mut still = Vec::new();

@@ -20,6 +20,9 @@ use std::sync::Arc;
 
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::shared::fullscreen::COLOUR_WGSL;
@@ -700,7 +703,7 @@ fn fullscreen_targets(
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(entry),
         layout: Some(&pl),
         vertex: wgpu::VertexState {
@@ -757,7 +760,7 @@ impl LightingGpu {
             bind_group_layouts: &[Some(&caster_layout)],
             immediate_size: 0,
         });
-        let caster_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let caster_pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("high-fidelity shadow casters"),
             layout: Some(&pl),
             vertex: wgpu::VertexState {
@@ -818,7 +821,7 @@ impl LightingGpu {
             bind_group_layouts: &[Some(&caster_layout), Some(&leaf_layout)],
             immediate_size: 0,
         });
-        let cutout_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let cutout_pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("high-fidelity leaf shadow"),
             layout: Some(&cut_pl),
             vertex: wgpu::VertexState {
@@ -1001,6 +1004,8 @@ pub struct Lighting {
     /// while it is drawn.
     drawn: Option<crate::passes::drawn::DrawnCasters>,
     gpu: Option<LightingGpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<LightingGpu>,
     blocks: HashMap<u16, CasterBlock>,
     /// The detail level each object of a resident block stands at, as last handed over.
     levels: HashMap<u16, Arc<Vec<u32>>>,
@@ -1035,6 +1040,12 @@ pub struct Lighting {
     lamps: crate::passes::lamps::LampLight,
     /// The rooms' own light per pixel.
     cells: cells::CellLight,
+    /// Whether the last frame handed over blocks' geometry or levels, not yet taken.
+    handed: bool,
+    /// Whether a frame the pass sat out handed some over.
+    missed: bool,
+    /// Whether every block's geometry is wanted again, for what was missed.
+    refeed: bool,
 }
 
 impl Lighting {
@@ -1109,11 +1120,35 @@ impl HifiPass for Lighting {
     }
 
     fn wants_feed_again(&mut self) -> bool {
-        self.rt.take_request()
+        let refeed = std::mem::take(&mut self.refeed);
+        self.rt.take_request() || refeed
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        s.lighting.is_on()
+        s.lighting.is_on() && (self.gpu.is_some() || !self.pre_gpu.waits())
+    }
+
+    fn observe(&mut self, cx: &mut PrepareCx<'_, '_>) {
+        // A block's geometry and levels are handed over once. A frame the pass sits out, while
+        // its pipelines or the presentation's are being built, leaves them untaken.
+        let frame = cx.frame;
+        self.missed = self.missed || self.handed;
+        self.handed = cx.settings.lighting.is_on()
+            && !(frame.static_feed.is_empty() && frame.static_levels.is_empty());
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if !cx.settings.lighting.is_on() {
+            return;
+        }
+        if self.gpu.is_none() {
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || LightingGpu::new(&device));
+        }
+        let traced = crate::passes::lamps::LampLight::wanted(cx.settings.lamps, cx.caps.ray_query);
+        self.lamps.warm(cx, traced);
+        self.rt.warm(cx, traced);
+        self.cells.warm(cx, traced);
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -1135,6 +1170,10 @@ impl HifiPass for Lighting {
                 self.blocks.len(),
             );
         }
+        // What a frame sat out missed is asked for again once the pass is drawn, so that it comes
+        // to a frame that takes it.
+        self.handed = false;
+        self.refeed = self.refeed || std::mem::take(&mut self.missed);
         self.split =
             crate::reshade::ReshadePlan::new(cx.seam.tables()).is_some_and(|p| p.is_split());
         let device = cx.seam.device().clone();
@@ -1222,7 +1261,10 @@ impl HifiPass for Lighting {
         let frame = cx.frame;
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
-        let gpu = self.gpu.get_or_insert_with(|| LightingGpu::new(&device));
+        let pre = &mut self.pre_gpu;
+        let gpu = self
+            .gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| LightingGpu::new(&device)));
         let size = cx.seam.surface_size();
 
         // --- the shadow cascades ---------------------------------------------------------
@@ -1472,8 +1514,12 @@ impl HifiPass for Lighting {
             .map_or([0.0, 0.0, size.0 as f32, size.1 as f32], |v| {
                 [v.x as f32, v.y as f32, v.width as f32, v.height as f32]
             });
+        // The lamps, and the traced scene they and the rooms' lights are traced through, once
+        // their device objects are built.
         let lamps_on =
-            crate::passes::lamps::LampLight::wanted(cx.settings.lamps, cx.caps.ray_query);
+            crate::passes::lamps::LampLight::wanted(cx.settings.lamps, cx.caps.ray_query)
+                && self.lamps.ready()
+                && self.rt.ready();
         let built = lamps_on && self.rt.build(&device, &queue, cx.encoder, cx.seam, frame);
         // The lamps' light, traced through the same structures.
         let lamp_picture = if lamps_on && built {
@@ -1516,7 +1562,7 @@ impl HifiPass for Lighting {
         // while the viewer is in a room: the rooms seen from outdoors keep the light they were
         // drawn with.
         let scene = if built { self.rt.bindings() } else { None };
-        let room_light = if frame.sky.outdoor {
+        let room_light = if frame.sky.outdoor || !self.cells.ready(scene.is_some()) {
             None
         } else {
             self.cells.encode(
@@ -1854,6 +1900,8 @@ struct PostGpu {
 /// Bloom, exposure and the tone map.
 #[derive(Debug, Default)]
 pub struct LightingPost {
+    /// The device objects, built ahead by the warm-up.
+    pre_gpu: Prebuilt<PostGpu>,
     gpu: Option<PostGpu>,
     bloom: Option<(Held, Vec<wgpu::TextureView>, u32)>,
     /// When the last frame was tone mapped, on the scene's clock.
@@ -1981,7 +2029,7 @@ impl PostGpu {
             bind_group_layouts: &[Some(&exposure_layout)],
             immediate_size: 0,
         });
-        let exposure = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let exposure = device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("high-fidelity exposure"),
             layout: Some(&exposure_pl),
             module: &exposure_module,
@@ -2056,7 +2104,15 @@ impl HifiPass for LightingPost {
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        s.lighting.is_on()
+        s.lighting.is_on() && (self.gpu.is_some() || !self.pre_gpu.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if cx.settings.lighting.is_on() && self.gpu.is_none() {
+            let (device, format) = (cx.device.clone(), cx.format);
+            self.pre_gpu
+                .ask(cx.warm, move || PostGpu::new(&device, format));
+        }
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -2078,7 +2134,8 @@ impl HifiPass for LightingPost {
         let queue = cx.seam.queue().clone();
         let format = cx.seam.surface_format();
         if self.gpu.as_ref().is_none_or(|g| g.format != format) {
-            self.gpu = Some(PostGpu::new(&device, format));
+            let built = self.pre_gpu.take().filter(|g| g.format == format);
+            self.gpu = Some(built.unwrap_or_else(|| PostGpu::new(&device, format)));
         }
         let Some(gpu) = self.gpu.as_ref() else {
             return Ok(());
@@ -2370,6 +2427,61 @@ struct MeasureGpu {
     state: wgpu::Buffer,
 }
 
+impl MeasureGpu {
+    fn new(device: &wgpu::Device) -> Self {
+        let float = wgpu::TextureSampleType::Float { filterable: false };
+        let d2 = wgpu::TextureViewDimension::D2;
+        let compute = wgpu::ShaderStages::COMPUTE;
+        let texture = |binding, sample_type| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: compute,
+            ty: wgpu::BindingType::Texture {
+                sample_type,
+                view_dimension: d2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("high-fidelity outdoor measure"),
+            entries: &[
+                texture(0, float),
+                texture(1, wgpu::TextureSampleType::Depth),
+                buf_entry(2, compute, false),
+                storage_entry(3),
+                texture(4, float),
+                storage_entry(5),
+                texture(6, float),
+            ],
+        });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("high-fidelity outdoor measure"),
+            source: wgpu::ShaderSource::Wgsl(
+                format!("{EXPOSURE_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}").into(),
+            ),
+        });
+        let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("high-fidelity outdoor measure"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("high-fidelity outdoor measure"),
+            layout: Some(&pl),
+            module: &module,
+            entry_point: Some("measure"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+        MeasureGpu {
+            layout,
+            pipeline,
+            params: uniform(device, "high-fidelity outdoor measure", 256),
+            state: measure_buffer(device),
+        }
+    }
+}
+
 /// The outdoor frame's brightness against the ordinary picture's, once its light, occlusion,
 /// bounced light and air are drawn and before the weather: at each of a ladder of exposures
 /// about the sun and the sky's, as the tone map would draw it, an art pack's models counting for
@@ -2377,6 +2489,8 @@ struct MeasureGpu {
 #[derive(Debug, Default)]
 pub struct OutdoorMeasure {
     gpu: Option<MeasureGpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<MeasureGpu>,
 }
 
 impl HifiPass for OutdoorMeasure {
@@ -2385,7 +2499,14 @@ impl HifiPass for OutdoorMeasure {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        s.lighting.is_on() && f.sky.outdoor
+        s.lighting.is_on() && f.sky.outdoor && (self.gpu.is_some() || !self.pre_gpu.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if cx.settings.lighting.is_on() && self.gpu.is_none() {
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || MeasureGpu::new(&device));
+        }
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -2423,58 +2544,10 @@ impl HifiPass for OutdoorMeasure {
             return Ok(());
         };
         let measured = measured.clone();
-        let gpu = self.gpu.get_or_insert_with(|| {
-            let float = wgpu::TextureSampleType::Float { filterable: false };
-            let d2 = wgpu::TextureViewDimension::D2;
-            let compute = wgpu::ShaderStages::COMPUTE;
-            let texture = |binding, sample_type| wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: compute,
-                ty: wgpu::BindingType::Texture {
-                    sample_type,
-                    view_dimension: d2,
-                    multisampled: false,
-                },
-                count: None,
-            };
-            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("high-fidelity outdoor measure"),
-                entries: &[
-                    texture(0, float),
-                    texture(1, wgpu::TextureSampleType::Depth),
-                    buf_entry(2, compute, false),
-                    storage_entry(3),
-                    texture(4, float),
-                    storage_entry(5),
-                    texture(6, float),
-                ],
-            });
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("high-fidelity outdoor measure"),
-                source: wgpu::ShaderSource::Wgsl(
-                    format!("{EXPOSURE_WGSL}\n{TONE_WGSL}\n{COLOUR_WGSL}").into(),
-                ),
-            });
-            let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("high-fidelity outdoor measure"),
-                bind_group_layouts: &[Some(&layout)],
-                immediate_size: 0,
-            });
-            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("high-fidelity outdoor measure"),
-                layout: Some(&pl),
-                module: &module,
-                entry_point: Some("measure"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            MeasureGpu {
-                layout,
-                pipeline,
-                params: uniform(&device, "high-fidelity outdoor measure", 256),
-                state: measure_buffer(&device),
-            }
-        });
+        let pre = &mut self.pre_gpu;
+        let gpu = self
+            .gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| MeasureGpu::new(&device)));
         let frame = cx.frame;
         let size = cx.seam.surface_size();
         #[allow(clippy::cast_precision_loss)]

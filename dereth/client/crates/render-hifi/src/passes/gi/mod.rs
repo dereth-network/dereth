@@ -12,6 +12,9 @@
 
 use glam::{Mat4, Vec3};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::passes::lighting::{env_f32, legacy_light, sun_up, DayLight};
 use crate::resources::ResourceName;
@@ -83,7 +86,7 @@ impl GiGpu {
             immediate_size: 0,
         });
         let make = |entry: &str, blend: Option<wgpu::BlendState>| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&pl),
                 vertex: wgpu::VertexState {
@@ -186,6 +189,8 @@ impl Targets {
 #[derive(Debug, Default)]
 pub struct GlobalIllumination {
     gpu: Option<GiGpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<GiGpu>,
     targets: Option<Targets>,
     split: bool,
     frame: u32,
@@ -201,7 +206,17 @@ impl HifiPass for GlobalIllumination {
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        s.global_illumination.is_on() && s.lighting.is_on()
+        s.global_illumination.is_on()
+            && s.lighting.is_on()
+            && (self.gpu.is_some() || !self.pre_gpu.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        let s = cx.settings;
+        if s.global_illumination.is_on() && s.lighting.is_on() && self.gpu.is_none() {
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || GiGpu::new(&device));
+        }
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -229,7 +244,10 @@ impl HifiPass for GlobalIllumination {
         let frame = cx.frame;
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
-        let gpu = self.gpu.get_or_insert_with(|| GiGpu::new(&device));
+        let pre = &mut self.pre_gpu;
+        let gpu = self
+            .gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| GiGpu::new(&device)));
         let size = cx.seam.surface_size();
         let half = (size.0.div_ceil(2), size.1.div_ceil(2));
         if self.targets.as_ref().is_none_or(|t| t.size != half) {

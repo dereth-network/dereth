@@ -1135,6 +1135,15 @@ impl Gpu {
         }
     }
 
+    /// Keep the installed sidecar's background work from starting anything more (`held`), or
+    /// let it go on; nothing where there is no sidecar.
+    pub fn hifi_hold(&mut self, held: bool) {
+        #[allow(irrefutable_let_patterns)]
+        if let Gpu::Wgpu(g) = self {
+            g.hifi_hold(held);
+        }
+    }
+
     /// Whether the device was asked for what the high-fidelity presentation draws with: only a
     /// `wgpu` device made so takes a sidecar.
     #[must_use]

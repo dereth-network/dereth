@@ -97,6 +97,9 @@ fn run_with(
     gpu.set_frame_digest(true);
     for _ in 0..STEPS {
         shot.step(gpu);
+        // The presentation's pipelines are built off the frame: the next frame is drawn once
+        // they are.
+        assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
     }
     Run {
         rgba: capture(gpu),

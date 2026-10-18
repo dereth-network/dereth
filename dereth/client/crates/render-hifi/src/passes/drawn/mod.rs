@@ -27,6 +27,9 @@ use std::rc::Rc;
 
 use glam::{Mat4, Vec2, Vec3};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::passes::lighting::CASCADES;
 use crate::reshade::ReshadePlan;
@@ -645,7 +648,7 @@ impl Gpu {
         // The view's pipeline, and the one that draws the ground again over the stamps: only
         // where it lies nearer than what is there, so the ground it already drew stays as it is.
         let ground = |label: &str, entry: &str, compare: wgpu::CompareFunction| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&view_layout),
                 vertex: wgpu::VertexState {
@@ -690,7 +693,7 @@ impl Gpu {
         let unclipped = device
             .features()
             .contains(wgpu::Features::DEPTH_CLIP_CONTROL);
-        let caster_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let caster_pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("drawn ground shadow"),
             layout: Some(&shadow_layout),
             vertex: wgpu::VertexState {
@@ -1072,7 +1075,7 @@ fn probe_main(@builtin(global_invocation_id) id: vec3<u32>) {{
         bind_group_layouts: &[Some(&frame_layout), Some(&probe_layout)],
         immediate_size: 0,
     });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+    let pipeline = device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("drawn ground probe"),
         layout: Some(&layout),
         module: &module,
@@ -1196,10 +1199,18 @@ fn probe_main(@builtin(global_invocation_id) id: vec3<u32>) {{
         .collect()
 }
 
+/// Whether the pass draws the ground: an art pack's ground is laid, with the light, and the frame
+/// carries the drawn ground.
+fn draws(s: &HifiSettings, f: &HifiFrame) -> bool {
+    s.art_pack && s.lighting.is_on() && f.drawn.is_some() && f.ground.is_some()
+}
+
 /// What the pass keeps between frames and shares with the sun's shadows.
 #[derive(Debug, Default)]
 struct State {
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<Gpu>,
     world: Option<WorldTextures>,
     cover: Option<CoverTextures>,
     near: Option<NearTexture>,
@@ -1355,7 +1366,16 @@ impl HifiPass for Drawn {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        s.art_pack && s.lighting.is_on() && f.drawn.is_some() && f.ground.is_some()
+        let state = self.0.borrow();
+        draws(s, f) && (state.gpu.is_some() || !state.pre_gpu.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        let mut s = self.0.borrow_mut();
+        if draws(cx.settings, cx.frame) && s.gpu.is_none() {
+            let device = cx.device.clone();
+            s.pre_gpu.ask(cx.warm, move || Gpu::new(&device));
+        }
     }
 
     fn draws_ground(&self) -> bool {
@@ -1377,7 +1397,7 @@ impl HifiPass for Drawn {
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
         if s.gpu.is_none() {
-            s.gpu = Some(Gpu::new(&device));
+            s.gpu = Some(s.pre_gpu.take().unwrap_or_else(|| Gpu::new(&device)));
         }
         if s.world
             .as_ref()

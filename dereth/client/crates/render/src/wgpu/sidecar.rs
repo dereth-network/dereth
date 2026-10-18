@@ -1207,6 +1207,13 @@ pub trait FrameSidecar: Any {
         true
     }
 
+    /// Keep the sidecar's background work from starting anything more (`held`), or let it go
+    /// on. Nothing in a frame calls this; it is for a test that looks at the frames drawn while
+    /// the work is not done.
+    fn hold(&mut self, held: bool) {
+        let _ = held;
+    }
+
     /// The sidecar as [`Any`], so its owner can reach its own type.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
@@ -1312,6 +1319,14 @@ impl Gpu {
         self.sidecar
             .as_mut()
             .is_none_or(|i| i.sidecar.settle(timeout))
+    }
+
+    /// Keep the installed sidecar's background work from starting anything more (`held`), or
+    /// let it go on.
+    pub fn hifi_hold(&mut self, held: bool) {
+        if let Some(i) = self.sidecar.as_mut() {
+            i.sidecar.hold(held);
+        }
     }
 
     /// Whether the device was asked for what the high-fidelity presentation draws with.

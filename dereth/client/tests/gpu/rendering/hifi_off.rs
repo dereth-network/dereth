@@ -361,6 +361,9 @@ mod presentation {
         let mut shot = still_view(&store, &mut gpu);
         for view in ["Debug=1", "Debug=2"] {
             assert!(set(&mut shot, &mut gpu, fidelity(view)));
+            // The presentation's pipelines are built off the frame: it draws once they are.
+            shot.draw(&mut gpu);
+            assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
             shot.draw(&mut gpu);
             assert!(gpu.hifi_report().is_some_and(|r| r.composited));
             assert_eq!(
@@ -472,6 +475,9 @@ mod presentation {
         assert!(off.digest.is_some());
 
         assert!(set(&mut shot, &mut gpu, fidelity("Debug=1")));
+        // The presentation's pipelines are built off the frame: it draws once they are.
+        shot.draw(&mut gpu);
+        assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
         let (through_px, through) = frame(&mut shot, &mut gpu);
         let report = gpu.hifi_report().expect("installed");
         assert!(report.composited, "the presentation drew the frame");
@@ -498,6 +504,8 @@ mod presentation {
         assert_eq!(through.draw_calls, off.draw_calls);
 
         assert!(set(&mut shot, &mut gpu, fidelity("Debug=2")));
+        shot.draw(&mut gpu);
+        assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
         let (depth_px, _) = frame(&mut shot, &mut gpu);
         let changed = moved(&off_px, &depth_px);
         assert!(
@@ -711,6 +719,7 @@ mod presentation {
                 set(&mut shot, &mut gpu, prefs);
                 for _ in 0..6 {
                     shot.step(&mut gpu);
+                    assert!(gpu.hifi_settle(std::time::Duration::from_secs(60)));
                 }
                 shots.push(capture(&mut gpu));
                 if prefs.any_effective() {

@@ -20,6 +20,7 @@
 
 #![cfg(gpu)]
 
+use dereth_client_runtime::present::Scene as _;
 use dereth_client_runtime::render_prefs::FidelityPreferences;
 use dereth_render::device::{Backend, DeviceConfig, Gpu};
 use dereth_render::wgpu::sidecar::SidecarReport;
@@ -236,6 +237,20 @@ fn walking_through_a_forest_lists_its_shadow_geometry_again_and_copies_none_of_i
             "the pipelines were not built in a minute"
         );
     }
+    // Every block's geometry is handed over, some again after the frames drawn while the
+    // presentation's pipelines were built, before the walk.
+    let meshed = u64::try_from(shot.scene.census().blocks_meshed).unwrap_or(u64::MAX);
+    let held = |gpu: &Gpu| {
+        let r = gpu.hifi_report().expect("the presentation is installed");
+        note(&r, "sun shadow blocks held")
+    };
+    for _ in 0..200 {
+        if held(&gpu) == meshed {
+            break;
+        }
+        shot.step(&mut gpu);
+    }
+    assert_eq!(held(&gpu), meshed, "the sun's shadows hold every block");
     let at = |gpu: &Gpu| {
         let r = gpu.hifi_report().expect("the presentation is installed");
         (

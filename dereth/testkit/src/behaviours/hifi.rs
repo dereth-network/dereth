@@ -695,6 +695,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "hifi.warm-up.no-frame-builds-a-pipeline-of-the-presentations",
+        says: "The pipelines the presentation draws with are built ahead, on threads of their \
+               own, as soon as they are wanted: with every box ticked, the anti-aliasing on and \
+               then an art pack's ground laid, no frame builds one. The frames are drawn the \
+               ordinary way until the presentation's are built, then without the pack's ground \
+               until its passes' are, and the sun's shadows come to hold every block the frames \
+               handed over meanwhile.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-WARM-UP"),
+        station: "dereth-client::gpu::rendering::hifi_warm_up::with_every_box_ticked_no_frame_builds_a_pipeline_and_the_presentation_is_drawn_once_built",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "hifi.weather.a-roof-keeps-the-weather-off-what-stands-under-it",
         says: "Looking in at a house's open front door on the game's rainy day, the room under \
                the roof takes no wet darkening, no puddle and no drop: it is drawn as on a day \

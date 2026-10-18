@@ -37,6 +37,9 @@ pub mod model;
 use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::resources::{Resource, ResourceName, TextureSpec};
 use crate::shared::fullscreen::{COLOUR_WGSL, FULLSCREEN_WGSL};
@@ -149,6 +152,9 @@ struct Shared {
     heavens: Option<heavens::Plan>,
     /// The Remastered sky's device objects, made on first use.
     heavens_gpu: Option<heavens::HeavensGpu>,
+    /// The device objects, built ahead by the warm-up.
+    pre_gpu: Prebuilt<Gpu>,
+    pre_heavens_gpu: Prebuilt<heavens::HeavensGpu>,
     /// The model of the sky object being replayed.
     in_object: u32,
     /// Whether the Remastered sky has been drawn this frame.
@@ -175,6 +181,13 @@ impl Shared {
 /// a call into another, so it is never borrowed twice.
 fn state(shared: &RefCell<Shared>) -> RefMut<'_, Shared> {
     shared.borrow_mut()
+}
+
+/// Whether the sky's device objects are made, or are not being built: the sky and the air sit out
+/// the frames before they are.
+fn ready(shared: &RefCell<Shared>) -> bool {
+    let s = shared.borrow();
+    s.gpu.is_some() || !s.pre_gpu.waits()
 }
 
 /// The device objects.
@@ -317,7 +330,7 @@ impl Gpu {
                 bind_group_layouts: &[Some(group)],
                 immediate_size: 0,
             });
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
@@ -638,7 +651,28 @@ impl HifiPass for SkyTables {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        wanted(s, f)
+        wanted(s, f) && ready(&self.0)
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if !cx.settings.sky.is_on() {
+            return;
+        }
+        let mut shared = state(&self.0);
+        let s = &mut *shared;
+        if s.gpu.is_none() {
+            let (device, format) = (cx.device.clone(), cx.format);
+            s.pre_gpu.ask(cx.warm, move || Gpu::new(&device, format));
+        }
+        // The Remastered sky, while an art pack's art is drawn.
+        let heavens =
+            cx.settings.art_pack && cx.frame.art_pack.is_some() && cx.frame.sky_knobs.is_some();
+        if heavens && s.heavens_gpu.is_none() {
+            let (device, queue, format) = (cx.device.clone(), cx.queue.clone(), cx.format);
+            s.pre_heavens_gpu.ask(cx.warm, move || {
+                heavens::HeavensGpu::new(&device, &queue, format)
+            });
+        }
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -666,7 +700,8 @@ impl HifiPass for SkyTables {
         s.weight = model::sky_share(&cx.frame.sky);
         let format = cx.seam.surface_format();
         if s.gpu.as_ref().is_none_or(|g| g.format != format) {
-            s.gpu = Some(Gpu::new(cx.seam.device(), format));
+            let built = s.pre_gpu.take().filter(|g| g.format == format);
+            s.gpu = Some(built.unwrap_or_else(|| Gpu::new(cx.seam.device(), format)));
             s.tables_key = None;
             s.sky_view_key = None;
         }
@@ -719,12 +754,13 @@ impl HifiPass for SkyTables {
                 .world_viewport()
                 .map_or_else(|| cx.seam.surface_size(), |v| (v.width, v.height));
             let size = heavens::cloud_size(width, height, knobs.cloud_resolution);
-            if s.heavens_gpu.as_ref().is_none_or(|h| h.format() != format) {
-                s.heavens_gpu = Some(heavens::HeavensGpu::new(
-                    cx.seam.device(),
-                    cx.seam.queue(),
-                    format,
-                ));
+            if s.heavens_gpu.as_ref().is_none_or(|h| h.format() != format)
+                && !s.pre_heavens_gpu.waits()
+            {
+                let built = s.pre_heavens_gpu.take().filter(|h| h.format() == format);
+                s.heavens_gpu = Some(built.unwrap_or_else(|| {
+                    heavens::HeavensGpu::new(cx.seam.device(), cx.seam.queue(), format)
+                }));
             }
             if let (Some(h), Some(g)) = (s.heavens_gpu.as_mut(), s.gpu.as_ref()) {
                 cx.seam.queue().write_buffer(
@@ -931,7 +967,7 @@ impl HifiPass for Sky {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        wanted(s, f)
+        wanted(s, f) && ready(&self.0)
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -1046,7 +1082,7 @@ impl HifiPass for Atmosphere {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        wanted(s, f)
+        wanted(s, f) && ready(&self.0)
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {

@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use crate::build::Warm;
 use crate::derive::cache::PipelineCache;
 use crate::resources::Resources;
 use crate::timing::GpuTimer;
@@ -63,6 +64,25 @@ pub struct PrepareCx<'a, 's> {
     pub pipelines: &'a mut PipelineCache,
 }
 
+/// What a pass sees while it asks for its pipelines to be built ahead ([`crate::build`]).
+#[derive(Debug)]
+pub struct WarmCx<'a> {
+    /// The device.
+    pub device: &'a wgpu::Device,
+    /// Its queue.
+    pub queue: &'a wgpu::Queue,
+    /// The format of the frame's target.
+    pub format: wgpu::TextureFormat,
+    /// The settings in force.
+    pub settings: &'a HifiSettings,
+    /// The frame's snapshot.
+    pub frame: &'a HifiFrame,
+    /// What the device can do.
+    pub caps: &'a Caps,
+    /// The warm-up the builds are run on.
+    pub warm: &'a mut Warm,
+}
+
 /// What a pass sees while it records its GPU work.
 #[derive(Debug)]
 pub struct EncodeCx<'a, 's> {
@@ -112,6 +132,12 @@ pub trait HifiPass {
     /// Whether the pass runs this frame. False whenever its option is off, the device lacks
     /// what it needs, or its resources are not ready yet.
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, caps: &Caps) -> bool;
+
+    /// Ask for the pipelines the pass will draw with under `cx.settings` and `cx.frame` to be
+    /// built ahead, on the warm-up's threads, so that no frame builds them; what is asked for
+    /// already is not asked again. Called on every frame, before the pass is asked whether it is
+    /// wanted: a pass whose pipelines are still being built is not wanted.
+    fn warm(&mut self, _cx: &mut WarmCx<'_>) {}
 
     /// The CPU half: uploads and constant blocks.
     ///

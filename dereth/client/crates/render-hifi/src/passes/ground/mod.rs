@@ -24,6 +24,9 @@
 
 use glam::{Vec2, Vec3};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::passes::lighting::legacy_light;
 use crate::resources::{Resource, ResourceName, TextureSpec};
@@ -510,10 +513,18 @@ struct Cells {
 #[derive(Debug, Default)]
 pub struct Ground {
     pipeline: Option<Pipeline>,
+    /// The same, built ahead by the warm-up.
+    pre_pipeline: Prebuilt<Pipeline>,
     materials: Option<Materials>,
     cells: Option<Cells>,
     /// Whether the ground was laid in the last frame.
     laid: bool,
+}
+
+/// Whether the pass lays an art pack's ground: its option is on, with the light, and the frame
+/// carries a ground with materials.
+fn lays(s: &HifiSettings, f: &HifiFrame) -> bool {
+    s.art_pack && s.lighting.is_on() && f.ground.as_ref().is_some_and(|g| !g.materials.is_empty())
 }
 
 /// The pass.
@@ -588,7 +599,7 @@ fn make_pipeline(device: &wgpu::Device) -> Pipeline {
         bind_group_layouts: &[Some(&layout)],
         immediate_size: 0,
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("art pack ground"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
@@ -817,9 +828,15 @@ impl HifiPass for Ground {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        s.art_pack
-            && s.lighting.is_on()
-            && f.ground.as_ref().is_some_and(|g| !g.materials.is_empty())
+        lays(s, f) && (self.pipeline.is_some() || !self.pre_pipeline.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if lays(cx.settings, cx.frame) && self.pipeline.is_none() {
+            let device = cx.device.clone();
+            self.pre_pipeline
+                .ask(cx.warm, move || make_pipeline(&device));
+        }
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -830,7 +847,8 @@ impl HifiPass for Ground {
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
         if self.pipeline.is_none() {
-            self.pipeline = Some(make_pipeline(&device));
+            let built = self.pre_pipeline.take();
+            self.pipeline = Some(built.unwrap_or_else(|| make_pipeline(&device)));
         }
         if self
             .materials

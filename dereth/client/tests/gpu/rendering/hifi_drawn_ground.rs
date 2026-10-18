@@ -53,7 +53,7 @@ fn type_color(t: u8) -> [u8; 4] {
 
 /// The pack: a flat ground of its own color for each dry terrain type, and a magenta material
 /// for the obsidian plains' steep slopes.
-fn ground_pack() -> Arc<ArtPack> {
+pub(super) fn ground_pack() -> Arc<ArtPack> {
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
     let mut manifest = String::from("[pack]\nname = \"Grounds\"\nformat = 1\n");
     let credit = "author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n";

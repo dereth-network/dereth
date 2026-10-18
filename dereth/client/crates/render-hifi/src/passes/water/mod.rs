@@ -25,6 +25,9 @@ pub mod ripples;
 
 use glam::{Mat4, Vec3};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::passes::lighting::{legacy_light, CASCADES};
 use crate::resources::{Resource, ResourceName};
@@ -144,6 +147,8 @@ pub fn layer_constants(water: &HifiWater, clock: f64) -> [[f32; 4]; 4] {
 #[derive(Debug, Default)]
 pub struct Water {
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<Gpu>,
     /// Whether the water was drawn in the last frame.
     drawn: bool,
     /// Retail's water pictures' mean colors, and the ground they were worked out for: they are
@@ -244,7 +249,7 @@ impl Gpu {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("water"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -560,11 +565,26 @@ impl HifiPass for Water {
             && f.sky.sees_outside
             && f.ground.is_some()
             && f.drawn.as_ref().is_some_and(|d| d.knobs.water.is_some())
+            && (self.gpu.is_some() || !self.pre_gpu.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        // Whether the viewer sees outside is left out: the water is wanted as soon as they do.
+        let (s, f) = (cx.settings, cx.frame);
+        let drawn = s.art_pack
+            && s.lighting.is_on()
+            && f.ground.is_some()
+            && f.drawn.as_ref().is_some_and(|d| d.knobs.water.is_some());
+        if drawn && self.gpu.is_none() {
+            let (device, queue) = (cx.device.clone(), cx.queue.clone());
+            self.pre_gpu.ask(cx.warm, move || Gpu::new(&device, &queue));
+        }
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
         if self.gpu.is_none() {
-            self.gpu = Some(Gpu::new(cx.seam.device(), cx.seam.queue()));
+            let built = self.pre_gpu.take();
+            self.gpu = Some(built.unwrap_or_else(|| Gpu::new(cx.seam.device(), cx.seam.queue())));
         }
         Ok(())
     }

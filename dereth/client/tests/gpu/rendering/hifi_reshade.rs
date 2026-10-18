@@ -297,6 +297,7 @@ fn turning_re_shading_on_never_holds_a_frame_past_fifty_milliseconds() {
     }
     let objects_off = gpu.device_objects();
     let mut on_ms = Vec::new();
+    let mut warming_frames = 0;
     let mut overlay_frames = 0;
     let mut after = None;
     let started = Instant::now();
@@ -311,7 +312,15 @@ fn turning_re_shading_on_never_holds_a_frame_past_fifty_milliseconds() {
         shot.step(&mut gpu);
         on_ms.push(t.elapsed().as_secs_f64() * 1000.0);
         let report = gpu.hifi_report().expect("installed");
-        assert!(report.composited, "frame {frame}: {report:?}");
+        if !report.composited {
+            // The ordinary frame, while the presentation's own pipelines are built.
+            assert!(
+                overlay_frames == 0 && after.is_none(),
+                "frame {frame} fell back to the ordinary frame: {report:?}"
+            );
+            warming_frames += 1;
+            continue;
+        }
         let reshaded = note(&report, "re-shaded") == 1;
         if reshaded {
             after = Some(after.map_or(0, |n| n + 1));
@@ -329,7 +338,8 @@ fn turning_re_shading_on_never_holds_a_frame_past_fifty_milliseconds() {
     let worst = on_ms.iter().copied().fold(0.0, f64::max);
     let worst_off = off_ms.iter().copied().fold(0.0, f64::max);
     eprintln!(
-        "re-shading reached after {overlay_frames} ordinary frames, {:.0} ms; worst frame {worst:.2} ms \
+        "re-shading reached after {warming_frames} ordinary and {overlay_frames} overlaid \
+         frames, {:.0} ms; worst frame {worst:.2} ms \
          on, {worst_off:.2} ms off; first frame {:.2} ms",
         started.elapsed().as_secs_f64() * 1000.0,
         on_ms[0]
@@ -340,7 +350,7 @@ fn turning_re_shading_on_never_holds_a_frame_past_fifty_milliseconds() {
         on_ms.len()
     );
     assert!(
-        overlay_frames > 0,
+        warming_frames + overlay_frames > 0,
         "the pipelines were ready before the first frame"
     );
     assert!(

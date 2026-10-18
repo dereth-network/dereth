@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::build::Build;
 use crate::shared::static_feed::{DeviceCopy, LevelRuns};
 use crate::snapshot::{HifiFrame, HifiStaticBlock};
 
@@ -164,9 +165,25 @@ pub struct CoverMap {
     /// was kept as the levels drew the same of it.
     listed: (u64, u64),
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: crate::build::Prebuilt<Gpu>,
 }
 
 impl CoverMap {
+    /// Whether the map's device objects are made, or are not being built.
+    #[must_use]
+    pub fn ready(&self) -> bool {
+        self.gpu.is_some() || !self.pre_gpu.waits()
+    }
+
+    /// Ask for the map's device objects to be built ahead.
+    pub fn warm(&mut self, cx: &mut crate::graph::WarmCx<'_>) {
+        if self.gpu.is_none() {
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || Gpu::new(&device));
+        }
+    }
+
     /// Take the frame's newly sent block geometry, and let go of blocks no longer resident.
     pub fn take_feed(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frame: &HifiFrame) {
         for l in &frame.static_levels {
@@ -256,7 +273,10 @@ impl CoverMap {
         timer: &mut crate::timing::GpuTimer,
     ) -> wgpu::TextureView {
         self.select_stale(device, queue);
-        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(device));
+        let pre = &mut self.pre_gpu;
+        let gpu = self
+            .gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| Gpu::new(device)));
         let origins: HashMap<u16, glam::Vec3> =
             frame.terrain.iter().map(|t| (t.block, t.origin)).collect();
         let draws: Vec<(&Block, glam::Vec3)> = self
@@ -380,7 +400,7 @@ impl Gpu {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("weather shelter"),
             layout: Some(&pl),
             vertex: wgpu::VertexState {

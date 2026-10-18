@@ -5,6 +5,7 @@
 //! room twice. With the lamps on a device with ray queries, a light whose way to the pixel is
 //! shut gives it only the little the room scatters, so no light reaches through a wall.
 
+use crate::build::Build;
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::snapshot::HifiLight;
 use crate::HifiFrame;
@@ -165,7 +166,7 @@ impl Gpu {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let pipeline = device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("high-fidelity room light"),
             layout: Some(&pl),
             module: &module,
@@ -199,12 +200,43 @@ impl Gpu {
 #[derive(Debug, Default)]
 pub struct CellLight {
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up: traced and not.
+    pre_traced: crate::build::Prebuilt<Gpu>,
+    pre_plain: crate::build::Prebuilt<Gpu>,
     target: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
     /// How many lights the last frame walked.
     walked: usize,
 }
 
 impl CellLight {
+    /// Whether the room lights' device objects for drawing traced or not (`traced`) are made, or
+    /// are not being built.
+    #[must_use]
+    pub fn ready(&self, traced: bool) -> bool {
+        let pre = if traced {
+            &self.pre_traced
+        } else {
+            &self.pre_plain
+        };
+        self.gpu.as_ref().is_some_and(|g| g.traced == traced) || !pre.waits()
+    }
+
+    /// Ask for the room lights' device objects to be built ahead: drawn without tracing, and
+    /// traced too when the lamps' scene is (`traced`).
+    pub fn warm(&mut self, cx: &mut crate::graph::WarmCx<'_>, traced: bool) {
+        if self.gpu.is_some() {
+            return;
+        }
+        let device = cx.device.clone();
+        self.pre_plain
+            .ask(cx.warm, move || Gpu::new(&device, false));
+        if traced {
+            let device = cx.device.clone();
+            self.pre_traced
+                .ask(cx.warm, move || Gpu::new(&device, true));
+        }
+    }
+
     /// How many lights the last frame walked.
     #[must_use]
     pub fn walked(&self) -> usize {
@@ -231,7 +263,12 @@ impl CellLight {
         self.walked = lights.len();
         let traced = scene.is_some();
         if self.gpu.as_ref().is_none_or(|g| g.traced != traced) {
-            self.gpu = Some(Gpu::new(device, traced));
+            let pre = if traced {
+                &mut self.pre_traced
+            } else {
+                &mut self.pre_plain
+            };
+            self.gpu = Some(pre.take().unwrap_or_else(|| Gpu::new(device, traced)));
         }
         let gpu = self.gpu.as_ref()?;
         if self.target.as_ref().is_none_or(|t| t.0 != size) {

@@ -42,6 +42,9 @@
 
 pub mod cover;
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::shared::fullscreen::{COLOUR_WGSL, FULLSCREEN_WGSL};
@@ -377,6 +380,10 @@ impl ReplayFilter for LegacyLayer {
 #[derive(Debug)]
 pub struct Weather {
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up: for the linear picture of a re-shaded frame, and
+    /// for the frame's own target.
+    pre_hdr: Prebuilt<Gpu>,
+    pre_target: Prebuilt<Gpu>,
     constants: Vec<u8>,
     /// How the weather stands, eased between frames.
     fall: Fall,
@@ -406,6 +413,8 @@ impl Default for Weather {
     fn default() -> Self {
         Self {
             gpu: None,
+            pre_hdr: Prebuilt::default(),
+            pre_target: Prebuilt::default(),
             constants: Vec::new(),
             fall: Fall::default(),
             drawn: false,
@@ -471,7 +480,22 @@ impl HifiPass for Weather {
 
     // Only on a frame it draws: a dry day, or indoors, costs nothing past the observation.
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        s.weather.is_on() && self.drawn
+        let built = self.gpu.is_some() || !(self.pre_hdr.waits() || self.pre_target.waits());
+        s.weather.is_on() && self.drawn && built && self.cover.ready()
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if !cx.settings.weather.is_on() || self.gpu.is_some() {
+            return;
+        }
+        let device = cx.device.clone();
+        self.pre_hdr.ask(cx.warm, move || {
+            Gpu::new(&device, crate::derive::pipeline::HDR_FORMAT)
+        });
+        let (device, format) = (cx.device.clone(), cx.format);
+        self.pre_target
+            .ask(cx.warm, move || Gpu::new(&device, format));
+        self.cover.warm(cx);
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -520,7 +544,10 @@ impl HifiPass for Weather {
         };
         if self.gpu.as_ref().is_none_or(|g| g.format != format) {
             let field = self.gpu.take().and_then(|g| g.field);
-            let mut gpu = Gpu::new(&device, format);
+            let built = [&mut self.pre_hdr, &mut self.pre_target]
+                .into_iter()
+                .find_map(|pre| pre.take().filter(|g| g.format == format));
+            let mut gpu = built.unwrap_or_else(|| Gpu::new(&device, format));
             gpu.field = field;
             self.gpu = Some(gpu);
         }
@@ -836,7 +863,7 @@ impl Gpu {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("weather"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -863,7 +890,7 @@ impl Gpu {
         });
         // Each particle a quad of four corners; what it adds to the picture is mostly light, and
         // a flake hides what is behind it as far as it covers it.
-        let fall = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let fall = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("weather falling"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {

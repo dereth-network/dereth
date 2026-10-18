@@ -30,6 +30,7 @@
 use glam::{Vec3, Vec4};
 
 use super::model;
+use crate::build::Build;
 use crate::snapshot::{HifiFrame, HifiSkyKnobs, HifiSkyObject};
 
 /// What the clouds and the heavens share.
@@ -817,7 +818,7 @@ impl HeavensGpu {
                 bind_group_layouts: &[Some(group)],
                 immediate_size: 0,
             });
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {

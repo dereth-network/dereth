@@ -12,6 +12,9 @@
 
 use std::collections::HashMap;
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::resources::{Resource, ResourceName, TextureSpec};
 use crate::{Caps, DebugView, HifiError, HifiFrame, HifiSettings, Level};
@@ -89,6 +92,8 @@ enum Apply {
 #[derive(Debug, Default)]
 pub struct Gtao {
     gpu: Option<Gpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<Gpu>,
     /// This instance draws the occlusion of frames that step indoors, after their rooms.
     late: bool,
     /// The texels this instance searched in the frame, none when it drew nothing.
@@ -102,6 +107,7 @@ impl Gtao {
     pub fn late() -> Self {
         Self {
             gpu: None,
+            pre_gpu: Prebuilt::default(),
             late: true,
             searched: 0,
         }
@@ -258,7 +264,7 @@ fn pipeline(
     format: wgpu::TextureFormat,
     blend: Option<wgpu::BlendState>,
 ) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("gtao"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
@@ -354,6 +360,32 @@ impl HifiPass for Gtao {
         (s.ambient_occlusion.is_on() || s.debug == DebugView::Ao)
             && f.camera.viewport[2] > 0
             && f.camera.viewport[3] > 0
+            && (self.gpu.is_some() || !self.pre_gpu.waits())
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        let s = cx.settings;
+        if (s.ambient_occlusion.is_on() || s.debug == DebugView::Ao) && self.gpu.is_none() {
+            // The ways the term reaches the picture: multiplied into a re-shaded frame's linear
+            // light, and shaded into the frame's own target; shown alone in the diagnostic view.
+            let mut applies = vec![
+                (crate::derive::pipeline::HDR_FORMAT, Apply::Blend),
+                (crate::derive::pipeline::HDR_FORMAT, Apply::BlendInside),
+                (cx.format, Apply::Shade),
+            ];
+            if s.debug == DebugView::Ao {
+                applies.push((crate::derive::pipeline::HDR_FORMAT, Apply::View));
+                applies.push((cx.format, Apply::View));
+            }
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || {
+                let mut gpu = Gpu::new(&device);
+                for (format, how) in applies {
+                    gpu.apply(&device, format, how);
+                }
+                gpu
+            });
+        }
     }
 
     fn observe(&mut self, _cx: &mut PrepareCx<'_, '_>) {
@@ -382,7 +414,10 @@ impl HifiPass for Gtao {
         let depth_view = if self.late { cx.world_depth } else { cx.depth };
         let covered = !self.late && covered_by_bounced_light(cx);
         let device = cx.seam.device().clone();
-        let gpu = self.gpu.get_or_insert_with(|| Gpu::new(&device));
+        let pre = &mut self.pre_gpu;
+        let gpu = self
+            .gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| Gpu::new(&device)));
         let mut settings = *cx.settings;
         if !settings.ambient_occlusion.is_on() {
             settings.ambient_occlusion = Level::High;

@@ -40,10 +40,13 @@ use dereth_render::device::PerFrameConstants;
 use dereth_render::PipelineKey;
 use glam::{DMat4, Mat4, Vec2, Vec3};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
 use crate::derive::cache::PipelineCache;
 use crate::derive::motion::MOTION_FORMAT;
 use crate::derive::pipeline::HDR_FORMAT;
 use crate::derive::{DerivedKey, Variant};
+use crate::graph::WarmCx;
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 use crate::passes::lighting::env_f32;
 use crate::reshade::{translucent, ReshadePlan};
@@ -399,7 +402,7 @@ impl TaaGpu {
             immediate_size: 0,
         });
         let pipeline = |entry: &str, format, write_mask| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("high-fidelity anti-aliasing"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
@@ -487,6 +490,8 @@ impl TaaGpu {
 #[derive(Debug, Default)]
 struct State {
     gpu: Option<TaaGpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<TaaGpu>,
     tracker: Tracker,
     /// This frame's draws of things that moved, by command.
     moving: HashMap<u32, Moving>,
@@ -508,6 +513,19 @@ struct State {
 }
 
 impl State {
+    /// Whether the device objects are made, or are not being built: the three passes sit out the
+    /// frames before they are.
+    fn ready(&self) -> bool {
+        self.gpu.is_some() || !self.pre_gpu.waits()
+    }
+
+    /// The device objects: those built ahead, or made here when there are none.
+    fn device_objects(&mut self, device: &wgpu::Device) -> &mut TaaGpu {
+        let pre = &mut self.pre_gpu;
+        self.gpu
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| TaaGpu::new(device)))
+    }
+
     /// Drop the history: the next frame starts it anew.
     fn reset(&mut self) {
         self.valid = false;
@@ -642,7 +660,15 @@ impl HifiPass for Keep {
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        wanted(s)
+        wanted(s) && self.0.borrow().ready()
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        let mut s = self.0.borrow_mut();
+        if wanted(cx.settings) && s.gpu.is_none() {
+            let device = cx.device.clone();
+            s.pre_gpu.ask(cx.warm, move || TaaGpu::new(&device));
+        }
     }
 
     fn notes(&self, notes: &mut Vec<(&'static str, u64)>) {
@@ -840,7 +866,7 @@ impl HifiPass for Translucent {
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        wanted(s)
+        wanted(s) && self.0.borrow().ready()
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -857,7 +883,7 @@ impl HifiPass for Translucent {
             return Ok(());
         }
         let device = cx.seam.device().clone();
-        let gpu = s.gpu.get_or_insert_with(|| TaaGpu::new(&device));
+        let gpu = s.device_objects(&device);
         let (Some(motion), Some(copy)) = (
             texture_of(cx, ResourceName::TaaMotion),
             texture_of(cx, ResourceName::TaaBeforeAlpha),
@@ -929,7 +955,7 @@ impl HifiPass for Resolve {
     }
 
     fn wanted(&self, s: &HifiSettings, _f: &HifiFrame, _caps: &Caps) -> bool {
-        wanted(s)
+        wanted(s) && self.0.borrow().ready()
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -986,7 +1012,7 @@ impl HifiPass for Resolve {
         s.blended = last.is_some();
         let viewport = viewport_of(cx);
         queue.write_buffer(
-            &s.gpu.get_or_insert_with(|| TaaGpu::new(&device)).params,
+            &s.device_objects(&device).params,
             0,
             &Self::constants(cx.frame, last.as_ref(), viewport, size)
                 .iter()

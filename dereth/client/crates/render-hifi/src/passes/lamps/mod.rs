@@ -12,6 +12,7 @@
 
 use glam::{Mat4, Vec3, Vec4};
 
+use crate::build::Build;
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::snapshot::{HifiLamp, LampSource};
 use crate::{HifiFrame, Level};
@@ -372,7 +373,7 @@ impl LampGpu {
                     bind_group_layouts: &[Some(layout)],
                     immediate_size: 0,
                 });
-                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some(label),
                     layout: Some(&pl),
                     module: &module,
@@ -408,7 +409,7 @@ impl LampGpu {
             bind_group_layouts: &[Some(&halo_layout)],
             immediate_size: 0,
         });
-        let halo = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let halo = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("high-fidelity lamp halos"),
             layout: Some(&halo_pl),
             vertex: wgpu::VertexState {
@@ -488,6 +489,8 @@ type LampTargets = Option<((u32, u32), Vec<(wgpu::Texture, wgpu::TextureView)>)>
 #[derive(Default)]
 pub struct LampLight {
     gpu: Option<LampGpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: crate::build::Prebuilt<LampGpu>,
     targets: LampTargets,
     history: usize,
     still: u32,
@@ -520,6 +523,22 @@ impl LampLight {
     #[must_use]
     pub fn wanted(level: Level, ray_query: bool) -> bool {
         ray_query && level.is_on() && std::env::var_os("DERETH_HIFI_LAMPS_OFF").is_none()
+    }
+
+    /// Whether the lamps' device objects are made, or are not being built.
+    #[must_use]
+    pub fn ready(&self) -> bool {
+        self.gpu.is_some() || !self.pre_gpu.waits()
+    }
+
+    /// Ask for the lamps' device objects to be built ahead, when they are drawn (`wanted`).
+    pub fn warm(&mut self, cx: &mut crate::graph::WarmCx<'_>, wanted: bool) {
+        if wanted && self.gpu.is_none() {
+            let device = cx.device.clone();
+            self.pre_gpu.ask(cx.warm, move || {
+                LampGpu::new(&device, crate::derive::pipeline::HDR_FORMAT)
+            });
+        }
     }
 
     /// Lights the frame's lamps; `None` by day or with no lamp in view.
@@ -581,7 +600,12 @@ impl LampLight {
         if lit.is_empty() {
             return None;
         }
-        let gpu = self.gpu.get_or_insert_with(|| LampGpu::new(device, hdr));
+        let pre = &mut self.pre_gpu;
+        let gpu = self.gpu.get_or_insert_with(|| {
+            pre.take()
+                .filter(|_| hdr == crate::derive::pipeline::HDR_FORMAT)
+                .unwrap_or_else(|| LampGpu::new(device, hdr))
+        });
 
         // --- the targets: 0-1 the accumulated pair, 2-3 the filter's ---------------------------
         let fresh = self.targets.as_ref().is_none_or(|t| t.0 != size);

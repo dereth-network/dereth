@@ -24,6 +24,9 @@
 use dereth_render::PipelineKey;
 use dereth_render_cpu::pso::{portal_stamp_mask, PORTAL_STAMP_FAR_DEPTH};
 
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::resources::{ResourceName, Resources, TextureSpec};
 use crate::timing::GpuTimer;
 use crate::{
@@ -210,6 +213,10 @@ pub struct Compositor {
     pipelines: Option<Pipelines>,
     seen: Option<SeenPipeline>,
     seen_after_step: Option<SeenPipeline>,
+    /// The same, built ahead by the warm-up.
+    pre_pipelines: Prebuilt<Pipelines>,
+    pre_seen: Prebuilt<SeenPipeline>,
+    pre_seen_after_step: Prebuilt<SeenPipeline>,
     /// How many recorded draws this frame drew again for the unstamped depth.
     redrawn: u64,
     /// Whether this frame kept its depth at a [`stamp_split`].
@@ -582,9 +589,11 @@ impl Compositor {
         unstamped: &wgpu::TextureView,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) -> Result<wgpu::TextureView, HifiError> {
-        let p = self
-            .seen
-            .get_or_insert_with(|| make_seen_pipeline(cx.device(), "fs_seen", 2));
+        let pre = &mut self.pre_seen;
+        let p = self.seen.get_or_insert_with(|| {
+            pre.take()
+                .unwrap_or_else(|| make_seen_pipeline(cx.device(), "fs_seen", 2))
+        });
         draw_seen(
             p,
             cx,
@@ -631,9 +640,11 @@ impl Compositor {
         } else {
             world.clone()
         };
-        let p = self
-            .seen_after_step
-            .get_or_insert_with(|| make_seen_pipeline(cx.device(), "fs_step", 3));
+        let pre = &mut self.pre_seen_after_step;
+        let p = self.seen_after_step.get_or_insert_with(|| {
+            pre.take()
+                .unwrap_or_else(|| make_seen_pipeline(cx.device(), "fs_step", 3))
+        });
         draw_seen(
             p,
             cx,
@@ -643,6 +654,26 @@ impl Compositor {
             &[world, &unstamped, before],
             timer.writes("seen depth"),
         )
+    }
+
+    /// Ask for the composite's pipelines, for frames of `cx.format`, and the seen depth's to be
+    /// built ahead.
+    pub fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if self.pipelines.is_none() {
+            let (device, format) = (cx.device.clone(), cx.format);
+            self.pre_pipelines
+                .ask(cx.warm, move || make_pipelines(&device, format));
+        }
+        if self.seen.is_none() {
+            let device = cx.device.clone();
+            self.pre_seen
+                .ask(cx.warm, move || make_seen_pipeline(&device, "fs_seen", 2));
+        }
+        if self.seen_after_step.is_none() {
+            let device = cx.device.clone();
+            self.pre_seen_after_step
+                .ask(cx.warm, move || make_seen_pipeline(&device, "fs_step", 3));
+        }
     }
 
     /// Replay `range` with the recorded pipelines (unless `filter` says otherwise) into
@@ -723,7 +754,8 @@ impl Compositor {
     ) -> Result<Option<wgpu::TextureView>, HifiError> {
         let format = cx.surface_format();
         if self.pipelines.as_ref().is_none_or(|p| p.format != format) {
-            self.pipelines = Some(make_pipelines(cx.device(), format));
+            let built = self.pre_pipelines.take().filter(|p| p.format == format);
+            self.pipelines = Some(built.unwrap_or_else(|| make_pipelines(cx.device(), format)));
         }
         let Some(p) = self.pipelines.as_ref() else {
             return Ok(None);
@@ -893,7 +925,7 @@ fn make_pipelines(device: &wgpu::Device, format: wgpu::TextureFormat) -> Pipelin
         immediate_size: 0,
     });
     let pipeline = |entry: &str| {
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("composite"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -919,7 +951,7 @@ fn make_pipelines(device: &wgpu::Device, format: wgpu::TextureFormat) -> Pipelin
             cache: None,
         })
     };
-    let scale_depth = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let scale_depth = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("composite depth"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
@@ -1056,7 +1088,7 @@ fn make_seen_pipeline(device: &wgpu::Device, entry: &str, bindings: u32) -> Seen
         bind_group_layouts: &[Some(&layout)],
         immediate_size: 0,
     });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("seen depth"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {

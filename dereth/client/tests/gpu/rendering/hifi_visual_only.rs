@@ -186,6 +186,11 @@ fn session(fidelity: FidelityPreferences) -> (Vec<Step>, usize) {
     );
     frames(&mut app, 2);
     let _ = outbox.take(&mut app);
+    // The presentation's pipelines are built off the frame: the session is played once they are.
+    assert!(app
+        .renderer_mut()
+        .gpu
+        .hifi_settle(std::time::Duration::from_secs(60)));
 
     let mut steps = Vec::new();
     let mut composited = 0;

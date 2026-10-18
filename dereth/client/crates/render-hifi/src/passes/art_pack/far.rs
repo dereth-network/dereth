@@ -7,6 +7,7 @@ use glam::{Mat4, Vec3};
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::build::Build;
 use crate::snapshot::{HifiFarKnobs, HifiFarTree, HifiFarTrees};
 
 /// The far trees' culling shader.
@@ -97,7 +98,7 @@ impl FarPipelines {
             bind_group_layouts: &[Some(&cull_layout)],
             immediate_size: 0,
         });
-        let cull = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        let cull = device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("far trees cull"),
             layout: Some(&layout),
             module: &module,

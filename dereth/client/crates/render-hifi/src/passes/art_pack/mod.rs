@@ -34,6 +34,9 @@ use glam::{Mat4, Vec2, Vec3, Vec3Swizzles, Vec4, Vec4Swizzles};
 use crate::graph::{EncodeCx, HifiPass, PrepareCx};
 
 mod far;
+use crate::build::Build;
+use crate::build::Prebuilt;
+use crate::graph::WarmCx;
 use crate::passes::lighting::{legacy_light, object_ambient, CASCADES};
 use crate::reshade::ReshadePlan;
 use crate::shared::camera::HEIGHT_UP;
@@ -120,12 +123,29 @@ struct Placed {
     second: bool,
 }
 
+/// Whether the pack's models are drawn: its option is on, with the light, and the frame carries a
+/// pack.
+fn draws(s: &HifiSettings, f: &HifiFrame) -> bool {
+    s.art_pack && s.lighting.is_on() && f.art_pack.is_some()
+}
+
+impl State {
+    /// Whether the models of the pack `f` carries are on the device, or are not being built:
+    /// a frame before they are built is drawn without them.
+    fn ready(&self, f: &HifiFrame) -> bool {
+        let serial = f.art_pack.as_ref().map(|p| p.serial);
+        self.gpu.as_ref().is_some_and(|g| Some(g.serial) == serial) || !self.pre_gpu.waits()
+    }
+}
+
 #[derive(Debug, Default)]
 struct State {
     /// The pack the frames carry.
     pack: Option<Arc<HifiArtPack>>,
     /// Its models on the device.
     gpu: Option<PackGpu>,
+    /// The same, built ahead by the warm-up.
+    pre_gpu: Prebuilt<PackGpu>,
     /// Each resident block's placements, with the block's build they belong to and whether its
     /// own objects stand in the world.
     blocks: HashMap<u16, (u32, bool, Vec<HifiPackPlacement>)>,
@@ -751,7 +771,7 @@ impl PackGpu {
                     write_mask: wgpu::ColorWrites::ALL,
                 }),
             ];
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("art pack"),
                 layout: Some(&view_layout),
                 vertex: wgpu::VertexState {
@@ -807,7 +827,7 @@ impl PackGpu {
                     write_mask: wgpu::ColorWrites::ALL,
                 }),
             ];
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("art pack far trees"),
                 layout: Some(&far_layout),
                 vertex: wgpu::VertexState {
@@ -842,7 +862,7 @@ impl PackGpu {
             .features()
             .contains(wgpu::Features::DEPTH_CLIP_CONTROL);
         let caster_pipeline = |cut: bool| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("art pack shadow"),
                 layout: Some(&shadow_layout),
                 vertex: wgpu::VertexState {
@@ -1605,7 +1625,22 @@ impl HifiPass for ArtPack {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        s.art_pack && s.lighting.is_on() && f.art_pack.is_some()
+        draws(s, f) && self.0.borrow().ready(f)
+    }
+
+    fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        let mut s = self.0.borrow_mut();
+        let Some(pack) = cx.frame.art_pack.clone() else {
+            return;
+        };
+        if !draws(cx.settings, cx.frame) || s.gpu.as_ref().is_some_and(|g| g.serial == pack.serial)
+        {
+            return;
+        }
+        let (device, queue) = (cx.device.clone(), cx.queue.clone());
+        s.pre_gpu.ask_for(pack.serial, cx.warm, move || {
+            PackGpu::new(&device, &queue, &pack)
+        });
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
@@ -1617,7 +1652,8 @@ impl HifiPass for ArtPack {
         let device = cx.seam.device().clone();
         let queue = cx.seam.queue().clone();
         if s.gpu.as_ref().is_none_or(|g| g.serial != pack.serial) {
-            s.gpu = Some(PackGpu::new(&device, &queue, &pack));
+            let built = s.pre_gpu.take().filter(|g| g.serial == pack.serial);
+            s.gpu = Some(built.unwrap_or_else(|| PackGpu::new(&device, &queue, &pack)));
         }
         s.covered.clear();
         s.marked.clear();
@@ -1694,7 +1730,7 @@ impl HifiPass for FarCull {
     }
 
     fn wanted(&self, s: &HifiSettings, f: &HifiFrame, _caps: &Caps) -> bool {
-        s.art_pack && s.lighting.is_on() && f.art_pack.is_some() && f.far_trees.is_some()
+        draws(s, f) && f.far_trees.is_some() && self.0.borrow().ready(f)
     }
 
     fn prepare(&mut self, _cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {

@@ -49,10 +49,13 @@ use dereth_render::wgpu::sidecar::{
 };
 use dereth_render::ZFunc;
 
+use crate::build::Build;
+use crate::build::Prebuilt;
 use crate::derive::cache::PipelineCache;
 use crate::derive::pipeline::{HDR_FORMAT, NORMAL_FORMAT};
 use crate::derive::reshade::MaterialClass;
 use crate::derive::{DerivedKey, Variant};
+use crate::graph::WarmCx;
 use crate::materials::Materials;
 use crate::resources::{Resource, ResourceName, Resources, TextureSpec};
 use crate::shared::fullscreen::COLOUR_WGSL;
@@ -735,6 +738,10 @@ pub struct Reshader {
     views: Option<Views>,
     clear: Option<wgpu::RenderPipeline>,
     ground: Option<Ground>,
+    /// The same, built ahead by the warm-up.
+    pre_views: Prebuilt<Views>,
+    pre_clear: Prebuilt<wgpu::RenderPipeline>,
+    pre_ground: Prebuilt<Ground>,
     /// What the landscape field on the device was built from, and its shader parameters.
     field: Option<(FieldSignature, [u8; 32])>,
     /// The bindings made for the pictures the passes read, kept while those pictures are.
@@ -800,7 +807,7 @@ fn fullscreen_pipeline_into(
         bind_group_layouts: &[Some(layout)],
         immediate_size: 0,
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("high-fidelity re-shade"),
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
@@ -1009,12 +1016,76 @@ fn viewport_pass<'e>(
     pass
 }
 
+/// The pipeline that clears a re-shade pass's depth.
+fn make_clear(device: &wgpu::Device) -> wgpu::RenderPipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("high-fidelity depth clear"),
+        source: wgpu::ShaderSource::Wgsl(CLEAR_WGSL.into()),
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("high-fidelity depth clear"),
+        bind_group_layouts: &[],
+        immediate_size: 0,
+    });
+    let mut targets = crate::derive::pipeline::reshade_targets(None, false);
+    for t in &mut targets {
+        t.write_mask = wgpu::ColorWrites::empty();
+        t.blend = None;
+    }
+    let targets = targets.map(Some);
+    device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("high-fidelity depth clear"),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: SidecarContext::depth_format(),
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Always),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("fs"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &targets,
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 impl Reshader {
     fn views(&mut self, device: &wgpu::Device, format: wgpu::TextureFormat) -> &Views {
         if self.views.as_ref().is_none_or(|v| v.format != format) {
-            self.views = Some(make_views(device, format));
+            let built = self.pre_views.take().filter(|v| v.format == format);
+            self.views = Some(built.unwrap_or_else(|| make_views(device, format)));
         }
         self.views.as_ref().expect("made above")
+    }
+
+    /// Ask for the re-shade's own pipelines, for frames of `cx.format`, to be built ahead.
+    pub fn warm(&mut self, cx: &mut WarmCx<'_>) {
+        if self.views.is_none() {
+            let (device, format) = (cx.device.clone(), cx.format);
+            self.pre_views
+                .ask(cx.warm, move || make_views(&device, format));
+        }
+        if self.clear.is_none() {
+            let device = cx.device.clone();
+            self.pre_clear.ask(cx.warm, move || make_clear(&device));
+        }
+        if self.ground.is_none() {
+            let device = cx.device.clone();
+            self.pre_ground.ask(cx.warm, move || make_ground(&device));
+        }
     }
 
     /// Bring the landscape field up to date with `frame`'s blocks, held in `resources`.
@@ -1055,51 +1126,10 @@ impl Reshader {
     /// Clear the depth of `pass`, a re-shade pass, over the world viewport, as the recorded depth
     /// clear of a step indoors does; the color is left as it is.
     pub fn clear_depth(&mut self, cx: &mut SidecarContext<'_>, pass: &mut wgpu::RenderPass<'_>) {
-        let pipeline = self.clear.get_or_insert_with(|| {
-            let device = cx.device();
-            let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("high-fidelity depth clear"),
-                source: wgpu::ShaderSource::Wgsl(CLEAR_WGSL.into()),
-            });
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("high-fidelity depth clear"),
-                bind_group_layouts: &[],
-                immediate_size: 0,
-            });
-            let mut targets = crate::derive::pipeline::reshade_targets(None, false);
-            for t in &mut targets {
-                t.write_mask = wgpu::ColorWrites::empty();
-                t.blend = None;
-            }
-            let targets = targets.map(Some);
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("high-fidelity depth clear"),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some("vs"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &[],
-                },
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: SidecarContext::depth_format(),
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Always),
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some("fs"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &targets,
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
+        let pre = &mut self.pre_clear;
+        let pipeline = self
+            .clear
+            .get_or_insert_with(|| pre.take().unwrap_or_else(|| make_clear(cx.device())));
         if let Some(v) = cx.world_viewport() {
             #[allow(clippy::cast_precision_loss)] // pixel extents
             pass.set_viewport(
@@ -1182,7 +1212,8 @@ impl Reshader {
         };
         let field_params = *field_params;
         if self.ground.is_none() {
-            self.ground = Some(make_ground(cx.device()));
+            let built = self.pre_ground.take();
+            self.ground = Some(built.unwrap_or_else(|| make_ground(cx.device())));
         }
         let Some(g) = self.ground.as_ref() else {
             return;
