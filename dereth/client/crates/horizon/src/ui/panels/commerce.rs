@@ -4,7 +4,7 @@
 //! The vendor: the stock under the vendor's own type filters, a quantity for the selected row,
 //! Buy (at once) or Add to List, the basket with Buy All and its clears; on the Sell tab, the
 //! items dropped there and Sell Item, Sell All and the clears. A right-click on a row of the
-//! basket or of the items to sell takes it back off. Closing the window closes the vendor. The
+//! stock examines its item; on a row of the basket or of the items to sell it takes it back off. Closing the window closes the vendor. The
 //! trade: what each side offers, an item dropped on your side offered, and Accept, Decline, Clear
 //! and Close.
 
@@ -324,7 +324,9 @@ impl Windows {
             let rows: Vec<Row> = stock.iter().map(|r| shop_row(r)).collect();
             let list_area = Rect::new(left.x, left.y + 30.0 * k, left.w, left.h - 30.0 * k);
             let Pressed {
-                clicked, doubled, ..
+                clicked,
+                doubled,
+                right: examined,
             } = list(
                 p,
                 ctx,
@@ -334,6 +336,11 @@ impl Windows {
                 self.vendor_selected,
                 &mut self.vendor_scroll,
             );
+            // A right-click examines the row's item, as it does an item in a pack.
+            if let Some(i) = examined {
+                out.requests.push(UiRequest::Select(rows[i].item));
+                out.requests.push(UiRequest::Examine(rows[i].item));
+            }
             if let Some(i) = clicked {
                 self.vendor_selected = Some(rows[i].item);
                 self.vendor_quantity = 1;

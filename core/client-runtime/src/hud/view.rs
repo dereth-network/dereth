@@ -1001,6 +1001,7 @@ impl GameView for HudView<'_> {
         let s = q.skill(id).copied().unwrap_or_default();
         let sac = dereth_rules::skills::Sac::from_raw(s.sac);
         let level = u32::from(s.level_from_pp);
+        let (raw, effective, vitae) = super::tables::skill_values(q, skills, id);
         Some(dereth_client_contract::SkillAdvancement {
             sac: s.sac,
             pp: s.pp,
@@ -1013,6 +1014,9 @@ impl GameView for HudView<'_> {
             // honest answer and `meter_fill` reads a zero span as 0.0.
             xp_at_level: level_xp(xp, sac, level),
             xp_at_next_level: level_xp(xp, sac, level + 1),
+            level: raw,
+            effective,
+            vitae,
         })
     }
 

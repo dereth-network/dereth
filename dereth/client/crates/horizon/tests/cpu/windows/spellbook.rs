@@ -392,3 +392,27 @@ fn a_count_being_typed_is_set_when_the_spellbook_turns_to_another_tab() {
     let turned = click(&mut h, &state, (b.x + 35.0, b.y + 13.0));
     assert!(sets(&turned, 42), "{turned:?}");
 }
+
+#[test]
+fn a_spell_name_cut_short_in_the_spellbook_is_given_whole_under_the_pointer() {
+    const LONG: &str = "Incantation of Flame Bolt Granted by the Great Lugian Shaman";
+    let mut state = caster(MAGIC);
+    state.spells[0].name = LONG.into();
+    let mut h = Harness::with_built_in_art();
+    h.frame(&state);
+    h.ui.windows.open(WindowId::Actions, 0.0);
+    for _ in 0..12 {
+        h.frame(&state);
+    }
+    let l = list(&h);
+    h.move_to(l.x + 60.0, l.y + 20.0);
+    h.frame(&state);
+    assert_eq!(
+        h.ui.windows.tip().map(|(title, _)| title.as_str()),
+        Some(LONG)
+    );
+    // A name that fits is given no tooltip.
+    state.spells[0].name = "Flame Bolt I".into();
+    h.frame(&state);
+    assert_eq!(h.ui.windows.tip(), None);
+}

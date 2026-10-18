@@ -121,4 +121,32 @@ mod tests {
             "Recording a performance capture for 10 seconds."
         );
     }
+
+    /// Behaviour: chat.commands.report-and-perfcapture-are-answered-by-this-client-and-never-sent
+    #[test]
+    fn help_report_and_help_perfcapture_say_what_each_records_and_ask_for_it_in_reports() {
+        let c = crate::cmd::CommandInterp::new();
+        for (name, want) in [
+            (
+                "report",
+                "@report - Prints a debug line with diagnostic information about where you are \
+                 (@loc), what you're looking at (camera values), and various client rendering \
+                 state. Please include this when reporting bugs.\n",
+            ),
+            (
+                "/perfcapture",
+                "@perfcapture <seconds> - Records performance metrics for <seconds> (default 10) \
+                 to a file in your settings folder. Please include this when reporting \
+                 performance-related bugs.\n",
+            ),
+        ] {
+            let lines = c.do_help(&[name.to_owned()]);
+            assert_eq!(lines.len(), 2, "{name}: {lines:?}");
+            assert_eq!(
+                lines[1].0,
+                format!("{}{want}", crate::cmd::help::FOR_MORE_INFORMATION),
+                "{name}"
+            );
+        }
+    }
 }

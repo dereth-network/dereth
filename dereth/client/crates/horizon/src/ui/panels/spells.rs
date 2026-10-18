@@ -300,6 +300,10 @@ impl Windows {
             let room = row.right() - icon_r.right() - 14.0 * k;
             let shown = p.fit(&name, &s.name, room);
             p.text(&name, icon_r.right() + 10.0 * k, row.y + 0.5 * k, &shown);
+            // A name cut short is given whole under the pointer.
+            if shown != s.name && ctx.over(&visible) {
+                self.tip = Some((s.name.clone(), Vec::new()));
+            }
             p.text(
                 &dim,
                 icon_r.right() + 10.0 * k,

@@ -979,3 +979,104 @@ fn a_channel_line_without_a_speaker_is_drawn_whole() {
     assert_eq!(network_channel(0x6FFF_FFFF, "group@channel"), Some("group"));
     assert_eq!(network_channel_echo("You tell a@b@channel, \"x\""), None);
 }
+
+/// A skill's footer numbers are asked of the player's qualities when they are read, so a vitae
+/// won back shows at once, while the skill rows keep the join the skills page last rebuilt (the
+/// page listens for enchantment changes, and a change of vitae alone is not one).
+/// Behaviour: vitae.penalty.takes-the-skill-down-leaves-the-row-plain-and-spares-the-attributes
+#[test]
+fn a_skills_footer_numbers_follow_the_vitae_as_it_is_now_and_not_the_last_rebuilt_row() {
+    use dereth_client_model::{StatKey, StatType, StatValue, Weenie, World};
+    use dereth_protocol::types::qualities::{Enchantment, Skill, StatMod};
+    use dereth_rules::enchant::ench_type;
+    const MELEE_DEFENSE: u32 = 6;
+    const VITAE: u32 = 666;
+    let player = ObjectId(0x5000_0001);
+    let mut world = World::new();
+    world.player = Some(player);
+    let mut row = Weenie::new(player);
+    let mut q = dereth_client_model::Qualities::new();
+    q.set(
+        StatKey::new(StatType::Skill, MELEE_DEFENSE),
+        StatValue::Skill(Skill {
+            sac: 2,
+            init_level: 100,
+            ..Skill::default()
+        }),
+    );
+    row.qualities = Some(q);
+    world.tables.weenies.insert(player, row);
+    let mut hud = Hud::new();
+    hud.player_desc_received = true;
+    hud.skill_table = Some(dereth_assets::tables::SkillTable {
+        id: DataId(0x0E00_0004),
+        buckets: 1,
+        skills: [(
+            MELEE_DEFENSE,
+            dereth_assets::tables::SkillBase {
+                description: String::new(),
+                name: "Melee Defense".into(),
+                icon: 0,
+                trained_cost: 0,
+                specialized_cost: 0,
+                category: 0,
+                chargen_use: 0,
+                min_level: 1,
+                formula: dereth_assets::tables::SkillFormula {
+                    w: 0,
+                    x: 0,
+                    y: 0,
+                    z: 1,
+                    attr1: 0,
+                    attr2: 0,
+                },
+                upper_bound: 0.0,
+                lower_bound: 0.0,
+                learn_mod: 1.0,
+            },
+        )]
+        .into_iter()
+        .collect(),
+    });
+    hud.xp_table = Some(dereth_assets::tables::XpTable {
+        id: DataId(0x0E00_0018),
+        attribute_xp: vec![],
+        vital_xp: vec![],
+        trained_xp: vec![0],
+        specialized_xp: vec![0],
+        level_xp: vec![0],
+        level_credits: vec![0],
+    });
+    let footer = |hud: &Hud, world: &World| {
+        let a = HudView { hud, world }
+            .skill_advancement(MELEE_DEFENSE)
+            .expect("the footer's numbers");
+        (a.level, a.effective, a.vitae)
+    };
+    let shown_row = |hud: &Hud| {
+        hud.skills
+            .iter()
+            .find(|s| s.id == MELEE_DEFENSE)
+            .map(|s| (s.level, s.effective, s.vitae))
+            .expect("the skill's row")
+    };
+    // A death: a tenth off, which the page's rebuild on the description takes in.
+    let vitae = Enchantment {
+        id: VITAE,
+        duration: -1.0,
+        smod: StatMod {
+            kind: ench_type::VITAE | ench_type::MULTIPLICATIVE,
+            key: 0,
+            value: 0.9,
+        },
+        ..Enchantment::default()
+    };
+    assert!(world.update_player_enchantment(&vitae, dereth_primitives::LocalTime(1.0)));
+    hud.rebuild_panel_tables(&world);
+    assert_eq!(shown_row(&hud), (100, 90, -10));
+    assert_eq!(footer(&hud, &world), (100, 90, -10));
+    // Won back: the row stays as the page last built it, and the footer has it as it is.
+    world.remove_player_enchantment(VITAE);
+    assert_eq!(shown_row(&hud), (100, 90, -10), "the page's own join");
+    assert_eq!(footer(&hud, &world), (100, 100, 0), "no vitae left");
+}

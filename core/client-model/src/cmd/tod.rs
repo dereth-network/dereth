@@ -65,47 +65,20 @@ pub fn parse(args: &[String]) -> Result<TimeOfDayCommand, String> {
     }
 }
 
-/// The fraction to three places, and the region's name for that part of the day where it has one.
-fn at(fraction: f32, name: Option<&str>) -> String {
+/// The answer to `@tod`, alone, once a time is set and once it is reset: the region's name for
+/// that part of the day where it has one, then the fraction of the day to three places, marked
+/// forced while the time is one set on this client.
+#[must_use]
+pub fn describe(fraction: f32, name: Option<&str>, forced: bool) -> String {
     // The clock's single-precision day boundary can leave midnight a hair below zero; it reads as
     // midnight, not as "-0.000".
     let fraction = if fraction > 0.0 { fraction } else { 0.0 };
-    match name.map(str::trim).filter(|n| !n.is_empty()) {
-        Some(name) => format!("{fraction:.3} ({name})"),
+    let at = match name.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => format!("{name} ({fraction:.3})"),
         None => format!("{fraction:.3}"),
-    }
-}
-
-/// The answer to a bare `@tod`: the time of day the sky is drawn at, and whether that is the
-/// server's clock or one this client has moved.
-#[must_use]
-pub fn describe(fraction: f32, name: Option<&str>, local: bool) -> String {
-    let at = at(fraction, name);
-    if local {
-        format!(
-            "The time of day is {at}, set on this client. @tod reset returns to the server's clock."
-        )
-    } else {
-        format!("The time of day is {at}, from the server's clock.")
-    }
-}
-
-/// The answer to `@tod <time>`, once the clock has been moved there.
-#[must_use]
-pub fn set_reply(fraction: f32, name: Option<&str>) -> String {
-    format!(
-        "The time of day is now {} on this client only. @tod reset returns to the server's clock.",
-        at(fraction, name)
-    )
-}
-
-/// The answer to `@tod reset`, once the clock is the server's again.
-#[must_use]
-pub fn reset_reply(fraction: f32, name: Option<&str>) -> String {
-    format!(
-        "The time of day follows the server's clock again: {}.",
-        at(fraction, name)
-    )
+    };
+    let forced = if forced { " (forced)" } else { "" };
+    format!("The current time of day is {at}{forced}")
 }
 
 #[cfg(test)]
@@ -190,55 +163,49 @@ mod tests {
 
     /// Behaviour: chat.commands.tod-is-answered-by-this-client-and-never-sent
     #[test]
-    fn help_tod_explains_every_form_the_command_takes() {
+    fn help_tod_says_each_form_the_command_takes() {
+        let want = concat!(
+            "@tod - Shows the current time of day and if it is forced locally.\n",
+            "@tod <0 to 1> - Forces the time of day and lets it run from there.\n",
+            "@tod midnight, dawn, noon, dusk - Forces the time of day and lets it run from there.\n",
+            "@tod reset - Restore natural time of day set by the world timeline.\n",
+        );
         let c = crate::cmd::CommandInterp::new();
         for name in ["tod", "@tod", "/tod"] {
             let lines = c.do_help(&[name.to_owned()]);
             assert_eq!(lines.len(), 2, "{name}: {lines:?}");
-            let body = &lines[1].0;
-            for form in [
-                "@tod - ",
-                "@tod <0 to 1> - ",
-                "@tod midnight",
-                "@tod reset - ",
-            ] {
-                assert!(body.contains(form), "{name}: {form} is missing from {body}");
-            }
+            assert_eq!(
+                lines[1].0,
+                format!("{}{want}", crate::cmd::help::FOR_MORE_INFORMATION),
+                "{name}"
+            );
         }
     }
 
+    /// Behaviour: chat.commands.tod-is-answered-by-this-client-and-never-sent
     #[test]
-    fn the_answers_name_the_time_and_whose_clock_it_is() {
+    fn the_answer_names_the_time_and_says_forced_only_when_it_is_set_here() {
         assert_eq!(
             describe(0.5, Some("Midsong"), false),
-            "The time of day is 0.500 (Midsong), from the server's clock."
+            "The current time of day is Midsong (0.500)"
         );
         assert_eq!(
             describe(0.25, Some("Dawnsong"), true),
-            "The time of day is 0.250 (Dawnsong), set on this client. @tod reset returns to \
-             the server's clock."
+            "The current time of day is Dawnsong (0.250) (forced)"
         );
         // A region with no name for the time, or a blank one, gives the fraction alone.
         assert_eq!(
             describe(0.125, None, false),
-            "The time of day is 0.125, from the server's clock."
+            "The current time of day is 0.125"
         );
+        assert_eq!(
+            describe(0.125, Some(" "), true),
+            "The current time of day is 0.125 (forced)"
+        );
+        // Midnight a hair below zero reads as midnight.
         assert_eq!(
             describe(-1e-7, Some("Darktide"), false),
-            "The time of day is 0.000 (Darktide), from the server's clock."
-        );
-        assert_eq!(
-            describe(0.125, Some(" "), false),
-            "The time of day is 0.125, from the server's clock."
-        );
-        assert_eq!(
-            set_reply(0.75, Some("Evensong")),
-            "The time of day is now 0.750 (Evensong) on this client only. @tod reset returns \
-             to the server's clock."
-        );
-        assert_eq!(
-            reset_reply(0.3, Some("Foredawn-and-Half")),
-            "The time of day follows the server's clock again: 0.300 (Foredawn-and-Half)."
+            "The current time of day is Darktide (0.000)"
         );
     }
 }

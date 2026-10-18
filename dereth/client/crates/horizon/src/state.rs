@@ -11,12 +11,18 @@ use crate::ui::game::{
 };
 
 /// A skill as the character window shows it: its value with the spells in force and vitae, and
-/// what that value is made of.
-fn skill_of(s: &SkillEntry, adv: SkillAdvancement) -> Skill {
+/// what that value is made of, as the player's qualities give them now (`adv`, when the game
+/// has it) rather than as the skill rows were last joined, which a change of vitae alone leaves
+/// as they were.
+fn skill_of(s: &SkillEntry, adv: Option<SkillAdvancement>) -> Skill {
+    let (level, effective, vitae) = adv.map_or((s.level, s.effective, s.vitae), |a| {
+        (a.level, a.effective, a.vitae)
+    });
+    let adv = adv.unwrap_or_default();
     Skill {
         name: s.name.clone(),
-        value: u32::try_from(s.effective).unwrap_or(0),
-        modifiers: Modifiers::of(s.level, s.effective, s.vitae),
+        value: u32::try_from(effective).unwrap_or(0),
+        modifiers: Modifiers::of(level, effective, vitae),
         training: s.sac,
         id: s.id,
         icon: s.icon.map(|d| d.0),
@@ -415,7 +421,7 @@ pub fn snapshot<S: Shell>(
         .skills()
         .iter()
         .filter(|s| s.sac >= 1)
-        .map(|s| skill_of(s, v.skill_advancement(s.id).unwrap_or_default()))
+        .map(|s| skill_of(s, v.skill_advancement(s.id)))
         .collect();
     g.skill_credits = v.skill_credits();
     // The attributes in the game's own order, then the three vitals by their maxima.
@@ -1331,7 +1337,7 @@ mod tests {
             effective,
             vitae,
         };
-        let adv = SkillAdvancement::default();
+        let adv = None;
         let buffed = skill_of(&entry(200, 235, 0), adv);
         assert_eq!(buffed.value, 235, "the value with the spells in force");
         assert_eq!(buffed.modifiers.colour(), 1, "green");
@@ -1351,6 +1357,51 @@ mod tests {
         let both = skill_of(&entry(200, 196, -10), adv);
         assert_eq!(both.modifiers.colour(), 1, "a +6 buff under a -10 vitae");
         assert_eq!(both.modifiers.lines(), ["200 (+6)", "Vitae: -10"]);
+    }
+
+    #[test]
+    fn a_skill_shows_its_values_as_the_game_has_them_now_not_as_its_row_was_last_joined() {
+        // The row still carries a vitae penalty the game has since cleared.
+        let stale = SkillEntry {
+            id: 6,
+            name: "Melee Defense".into(),
+            icon: None,
+            min_level: 1,
+            sac: 3,
+            level: 200,
+            effective: 190,
+            vitae: -10,
+        };
+        let now = SkillAdvancement {
+            level: 200,
+            effective: 200,
+            vitae: 0,
+            cost_to_raise: 1234,
+            ..SkillAdvancement::default()
+        };
+        let skill = skill_of(&stale, Some(now));
+        assert_eq!(skill.value, 200);
+        assert_eq!(
+            skill.modifiers.lines(),
+            ["200"],
+            "no vitae line once it is cleared"
+        );
+        assert_eq!(skill.cost, 1234);
+        // And a penalty the row has not caught up with yet is shown at once.
+        let fresh = SkillEntry {
+            vitae: 0,
+            effective: 200,
+            ..stale
+        };
+        let dead = SkillAdvancement {
+            effective: 190,
+            vitae: -10,
+            ..now
+        };
+        assert_eq!(
+            skill_of(&fresh, Some(dead)).modifiers.lines(),
+            ["200", "Vitae: -10"]
+        );
     }
 
     #[test]

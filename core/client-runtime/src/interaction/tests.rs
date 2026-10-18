@@ -219,7 +219,7 @@ fn typed_weather_is_answered_by_this_client_and_nothing_reaches_the_server() {
         (1, "@weather rain"),
         (8, "/weather SNOW"),
         (1, "/WEATHER clear"),
-        (1, "@weather auto"),
+        (1, "@weather reset"),
         (8, "@weather hail"),
         (1, "/weather rain now"),
     ];

@@ -41,6 +41,9 @@ pub struct GameClock {
     season_names: Vec<String>,
     /// `year_spec` — the last `%s` of the date ("P.Y." in the shipped region).
     year_spec: String,
+    /// The sky's day groups' names, in order: the day's weather ("Sunny", "Cloudy", "Rainy" in the
+    /// shipped region), one of which the date picks for each day.
+    day_names: Vec<String>,
     /// `current_season`, the index `calc_day_begin` leaves behind.
     pub current_season: usize,
     /// `present_time_of_day`, a float in `[0, 1)`: 0 = midnight, 0.5 = noon.
@@ -77,6 +80,11 @@ impl GameClock {
             season_begins: g.seasons.iter().map(|s| s.begin).collect(),
             season_names: g.seasons.iter().map(|s| s.name.clone()).collect(),
             year_spec: g.year_spec.clone(),
+            day_names: region
+                .sky_info
+                .as_ref()
+                .map(|sky| sky.day_groups.iter().map(|d| d.day_name.clone()).collect())
+                .unwrap_or_default(),
             current_season: 0,
             present_time_of_day: 0.0,
             time_of_day_begin: -1.0,
@@ -164,6 +172,19 @@ impl GameClock {
         self.time_of_day_names
             .get(self.current_time_of_day)
             .map(String::as_str)
+    }
+
+    /// The name of the day group the current date picks, the day's own weather ("Rainy"); `None`
+    /// when the region's sky has no day groups.
+    #[must_use]
+    pub fn present_day_name(&self) -> Option<&str> {
+        let k = dereth_assets::region::calc_present_day_group(
+            self.current_year,
+            self.days_per_year,
+            self.current_day,
+            self.day_names.len(),
+        );
+        self.day_names.get(k).map(String::as_str)
     }
 
     /// Advance the game clock from the current client time; the frame loop calls this every frame.

@@ -159,7 +159,7 @@ impl Windows {
                 || "No longer in force".to_owned(),
                 |e| {
                     e.remaining.map_or_else(
-                        || "Lasting".to_owned(),
+                        || format!("Time left: {}", crate::ui::hud::LASTING),
                         |left| format!("Time left: {}", time_left_exact(left)),
                     )
                 },

@@ -553,6 +553,15 @@ impl<S: Shell> App<S> {
         let dt = (self.timer.cur_time - self.last_time).clamp(0.0, 0.25) as f32;
         let turns = self.orbit_keys.cast_mouse(across, dt);
         self.orbit_pending.extend(turns);
+        // The game turning or moving the player toward something is left to finish, whatever the
+        // mouse steers; once it has, the camera goes on round the rest of the way the body is
+        // still drawn turning, so the mouse steers on from where the game left the player.
+        if self
+            .orbit_keys
+            .set_moved_by_game(c.is_moving_to(), settings)
+        {
+            c.camera.orbit.turn_on(-c.camera.drawn_turn);
+        }
         let keys = self.orbit_keys;
         if !c.camera.orbit.placed {
             return;

@@ -472,6 +472,11 @@ impl OrbitCamera {
         self.swing = 0.0;
     }
 
+    /// Turn where it is set by `degrees` clockwise; what is shown eases round after it.
+    pub fn turn_on(&mut self, degrees: f32) {
+        self.yaw = wrap(self.yaw - degrees.to_radians());
+    }
+
     /// Turn it with the player, who turned by `degrees` clockwise: it keeps its place behind them
     /// as they turn. What is shown turns at once too, so it rides with them without lagging.
     pub fn turn_with_player(&mut self, degrees: f32) {
@@ -747,6 +752,9 @@ pub struct MovementKeys {
     /// What the game has been asked to keep doing while the facing is held under camera-based
     /// movement: forward, back, and a step to each side.
     sent: SentMovement,
+    /// The game is moving or turning the player itself, toward something they use, fight or cast
+    /// at ([`Self::set_moved_by_game`]).
+    moved_by_game: bool,
 }
 
 /// The game's own movement asked for, held while its keys are.
@@ -847,11 +855,24 @@ impl MovementKeys {
         self.relock(settings)
     }
 
+    /// Whether the game is moving or turning the player itself this frame (`moved`): toward
+    /// something they use, fight or cast at. True when that has just ended while the mouse steers
+    /// the player under `settings`: the camera that went round with them is then to go on the
+    /// rest of the way the body is still drawn turning ([`OrbitCamera::turn_on`]), so that the
+    /// mouse steers on from where the game left them.
+    pub fn set_moved_by_game(&mut self, moved: bool, settings: OrbitSettings) -> bool {
+        let ended = self.moved_by_game && !moved;
+        self.moved_by_game = moved;
+        ended && settings.movement == MovementMode::Character && self.mouse_steers()
+    }
+
     /// The heading, in degrees clockwise from north, the player is turned to face this frame under
     /// `settings`, with the camera looking along `camera_heading`; `None` leaves them facing as
     /// they do. Camera-based, they face the way the keys point against the camera; character-based,
-    /// the camera's way while the mouse steers. While the facing is held ([`Self::locked`]) they
-    /// are turned only by the mouse steering under character-based movement.
+    /// the camera's way while the mouse steers, unless the game is turning them itself (toward
+    /// what they fight, use or cast at), which it is left to finish. While the facing is held
+    /// ([`Self::locked`]) they are turned only by the mouse steering under character-based
+    /// movement.
     #[must_use]
     pub fn facing(&self, settings: OrbitSettings, camera_heading: f32) -> Option<f32> {
         // While a spell is cast with the right button held, the player turns by the game's own
@@ -862,7 +883,9 @@ impl MovementKeys {
         match settings.movement {
             MovementMode::Camera if self.locked => None,
             MovementMode::Camera => self.held.heading(camera_heading, settings.sidestep),
-            MovementMode::Character => self.mouse_steers().then_some(camera_heading),
+            MovementMode::Character => {
+                (self.mouse_steers() && !self.moved_by_game).then_some(camera_heading)
+            }
         }
     }
 
@@ -1090,14 +1113,20 @@ impl MovementKeys {
     }
 
     /// Whether, under `settings`, the player turning carries the orbit camera round with them:
-    /// while a spell is cast and the player turns themselves ([`Self::cast_turn`]); otherwise
-    /// under character-based movement, with a turning key held (or a movement stick pushed
-    /// across), unless the mouse steers the player or the facing is held (the keys then step
-    /// sideways) or the left button holds the camera where the pointer put it. A sidestep key
-    /// turns no one, and leaves the camera where it is.
+    /// while a spell is cast and the player turns themselves ([`Self::cast_turn`]); while the
+    /// mouse steers the player under character-based movement and the game turns them itself,
+    /// so that the camera is still behind them when the game is done and the mouse steers on
+    /// from where the game left them; otherwise under character-based movement, with a turning
+    /// key held (or a movement stick pushed across), unless the mouse steers the player or the
+    /// facing is held (the keys then step sideways) or the left button holds the camera where
+    /// the pointer put it. A sidestep key turns no one, and leaves the camera where it is.
     #[must_use]
     pub fn camera_turns_with_player(&self, settings: OrbitSettings) -> bool {
         if self.casting_turn() {
+            return true;
+        }
+        if settings.movement == MovementMode::Character && self.mouse_steers() && self.moved_by_game
+        {
             return true;
         }
         let turning = self.turns.iter().any(|t| *t) || self.stick_keys[2] || self.stick_keys[3];
@@ -3930,5 +3959,130 @@ mod tests {
         }
         // Barely moved: no turn.
         assert!(drag(300.0, 10.0).iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn the_right_button_steers_the_player_except_while_the_game_turns_them_and_the_camera_turns_with_them(
+    ) {
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        let mut k = MovementKeys::default();
+        k.buttons.1 = true;
+        assert_eq!(k.facing(s, 90.0), Some(90.0), "the mouse steers");
+        assert!(!k.camera_turns_with_player(s));
+        assert!(!k.set_moved_by_game(true, s));
+        assert_eq!(k.facing(s, 90.0), None, "the game's turn is left to finish");
+        assert!(
+            k.camera_turns_with_player(s),
+            "the camera goes round with the player as the game turns them"
+        );
+        assert!(!k.set_moved_by_game(true, s), "not over yet");
+        assert!(
+            k.set_moved_by_game(false, s),
+            "over, under the mouse's steering"
+        );
+        assert_eq!(k.facing(s, 90.0), Some(90.0), "and the mouse steers on");
+        assert!(!k.set_moved_by_game(false, s), "it ends once");
+        // Without the button the game's turn is left alone as it always was, and the camera
+        // comes round behind as it always did.
+        k.buttons.1 = false;
+        assert!(!k.set_moved_by_game(true, s));
+        assert_eq!(k.facing(s, 90.0), None);
+        assert!(!k.camera_turns_with_player(s));
+        assert!(k.camera_follows_game_turn(k.facing(s, 90.0), true));
+    }
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn with_the_right_button_held_the_game_turns_the_player_and_the_mouse_steers_on_from_there() {
+        let store = std::sync::Arc::new(dereth_dat::testing::open_store().expect("retail dats"));
+        let region = dereth_world_data::landblock::load_region(&store).expect("the region");
+        let mut c = crate::character::Character::new(
+            &store,
+            &region,
+            dereth_world_data::landblock::DEFAULT_LANDBLOCK,
+            (96.0, 96.0),
+        )
+        .expect("a body");
+        let s = OrbitSettings {
+            movement: MovementMode::Character,
+            ..OrbitSettings::default()
+        };
+        c.camera.orbit_active = true;
+        c.camera.orbit.apply_settings(s);
+        c.drawn_between_ticks = true;
+        let mut keys = MovementKeys::default();
+        keys.buttons.1 = true;
+        let mut t = 10.0;
+        // One frame as the runtime runs it: the keys read, the player faced, the body and then
+        // the camera stepped.
+        let mut frame = |c: &mut crate::character::Character, keys: &mut MovementKeys| {
+            t += 1.0 / 60.0;
+            if c.camera.orbit.placed {
+                if keys.set_moved_by_game(c.is_moving_to(), s) {
+                    let rest = -c.camera.drawn_turn;
+                    c.camera.orbit.turn_on(rest);
+                }
+                c.camera.orbit_turns_with_player = keys.camera_turns_with_player(s);
+                c.camera.orbit.let_go_of_player();
+                let face = keys.facing(s, c.camera.orbit.movement_heading(false));
+                c.camera.orbit.follow_behind =
+                    keys.camera_follows_game_turn(face, c.is_moving_to());
+                if let Some(face) = face {
+                    c.face_heading(face);
+                }
+            }
+            c.update(dereth_primitives::LocalTime(t));
+            c.update_camera(
+                crate::camera::CameraInput::default(),
+                dereth_primitives::LocalTime(t),
+                1.0 / 60.0,
+            );
+        };
+        for _ in 0..60 {
+            frame(&mut c, &mut keys);
+        }
+        let heading = |c: &crate::character::Character| {
+            dereth_animation::frame::get_heading(&c.position().frame)
+        };
+        let off = |a: f32, b: f32| ((a - b + 540.0).rem_euclid(360.0) - 180.0).abs();
+        let start = heading(&c);
+        assert!(off(c.camera.orbit.movement_heading(false), start) < 0.5);
+        // The game turns the player a quarter round, toward something they fight.
+        let target = (start + 90.0).rem_euclid(360.0);
+        c.turn_to_heading(target);
+        assert!(c.is_moving_to());
+        let mut frames = 0;
+        while c.is_moving_to() {
+            frame(&mut c, &mut keys);
+            frames += 1;
+            assert!(
+                frames < 600,
+                "the game's turn never finishes: {} against {target}",
+                heading(&c)
+            );
+        }
+        assert!(
+            off(heading(&c), target) < 0.1,
+            "turned to {target}: {}",
+            heading(&c)
+        );
+        // The mouse steers on from there: the player stays as the game turned them, the camera
+        // behind them.
+        for _ in 0..120 {
+            frame(&mut c, &mut keys);
+        }
+        assert!(
+            off(heading(&c), target) < 0.1,
+            "still facing {target}: {}",
+            heading(&c)
+        );
+        assert!(
+            off(c.camera.orbit.movement_heading(false), target) < 0.1,
+            "the camera behind them: {}",
+            c.camera.orbit.movement_heading(false)
+        );
     }
 }

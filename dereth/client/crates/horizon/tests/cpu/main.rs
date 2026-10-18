@@ -37,6 +37,21 @@ impl Harness {
         }
     }
 
+    /// The interface at 1920x1080 with the pieces and fonts the client carries, so its text is
+    /// drawn and has its widths.
+    pub fn with_built_in_art() -> Self {
+        let pieces = dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in");
+        Self {
+            ui: HorizonUi::new(
+                Arc::new(Art::new(Arc::new(pieces))),
+                HorizonOptions::default(),
+            ),
+            list: DrawList::default(),
+            input: InputFrame::default(),
+            screen: (1920.0, 1080.0),
+        }
+    }
+
     /// One frame at 60 frames a second.
     pub fn frame(&mut self, state: &GameState) -> Outcome {
         let out = self.ui.frame(

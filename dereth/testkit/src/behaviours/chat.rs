@@ -236,7 +236,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "chat.commands.weather-is-answered-by-this-client-and-never-sent",
         says: "Typing /weather or @weather is answered by this client and nothing is sent to the \
                shard: alone it says the weather drawn and whether it is the day's own or one set \
-               on this client; with clear, rain or snow it sets it, and with auto it returns to \
+               on this client; with clear, rain or snow it sets it, and with reset it returns to \
                the day's own; and anything else is refused with one line saying what it takes, in \
                the window it was typed in. No command of the final client's own is shadowed by it.",
         since: THIS_CLIENT,

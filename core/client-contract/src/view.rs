@@ -171,6 +171,14 @@ pub struct SkillAdvancement {
     pub xp_at_level: u32,
     /// The same total one level higher — the meter's ceiling.
     pub xp_at_next_level: u32,
+    /// [`SkillEntry::level`], asked now. The skill rows are joined again only on the notices the
+    /// skills page listens to, and a change of vitae alone is not one of them, so a row can
+    /// still carry the vitae a death left after it is won back; these three never do.
+    pub level: i32,
+    /// [`SkillEntry::effective`], asked now.
+    pub effective: i32,
+    /// [`SkillEntry::vitae`], asked now.
+    pub vitae: i32,
 }
 
 impl SkillAdvancement {

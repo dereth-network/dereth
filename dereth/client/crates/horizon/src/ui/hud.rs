@@ -35,6 +35,9 @@ pub const FOOT_REACH: f32 = 380.0;
 /// How long a feedback line floats at the top of the screen.
 const NOTICE_SECONDS: f64 = 4.0;
 
+/// What an effect with no end shows for its time left: the infinity sign.
+pub const LASTING: &str = "\u{221E}";
+
 /// A pending tooltip, drawn last.
 #[derive(Debug, Clone)]
 struct Tip {
@@ -643,6 +646,15 @@ impl Hud {
         }
     }
 
+    /// The tooltip the pointer asked for this frame, drawn over everything: its title and its
+    /// lines.
+    #[must_use]
+    pub fn shown_tip(&self) -> Option<(&str, &[String])> {
+        self.tip
+            .as_ref()
+            .map(|t| (t.title.as_str(), t.lines.as_slice()))
+    }
+
     /// Whether the HUD Layout window has changes not yet saved.
     #[must_use]
     pub fn layout_unsaved(&self) -> bool {
@@ -732,7 +744,8 @@ impl Hud {
         _state: &GameState,
         _out: &mut Outcome,
     ) {
-        if let Some(tip) = self.tip.take() {
+        // Kept until the next frame starts, so what was shown can be asked for.
+        if let Some(tip) = &self.tip {
             kit::tooltip(p, ctx, &tip.title, &tip.lines);
         }
     }
@@ -1670,7 +1683,11 @@ impl Hud {
                 self.asks
                     .push(crate::ui::panels::info::Ask::Effect(e.spell));
             }
-            let left = e.remaining.map_or_else(|| "Lasting".to_owned(), time_left);
+            // A name cut short is given whole under the pointer.
+            if shown != e.name && row.intersect(&area).is_some_and(|seen| ctx.over(&seen)) {
+                self.tip(e.name.clone(), Vec::new());
+            }
+            let left = e.remaining.map_or_else(|| LASTING.to_owned(), time_left);
             let w = p.measure(&time, &left);
             p.text(&time, area.right() - bar - w - 6.0 * k, y + 7.0 * k, &left);
         }

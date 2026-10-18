@@ -114,6 +114,66 @@ pub struct SkyInfo {
     pub day_groups: Vec<SkyDayPreset>,
 }
 
+/// Select a day group from a **deterministic hash of the in-game date**, so
+/// every client sees the same weather.
+///
+/// ```text
+/// v = (int32)((year*dpy + day) * 0x6A42FDB2 - 0x7541E9AE)
+/// present_day_group = (int)floor(((uint32)v * 2^-32) * day_groups.count)
+/// if present_day_group >= count: present_day_group = 0
+/// ```
+///
+/// `chance_of_occur` exists in the data but is **not** used by this selection.
+#[must_use]
+pub fn calc_present_day_group(year: u32, days_per_year: u32, day: u32, count: usize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let v = year
+        .wrapping_mul(days_per_year)
+        .wrapping_add(day)
+        .wrapping_mul(0x6A42_FDB2)
+        .wrapping_sub(0x7541_E9AE);
+    #[allow(clippy::cast_precision_loss)] // the client converts u32 to float here too
+    let f = (v as f32) * 2.328_306_4e-10 * (count as f32);
+    let i = dereth_primitives::num::floor_to_i32(f);
+    let i = i as u32 as usize;
+    if i >= count {
+        0
+    } else {
+        i
+    }
+}
+
+/// A kind of day the sky can be drawn as, in place of the one the calendar gives (CD-043).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DayKind {
+    /// A clear day: its name says neither rain nor cloud ("Sunny" and "Clear" in the shipped
+    /// region).
+    Clear,
+    /// A rainy day: its name says rain ("Rainy").
+    Rainy,
+}
+
+impl DayKind {
+    /// Whether `group` is a day of this kind.
+    #[must_use]
+    pub fn is(self, group: &SkyDayPreset) -> bool {
+        self.names(&group.day_name)
+    }
+
+    /// Whether a day group named `day_name` is a day of this kind.
+    #[must_use]
+    pub fn names(self, day_name: &str) -> bool {
+        let name = day_name.to_ascii_lowercase();
+        let rainy = name.contains("rain");
+        match self {
+            Self::Rainy => rainy,
+            Self::Clear => !rainy && !name.contains("cloud"),
+        }
+    }
+}
+
 /// One ambient-sound row.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AmbientSound {

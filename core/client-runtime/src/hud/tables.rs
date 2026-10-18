@@ -318,23 +318,7 @@ impl Hud {
             .map(|(id, base)| {
                 // The row's advancement class and raw skill value are queried independently.
                 let sac = dereth_rules::skills::inq_skill_advancement_class(q, *id) as u32;
-                let level = dereth_rules::skills::inq_skill(q, table, *id, true)
-                    .and_then(|v| i32::try_from(v).ok())
-                    .unwrap_or(0);
-                // The font operand is the skill query with `raw = 0`, the **enchanted** value,
-                // not the base-level query's attribute contribution — see `SkillEntry::effective`.
-                let effective = dereth_rules::skills::inq_skill(q, table, *id, false)
-                    .and_then(|v| i32::try_from(v).ok())
-                    .unwrap_or(0);
-                // The vitae penalty on **this skill's raw level**, zero or negative. The panel
-                // update's colour comparison subtracts
-                // it, which is what stops a vitae-carrying character's whole list drawing red.
-                // Read straight off the registry, the same route the attribute-2nd rows take:
-                // `HudView` does not implement `GameView::vitae`.
-                let vitae = dereth_presentation::inforegion::vitae_modifier(
-                    level,
-                    Some(q.enchantments.vitae_value()),
-                );
+                let (level, effective, vitae) = skill_values(q, table, *id);
                 SkillEntry {
                     id: *id,
                     name: base.name.clone(),
@@ -611,4 +595,28 @@ pub(super) fn component_categories(
                 .collect(),
         })
         .collect()
+}
+
+/// One skill's three row values from the player's qualities as they are now: its raw level, its
+/// enchanted level, and vitae's part of that, zero or negative.
+pub(crate) fn skill_values(
+    q: &dereth_client_model::Qualities,
+    table: &SkillTable,
+    id: u32,
+) -> (i32, i32, i32) {
+    let level = dereth_rules::skills::inq_skill(q, table, id, true)
+        .and_then(|v| i32::try_from(v).ok())
+        .unwrap_or(0);
+    // The font operand is the skill query with `raw = 0`, the **enchanted** value, not the
+    // base-level query's attribute contribution — see `SkillEntry::effective`.
+    let effective = dereth_rules::skills::inq_skill(q, table, id, false)
+        .and_then(|v| i32::try_from(v).ok())
+        .unwrap_or(0);
+    // The vitae penalty on **this skill's raw level**, zero or negative. The panel update's colour
+    // comparison subtracts it, which is what stops a vitae-carrying character's whole list
+    // drawing red. Read straight off the registry, the same route the attribute-2nd rows take:
+    // `HudView` does not implement `GameView::vitae`.
+    let vitae =
+        dereth_presentation::inforegion::vitae_modifier(level, Some(q.enchantments.vitae_value()));
+    (level, effective, vitae)
 }

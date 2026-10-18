@@ -150,3 +150,65 @@ fn the_vitae_lamp_shows_while_there_is_a_penalty_and_opens_the_vitae_window() {
     click(&mut h, &state, FIRST_ICON);
     assert!(h.ui.windows.is_open(WindowId::Vitae));
 }
+
+/// Whether `ch` of the body face at `points` is drawn anywhere in the last frame.
+fn drawn(h: &Harness, ch: char, points: f32) -> bool {
+    use dereth_horizon::art::Family;
+    let face = h.ui.art.font(Family::Body, points).expect("the body face");
+    let g = *face.font.glyph(ch).expect("the face has the character");
+    let page = h.ui.art.font_page(&face, g.page);
+    let src = dereth_horizon::draw::Rect::new(
+        f32::from(g.x),
+        f32::from(g.y),
+        f32::from(g.w),
+        f32::from(g.h),
+    );
+    h.list.quads.iter().any(|q| q.tex == page && q.src == src)
+}
+
+#[test]
+fn an_effect_with_no_end_shows_the_infinity_sign_for_its_time_left() {
+    let mut state = caster();
+    let effect = |remaining| Effect {
+        spell: STRENGTH_SELF,
+        name: "Strength Self I".into(),
+        ac_icon: 0,
+        harmful: false,
+        remaining,
+    };
+    state.effects = vec![effect(None)];
+    let mut h = Harness::with_built_in_art();
+    h.frame(&state);
+    click(&mut h, &state, FIRST_ICON);
+    h.frame(&state);
+    assert!(drawn(&h, '\u{221E}', 12.0), "the infinity sign");
+    // An effect that runs out shows its time instead.
+    state.effects = vec![effect(Some(600.0))];
+    h.frame(&state);
+    assert!(!drawn(&h, '\u{221E}', 12.0));
+}
+
+#[test]
+fn an_effect_s_name_cut_short_in_its_list_is_given_whole_under_the_pointer() {
+    const LONG: &str = "Incantation of Strength Self Granted by the Great Lugian Shaman";
+    let mut state = caster();
+    let effect = |name: &str| Effect {
+        spell: STRENGTH_SELF,
+        name: name.into(),
+        ac_icon: 0,
+        harmful: false,
+        remaining: Some(600.0),
+    };
+    state.effects = vec![effect(LONG)];
+    let mut h = Harness::with_built_in_art();
+    h.frame(&state);
+    click(&mut h, &state, FIRST_ICON);
+    // The list hangs under its icon; its first row, by the name.
+    h.move_to(1660.0 - 240.0, 76.0 + 20.0 + 25.0);
+    h.frame(&state);
+    assert_eq!(h.ui.hud.shown_tip().map(|(title, _)| title), Some(LONG));
+    // A name that fits is given no tooltip.
+    state.effects = vec![effect("Strength Self I")];
+    h.frame(&state);
+    assert_eq!(h.ui.hud.shown_tip(), None);
+}

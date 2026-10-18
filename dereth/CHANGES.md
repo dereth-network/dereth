@@ -22,6 +22,12 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Sync to refresh now works in full screen with Better Lighting.
 - Less stutter when walking into new land.
 - Faster frames at long draw distances.
+- Shorter replies and help for /weather and /tod.
+- Horizon: effects with no end show ∞ instead of Lasting.
+- Horizon: a spell name cut short shows in full under the pointer.
+- Horizon: skill tooltips stop showing vitae once it is gone.
+- Horizon: steering with the right mouse button no longer fights turning to face a target.
+- Horizon: right-click an item a vendor sells to examine it.
 
 ## 0.4.4 (2026-10-15)
 

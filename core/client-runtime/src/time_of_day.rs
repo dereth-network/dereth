@@ -24,13 +24,11 @@ pub fn apply(ws: &mut WorldState, command: TimeOfDayCommand, now: f64) -> String
         ws.next_tick = 0.0;
         ws.next_light_tick = 0.0;
     }
-    let fraction = ws.clock.present_time_of_day;
-    let name = ws.clock.time_of_day_name();
-    match command {
-        TimeOfDayCommand::Show => tod::describe(fraction, name, ws.clock.is_adjusted()),
-        TimeOfDayCommand::Set(_) => tod::set_reply(fraction, name),
-        TimeOfDayCommand::Reset => tod::reset_reply(fraction, name),
-    }
+    tod::describe(
+        ws.clock.present_time_of_day,
+        ws.clock.time_of_day_name(),
+        ws.clock.is_adjusted(),
+    )
 }
 
 #[cfg(test)]
@@ -71,8 +69,8 @@ mod tests {
         let server = ws.clock.present_time_of_day;
         assert!(!ws.clock.is_adjusted());
         let shown = apply(&mut ws, TimeOfDayCommand::Show, now);
-        assert!(shown.ends_with("from the server's clock."), "{shown}");
-        assert!(shown.contains(&format!("{server:.3}")), "{shown}");
+        assert!(!shown.ends_with("(forced)"), "{shown}");
+        assert!(shown.contains(&format!("({server:.3})")), "{shown}");
 
         // Pick a time far from the server's, so landing on it proves the clock moved.
         let want = (server + 0.5).rem_euclid(1.0);
@@ -84,7 +82,7 @@ mod tests {
             ws.clock.present_time_of_day
         );
         assert!(ws.clock.is_adjusted());
-        assert!(reply.contains("on this client only"), "{reply}");
+        assert!(reply.ends_with(" (forced)"), "{reply}");
         let name = ws
             .clock
             .time_of_day_name()
@@ -95,7 +93,7 @@ mod tests {
             "the land is relit on the next frame, not a light tick later"
         );
         let shown = apply(&mut ws, TimeOfDayCommand::Show, now);
-        assert!(shown.contains("set on this client"), "{shown}");
+        assert_eq!(shown, reply, "alone it answers as the setting did");
 
         // The choice runs on with the timer, and survives the server's clock moving underneath.
         let later = now + 762.0;
@@ -119,7 +117,10 @@ mod tests {
             (expected - (server + 0.1).rem_euclid(1.0)).abs() < 1e-3,
             "the server's clock ran on a tenth of a day: {server} -> {expected}"
         );
-        assert!(reply.starts_with("The time of day follows the server's clock again"));
+        assert!(
+            reply.starts_with("The current time of day is ") && !reply.ends_with("(forced)"),
+            "{reply}"
+        );
     }
 
     /// Behaviour: rendering.sky.tod-moves-only-this-clients-clock-and-reset-returns-to-the-servers

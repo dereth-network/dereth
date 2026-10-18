@@ -1,6 +1,6 @@
 //! The shop and trade windows follow the game: each opens with the game's vendor or trade, and
-//! closing the window closes it in the game. A right-click on a row of the shopping list or of
-//! the items to sell takes it back off.
+//! closing the window closes it in the game. A right-click on a row of the vendor's stock
+//! examines it; on a row of the shopping list or of the items to sell it takes it back off.
 //!
 //! Behaviour: none (this client's own interface, not a behaviour of the retail client)
 
@@ -172,5 +172,22 @@ fn a_right_click_on_a_row_of_the_items_to_sell_takes_it_back_off() {
             sell: true,
             item: Some(SWORD),
         }]
+    );
+}
+
+#[test]
+fn a_right_click_on_a_row_of_the_vendors_stock_examines_its_item() {
+    let mut state = shopping(false, Vec::new(), Vec::new());
+    if let Some(shop) = state.shop.as_mut() {
+        shop.stock = vec![row(BREAD, "Bread"), row(SWORD, "Sword")];
+    }
+    let mut h = Harness::new(Default::default());
+    h.frame(&state);
+    h.frame(&state);
+    let rows = rows(&h);
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(
+        right_click(&mut h, &state, rows[1]),
+        vec![UiRequest::Select(SWORD), UiRequest::Examine(SWORD)]
     );
 }

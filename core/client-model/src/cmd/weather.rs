@@ -47,15 +47,15 @@ pub enum WeatherCommand {
 /// Every weather `@weather` takes, by its word.
 pub const WEATHERS: [Weather; 4] = [Weather::Clear, Weather::Rain, Weather::Snow, Weather::Auto];
 
+/// The word that returns to the day's own weather. `auto`, the word [`Weather::word`] gives it,
+/// is taken too.
+pub const RESET_WORD: &str = "reset";
+
 /// What `@weather` takes: the tail of every refusal.
-pub const USAGE: &str = "@weather takes clear, rain, snow or auto.";
+pub const USAGE: &str = "@weather takes clear, rain, snow or reset.";
 
 /// The answer when there is no world, and so no sky, yet.
 pub const NO_WORLD: &str = "The weather can be shown and set once the world is loaded.";
-
-/// The tail of an answer while the player's options leave the falling weather out.
-pub const WEATHER_OFF: &str =
-    "Nothing falls while the Disable Most Weather Effects option is ticked.";
 
 /// Read a typed `@weather`'s arguments. `Err` is the one line that says what was wrong.
 ///
@@ -68,6 +68,9 @@ pub fn parse(args: &[String]) -> Result<WeatherCommand, String> {
         [word] => word.as_str(),
         _ => return Err(format!("Too many words after @weather. {USAGE}")),
     };
+    if word.eq_ignore_ascii_case(RESET_WORD) {
+        return Ok(WeatherCommand::Set(Weather::Auto));
+    }
     WEATHERS
         .iter()
         .find(|w| w.word().eq_ignore_ascii_case(word))
@@ -75,44 +78,15 @@ pub fn parse(args: &[String]) -> Result<WeatherCommand, String> {
         .ok_or_else(|| format!("\"{word}\" is not a weather. {USAGE}"))
 }
 
-/// `sentence`, with the note that nothing falls when the options leave the weather out.
-fn noting(sentence: String, weather_off: bool) -> String {
-    if weather_off {
-        format!("{sentence} {WEATHER_OFF}")
-    } else {
-        sentence
+/// The answer to `@weather`, alone or once a weather is set: the weather drawn, marked forced
+/// while it is one set on this client. `days_own` names the day's own weather, which is what is
+/// drawn when none is set.
+#[must_use]
+pub fn describe(asked: Weather, days_own: &str) -> String {
+    match asked {
+        Weather::Auto => format!("Current weather: {days_own}"),
+        w => format!("Current weather: {} (forced)", w.word()),
     }
-}
-
-/// The answer to a bare `@weather`: the weather drawn, and whether it is the day's own or one
-/// set on this client.
-#[must_use]
-pub fn describe(asked: Weather, weather_off: bool) -> String {
-    let sentence = match asked {
-        Weather::Auto => "The weather is the day's own.".to_owned(),
-        w => format!(
-            "The weather is {}, set on this client. @weather auto returns to the day's own.",
-            w.word()
-        ),
-    };
-    noting(sentence, weather_off)
-}
-
-/// The answer to `@weather <weather>`, once it is drawn.
-#[must_use]
-pub fn set_reply(asked: Weather, weather_off: bool) -> String {
-    let sentence = match asked {
-        Weather::Auto => "The weather is the day's own again.".to_owned(),
-        Weather::Snow => "The weather is now snow on this client only. The Horizon interface's \
-                          Weather effect draws the snow; without it the day is a rainy one. \
-                          @weather auto returns to the day's own."
-            .to_owned(),
-        w => format!(
-            "The weather is now {} on this client only. @weather auto returns to the day's own.",
-            w.word()
-        ),
-    };
-    noting(sentence, weather_off)
 }
 
 #[cfg(test)]
@@ -131,11 +105,13 @@ mod tests {
 
     /// Behaviour: chat.commands.weather-is-answered-by-this-client-and-never-sent
     #[test]
-    fn clear_rain_snow_and_auto_set_the_weather_in_any_case() {
+    fn clear_rain_snow_and_reset_set_the_weather_in_any_case() {
         for (word, weather) in [
             ("clear", Weather::Clear),
             ("RAIN", Weather::Rain),
             ("Snow", Weather::Snow),
+            ("reset", Weather::Auto),
+            ("Reset", Weather::Auto),
             ("auto", Weather::Auto),
         ] {
             assert_eq!(
@@ -166,49 +142,42 @@ mod tests {
 
     /// Behaviour: chat.commands.weather-is-answered-by-this-client-and-never-sent
     #[test]
-    fn help_weather_explains_every_form_the_command_takes() {
+    fn help_weather_says_each_form_the_command_takes() {
+        let want = concat!(
+            "@weather - Shows the current weather and if it is forced locally.\n",
+            "@weather clear - Forces local weather to clear skies\n",
+            "@weather rain - Forces local weather to rainfall\n",
+            "@weather snow - Forces local weather to snowfall\n",
+            "@weather reset - Restore natural weather set by the world timeline.\n",
+        );
         let c = crate::cmd::CommandInterp::new();
         for name in ["weather", "@weather", "/weather"] {
             let lines = c.do_help(&[name.to_owned()]);
             assert_eq!(lines.len(), 2, "{name}: {lines:?}");
-            let body = &lines[1].0;
-            for form in [
-                "@weather - ",
-                "@weather clear - ",
-                "@weather rain - ",
-                "@weather snow - ",
-                "@weather auto - ",
-            ] {
-                assert!(body.contains(form), "{name}: {form} is missing from {body}");
-            }
+            assert_eq!(
+                lines[1].0,
+                format!("{}{want}", crate::cmd::help::FOR_MORE_INFORMATION),
+                "{name}"
+            );
         }
     }
 
+    /// Behaviour: chat.commands.weather-is-answered-by-this-client-and-never-sent
     #[test]
-    fn the_answers_name_the_weather_and_whose_choice_it_is() {
+    fn the_answer_names_the_weather_and_says_forced_only_when_it_is_set_here() {
+        assert_eq!(describe(Weather::Auto, "rain"), "Current weather: rain");
+        assert_eq!(describe(Weather::Auto, "cloudy"), "Current weather: cloudy");
         assert_eq!(
-            describe(Weather::Auto, false),
-            "The weather is the day's own."
+            describe(Weather::Clear, "rain"),
+            "Current weather: clear (forced)"
         );
         assert_eq!(
-            describe(Weather::Rain, false),
-            "The weather is rain, set on this client. @weather auto returns to the day's own."
+            describe(Weather::Rain, "clear"),
+            "Current weather: rain (forced)"
         );
         assert_eq!(
-            set_reply(Weather::Clear, false),
-            "The weather is now clear on this client only. @weather auto returns to the day's \
-             own."
+            describe(Weather::Snow, "clear"),
+            "Current weather: snow (forced)"
         );
-        assert!(set_reply(Weather::Snow, false).contains("Weather effect draws the snow"));
-        assert_eq!(
-            set_reply(Weather::Auto, false),
-            "The weather is the day's own again."
-        );
-        // With the options leaving the weather out, every answer says that nothing falls.
-        for w in WEATHERS {
-            assert!(describe(w, true).ends_with(WEATHER_OFF), "{w:?}");
-            assert!(set_reply(w, true).ends_with(WEATHER_OFF), "{w:?}");
-            assert!(!set_reply(w, false).contains(WEATHER_OFF), "{w:?}");
-        }
     }
 }

@@ -9,6 +9,7 @@
 //! carried in the vector and `calc_lighting`'s `n · sunlight` already includes it. Normalising it
 //! flattens the whole day cycle.
 
+pub use dereth_assets::region::{calc_present_day_group, DayKind};
 use dereth_assets::region::{Region, SkyDayPreset, SkyTime};
 use dereth_primitives::num::math;
 use dereth_primitives::{DataId, Frame, Vec3};
@@ -89,37 +90,6 @@ pub struct WorldFog {
     pub min: f32,
     pub max: f32,
     pub color: [u8; 3],
-}
-
-/// Select a day group from a **deterministic hash of the in-game date**, so
-/// every client sees the same weather.
-///
-/// ```text
-/// v = (int32)((year*dpy + day) * 0x6A42FDB2 - 0x7541E9AE)
-/// present_day_group = (int)floor(((uint32)v * 2^-32) * day_groups.count)
-/// if present_day_group >= count: present_day_group = 0
-/// ```
-///
-/// `chance_of_occur` exists in the data but is **not** used by this selection.
-#[must_use]
-pub fn calc_present_day_group(year: u32, days_per_year: u32, day: u32, count: usize) -> usize {
-    if count == 0 {
-        return 0;
-    }
-    let v = year
-        .wrapping_mul(days_per_year)
-        .wrapping_add(day)
-        .wrapping_mul(0x6A42_FDB2)
-        .wrapping_sub(0x7541_E9AE);
-    #[allow(clippy::cast_precision_loss)] // the client converts u32 to float here too
-    let f = (v as f32) * 2.328_306_4e-10 * (count as f32);
-    let i = dereth_primitives::num::floor_to_i32(f);
-    let i = i as u32 as usize;
-    if i >= count {
-        0
-    } else {
-        i
-    }
 }
 
 /// The day group's time-of-day split.
@@ -436,29 +406,6 @@ pub fn present_day_group(region: &Region, year: u32, day: u32) -> Option<&SkyDay
         sky.day_groups.len(),
     );
     sky.day_groups.get(k)
-}
-
-/// A kind of day the sky can be drawn as, in place of the one the calendar gives (CD-039).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DayKind {
-    /// A clear day: its name says neither rain nor cloud ("Sunny" and "Clear" in the shipped
-    /// region).
-    Clear,
-    /// A rainy day: its name says rain ("Rainy").
-    Rainy,
-}
-
-impl DayKind {
-    /// Whether `group` is a day of this kind.
-    #[must_use]
-    pub fn is(self, group: &SkyDayPreset) -> bool {
-        let name = group.day_name.to_ascii_lowercase();
-        let rainy = name.contains("rain");
-        match self {
-            Self::Rainy => rainy,
-            Self::Clear => !rainy && !name.contains("cloud"),
-        }
-    }
 }
 
 /// The day group the sky is drawn with: the present day's, or with a kind of day asked for, the

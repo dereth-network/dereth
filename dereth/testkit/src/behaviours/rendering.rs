@@ -1120,7 +1120,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "Asking for the weather with /weather draws the sky, its light and its fog as a day \
                of that kind in place of the calendar's: rain and snow a rainy day, with its \
                falling rain, and clear a day whose name says neither rain nor cloud; the day's own \
-               when it is already of that kind, else the region's first that is. Auto returns to \
+               when it is already of that kind, else the region's first that is. Reset returns to \
                the calendar's day at once, the calendar itself never having moved, and the land is \
                relit under the new sky on the next frame.",
         since: THIS_CLIENT,
