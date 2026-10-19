@@ -1,0 +1,25 @@
+# Holtburg's open west side. Three standing stones on the ground, two of them on terrain
+# vertices, (1, 1) and (2, 1).
+[[static]]
+name = "stone-west"
+model = 0x0200040B
+at = [24.0, 24.0, "ground"]
+heading = 30.0
+
+[[static]]
+name = "stone-east"
+model = 0x0200040B
+at = [48.0, 24.0, "ground"]
+heading = 330.0
+
+[[static]]
+name = "stone-north"
+model = 0x0200040B
+at = [36.0, 34.0, "ground"]
+
+# A hill on the landblock's west edge. The vertices on x = 0 are shared with the landblock to
+# the west, which the build writes too.
+[[vertex]]
+at = [0, 1]
+to = [0, 2]
+height = 50

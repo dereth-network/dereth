@@ -159,8 +159,15 @@ pub const GATES: &[Gate] = &[
         // repository-wide gates (line endings, skip claims, corpus claims). `dereth-pcap`'s tests
         // build their captures in memory; its one corpus test is a printed, counted skip when
         // `DERETH_RETAIL_PCAPS` is unset. `dereth-art`'s survey reads every model in the retail
-        // dats under `retail-dats`.
-        crates: &["dereth-corpus", "dereth-pcap", "xtask", "dereth-art"],
+        // dats under `retail-dats`, and `dereth-pack`'s `dat` binary calibrates its record checks
+        // on them and builds and bakes its sample world over them.
+        crates: &[
+            "dereth-corpus",
+            "dereth-pcap",
+            "xtask",
+            "dereth-art",
+            "dereth-pack",
+        ],
         harnesses: &[],
     },
     Gate {
@@ -286,6 +293,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         "dereth-physics" => &["retail-dats", "trace"],
         "dereth-animation"
         | "dereth-art"
+        | "dereth-pack"
         | "dereth-assets"
         | "dereth-audio"
         | "dereth-clipboard"

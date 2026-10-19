@@ -31,13 +31,26 @@ message corpus, the capture index and the manifest from the recordings (`corpus`
 `corpus --check`, which `cargo test -p dereth-corpus` runs). See [`corpus/README.md`](corpus/README.md)
 for how to add a recording and how tests read the corpus.
 
-## `dereth-pack` — the client's own records
+## `dereth-pack` — content packs, bake and import
 
-Packs PNG pictures into a client layer, the container of Dereth's own records that the client
-reads over the portal files beneath any world's overlay. A manifest names the files it lies over,
-the container it writes and each record's id, format (`rgb`, the image record of the files from
-before Throne of Destiny, or `surface`, the later files' `R8G8B8` image) and picture; transparent
-pixels are laid on the manifest's background. The same input always gives the same bytes.
+Builds a world's content packs (new textures, statics, terrain changes and the server's content
+as ACE's SQL, everything named by symbol) into the world's overlay, numbering the symbols for that
+world and keeping them in its lockfile; checks the records before a client sees them; bakes an
+overlay into a copy of a player's own files; and takes any modified set of files apart into an
+overlay. See [`pack/README.md`](pack/README.md) for the pack, world and lockfile formats and the
+sample world.
+
+```text
+cargo run -p dereth-pack -- build tools/pack/sample/world.toml --dats <your client folder>
+cargo run -p dereth-pack -- bake --overlay target/pack-sample/overlay --dats <dir> --to <dir>
+```
+
+It also packs PNG pictures into a client layer, the container of Dereth's own records that the
+client reads over the portal files beneath any world's overlay. A manifest names the files it
+lies over, the container it writes and each record's id, format (`rgb`, the image record of the
+files from before Throne of Destiny, or `surface`, the later files' `R8G8B8` image) and picture;
+transparent pixels are laid on the manifest's background. The same input always gives the same
+bytes.
 
 ```text
 cargo run -p dereth-pack -- core/client-runtime/assets/classic-portal/pack.tsv
@@ -45,8 +58,7 @@ cargo run -p dereth-pack -- <manifest> --check
 ```
 
 The client builds in the classic portal's layer from `core/client-runtime/assets/classic-portal/`;
-`cargo test -p dereth-pack` fails while that container is not what its manifest makes. The
-library (`dereth_pack`) is the start of an editor for these records.
+`cargo test -p dereth-pack` fails while that container is not what its manifest makes.
 
 ## `dereth-art` — the art survey and art packs
 

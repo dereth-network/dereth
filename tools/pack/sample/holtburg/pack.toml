@@ -1,0 +1,5 @@
+name = "holtburg"
+version = "0.1.0"
+authors = ["Dereth"]
+license = "MIT"
+description = "A sample pack: standing stones and a house west of Holtburg, a hill on the landblock edge, and a striped drudge who greets you."

@@ -1,0 +1,9 @@
+# A new texture: one picture, and the image texture a model's surface can be given.
+[[render-surface]]
+name = "stripes"
+picture = "art/stripes.png"
+format = "a8r8g8b8"
+
+[[surface-texture]]
+name = "stripes"
+levels = ["stripes"]

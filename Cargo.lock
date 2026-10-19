@@ -1259,9 +1259,13 @@ dependencies = [
 name = "dereth-pack"
 version = "0.0.0"
 dependencies = [
+ "dereth-assets",
  "dereth-dat",
  "dereth-primitives",
+ "dereth-terrain",
  "png",
+ "serde",
+ "toml",
 ]
 
 [[package]]

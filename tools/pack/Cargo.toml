@@ -1,6 +1,6 @@
 [package]
 name = "dereth-pack"
-description = "Packs pictures into a client layer: the container of Dereth's own records the client reads over the portal files."
+description = "Compiles content packs into a world's overlay, bakes an overlay into a copy of a player's data files, and packs pictures into Dereth's client layer."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,12 +8,37 @@ license.workspace = true
 publish = false
 autotests = false
 
+[features]
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, whose modules build
+# and bake packs over the retail dats under $DERETH_TEST_DAT_DIR.
+retail-dats = []
+
 [dependencies]
-# The container and its writer.
+# The containers, the overlay and its writer.
 dereth-dat.workspace = true
 dereth-primitives.workspace = true
+# Every record's decoder, and the encoders of the records a pack makes.
+dereth-assets.workspace = true
+# The terrain under a static placed on the ground.
+dereth-terrain.workspace = true
 # The pictures.
 png.workspace = true
+# The pack, world and lock files.
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+# `dereth_dat::testing`: where the retail-data tests find the dats, and scratch folders.
+dereth-dat = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]

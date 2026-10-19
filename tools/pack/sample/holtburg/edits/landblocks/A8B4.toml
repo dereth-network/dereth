@@ -1,0 +1,17 @@
+# West of Holtburg, a landblock with no statics of its own: a house and two stones by its door.
+[[static]]
+name = "house"
+model = 0x01000A2B
+at = [160.0, 36.0, "ground"]
+heading = 90.0
+
+[[static]]
+name = "house-stone-1"
+model = 0x0200040B
+at = [172.0, 30.0, "ground"]
+
+[[static]]
+name = "house-stone-2"
+model = 0x0200040B
+at = [172.0, 42.0, "ground"]
+heading = 180.0
