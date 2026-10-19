@@ -21,10 +21,10 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
     }
 }
 
-/// A device on the machine's hardware adapter; a software rasteriser is refused.
+/// A device on the machine's hardware adapter, made as the client makes its own (on Direct3D 12,
+/// with the compiler it takes); a software rasteriser is refused.
 pub fn hardware() -> (wgpu::Device, wgpu::Queue) {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let instance = wgpu::Instance::new(dereth_render::wgpu::compiler::native_instance().0);
     let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,

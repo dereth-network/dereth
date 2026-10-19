@@ -62,6 +62,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "hifi.device.shaders-build-with-the-dxc-beside-the-client",
+        says: "On Direct3D 12 the wgpu renderer builds its shaders with Windows' own compiler, \
+               FXC. Where the player has put Microsoft's DXC library (1.9 or newer) beside the \
+               client, it builds them with DXC instead, which is several times faster on the \
+               effects' longest shaders and lets the renderer trace rays there as it does on \
+               Vulkan; a copy that is missing, does not load or is too old leaves it on FXC.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-D3D12-DXC"),
+        station: "dereth-client::gpu::rendering::d3d12_shader_compiler::on_direct3d_12_shaders_build_with_the_dxc_beside_the_client_and_with_fxc_without_it",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "hifi.graph.several-passes-share-the-world-replay",
         says: "Several passes acting on the world replay share it: each draw goes to the first \
                that does something other than replay it as recorded.",

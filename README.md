@@ -105,6 +105,7 @@ The tests' and tools' own variables are `DERETH_*`, and those only tests read ar
 | `EMPYREAN_TEST_WORLD_PACK` | the server's built world pack ([`empyrean/SETUP.md`](empyrean/SETUP.md)) |
 | `DERETH_TEST_RENDERER` | `d3d12` or `wgpu` runs the GPU tiers on that backend instead of Vulkan |
 | `DERETH_TEST_GPU` | `software` asks every test device for a software rasteriser; by default they use the hardware GPU, and fall back to software only where there is none |
+| `DERETH_TEST_DXC_DIR` | the folder holding DXC's `dxcompiler.dll` (`bin/x64` of its Windows release), which test devices on Direct3D 12 then compile with; the GPU tier's DXC test needs it |
 | `EMPYREAN_WORLD_SQL` | ACE's world-database dump for the server's real-content tests, else the one `empyrean-import fetch` cached |
 | `DERETH_TEST_FFMPEG` | the FFmpeg the intro-movie test decodes with, else `ffmpeg` on `PATH` |
 | `DERETH_TEST_CAPTURES`, `DERETH_TEST_NETBLOBS`, `DERETH_TEST_CORPUS_ROOT` | recordings or a message corpus other than the ones in `fixtures/` |
@@ -137,6 +138,12 @@ cargo run -p dereth-client -- --renderer wgpu
 A run picks its backend from `--renderer vulkan|d3d12|wgpu`, then `Renderer=` in the preferences
 file, then the default; a backend that is not built or cannot create a device prints a line and falls
 back. The test-only `DERETH_TEST_RENDERER=d3d12|wgpu` runs the GPU test tiers on it.
+
+On Direct3D 12, `wgpu` compiles its shaders with FXC, which is part of Windows. A player who puts
+Microsoft's `dxcompiler.dll` (1.9 or newer, `bin/x64` of a release from
+<https://github.com/microsoft/DirectXShaderCompiler/releases>) beside `dereth-client.exe` gets DXC
+instead, which is several times faster on Better Lighting's long shaders and can trace rays. The
+startup line names the compiler (`… on Dx12 with FXC` or `with DXC`).
 
 ## Replaying input headlessly
 

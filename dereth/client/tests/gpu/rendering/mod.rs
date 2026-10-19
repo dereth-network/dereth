@@ -10,6 +10,7 @@ mod billboards;
 pub(crate) mod building_boundary_draw;
 mod building_cell_setup;
 mod clipped_outdoor_pass;
+mod d3d12_shader_compiler;
 mod degrade_marker_parts;
 mod degraded_shell_interiors;
 mod detail_textures;

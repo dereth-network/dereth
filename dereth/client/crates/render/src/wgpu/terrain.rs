@@ -16,6 +16,7 @@
 use crate::device::terrain::{pack_job, JOB_WORDS, MAX_OVERLAYS};
 use std::collections::HashMap;
 
+use super::compiler::BuildAlone as _;
 use super::{
     build_pipeline, extent, shader_source, DrawConstants, Gpu, MergeSource, PerDrawConstants,
     PerFrameConstants, PipelineKey, TerrainMergeJob, TerrainSplat, TextureData, TextureFormat,
@@ -190,7 +191,7 @@ impl Gpu {
             });
         let pipeline = self
             .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            .compute_pipeline_alone(&wgpu::ComputePipelineDescriptor {
                 label: Some("terrain merge"),
                 layout: Some(&pipeline_layout),
                 module: &module,

@@ -24,6 +24,7 @@
 //!   (`prepare_canvas`) and hands it over ([`install`](crate::wgpu::install)); [`Gpu::new`]
 //!   takes it.
 
+pub mod compiler;
 #[cfg(feature = "test-support")]
 mod digest;
 mod levels;
@@ -55,6 +56,9 @@ use dereth_render_cpu::sampler::{
     self, AddressMode, FilterCaps, SamplerFilter, BANK_KEYS, BANK_STRIDE, SAMPLER_COUNT,
 };
 use dereth_render_cpu::vertex::AttributeFormat;
+
+use compiler::BuildAlone as _;
+pub use compiler::ShaderCompiler;
 
 /// The per-frame constant block's size, and its slot in the constant arena.
 const FRAME_BYTES: u64 = 192;
@@ -115,6 +119,8 @@ pub struct Prepared {
     adapter_name: String,
     adapter_driver: String,
     adapter_kind: AdapterKind,
+    /// The compiler the device builds its shaders with, on Direct3D 12.
+    shader_compiler: Option<ShaderCompiler>,
     bc: bool,
     anisotropy: bool,
     /// Whether the adapter traces rays: what a device asked for the high-fidelity presentation
@@ -256,8 +262,20 @@ const fn wants_hifi(cfg: &DeviceConfig) -> HifiAsk {
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 const fn wants_hifi(_cfg: &DeviceConfig) -> HifiAsk {}
 
+/// The adapter's line: its name and the graphics API under it, and on Direct3D 12 the compiler
+/// its shaders are built with.
+fn adapter_label(name: &str, backend: wgpu::Backend, compiler: Option<ShaderCompiler>) -> String {
+    match compiler {
+        Some(c) => format!("{name} on {backend:?} with {}", c.name()),
+        None => format!("{name} on {backend:?}"),
+    }
+}
+
+/// What a device on `adapter` is made of. `compiler` is the instance's choice for Direct3D 12,
+/// kept only when the adapter is on it.
 fn prepared(
     adapter: &wgpu::Adapter,
+    compiler: Option<ShaderCompiler>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     target: Target,
@@ -270,6 +288,10 @@ fn prepared(
     } else {
         AdapterKind::Hardware
     };
+    let shader_compiler = compiler.filter(|_| info.backend == wgpu::Backend::Dx12);
+    if shader_compiler == Some(ShaderCompiler::Dxc) {
+        compiler::BUILDS.switch_on();
+    }
     Prepared {
         bc: device
             .features()
@@ -282,11 +304,12 @@ fn prepared(
         rays: sidecar::adapter_rays(adapter),
         device,
         queue,
-        adapter_name: format!("{} on {:?}", info.name, info.backend),
+        adapter_name: adapter_label(&info.name, info.backend, shader_compiler),
         adapter_driver: format!("{} {}", info.driver, info.driver_info)
             .trim()
             .to_owned(),
         adapter_kind,
+        shader_compiler,
         target,
         format,
         size,
@@ -333,6 +356,7 @@ pub async fn prepare_canvas(
     let format = config.format;
     Ok(prepared(
         &adapter,
+        None,
         device,
         queue,
         Target::Surface {
@@ -367,12 +391,13 @@ async fn prepare_offscreen_for(
     software: bool,
     hifi: HifiAsk,
 ) -> Result<Prepared, String> {
-    let adapter = offscreen_adapter(software).await?;
+    let (adapter, compiler) = offscreen_adapter(software).await?;
     let (device, queue) = device_on(&adapter, hifi).await?;
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let texture = offscreen_texture(&device, format, width, height);
     Ok(prepared(
         &adapter,
+        compiler,
         device,
         queue,
         Target::Offscreen { texture },
@@ -383,12 +408,14 @@ async fn prepare_offscreen_for(
 
 /// The adapter an off-screen device is made on, from the native graphics APIs `wgpu` chooses or
 /// those `WGPU_BACKEND` names: a software adapter when `software` asks for one and the platform has
-/// one, the hardware adapter otherwise.
+/// one, the hardware adapter otherwise. With it, the compiler Direct3D 12 builds shaders with.
 #[cfg(not(all(any(test, feature = "test-support"), not(target_arch = "wasm32"))))]
-async fn offscreen_adapter(software: bool) -> Result<wgpu::Adapter, String> {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    adapter_for(&instance, None, software).await
+async fn offscreen_adapter(
+    software: bool,
+) -> Result<(wgpu::Adapter, Option<ShaderCompiler>), String> {
+    let (desc, compiler) = compiler::native_instance();
+    let instance = wgpu::Instance::new(desc);
+    Ok((adapter_for(&instance, None, software).await?, compiler))
 }
 
 /// The adapter an off-screen device is made on, as above, found once of each kind in a test build
@@ -397,15 +424,17 @@ async fn offscreen_adapter(software: bool) -> Result<wgpu::Adapter, String> {
 /// Vulkan the device is made on); done for every device while other tests' devices draw on
 /// parallel threads, that has hung the process in the drivers.
 #[cfg(all(any(test, feature = "test-support"), not(target_arch = "wasm32")))]
-async fn offscreen_adapter(software: bool) -> Result<wgpu::Adapter, String> {
-    static FOUND: [std::sync::OnceLock<Result<wgpu::Adapter, String>>; 2] =
+async fn offscreen_adapter(
+    software: bool,
+) -> Result<(wgpu::Adapter, Option<ShaderCompiler>), String> {
+    type Found = Result<(wgpu::Adapter, Option<ShaderCompiler>), String>;
+    static FOUND: [std::sync::OnceLock<Found>; 2] =
         [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
     FOUND[usize::from(software)]
         .get_or_init(|| {
-            let instance = wgpu::Instance::new(
-                wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
-            );
-            pollster::block_on(adapter_for(&instance, None, software))
+            let (desc, compiler) = compiler::native_instance();
+            let instance = wgpu::Instance::new(desc);
+            pollster::block_on(adapter_for(&instance, None, software)).map(|a| (a, compiler))
         })
         .clone()
 }
@@ -421,8 +450,8 @@ async fn prepare_window(
     height: u32,
     hifi: HifiAsk,
 ) -> Result<Prepared, String> {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let (desc, compiler) = compiler::native_instance();
+    let instance = wgpu::Instance::new(desc);
     // SAFETY: the handles are the live window's, and the window outlives the device: the client
     // drops its presentation before the window it was made from.
     let surface = unsafe {
@@ -448,6 +477,7 @@ async fn prepare_window(
     let format = config.format;
     Ok(prepared(
         &adapter,
+        compiler,
         device,
         queue,
         Target::Surface {
@@ -550,6 +580,8 @@ pub struct Gpu {
     pub adapter_kind: AdapterKind,
     /// The adapter's own name and the native API under it, for the start-up line.
     pub adapter_name: String,
+    /// The compiler the device builds its shaders with, on Direct3D 12.
+    shader_compiler: Option<ShaderCompiler>,
     /// The adapter's driver and its version, as the adapter reports them.
     adapter_driver: String,
     bc: bool,
@@ -756,7 +788,7 @@ impl Gpu {
             label: Some("depth clear"),
             source: wgpu::ShaderSource::Wgsl(CLEAR_DEPTH_SHADER.into()),
         });
-        let clear_depth_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let clear_depth_pipeline = device.render_pipeline_alone(&wgpu::RenderPipelineDescriptor {
             label: Some("depth clear"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -809,6 +841,7 @@ impl Gpu {
             size: p.size,
             adapter_kind: p.adapter_kind,
             adapter_name: p.adapter_name,
+            shader_compiler: p.shader_compiler,
             adapter_driver: p.adapter_driver,
             bc: p.bc,
             layout,
@@ -1212,6 +1245,12 @@ impl Gpu {
     #[must_use]
     pub fn adapter_driver(&self) -> String {
         self.adapter_driver.clone()
+    }
+
+    /// The compiler the device builds its shaders with, when it is on Direct3D 12.
+    #[must_use]
+    pub fn shader_compiler(&self) -> Option<ShaderCompiler> {
+        self.shader_compiler
     }
 
     /// The surface's present mode and the sync interval the frame pacer honours, or
@@ -2049,7 +2088,7 @@ fn build_pipeline(
             operation: wgpu::BlendOperation::Add,
         },
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.render_pipeline_alone(&wgpu::RenderPipelineDescriptor {
         label: Some("legacy"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
@@ -2352,6 +2391,23 @@ pub(super) mod tests {
         assert_eq!(present_interval(Immediate), 0);
         assert_eq!(present_interval(Mailbox), 0);
         assert_eq!(present_interval(AutoNoVsync), 0);
+    }
+
+    /// The adapter's line names the compiler only on Direct3D 12.
+    #[test]
+    fn the_adapters_line_names_the_compiler_on_direct3d_12_only() {
+        assert_eq!(
+            adapter_label("GPU", wgpu::Backend::Dx12, Some(ShaderCompiler::Dxc)),
+            "GPU on Dx12 with DXC"
+        );
+        assert_eq!(
+            adapter_label("GPU", wgpu::Backend::Dx12, Some(ShaderCompiler::Fxc)),
+            "GPU on Dx12 with FXC"
+        );
+        assert_eq!(
+            adapter_label("GPU", wgpu::Backend::Vulkan, None),
+            "GPU on Vulkan"
+        );
     }
 
     /// Off screen nothing is presented, so no present interval is recorded, whatever the

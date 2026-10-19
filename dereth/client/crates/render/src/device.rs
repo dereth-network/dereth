@@ -653,6 +653,18 @@ impl Gpu {
         dispatch!(self, g => g.adapter_driver())
     }
 
+    /// The compiler the `wgpu` device builds its shaders with, when it is on Direct3D 12; `None`
+    /// on any other graphics API, and on the other devices.
+    #[cfg(feature = "wgpu")]
+    #[must_use]
+    pub fn shader_compiler(&self) -> Option<crate::wgpu::ShaderCompiler> {
+        #[allow(unreachable_patterns)]
+        match self {
+            Gpu::Wgpu(g) => g.shader_compiler(),
+            _ => None,
+        }
+    }
+
     /// How frames are presented, in the backend's words: the swap chain's mode, or how often the
     /// device waits for the screen; `offscreen` without a window.
     #[must_use]

@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 
+use super::compiler::BuildAlone as _;
 use super::{Gpu, Texture, TextureData, TextureFormat, TextureSlot};
 use crate::device::CapturedImage;
 use crate::RenderError;
@@ -113,7 +114,7 @@ impl Gpu {
             .pipelines
             .entry(format)
             .or_insert_with(|| {
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                device.render_pipeline_alone(&wgpu::RenderPipelineDescriptor {
                     label: Some("sublevels"),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {

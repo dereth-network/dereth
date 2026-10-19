@@ -57,7 +57,7 @@ impl Build for wgpu::Device {
         desc: &wgpu::RenderPipelineDescriptor<'_>,
     ) -> wgpu::RenderPipeline {
         count();
-        self.create_render_pipeline(desc)
+        dereth_render::wgpu::compiler::BuildAlone::render_pipeline_alone(self, desc)
     }
 
     fn build_compute_pipeline(
@@ -65,7 +65,7 @@ impl Build for wgpu::Device {
         desc: &wgpu::ComputePipelineDescriptor<'_>,
     ) -> wgpu::ComputePipeline {
         count();
-        self.create_compute_pipeline(desc)
+        dereth_render::wgpu::compiler::BuildAlone::compute_pipeline_alone(self, desc)
     }
 }
 
@@ -112,9 +112,13 @@ impl std::fmt::Debug for Warm {
 }
 
 /// How many builds run at once: half the processor's threads, from one to four, so the frame and
-/// the landscape's streaming keep theirs.
+/// the landscape's streaming keep theirs; one where the device builds its pipelines one at a time,
+/// so a build the frame waits for waits behind one of the warm-up's at most.
 #[cfg(not(target_arch = "wasm32"))]
 fn width() -> usize {
+    if dereth_render::wgpu::compiler::BUILDS.is_on() {
+        return 1;
+    }
     std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4))
 }
 

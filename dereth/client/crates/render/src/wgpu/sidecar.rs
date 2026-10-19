@@ -21,6 +21,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 
+use super::compiler::BuildAlone as _;
 use super::{apply_viewport, Cmd, Gpu, Texture, DEPTH, FRAME_BLOCK};
 use crate::device::{PerFrameConstants, TextureSlot};
 use crate::{PipelineKey, RenderError, VertexFormat, Viewport};
@@ -387,7 +388,7 @@ pub fn build_derived_pipeline(
 ) -> wgpu::RenderPipeline {
     use dereth_render_cpu::pso::{CullFace, FrontFace, FRONT_FACE};
     let (attributes, stride) = SidecarContext::legacy_vertex_layout(key);
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    device.render_pipeline_alone(&wgpu::RenderPipelineDescriptor {
         label: Some("high-fidelity derived"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
