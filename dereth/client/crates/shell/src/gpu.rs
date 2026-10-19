@@ -39,7 +39,7 @@ mod imp {
 
     use super::{PreviewId, SceneRenderer, UiReleaseReport};
     use dereth_client_contract::overlay::{
-        OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler, OverlayTexture,
+        OverlayDepth, OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler, OverlayTexture,
     };
 
     /// The scene's renderer and the UI drawn over it.
@@ -555,6 +555,7 @@ mod imp {
                                             wrap_u: wrap.0,
                                             wrap_v: wrap.1,
                                         },
+                                        depth: OverlayDepth::Over,
                                         vertices: crate::ui_draw::overlay_vertices(&vertices),
                                     });
                                     self.ui_stats.quads_drawn += 1;
@@ -599,6 +600,7 @@ mod imp {
                                 material: OverlayMaterial::Image,
                                 texture: white,
                                 sampler: OverlaySampler::POINT_CLAMP,
+                                depth: OverlayDepth::Over,
                                 vertices: crate::ui_draw::overlay_vertices(&vertices),
                             });
                             self.ui_stats.fills_drawn += 1;
@@ -678,6 +680,7 @@ mod imp {
                                     material: OverlayMaterial::Text,
                                     texture: tex,
                                     sampler: OverlaySampler::POINT_CLAMP,
+                                    depth: OverlayDepth::Over,
                                     vertices: crate::ui_draw::overlay_vertices(&verts),
                                 });
                             }
@@ -707,6 +710,7 @@ mod imp {
                         material: OverlayMaterial::Text,
                         texture: *sheet,
                         sampler: OverlaySampler::POINT_CLAMP,
+                        depth: OverlayDepth::Over,
                         vertices: crate::ui_draw::overlay_vertices(&vertices),
                     });
                 }
@@ -728,6 +732,7 @@ mod imp {
                                 material: OverlayMaterial::Invert,
                                 texture: white,
                                 sampler: OverlaySampler::POINT_CLAMP,
+                                depth: OverlayDepth::Over,
                                 vertices: crate::ui_draw::overlay_vertices(&vertices),
                             });
                             self.ui_stats.inverts_drawn += 1;
@@ -1329,7 +1334,7 @@ mod imp {
             &self,
             id: dereth_primitives::ObjectId,
             world: Option<&dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<(f32, f32)> {
+        ) -> Option<(f32, f32, Option<f32>)> {
             SceneRenderer::target_top(self, id, world)
         }
 

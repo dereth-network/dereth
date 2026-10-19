@@ -4424,7 +4424,7 @@ pub trait SceneReads: sealed::SceneHalves {
     }
 
     /// [`SceneDraw::target_top`] on the scene.
-    fn target_top(&self, id: ObjectId, viewport: (u32, u32)) -> Option<(f32, f32)> {
+    fn target_top(&self, id: ObjectId, viewport: (u32, u32)) -> Option<(f32, f32, Option<f32>)> {
         let (world, draw) = self.halves();
         draw.target_top(world, id, viewport)
     }

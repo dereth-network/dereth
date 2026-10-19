@@ -5,12 +5,16 @@
 //! pictures are the [`crate::art::Art`] store's; [`Overlay`] uploads each through the
 //! presentation the first time a list names it, keeps it for the life of the presentation, and
 //! turns the list into the shared overlay's triangle batches.
+//!
+//! What stands in the world, a name over a body, is hidden behind the world where it stands in
+//! front: its quads carry the depth of the point they stand on, and the presentation draws them
+//! only where the world drawn this frame is farther away.
 
 use std::collections::BTreeMap;
 
 use dereth_client_contract::overlay::{
-    OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture, OverlayVertex,
-    PreviewSpace,
+    OverlayDepth, OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture,
+    OverlayVertex, PreviewSpace,
 };
 use dereth_client_runtime::present::{PresentError, Presentation};
 use dereth_primitives::{TextureData, TextureFormat, Viewport};
@@ -116,6 +120,10 @@ pub struct Quad {
     pub clip: Option<Rect>,
     /// Turned this many radians clockwise about its centre (a turned quad is not clipped).
     pub turn: f32,
+    /// How deep in the world it stands, as the world's projection gives it (0 at the near plane,
+    /// 1 at the far): it is hidden wherever the world drawn this frame is nearer. `None`: drawn
+    /// over everything.
+    pub depth: Option<f32>,
 }
 
 /// A frame's quads, in drawing order.
@@ -150,6 +158,28 @@ pub struct Anchored {
     /// Where they were drawn from before being put on whole pixels (a line of text's top left):
     /// moved, they land on the whole pixels they would have been drawn on there.
     pub snap: (f32, f32),
+    /// They stand in the world, and are hidden behind it at the depth of the point they stand
+    /// on; otherwise they are drawn over it.
+    pub in_world: bool,
+}
+
+/// Where the point some quads stand on is, as the world is drawn this frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spot {
+    /// On screen, in pixels.
+    pub x: f32,
+    pub y: f32,
+    /// Its depth in the world as drawn, as the world's projection gives it (0 at the near plane,
+    /// 1 at the far); `None` where that is not known.
+    pub depth: Option<f32>,
+}
+
+impl Spot {
+    /// A point on screen whose depth is not known.
+    #[must_use]
+    pub const fn at(x: f32, y: f32) -> Self {
+        Self { x, y, depth: None }
+    }
 }
 
 impl DrawList {
@@ -162,7 +192,7 @@ impl DrawList {
     }
 
     /// Note that the quads from `from` to the end of the list stand on `anchor` of `id`, which
-    /// was at `at` on screen, drawn from `snap`.
+    /// was at `at` on screen, drawn from `snap`, and are drawn over the world.
     pub fn anchor(
         &mut self,
         id: dereth_primitives::ObjectId,
@@ -171,6 +201,30 @@ impl DrawList {
         at: (f32, f32),
         snap: (f32, f32),
     ) {
+        self.anchor_as(id, anchor, from, (at, snap), false);
+    }
+
+    /// As [`Self::anchor`], for quads that stand in the world: [`Self::follow`] gives them the
+    /// depth of the point they stand on, and they are hidden wherever the world is nearer.
+    pub fn anchor_in_world(
+        &mut self,
+        id: dereth_primitives::ObjectId,
+        anchor: Anchor,
+        from: usize,
+        at: (f32, f32),
+        snap: (f32, f32),
+    ) {
+        self.anchor_as(id, anchor, from, (at, snap), true);
+    }
+
+    fn anchor_as(
+        &mut self,
+        id: dereth_primitives::ObjectId,
+        anchor: Anchor,
+        from: usize,
+        (at, snap): ((f32, f32), (f32, f32)),
+        in_world: bool,
+    ) {
         if from < self.quads.len() {
             self.anchored.push(Anchored {
                 id,
@@ -178,18 +232,16 @@ impl DrawList {
                 quads: from..self.quads.len(),
                 at,
                 snap,
+                in_world,
             });
         }
     }
 
     /// Move every anchored quad to where the point it stands on is now, as `now` says (`None`:
-    /// nowhere on screen, and it is not drawn). The list is drawn up before the world moves for
-    /// the frame; this is called once it has, so what stands over the world stands over it as it
-    /// is drawn.
-    pub fn follow(
-        &mut self,
-        now: impl Fn(dereth_primitives::ObjectId, Anchor) -> Option<(f32, f32)>,
-    ) {
+    /// nowhere on screen, and it is not drawn), and give those that stand in the world its depth.
+    /// The list is drawn up before the world moves for the frame; this is called once it has, so
+    /// what stands over the world stands over it as it is drawn.
+    pub fn follow(&mut self, now: impl Fn(dereth_primitives::ObjectId, Anchor) -> Option<Spot>) {
         let Self {
             quads: list,
             anchored,
@@ -200,12 +252,14 @@ impl DrawList {
                 continue;
             };
             match now(a.id, a.anchor) {
-                Some((x, y)) => {
+                Some(Spot { x, y, depth }) => {
                     let snap = (a.snap.0 + x - a.at.0, a.snap.1 + y - a.at.1);
                     let dx = snap.0.round() - a.snap.0.round();
                     let dy = snap.1.round() - a.snap.1.round();
+                    let depth = depth.filter(|_| a.in_world);
                     for q in quads {
                         q.dst = q.dst.offset(dx, dy);
+                        q.depth = depth;
                     }
                     a.at = (x, y);
                     a.snap = snap;
@@ -252,6 +306,7 @@ impl DrawList {
             colour,
             clip: self.clips.last().copied(),
             turn: 0.0,
+            depth: None,
         });
     }
 
@@ -267,6 +322,7 @@ impl DrawList {
             colour,
             clip: None,
             turn,
+            depth: None,
         });
     }
 
@@ -282,6 +338,7 @@ impl DrawList {
             colour,
             clip: self.clips.last().copied(),
             turn: 0.0,
+            depth: None,
         });
     }
 }
@@ -392,15 +449,21 @@ impl Overlay {
                 wrap_u: false,
                 wrap_v: false,
             };
+            let depth = if q.depth.is_some() {
+                OverlayDepth::World
+            } else {
+                OverlayDepth::Over
+            };
             self.stats.quads_drawn += 1;
             if let Some(OverlayItem::Triangles {
                 texture: last,
                 sampler: last_sampler,
+                depth: last_depth,
                 vertices: batch,
                 ..
             }) = self.items.last_mut()
             {
-                if *last == texture && *last_sampler == sampler {
+                if *last == texture && *last_sampler == sampler && *last_depth == depth {
                     batch.extend_from_slice(&vertices);
                     continue;
                 }
@@ -409,6 +472,7 @@ impl Overlay {
                 material: OverlayMaterial::Image,
                 texture,
                 sampler,
+                depth,
                 vertices: vertices.to_vec(),
             });
         }
@@ -499,6 +563,13 @@ fn preview(space: PreviewSpace, r: Rect) -> OverlayItem {
     }
 }
 
+/// The depth `q`'s vertices carry: its own, kept between the near and far planes so that one
+/// standing nearer than the near plane is drawn over everything rather than cut away; the middle
+/// of the range for one drawn over everything, which no depth is tested against.
+fn vertex_depth(q: &Quad) -> f32 {
+    q.depth.map_or(0.5, |d| d.clamp(0.0, 1.0))
+}
+
 /// The six vertices of `q`, after its clip, on a back buffer of `fb` pixels; `None` when nothing
 /// of it is left.
 #[must_use]
@@ -539,8 +610,9 @@ pub fn quad_vertices(q: &Quad, tex_size: (u32, u32), fb: (u32, u32)) -> Option<[
         cx(visible.right()),
         cy(visible.bottom()),
     );
+    let z = vertex_depth(q);
     let v = |x: f32, y: f32, u: f32, v: f32| OverlayVertex {
-        position: [x, y, 0.5],
+        position: [x, y, z],
         color: q.colour,
         uv: [u, v],
     };
@@ -590,8 +662,9 @@ fn turned_vertices(q: &Quad, tex: (f32, f32), fb: (f32, f32)) -> Option<[Overlay
     } else {
         (0.0, 0.0, 1.0, 1.0)
     };
+    let z = vertex_depth(q);
     let v = |p: (f32, f32), u: f32, v: f32| OverlayVertex {
-        position: [p.0, p.1, 0.5],
+        position: [p.0, p.1, z],
         color: q.colour,
         uv: [u, v],
     };

@@ -10,7 +10,8 @@
 //! [`TOGGLE_PERFORMANCE_PANEL`]: dereth_client_contract::actions::dereth::TOGGLE_PERFORMANCE_PANEL
 
 use dereth_client_contract::overlay::{
-    OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture, OverlayVertex,
+    OverlayDepth, OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture,
+    OverlayVertex,
 };
 use dereth_primitives::{TextureData, TextureFormat};
 
@@ -301,6 +302,7 @@ pub fn panel_items(lines: &[String], size: (u32, u32)) -> Vec<OverlayItem> {
         material: OverlayMaterial::Image,
         texture: FONT_TEXTURE,
         sampler: OverlaySampler::POINT_CLAMP,
+        depth: OverlayDepth::Over,
         vertices: v,
     }]
 }

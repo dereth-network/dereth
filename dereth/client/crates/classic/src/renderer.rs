@@ -5,8 +5,8 @@ use crate::art::ClassicArt;
 use crate::int::i32_from;
 use crate::{Command, Screen, TextAlign};
 use dereth_client_contract::overlay::{
-    OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture, OverlayVertex,
-    PreviewSpace,
+    OverlayDepth, OverlayItem, OverlayMaterial, OverlaySampler, OverlaySpace, OverlayTexture,
+    OverlayVertex, PreviewSpace,
 };
 use dereth_client_runtime::present::Presentation;
 use dereth_primitives::{TextureData, TextureFormat};
@@ -1311,6 +1311,7 @@ fn push_batch(
         material,
         texture,
         sampler: OverlaySampler::POINT_CLAMP,
+        depth: OverlayDepth::Over,
         vertices: vertices.to_vec(),
     });
 }

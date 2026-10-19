@@ -42,14 +42,14 @@ const CREATURE_STATE: u32 = 0x0000_0408;
 
 /// One body the names are drawn over: what it is, how it is made, and where it stands from the
 /// player, in the player's own axes (right, ahead).
-struct Subject {
-    id: ObjectId,
-    name: &'static str,
-    kind: BlipKind,
-    setup: u32,
-    mtable: Option<u32>,
-    scale: Option<f32>,
-    at: (f32, f32),
+pub(crate) struct Subject {
+    pub(crate) id: ObjectId,
+    pub(crate) name: &'static str,
+    pub(crate) kind: BlipKind,
+    pub(crate) setup: u32,
+    pub(crate) mtable: Option<u32>,
+    pub(crate) scale: Option<f32>,
+    pub(crate) at: (f32, f32),
 }
 
 const ROW: [Subject; 7] = [
@@ -135,7 +135,7 @@ fn out_dir() -> String {
 }
 
 /// The server making `s` at `at`.
-fn create(stream: &mut ObjectStream, s: &Subject, at: Position, now: f64) {
+pub(crate) fn create(stream: &mut ObjectStream, s: &Subject, at: Position, now: f64) {
     let mut bitfield = flags::POSITION | flags::SETUP;
     if s.mtable.is_some() {
         bitfield |= flags::MTABLE;
@@ -185,7 +185,7 @@ fn anchor(scene: &WorldScene, id: ObjectId) -> Option<(f32, f32, dereth_horizon:
     let Projection::OnScreen((x0, y0, x1, y1)) = scene.target_projection(id, (W, H))? else {
         return None;
     };
-    let (x, y) = scene.target_top(id, (W, H))?;
+    let (x, y, _) = scene.target_top(id, (W, H))?;
     #[allow(clippy::cast_precision_loss)]
     let bounds = dereth_horizon::draw::Rect::new(
         x0 as f32,
@@ -265,14 +265,17 @@ impl Interface {
     /// What stands over the world moved to where the world is drawn this frame, as the shell
     /// moves it before the overlay is made.
     fn follow(&mut self, scene: &WorldScene) {
+        use dereth_horizon::draw::Spot;
         self.list.follow(|id, anchor| match anchor {
-            dereth_horizon::draw::Anchor::Top => scene.target_top(id, (W, H)),
+            dereth_horizon::draw::Anchor::Top => scene
+                .target_top(id, (W, H))
+                .map(|(x, y, depth)| Spot { x, y, depth }),
             dereth_horizon::draw::Anchor::Origin =>
             {
                 #[allow(clippy::cast_precision_loss)]
                 scene
                     .target_origin(id, (W, H))
-                    .map(|(x, y)| (x as f32, y as f32))
+                    .map(|(x, y)| Spot::at(x as f32, y as f32))
             }
         });
     }
@@ -329,7 +332,10 @@ impl Interface {
 }
 
 /// The scene at Holtburg with the player's body, and the stream its objects come from.
-fn scene(store: &Arc<RetailDatStore>, gpu: &mut dereth_render::device::Gpu) -> WorldScene {
+pub(crate) fn scene(
+    store: &Arc<RetailDatStore>,
+    gpu: &mut dereth_render::device::Gpu,
+) -> WorldScene {
     let region = dereth_world_data::landblock::load_region(store).expect("the region decodes");
     let cfg = SceneConfig {
         time_of_day: Some(0.45),
@@ -345,7 +351,7 @@ fn scene(store: &Arc<RetailDatStore>, gpu: &mut dereth_render::device::Gpu) -> W
 
 /// A place `(right, ahead)` from `at` in its own axes, facing its way turned `turn` radians to
 /// the right.
-fn along(at: &Position, (right, ahead): (f32, f32), turn: f32) -> Position {
+pub(crate) fn along(at: &Position, (right, ahead): (f32, f32), turn: f32) -> Position {
     let m = dereth_primitives::frame::l2g(at.frame.rotation);
     let v = dereth_primitives::frame::localtoglobalvec(m, Vec3::new(right, ahead, 0.0));
     let o = at.frame.origin;
@@ -361,17 +367,17 @@ fn along(at: &Position, (right, ahead): (f32, f32), turn: f32) -> Position {
 
 /// Which way the stations look, in degrees clockwise of the way the body faces: over open
 /// ground, clear of the town's houses.
-const VIEW: f32 = 90.0;
+pub(crate) const VIEW: f32 = 90.0;
 
 /// `at` turned `degrees` clockwise.
-fn turned(mut at: Position, degrees: f32) -> Position {
+pub(crate) fn turned(mut at: Position, degrees: f32) -> Position {
     let heading = dereth_primitives::frame::get_heading(&at.frame);
     dereth_primitives::frame::set_heading(&mut at.frame, heading + degrees);
     at
 }
 
 /// One frame of the world, the camera placed by `camera` after the camera's own step.
-fn step(
+pub(crate) fn step(
     store: &Arc<RetailDatStore>,
     gpu: &mut dereth_render::device::Gpu,
     scene: &mut WorldScene,
@@ -404,7 +410,7 @@ fn step(
 
 /// The camera at `(right, ahead)` from the body in its axes and `up` over where `on` stands,
 /// looking `turn` radians right of the body's way and a little down.
-fn place_camera(
+pub(crate) fn place_camera(
     scene: &mut WorldScene,
     at: &Position,
     (right, ahead, up): (f32, f32, f32),

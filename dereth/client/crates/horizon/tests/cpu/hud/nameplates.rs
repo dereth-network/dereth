@@ -1,13 +1,18 @@
 //! The names over people and creatures: each stands on the top of the body it names, and the
 //! interface, drawn before the world moves for the frame, moves them to where the world is drawn
-//! on that frame.
+//! on that frame, at the depth of the top of the body, so the world hides them where it stands
+//! in front.
 //!
 //! Behaviour: none (experimental Horizon interface)
 
 use std::sync::Arc;
 
+use dereth_client_contract::overlay::{
+    OverlayDepth, OverlayItem, OverlaySampler, OverlayTexture, OverlayVertex,
+};
+use dereth_client_runtime::present::NullPresentation;
 use dereth_horizon::art::Art;
-use dereth_horizon::draw::{Anchor, DrawList, Quad, Rect};
+use dereth_horizon::draw::{Anchor, DrawList, Overlay, Quad, Rect, Spot};
 use dereth_horizon::ui::game::{BlipKind, GameState, Nameplate, Relation, Target};
 use dereth_horizon::ui::input::InputFrame;
 use dereth_horizon::ui::HorizonUi;
@@ -20,11 +25,20 @@ const FAR: ObjectId = ObjectId(0x8300_0602);
 const CHOSEN: ObjectId = ObjectId(0x8300_0603);
 const INSIDE: ObjectId = ObjectId(0x8300_0604);
 
+/// The pieces and fonts the client carries.
+fn built_in_art() -> Arc<Art> {
+    Arc::new(Art::new(Arc::new(
+        dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in"),
+    )))
+}
+
 /// The interface at 1920x1080 with the pieces and fonts the client carries.
 fn harness() -> Harness {
-    let art = Arc::new(Art::new(Arc::new(
-        dereth_horizon::pieces::Pieces::built_in().expect("the pieces built in"),
-    )));
+    harness_with(built_in_art())
+}
+
+/// The interface at 1920x1080 drawing from `art`.
+fn harness_with(art: Arc<Art>) -> Harness {
     Harness {
         ui: HorizonUi::new(art, Default::default()),
         list: DrawList::default(),
@@ -142,7 +156,7 @@ fn a_name_drawn_before_the_world_moved_is_moved_where_it_is_drawn_near_and_far()
         [NEAR, FAR, CHOSEN]
             .iter()
             .position(|i| *i == id)
-            .map(|n| MOVED[n])
+            .map(|n| Spot::at(MOVED[n].0, MOVED[n].1))
     });
     // ...stands exactly where it would have been drawn there to begin with.
     let mut fresh = harness();
@@ -193,7 +207,8 @@ fn a_name_thirty_meters_off_outdoors_is_drawn_as_large_as_one_close_by_and_indoo
 fn a_name_whose_body_is_not_on_screen_when_the_world_is_drawn_is_not_drawn() {
     let mut h = harness();
     h.frame(&names_at(DRAWN));
-    h.list.follow(|id, _| (id != FAR).then_some(MOVED[0]));
+    h.list
+        .follow(|id, _| (id != FAR).then_some(Spot::at(MOVED[0].0, MOVED[0].1)));
     for (id, quads) in names(&h.list) {
         let shown = quads.iter().any(|q| q.dst.w > 0.0 && q.dst.h > 0.0);
         assert_eq!(shown, id != FAR, "{id:?}");
@@ -232,9 +247,173 @@ fn the_ring_round_the_pads_other_choice_is_moved_where_its_object_is_drawn() {
         .map(|q| q.dst)
         .collect();
     assert!(!before.is_empty());
-    h.list
-        .follow(|id, anchor| (id == NEAR && anchor == Anchor::Origin).then_some((520.0, 390.0)));
+    h.list.follow(|id, anchor| {
+        (id == NEAR && anchor == Anchor::Origin).then_some(Spot::at(520.0, 390.0))
+    });
     for (q, was) in h.list.quads[ring.quads].iter().zip(&before) {
         assert_eq!(q.dst, was.offset(20.0, -10.0));
+    }
+}
+
+/// The depth of the top of each body, nearest first: as the world's projection gives it.
+const DEPTHS: [f32; 3] = [0.98, 0.997, 0.99];
+
+/// The names drawn where the bodies stand, followed to the depth of the top of each.
+fn names_at_depth(h: &mut Harness) {
+    h.frame(&names_at(DRAWN));
+    h.list.follow(|id, _| {
+        let n = [NEAR, FAR, CHOSEN].iter().position(|i| *i == id)?;
+        Some(Spot {
+            x: DRAWN[n].0,
+            y: DRAWN[n].1,
+            depth: Some(DEPTHS[n]),
+        })
+    });
+}
+
+#[test]
+fn a_name_and_the_selections_marker_stand_at_the_depth_of_the_top_of_its_body() {
+    let mut h = harness();
+    names_at_depth(&mut h);
+    let drawn = names(&h.list);
+    assert_eq!(drawn.len(), 3);
+    for (id, quads) in &drawn {
+        let n = [NEAR, FAR, CHOSEN].iter().position(|i| i == id).unwrap();
+        assert!(
+            quads.iter().all(|q| q.depth == Some(DEPTHS[n])),
+            "{id:?}: every quad of the name stands at its body's depth"
+        );
+    }
+    let (_, chosen) = drawn.iter().find(|(id, _)| *id == CHOSEN).unwrap();
+    assert!(
+        chosen.iter().any(marker),
+        "the selection's marker is among them"
+    );
+    // Nothing else the interface draws stands in the world.
+    let named: Vec<usize> = h
+        .list
+        .anchored
+        .iter()
+        .flat_map(|a| a.quads.clone())
+        .collect();
+    let rest: Vec<&Quad> = h
+        .list
+        .quads
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !named.contains(i))
+        .map(|(_, q)| q)
+        .collect();
+    assert!(!rest.is_empty(), "the interface draws more than the names");
+    assert!(rest.iter().all(|q| q.depth.is_none()));
+}
+
+#[test]
+fn the_ring_round_the_pads_other_choice_is_drawn_over_the_world() {
+    let mut h = Harness::new(Default::default());
+    h.ui.hud.alt = Some(NEAR);
+    let state = GameState {
+        in_world: true,
+        name: "Tester".into(),
+        alt_at: Some((500.0, 400.0)),
+        targets: vec![dereth_horizon::ui::game::Blip {
+            id: NEAR,
+            dx: 0.0,
+            dy: 5.0,
+            kind: BlipKind::Creature,
+            colour: 0,
+            shape: 0,
+            name: "Drudge Skulker".into(),
+        }],
+        ..GameState::default()
+    };
+    h.frame(&state);
+    h.list.follow(|_, _| {
+        Some(Spot {
+            x: 520.0,
+            y: 390.0,
+            depth: Some(0.9),
+        })
+    });
+    let ring = h
+        .list
+        .anchored
+        .iter()
+        .find(|a| a.id == NEAR && a.anchor == Anchor::Origin)
+        .expect("the ring stands over its object")
+        .clone();
+    assert!(!ring.in_world);
+    assert!(h.list.quads[ring.quads].iter().all(|q| q.depth.is_none()));
+}
+
+/// The overlay's triangles, in drawing order: their texture, how they are sampled and their
+/// vertices, and whether each is hidden behind the world.
+fn triangles(
+    items: &[OverlayItem],
+) -> Vec<(OverlayTexture, OverlaySampler, OverlayDepth, OverlayVertex)> {
+    items
+        .iter()
+        .flat_map(|item| match item {
+            OverlayItem::Triangles {
+                texture,
+                sampler,
+                depth,
+                vertices,
+                ..
+            } => vertices
+                .iter()
+                .map(|v| (*texture, *sampler, *depth, *v))
+                .collect(),
+            OverlayItem::Preview { .. } => Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn the_overlay_hides_only_the_names_behind_the_world_and_draws_the_rest_as_before() {
+    // The interface as it was drawn before names stood in the world: the same frame, with no
+    // depth for any name.
+    let art = built_in_art();
+    let mut before = harness_with(Arc::clone(&art));
+    before.frame(&names_at(DRAWN));
+    before.list.follow(|id, _| {
+        let n = [NEAR, FAR, CHOSEN].iter().position(|i| *i == id)?;
+        Some(Spot::at(DRAWN[n].0, DRAWN[n].1))
+    });
+    let mut now = harness_with(Arc::clone(&art));
+    names_at_depth(&mut now);
+    let mut present = NullPresentation::new(1920, 1080);
+    let mut overlay = Overlay::default();
+    overlay.compose(&mut present, &art, &before.list, false, &[]);
+    let was = triangles(overlay.items());
+    overlay.compose(&mut present, &art, &now.list, false, &[]);
+    let is = triangles(overlay.items());
+    assert_eq!(overlay.stats.upload_failures, 0, "every picture is drawn");
+    assert!(
+        was.iter()
+            .all(|t| t.2 == OverlayDepth::Over && t.3.position[2] == 0.5),
+        "before, everything was drawn over the world"
+    );
+    assert_eq!(was.len(), is.len(), "the same triangles");
+    let quads: usize = names(&now.list).iter().map(|(_, q)| q.len()).sum();
+    let in_world = is.iter().filter(|t| t.2 == OverlayDepth::World).count();
+    assert!(quads > 0);
+    assert_eq!(
+        in_world,
+        quads * 6,
+        "every quad of every name, and only those"
+    );
+    for (a, b) in was.iter().zip(&is) {
+        match b.2 {
+            // A name's: the very triangle, at the depth of its body's top.
+            OverlayDepth::World => {
+                assert!(DEPTHS.contains(&b.3.position[2]), "{b:?}");
+                let mut v = b.3;
+                v.position[2] = 0.5;
+                assert_eq!((a.0, a.1, a.3), (b.0, b.1, v));
+            }
+            // The rest: exactly as before.
+            OverlayDepth::Over => assert_eq!(a, b),
+        }
     }
 }

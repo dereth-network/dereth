@@ -41,7 +41,7 @@ mod imp {
 
     use super::PreviewId;
     use dereth_client_contract::overlay::{
-        OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler, OverlaySpace,
+        OverlayDepth, OverlayItem, OverlayMaterial, OverlayReleased, OverlaySampler, OverlaySpace,
         OverlayTexture, OverlayVertex,
     };
 
@@ -895,13 +895,14 @@ mod imp {
             })
         }
 
-        /// Where the point a name over an object stands on is on screen; see
-        /// `SceneDraw::target_top`. Nothing during a hidden world.
+        /// Where the point a name over an object stands on is on screen, and its depth as the
+        /// world is drawn, where the world keeps one; see `SceneDraw::target_top`. Nothing during
+        /// a hidden world.
         pub fn target_top(
             &self,
             id: dereth_primitives::ObjectId,
             ws: Option<&dereth_client_runtime::world_state::WorldState>,
-        ) -> Option<(f32, f32)> {
+        ) -> Option<(f32, f32, Option<f32>)> {
             if self.world_hidden {
                 return None;
             }
@@ -1224,9 +1225,21 @@ mod imp {
             key
         }
 
+        /// Whether the world drawn this frame leaves its depth in the frame for the overlay to be
+        /// tested against: not while Better Lighting draws the world, whose depth is its own.
+        fn world_depth_kept(&mut self) -> bool {
+            #[cfg(feature = "hifi")]
+            if self.gpu.hifi_sidecar_mut().is_some() {
+                return false;
+            }
+            true
+        }
+
         /// Draw the overlay over the finished world, in order, inside the frame bracket. A batch
         /// whose texture is not resident draws nothing; a preview space that does not exist or
-        /// holds no object draws nothing.
+        /// holds no object draws nothing. A batch hidden behind the world is tested against the
+        /// world's depth, writing none; where the world leaves no depth of its own it is drawn
+        /// over everything, as the rest are.
         ///
         /// # Errors
         /// The device's own; the rest of the list is not drawn.
@@ -1235,6 +1248,7 @@ mod imp {
                 return Ok(());
             }
             let [image, invert, text] = self.overlay_pipelines();
+            let world_depth = self.world_depth_kept();
             let view = ViewParams::default();
             let mut per_frame = PerFrameConstants::from_view(&view);
             per_frame.view_proj = glam_identity();
@@ -1245,16 +1259,21 @@ mod imp {
                         material,
                         texture,
                         sampler,
+                        depth,
                         vertices,
                     } => {
                         let Some(slot) = self.overlay_textures.get(texture).copied() else {
                             continue;
                         };
-                        let key = match material {
+                        let mut key = match material {
                             OverlayMaterial::Image => image,
                             OverlayMaterial::Invert => invert,
                             OverlayMaterial::Text => text,
                         };
+                        if *depth == OverlayDepth::World && world_depth {
+                            key.z_func = ZFunc::LessEqual;
+                            key.z_write = false;
+                        }
                         self.gpu.bind_texture(slot, overlay_sampler_index(*sampler));
                         self.gpu.draw_dynamic(
                             &key,

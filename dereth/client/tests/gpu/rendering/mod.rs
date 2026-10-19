@@ -60,6 +60,7 @@ mod interiors_through_outdoor_portals;
 mod landscape_draw_distance;
 mod lighting;
 mod mip_deferral;
+mod names_behind_the_world;
 mod object_draw_distance;
 mod object_modes;
 mod object_part_submission;

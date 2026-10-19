@@ -1562,7 +1562,10 @@ impl<H: Host> ClientShell<H> {
             .collect();
         ui.tops = wanted
             .iter()
-            .filter_map(|&id| Some((id, present.target_top(id, world)?)))
+            .filter_map(|&id| {
+                let (x, y, _) = present.target_top(id, world)?;
+                Some((id, (x, y)))
+            })
             .collect();
         ui.projections = wanted
             .into_iter()

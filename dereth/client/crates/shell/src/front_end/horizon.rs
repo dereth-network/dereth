@@ -157,17 +157,20 @@ impl<H: Host> FrontEnd<H> for HorizonFrontEnd {
     fn after_portal(&mut self, _cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {}
     fn compose(&mut self, cx: &mut Cx<'_, H>, _services: &mut FrontEndServices<H>) {
         // The interface drew its frame before the world moved for this one: what stands over
-        // the world is put where the world is drawn now, with this frame's camera.
-        use dereth_horizon::draw::Anchor;
+        // the world is put where the world is drawn now, with this frame's camera, and a name
+        // takes the depth of the point it stands on.
+        use dereth_horizon::draw::{Anchor, Spot};
         let (present, world) = cx.present_with_world();
         let present = &*present;
         #[allow(clippy::cast_precision_loss)]
         // LINT-OK: a pixel on screen, a few thousand at most, exact in f32.
         self.follow_drawn_world(|id, anchor| match anchor {
-            Anchor::Top => present.target_top(id, world),
+            Anchor::Top => present
+                .target_top(id, world)
+                .map(|(x, y, depth)| Spot { x, y, depth }),
             Anchor::Origin => present
                 .target_origin(id, world)
-                .map(|(x, y)| (x as f32, y as f32)),
+                .map(|(x, y)| Spot::at(x as f32, y as f32)),
         });
         HorizonFrontEnd::compose(self, cx);
         for error in self.errors.drain(..) {

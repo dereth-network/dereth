@@ -81,6 +81,19 @@ pub enum OverlayMaterial {
     Invert,
 }
 
+/// Whether a batch is hidden behind the world it is drawn over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OverlayDepth {
+    /// Drawn over everything, whatever depth its vertices carry.
+    #[default]
+    Over,
+    /// Hidden, pixel by pixel, wherever the world drawn this frame stands in front of it. Each
+    /// vertex's `position[2]` is its depth as the world's own projection gives it: `z / w`, 0 at
+    /// the near plane and 1 at the far. It writes no depth, so it hides nothing drawn after it. A
+    /// presentation whose world leaves no such depth draws it over everything.
+    World,
+}
+
 /// A creature-mode preview space: a small 3D scene with its own camera and light, drawn into a
 /// rectangle of the overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -114,6 +127,7 @@ pub enum OverlayItem {
         material: OverlayMaterial,
         texture: OverlayTexture,
         sampler: OverlaySampler,
+        depth: OverlayDepth,
         vertices: Vec<OverlayVertex>,
     },
     /// A preview space, drawn into `rect` (in back-buffer pixels) at this point in the order.

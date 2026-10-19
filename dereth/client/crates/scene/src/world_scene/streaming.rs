@@ -2015,28 +2015,45 @@ impl SceneDraw {
             .as_ref()
             .map_or(0.1, |s| s.selection_sphere.center.z * parts.scale.z);
         let p = localtoglobal(&object.frame, Vec3::new(0.0, 0.0, height));
-        let (x, y) = self.screen_point(ws, viewport, p)?;
+        let (x, y, _) = self.screen_point(ws, viewport, p)?;
         Some((
             dereth_primitives::num::to_i32_f64(f64::from(x)),
             dereth_primitives::num::to_i32_f64(f64::from(y)),
         ))
     }
 
-    /// Where the point a name over `id` stands on is on screen, in pixels: over its drawn origin
-    /// at a height that does not follow its animation ([`WorldState::name_top`]), seen from where
-    /// the camera is this frame. `None` behind the camera or for an object not drawn.
+    /// Where the point a name over `id` stands on is on screen, in pixels, and its depth as the
+    /// world is drawn: over its drawn origin at a height that does not follow its animation
+    /// ([`WorldState::name_top`]), seen from where the camera is this frame. `None` behind the
+    /// camera or for an object not drawn.
+    ///
+    /// No depth for an object outdoors seen from a room: the outdoors is drawn before the room's
+    /// depth is cleared and its openings stamped back nearer, so the world keeps no depth of its
+    /// own for it.
     #[must_use]
     pub fn target_top(
         &self,
         ws: &WorldState,
         id: ObjectId,
         viewport: (u32, u32),
-    ) -> Option<(f32, f32)> {
-        self.screen_point(ws, viewport, ws.name_top(id)?)
+    ) -> Option<(f32, f32, Option<f32>)> {
+        let (x, y, depth) = self.screen_point(ws, viewport, ws.name_top(id)?)?;
+        let outdoors_from_a_room = ws.viewer_cell().is_some()
+            && ws
+                .server_object_draw_cell(id)
+                .is_some_and(dereth_physics::landdefs::is_outdoors);
+        Some((x, y, (!outdoors_from_a_room).then_some(depth)))
     }
 
-    /// Where the render-space point `p` stands on screen, in pixels; `None` behind the camera.
-    fn screen_point(&self, ws: &WorldState, viewport: (u32, u32), p: Vec3) -> Option<(f32, f32)> {
+    /// Where the render-space point `p` stands on screen, in pixels, and its depth as the world's
+    /// projection gives it (`z / w`: 0 at the near plane, 1 at the far, as the world's own depth
+    /// is drawn); `None` behind the camera.
+    fn screen_point(
+        &self,
+        ws: &WorldState,
+        viewport: (u32, u32),
+        p: Vec3,
+    ) -> Option<(f32, f32, f32)> {
         let view = self.view_params(ws, viewport.0, viewport.1);
         let eye = self.eye_transform(ws, &view);
         let matrix = dereth_render::camera::projection(&view) * view.view;
@@ -2047,6 +2064,7 @@ impl SceneDraw {
         Some((
             (q.x / q.w) * eye.width * 0.5 + eye.width * 0.5,
             eye.height * 0.5 - (q.y / q.w) * eye.height * 0.5,
+            q.z / q.w,
         ))
     }
 

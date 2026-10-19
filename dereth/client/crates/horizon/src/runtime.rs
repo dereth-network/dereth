@@ -1425,12 +1425,13 @@ impl HorizonFrontEnd {
 
     /// Put what this frame's interface draws over things in the world (their names, the ring
     /// round the pad's other choice) over them where the world is drawn this frame, as `now` says
-    /// each stands on screen. The interface's frame is drawn before the world moves for the frame,
-    /// from where the last frame drew it; this is called once it has moved, before
-    /// [`Self::compose`], so a name stands on its body as it is drawn, not a frame behind it.
+    /// each stands on screen, and give a name the depth of the point it stands on. The
+    /// interface's frame is drawn before the world moves for the frame, from where the last frame
+    /// drew it; this is called once it has moved, before [`Self::compose`], so a name stands on
+    /// its body as it is drawn, not a frame behind it.
     pub fn follow_drawn_world(
         &mut self,
-        now: impl Fn(ObjectId, crate::draw::Anchor) -> Option<(f32, f32)>,
+        now: impl Fn(ObjectId, crate::draw::Anchor) -> Option<crate::draw::Spot>,
     ) {
         self.list.follow(now);
     }

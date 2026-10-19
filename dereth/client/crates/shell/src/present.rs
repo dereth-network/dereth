@@ -69,9 +69,14 @@ pub trait ClientPresentation: Presentation {
         None
     }
 
-    /// Where the point a name over a tracked object stands on is on screen, as the world is drawn
-    /// this frame.
-    fn target_top(&self, _id: ObjectId, _world: Option<&WorldState>) -> Option<(f32, f32)> {
+    /// Where the point a name over a tracked object stands on is on screen, in pixels, and its
+    /// depth as the world is drawn this frame (`z / w`: 0 at the near plane, 1 at the far), where
+    /// the world keeps a depth of its own for it.
+    fn target_top(
+        &self,
+        _id: ObjectId,
+        _world: Option<&WorldState>,
+    ) -> Option<(f32, f32, Option<f32>)> {
         None
     }
 

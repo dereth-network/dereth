@@ -2247,7 +2247,8 @@ impl Hud {
     }
 
     /// The names over the people and creatures near the player, coloured by what they are, and
-    /// the target marker over the selection, tinted to match.
+    /// the target marker over the selection, tinted to match. Each stands in the world at the top
+    /// of its body, so what stands in front of that hides it.
     fn nameplates(&mut self, p: &mut Painter<'_>, ctx: &Ctx<'_>, state: &GameState) {
         let k = p.scale;
         let target_colour = state.target.as_ref().map(|t| match t.relation {
@@ -2293,9 +2294,9 @@ impl Hud {
                 }
             }
             // Drawn from where the body stood when the last frame was drawn: moved to where it
-            // stands when this one is.
+            // stands when this one is, and hidden wherever the world stands in front of it.
             p.list
-                .anchor(plate.id, Anchor::Top, from, (plate.x, plate.y), (x, y));
+                .anchor_in_world(plate.id, Anchor::Top, from, (plate.x, plate.y), (x, y));
         }
     }
 

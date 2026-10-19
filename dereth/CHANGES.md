@@ -28,6 +28,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon: skill tooltips stop showing vitae once it is gone.
 - Horizon: steering with the right mouse button no longer fights turning to face a target.
 - Horizon: right-click an item a vendor sells to examine it.
+- Horizon: names over people and creatures are hidden behind walls and hills.
 - Better Lighting no longer freezes the game for minutes as it starts on Direct3D 12.
 - Better Lighting no longer draws trees black or blue in the rain.
 
