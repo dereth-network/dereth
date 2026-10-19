@@ -698,7 +698,14 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
             relit = relit + lit * lp.w * params.lamp.y;
         }
     }
-    // The bounced light takes the place of the sky the leaf was given, which is the share of
-    // the sky it sees.
-    return out(vec4<f32>(relit, c.a), vec4<f32>(refl * sky_seen, 1.0));
+    // The bounced light takes the place of the sky the surface was given (for a leaf, the share
+    // of the sky it sees), as much of it as the surface's color took. A leaf's new light is held
+    // within twice what it was drawn with; under an overcast sky most of that light is the sky's,
+    // and taking back all the sky it was offered would take more than the leaf holds.
+    let took = select(
+        min(lit * ratio / max(light, vec3<f32>(1e-4)), vec3<f32>(2.0)) * (1.0 - f),
+        vec3<f32>(0.0),
+        baked,
+    );
+    return out(vec4<f32>(relit, c.a), vec4<f32>(took * sky_seen, 1.0));
 }

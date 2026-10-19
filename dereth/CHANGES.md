@@ -29,6 +29,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Horizon: steering with the right mouse button no longer fights turning to face a target.
 - Horizon: right-click an item a vendor sells to examine it.
 - Better Lighting no longer freezes the game for minutes as it starts on Direct3D 12.
+- Better Lighting no longer draws trees black or blue in the rain.
 
 ## 0.4.4 (2026-10-15)
 
