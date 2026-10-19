@@ -54,10 +54,25 @@ pub(super) fn build_horizon<H: Host>(cx: &mut Cx<'_, H>) -> Result<HorizonFrontE
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
         .map(|d| d.join(dereth_horizon::options::FILE_NAME));
-    let options = settings
+    let mut options = settings
         .as_deref()
         .map(dereth_horizon::options::HorizonOptions::load)
         .unwrap_or_default();
+    // `--enter-world`: the screens log in (`-u`, else the first), or make the character `-r`
+    // names first; then each `--say` line is said in the world.
+    let config = cx.config();
+    if config.enter_world {
+        options.auto_login = true;
+        let named = |s: &str| (!s.is_empty()).then(|| s.to_owned());
+        options.start_character = named(&config.start_char);
+        options.create_character = named(&config.create_char);
+        options.script.extend(
+            config
+                .say
+                .iter()
+                .map(|l| dereth_horizon::options::ScriptStep::Say(l.clone())),
+        );
+    }
     let art = std::sync::Arc::new(dereth_horizon::art::Art::new(pieces));
     let mut ui = HorizonFrontEnd::new(art, options, settings);
     ui.start(cx);

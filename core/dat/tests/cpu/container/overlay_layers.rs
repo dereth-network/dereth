@@ -232,3 +232,38 @@ fn a_record_older_than_the_one_in_force_is_refused_and_the_overlay_copy_wins_ove
     assert_eq!(s.read_portal(DELETED).unwrap(), b"back");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_reverted_record_reads_as_the_bases_again_and_an_added_one_is_gone() {
+    let root = scratch("revert");
+    let base = root.join("base");
+    base_set(&base);
+    let store = RetailDatStore::open_dir(&base).unwrap();
+    let dir = OverlayDir::new(&root.join("overlay")).unwrap();
+    write_overlay(&store, &dir, "w");
+    let portal: DatFile = store.portal().clone();
+    let mut w = OverlayWriter::open_or_create(
+        &dir.container(ModernDat::Portal),
+        &portal,
+        "client_portal.dat",
+        "w",
+        1,
+    )
+    .unwrap();
+    assert!(w.revert(REPLACED).unwrap());
+    assert!(w.revert(ADDED).unwrap());
+    assert!(!w.revert(KEPT).unwrap(), "the overlay never held it");
+    assert!(
+        w.revert(overlay::MANIFEST).is_err(),
+        "an overlay's own record"
+    );
+    assert_eq!(w.hash_of(REPLACED), None);
+    w.flush(1).unwrap();
+    drop(w);
+    let s = store.with_overlay(&dir, Some("w")).unwrap();
+    assert_eq!(s.read_portal(REPLACED).unwrap(), b"old");
+    assert!(!s.exists(ADDED));
+    // A tombstone stands: reverting is not undeleting.
+    assert!(!s.exists(DELETED));
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -528,6 +528,36 @@ impl SceneDraw {
         self.stats.blocks_released += released.blocks_released;
     }
 
+    /// Build the resident blocks among `blocks` again from the store the next stream is handed,
+    /// as a block that scrolls in is built: its terrain, its surfaces, its statics, its scenery,
+    /// and its cells and their bodies for the body's physics. A tool that has changed the
+    /// records under them asks for this; a block outside the window is left alone and is read
+    /// from the store when it scrolls in. Answers how many blocks will be built again.
+    pub fn reread_blocks(&mut self, ws: &mut WorldState, blocks: &[(i32, i32)]) -> usize {
+        let resident: Vec<(i32, i32)> = blocks
+            .iter()
+            .copied()
+            .filter(|b| self.slot_of_block(ws, *b).is_some())
+            .collect();
+        if resident.is_empty() {
+            return 0;
+        }
+        // The cells and their bodies go first, as for a block leaving the window; the build
+        // takes them in again.
+        self.release_block_interiors(ws, &resident);
+        for b in &resident {
+            if let Some((xi, yi)) = self.slot_of_block(ws, *b) {
+                self.want(ws, xi, yi, SlotWork::Full);
+            }
+            self.land.bakes_done.remove(b);
+            self.land.bakes_asked.remove(b);
+        }
+        // A bake made off the frame reads a copy of the store it was asked with: the next ones
+        // read the new one.
+        self.land.bake_epoch += 1;
+        resident.len()
+    }
+
     /// Release the merged terrain surfaces for one block: one reference released
     /// per cell, and the device slot handed back for
     /// every surface whose last cell that was.

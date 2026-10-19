@@ -1,5 +1,5 @@
 //! The write direction for the records a world builder makes: a landblock's terrain, its statics
-//! and buildings, a surface, an image texture and an image.
+//! and buildings, an indoor cell, a surface, an image texture and an image.
 //!
 //! Each `encode` is the exact inverse of its type's decoder: decoding a record and encoding the
 //! value gives back the record's bytes, for every record of the kind the retail files hold. The
@@ -14,7 +14,8 @@ use dereth_primitives::{DataId, Frame};
 
 use crate::material::{PFID_INDEX16, PFID_P8};
 use crate::world::{
-    BuildInfo, BuildingPortal, CellLandblock, LandblockInfo, ObjectEntry, LANDBLOCK_BYTES,
+    BuildInfo, BuildingPortal, CellLandblock, CellPortal, EnvCell, LandblockInfo, ObjectEntry,
+    LANDBLOCK_BYTES,
 };
 use crate::{RenderSurface, Surface, SurfaceTexture};
 
@@ -142,6 +143,64 @@ impl LandblockInfo {
                 o.u32(*cell);
                 o.u32(*owner);
             }
+        }
+        o.0
+    }
+}
+
+fn cell_portal(o: &mut Out, p: &CellPortal) {
+    o.u16(p.flags);
+    o.u16(p.polygon_id);
+    // A portal to the outdoors keeps no cell: the files hold 0xFFFF there.
+    #[allow(clippy::cast_possible_truncation)] // the low 16 bits are what the file stores
+    o.u16(if p.flags & 4 != 0 {
+        0xFFFF
+    } else {
+        p.other_cell_id as u16
+    });
+    o.i16(p.other_portal_id);
+}
+
+impl EnvCell {
+    /// The `0xXXYY0100+` record: the id, the flags, the id again, the surface, portal and visible
+    /// cell counts, the surfaces and the environment as their low 16 bits, the cell struct, the
+    /// frame, the portals, the visible cells, then the statics when the flags' bit 1 says they
+    /// follow and the restriction object when bit 3 does. Nothing pads.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut o = Out(Vec::with_capacity(
+            48 + 2 * self.surfaces.len()
+                + 8 * self.portals.len()
+                + 2 * self.visible_cells.len()
+                + 32 * self.static_objects.len(),
+        ));
+        let low = |id: DataId| u16::try_from(id.raw() & 0xFFFF).unwrap_or(0);
+        o.id(self.id);
+        o.u32(self.flags);
+        o.u32(self.cell_id_repeat);
+        o.u8(u8::try_from(self.surfaces.len()).unwrap_or(u8::MAX));
+        o.u8(u8::try_from(self.portals.len()).unwrap_or(u8::MAX));
+        o.u16(u16::try_from(self.visible_cells.len()).unwrap_or(u16::MAX));
+        for s in &self.surfaces {
+            o.u16(low(*s));
+        }
+        o.u16(low(self.environment));
+        o.u16(self.cell_struct);
+        o.frame(&self.frame);
+        for p in &self.portals {
+            cell_portal(&mut o, p);
+        }
+        for v in &self.visible_cells {
+            o.u16(*v);
+        }
+        if self.flags & 2 != 0 {
+            o.count(self.static_objects.len());
+            for e in &self.static_objects {
+                object(&mut o, e);
+            }
+        }
+        if self.flags & 8 != 0 {
+            o.u32(self.restriction_obj.unwrap_or(0));
         }
         o.0
     }

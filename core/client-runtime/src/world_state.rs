@@ -146,6 +146,12 @@ pub struct WorldState {
     pub sweeps_seen: Option<u64>,
     /// The local body. `None` leaves a free camera over the static scene.
     pub character: Option<Character>,
+    /// The indoor cell a free camera with no body stands in, and whether that cell is seen from
+    /// outside, when the front end that moves the camera knows it (the world editor, which knows
+    /// every room). With no body this is the viewer's cell, so a room the free camera is in is
+    /// drawn from inside, as a body's camera there would draw it. `None` for the client's own
+    /// free camera, which draws only from outdoors.
+    pub free_camera_cell: Option<(CellId, bool)>,
     /// The physics bodies of the objects every resident interior cell bakes in.
     /// It lives here rather than beside the
     /// body because a cell belongs to a landblock and this is what owns the resident blocks.
@@ -325,7 +331,10 @@ impl WorldState {
     }
 
     pub fn cell_seen_outside(&self, cell: CellId) -> bool {
-        crate::world_stream::cell_seen_outside(&self.character, cell)
+        match (&self.character, self.free_camera_cell) {
+            (None, Some((free, seen))) if free == cell => seen,
+            _ => crate::world_stream::cell_seen_outside(&self.character, cell),
+        }
     }
 
     pub fn choose_viewer_block(&mut self, block: (i32, i32)) -> RenderSpace {
@@ -1239,8 +1248,10 @@ impl WorldState {
     /// (the `--no-character` flycam), or a viewer that is outdoors.
     #[must_use]
     pub fn viewer_cell(&self) -> Option<CellId> {
-        let c = self.character.as_ref()?;
-        let cell = c.camera.viewer_cell.unwrap_or_else(|| c.position().cell);
+        let cell = match self.character.as_ref() {
+            Some(c) => c.camera.viewer_cell.unwrap_or_else(|| c.position().cell),
+            None => self.free_camera_cell?.0,
+        };
         (!dereth_physics::landdefs::is_outdoors(cell)).then_some(cell)
     }
 

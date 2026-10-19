@@ -361,6 +361,16 @@ impl DatManager {
         }))
     }
 
+    /// Not ACE: the same files opened again, with the data overlay in `overlay` over them (or the
+    /// one over them now, read afresh), as a new manager.
+    ///
+    /// # Errors
+    /// The files cannot be opened again, or what they hold now does not initialize.
+    pub fn reopen(&self, overlay: Option<&std::path::Path>) -> Result<Arc<Self>, String> {
+        let source = self.cell_dat.source().reopen(overlay)?;
+        Self::initialize(source).map_err(|e| e.to_string())
+    }
+
     #[must_use]
     pub fn cell_dat(&self) -> &CellDatDatabase {
         &self.cell_dat

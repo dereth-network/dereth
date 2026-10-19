@@ -277,6 +277,16 @@ mod imp {
             }
         }
 
+        /// The renderer over a device its caller opened, with the adapter and configuration the
+        /// caller chose: a tool that draws off screen on the machine's own graphics card opens
+        /// its device itself.
+        ///
+        /// # Errors
+        /// None today; kept a `Result` so the caller's chain reads as the constructors' does.
+        pub fn on_device(gpu: Gpu) -> Result<Self, RenderError> {
+            Self::from_device(gpu)
+        }
+
         fn from_device(gpu: Gpu) -> Result<Self, RenderError> {
             Ok(Self {
                 gpu,

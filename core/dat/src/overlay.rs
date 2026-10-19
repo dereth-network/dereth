@@ -1158,6 +1158,23 @@ impl OverlayWriter {
         Ok(out)
     }
 
+    /// Take the world record `id` out of the overlay, so a read through it finds the base's again
+    /// (unless a tombstone hides it). Unlike [`Self::tombstone`] nothing is deleted from the base.
+    /// Answers whether the overlay held it.
+    ///
+    /// # Errors
+    /// [`DatError::NotFound`] for a reserved id, and the writer's errors.
+    pub fn revert(&mut self, id: DataId) -> Result<bool, DatError> {
+        if is_reserved(id) {
+            return Err(DatError::NotFound(id));
+        }
+        let held = self.writer.delete_data(id, 0)?;
+        if self.manifest.hashes.remove(&id.raw()).is_some() || held {
+            self.dirty = true;
+        }
+        Ok(held)
+    }
+
     /// Make the overlay's iteration list the world's whole list, `iterations`, reported as it is.
     ///
     /// # Errors

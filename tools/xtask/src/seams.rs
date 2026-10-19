@@ -1438,6 +1438,131 @@ pub fn shipped_client_violations(package: &str, lines: &str) -> Vec<String> {
     dedup(out)
 }
 
+/// The client's crates a Lyceum crate may depend on besides the core's and its own: the drawing,
+/// the desktop host it runs in and the device input, the client application's shell (whose
+/// renderer is the runtime's presentation on a device) and its screens' world map.
+pub const LYCEUM_MAY_USE: &[&str] = &[
+    "dereth-scene",
+    "dereth-render",
+    "dereth-world-render",
+    "dereth-desktop",
+    "dereth-input",
+    "dereth-client-shell",
+    "dereth-ui-screens",
+];
+
+/// One workspace package: its name, its folder from the workspace's root, and what its manifest
+/// declares.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspacePackage {
+    pub name: String,
+    pub dir: String,
+    pub deps: Vec<ManifestDep>,
+}
+
+fn under(dir: &str, root: &str) -> bool {
+    dir == root || dir.starts_with(&format!("{root}/"))
+}
+
+/// Rule: Lyceum is a product of its own. A crate under `lyceum/` declares no workspace crate but
+/// the core's (under `core/`), Lyceum's own and [`LYCEUM_MAY_USE`]: never one of Empyrean's, which
+/// it runs as a program, nor the client's application beyond those; and no crate outside
+/// `lyceum/` declares one of Lyceum's. Tests' dependencies count too.
+pub fn lyceum_violations(packages: &[WorkspacePackage]) -> Vec<String> {
+    let dir_of = |name: &str| {
+        packages
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.dir.as_str())
+    };
+    let mut out = Vec::new();
+    for p in packages {
+        let ours = under(&p.dir, "lyceum");
+        for d in &p.deps {
+            let Some(dir) = dir_of(&d.name) else {
+                continue;
+            };
+            let theirs = under(dir, "lyceum");
+            let test = if d.dev { " (for its tests)" } else { "" };
+            if ours && !theirs && !under(dir, "core") && !LYCEUM_MAY_USE.contains(&d.name.as_str())
+            {
+                out.push(format!(
+                    "{} depends on `{}`{test}: Lyceum may use the core's crates and {} only{}",
+                    p.name,
+                    d.name,
+                    LYCEUM_MAY_USE.join(", "),
+                    if under(dir, "empyrean") {
+                        "; it runs Empyrean as a program and never links it"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+            if !ours && theirs {
+                out.push(format!(
+                    "{} depends on Lyceum's `{}`{test}: nothing outside lyceum/ may",
+                    p.name, d.name
+                ));
+            }
+        }
+    }
+    dedup(out)
+}
+
+/// Every workspace package with its folder and its manifest's dependencies, from `cargo
+/// metadata` (no resolution: every optional dependency and every target is listed).
+fn workspace_packages(ws: &Path) -> Result<Vec<WorkspacePackage>, String> {
+    let out = Command::new("cargo")
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--offline",
+        ])
+        .current_dir(ws)
+        .output()
+        .map_err(|e| format!("failed to launch cargo metadata: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let meta: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
+    let packages = meta["packages"]
+        .as_array()
+        .ok_or("cargo metadata: no packages")?;
+    Ok(packages
+        .iter()
+        .filter_map(|p| {
+            let manifest = PathBuf::from(p["manifest_path"].as_str()?);
+            let dir = manifest
+                .parent()?
+                .strip_prefix(ws)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Some(WorkspacePackage {
+                name: p["name"].as_str()?.to_owned(),
+                dir,
+                deps: p["dependencies"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|d| {
+                        Some(ManifestDep {
+                            name: d["name"].as_str()?.to_owned(),
+                            dev: d["kind"].as_str() == Some("dev"),
+                        })
+                    })
+                    .collect(),
+            })
+        })
+        .collect())
+}
+
 /// The workspace's crate names, and the dependencies `krate`'s manifest declares, from
 /// `cargo metadata` (no resolution, so every optional dependency and every target is listed).
 fn workspace_manifest(ws: &Path, krate: &str) -> Result<(Vec<String>, Vec<ManifestDep>), String> {
@@ -1753,6 +1878,7 @@ pub fn reports() -> Vec<Report> {
     let hifi_seam = std::fs::read_to_string(ws.join(HIFI_SEAM))
         .map(|t| hifi_seam_violations(&t))
         .map_err(|e| format!("{HIFI_SEAM}: {e}"));
+    let lyceum = workspace_packages(&ws).map(|p| lyceum_violations(&p));
     let shipped = SHIPPED_CLIENTS
         .iter()
         .map(|p| feature_tree(&ws, p).map(|t| shipped_client_violations(p, &t)))
@@ -1925,6 +2051,15 @@ pub fn reports() -> Vec<Report> {
                 .to_owned(),
         ),
         row(
+            "seam: Lyceum",
+            lyceum,
+            format!(
+                "lyceum/ uses the core's crates and {} only, never Empyrean's, and nothing \
+                 outside it uses lyceum/",
+                LYCEUM_MAY_USE.join(", ")
+            ),
+        ),
+        row(
             "seam: browser and headless clients without high fidelity",
             shipped,
             format!(
@@ -1954,6 +2089,57 @@ mod tests {
                 name: name.to_owned(),
             })
             .collect()
+    }
+
+    #[test]
+    fn lyceum_uses_the_core_and_the_clients_drawing_only_and_nothing_else_uses_it() {
+        let dep = |name: &str, dev: bool| ManifestDep {
+            name: name.to_owned(),
+            dev,
+        };
+        let pkg = |name: &str, dir: &str, deps: Vec<ManifestDep>| WorkspacePackage {
+            name: name.to_owned(),
+            dir: dir.to_owned(),
+            deps,
+        };
+        let base = || {
+            vec![
+                pkg("dereth-dat", "core/dat", vec![]),
+                pkg("dereth-scene", "dereth/client/crates/scene", vec![]),
+                pkg("dereth-client", "dereth/client", vec![]),
+                pkg("empyrean-world", "empyrean/crates/world", vec![]),
+                pkg(
+                    "lyceum-foundry",
+                    "lyceum/crates/foundry",
+                    vec![dep("dereth-dat", false)],
+                ),
+                pkg(
+                    "lyceum-editor",
+                    "lyceum/editor",
+                    vec![
+                        dep("lyceum-foundry", false),
+                        dep("dereth-scene", false),
+                        dep("egui", false),
+                    ],
+                ),
+            ]
+        };
+        assert!(lyceum_violations(&base()).is_empty());
+        // The client application, and Empyrean even for tests.
+        let mut w = base();
+        w[5].deps.push(dep("dereth-client", false));
+        w[4].deps.push(dep("empyrean-world", true));
+        let v = lyceum_violations(&w);
+        assert_eq!(v.len(), 2, "{v:#?}");
+        assert!(v[0].contains("lyceum-editor depends on `dereth-client`"));
+        assert!(v[1].contains("lyceum-foundry depends on `empyrean-world` (for its tests)"));
+        assert!(v[1].contains("never links it"));
+        // Something outside depending on Lyceum.
+        let mut w = base();
+        w[2].deps.push(dep("lyceum-foundry", false));
+        let v = lyceum_violations(&w);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].contains("dereth-client depends on Lyceum's `lyceum-foundry`"));
     }
 
     #[test]

@@ -63,9 +63,17 @@ members = [
     "tools/web-relay",
     "tools/web-dev",
     "tools/corpus",
-    "tools/pack",
     "tools/art",
     "tools/xtask",
+    # lyceum/: Lyceum, the world builder (MIT): its own product beside the client and the server.
+    # The Foundry (`lyceum-foundry`) is its library: the pack format, the compiler and its checks,
+    # the edits, the brushes and picks, the cells, the visibility lists, bake and import. The
+    # editor (`lyceum-editor`) is an app on the client's presentation (the scene, its renderer,
+    # the desktop host); `lyceum-cli` is the `lyceum` command. Nothing outside lyceum/ depends on
+    # it, and it runs Empyrean as a process, never linking it (`cargo xtask seams`).
+    "lyceum/crates/foundry",
+    "lyceum/editor",
+    "lyceum/cli",
     # empyrean/: Empyrean, the server: a Rust port of ACE (ACEmulator), AGPL-3.0-only
     # (empyrean/LICENSE; every server crate says so in its own `license`): the ported crates
     # under empyrean/crates/, the `empyrean-server` and `empyrean-import` binaries and the server's
@@ -193,10 +201,15 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 cpal = { version = "0.17.3", default-features = false }
 ctrlc = "3.5"
 # The desktop host's pads; no other crate depends on it.
+lyceum-foundry = { path = "lyceum/crates/foundry" }
 gilrs = { version = "0.11", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam = "0.30"
 png = "0.17"
+# Lyceum's panels (`lyceum/editor` only): immediate-mode widgets, docked panels, tables.
+egui = { version = "0.36.2", default-features = false }
+egui_dock = { version = "0.21.1", default-features = false }
+egui_extras = { version = "0.36.2", default-features = false }
 pollster = "0.4"
 raw-window-handle = "0.6"
 serde_json = "1"
@@ -208,6 +221,8 @@ sha2 = "0.10"
 hmac = "0.12"
 # Configuration consumers retain ordered table keys through their preserve_order feature.
 toml = "1"
+# Editing a TOML source in place, keeping its comments and layout (the world editor's saves).
+toml_edit = "0.25"
 web-sys = "0.3.104"
 web-time = "1"
 winit = { version = "0.30", default-features = false }

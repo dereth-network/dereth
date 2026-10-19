@@ -119,6 +119,29 @@ fn the_scripted_log_in_goes_from_character_select_to_the_named_character() {
     assert_eq!(sent, vec![ObjectId(0x5000_0002)]);
 }
 
+#[test]
+fn the_scripted_log_in_says_its_lines_once_in_the_world_in_order() {
+    let mut state = account();
+    let mut h = Harness::new(HorizonOptions {
+        auto_login: true,
+        script: vec![
+            dereth_horizon::options::ScriptStep::Say("@teleloc 0xA9B40009".into()),
+            dereth_horizon::options::ScriptStep::Say("hello".into()),
+        ],
+        ..HorizonOptions::default()
+    });
+    let mut said = Vec::new();
+    for _ in 0..600 {
+        said.extend(h.frame(&state).chat);
+    }
+    assert!(said.is_empty(), "nothing is said before the world");
+    state.in_world = true;
+    for _ in 0..1200 {
+        said.extend(h.frame(&state).chat);
+    }
+    assert_eq!(said, ["@teleloc 0xA9B40009", "hello"]);
+}
+
 /// A click at `at`, pressed and let go: everything both frames asked for.
 fn click(h: &mut Harness, state: &GameState, at: (f32, f32)) -> dereth_horizon::ui::Outcome {
     h.move_to(at.0, at.1);

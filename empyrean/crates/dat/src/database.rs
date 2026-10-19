@@ -217,6 +217,12 @@ impl DatDatabase {
         }
     }
 
+    /// Not ACE: the files this database reads from.
+    #[must_use]
+    pub fn source(&self) -> Arc<dyn DatSource> {
+        Arc::clone(&self.source)
+    }
+
     /// Not ACE: the numbering this file's records name motion commands in. ACE reads only the
     /// end-of-retail files, whose numbering is the final client's; older files key their motion
     /// tables, combat manoeuvres and spell gestures by an older table, told here from the human

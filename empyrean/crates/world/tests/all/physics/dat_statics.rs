@@ -960,4 +960,180 @@ mod real_content {
             "the new portal is refused"
         );
     }
+
+    /// An overlay over the retail cell file at `folder`: Holtburg's statics record with one more
+    /// object, a standing stone at `x`, 61.25, and its terrain record with the height index of
+    /// its middle vertex `x` (whole).
+    fn stone_overlay(folder: &std::path::Path, x: f32) {
+        use dereth_assets::world::{CellLandblock, LandblockInfo, ObjectEntry};
+        use dereth_assets::Decode;
+        use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+        use dereth_dat::ModernDat;
+        use dereth_primitives::DataId;
+        let _ = std::fs::remove_dir_all(folder);
+        let store = dereth_dat::RetailDatStore::open_dir(&dereth_dat::testing::dat_dir())
+            .expect("the retail dats");
+        let cell = store.cell().base();
+        let id = DataId(0xA9B4_FFFE);
+        let mut info = LandblockInfo::decode_payload(id, &cell.read(id).expect("the record"))
+            .expect("decodes");
+        info.objects.push(ObjectEntry {
+            id: DataId(0x0200_040B),
+            frame: Frame::new(Vec3::new(x, 61.25, 94.0), Quat::IDENTITY),
+        });
+        let dir = OverlayDir::new(folder).expect("an overlay folder");
+        let revision = dereth_dat::decompose::revision_over(&cell);
+        let mut c = OverlayWriter::open_or_create(
+            &dir.container(ModernDat::Cell),
+            &cell,
+            "client_cell_1.dat",
+            "a world being built",
+            1,
+        )
+        .expect("the cell overlay");
+        c.save(&cell, id, &info.encode(), 2, revision, 1)
+            .expect("the record");
+        let land_id = DataId(0xA9B4_FFFF);
+        let mut land =
+            CellLandblock::decode_payload(land_id, &cell.read(land_id).expect("the terrain"))
+                .expect("decodes");
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            land.height[MIDDLE] = x as u8;
+        }
+        c.save(&cell, land_id, &land.encode(), 2, revision, 1)
+            .expect("the terrain record");
+        c.add_iteration(revision, 1).expect("the revision");
+        c.flush(1).expect("flushed");
+    }
+
+    /// The middle vertex of a landblock, `x * 9 + y`.
+    const MIDDLE: usize = 4 * 9 + 4;
+
+    /// The height index of Holtburg's middle vertex, as the physics' land reads it.
+    fn middle_height(w: &World) -> u8 {
+        w.physics
+            .land()
+            .landblock(LandblockId(0xA9B4))
+            .expect("Holtburg is loaded")
+            .height[MIDDLE]
+    }
+
+    /// Where the stones the overlays add stand: every standing stone's x at y 61.25.
+    fn added_stones(w: &World) -> Vec<f32> {
+        phys_ext::landblock_dat_statics(w, 0xA9B4)
+            .iter()
+            .filter(|s| {
+                s.placement.id.raw() == 0x0200_040B
+                    && (s.placement.frame.origin.y - 61.25).abs() < 1e-3
+            })
+            .map(|s| s.placement.frame.origin.x)
+            .collect()
+    }
+
+    /// The world's files opened again over another overlay, a landblock built again has its
+    /// statics where the new overlay puts them, and the world reads the new records; the overlay
+    /// over the files now, written again, is read afresh with no folder named.
+    /// Divergence: V452
+    #[test]
+    fn a_landblock_built_again_over_a_new_overlay_stands_its_statics_where_that_overlay_puts_them()
+    {
+        use empyrean_dat::file_types::LandblockInfo;
+        use empyrean_world::managers::dat_overlay;
+        let scratch = dereth_dat::testing::ScratchDir::new("dat-reopen").expect("a scratch folder");
+        let (a, b) = (scratch.path().join("a"), scratch.path().join("b"));
+        stone_overlay(&a, 23.5);
+        stone_overlay(&b, 47.75);
+        let real = RealDats::open(&dereth_dat::testing::dat_dir())
+            .expect("the retail dats")
+            .with_overlay(&a)
+            .expect("overlay a");
+        let mut w = World::new(
+            ClockSnapshot {
+                portal_year_ticks: 0.0,
+                unix_time: 0.0,
+                utc: DotNetDateTime::new(2026, 1, 1),
+                monotonic: Duration::ZERO,
+            },
+            DatManager::initialize(Arc::new(real)).expect("the files"),
+        );
+        phys_ext::load_landblock(&mut w, 0xA9B4);
+        assert_eq!(added_stones(&w), [23.5]);
+        assert_eq!(middle_height(&w), 23);
+        let last_x = |w: &World| {
+            w.dats
+                .cell_dat()
+                .read_from_dat::<LandblockInfo>(0xA9B4_FFFE)
+                .and_then(|i| i.objects.last().map(|o| o.frame.origin.x))
+        };
+        dat_overlay::reopen(&mut w, Some(&b)).expect("reopened over b");
+        assert_eq!(last_x(&w), Some(47.75), "the world reads b's record");
+        assert_eq!(added_stones(&w), [23.5], "built from a until built again");
+        phys_ext::reload_landblock(&mut w, 0xA9B4);
+        assert_eq!(added_stones(&w), [47.75]);
+        assert_eq!(middle_height(&w), 47, "the land reads b's terrain");
+        // The same folder written again is read afresh.
+        stone_overlay(&b, 12.0);
+        dat_overlay::reopen(&mut w, None).expect("reopened");
+        phys_ext::reload_landblock(&mut w, 0xA9B4);
+        assert_eq!(added_stones(&w), [12.0]);
+        assert_eq!(middle_height(&w), 12);
+        assert_eq!(last_x(&w), Some(12.0));
+        // A folder that is no overlay is refused, and the world keeps its files.
+        let empty = scratch.path().join("none");
+        std::fs::create_dir_all(&empty).expect("a folder");
+        assert!(dat_overlay::reopen(&mut w, Some(&empty)).is_err());
+        assert_eq!(last_x(&w), Some(12.0));
+    }
+
+    /// A loaded landblock built again over a new overlay: its world-database objects destroyed
+    /// and made again from the database, its statics the new overlay's; one not loaded is only
+    /// read afresh when it loads.
+    /// Divergence: V452
+    #[test]
+    fn a_loaded_landblock_built_again_makes_its_objects_again_over_the_new_statics() {
+        use empyrean_world::managers::{dat_overlay, landblock_manager};
+        let scratch = dereth_dat::testing::ScratchDir::new("dat-reload").expect("a scratch folder");
+        let overlay = scratch.path().join("overlay");
+        stone_overlay(&overlay, 35.5);
+        let mut w = content_world();
+        created_at(&mut w, 0xA9B4, 0x7A9B_4080).expect("the portal is created");
+        let lb = empyrean_entity::LandblockId::new(0xA9B4_FFFF);
+        let objects = |w: &World| -> std::collections::BTreeSet<u32> {
+            w.landblock_manager
+                .landblocks
+                .expect(lb)
+                .world_object_guids()
+                .map(|g| g.full())
+                .collect()
+        };
+        let before = objects(&w);
+        assert!(before.len() > 50, "Holtburg's objects: {}", before.len());
+        dat_overlay::reopen(&mut w, Some(&overlay)).expect("reopened");
+        assert!(
+            dat_overlay::reload_landblock(&mut w, 0xA9B4),
+            "it is loaded"
+        );
+        let ticks = w.timers.portal_year_ticks;
+        landblock_manager::tick(&mut w, ticks);
+        // The database's own come back by their guids; what their generators make comes back as
+        // many, by new guids.
+        let fixed = |set: &std::collections::BTreeSet<u32>| -> Vec<u32> {
+            set.iter().copied().filter(|g| *g < 0x8000_0000).collect()
+        };
+        let after = objects(&w);
+        assert_eq!(
+            fixed(&after),
+            fixed(&before),
+            "the database's own, every one"
+        );
+        assert_eq!(after.len(), before.len(), "and as many made");
+        assert!(w
+            .objects
+            .get(empyrean_entity::ObjectGuid::new(0x7A9B_4080))
+            .is_some());
+        assert_eq!(added_stones(&w), [35.5]);
+        // A landblock not loaded is not built, and is read afresh when it loads.
+        assert!(!dat_overlay::reload_landblock(&mut w, 0x0101));
+    }
 }

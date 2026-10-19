@@ -261,7 +261,10 @@ impl HorizonUi {
                     >= 3.0 + 2.0 * f64::from(u32::try_from(self.said).unwrap_or(0));
             if due {
                 match &self.options.script[self.said] {
-                    crate::options::ScriptStep::Say(line) => out.chat.push(line.clone()),
+                    crate::options::ScriptStep::Say(line) => {
+                        tracing::info!("saying {line:?}");
+                        out.chat.push(line.clone());
+                    }
                     crate::options::ScriptStep::Action(id) => out.actions.push(*id),
                     crate::options::ScriptStep::Select(name) => out.select.push(name.clone()),
                 }

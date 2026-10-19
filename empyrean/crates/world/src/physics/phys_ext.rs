@@ -442,6 +442,41 @@ pub fn set_cell_restriction(w: &mut World, cell: CellId, obj: u32) {
         .insert(obj);
 }
 
+/// Not ACE (V452): read from `dats` from now on, the world's files opened again: the land
+/// source's reads, the setups' and the motions'. What a body was made from stays its own; a
+/// landblock's land is read from the new files once [`reload_landblock`] builds it again.
+pub fn use_dats(w: &mut World, dats: &Arc<DatManager>) {
+    if let Some(land) = &w.phys_ext.land {
+        land.set_dats(Arc::clone(dats));
+    }
+    w.phys_ext.setups = SetupGeometryCache::new(Arc::clone(dats));
+    w.phys_ext.motion_assets = Arc::new(crate::physics::motion::ServerAnimAssets::new(Arc::clone(
+        dats,
+    )));
+}
+
+/// Not ACE (V452): landblock `landblock`'s physics built again from the files as they are now:
+/// its dat statics' bodies, its cells' barriers, and its terrain, cells and buildings in the land
+/// source. The server objects in it stay where they are.
+pub fn reload_landblock(w: &mut World, landblock: u16) {
+    dat_statics::release(w, landblock);
+    w.phys_ext.restriction_objs.remove(&landblock);
+    if let Some(land) = &w.phys_ext.land {
+        land.unload_landblock(LandblockId(landblock));
+        land.load_landblock(LandblockId(landblock));
+    }
+    load_cell_restrictions(w, landblock);
+    dat_statics::build(w, landblock);
+}
+
+/// Not ACE (V452): what the land source holds of landblock `landblock`, which is not loaded,
+/// dropped, so it is read from the files afresh when it next loads.
+pub fn forget_landblock(w: &World, landblock: u16) {
+    if let Some(land) = &w.phys_ext.land {
+        land.unload_landblock(LandblockId(landblock));
+    }
+}
+
 /// Releases a landblock's interior cells and buildings from the dat land source, and destroys
 /// the bodies of its dat statics.
 pub fn unload_landblock(w: &mut World, landblock: u16) {

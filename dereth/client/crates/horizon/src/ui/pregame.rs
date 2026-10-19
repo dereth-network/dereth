@@ -238,9 +238,42 @@ impl Pregame {
         out: &mut Outcome,
     ) {
         let wait = ctx.time - self.auto.at;
+        // A character to make, when the account has none of that name: made as the Create
+        // button and the wizard's Create make one, with the wizard's first choices.
+        let make = options.create_character.as_deref().filter(|n| {
+            !state
+                .characters
+                .iter()
+                .any(|c| c.name.eq_ignore_ascii_case(n))
+        });
+        if let (Some(name), 0, Screen::Lobby) = (make, self.auto.step, &*screen) {
+            if wait > 1.5 && state.free_slot.is_some() {
+                if let Some((tables, texts)) = self.creation_source.clone() {
+                    let mut c = crate::ui::creation::Creation::new(
+                        tables,
+                        texts,
+                        state.account_has_tod,
+                        state.chargen_response_notices,
+                    );
+                    out.requests
+                        .push(dereth_client_contract::UiRequest::CharacterCreation(true));
+                    c.create_now(name, state, out);
+                    self.creation = Some(c);
+                    *screen = Screen::Creation;
+                    self.auto = AutoLogin {
+                        step: 2,
+                        at: ctx.time,
+                    };
+                }
+            }
+            return;
+        }
         match (self.auto.step, &*screen) {
             (0, Screen::Lobby) if wait > 1.5 && !state.characters.is_empty() => {
-                let wanted = options.start_character.as_deref();
+                let wanted = options
+                    .start_character
+                    .as_deref()
+                    .or(options.create_character.as_deref());
                 let index = wanted
                     .and_then(|n| {
                         state
@@ -1106,5 +1139,81 @@ mod tests {
         };
         assert_eq!(version_line(true, &state), "9.8.7");
         assert_eq!(version_line(false, &state), "Dereth 9.8.7");
+    }
+
+    /// A scripted entry asked to make a character: what it sends over 600 frames from the
+    /// lobby of an account holding `characters`, the characters made and those logged in.
+    fn scripted_entry(characters: &[&str]) -> (Vec<String>, Vec<ObjectId>) {
+        use dereth_client_contract::pregame::CharGenAction;
+        use std::rc::Rc;
+        let mut ui = crate::ui::HorizonUi::new(
+            std::sync::Arc::new(crate::art::Art::empty()),
+            crate::options::HorizonOptions {
+                auto_login: true,
+                create_character: Some("Builder".into()),
+                ..crate::options::HorizonOptions::default()
+            },
+        );
+        ui.pregame.creation_source = Some((
+            Rc::new(crate::ui::creation::tests::tables()),
+            Rc::new(dereth_chargen::CreationTexts::default()),
+        ));
+        let state = GameState {
+            connected: true,
+            connect_phase: crate::ui::game::ConnectPhase::Ready,
+            host: "127.0.0.1:9000".into(),
+            world: Some("Test".into()),
+            characters: characters
+                .iter()
+                .zip(1u32..)
+                .map(|(n, i)| crate::ui::game::CharacterEntry {
+                    id: ObjectId(0x5000_0000 + i),
+                    name: (*n).into(),
+                    delete_seconds: 0,
+                })
+                .collect(),
+            free_slot: i32::try_from(characters.len()).ok(),
+            ..GameState::default()
+        };
+        let mut list = crate::draw::DrawList::default();
+        let mut input = crate::ui::input::InputFrame::default();
+        let (mut made, mut logged) = (Vec::new(), Vec::new());
+        for _ in 0..600 {
+            let out = ui.frame(&mut list, (1920.0, 1080.0), 1.0 / 60.0, &state, &mut input);
+            input.next_frame();
+            for r in out.requests {
+                if let dereth_client_contract::UiRequest::CharGenAction(
+                    CharGenAction::SendCharGenResult(r),
+                ) = r
+                {
+                    made.push(r.name.clone());
+                }
+            }
+            for a in out.character_actions {
+                if let CharacterAction::LogOn(id) = a {
+                    logged.push(id);
+                }
+            }
+        }
+        (made, logged)
+    }
+
+    /// The account has no character of the name: it is made, once, and nothing is logged in
+    /// meanwhile.
+    #[test]
+    fn a_scripted_entry_makes_its_character_when_the_account_has_none_of_that_name() {
+        assert_eq!(
+            scripted_entry(&["Other"]),
+            (vec!["Builder".to_owned()], vec![])
+        );
+    }
+
+    /// The account has it already: nothing is made, and it is the one logged in.
+    #[test]
+    fn a_scripted_entry_logs_in_the_character_to_make_when_the_account_has_it() {
+        assert_eq!(
+            scripted_entry(&["Other", "builder"]),
+            (vec![], vec![ObjectId(0x5000_0002)])
+        );
     }
 }

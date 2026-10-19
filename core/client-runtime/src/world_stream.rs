@@ -131,6 +131,7 @@ impl WorldStreamer {
         &mut self,
         character: &mut Option<Character>,
         camera: &mut FreeCamera,
+        free_cell: Option<CellId>,
         indoor_viewpoint_gate: bool,
         fallback_landblock: u16,
     ) -> ((i32, i32), RenderSpace, Option<Vec<SlotAction>>) {
@@ -170,7 +171,20 @@ impl WorldStreamer {
         // flycam only ever flies outdoors. The cell-id arm still covers the 87 % of
         // interior cells authored outside their block's `[0, 192]²`: they are
         // reachable only through a `Position`, i.e. only with a body.
-        let next = if indoor_viewpoint_gate && character.is_some() {
+        //
+        // A free camera whose front end names the room it is in
+        // (`WorldState::free_camera_cell`) is held on that room's landblock, as a body in it
+        // would be: the room may well lie outside its block's square.
+        let free_block = free_cell
+            .filter(|c| !dereth_physics::landdefs::is_outdoors(*c))
+            .filter(|_| character.is_none())
+            .map(|c| {
+                #[allow(clippy::cast_possible_wrap)] // a landblock index, 0..=255
+                (((c.0 >> 24) & 0xFF) as i32, ((c.0 >> 16) & 0xFF) as i32)
+            });
+        let next = if let Some(block) = free_block {
+            block
+        } else if indoor_viewpoint_gate && character.is_some() {
             self.load_point_block(character).unwrap_or(cur)
         } else {
             let p = viewpoint(character, camera);

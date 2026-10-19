@@ -68,6 +68,7 @@ impl WorldState {
             entering_world: Vec::new(),
             sweeps_seen: None,
             character: None,
+            free_camera_cell: None,
             cell_static_objects: dereth_world_data::env_cells::CellStaticObjects::new(),
             restricted_cells: 0,
             objects: BTreeMap::new(),

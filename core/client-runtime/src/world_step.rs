@@ -257,10 +257,16 @@ pub fn recenter(
         streamer,
         character,
         camera,
+        free_camera_cell,
         ..
     } = ws;
-    let (shift, space, actions) =
-        streamer.recenter(character, camera, cfg.indoor_viewpoint_gate, cfg.landblock);
+    let (shift, space, actions) = streamer.recenter(
+        character,
+        camera,
+        free_camera_cell.map(|(c, _)| c),
+        cfg.indoor_viewpoint_gate,
+        cfg.landblock,
+    );
     if shift != (0, 0) {
         rebase_render_space_particles(ws, shift);
     }

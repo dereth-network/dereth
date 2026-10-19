@@ -47,7 +47,7 @@ pub struct DataFilesError {
 
 /// Dereth's own records over the portal from before Throne of Destiny: the classic interface's
 /// pictures for what later worlds added, under the later files' ids for them. Made from the
-/// pictures beside it by `dereth-pack` (`assets/classic-portal/pack.tsv` says how).
+/// pictures beside it by Lyceum's `lyceum layer` (`assets/classic-portal/pack.tsv` says how).
 const CLASSIC_PORTAL_LAYER: &[u8] = include_bytes!("../assets/classic-portal/layer.dat");
 
 /// The client layers built into the client ([`dereth_dat::client_layer`]), opened once. A layer

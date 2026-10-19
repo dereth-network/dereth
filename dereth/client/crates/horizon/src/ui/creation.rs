@@ -530,6 +530,23 @@ impl Creation {
         !self.name.trim().is_empty()
     }
 
+    /// Make the character named `name` as a scripted run does: the first heritage and its first
+    /// town (the two that need no expansion), the rest as the wizard starts them, sent at once,
+    /// unspent credits and all.
+    pub fn create_now(&mut self, name: &str, state: &GameState, out: &mut Outcome) {
+        if let Some(k) = self.tables.heritage_keys().first().copied() {
+            self.state.choose_heritage(&self.tables, k);
+        }
+        if let Some(a) = self
+            .heritage()
+            .and_then(|h| h.primary_start_areas.first().copied())
+        {
+            self.state.set_start_area(a);
+        }
+        name.clone_into(&mut self.name);
+        self.send(state, out);
+    }
+
     /// Create: asked about unspent credits first, as the game asks.
     fn create(&mut self, state: &GameState, out: &mut Outcome) {
         if self.state.remaining_atrb_credits > 0 {
@@ -1200,13 +1217,13 @@ impl Creation {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     //! Behaviour: none (experimental Horizon interface)
     use super::*;
     use dereth_primitives::DataId;
 
     /// A world of one heritage, one sex and two towns, as a test's creation tables.
-    fn tables() -> dereth_chargen::CreationTables {
+    pub(crate) fn tables() -> dereth_chargen::CreationTables {
         use dereth_assets::tables::*;
         use std::collections::BTreeMap;
         use std::rc::Rc;
@@ -1533,6 +1550,25 @@ mod tests {
         let sent = sent.expect("the character went to the server");
         assert_eq!(sent.slot, 2);
         assert_eq!(sent.name, "Aurelia");
+        assert!(c.waiting);
+    }
+
+    #[test]
+    fn a_scripted_character_is_the_first_heritage_in_its_first_town_and_goes_at_once() {
+        let mut c = creation();
+        c.state.set_start_area(1);
+        let mut out = Outcome::default();
+        c.create_now("Aurelia", &lobby(), &mut out);
+        let sent = out
+            .requests
+            .iter()
+            .find_map(|r| match r {
+                UiRequest::CharGenAction(CharGenAction::SendCharGenResult(r)) => Some(r.clone()),
+                _ => None,
+            })
+            .expect("the character went to the server");
+        assert_eq!(sent.name, "Aurelia");
+        assert_eq!((sent.heritage_group, sent.start_area), (1, 0));
         assert!(c.waiting);
     }
 

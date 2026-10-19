@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use dereth_dat::{DatError, DatFile, RetailDatStore};
 use dereth_primitives::ContainerEra;
@@ -68,6 +69,19 @@ pub trait DatSource: Send + Sync + fmt::Debug {
     fn overlay_world_key(&self) -> Option<String> {
         None
     }
+
+    /// Not ACE: the same base files opened again with the data overlay in `overlay` over them, or
+    /// the one laid over them now when `None`: what the overlay folder holds now, read afresh.
+    ///
+    /// # Errors
+    /// The files cannot be opened again (a test's in-memory set), no overlay is named or laid
+    /// over them, or the overlay is refused.
+    fn reopen(&self, _overlay: Option<&Path>) -> Result<Arc<dyn DatSource>, String> {
+        Err(format!(
+            "{} cannot be opened again",
+            self.describe(DatDatabaseType::Cell)
+        ))
+    }
 }
 
 /// The retail dats from one directory.
@@ -80,8 +94,10 @@ pub trait DatSource: Send + Sync + fmt::Debug {
 pub struct RealDats {
     dir: PathBuf,
     store: RetailDatStore,
-    /// Not ACE: the world the data overlay over the files belongs to, when one is laid over them.
+    /// Not ACE: the world the data overlay over the files belongs to, when one is laid over them,
+    /// and the folder it was read from.
     overlay_world: Option<String>,
+    overlay_dir: Option<PathBuf>,
 }
 
 impl RealDats {
@@ -105,6 +121,7 @@ impl RealDats {
             dir: dir.to_path_buf(),
             store,
             overlay_world: None,
+            overlay_dir: None,
         })
     }
 
@@ -129,6 +146,7 @@ impl RealDats {
             dir: dir.to_path_buf(),
             store,
             overlay_world: None,
+            overlay_dir: None,
         })
     }
 
@@ -149,6 +167,7 @@ impl RealDats {
             .with_overlay(&folder, Some(&key))
             .map_err(|e| e.to_string())?;
         self.overlay_world = Some(key);
+        self.overlay_dir = Some(dir.to_path_buf());
         Ok(self)
     }
 
@@ -223,6 +242,18 @@ impl DatSource for RealDats {
 
     fn overlay_world_key(&self) -> Option<String> {
         self.overlay_world.clone()
+    }
+
+    fn reopen(&self, overlay: Option<&Path>) -> Result<Arc<dyn DatSource>, String> {
+        let dir = overlay
+            .map(Path::to_path_buf)
+            .or_else(|| self.overlay_dir.clone())
+            .ok_or_else(|| format!("no data overlay is laid over {}", self.dir.display()))?;
+        let fresh = Self::open_era(&self.dir, self.store.era())
+            .map_err(|e| format!("{}: {e}", self.dir.display()))?;
+        Ok(Arc::new(fresh.with_overlay(&dir).map_err(|e| {
+            format!("the data overlay {}: {e}", dir.display())
+        })?))
     }
 
     fn header_iteration(&self, db: DatDatabaseType) -> Option<u32> {

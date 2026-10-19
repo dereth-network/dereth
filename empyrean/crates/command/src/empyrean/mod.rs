@@ -15,6 +15,8 @@
 //!   source offer; ACE makes none).
 //! - [`dn`]: `dn`, `derethnetwork` and `dng`, new names: the Dereth Network's command, and its
 //!   short form for a line in the Global room.
+//! - [`reload_dat_overlay`]: `reload-dat-overlay`, a new name: the world's data overlay read again
+//!   and landblocks built again from it, for a world builder's live loop.
 //!
 //! [`command_handlers`] is added to the table after every ported file, so a row here with an ACE
 //! command's name replaces ACE's row in its slot, and a new name is added at the end.
@@ -24,6 +26,7 @@
 
 pub mod dn;
 pub mod help_commands;
+pub mod reload_dat_overlay;
 pub mod report_bug;
 pub mod source;
 
@@ -36,5 +39,6 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
     all.extend(report_bug::command_handlers());
     all.extend(source::command_handlers());
     all.extend(dn::command_handlers());
+    all.extend(reload_dat_overlay::command_handlers());
     all
 }

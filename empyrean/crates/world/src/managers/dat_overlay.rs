@@ -18,6 +18,8 @@
 //!   single-record deletion in the manifest for one with it.
 
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 
 use dereth_protocol::admin as proto;
 use empyrean_dat::{DatDatabase, DatDatabaseType, DatManager};
@@ -26,6 +28,49 @@ use empyrean_net::GameMessageGroup;
 use crate::managers::ddd_manager::HI_FI_STRING_AS_INT;
 use crate::network::game_messages::game_message::GameMessage;
 use crate::network::game_messages::game_message_opcode::GameMessageOpcode;
+
+/// Not ACE (V452): the world's files opened again, with the data overlay in `overlay` over them
+/// (the one over them now, read afresh, when `None`): the world and its physics read the new files
+/// from now on, and so do its patches when the overlay is patched into clients (listing every
+/// file's revision again takes a while; a world whose overlay is not patched keeps the base's
+/// lists, which do not change). A landblock already loaded keeps what it was built from until
+/// [`reload_landblock`] builds it again.
+///
+/// # Errors
+/// The files cannot be opened again, or the overlay is refused; the world keeps its files.
+pub fn reopen(w: &mut crate::World, overlay: Option<&Path>) -> Result<(), String> {
+    let dats = w.dats.reopen(overlay)?;
+    crate::physics::phys_ext::use_dats(w, &dats);
+    w.dats = Arc::clone(&dats);
+    // The patches list the new files' revisions, when the overlay is patched into clients.
+    let patching = empyrean_common::config_manager::ConfigManager::try_config()
+        .is_some_and(|c| c.dat_overlay.patching);
+    if patching {
+        let debug = w.ddd_manager.debug;
+        w.ddd_manager = crate::managers::ddd_manager::DddManagerState::new();
+        w.ddd_manager.debug = debug;
+        crate::managers::ddd_manager::initialize(&mut w.ddd_manager, &dats);
+    }
+    Ok(())
+}
+
+/// Not ACE (V452): landblock `landblock` built again from the files and the world database as
+/// they are now, as `reload-landblock` builds the player's own: its objects destroyed (players
+/// stay), its instances read again, its physics built again, and its objects made again. Answers
+/// whether it was loaded; one that is not drops what the land source holds of it, and is read
+/// afresh when it next loads.
+pub fn reload_landblock(w: &mut crate::World, landblock: u16) -> bool {
+    let id = empyrean_entity::LandblockId::new((u32::from(landblock) << 16) | 0xFFFF);
+    w.content.clear_cached_instances_by_landblock(landblock);
+    if !crate::managers::landblock_manager::is_loaded(w, id) {
+        crate::physics::phys_ext::forget_landblock(w, landblock);
+        return false;
+    }
+    crate::entity::landblock::destroy_all_non_player_objects(w, id);
+    crate::physics::phys_ext::reload_landblock(w, landblock);
+    crate::entity::landblock::init(w, id, true);
+    true
+}
 
 /// The four databases, in the order a patch lists them.
 pub const DATABASES: [DatDatabaseType; 4] = [

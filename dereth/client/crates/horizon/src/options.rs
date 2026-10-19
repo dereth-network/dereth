@@ -42,6 +42,8 @@ pub struct HorizonOptions {
     pub auto_login: bool,
     /// The character to log in automatically.
     pub start_character: Option<String>,
+    /// The character to make and log in automatically, when the account has none of that name.
+    pub create_character: Option<String>,
     /// The scripted steps to take once in the world, in order.
     pub script: Vec<ScriptStep>,
     /// The camera's movement scheme, pointer directions, speeds and limits.
@@ -80,6 +82,7 @@ impl Default for HorizonOptions {
             open: Vec::new(),
             auto_login: false,
             start_character: None,
+            create_character: None,
             script: Vec::new(),
             orbit: dereth_client_runtime::orbit::OrbitSettings {
                 movement: dereth_client_runtime::orbit::MovementMode::Character,

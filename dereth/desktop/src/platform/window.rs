@@ -794,6 +794,8 @@ pub struct WindowLook {
     pub icon_png: &'static [u8],
     /// The application id the desktop finds the window's `.desktop` entry by, on Linux.
     pub app_id: &'static str,
+    /// Whether the player can resize and maximise the window ([`crate::Product::RESIZABLE`]).
+    pub resizable: bool,
 }
 
 /// The window the startup sequence asks for, on `monitor`.
@@ -844,9 +846,13 @@ fn window_attributes(
     let attributes = winit::window::Window::default_attributes()
         .with_title(cfg.window_title_for(look.title))
         .with_inner_size(PhysicalSize::new(client_w, client_h))
-        .with_resizable(false)
+        .with_resizable(look.resizable)
         .with_maximized(false)
-        .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
+        .with_enabled_buttons(if look.resizable {
+            WindowButtons::all()
+        } else {
+            WindowButtons::CLOSE | WindowButtons::MINIMIZE
+        })
         .with_window_level(if place.topmost {
             // `SetWindowPos(hWnd, HWND_TOPMOST, ...)` — startup step 10 and the presentation
             // change's final call both do this in full screen.
@@ -990,7 +996,9 @@ impl winit::application::ApplicationHandler for Opening<'_> {
             event_loop
                 .create_window(attributes)
                 .map(|window| {
-                    let pins = is_wayland(&window);
+                    // A window the player resizes holds no limits: they would hold it at its
+                    // first size.
+                    let pins = is_wayland(&window) && !self.look.resizable;
                     (window, pins)
                 })
                 .map_err(|e| format!("window: {e}")),
@@ -1749,6 +1757,25 @@ mod tests {
         assert_eq!(icon_sizes(2.0), (32, 64));
         assert_eq!(icon_sizes(0.0), (16, 32), "never below the 100% pair");
         assert_eq!(icon_sizes(f64::NAN), (16, 32));
+    }
+
+    /// A tool's window (the editor's) is resized and maximised freely; the game's keeps the size
+    /// its resolution names.
+    #[test]
+    fn a_tools_window_can_be_resized_and_maximised_and_the_games_cannot() {
+        use winit::window::WindowButtons;
+        let cfg = dereth_client_runtime::config::Config::default();
+        let look = |resizable| WindowLook {
+            title: "",
+            icon_png: &[],
+            app_id: "",
+            resizable,
+        };
+        let game = window_attributes(&cfg, &look(false), None);
+        let tool = window_attributes(&cfg, &look(true), None);
+        assert!(!game.resizable && tool.resizable);
+        assert!(!game.enabled_buttons.contains(WindowButtons::MAXIMIZE));
+        assert!(tool.enabled_buttons.contains(WindowButtons::MAXIMIZE));
     }
 
     /// In windowed mode, choosing a resolution resizes the window to it and it stays that size.

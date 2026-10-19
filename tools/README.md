@@ -31,34 +31,20 @@ message corpus, the capture index and the manifest from the recordings (`corpus`
 `corpus --check`, which `cargo test -p dereth-corpus` runs). See [`corpus/README.md`](corpus/README.md)
 for how to add a recording and how tests read the corpus.
 
-## `dereth-pack` — content packs, bake and import
+## Lyceum's `lyceum` — content packs, bake, import and the client layer
 
-Builds a world's content packs (new textures, statics, terrain changes and the server's content
-as ACE's SQL, everything named by symbol) into the world's overlay, numbering the symbols for that
-world and keeping them in its lockfile; checks the records before a client sees them; bakes an
-overlay into a copy of a player's own files; and takes any modified set of files apart into an
-overlay. See [`pack/README.md`](pack/README.md) for the pack, world and lockfile formats and the
-sample world.
+The pack tool is Lyceum's now, a product of its own beside the client and the server:
+[`lyceum/`](../lyceum/README.md) holds the editor, the Foundry and the `lyceum` command, which
+builds a world's packs into its overlay, bakes an overlay into a copy of a player's files, takes
+modified files apart into an overlay, and packs Dereth's client layer:
 
 ```text
-cargo run -p dereth-pack -- build tools/pack/sample/world.toml --dats <your client folder>
-cargo run -p dereth-pack -- bake --overlay target/pack-sample/overlay --dats <dir> --to <dir>
-```
-
-It also packs PNG pictures into a client layer, the container of Dereth's own records that the
-client reads over the portal files beneath any world's overlay. A manifest names the files it
-lies over, the container it writes and each record's id, format (`rgb`, the image record of the
-files from before Throne of Destiny, or `surface`, the later files' `R8G8B8` image) and picture;
-transparent pixels are laid on the manifest's background. The same input always gives the same
-bytes.
-
-```text
-cargo run -p dereth-pack -- core/client-runtime/assets/classic-portal/pack.tsv
-cargo run -p dereth-pack -- <manifest> --check
+cargo run -p lyceum-cli -- layer core/client-runtime/assets/classic-portal/pack.tsv
+cargo run -p lyceum-cli -- layer <manifest> --check
 ```
 
 The client builds in the classic portal's layer from `core/client-runtime/assets/classic-portal/`;
-`cargo test -p dereth-pack` fails while that container is not what its manifest makes.
+`cargo test -p lyceum-foundry` fails while that container is not what its manifest makes.
 
 ## `dereth-art` — the art survey and art packs
 

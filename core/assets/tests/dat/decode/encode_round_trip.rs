@@ -2,7 +2,9 @@
 //! Every retail record of each kind a world builder writes encodes back to its own bytes.
 //! Fixture: the shipped retail DAT records.
 
-use dereth_assets::{CellLandblock, Decode, LandblockInfo, RenderSurface, Surface, SurfaceTexture};
+use dereth_assets::{
+    CellLandblock, Decode, EnvCell, LandblockInfo, RenderSurface, Surface, SurfaceTexture,
+};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
 
@@ -68,6 +70,18 @@ fn every_landblock_info_encodes_back_to_its_own_bytes() {
         |id, b| LandblockInfo::decode_payload(id, b).unwrap().encode(),
     );
     assert_eq!(n, 5_346, "every landblock that has statics or buildings");
+}
+
+#[test]
+fn every_indoor_cell_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = cell_ids(&s, DbType::Cell);
+    let n = round_trip(
+        &ids,
+        |id| s.read_cell(id).unwrap(),
+        |id, b| EnvCell::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 734_976, "every cell of every building and dungeon");
 }
 
 #[test]

@@ -2,8 +2,8 @@
 # pictures for what later worlds added, each under the later files' id for the same picture.
 #
 # After changing a picture or a line, regenerate the container and commit both:
-#   cargo run -p dereth-pack -- core/client-runtime/assets/classic-portal/pack.tsv
-# `cargo test -p dereth-pack` fails while the container is not what this manifest makes.
+#   cargo run -p lyceum-cli -- layer core/client-runtime/assets/classic-portal/pack.tsv
+# `cargo test -p lyceum-foundry` fails while the container is not what this manifest makes.
 
 over        portal.dat
 out         layer.dat

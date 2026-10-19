@@ -43,7 +43,9 @@ pub enum LandSourceError {
 
 /// A `LandSource` over a [`DatManager`]'s cell dat.
 pub struct DatLandSource {
-    dats: Arc<DatManager>,
+    /// Not ACE: behind a lock, so the files can be opened again under a running world
+    /// ([`Self::set_dats`]).
+    dats: std::sync::RwLock<Arc<DatManager>>,
     table: Box<[f32; LAND_HEIGHT_TABLE_LEN]>,
     blocks: Mutex<BTreeMap<u16, Option<Arc<LandblockCollision>>>>,
     loaded: Mutex<BTreeSet<u16>>,
@@ -85,7 +87,7 @@ impl DatLandSource {
     #[must_use]
     pub fn with_height_table(dats: Arc<DatManager>, table: [f32; LAND_HEIGHT_TABLE_LEN]) -> Self {
         Self {
-            dats,
+            dats: std::sync::RwLock::new(dats),
             table: Box::new(table),
             blocks: Mutex::new(BTreeMap::new()),
             loaded: Mutex::new(BTreeSet::new()),
@@ -93,6 +95,25 @@ impl DatLandSource {
             building_cells: Mutex::new(BTreeMap::new()),
             buildings: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// The files the source reads now.
+    fn dats(&self) -> Arc<DatManager> {
+        Arc::clone(
+            &self
+                .dats
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    /// Not ACE: read from `dats` from now on. What the source holds already stays until its
+    /// landblock is unloaded; the height table is kept.
+    pub fn set_dats(&self, dats: Arc<DatManager>) {
+        *self
+            .dats
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = dats;
     }
 
     /// The landblocks loaded and not yet unloaded, ascending.
@@ -108,8 +129,8 @@ impl DatLandSource {
             return self.landblock(block).is_some();
         }
         let exists = self.landblock(block).is_some();
-        let Some(lbi) = self
-            .dats
+        let dats = self.dats();
+        let Some(lbi) = dats
             .cell_dat()
             .read_from_dat::<LandblockInfo>(block.info_id().0)
         else {
@@ -119,14 +140,13 @@ impl DatLandSource {
         let mut cells = Vec::new();
         for i in 0..lbi.num_cells {
             let id = CellId((u32::from(block.0) << 16) | (FIRST_ENV_CELL + i));
-            let Some(cell) = self.dats.cell_dat().read_from_dat::<EnvCell>(id.0) else {
+            let Some(cell) = dats.cell_dat().read_from_dat::<EnvCell>(id.0) else {
                 continue;
             };
             if cell.environment.0 & 0xFF00_0000 != 0x0D00_0000 {
                 continue;
             }
-            let Some(env) = self
-                .dats
+            let Some(env) = dats
                 .portal_dat()
                 .read_from_dat::<Environment>(cell.environment.0)
             else {
@@ -187,7 +207,8 @@ impl DatLandSource {
     }
 
     fn shell(&self, b: &dereth_assets::world::BuildInfo, cell: CellId) -> Option<BuildingGeometry> {
-        let g = self.dats.portal_dat().read_from_dat::<GfxObj>(b.id.0)?;
+        let dats = self.dats();
+        let g = dats.portal_dat().read_from_dat::<GfxObj>(b.id.0)?;
         Some(BuildingGeometry {
             parts: vec![PhysicsPart {
                 pos: Position::new(cell, b.frame),
@@ -195,14 +216,14 @@ impl DatLandSource {
                 physics_bsp: gfxobj_physics_bsp(&g).map(Arc::new),
                 bound_box: Some(gfx_bound_box(&g)),
                 drawing_sphere: drawing_sphere(&g),
-                first_degrade_mode: first_degrade_mode(&self.dats, &g),
+                first_degrade_mode: first_degrade_mode(&dats, &g),
             }],
         })
     }
 
     fn build(&self, id: LandblockId) -> Option<Arc<LandblockCollision>> {
         let lb = self
-            .dats
+            .dats()
             .cell_dat()
             .read_from_dat::<CellLandblock>(id.terrain_id().0)?;
         LandblockCollision::build(

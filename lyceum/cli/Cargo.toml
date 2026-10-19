@@ -1,0 +1,26 @@
+[package]
+name = "lyceum-cli"
+description = "Lyceum's command line: builds a world's content packs into its overlay, bakes an overlay into a copy of a player's files, takes modified files apart into an overlay, and packs pictures into Dereth's client layer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+autotests = false
+
+[[bin]]
+name = "lyceum"
+path = "src/main.rs"
+
+[dependencies]
+# Everything the command does is the Foundry's.
+lyceum-foundry.workspace = true
+# The data files a world is built over.
+dereth-dat.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"

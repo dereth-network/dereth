@@ -24,6 +24,8 @@
 //! empyrean-import --version
 //! empyrean-import dat-overlay --base <dir> --world <dir> --out <dir> --world-key <name> [--era <era>]
 //! empyrean-import spawns [--world <world>] [--sql <dump.sql>] [--out <spawns.tsv>]
+//! empyrean-import schema [--out <schema.json>]
+//! empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>
 //! empyrean-import --sql <dump.sql> [--patches …] [--json …] [--era <era>] --overlay <overlay.sqlite>
 //!             [--overlay-journal <dir>] --out <world.pack> [--report <report.json>]
 //! ```
@@ -74,6 +76,12 @@
 //! `spawns` writes the table of what the world's spawned objects are drawn with, how many there
 //! are and where, which the art survey reads: see [`spawns`].
 //!
+//! `schema` writes the names of the world's content (every property and the enums a weenie's
+//! form shows), which the world editor reads: see [`schema`].
+//!
+//! `gdle` writes content for GDLE: the weenies, landblock spawns and quests SQL content reaches,
+//! as Lifestoned and GDLE JSON: see [`gdle`].
+//!
 //! `--corrections` lists every correction entry of this build (applies, stale or absent, with the
 //! stored and corrected values and the divergence row), every value each correction rule changes,
 //! and the corrections digest the server logs at start-up. Exit status 0 means every entry applies,
@@ -81,6 +89,8 @@
 
 mod dat_overlay;
 mod fetch;
+mod gdle;
+mod schema;
 mod spawns;
 
 use std::path::{Path, PathBuf};
@@ -116,6 +126,10 @@ fn usage() -> ExitCode {
          \x20                  (a world's data files taken apart against their base, as the overlay the server serves)\n\
          \x20      empyrean-import spawns [--world patches|16py] [--sql <dump.sql>] [--out <spawns.tsv>]\n\
          \x20                  (the setups the world's spawns are drawn with, how many and where, for the art survey)\n\
+         \x20      empyrean-import schema [--out <schema.json>]\n\
+         \x20                  (the names of the world's content, for the world editor's forms)\n\
+         \x20      empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>\n\
+         \x20                  (the weenies, landblock spawns and quests the patches reach, as GDLE's JSON)\n\
          \x20      empyrean-import --sql <dump.sql> [--patches ...] [--json ...] [--era ...] --overlay <overlay.sqlite> [--overlay-journal <dir>]\n\
          \x20                  --out <world.pack> [--report <report.json>]\n\
          \x20  --era      the era the pack is for, recorded in it: eor (default, the end of retail) or infiltration\n\
@@ -192,6 +206,12 @@ fn main() -> ExitCode {
     }
     if argv.first().is_some_and(|a| a == "spawns") {
         return run_spawns(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "schema") {
+        return run_schema(&argv[1..]);
+    }
+    if argv.first().is_some_and(|a| a == "gdle") {
+        return run_gdle(&argv[1..]);
     }
     let mut args = argv.into_iter().peekable();
     while let Some(a) = args.next() {
@@ -364,6 +384,46 @@ fn run_fetch(args: &[String]) -> ExitCode {
             report.as_deref(),
         ),
         None => ExitCode::SUCCESS,
+    }
+}
+
+fn run_schema(args: &[String]) -> ExitCode {
+    let opts = match schema::parse_args(args) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("empyrean-import schema: {e}");
+            return usage();
+        }
+    };
+    match schema::run(&opts) {
+        Ok(()) => {
+            println!("{}: written", opts.out.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("empyrean-import schema: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_gdle(args: &[String]) -> ExitCode {
+    let opts = match gdle::parse_args(args, parse_now) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("empyrean-import gdle: {e}");
+            return usage();
+        }
+    };
+    match gdle::run(&opts) {
+        Ok(done) => {
+            println!("{done}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("empyrean-import gdle: {e}");
+            ExitCode::FAILURE
+        }
     }
 }
 

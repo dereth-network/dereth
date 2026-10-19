@@ -1,0 +1,81 @@
+[package]
+name = "lyceum-editor"
+description = "Lyceum, the world builder: a world's packs over the player's data files, drawn as the client draws them, edited in place and saved as the packs' sources."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+# One test target per tier, listed at the bottom; a stray tests/*.rs cannot become another.
+autotests = false
+
+# The device backends, forwarded as the desktop client forwards them. Without one the crate still
+# builds and its plain modules (the camera, the gizmos, the panels, the script) still test.
+[features]
+default = ["vulkan", "d3d12", "wgpu"]
+vulkan = ["dereth-render/vulkan", "dereth-scene/vulkan", "dereth-client-shell/vulkan"]
+wgpu = ["dereth-render/wgpu", "dereth-scene/wgpu", "dereth-client-shell/wgpu"]
+d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12"]
+# Tier switch only: no code is gated on it. It selects the `gpu` test binary, which opens the
+# retail dats under $DERETH_TEST_DAT_DIR and a device.
+retail-dats = []
+
+[dependencies]
+# The editing logic: the edit session, its operations and saves, the brushes and the picks.
+lyceum-foundry.workspace = true
+# The world the runtime simulates and the scene draws, and the device under it.
+dereth-client-runtime.workspace = true
+dereth-client-contract.workspace = true
+# The player's options the editor sets: always day, no weather.
+dereth-client-model.workspace = true
+dereth-scene.workspace = true
+dereth-render = { workspace = true, features = ["mock"] }
+# The client shell's renderer, which is the runtime's presentation on a device.
+dereth-client-shell.workspace = true
+# The window and its events, the settings folder, the log and the crash log.
+dereth-desktop.workspace = true
+dereth-input.workspace = true
+dereth-primitives.workspace = true
+# The model browser's pictures: the files a model is read from, its parts, the preview light,
+# and the cached PNGs.
+dereth-dat.workspace = true
+dereth-world-data.workspace = true
+# The flying camera's collision: the client's physics, and the ground's mesh its scenery stands on.
+dereth-physics.workspace = true
+dereth-terrain.workspace = true
+# The model browser's names: the region record, and the world map's places, where a town is.
+dereth-assets.workspace = true
+dereth-ui-screens.workspace = true
+dereth-world-render.workspace = true
+png.workspace = true
+# The panels: egui's widgets, docked panels and tables, drawn through the overlay.
+egui.workspace = true
+egui_dock.workspace = true
+egui_extras.workspace = true
+# The scripted mode's file.
+toml.workspace = true
+glam.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+# Links the application icon (`assets/lyceum.ico`) into the executable, where Explorer, the task
+# bar and Alt-Tab read it. Same crate and version as the client's and the server's builds use.
+embed-resource = "3"
+
+[dev-dependencies]
+dereth-dat = { workspace = true, features = ["test-support"] }
+dereth-render = { workspace = true, features = ["mock", "test-support"] }
+
+[lints]
+workspace = true
+
+#   cpu  no retail dats, no device        `cargo test -p lyceum-editor --test cpu`
+#   gpu  the retail dats and a device     `... --features retail-dats --test gpu -- --test-threads=1`
+[[test]]
+name = "cpu"
+path = "tests/cpu/main.rs"
+
+[[test]]
+name = "gpu"
+path = "tests/gpu/main.rs"
+required-features = ["retail-dats", "vulkan"]

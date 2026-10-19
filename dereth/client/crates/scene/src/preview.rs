@@ -1009,6 +1009,43 @@ mod imp {
             let Some(data) = self.assets.setup(setup) else {
                 return Ok(None);
             };
+            self.add_setup_data(store, gpu, setup, data, objdesc, look)
+        }
+
+        /// A model as a landblock places a static: a setup's object, or a graphics object drawn
+        /// as the one part of a setup of its own, at the part's own origin. `None` when the model
+        /// will not load.
+        ///
+        /// # Errors
+        /// As [`Self::add_object`].
+        pub fn add_model(
+            &mut self,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            model: DataId,
+        ) -> Result<Option<usize>, RenderError> {
+            if model.raw() >> 24 != 0x01 {
+                return self.add_object(store, gpu, model);
+            }
+            let data = Arc::new(dereth_animation::data::SetupData {
+                parts: vec![model],
+                ..dereth_animation::data::SetupData::default()
+            });
+            self.add_setup_data(store, gpu, model, data, None, None)
+        }
+
+        fn add_setup_data(
+            &mut self,
+            store: &RetailDatStore,
+            gpu: &mut Gpu,
+            setup: DataId,
+            data: Arc<dereth_animation::data::SetupData>,
+            objdesc: Option<&dereth_animation::parts::ObjDesc>,
+            look: Option<(
+                &RetailDatStore,
+                &dereth_client_runtime::object_identity::ObjectIdentity,
+            )>,
+        ) -> Result<Option<usize>, RenderError> {
             // The body: the setup's parts, its default animation (a caller that wants another
             // calls `set_sequence_animation`, which is exactly what every consumer does) and its
             // default script, whose emitters the space draws.

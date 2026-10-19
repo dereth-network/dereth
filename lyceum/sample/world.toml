@@ -1,0 +1,8 @@
+# A world built from the sample pack alone, over the end-of-retail files.
+#
+#   cargo run -p lyceum-cli -- build lyceum/sample/world.toml --dats <your client folder>
+#
+# The overlay and the SQL go to the workspace's target folder; world.lock keeps the ids.
+key = "sample-world"
+packs = ["holtburg"]
+out = "../../../target/pack-sample"

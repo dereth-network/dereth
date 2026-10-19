@@ -1,4 +1,4 @@
-//! Divergence: V367, V368
+//! Divergence: V367, V368, V452
 //! Empyrean's own command names sit after ACE's rows and answer on the console; reportbug keeps
 //! ACE's slot with Empyrean's handler and points at the issue tracker.
 //! Fixture: checked-in ACE JSON vectors and the local case adapters.
@@ -11,7 +11,7 @@ use empyrean_entity::enums::AccessLevel;
 pub const REPLACED: [&str; 1] = ["reportbug"];
 
 /// Commands only Empyrean has.
-pub const EMPYREAN_NAMES: [&str; 7] = [
+pub const EMPYREAN_NAMES: [&str; 8] = [
     "emphelp",
     "empcommands",
     "empversion",
@@ -19,6 +19,7 @@ pub const EMPYREAN_NAMES: [&str; 7] = [
     "dn",
     "derethnetwork",
     "dng",
+    "reload-dat-overlay",
 ];
 
 /// ACE's names for Empyrean's commands: ACE's rows, listed as "Same as @<ours> (ACE's name).".
@@ -246,4 +247,39 @@ fn the_network_commands_are_rows_of_their_own_after_aces() {
         assert!(at > last_ace, "{name} comes after ACE's rows");
         assert_eq!(all[at].attribute.access, access, "{name}'s access level");
     }
+}
+
+/// The overlay is read again only over files that can be opened again, and the command says why
+/// not otherwise, on the console; a landblock is taken as `XXYY` or as an id, and anything else
+/// after the folder is refused.
+#[test]
+fn reload_dat_overlay_answers_on_the_console_and_takes_landblocks_as_xxyy() {
+    use empyrean_command::empyrean::reload_dat_overlay as r;
+    let _table = super::command_manager::initialized_table();
+    assert_eq!(r::landblock_of("A9B4"), Some(0xA9B4));
+    assert_eq!(r::landblock_of("0xA9B4FFFF"), Some(0xA9B4));
+    assert_eq!(r::landblock_of("0xA9B40019"), Some(0xA9B4));
+    assert_eq!(r::landblock_of("C:/worlds/overlay"), None);
+    assert_eq!(r::landblock_of("A9B"), None);
+    let rows = command_manager::get_command_by_name("reload-dat-overlay");
+    assert_eq!(rows.len(), 1, "registered once");
+    assert_eq!(rows[0].attribute.access, AccessLevel::Developer);
+    let mut ts = empyrean_testkit::TestServer::new();
+    let mut console = |parameters: &[&str]| {
+        let parameters: Vec<String> = parameters.iter().map(|p| (*p).to_owned()).collect();
+        command_manager::start_console_capture();
+        r::handle_reload_dat_overlay(&mut ts.world, None, &parameters);
+        command_manager::take_console_output()
+    };
+    let said = console(&["overlay-b", "A9B4"]);
+    assert_eq!(said.len(), 1);
+    assert!(
+        said[0].starts_with("The data overlay was not read again: ")
+            && said[0].ends_with("cannot be opened again"),
+        "{said:?}"
+    );
+    assert_eq!(
+        console(&["overlay-b", "A9B4", "nowhere"]),
+        ["nowhere is not a landblock: give it as XXYY"]
+    );
 }

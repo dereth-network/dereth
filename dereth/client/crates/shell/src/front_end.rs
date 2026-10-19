@@ -2283,9 +2283,10 @@ impl<H: Host> Shell for ClientShell<H> {
         }
     }
 
-    /// The screens carry `--enter-world` whenever they are up; with no UI the runtime does.
+    /// The screens carry `--enter-world` whenever they are up (the modern interface's or
+    /// Horizon's); with no UI, or the classic one, the runtime does.
     fn drives_scripted_entry(&self) -> bool {
-        self.modern.ui.is_some() && !self.classic.active && !self.horizon.active
+        (self.modern.ui.is_some() && !self.classic.active) || self.horizon.active
     }
 
     fn ui_frame(

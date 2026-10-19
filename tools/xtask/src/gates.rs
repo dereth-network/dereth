@@ -159,14 +159,15 @@ pub const GATES: &[Gate] = &[
         // repository-wide gates (line endings, skip claims, corpus claims). `dereth-pcap`'s tests
         // build their captures in memory; its one corpus test is a printed, counted skip when
         // `DERETH_RETAIL_PCAPS` is unset. `dereth-art`'s survey reads every model in the retail
-        // dats under `retail-dats`, and `dereth-pack`'s `dat` binary calibrates its record checks
+        // dats under `retail-dats`, and the Foundry's (`lyceum-foundry`) `dat` binary calibrates its record checks
         // on them and builds and bakes its sample world over them.
         crates: &[
             "dereth-corpus",
             "dereth-pcap",
             "xtask",
             "dereth-art",
-            "dereth-pack",
+            "lyceum-foundry",
+            "lyceum-cli",
         ],
         harnesses: &[],
     },
@@ -184,7 +185,8 @@ pub const GATES: &[Gate] = &[
         // the application's two halves, `dereth-scene` and `dereth-client-shell`: their modules'
         // unit tests moved out of `dereth-client` with them and run here, on the same device.
         // `dereth-headless`'s `dat` binary replays a recorded session through a real `App` with
-        // no window and no device.
+        // no window and no device. Lyceum's editor is an application on the same crates; its
+        // `gpu` binary opens worlds over the retail dats off screen.
         crates: &[
             "dereth-client",
             "dereth-scene",
@@ -192,6 +194,7 @@ pub const GATES: &[Gate] = &[
             "dereth-client-runtime",
             "dereth-world-data",
             "dereth-headless",
+            "lyceum-editor",
         ],
         harnesses: &[],
     },
@@ -284,8 +287,8 @@ pub fn gpu_invocations(profile: Profile, threads: Threads) -> Vec<(&'static str,
 /// as it did before.
 fn tier_features(krate: &str) -> &'static [&'static str] {
     match krate {
-        // The two crates with a `gpu` binary.
-        "dereth-client" | "dereth-render" => &["retail-dats", "vulkan"],
+        // The crates with a `gpu` binary.
+        "dereth-client" | "dereth-render" | "lyceum-editor" => &["retail-dats", "vulkan"],
         // The application's halves: their unit tests hold a device, on the backend they held it
         // on inside `dereth-client`.
         "dereth-scene" | "dereth-client-shell" => &["retail-dats", "vulkan"],
@@ -293,7 +296,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
         "dereth-physics" => &["retail-dats", "trace"],
         "dereth-animation"
         | "dereth-art"
-        | "dereth-pack"
+        | "lyceum-foundry"
         | "dereth-assets"
         | "dereth-audio"
         | "dereth-clipboard"
@@ -346,6 +349,7 @@ fn tier_features(krate: &str) -> &'static [&'static str] {
 fn serialised_gpu_split(krate: &str) -> Option<(&'static [&'static str], &'static [&'static str])> {
     match krate {
         "dereth-client" => Some((&["--lib", "--bins"], &["cpu", "dat", "gpu"])),
+        "lyceum-editor" => Some((&["--lib", "--bins"], &["cpu", "gpu"])),
         "dereth-render" => Some((&["--lib", "--examples"], &["cpu", "gpu"])),
         // No `gpu` binary: split so its `dat` binary can be sharded like the client's.
         "dereth-testkit" => Some((&["--lib"], &["cpu", "dat"])),
@@ -1225,6 +1229,7 @@ mod tests {
             vec![
                 "test --profile test-release -p dereth-render --features retail-dats,vulkan --test gpu -- --test-threads=1",
                 "test --profile test-release -p dereth-client --features retail-dats,vulkan --test gpu -- --test-threads=1",
+                "test --profile test-release -p lyceum-editor --features retail-dats,vulkan --test gpu -- --test-threads=1",
             ]
         );
         assert_eq!(
@@ -1232,6 +1237,7 @@ mod tests {
             vec![
                 "test --profile test-release -p dereth-render --features retail-dats,vulkan --test gpu -- --test-threads=1",
                 "xtask sweep --shard-binary dereth-client:gpu",
+                "test --profile test-release -p lyceum-editor --features retail-dats,vulkan --test gpu -- --test-threads=1",
             ],
             "tier 2 shards dereth-client's gpu binary as the gates do, and only that one"
         );

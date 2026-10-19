@@ -1,0 +1,68 @@
+//! The Foundry, Lyceum's library: compiles content packs into a world's overlay, bakes an overlay
+//! into a copy of a player's data files, and packs pictures into Dereth's client layer.
+//!
+//! **Depends on** `dereth-dat` (the containers, the overlay and its writer), `dereth-assets` (every
+//! record's decoder and the world builder's encoders), `dereth-terrain` (the ground under a static
+//! placed on it), `dereth-primitives` (ids and frames), `png`, `toml_edit` (a source edited in
+//! place), and `serde_json` (the server's names for the content forms). **Used by** Lyceum: its
+//! command line, `lyceum` (`lyceum-cli`), and its editor (`lyceum-editor`), whose editing logic it
+//! is.
+//!
+//! **Must never** write a player's data files: a build writes an overlay folder and SQL files,
+//! a bake writes copies, and the originals are only read.
+//!
+//! A **pack** is a folder of text and pictures ([`source`]): new records described in text, edits
+//! to the world's own records as operations (place, move or remove a static; set a terrain
+//! vertex), and server content as ACE's SQL. Everything new is named by a symbol, never numbered.
+//! A **world** ([`world`]) lists its packs in order; [`compile`] reads the data files on this
+//! machine, numbers the symbols for that world alone and pins them in its lockfile ([`lock`]),
+//! applies the operations, encodes the records, checks the result ([`validate`]) and writes the
+//! world's one overlay and its SQL with the ids filled in, the same bytes every time. Where two
+//! packs set one thing differently, the world's overrides say which wins ([`conflict`]); a build
+//! refuses any conflict they do not settle, and lists them all. [`bake`]
+//! writes an overlay into a copy of a player's files for a client that reads only its own files;
+//! [`import`] takes any modified set of files apart into an overlay. [`layer`] is the client
+//! layer, the container of Dereth's own pictures.
+//!
+//! The editing half has no interface of its own: [`edit`] holds a world open, turns each change
+//! into an edit of a pack's sources, undoes and redoes them, compiles only the landblocks a change
+//! reaches (the same bytes a full build makes) and saves; [`scratch`] keeps the overlay an editor
+//! draws in step with it, writing only what each edit reached; [`brush`] is what a terrain brush
+//! sets, [`pick`] what a ray from the camera meets, [`models`] what a model is called, and
+//! [`script`] edits written as text, which `lyceum edit` runs. [`content`] is a pack's
+//! server content as the editor's forms edit it: ACE SQL held as its statements, and weenies made
+//! from the world database's. [`footprint`] and [`sql_ids`] are two of the checks: a static placed
+//! inside a building, and SQL that names records the files do not hold.
+
+pub mod bake;
+pub mod brush;
+pub mod cells;
+pub mod compile;
+pub mod conflict;
+pub mod content;
+pub mod content_check;
+pub mod dats;
+pub mod dungeons;
+pub mod edit;
+pub mod error;
+pub mod footprint;
+pub mod import;
+pub mod layer;
+pub mod lock;
+pub mod map;
+pub mod models;
+pub mod moves;
+pub mod pick;
+pub mod pieces;
+pub mod scratch;
+pub mod script;
+pub mod source;
+pub mod sql;
+pub mod sql_ids;
+pub mod stab;
+pub mod symbol;
+pub mod validate;
+pub mod walk;
+pub mod world;
+
+pub use error::{Error, Loc};
