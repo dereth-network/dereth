@@ -27,12 +27,13 @@ vulkan = ["dep:ash", "dep:ash-window", "dep:gpu-allocator", "dep:naga"]
 # The `wgpu` device (`src/wgpu.rs`): WebGPU or WebGL 2 in a browser, and Metal, Vulkan or
 # Direct3D 12 natively through `wgpu`. A third backend beside the other two, chosen the same way.
 # On Windows it looks at the DXC library beside the client before Direct3D 12 takes it
-# (`src/wgpu/compiler.rs`), which needs two more parts of the Windows-only `windows` crate.
+# (`src/wgpu/compiler.rs`), which needs three more parts of the Windows-only `windows` crate.
 wgpu = [
     "dep:wgpu",
     "dep:pollster",
     "dep:web-sys",
     "windows/Win32_System_LibraryLoader",
+    "windows/Win32_System_Diagnostics_Debug",
     "windows/Win32_Graphics_Direct3D_Dxc",
 ]
 # The high-fidelity seam of the `wgpu` device (`src/wgpu/sidecar.rs`, `src/hifi_mark.rs`): an

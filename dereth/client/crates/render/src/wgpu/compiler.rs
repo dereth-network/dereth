@@ -213,6 +213,9 @@ fn dxc_version(path: &Path) -> Result<(u32, u32), String> {
     use windows::Win32::Graphics::Direct3D::Dxc::{
         CLSID_DxcCompiler, IDxcCompiler3, IDxcVersionInfo,
     };
+    use windows::Win32::System::Diagnostics::Debug::{
+        SetThreadErrorMode, SEM_FAILCRITICALERRORS, THREAD_ERROR_MODE,
+    };
     use windows::Win32::System::LibraryLoader::{
         GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
         LOAD_LIBRARY_SEARCH_SYSTEM32,
@@ -225,16 +228,25 @@ fn dxc_version(path: &Path) -> Result<(u32, u32), String> {
         return Err(format!("no {}", path.display()));
     }
     let name = HSTRING::from(path.as_os_str());
+    // A damaged library would otherwise make Windows stop the program with an error box of its
+    // own; with critical errors failed for this thread, the load just fails and FXC is used.
+    let mut before = THREAD_ERROR_MODE(0);
+    // SAFETY: `before` outlives the call, which only writes the thread's previous mode into it.
+    let quiet = unsafe { SetThreadErrorMode(SEM_FAILCRITICALERRORS, Some(&mut before)) }.is_ok();
     // SAFETY: `name` is a terminated wide string that outlives the call. The flags take the
     // library's own dependencies from its folder and System32 only, never the search path.
-    let module = unsafe {
+    let loaded = unsafe {
         LoadLibraryExW(
             &name,
             None,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
         )
+    };
+    if quiet {
+        // SAFETY: as above; the thread's mode goes back to what it was.
+        let _ = unsafe { SetThreadErrorMode(before, None) };
     }
-    .map_err(|e| format!("{} does not load: {e}", path.display()))?;
+    let module = loaded.map_err(|e| format!("{} does not load: {e}", path.display()))?;
     let version = (|| {
         // SAFETY: `module` is the library just loaded, held until after this closure returns.
         let create = unsafe { GetProcAddress(module, windows::core::s!("DxcCreateInstance")) }
