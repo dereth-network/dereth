@@ -23,6 +23,10 @@
 //! 4. **`expect_end()` ends every decode**: the cursor lands exactly on the end of every record,
 //!    across the whole data set, with nothing left over.
 //!
+//! The records a world builder makes also have a write direction ([`encode`]): a landblock's
+//! terrain and its statics, a surface, an image texture and an image, each the exact inverse of
+//! its decoder over every retail record of its kind.
+//!
 //! **Specified in** `docs/formats/`: one page per record kind, pages 10 to 31, indexed by
 //! `docs/formats/README.md`.
 
@@ -32,6 +36,7 @@ pub mod art_pack;
 pub mod audio;
 pub mod common;
 pub mod dbobj;
+pub mod encode;
 pub mod error;
 /// The escape pass every string-table row goes through before it is shown. Here, beside
 /// [`ui::StringTable`], so the UI and the headless client unescape a row the same way.
