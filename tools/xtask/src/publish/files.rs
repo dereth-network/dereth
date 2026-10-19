@@ -8,6 +8,7 @@
 //! write the merged files, and `--publish` removes them.
 
 use crate::package::dereth as launcher;
+use crate::package::lyceum;
 use crate::package::targets::{self, TARGETS};
 use crate::package::version::{self, Product};
 use crate::package::web;
@@ -20,6 +21,8 @@ pub enum Kind {
     Empyrean,
     /// The web client, which carries Dereth's version.
     Web,
+    /// The world builder: its editor and its command.
+    Lyceum,
 }
 
 impl Kind {
@@ -28,6 +31,7 @@ impl Kind {
             "dereth" => Some(Self::Dereth),
             "empyrean" => Some(Self::Empyrean),
             "web" => Some(Self::Web),
+            "lyceum" => Some(Self::Lyceum),
             _ => None,
         }
     }
@@ -37,6 +41,7 @@ impl Kind {
             Self::Dereth => "dereth",
             Self::Empyrean => "empyrean",
             Self::Web => "web",
+            Self::Lyceum => "lyceum",
         }
     }
 
@@ -45,6 +50,7 @@ impl Kind {
         match self {
             Self::Empyrean => Product::Empyrean,
             Self::Dereth | Self::Web => Product::Dereth,
+            Self::Lyceum => Product::Lyceum,
         }
     }
 
@@ -62,6 +68,7 @@ impl Kind {
             Self::Dereth => format!("Dereth {version}"),
             Self::Empyrean => format!("Empyrean {version}"),
             Self::Web => format!("Dereth {version} (Web)"),
+            Self::Lyceum => format!("Lyceum {version}"),
         }
     }
 }
@@ -89,6 +96,11 @@ pub fn role(kind: Kind, version: &str, name: &str) -> Result<Role, String> {
             crate::package::Asset::Archive(_) => Role::Release,
             crate::package::Asset::ManifestPart => Role::Staging,
             crate::package::Asset::Index => Role::Index,
+        }),
+        Kind::Lyceum => Ok(match lyceum::classify(name, version)? {
+            lyceum::Asset::Release(_) => Role::Release,
+            lyceum::Asset::ManifestPart => Role::Staging,
+            lyceum::Asset::Index => Role::Index,
         }),
         Kind::Web => {
             if name == web::archive_name(version) || name == web::MANIFEST {
@@ -141,6 +153,18 @@ pub fn expected(kind: Kind, version: &str) -> Expected {
         Kind::Empyrean => {
             for t in TARGETS {
                 let file = t.archive_name(version);
+                e.staging.push(format!("{file}.manifest"));
+                e.release.push(file);
+            }
+            e.index
+                .extend(["SHA256SUMS", "MANIFEST.txt", "release.json"].map(String::from));
+        }
+        Kind::Lyceum => {
+            for triple in targets::LYCEUM_TRIPLES {
+                let Ok(t) = targets::find(triple) else {
+                    continue;
+                };
+                let file = lyceum::release_file_name(t, version);
                 e.staging.push(format!("{file}.manifest"));
                 e.release.push(file);
             }
@@ -206,6 +230,16 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
             "x86_64-apple-darwin.tar.gz" => "Empyrean server · macOS Intel",
             _ => return None,
         },
+        Kind::Lyceum => match name.strip_prefix(&format!("lyceum-{version}-")) {
+            Some("windows-x86_64.zip") => "Lyceum · Windows x64 (zip, no installer)",
+            Some("linux-x86_64.tar.gz") => "Lyceum · Linux x86-64 (glibc 2.35+)",
+            Some(_) => return None,
+            None => match name.strip_prefix(&format!("Lyceum-{version}-"))? {
+                "macos-aarch64.app.tar.gz" => "Lyceum · macOS Apple silicon",
+                "macos-x86_64.app.tar.gz" => "Lyceum · macOS Intel",
+                _ => return None,
+            },
+        },
         Kind::Web => {
             if name == web::MANIFEST {
                 "Web client manifest (JSON)"
@@ -222,13 +256,13 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
 /// How a release is published: whether it is a pre-release, and GitHub's `make_latest`.
 ///
 /// A version with a pre-release suffix (`0.2.0-rc.1`) is a pre-release, which is never the
-/// repository's "Latest". The web client's release is never "Latest" either: that stays the
-/// launcher's and the server's, which people download by hand, and the web client's consumers list
-/// the releases instead. A final Dereth or Empyrean release is made "Latest", as publishing a draft
-/// by hand does by default.
+/// repository's "Latest". The web client's and Lyceum's releases are never "Latest" either: that
+/// stays the launcher's and the server's, which players download by hand, and the web client's
+/// consumers list the releases instead. A final Dereth or Empyrean release is made "Latest", as
+/// publishing a draft by hand does by default.
 pub fn publish_flags(kind: Kind, version: &str) -> (bool, &'static str) {
     let pre = version::is_prerelease(version);
-    let latest = if pre || kind == Kind::Web {
+    let latest = if pre || matches!(kind, Kind::Web | Kind::Lyceum) {
         "false"
     } else {
         "true"
@@ -287,12 +321,35 @@ The Dereth client {VERSION} for web browsers: static files to serve from any web
 Verifying a download: `sha256sum -c SHA256SUMS --ignore-missing`
 ";
 
+const LYCEUM_DOWNLOADS: &str = "
+## Downloads
+
+Lyceum {VERSION}, the world builder: its editor and the `lyceum` command, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+
+| system | download | |
+|---|---|---|
+| Windows | `lyceum-{VERSION}-windows-x86_64.zip` | unzip anywhere; `lyceum-editor.exe` and `lyceum.exe` are inside; no installer |
+| macOS | `Lyceum-{VERSION}-macos-aarch64.app.tar.gz` (Apple silicon), `-x86_64` (Intel) | unpack and move `Lyceum.app` to Applications; the `lyceum` command is `Lyceum.app/Contents/MacOS/lyceum` |
+| Linux | `lyceum-{VERSION}-linux-x86_64.tar.gz` | unpack anywhere; a desktop entry and its icon are inside |
+
+Start the editor and open a world, or make a new one from the sample. README.md, in each download, says how to build worlds.
+
+Play runs your world in Dereth's client on Empyrean, each a download of its own.
+
+**No game data is included**: Lyceum reads the data files of your own Asheron's Call install, and writes a world's changes beside them.
+
+These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).
+
+Verifying a download: `sha256sum -c SHA256SUMS --ignore-missing`
+";
+
 /// The release's description: its notes, then what the downloads are, as the workflow writes it.
 pub fn description(kind: Kind, version: &str, repo: &str, commit: &str, notes: &str) -> String {
     let template = match kind {
         Kind::Dereth => DERETH_DOWNLOADS,
         Kind::Empyrean => EMPYREAN_DOWNLOADS,
         Kind::Web => WEB_DOWNLOADS,
+        Kind::Lyceum => LYCEUM_DOWNLOADS,
     };
     let downloads = template
         .replace("{VERSION}", version)

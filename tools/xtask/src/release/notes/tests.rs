@@ -625,3 +625,143 @@ fn a_commit_that_only_restructures_the_code_is_left_out() {
         );
     }
 }
+
+/// Lyceum's notes keep the commits that change its editor, its command or the Foundry; the sample
+/// world, its tests and documents, the client it draws with, the server and its own version
+/// commits are left out.
+#[test]
+fn only_commits_that_change_what_lyceum_ships_are_kept() {
+    for (subject, path) in [
+        ("A brush that smooths", "lyceum/editor/src/gizmo.rs"),
+        ("Packs bake faster", "lyceum/crates/foundry/src/bake.rs"),
+        ("lyceum: a validate switch", "lyceum/cli/src/main.rs"),
+    ] {
+        assert!(
+            group(Product::Lyceum, &commit(subject, &[path])).is_some(),
+            "{subject}"
+        );
+    }
+    for (subject, path) in [
+        ("A hill in the sample", "lyceum/sample/world.toml"),
+        ("More checks", "lyceum/crates/foundry/tests/cpu/content.rs"),
+        ("Explain packs", "lyceum/README.md"),
+        (
+            "Particles are drawn",
+            "dereth/client/crates/render/src/a.rs",
+        ),
+        ("Server only", "empyrean/server/src/main.rs"),
+        ("Lyceum 0.2.0", "lyceum/editor/Cargo.toml"),
+    ] {
+        assert_eq!(
+            group(Product::Lyceum, &commit(subject, &[path])),
+            None,
+            "{subject}"
+        );
+    }
+    assert!(is_release_commit("Lyceum 0.2.0: its changes"));
+    assert!(!lyceum_ships("lyceum/sample/holtburg/pack.toml"));
+    // And the world builder's commits are not the client's or the server's.
+    let editor = commit("A brush that smooths", &["lyceum/editor/src/gizmo.rs"]);
+    assert_eq!(group(Product::Dereth, &editor), None);
+    assert_eq!(group(Product::Empyrean, &editor), None);
+}
+
+/// A Lyceum commit is a fix when it says so, then goes where its words say, then where its folders
+/// say; a commit across the editor and the Foundry whose words do not settle it is "Other".
+#[test]
+fn a_lyceum_commit_is_grouped_by_a_fix_then_its_words_then_its_folders() {
+    let editor = ["lyceum/editor/src/panels.rs"];
+    let foundry = ["lyceum/crates/foundry/src/compile.rs"];
+    let both = [editor[0], foundry[0]];
+    let g = |subject: &str, paths: &[&str]| group(Product::Lyceum, &commit(subject, paths));
+    assert_eq!(
+        g("Fix a crash when a pack is empty", &both),
+        Some(Group::Fixes)
+    );
+    assert_eq!(
+        g("The camera follows the ground", &both),
+        Some(Group::Editor)
+    );
+    assert_eq!(g("Overlays keep their order", &both), Some(Group::Foundry));
+    assert_eq!(g("Statics snap to the grid", &editor), Some(Group::Editor));
+    assert_eq!(
+        g("Statics snap to the grid", &foundry),
+        Some(Group::Foundry)
+    );
+    assert_eq!(g("Statics snap to the grid", &both), Some(Group::Other));
+    let text = render(
+        Product::Lyceum,
+        None,
+        &grouped(
+            Product::Lyceum,
+            &[commit("lyceum: statics snap to the grid", &editor)],
+        ),
+        "lyceum-v0.1.0",
+        None,
+    );
+    assert_eq!(
+        text,
+        "## All changes\n\n### Editor\n\n- Statics snap to the grid\n\n"
+    );
+    assert_eq!(
+        render(Product::Lyceum, None, &[], "lyceum-v0.1.0", None),
+        "## All changes\n\nNo change to the editor or the lyceum command since lyceum-v0.1.0.\n\n"
+    );
+}
+
+/// A product's first release, with no earlier release of its own to count from, has its
+/// highlights alone; the next release lists the changes since the first, under its headings.
+#[test]
+fn a_first_release_has_its_highlights_alone_and_the_next_counts_from_it() {
+    let repo = ScratchRepo::new("lyceum-first");
+    let changes = "# Lyceum changes\n\n## Unreleased\n\n- Build worlds\n  in a window.\n";
+    repo.commit("Earlier work", "lyceum/editor/src/a.rs", "fn a() {}\n");
+    repo.git(&["tag", "dereth-v0.1.0"]);
+    repo.commit("Highlights", LYCEUM_CHANGES, changes);
+    let stamped = stamp(changes, "0.1.0", "2026-10-19").expect("stamps");
+    repo.commit("Lyceum 0.1.0", LYCEUM_CHANGES, &stamped);
+    repo.git(&["tag", "lyceum-v0.1.0"]);
+    let request = |v: &str| Request {
+        version: Some(v.to_owned()),
+        ..Request::default()
+    };
+    let first = notes(&repo.0, Product::Lyceum, &request("0.1.0")).expect("first notes");
+    assert_eq!(
+        first,
+        "## Highlights\n\n- Build worlds in a window.\n\n## All changes\n\nThe first Lyceum \
+         release.\n"
+    );
+
+    repo.commit(
+        "Statics snap to the grid",
+        "lyceum/editor/src/b.rs",
+        "fn b() {}\n",
+    );
+    let next = notes(&repo.0, Product::Lyceum, &Request::default()).expect("next notes");
+    assert!(
+        next.contains("### Editor\n\n- Statics snap to the grid\n"),
+        "{next}"
+    );
+    assert!(!next.contains("Earlier work"), "{next}");
+    assert!(next.contains("/compare/lyceum-v0.1.0...main"), "{next}");
+}
+
+/// A release whose product has an earlier final release that its history does not reach is still
+/// refused, and told to name one with --since: only a product with no release at all is a first.
+#[test]
+fn an_unreachable_earlier_release_is_refused_not_taken_for_a_first() {
+    let repo = ScratchRepo::new("lyceum-unreachable");
+    repo.commit("Start", "lyceum/editor/src/a.rs", "fn a() {}\n");
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    repo.commit("Elsewhere", "lyceum/editor/src/b.rs", "fn b() {}\n");
+    repo.git(&["tag", "lyceum-v0.1.0"]);
+    repo.git(&["checkout", "-q", "main"]);
+    repo.commit("Here", "lyceum/editor/src/c.rs", "fn c() {}\n");
+    repo.commit(
+        "Highlights",
+        LYCEUM_CHANGES,
+        "# Lyceum changes\n\n## Unreleased\n\n- More\n",
+    );
+    let e = notes(&repo.0, Product::Lyceum, &Request::default()).expect_err("unreachable");
+    assert!(e.contains("--since"), "{e}");
+}

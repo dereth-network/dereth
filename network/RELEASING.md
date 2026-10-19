@@ -116,7 +116,10 @@ cargo xtask preflight finish                  # the final builds in the dev worl
 - **`preflight`** works out the products the branch changed since `main` and the release each takes,
   and says why (the hub's is a minor release when its registry's schema moves; Empyrean's when a
   patch would be refused; Dereth's for the web client's changes too, since the web client carries
-  Dereth's version). Before anything is built or stopped, it checks what it needs and says all of
+  Dereth's version; Lyceum's for changes under `lyceum/`, which no dev world runs, so it is
+  released by `ship` and built by its own workflow). A Lyceum release with no highlights in
+  `lyceum/CHANGES.md` stops the preflight at once, as its release would stop `ship` halfway.
+  Before anything is built or stopped, it checks what it needs and says all of
   what is missing at once: the tools its builds need here, the dev Discord application's secret
   files (there, and not empty), `site_origins` beside a `discord_client_id` (the hub refuses one
   without the other), and each ACE world's `key_file`, which must hold a registry key (looked at

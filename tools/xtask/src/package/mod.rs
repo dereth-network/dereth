@@ -34,6 +34,7 @@ pub mod declaration;
 pub mod dereth;
 mod guard;
 mod headers;
+pub mod lyceum;
 mod notice;
 pub(crate) mod sign;
 pub(crate) mod targets;
@@ -42,6 +43,8 @@ pub mod web;
 
 #[cfg(test)]
 mod dereth_tests;
+#[cfg(test)]
+mod lyceum_tests;
 #[cfg(test)]
 mod tests;
 
@@ -351,7 +354,14 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
     let mut it = args.iter();
     match it.next().map(String::as_str) {
         Some("empyrean") => {}
-        _ => return Err(format!("{USAGE}\n{}\n{}", dereth::USAGE, web::USAGE)),
+        _ => {
+            return Err(format!(
+                "{USAGE}\n{}\n{}\n{}",
+                dereth::USAGE,
+                lyceum::USAGE,
+                web::USAGE
+            ))
+        }
     }
     let mut o = Options::default();
     while let Some(a) = it.next() {
@@ -383,6 +393,9 @@ pub fn package(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("web") {
         return web::package(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("lyceum") {
+        return lyceum::package(&args[1..]);
     }
     let options = match parse_options(args) {
         Ok(o) => o,
@@ -863,10 +876,10 @@ pub(crate) fn write_index(
     Ok(())
 }
 
-/// `cargo xtask version empyrean|dereth [--tag <tag>]`: print the product's version; with
+/// `cargo xtask version empyrean|dereth|lyceum [--tag <tag>]`: print the product's version; with
 /// `--tag`, fail unless the tag names exactly that version.
 pub fn version_command(args: &[String]) -> i32 {
-    let usage = "usage: cargo xtask version empyrean|dereth [--tag <tag>]";
+    let usage = "usage: cargo xtask version empyrean|dereth|lyceum [--tag <tag>]";
     let Some(product) = args
         .first()
         .and_then(|a| version::Product::from_command_name(a))

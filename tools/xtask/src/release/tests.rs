@@ -158,3 +158,85 @@ fn a_final_release_stamps_its_own_highlights() {
     );
     let _ = std::fs::remove_dir_all(&ws);
 }
+
+/// Lyceum's release follows the same rules on its own tag: the version its crates carry, never
+/// tagged, is released without a bump, and a new one is bumped first.
+#[test]
+fn a_lyceum_release_is_tagged_with_its_own_prefix() {
+    let mut state = clean("0.1.0");
+    state.local_tags = vec!["dereth-v0.1.0".to_owned()];
+    state.remote_tags = Some(vec!["empyrean-v0.1.0".to_owned()]);
+    assert_eq!(
+        preconditions_for(Product::Lyceum, "0.1.0", &state),
+        Ok(Plan {
+            bump: false,
+            tag: "lyceum-v0.1.0".to_owned()
+        })
+    );
+    assert_eq!(
+        preconditions_for(Product::Lyceum, "0.2.0", &state),
+        Ok(Plan {
+            bump: true,
+            tag: "lyceum-v0.2.0".to_owned()
+        })
+    );
+    state.local_tags.push("lyceum-v0.1.0".to_owned());
+    assert!(preconditions_for(Product::Lyceum, "0.1.0", &state).is_err());
+}
+
+/// A Lyceum release needs highlights: its own section's, or the Unreleased section's that it
+/// takes. An empty one, or none at all, is refused and says where to write them.
+#[test]
+fn a_lyceum_release_without_highlights_is_refused() {
+    let file = notes::LYCEUM_CHANGES;
+    let ready = "# Lyceum changes\n\n## Unreleased\n\n- A world builder\n";
+    assert_eq!(check_highlights(file, ready, "0.1.0"), Ok(()));
+    assert_eq!(check_highlights(file, ready, "0.1.0-rc.1"), Ok(()));
+    let stamped = notes::stamp(ready, "0.1.0", "2026-10-19").expect("stamps");
+    assert_eq!(check_highlights(file, &stamped, "0.1.0"), Ok(()));
+    for empty in [
+        "# Lyceum changes\n\n## Unreleased\n",
+        "# Lyceum changes\n\n## Unreleased\n\n## 0.1.0 (2026-10-19)\n",
+        "# Lyceum changes\n",
+    ] {
+        let e = check_highlights(file, empty, "0.1.0").expect_err(empty);
+        assert!(e.contains(file) && e.contains("## Unreleased"), "{e}");
+    }
+}
+
+/// A final Lyceum release stamps Lyceum's own highlights file, and a pre-release leaves it.
+#[test]
+fn a_final_lyceum_release_stamps_lyceum_changes() {
+    let ws = std::env::temp_dir().join(format!("xtask-stamp-lyceum-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(ws.join("lyceum")).expect("scratch dir");
+    let text = "# Lyceum changes\n\n## Unreleased\n\n- A world builder\n";
+    std::fs::write(changes_path(&ws, Product::Lyceum), text).expect("write");
+    let read = || std::fs::read_to_string(changes_path(&ws, Product::Lyceum)).expect("read");
+    assert_eq!(stamp_changes(&ws, Product::Lyceum, "0.1.0-rc.1"), Ok(None));
+    assert_eq!(read(), text);
+    assert_eq!(
+        stamp_changes(&ws, Product::Lyceum, "0.1.0"),
+        Ok(Some(notes::LYCEUM_CHANGES.to_owned()))
+    );
+    assert_eq!(
+        notes::section(&read(), "0.1.0").as_deref(),
+        Some("- A world builder")
+    );
+    assert_eq!(
+        notes::section(&read(), notes::UNRELEASED).as_deref(),
+        Some("")
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}
+
+/// `cargo xtask release lyceum`, and `ship` cutting a Lyceum release in its own process, name the
+/// product the same way.
+#[test]
+fn lyceum_is_released_by_its_command_name() {
+    assert_eq!(
+        Releasable::from_command_name("lyceum"),
+        Some(Releasable::Product(Product::Lyceum))
+    );
+    assert!(USAGE.contains("lyceum"), "{USAGE}");
+}

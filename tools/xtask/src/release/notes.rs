@@ -10,16 +10,20 @@
 //! - **Empyrean** (the server): a file under `empyrean/`, or under one of the shared `core/`
 //!   crates the server is built from when the commit changes nothing that only the client ships
 //!   (a client change that touches a shared crate on the way is the client's).
+//! - **Lyceum** (the world builder): a file under `lyceum/` other than the sample world. The
+//!   client's drawing it is built on is the client's, and is not listed again.
 //!
 //! The other product's commits, CI's, the tools', test-only and documentation-only commits, the
 //! releases' own version commits, and commits whose subject says they only restructure the code
 //! ([`is_restructure`]) are left out. Each kept subject goes under one heading,
 //! chosen from its words and then from where its files are; one the rules cannot place goes under
-//! "Other changes" rather than a guess.
+//! "Other changes" rather than a guess. A product's first release, with no earlier release to
+//! count from, has its highlights alone.
 //!
-//! `cargo xtask release-notes dereth|empyrean [--since <tag>] [--version <v>] [--out <file>]`
-//! prints the notes (or writes them to `<file>`); each product's release workflow runs it on the
-//! tag and puts the file at the start of the release's description.
+//! `cargo xtask release-notes <product> [--since <tag>] [--version <v>] [--out <file>]`, for
+//! `dereth`, `empyrean` or `lyceum`, prints the notes (or writes them to `<file>`); each product's
+//! release workflow runs it on the tag and puts the file at the start of the release's
+//! description.
 
 use std::path::{Path, PathBuf};
 
@@ -32,11 +36,15 @@ pub const CHANGES: &str = "dereth/CHANGES.md";
 /// Empyrean's curated highlights, relative to the workspace root.
 pub const EMPYREAN_CHANGES: &str = "empyrean/CHANGES.md";
 
+/// Lyceum's curated highlights, relative to the workspace root.
+pub const LYCEUM_CHANGES: &str = "lyceum/CHANGES.md";
+
 /// `product`'s curated highlights, relative to the workspace root.
 pub fn changes_file(product: Product) -> &'static str {
     match product {
         Product::Dereth => CHANGES,
         Product::Empyrean => EMPYREAN_CHANGES,
+        Product::Lyceum => LYCEUM_CHANGES,
     }
 }
 
@@ -63,18 +71,24 @@ pub enum Group {
     World,
     /// Empyrean's: configuration, updates, the databases and the importer.
     Operations,
+    /// Lyceum's: the editor.
+    Editor,
+    /// Lyceum's: the Foundry and the `lyceum` command.
+    Foundry,
     Fixes,
     Other,
 }
 
 impl Group {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Gameplay,
         Self::GraphicsSound,
         Self::Interface,
         Self::Launcher,
         Self::World,
         Self::Operations,
+        Self::Editor,
+        Self::Foundry,
         Self::Fixes,
         Self::Other,
     ];
@@ -87,6 +101,8 @@ impl Group {
             Self::Launcher => "Launcher",
             Self::World => "World and content",
             Self::Operations => "Operations",
+            Self::Editor => "Editor",
+            Self::Foundry => "Foundry and the lyceum command",
             Self::Fixes => "Fixes",
             Self::Other => "Other changes",
         }
@@ -135,11 +151,18 @@ pub fn server_ships(path: &str) -> bool {
         && !test_or_document(path)
 }
 
+/// Whether `path` is part of the shipped world builder: under `lyceum/`, and neither the sample
+/// world, a test, a fixture nor a document.
+pub fn lyceum_ships(path: &str) -> bool {
+    path.starts_with("lyceum/") && !path.starts_with("lyceum/sample/") && !test_or_document(path)
+}
+
 /// Whether `path` is part of what `product` ships.
 fn product_ships(product: Product, path: &str) -> bool {
     match product {
         Product::Dereth => ships(path),
         Product::Empyrean => server_ships(path),
+        Product::Lyceum => lyceum_ships(path),
     }
 }
 
@@ -167,6 +190,18 @@ fn path_group(product: Product, path: &str) -> Option<Group> {
     match product {
         Product::Dereth => client_path_group(path),
         Product::Empyrean => server_path_group(path),
+        Product::Lyceum => lyceum_path_group(path),
+    }
+}
+
+/// The heading a world builder path's folder implies, when it implies one.
+fn lyceum_path_group(path: &str) -> Option<Group> {
+    if path.starts_with("lyceum/editor/") {
+        Some(Group::Editor)
+    } else if path.starts_with("lyceum/crates/foundry/") || path.starts_with("lyceum/cli/") {
+        Some(Group::Foundry)
+    } else {
+        None
     }
 }
 
@@ -370,6 +405,39 @@ const SERVER_WORDS: &[(Group, &[&str])] = &[
     ),
 ];
 
+/// Word stems that place a world builder commit's subject under a heading, matched as [`WORDS`]
+/// are.
+const LYCEUM_WORDS: &[(Group, &[&str])] = &[
+    (
+        Group::Editor,
+        &[
+            "editor",
+            "panel",
+            "camera",
+            "gizmo",
+            "window",
+            "browser",
+            "thumbnail",
+            "button",
+            "click",
+            "mouse",
+            "keyboard",
+            "key",
+            "undo",
+            "redo",
+            "tooltip",
+            "dock",
+        ],
+    ),
+    (
+        Group::Foundry,
+        &[
+            "foundry", "pack", "bake", "import", "overlay", "validate", "lockfile", "compile",
+            "command", "cli",
+        ],
+    ),
+];
+
 /// Words that mark a subject as a fix whatever it is about.
 const FIX_WORDS: &[&str] = &[
     "fix",
@@ -405,6 +473,7 @@ fn word_groups(product: Product, subject: &str) -> Vec<Group> {
     let table = match product {
         Product::Dereth => WORDS,
         Product::Empyrean => SERVER_WORDS,
+        Product::Lyceum => LYCEUM_WORDS,
     };
     let mut out: Vec<Group> = table
         .iter()
@@ -496,13 +565,15 @@ pub fn is_restructure(subject: &str) -> bool {
         || RESTRUCTURE_PHRASES.iter().any(|p| lower.contains(p))
 }
 
-/// A release's own version commit: `Dereth 0.2.0`, `Empyrean 0.1.1`, or either followed by `: ...`.
+/// A release's own version commit: `Dereth 0.2.0`, `Empyrean 0.1.1`, `Lyceum 0.1.0`, or any of
+/// them followed by `: ...`.
 pub fn is_release_commit(subject: &str) -> bool {
     let head = subject.split(':').next().unwrap_or(subject);
     let mut parts = head.split_whitespace();
     matches!(
         (parts.next(), parts.next(), parts.next()),
-        (Some("Dereth" | "Empyrean"), Some(v), None) if version::parse_release_version(v).is_ok()
+        (Some("Dereth" | "Empyrean" | "Lyceum"), Some(v), None)
+            if version::parse_release_version(v).is_ok()
     )
 }
 
@@ -698,6 +769,7 @@ pub fn render(
         let what = match product {
             Product::Dereth => "the client or the launcher",
             Product::Empyrean => "the server",
+            Product::Lyceum => "the editor or the lyceum command",
         };
         out.push_str(&format!("No change to {what} since {since}.\n\n"));
     }
@@ -712,6 +784,39 @@ pub fn render(
         out.push_str(&format!("**Full changes:** {url}\n"));
     }
     out
+}
+
+/// The notes of `product`'s first release: its highlights, and no earlier release to list the
+/// changes since.
+pub fn render_first(product: Product, highlights: Option<&str>) -> String {
+    let mut out = String::new();
+    if let Some(h) = highlights.map(str::trim).filter(|h| !h.is_empty()) {
+        out.push_str("## Highlights\n\n");
+        out.push_str(&unwrap_lines(h));
+        out.push_str("\n\n");
+    }
+    out.push_str(&format!(
+        "## All changes\n\nThe first {} release.\n",
+        product.display_name()
+    ));
+    out
+}
+
+/// `product`'s final release tags other than `own`: the releases a release's notes can count
+/// from. None means the release is the product's first.
+fn earlier_final_tags(
+    ws: &Path,
+    product: Product,
+    own: Option<&str>,
+) -> Result<Vec<String>, String> {
+    let prefix = product.tag_prefix();
+    Ok(git(ws, &["tag", "--list", &format!("{prefix}*")])?
+        .lines()
+        .map(str::trim)
+        .filter(|t| !t.is_empty() && Some(*t) != own)
+        .filter(|t| !t[prefix.len()..].contains('-'))
+        .map(str::to_owned)
+        .collect())
 }
 
 /// Whether a unified diff (`git show -U0`) changes nothing but comments: every added or removed
@@ -818,7 +923,8 @@ pub struct Request {
     /// Where to write the notes instead of printing them.
     pub out: Option<PathBuf>,
     /// The repository the compare link names; by default the one the build environment names
-    /// (`DERETH_BUILD_SOURCE_URL`, `EMPYREAN_BUILD_SOURCE_URL`), else the public repository.
+    /// (`DERETH_BUILD_SOURCE_URL`, `EMPYREAN_BUILD_SOURCE_URL`, `LYCEUM_BUILD_SOURCE_URL`), else
+    /// the public repository.
     pub source_url: Option<String>,
 }
 
@@ -847,8 +953,8 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
     });
     let end = tagged.unwrap_or("HEAD");
     let since = match &request.since {
-        Some(s) => s.clone(),
-        None => git(
+        Some(s) => Some(s.clone()),
+        None => match git(
             ws,
             &[
                 "describe",
@@ -862,15 +968,18 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
                 &format!("{}*-*", product.tag_prefix()),
                 &format!("{end}^"),
             ],
-        )
-        .map_err(|e| {
-            format!(
-                "no earlier final {}* tag; name one with --since ({e})",
-                product.tag_prefix()
-            )
-        })?,
+        ) {
+            Ok(previous) => Some(previous),
+            // The product's first release: there is nothing to count from.
+            Err(_) if earlier_final_tags(ws, product, tag.as_deref())?.is_empty() => None,
+            Err(e) => {
+                return Err(format!(
+                    "no earlier final {}* tag; name one with --since ({e})",
+                    product.tag_prefix()
+                ))
+            }
+        },
     };
-    let commits = commits(ws, product, &format!("{since}..{end}"))?;
     // A tagged release's highlights are the file as the tag has it (empty when it has none);
     // otherwise the working tree's.
     let changes = match tagged {
@@ -883,9 +992,14 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
         .as_deref()
         .and_then(|v| section(&changes, v))
         .or_else(|| section(&changes, UNRELEASED));
+    let Some(since) = since else {
+        return Ok(render_first(product, highlights.as_deref()));
+    };
+    let commits = commits(ws, product, &format!("{since}..{end}"))?;
     let source_env = match product {
         Product::Dereth => package::dereth::SOURCE_URL_ENV,
         Product::Empyrean => "EMPYREAN_BUILD_SOURCE_URL",
+        Product::Lyceum => package::lyceum::SOURCE_URL_ENV,
     };
     let source = request
         .source_url
@@ -907,9 +1021,8 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
     ))
 }
 
-const USAGE: &str =
-    "usage: cargo xtask release-notes dereth|empyrean [--since <tag>] [--version <version>] \
-                     [--out <file>]";
+const USAGE: &str = "usage: cargo xtask release-notes dereth|empyrean|lyceum [--since <tag>] \
+                     [--version <version>] [--out <file>]";
 
 fn parse(args: &[String]) -> Result<(Product, Request), String> {
     let mut it = args.iter();

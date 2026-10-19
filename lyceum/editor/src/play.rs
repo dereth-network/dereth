@@ -255,6 +255,9 @@ impl EditorApp {
         if self.live.is_some() || self.starting.is_some() {
             return Ok(());
         }
+        let text = self.text.table();
+        let args = &mut self.live_args;
+        crate::programs::ready(&mut args.client, &mut args.empyrean, &text, false)?;
         let setup = self
             .live_args
             .setup(&self.core.cfg.dat_dir, self.server_sql.as_deref())?;
@@ -429,6 +432,9 @@ impl EditorApp {
     /// # Errors
     /// No world running, no client, or a client that would not start.
     pub fn play(&mut self, extra: &[String], wait: bool) -> Result<Option<i32>, String> {
+        let text = self.text.table();
+        let args = &mut self.live_args;
+        crate::programs::ready(&mut args.client, &mut args.empyrean, &text, true)?;
         let client = self
             .live_args
             .client

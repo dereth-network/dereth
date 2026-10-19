@@ -762,16 +762,19 @@ fn publish_finished(kind: Kind, version: &str) -> FakeRelease {
 }
 
 /// A final Dereth or Empyrean release is published as the repository's "Latest"; a pre-release
-/// is published as one and never "Latest"; the web client's release is never "Latest".
+/// is published as one and never "Latest"; the web client's and Lyceum's releases are never
+/// "Latest".
 #[test]
 fn published_releases_follow_the_pre_release_and_latest_rules() {
     for (kind, version, pre, latest) in [
         (Kind::Dereth, "0.2.0", false, "true"),
         (Kind::Empyrean, "0.2.0", false, "true"),
         (Kind::Web, "0.2.0", false, "false"),
+        (Kind::Lyceum, "0.2.0", false, "false"),
         (Kind::Dereth, "0.2.0-rc.1", true, "false"),
         (Kind::Empyrean, "0.2.0-rc.1", true, "false"),
         (Kind::Web, "0.2.0-rc.1", true, "false"),
+        (Kind::Lyceum, "0.2.0-rc.1", true, "false"),
     ] {
         assert_eq!(
             files::publish_flags(kind, version),
@@ -889,6 +892,7 @@ fn the_description_is_the_notes_then_the_workflows_downloads_text() {
         (Kind::Dereth, "release-dereth.yml"),
         (Kind::Empyrean, "release-empyrean.yml"),
         (Kind::Web, "release-web.yml"),
+        (Kind::Lyceum, "release-lyceum.yml"),
     ] {
         let want = format!("NOTES\n{}", workflow_downloads(&workflow(file), "0.2.0"));
         assert_eq!(
@@ -908,6 +912,7 @@ fn every_release_file_has_the_workflows_label() {
         (Kind::Dereth, "release-dereth.yml"),
         (Kind::Empyrean, "release-empyrean.yml"),
         (Kind::Web, "release-web.yml"),
+        (Kind::Lyceum, "release-lyceum.yml"),
     ] {
         let v = "0.2.0";
         let text = workflow(file);
@@ -959,6 +964,12 @@ fn the_options_read_as_given() {
         parse(&args("dereth v0.2.0 --finish")).is_err(),
         "not a version"
     );
+    let o = parse(&args("lyceum 0.1.0 --upload dist")).expect("parses");
+    assert_eq!(
+        (o.kind, o.kind.tag("0.1.0")),
+        (Kind::Lyceum, "lyceum-v0.1.0".to_owned())
+    );
+    assert_eq!(o.kind.title("0.1.0"), "Lyceum 0.1.0");
     assert!(parse(&args("launcher 0.2.0 --finish")).is_err());
     assert!(parse(&args("dereth 0.2.0 --finish --repo nope")).is_err());
 }

@@ -36,10 +36,12 @@ pub fn parse_cargo_tree(output: &str) -> Vec<Crate> {
     crates
 }
 
-/// Whether a crate is one of this repository's own (the shared `dereth-*` crates, MIT, and the
-/// server's `empyrean-*`, under the server's copyleft licence).
+/// Whether a crate is one of this repository's own (the shared `dereth-*` crates and the world
+/// builder's `lyceum-*`, MIT, and the server's `empyrean-*`, under the server's copyleft license).
 pub fn is_own(c: &Crate) -> bool {
-    c.name.starts_with("dereth-") || c.name.starts_with("empyrean-")
+    c.name.starts_with("dereth-")
+        || c.name.starts_with("empyrean-")
+        || c.name.starts_with("lyceum-")
 }
 
 /// Everything `NOTICE.txt` states.
@@ -272,7 +274,19 @@ DERETH
         commit = f.commit,
         mit = indent(f.mit_licence.trim_end()),
     );
-    for (name, carried, text) in f.fonts {
+    out.push_str(&font_sections(f.fonts));
+    if let Some(licence) = f.moltenvk_licence {
+        out.push_str(&moltenvk_section("client", licence));
+    }
+    out.push_str(&built_from_section(&own, &third));
+    out
+}
+
+/// A notice's sections for the typefaces a package carries, as (typeface, what carries it and for
+/// what, license text).
+fn font_sections(fonts: &[(&str, &str, String)]) -> String {
+    let mut out = String::new();
+    for (name, carried, text) in fonts {
         out.push_str(&format!(
             "
 
@@ -285,21 +299,29 @@ THE {upper} TYPEFACE
             text = indent(text.trim_end()),
         ));
     }
-    if let Some(licence) = f.moltenvk_licence {
-        out.push_str(&format!(
-            "
+    out
+}
+
+/// A notice's section for the MoltenVK a macOS package carries, which `program` draws through.
+fn moltenvk_section(program: &str, license: &str) -> String {
+    format!(
+        "
 
 MOLTENVK
 
-On macOS the client draws through MoltenVK (https://github.com/KhronosGroup/MoltenVK), which
+On macOS the {program} draws through MoltenVK (https://github.com/KhronosGroup/MoltenVK), which
 the package carries as Contents/Frameworks/libMoltenVK.dylib. MoltenVK is copyright The
 Brenwill Workshop Ltd. and licensed under the Apache License, version 2.0:
 
 {}",
-            indent(licence.trim_end())
-        ));
-    }
-    out.push_str(&format!(
+        indent(license.trim_end())
+    )
+}
+
+/// A notice's closing section: the crates the programs are built from, this project's and the
+/// third parties', each a line.
+fn built_from_section(own: &[String], third: &[String]) -> String {
+    format!(
         "
 
 WHAT THE BINARIES ARE BUILT FROM
@@ -312,6 +334,73 @@ Third-party crates (their licence texts are in THIRD-PARTY-LICENSES.html):
 ",
         own.join("\n"),
         third.join("\n")
+    )
+}
+
+/// Everything a Lyceum package's `NOTICE.txt` states.
+#[derive(Debug, Clone)]
+pub struct LyceumFacts<'a> {
+    pub version: &'a str,
+    pub target: &'a str,
+    pub commit: &'a str,
+    /// The public repository, without a trailing slash.
+    pub source_url: &'a str,
+    pub crates: &'a [Crate],
+    /// The project's MIT license (the repository's top-level `LICENSE`).
+    pub mit_license: &'a str,
+    /// The typefaces the editor carries, as (typeface, what carries it and for what, license
+    /// text).
+    pub fonts: &'a [(&'a str, &'a str, String)],
+    /// MoltenVK's license, when the package carries MoltenVK (macOS).
+    pub moltenvk_license: Option<&'a str>,
+}
+
+/// A Lyceum package's `NOTICE.txt`.
+pub fn lyceum_notice(f: &LyceumFacts) -> String {
+    let tag = super::version::Product::Lyceum.tag_for(f.version);
+    let url = f.source_url.trim_end_matches('/');
+    let title = format!("Lyceum {} ({})", f.version, f.target);
+    let (own, third): (Vec<&Crate>, Vec<&Crate>) = f.crates.iter().partition(|c| is_own(c));
+    let line = |c: &&Crate| format!("  {} {} ({})", c.name, c.version, c.licence);
+    let mut out = format!(
+        "{title}
+{rule}
+
+This package is Lyceum, the world builder: its editor and the `lyceum` command.
+Lyceum builds worlds for Asheron's Call, made by the Dereth project (https://dereth.network). It
+is free software under the MIT license, which is in LICENSE beside this file and below.
+
+
+SOURCE CODE
+
+This build was made from commit {commit} of
+  {url}
+The source of exactly that commit:
+  {url}/tree/{commit}
+The release this package belongs to:
+  {url}/releases/tag/{tag}
+
+
+NO GAME DATA
+
+This package contains no Asheron's Call files. Lyceum reads the game's data files from an install
+of your own, and writes a world's changes beside them, never into them.
+
+
+LYCEUM
+
+{mit}",
+        rule = "=".repeat(title.len()),
+        commit = f.commit,
+        mit = indent(f.mit_license.trim_end()),
+    );
+    out.push_str(&font_sections(f.fonts));
+    if let Some(license) = f.moltenvk_license {
+        out.push_str(&moltenvk_section("editor", license));
+    }
+    out.push_str(&built_from_section(
+        &own.iter().map(line).collect::<Vec<_>>(),
+        &third.iter().map(line).collect::<Vec<_>>(),
     ));
     out
 }

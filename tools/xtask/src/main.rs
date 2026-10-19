@@ -112,11 +112,18 @@ Release and packaging:
                             Linux AppImage), with the client inside it, checked and scanned, and
                             signed for the launcher's updater (latest.json) when
                             TAURI_SIGNING_PRIVATE_KEY is set (dereth/launcher/RELEASING.md)
+  package lyceum [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+                 | --gather <dir>
+                            Lyceum's release files: builds the editor and the lyceum command for
+                            this host, and writes them with the notices, README and CHANGES
+                            (Windows zip, macOS Lyceum.app, Linux tarball with a desktop entry),
+                            checked and scanned, with MANIFEST.txt, release.json and SHA256SUMS
+                            (lyceum/RELEASING.md)
   package web [--out <dir>] [--tag <tag>] [--no-build] [--allow-dirty]
                             the web client's release files: builds the module, stages the page's
                             allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
                             web.json (the update manifest) and SHA256SUMS (dereth/web/DEPLOY.md)
-  publish dereth|empyrean|web <version> --upload <dir> | --finish | --publish
+  publish dereth|empyrean|web|lyceum <version> --upload <dir> | --finish | --publish
           [--repo <owner/name>] [--yes]
                             the GitHub release without the release workflows: each machine
                             uploads its `package` folder to the tag's draft (same name and bytes
@@ -124,12 +131,13 @@ Release and packaging:
                             writes the merged index and the notes; --publish publishes the draft.
                             A dry run unless --yes; the token is DERETH_PUBLISH_TOKEN or
                             GITHUB_TOKEN (CONTRIBUTING.md, Releasing without GitHub Actions)
-  release empyrean|dereth <version> [--push] [--remote <name>]
+  release empyrean|dereth|lyceum <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
-                            tier 0 and a host package, tag empyrean-v<version> or
-                            dereth-v<version>; pushes only with --push. A final release also
-                            turns the Unreleased section of the product's CHANGES.md
-                            (empyrean/ or dereth/) into the release's own, dated
+                            tier 0 and a host package, tag empyrean-v<version>,
+                            dereth-v<version> or lyceum-v<version>; pushes only with --push. A
+                            final release also turns the Unreleased section of the product's
+                            CHANGES.md (empyrean/, dereth/ or lyceum/) into the release's own,
+                            dated; Lyceum's refuses a release without highlights there
   release network-hub|network-ace <version> [--push] [--remote <name>]
                             the same for the Dereth Network's hub or ACE mod: set its version
                             and commit it, run its checks as CI does (the mod's need dotnet,
@@ -147,12 +155,12 @@ Release and packaging:
                             commit (refused when its branch has moved), each changed product released
                             and pushed as `release` does it, in this process, and the web client
                             tagged with Dereth
-  release-notes dereth|empyrean [--since <tag>] [--version <v>] [--out <file>]
+  release-notes dereth|empyrean|lyceum [--since <tag>] [--version <v>] [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final
-                            dereth-v or empyrean-v tag, grouped (the release workflow writes
-                            them the same way)
-  version empyrean|dereth [--tag <tag>]
+                            dereth-v, empyrean-v or lyceum-v tag, grouped (the release workflow
+                            writes them the same way); a first release has its highlights alone
+  version empyrean|dereth|lyceum [--tag <tag>]
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
                             dats in; --debug bundles the dev profile)

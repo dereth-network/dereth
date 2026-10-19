@@ -1,0 +1,319 @@
+name: Release Lyceum
+
+# Builds, checks and drafts a Lyceum release: the world builder's editor and its `lyceum` command,
+# for Windows, macOS and Linux. A pushed `lyceum-v<version>` tag builds every target and creates a
+# DRAFT GitHub release, which a maintainer reviews and publishes by hand. Running it by hand
+# (workflow_dispatch) is a dry run: the same builds and checks, the release files kept as a
+# workflow artifact for 7 days, nothing published.
+#
+# Every job runs `cargo xtask package lyceum`, the same command a contributor runs locally
+# (lyceum/RELEASING.md). The CI workflow runs tier 0 on the tagged commit as on every push.
+#
+# The release's description starts with its notes, which `cargo xtask release-notes lyceum` writes
+# from the tagged tree: the release's section of lyceum/CHANGES.md, then Lyceum's commits since the
+# previous lyceum-v tag, grouped. A dry run writes the notes the next release would get.
+
+on:
+  push:
+    tags: ['lyceum-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-lyceum-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The build tool, pinned.
+  CARGO_ABOUT_VERSION: 0.9.2
+  # MoltenVK for the macOS bundles: KhronosGroup's macOS release, pinned by its checksum, the same
+  # one Dereth's bundles carry.
+  MOLTENVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+  MOLTENVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+  # Where the release files are downloaded from, and the source the notices name: this repository.
+  LYCEUM_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
+
+jobs:
+  version:
+    name: version and tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        shell: bash
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - name: The tag names the version the editor, the command and the Foundry carry, on main
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(cargo xtask version lyceum --tag "$GITHUB_REF_NAME")
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          else
+            version=$(cargo xtask version lyceum)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Lyceum $version"
+      - name: The release notes, from CHANGES.md and the commits since the previous release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask release-notes lyceum --version "$VERSION" --out target/release-notes.md
+          else
+            cargo xtask release-notes lyceum --out target/release-notes.md
+          fi
+          cat target/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-lyceum
+          path: target/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The build number is the commit count.
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target ${{ matrix.target }}
+          rustup override set "$toolchain"
+      - name: Install the Linux build dependencies (ALSA)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev build-essential pkg-config
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Install cargo-about
+        run: cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
+      - name: Fetch MoltenVK (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/MoltenVK-macos.tar" "$MOLTENVK_URL"
+          echo "$MOLTENVK_SHA256  $RUNNER_TEMP/MoltenVK-macos.tar" | shasum -a 256 -c -
+          tar -xf "$RUNNER_TEMP/MoltenVK-macos.tar" -C "$RUNNER_TEMP"
+          echo "DERETH_MOLTENVK_DIR=$RUNNER_TEMP/MoltenVK" >> "$GITHUB_ENV"
+      - name: cargo xtask package lyceum
+        run: cargo xtask package lyceum --target ${{ matrix.target }} --out dist
+      - name: Smoke-run the packaged programs
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
+          # The editor's settings folder, empty: no recent worlds.
+          DERETH_SETTINGS_DIR: ${{ runner.temp }}/lyceum-settings
+        run: |
+          mkdir smoke
+          run() { "$@"; }
+          case "$TARGET" in
+            x86_64-apple-darwin)
+              if arch -x86_64 /usr/bin/true 2> /dev/null; then
+                run() { arch -x86_64 "$@"; }
+              else
+                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
+                exit 0
+              fi ;;
+          esac
+          case "$TARGET" in
+            *windows*)
+              (cd smoke && 7z x "../dist/lyceum-$VERSION-windows-x86_64.zip" > /dev/null)
+              editor="smoke/lyceum-$VERSION/lyceum-editor.exe"
+              command="smoke/lyceum-$VERSION/lyceum.exe" ;;
+            *linux*)
+              tar -xzf "dist/lyceum-$VERSION-linux-x86_64.tar.gz" -C smoke
+              editor="smoke/lyceum-$VERSION/lyceum-editor"
+              command="smoke/lyceum-$VERSION/lyceum" ;;
+            *apple*)
+              arch=${TARGET%%-*}
+              tar -xzf "dist/Lyceum-$VERSION-macos-$arch.app.tar.gz" -C smoke
+              codesign --verify --deep --strict smoke/Lyceum.app
+              editor="smoke/Lyceum.app/Contents/MacOS/lyceum-editor"
+              command="smoke/Lyceum.app/Contents/MacOS/lyceum" ;;
+          esac
+          run "$editor" --version | tee version-editor.txt
+          grep -qx "lyceum-editor $VERSION" version-editor.txt
+          grep -qx "target: $TARGET" version-editor.txt
+          run "$command" --version | tee version-command.txt
+          grep -qx "lyceum $VERSION" version-command.txt
+          grep -qx "target: $TARGET" version-command.txt
+          run "$command" --help | tee help.txt
+          grep -q "lyceum build" help.txt
+          # Started with no world, the editor opens its start screen; `--list-recent` prints
+          # what it would show, and opens no window.
+          run "$editor" --list-recent | tee start.txt
+          grep -qx "Open a world…" start.txt
+          grep -qx "New world from the sample" start.txt
+          echo "::notice::the editor's window is not opened here"
+      - name: Keep this target's files (the index is written by the gather job)
+        run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lyceum-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  gather:
+    name: gather the release
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: lyceum-*
+          path: dist
+          merge-multiple: true
+      # Scans every file again, and writes MANIFEST.txt, release.json and SHA256SUMS over them.
+      - name: cargo xtask package lyceum --gather
+        run: cargo xtask package lyceum --gather dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-lyceum-${{ needs.version.outputs.version }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/MANIFEST.txt
+            dist/release.json
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: [version, gather]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-lyceum-${{ needs.version.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes-lyceum
+          path: notes
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          # The notes first (highlights, then all changes), then how to install.
+          cp ../notes/release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
+          Lyceum $VERSION, the world builder: its editor and the \`lyceum\` command, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+
+          | system | download | |
+          |---|---|---|
+          | Windows | \`lyceum-$VERSION-windows-x86_64.zip\` | unzip anywhere; \`lyceum-editor.exe\` and \`lyceum.exe\` are inside; no installer |
+          | macOS | \`Lyceum-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Lyceum.app\` to Applications; the \`lyceum\` command is \`Lyceum.app/Contents/MacOS/lyceum\` |
+          | Linux | \`lyceum-$VERSION-linux-x86_64.tar.gz\` | unpack anywhere; a desktop entry and its icon are inside |
+
+          Start the editor and open a world, or make a new one from the sample. README.md, in each download, says how to build worlds.
+
+          Play runs your world in Dereth's client on Empyrean, each a download of its own.
+
+          **No game data is included**: Lyceum reads the data files of your own Asheron's Call install, and writes a world's changes beside them.
+
+          These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          # Every file gets a display label, computed from its platform; the file names stay as
+          # they are. A file with no label fails the job, so a new target cannot go unlabelled.
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              MANIFEST.txt) label="Release manifest" ;;
+              release.json) label="Release facts (JSON)" ;;
+              "lyceum-$VERSION-"*)
+                case "${f#"lyceum-$VERSION-"}" in
+                  windows-x86_64.zip) label="Lyceum · Windows x64 (zip, no installer)" ;;
+                  linux-x86_64.tar.gz) label="Lyceum · Linux x86-64 (glibc 2.35+)" ;;
+                esac ;;
+              "Lyceum-$VERSION-"*)
+                case "${f#"Lyceum-$VERSION-"}" in
+                  macos-aarch64.app.tar.gz) label="Lyceum · macOS Apple silicon" ;;
+                  macos-x86_64.app.tar.gz) label="Lyceum · macOS Intel" ;;
+                esac ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
+          PRE=""
+          # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          # Never the repository's "Latest" release: that stays the launcher's and the server's,
+          # which players download by hand.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
+            --title "Lyceum $VERSION" --notes-file ../notes.md \
+            "${assets[@]}"

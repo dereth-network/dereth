@@ -21,6 +21,7 @@
 //!               [--iterations revision|world] [--verify]
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
+//! lyceum --version
 //! ```
 //!
 //! Exit status 0 on success, 1 when `build --check` finds the build stale or `validate` finds a
@@ -508,6 +509,17 @@ fn client_layer(args: &Args) -> ExitCode {
     }
 }
 
+/// What `lyceum --version` prints: the version, and the commit and target a release build was
+/// made from (`unknown` in a build that did not say).
+fn version_text() -> String {
+    format!(
+        "{}\ncommit: {}\ntarget: {}\n",
+        concat!("lyceum ", env!("CARGO_PKG_VERSION")),
+        option_env!("LYCEUM_BUILD_COMMIT").unwrap_or("unknown"),
+        option_env!("LYCEUM_BUILD_TARGET").unwrap_or("unknown"),
+    )
+}
+
 fn main() -> ExitCode {
     let all: Vec<String> = std::env::args().skip(1).collect();
     let Some(first) = all.first() else {
@@ -519,6 +531,10 @@ fn main() -> ExitCode {
     match first.as_str() {
         "-h" | "--help" => {
             println!("{USAGE}");
+            ExitCode::SUCCESS
+        }
+        "--version" if rest.is_empty() => {
+            print!("{}", version_text());
             ExitCode::SUCCESS
         }
         "build" | "validate" | "bake" | "import" | "edit" | "template" => {

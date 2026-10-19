@@ -1439,13 +1439,15 @@ pub fn shipped_client_violations(package: &str, lines: &str) -> Vec<String> {
 }
 
 /// The client's crates a Lyceum crate may depend on besides the core's and its own: the drawing,
-/// the desktop host it runs in and the device input, the client application's shell (whose
-/// renderer is the runtime's presentation on a device) and its screens' world map.
+/// the desktop host it runs in, the console it borrows from a terminal and the device input, the
+/// client application's shell (whose renderer is the runtime's presentation on a device) and its
+/// screens' world map.
 pub const LYCEUM_MAY_USE: &[&str] = &[
     "dereth-scene",
     "dereth-render",
     "dereth-world-render",
     "dereth-desktop",
+    "dereth-console",
     "dereth-input",
     "dereth-client-shell",
     "dereth-ui-screens",

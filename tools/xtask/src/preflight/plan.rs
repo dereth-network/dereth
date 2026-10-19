@@ -17,11 +17,19 @@ pub enum Product {
     Empyrean,
     /// Dereth: the client and the launcher.
     Dereth,
+    /// Lyceum, the world builder: its editor and its command.
+    Lyceum,
 }
 
 impl Product {
     /// Every product, in the order the preflight builds them and `ship` releases them.
-    pub const ALL: [Self; 4] = [Self::Hub, Self::Ace, Self::Empyrean, Self::Dereth];
+    pub const ALL: [Self; 5] = [
+        Self::Hub,
+        Self::Ace,
+        Self::Empyrean,
+        Self::Dereth,
+        Self::Lyceum,
+    ];
 
     /// Its name on the command line of `cargo xtask release`.
     pub const fn command_name(self) -> &'static str {
@@ -30,14 +38,18 @@ impl Product {
             Self::Ace => "network-ace",
             Self::Empyrean => "empyrean",
             Self::Dereth => "dereth",
+            Self::Lyceum => "lyceum",
         }
     }
 
-    /// The workspace package whose dependencies make the product, if it is built by cargo.
+    /// The workspace package whose dependencies make the product, if it is released for what it
+    /// is built from. The ACE mod is not built by cargo; Lyceum is released for its own folder's
+    /// changes ([`products_of`]), and the client's drawing it is built on reaches it with its next
+    /// release.
     pub const fn package(self) -> Option<&'static str> {
         match self {
             Self::Hub => Some("dereth-network-hub"),
-            Self::Ace => None,
+            Self::Ace | Self::Lyceum => None,
             Self::Empyrean => Some("empyrean-server"),
             Self::Dereth => Some("dereth-client"),
         }
@@ -63,9 +75,9 @@ pub fn is_web(path: &str) -> bool {
 /// The products the files `changed` (paths from the repository's root) belong to. A file belongs
 /// to the workspace package whose folder holds it (`packages`, name and folder) and so to every
 /// product built from that package (`depends`: each product's packages, its own included); the
-/// ACE mod's folder is the mod's, a change to the launcher's own app or to a lock file belongs to
-/// what builds with it, the web client is released as Dereth (it carries Dereth's version), and
-/// nothing else (the docs, the research notes) is a product.
+/// ACE mod's folder is the mod's, Lyceum's folder is Lyceum's, a change to the launcher's own app or
+/// to a lock file belongs to what builds with it, the web client is released as Dereth (it carries
+/// Dereth's version), and nothing else (the docs, the research notes) is a product.
 pub fn products_of(
     changed: &[String],
     packages: &[(String, String)],
@@ -76,6 +88,10 @@ pub fn products_of(
         let path = path.replace('\\', "/");
         if path.starts_with("network/ace-mod/") {
             out.insert(Product::Ace);
+            continue;
+        }
+        if path.starts_with("lyceum/") {
+            out.insert(Product::Lyceum);
             continue;
         }
         if (path.starts_with("dereth/launcher/") && !path.starts_with("dereth/launcher/crates/"))
@@ -178,6 +194,14 @@ pub fn dereth_bump(web_alone: bool) -> (Bump, String) {
         "the client's, the launcher's or the web client's changes"
     };
     (Bump::Patch, why.to_owned())
+}
+
+/// Lyceum's release and why: a patch, for its own folder's changes.
+pub fn lyceum_bump() -> (Bump, String) {
+    (
+        Bump::Patch,
+        "the editor's, the lyceum command's or the Foundry's changes".to_owned(),
+    )
 }
 
 /// The release-candidate stamp of `product`'s next build of `version`: one past the last that

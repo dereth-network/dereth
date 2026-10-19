@@ -2,9 +2,9 @@
 //! maintainers' own machines, through GitHub's REST API, without the release workflows.
 //!
 //! ```text
-//! cargo xtask publish dereth|empyrean|web <version> --upload <dir> [--repo <owner/name>] [--yes]
-//! cargo xtask publish dereth|empyrean|web <version> --finish [--repo <owner/name>] [--yes]
-//! cargo xtask publish dereth|empyrean|web <version> --publish [--repo <owner/name>] [--yes]
+//! cargo xtask publish dereth|empyrean|web|lyceum <version> --upload <dir> [--repo <owner/name>] [--yes]
+//! cargo xtask publish dereth|empyrean|web|lyceum <version> --finish [--repo <owner/name>] [--yes]
+//! cargo xtask publish dereth|empyrean|web|lyceum <version> --publish [--repo <owner/name>] [--yes]
 //! ```
 //!
 //! The release it makes is the one the product's release workflow drafts from the same tag: the
@@ -48,16 +48,16 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::package::{self, dereth as launcher, sha256_hex, version, web};
+use crate::package::{self, dereth as launcher, lyceum, sha256_hex, version, web};
 use crate::release::notes;
 use crate::util::{target_dir, workspace_root};
 use files::{Kind, Role};
 use github::{GitHub, Https, Release, RemoteAsset, Token};
 
 pub const USAGE: &str =
-    "usage: cargo xtask publish dereth|empyrean|web <version> --upload <dir> [--repo <owner/name>] [--yes]
-       cargo xtask publish dereth|empyrean|web <version> --finish [--repo <owner/name>] [--yes]
-       cargo xtask publish dereth|empyrean|web <version> --publish [--repo <owner/name>] [--yes]";
+    "usage: cargo xtask publish dereth|empyrean|web|lyceum <version> --upload <dir> [--repo <owner/name>] [--yes]
+       cargo xtask publish dereth|empyrean|web|lyceum <version> --finish [--repo <owner/name>] [--yes]
+       cargo xtask publish dereth|empyrean|web|lyceum <version> --publish [--repo <owner/name>] [--yes]";
 
 /// Which step a run is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +146,7 @@ fn repository(kind: Kind, given: Option<&str>) -> Result<String, String> {
     let var = match kind {
         Kind::Empyrean => "EMPYREAN_BUILD_SOURCE_URL",
         Kind::Dereth | Kind::Web => launcher::SOURCE_URL_ENV,
+        Kind::Lyceum => lyceum::SOURCE_URL_ENV,
     };
     let url = std::env::var(var)
         .ok()
@@ -485,6 +486,15 @@ pub fn read_upload_dir(
                     problems.push(format!("{name}: its {name}.manifest is not beside it"));
                 }
             }
+            Kind::Lyceum => {
+                let lyceum::Asset::Release(t) = lyceum::classify(name, version)? else {
+                    continue;
+                };
+                lyceum::check_archive(&path, t, version)?;
+                if !staging.contains(&format!("{name}.manifest")) {
+                    problems.push(format!("{name}: its {name}.manifest is not beside it"));
+                }
+            }
             Kind::Web => {
                 if *name == web::archive_name(version) {
                     web::check_bundle(&path, version)?;
@@ -522,7 +532,7 @@ pub fn read_upload_dir(
                 check_web_manifest(dir, version, repo)?
             }
         }
-        Kind::Dereth | Kind::Empyrean => {
+        Kind::Dereth | Kind::Empyrean | Kind::Lyceum => {
             let facts = dir.join("release.json");
             if facts.is_file() {
                 built_from(&facts, version, repo)?
@@ -1154,6 +1164,7 @@ fn gather(
     match kind {
         Kind::Dereth => launcher::write_index(ws, dir, version, facts),
         Kind::Empyrean => package::write_index(ws, dir, version, facts),
+        Kind::Lyceum => lyceum::write_index(dir, version, facts),
         Kind::Web => {
             let repo = url.trim_start_matches("https://github.com/");
             let zip = web::archive_name(version);

@@ -86,6 +86,10 @@ pub const DERETH_TRIPLES: &[&str] = &[
 /// glibc it is linked against, and the header check holds the binaries to it.
 pub const DERETH_GLIBC_FLOOR: (u32, u32) = (2, 35);
 
+/// The oldest glibc a Lyceum Linux release runs on: Dereth's, since it is built on the same
+/// Ubuntu 22.04.
+pub const LYCEUM_GLIBC_FLOOR: (u32, u32) = DERETH_GLIBC_FLOOR;
+
 /// The Dereth release target named `triple`.
 pub fn find_dereth(triple: &str) -> Result<Target, String> {
     if !DERETH_TRIPLES.contains(&triple) {
@@ -100,6 +104,42 @@ pub fn find_dereth(triple: &str) -> Result<Target, String> {
 /// How this host builds Dereth for `target`, or why it cannot: natively, on the target's own
 /// operating system.
 pub fn plan_dereth(target: Target, host: &Host) -> Result<(), String> {
+    plan_native(
+        target,
+        host,
+        "the launcher links against that system's web view",
+    )
+}
+
+/// The targets Lyceum (the editor and the `lyceum` command) is released for: Dereth's, each built
+/// natively as Dereth's are.
+pub const LYCEUM_TRIPLES: &[&str] = DERETH_TRIPLES;
+
+/// The Lyceum release target named `triple`.
+pub fn find_lyceum(triple: &str) -> Result<Target, String> {
+    if !LYCEUM_TRIPLES.contains(&triple) {
+        return Err(format!(
+            "`{triple}` is not a Lyceum release target; the targets are {}",
+            LYCEUM_TRIPLES.join(", ")
+        ));
+    }
+    find(triple)
+}
+
+/// How this host builds Lyceum for `target`, or why it cannot: natively, on the target's own
+/// operating system, whose linker, system libraries and (on Linux) glibc the programs are built
+/// against.
+pub fn plan_lyceum(target: Target, host: &Host) -> Result<(), String> {
+    plan_native(
+        target,
+        host,
+        "the editor is built with that system's own linker and libraries",
+    )
+}
+
+/// How this host builds `target` natively, or why it cannot: on the target's own operating
+/// system (`why` says what needs it), with the target's standard library installed.
+fn plan_native(target: Target, host: &Host, why: &str) -> Result<(), String> {
     if host.os != Some(target.os) {
         let os = match target.os {
             Os::Windows => "Windows",
@@ -107,7 +147,7 @@ pub fn plan_dereth(target: Target, host: &Host) -> Result<(), String> {
             Os::Mac => "macOS",
         };
         return Err(format!(
-            "{} builds on a {os} host only: the launcher links against that system's web view",
+            "{} builds on a {os} host only: {why}",
             target.triple
         ));
     }

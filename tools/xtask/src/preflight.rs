@@ -235,6 +235,10 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         Product::Dereth,
         crate::package::version::Product::Dereth.version(root)?,
     );
+    versions.insert(
+        Product::Lyceum,
+        crate::package::version::Product::Lyceum.version(root)?,
+    );
     let mut bumps = BTreeMap::new();
     let schema_now = plan::hub_schema(
         &std::fs::read_to_string(root.join("network/hub/src/registry.rs")).unwrap_or_default(),
@@ -248,6 +252,7 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     bumps.insert(Product::Empyrean, plan::empyrean_bump(refusal.as_deref()));
     bumps.insert(Product::Ace, (Bump::Patch, "the mod's changes".to_owned()));
     bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
+    bumps.insert(Product::Lyceum, plan::lyceum_bump());
     Ok(Repo {
         branch,
         commit,
@@ -428,6 +433,13 @@ pub fn run(
         return Err("the last preflight is shipped: `cargo xtask preflight finish` first".into());
     }
     let releases = releases(repo, &mut ledger.stamped)?;
+    // A Lyceum release that `ship` would refuse for want of highlights is said now, before
+    // anything is built or stopped.
+    if let Some(r) = releases.iter().find(|r| r.product == Product::Lyceum) {
+        let file = crate::release::notes::LYCEUM_CHANGES;
+        let text = m.read(&root.join(file))?;
+        crate::release::check_highlights(file, &text, &r.version)?;
+    }
     // The hub is always built: the dev hub runs it, changed or not.
     let mut versions: BTreeMap<Product, String> = releases
         .iter()

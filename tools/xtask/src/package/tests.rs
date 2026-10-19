@@ -991,7 +991,12 @@ fn an_elf_above_the_floor_or_with_foreign_needs_is_refused() {
 }
 
 /// A 64-bit Mach-O with the given libraries, build version and signature.
-fn macho(cputype: u32, dylibs: &[&str], min: Option<(u32, u32)>, signed: bool) -> Vec<u8> {
+pub(super) fn macho(
+    cputype: u32,
+    dylibs: &[&str],
+    min: Option<(u32, u32)>,
+    signed: bool,
+) -> Vec<u8> {
     let mut cmds: Vec<u8> = Vec::new();
     let mut n = 0u32;
     let u32le = |v: u32| v.to_le_bytes();

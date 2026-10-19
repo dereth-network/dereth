@@ -94,6 +94,11 @@ the release; once published, it is the one launchers update from.
 `cargo xtask package dereth` builds this host's release files locally.
 [dereth/launcher/RELEASING.md](dereth/launcher/RELEASING.md) describes the whole flow.
 
+Lyceum (the world builder's editor and its `lyceum` command) is released the same way:
+`cargo xtask release lyceum <version>` and a pushed `lyceum-v<version>` tag, whose workflow drafts
+the release. `cargo xtask package lyceum` builds this host's release files locally.
+[lyceum/RELEASING.md](lyceum/RELEASING.md) describes the whole flow.
+
 The Dereth Network's hub and ACE mod are released the same way, each on tags of its own:
 `cargo xtask release network-hub <version>` (a pushed `network-hub-v<version>` tag) and
 `cargo xtask release network-ace <version>` (`network-ace-v<version>`). They keep no change log;
@@ -110,9 +115,9 @@ one the workflow drafts from the same tag: the same files, labels, `SHA256SUMS`,
 and "Latest" rules.
 
 ```
-cargo xtask publish dereth|empyrean|web <version> --upload <dir> [--repo <owner/name>] [--yes]
-cargo xtask publish dereth|empyrean|web <version> --finish [--repo <owner/name>] [--yes]
-cargo xtask publish dereth|empyrean|web <version> --publish [--repo <owner/name>] [--yes]
+cargo xtask publish dereth|empyrean|web|lyceum <version> --upload <dir> [--repo <owner/name>] [--yes]
+cargo xtask publish dereth|empyrean|web|lyceum <version> --finish [--repo <owner/name>] [--yes]
+cargo xtask publish dereth|empyrean|web|lyceum <version> --publish [--repo <owner/name>] [--yes]
 ```
 
 **Every run is a dry run unless it is given `--yes`:** it reads what it needs, prints what it

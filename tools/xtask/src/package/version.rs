@@ -1,6 +1,7 @@
-//! The release versions: Empyrean's, the one `version` every `empyrean-*` crate carries, and
-//! Dereth's, the one the client, the launcher, the web client and the headless client share; the release tags that name them, and the
-//! edit that moves them.
+//! The release versions: Empyrean's, the one `version` every `empyrean-*` crate carries;
+//! Dereth's, the one the client, the launcher, the web client and the headless client share; and
+//! Lyceum's, the one its editor, its command and the Foundry share; the release tags that name
+//! them, and the edit that moves them.
 
 use std::path::{Path, PathBuf};
 
@@ -131,6 +132,31 @@ pub fn dereth_version(ws: &Path) -> Result<String, String> {
     )
 }
 
+/// The prefix of a Lyceum release tag: `lyceum-v<version>`.
+pub const LYCEUM_TAG_PREFIX: &str = "lyceum-v";
+
+/// The crates that carry Lyceum's version: the editor and the `lyceum` command, released together,
+/// and the Foundry, the library both are built on.
+pub const LYCEUM_MANIFESTS: &[&str] = &[
+    "lyceum/editor/Cargo.toml",
+    "lyceum/cli/Cargo.toml",
+    "lyceum/crates/foundry/Cargo.toml",
+];
+
+/// The manifests of the crates that carry Lyceum's version.
+pub fn lyceum_manifests(ws: &Path) -> Vec<PathBuf> {
+    LYCEUM_MANIFESTS.iter().map(|m| ws.join(m)).collect()
+}
+
+/// Lyceum's version, read from its crates' manifests and required to agree.
+pub fn lyceum_version(ws: &Path) -> Result<String, String> {
+    manifests_version(
+        ws,
+        &lyceum_manifests(ws),
+        "Lyceum crate (the editor, the lyceum command and the Foundry)",
+    )
+}
+
 /// A release version: `MAJOR.MINOR.PATCH`, optionally followed by a pre-release suffix
 /// (`-rc.1`: dot-separated identifiers of letters, digits and hyphens). No build suffix (`+...`).
 /// Returns the numeric core; the server reports only that core as its version numbers.
@@ -192,14 +218,16 @@ pub fn check_tag(tag: &str, version: &str) -> Result<(), String> {
 pub enum Product {
     Empyrean,
     Dereth,
+    Lyceum,
 }
 
 impl Product {
-    /// The product named on a command line: `empyrean` or `dereth`.
+    /// The product named on a command line: `empyrean`, `dereth` or `lyceum`.
     pub fn from_command_name(name: &str) -> Option<Self> {
         match name {
             "empyrean" => Some(Self::Empyrean),
             "dereth" => Some(Self::Dereth),
+            "lyceum" => Some(Self::Lyceum),
             _ => None,
         }
     }
@@ -209,6 +237,7 @@ impl Product {
         match self {
             Self::Empyrean => "empyrean",
             Self::Dereth => "dereth",
+            Self::Lyceum => "lyceum",
         }
     }
 
@@ -217,6 +246,7 @@ impl Product {
         match self {
             Self::Empyrean => "Empyrean",
             Self::Dereth => "Dereth",
+            Self::Lyceum => "Lyceum",
         }
     }
 
@@ -225,6 +255,7 @@ impl Product {
         match self {
             Self::Empyrean => TAG_PREFIX,
             Self::Dereth => DERETH_TAG_PREFIX,
+            Self::Lyceum => LYCEUM_TAG_PREFIX,
         }
     }
 
@@ -240,6 +271,7 @@ impl Product {
             Self::Dereth => {
                 "the client, the launcher, the web client and the headless client carry"
             }
+            Self::Lyceum => "the editor, the lyceum command and the Foundry carry",
         }
     }
 
@@ -248,6 +280,7 @@ impl Product {
         match self {
             Self::Empyrean => empyrean_manifests(ws),
             Self::Dereth => Ok(dereth_manifests(ws)),
+            Self::Lyceum => Ok(lyceum_manifests(ws)),
         }
     }
 
@@ -256,6 +289,7 @@ impl Product {
         match self {
             Self::Empyrean => empyrean_version(ws),
             Self::Dereth => dereth_version(ws),
+            Self::Lyceum => lyceum_version(ws),
         }
     }
 }

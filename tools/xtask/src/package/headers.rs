@@ -546,44 +546,72 @@ pub fn check_app_binary(
                 pe.imports.join(", ")
             ))
         }
-        Os::Linux => {
-            let elf = parse_elf(bytes).map_err(|e| vec![e])?;
-            let mut problems = Vec::new();
-            let want = match target.arch {
-                Arch::X86_64 => EM_X86_64,
-                Arch::Aarch64 => EM_AARCH64,
-            };
-            if elf.machine != want {
-                problems.push(format!("machine {}, expected {want}", elf.machine));
-            }
-            let interp = linux_interp(target.arch);
-            if elf.interp.as_deref() != Some(interp) {
-                problems.push(format!(
-                    "dynamic loader {}, expected {interp}",
-                    elf.interp.as_deref().unwrap_or("(none)")
-                ));
-            }
-            let newest = elf.glibc.iter().max().copied();
-            if let Some(n) = newest.filter(|n| (n.0, n.1) > glibc_floor) {
-                problems.push(format!(
-                    "requires GLIBC_{} (newest), above the {}.{} floor",
-                    version_text(n),
-                    glibc_floor.0,
-                    glibc_floor.1
-                ));
-            }
-            if !problems.is_empty() {
-                return Err(problems);
-            }
-            Ok(format!(
-                "ELF64 machine {}; loader {}; needs {}; newest GLIBC_{}",
-                elf.machine,
-                elf.interp.as_deref().unwrap_or("(none)"),
-                elf.needed.join(", "),
-                version_text(newest.unwrap_or_default())
-            ))
-        }
+        Os::Linux => check_desktop_elf(bytes, target, glibc_floor),
         Os::Mac => check_binary(bytes, target, Role::Import),
+    }
+}
+
+/// A desktop program for Linux: the target's machine and dynamic loader, and no glibc symbol
+/// newer than `glibc_floor`. The shared objects are not limited: a desktop program links the
+/// window, sound and graphics libraries every desktop has.
+fn check_desktop_elf(
+    bytes: &[u8],
+    target: Target,
+    glibc_floor: (u32, u32),
+) -> Result<String, Vec<String>> {
+    let elf = parse_elf(bytes).map_err(|e| vec![e])?;
+    let mut problems = Vec::new();
+    let want = match target.arch {
+        Arch::X86_64 => EM_X86_64,
+        Arch::Aarch64 => EM_AARCH64,
+    };
+    if elf.machine != want {
+        problems.push(format!("machine {}, expected {want}", elf.machine));
+    }
+    let interp = linux_interp(target.arch);
+    if elf.interp.as_deref() != Some(interp) {
+        problems.push(format!(
+            "dynamic loader {}, expected {interp}",
+            elf.interp.as_deref().unwrap_or("(none)")
+        ));
+    }
+    let newest = elf.glibc.iter().max().copied();
+    if let Some(n) = newest.filter(|n| (n.0, n.1) > glibc_floor) {
+        problems.push(format!(
+            "requires GLIBC_{} (newest), above the {}.{} floor",
+            version_text(n),
+            glibc_floor.0,
+            glibc_floor.1
+        ));
+    }
+    if !problems.is_empty() {
+        return Err(problems);
+    }
+    Ok(format!(
+        "ELF64 machine {}; loader {}; needs {}; newest GLIBC_{}",
+        elf.machine,
+        elf.interp.as_deref().unwrap_or("(none)"),
+        elf.needed.join(", "),
+        version_text(newest.unwrap_or_default())
+    ))
+}
+
+/// Check a console program for `target` that runs on the desktop beside a windowed one (Lyceum's
+/// `lyceum` command): a one-line description for the manifest, or every problem found.
+///
+/// - **Windows:** x86-64 PE32+, the console subsystem, and no import of the Visual C++ runtime.
+/// - **Linux:** as Dereth's programs: the target's machine and dynamic loader, and no glibc symbol
+///   newer than `glibc_floor`.
+/// - **macOS:** as the server's binaries: the CPU, only system libraries, the minimum macOS, and
+///   a code signature on Apple silicon.
+pub fn check_console_app(
+    bytes: &[u8],
+    target: Target,
+    glibc_floor: (u32, u32),
+) -> Result<String, Vec<String>> {
+    match target.os {
+        Os::Linux => check_desktop_elf(bytes, target, glibc_floor),
+        Os::Windows | Os::Mac => check_binary(bytes, target, Role::Import),
     }
 }
 

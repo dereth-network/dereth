@@ -1,18 +1,21 @@
 //! `cargo xtask release <product> <version> [--push] [--remote <name>]`: cut a release of
-//! Empyrean (`empyrean`), of Dereth (`dereth`: the launcher and the client, one version), or of one
-//! of the Dereth Network's two products, its hub (`network-hub`) and its ACE mod (`network-ace`;
+//! Empyrean (`empyrean`), of Dereth (`dereth`: the launcher and the client, one version), of
+//! Lyceum (`lyceum`: the world builder's editor and its command, one version), or of one of the
+//! Dereth Network's two products, its hub (`network-hub`) and its ACE mod (`network-ace`;
 //! [`network`]).
 //!
 //! On a clean `main` it sets the version of every crate that carries the product's version
-//! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher) to `<version>` and
-//! commits that with the lock files (skipped when the tree already carries it), runs
-//! `cargo xtask ci tier0` and packages the host's own target as a smoke test, then makes the
-//! annotated tag `empyrean-v<version>` or `dereth-v<version>`. An Empyrean release also makes its
+//! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher; Lyceum: the editor,
+//! the command and the Foundry) to `<version>` and commits that with the lock files (skipped when
+//! the tree already carries it), runs `cargo xtask ci tier0` and packages the host's own target as
+//! a smoke test, then makes the annotated tag `empyrean-v<version>`, `dereth-v<version>` or
+//! `lyceum-v<version>`. An Empyrean release also makes its
 //! database upgrade fixture (`empyrean/crates/store/UPGRADES.md`) when the tree has none for that
 //! release, and commits it with the version. A final release turns the Unreleased section of the
-//! product's `CHANGES.md` (`empyrean/CHANGES.md`, `dereth/CHANGES.md`) into the release's own,
-//! dated, under a new empty Unreleased section, and commits that with the version: the section is
-//! the release notes' highlights ([`notes`]). It
+//! product's `CHANGES.md` (`empyrean/CHANGES.md`, `dereth/CHANGES.md`, `lyceum/CHANGES.md`) into
+//! the release's own, dated, under a new empty Unreleased section, and commits that with the
+//! version: the section is the release notes' highlights ([`notes`]). A Lyceum release with no
+//! highlights is refused before anything changes: its notes are mostly that section. It
 //! prints the two push commands and runs them only with `--push`: the product's release workflow
 //! starts when the tag reaches the public repository, and builds, checks and drafts the release
 //! from there.
@@ -142,10 +145,11 @@ pub fn push_commands(remote: &str, tag: &str) -> [Vec<String>; 2] {
     ]
 }
 
-const USAGE: &str = "usage: cargo xtask release empyrean|dereth|network-hub|network-ace \
+const USAGE: &str = "usage: cargo xtask release empyrean|dereth|lyceum|network-hub|network-ace \
                      <MAJOR.MINOR.PATCH> [--push] [--remote <name>]";
 
-/// What the command releases: Empyrean or Dereth, or one of the Dereth Network's products.
+/// What the command releases: Empyrean, Dereth or Lyceum, or one of the Dereth Network's
+/// products.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Releasable {
     Product(Product),
@@ -263,7 +267,7 @@ fn state(ws: &Path, product: Product, remote: &str) -> Result<RepoState, String>
 /// relative to the workspace root.
 fn locks(product: Product) -> &'static [(&'static str, &'static str)] {
     match product {
-        Product::Empyrean => &[("", "Cargo.lock")],
+        Product::Empyrean | Product::Lyceum => &[("", "Cargo.lock")],
         Product::Dereth => version::DERETH_LOCKS,
     }
 }
@@ -322,6 +326,22 @@ fn changes_path(ws: &Path, product: Product) -> std::path::PathBuf {
     ws.join(notes::changes_file(product))
 }
 
+/// Whether release `requested` has highlights in `changes` (its highlights file's text): its own
+/// section when the file has one, else the Unreleased section, which the release takes. An error
+/// saying where to write them when it has none.
+pub fn check_highlights(file: &str, changes: &str, requested: &str) -> Result<(), String> {
+    let highlights =
+        notes::section(changes, requested).or_else(|| notes::section(changes, notes::UNRELEASED));
+    match highlights {
+        Some(h) if !h.is_empty() => Ok(()),
+        _ => Err(format!(
+            "{file} has no highlights for {requested}: write a few lines under `## {}` \
+             saying what the release brings, and commit them",
+            notes::UNRELEASED
+        )),
+    }
+}
+
 /// For a final release whose highlights file has no section for `requested` yet: stamp the
 /// Unreleased section with it and today's date, and return the file to commit. `None` for a
 /// pre-release (its notes show the Unreleased section, which stays for the final release), and
@@ -360,6 +380,14 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
     // changes: a patch release that declares anything is refused here.
     if product == Product::Empyrean {
         package::declaration::for_release(&ws, requested)?;
+    }
+    // A Lyceum release's notes are mostly its highlights, so a release without them is refused
+    // here, before anything changes; Dereth's and Empyrean's say so and go on.
+    if product == Product::Lyceum {
+        let file = notes::changes_file(product);
+        let text = std::fs::read_to_string(changes_path(&ws, product))
+            .map_err(|e| format!("reading {file}: {e}"))?;
+        check_highlights(file, &text, requested)?;
     }
 
     if plan.bump {
@@ -453,8 +481,9 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
     .ok_or("rustc -vV named no host")?;
     match product {
         Product::Empyrean => package::build_packages(&ws, &[host], None, false),
-        // A macOS host needs MoltenVK for this, named as the package command takes it.
+        // A macOS host needs MoltenVK for these, named as the package command takes it.
         Product::Dereth => package::dereth::build_packages(&ws, &[host], None, false, None),
+        Product::Lyceum => package::lyceum::build_packages(&ws, &[host], None, false, None),
     }
     .map_err(|e| format!("packaging failed; no tag was made.{undo}\n{e}"))?;
 

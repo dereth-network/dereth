@@ -7,8 +7,12 @@
 //!
 //! The command line is [`lyceum_editor::args`]'s. A windowed run edits until its window closes and
 //! saves when told to (the Save button, Ctrl+S); a `--headless` run draws off screen, runs its
-//! script and captures, and saves only when its script says so. It is started from a terminal
-//! with a world to open, and writes its log there.
+//! script and captures, and saves only when its script says so. Started with no world, as a
+//! desktop starts it, it opens its start screen ([`start`]).
+//!
+//! It is a windowed program: a desktop shows it no console. Started from a terminal, it borrows
+//! that terminal and writes its log there; its log also goes to `lyceum-editor.log` in its settings
+//! folder.
 //!
 //! In the window: the right button held turns the camera; W, A, S and D fly (or walk), E and Q
 //! fly up and down (or step aside), Space rises (or, held and let go, jumps), Shift lowers (or
@@ -16,12 +20,27 @@
 //! ground and F walks with a body or flies again. 1 to 4 choose Select, Place,
 //! Terrain and Spawn; Delete removes the selected static or spawn, Escape lets it go; Ctrl+Z and
 //! Ctrl+Y undo and redo, Ctrl+S saves.
+#![windows_subsystem = "windows"]
 
 use dereth_desktop::crashlog;
 use lyceum_editor::Lyceum;
 
+#[cfg_attr(not(gpu), allow(dead_code))]
+mod start;
+
 fn main() -> std::process::ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    // First, before anything is written: the terminal the editor was started from, if any.
+    let console = dereth_console::attach().is_open();
+    // `--version` and `--list-recent` alone: nothing started, and no window.
+    if argv == ["--version"] {
+        print!("{}", start::version_text());
+        return std::process::ExitCode::SUCCESS;
+    }
+    if let Some(start::NoWorld::List { dats }) = start::no_world(&argv) {
+        print!("{}", start::list(dats));
+        return std::process::ExitCode::SUCCESS;
+    }
     crashlog::install::<Lyceum>();
     match run(&argv) {
         Ok(()) => {
@@ -30,6 +49,10 @@ fn main() -> std::process::ExitCode {
         }
         Err(message) => {
             eprintln!("lyceum-editor: {message}");
+            let screen = matches!(start::no_world(&argv), Some(start::NoWorld::Screen { .. }));
+            if start::error_box_wanted(console, screen) {
+                start::error_box(&message);
+            }
             crashlog::finished::<Lyceum>(1, &message);
             std::process::ExitCode::FAILURE
         }
@@ -38,10 +61,21 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(gpu)]
 fn run(argv: &[String]) -> Result<(), String> {
-    let args = lyceum_editor::args::parse(argv)
+    // No world named: the start screen, which starts the editor again on the world chosen.
+    if let Some(start::NoWorld::Screen { dats }) = start::no_world(argv) {
+        return start::screen(dats);
+    }
+    let mut args = lyceum_editor::args::parse(argv)
         .map_err(|e| format!("{e}\n{}", lyceum_editor::args::USAGE))?;
-    let runtime = args.runtime_argv(args.landblock.unwrap_or(0xA9B4));
+    lyceum_editor::programs::fill_empyrean(&mut args.empyrean);
+    let mut runtime = args.runtime_argv(args.landblock.unwrap_or(0xA9B4));
+    if !args.headless {
+        runtime.push("--log-file".to_owned());
+    }
     let cfg = dereth_desktop::start::<Lyceum>(&runtime)?;
+    if !args.headless {
+        start::remember(&args.world, &cfg.dat_dir);
+    }
     let mut editor = lyceum_editor::app::EditorApp::open(&args, cfg)?;
     if args.headless {
         let pack = editor.session.packs()[editor.session.target()].name.clone();

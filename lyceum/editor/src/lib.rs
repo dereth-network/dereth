@@ -7,6 +7,7 @@
 //! `dereth-client-contract`; the player's options it sets, `dereth-client-model`; the drawn world,
 //! `dereth-scene`; the device, `dereth-render`; the renderer that is the runtime's presentation,
 //! `dereth-client-shell`), the desktop host for its window, log and crash log (`dereth-desktop`),
+//! the terminal it borrows and the system's error box (`dereth-console`),
 //! the device input's events (`dereth-input`), ids, frames and textures (`dereth-primitives`),
 //! the client's physics the flying camera collides through (`dereth-physics`) and the ground's
 //! mesh its scenery stands on (`dereth-terrain`),
@@ -34,6 +35,7 @@
 //! | [`gizmo`] | the move and turn handles: where they are drawn and what a drag on one does |
 //! | [`gui`] | the panels' toolkit: egui, fed the window's events and drawn through the overlay |
 //! | [`live`] | the editor's own server on the loopback: started, and each change pushed to it |
+//! | [`programs`] | where the editor finds Empyrean's programs and Dereth's client, and what it says when it cannot |
 //! | [`script`] | the scripted mode's steps |
 //! | [`shell`] | the front end the runtime calls: the window's events and the overlay |
 //! | [`text`] | every word the editor shows, from the creator's `lyceum-text.toml` |
@@ -46,6 +48,7 @@ pub mod catalog;
 pub mod gizmo;
 pub mod gui;
 pub mod live;
+pub mod programs;
 pub mod script;
 pub mod shell;
 pub mod text;

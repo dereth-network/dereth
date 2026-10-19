@@ -613,6 +613,7 @@ fn repo(products: &[Product]) -> Repo {
             (Product::Ace, "0.1.2"),
             (Product::Empyrean, "0.3.1"),
             (Product::Dereth, "0.4.3"),
+            (Product::Lyceum, "0.1.0"),
         ]
         .into_iter()
         .map(|(p, v)| (p, v.to_owned()))
@@ -1101,6 +1102,25 @@ fn a_change_belongs_to_the_products_built_from_its_package_and_each_takes_its_re
         of(&["Cargo.lock"]),
         [Product::Hub, Product::Empyrean, Product::Dereth]
     );
+    // Lyceum is released for its own folder's changes, the sample it carries among them, and not
+    // for the client's drawing it is built on.
+    assert_eq!(of(&["lyceum/editor/src/start.rs"]), [Product::Lyceum]);
+    assert_eq!(of(&["lyceum/sample/world.lock"]), [Product::Lyceum]);
+    assert_eq!(
+        of(&[
+            "lyceum/crates/foundry/src/lib.rs",
+            "core/primitives/src/lib.rs"
+        ]),
+        [
+            Product::Hub,
+            Product::Empyrean,
+            Product::Dereth,
+            Product::Lyceum
+        ]
+    );
+    assert!(Product::ALL.contains(&Product::Lyceum));
+    assert_eq!(Product::Lyceum.command_name(), "lyceum");
+    assert_eq!(plan::lyceum_bump().0, Bump::Patch);
     // The web client carries Dereth's version: a change to it alone is a Dereth release, and the
     // plan says so.
     assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
@@ -3199,4 +3219,74 @@ fn play_takes_the_web_client_and_its_port_or_nothing() {
     assert!(super::parse_play(&args(&["--port", "9090"])).is_err());
     assert!(super::parse_play(&args(&["--web", "--port", "x"])).is_err());
     assert!(super::parse_play(&args(&["--launcher"])).is_err());
+}
+
+/// A preflight lists a Lyceum release when the branch changed `lyceum/`, and `ship` cuts it as
+/// `cargo xtask release lyceum` does; one with no highlights in `lyceum/CHANGES.md` stops the
+/// preflight before anything is built or stopped, as its release would stop `ship` halfway.
+#[test]
+fn a_lyceum_release_is_preflighted_and_shipped_and_needs_its_highlights_first() {
+    let changes = "D:/repo/lyceum/CHANGES.md";
+    let mut m = counting(
+        fake()
+            .file(changes, "# Lyceum changes\n\n## Unreleased\n")
+            .there("owner@vm.example.org:/srv/emp/empyrean.toml", EMP_TOML),
+    );
+    let e = preflight(&mut m, &[Product::Hub, Product::Lyceum], &["vm"]).expect_err("refused");
+    assert!(
+        e.contains("lyceum/CHANGES.md") && e.contains("0.1.1"),
+        "{e}"
+    );
+    assert!(
+        m.inner.record().iter().all(|l| l.starts_with("probe ")),
+        "only asked: {:#?}",
+        m.inner.record()
+    );
+
+    let mut m = counting(
+        fake()
+            .file(
+                changes,
+                "# Lyceum changes\n\n## Unreleased\n\n- A start screen\n",
+            )
+            .there("owner@vm.example.org:/srv/emp/empyrean.toml", EMP_TOML),
+    );
+    preflight(&mut m, &[Product::Hub, Product::Lyceum], &["vm"]).expect("preflighted");
+    let l = ledger(&mut m);
+    assert!(
+        l.releases
+            .iter()
+            .any(|r| r.product == Product::Lyceum && r.version == "0.1.1"),
+        "{:?}",
+        l.releases
+    );
+    assert!(
+        m.inner
+            .record()
+            .iter()
+            .all(|l| !l.contains("lyceum-editor") && !l.contains("package lyceum")),
+        "no dev world runs it, so nothing of it is built here: {:#?}",
+        m.inner.record()
+    );
+
+    let commit = "c0ffee0000000000000000000000000000000001";
+    let cuts = Cuts::default();
+    let (mut f, mut l) = shipping(&[Product::Hub, Product::Lyceum], commit, commit, true);
+    ship::ship(
+        &mut f,
+        Path::new("D:/repo"),
+        "origin",
+        &mut cutter(&cuts, None),
+        &mut l,
+        false,
+    )
+    .expect("shipped");
+    assert_eq!(
+        *cuts.borrow(),
+        [
+            (Product::Hub, "0.2.2".to_owned()),
+            (Product::Lyceum, "0.1.1".to_owned())
+        ]
+    );
+    assert!(f.done("git tag").is_empty(), "no web client without Dereth");
 }

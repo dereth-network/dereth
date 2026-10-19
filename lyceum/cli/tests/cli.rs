@@ -44,3 +44,15 @@ fn the_client_layer_the_client_builds_in_is_what_its_manifest_makes() {
     );
     assert!(String::from_utf8_lossy(&check.stdout).contains("the container is current"));
 }
+
+#[test]
+fn the_command_names_its_version_first() {
+    let out = lyceum(&["--version"]);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        text.lines().next(),
+        Some(format!("lyceum {}", env!("CARGO_PKG_VERSION")).as_str())
+    );
+    assert!(text.lines().any(|l| l.starts_with("target: ")), "{text}");
+}

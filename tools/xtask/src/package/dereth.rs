@@ -59,6 +59,26 @@ pub(super) fn licence_page(
     dir: &Path,
     name: &str,
 ) -> Result<String, String> {
+    about_page(
+        ws,
+        (ABOUT_CONFIG, ABOUT_TEMPLATE),
+        manifest,
+        target,
+        dir,
+        name,
+    )
+}
+
+/// [`licence_page`], with cargo-about's configuration and template named as `about`.
+pub(super) fn about_page(
+    ws: &Path,
+    about: (&str, &str),
+    manifest: &str,
+    target: Target,
+    dir: &Path,
+    name: &str,
+) -> Result<String, String> {
+    let (config, template) = about;
     let out = dir.join(format!("{name}.html"));
     let out_arg = out.display().to_string();
     run_in(
@@ -72,12 +92,12 @@ pub(super) fn licence_page(
             "-m",
             manifest,
             "-c",
-            ABOUT_CONFIG,
+            config,
             "--target",
             target.triple,
             "-o",
             &out_arg,
-            ABOUT_TEMPLATE,
+            template,
         ],
         &[],
         &[],
@@ -374,7 +394,7 @@ pub fn is_macho_library(bytes: &[u8]) -> bool {
     )
 }
 
-fn succeeds(program: &str, args: &[&str]) -> bool {
+pub(super) fn succeeds(program: &str, args: &[&str]) -> bool {
     Command::new(program)
         .args(args)
         .output()
@@ -513,7 +533,7 @@ pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, 
 }
 
 /// Run `program` in `dir`, with `env` added and `remove` taken out of the environment.
-fn run_in(
+pub(super) fn run_in(
     dir: &Path,
     program: &str,
     args: &[&str],
@@ -538,18 +558,18 @@ fn run_in(
     }
 }
 
-fn mkdir(dir: &Path) -> Result<(), String> {
+pub(super) fn mkdir(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))
 }
 
-fn fresh_dir(dir: &Path) -> Result<(), String> {
+pub(super) fn fresh_dir(dir: &Path) -> Result<(), String> {
     if dir.exists() {
         std::fs::remove_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     mkdir(dir)
 }
 
-fn copy(from: &Path, to: &Path) -> Result<(), String> {
+pub(super) fn copy(from: &Path, to: &Path) -> Result<(), String> {
     if let Some(parent) = to.parent() {
         mkdir(parent)?;
     }
@@ -559,7 +579,7 @@ fn copy(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// Whether a file on disk is executable (always false where there is no such bit).
-fn executable(path: &Path) -> bool {
+pub(super) fn executable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

@@ -2833,7 +2833,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lyceum-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dereth-dat",
  "lyceum-foundry",
@@ -2841,13 +2841,14 @@ dependencies = [
 
 [[package]]
 name = "lyceum-editor"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dereth-assets",
  "dereth-client-contract",
  "dereth-client-model",
  "dereth-client-runtime",
  "dereth-client-shell",
+ "dereth-console",
  "dereth-dat",
  "dereth-desktop",
  "dereth-input",
@@ -2872,7 +2873,7 @@ dependencies = [
 
 [[package]]
 name = "lyceum-foundry"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dereth-assets",
  "dereth-dat",
