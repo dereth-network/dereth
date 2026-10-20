@@ -445,14 +445,18 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
         println!("committed: {message}");
     } else {
         println!("=== the crates already carry {requested}; nothing to bump");
+        let mut paths = Vec::new();
         if let Some(dir) = make_upgrade_fixture(&ws, product, requested)? {
-            let message = format!("{name} {requested}: its upgrade fixture");
-            git(&ws, &["commit", "-m", &message, "--", &dir])?;
-            println!("committed: {message}");
+            paths.push(dir);
         }
         if let Some(file) = stamp_changes(&ws, product, requested)? {
-            let message = format!("{name} {requested}: its changes");
-            git(&ws, &["commit", "-m", &message, "--", &file])?;
+            paths.push(file);
+        }
+        if !paths.is_empty() {
+            let message = format!("{name} {requested}");
+            let mut args = vec!["commit", "-m", &message, "--"];
+            args.extend(paths.iter().map(String::as_str));
+            git(&ws, &args)?;
             println!("committed: {message}");
         }
     }
