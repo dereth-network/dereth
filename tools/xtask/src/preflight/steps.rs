@@ -90,9 +90,34 @@ pub struct Ledger {
     #[serde(default)]
     pub counts: Vec<(String, Option<i64>, Option<i64>)>,
     pub worlds: Vec<Installed>,
+    /// How far `ship` got, so that a ship that stopped carries on from there.
+    #[serde(default)]
+    pub shipped: Shipped,
+}
+
+/// What `ship` has done of a preflight's releases, each recorded as it is done.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Shipped {
+    /// The commit tier 0 passed on: the preflighted one.
+    #[serde(default)]
+    pub tier0: Option<String>,
+    /// `main` once it was fast-forwarded to that commit, then as each release left it.
+    #[serde(default)]
+    pub main: Option<String>,
+    /// The products released and pushed, in the order they were.
+    #[serde(default)]
+    pub released: Vec<Product>,
+    /// Whether the web client's tag is made and pushed.
+    #[serde(default)]
+    pub web: bool,
 }
 
 impl Ledger {
+    /// Whether `product`'s release is cut and pushed.
+    pub fn released(&self, product: Product) -> bool {
+        self.stage == Stage::Shipped || self.shipped.released.contains(&product)
+    }
+
     /// The ledger in `work`, or a new one.
     pub fn load(m: &mut dyn Machine, work: &Path) -> Result<Self, String> {
         let path = work.join(LEDGER);
@@ -1378,6 +1403,7 @@ pub fn rollback(m: &mut dyn Machine, cfg: &Config, ledger: &mut Ledger) -> Resul
         ledger.commit = None;
         ledger.branch = None;
         ledger.releases.clear();
+        ledger.shipped = Shipped::default();
         Ok(())
     } else {
         Err(format!(
@@ -1473,6 +1499,7 @@ pub fn finish(
     ledger.commit = None;
     ledger.branch = None;
     ledger.releases.clear();
+    ledger.shipped = Shipped::default();
     Ok(())
 }
 

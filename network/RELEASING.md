@@ -144,13 +144,21 @@ cargo xtask preflight finish                  # the final builds in the dev worl
   ordinary launcher afterwards reads the network's again. **`--web`** serves the web client the
   preflight built on `127.0.0.1` alone (port 8080, or `--port`), its world list the dev hub's,
   and prints the address to open.
-- **`ship`** fast-forwards `main` to exactly the preflighted commit, refusing when the branch has
-  moved since (here, or on the remote if it is there), and cuts each product's release itself, as
-  `cargo xtask release <product> <version> --push` does, never by starting cargo (whose build of
-  xtask could not replace the running one on Windows). With Dereth, it also tags
-  `dereth-web-v<version>` on Dereth's release commit and pushes it, which drafts the web client's
-  release ([`dereth/web/DEPLOY.md`](../dereth/web/DEPLOY.md#releases)); it refuses before anything
-  moves if that tag is there already. The workflows then draft the releases; you publish them.
+- **`ship`** runs tier 0 once on the preflighted commit (its output kept in the work folder's
+  `tier0.log`; a failure names the failing tests), fast-forwards `main` to exactly that commit,
+  refusing when the branch has moved since (here, or on the remote if it is there), and cuts each
+  product's release itself, as `cargo xtask release <product> <version> --push` does but without
+  tier 0, never by starting cargo (whose build of xtask could not replace the running one on
+  Windows). With Dereth, it also tags `dereth-web-v<version>` on Dereth's release commit and
+  pushes it, which drafts the web client's release
+  ([`dereth/web/DEPLOY.md`](../dereth/web/DEPLOY.md#releases)); it refuses before anything moves
+  if that tag is there already. The workflows then draft the releases; you publish them. Each
+  release is recorded as it is cut, so a `ship` that stopped partway carries on from the next one
+  when run again, as long as nothing but its own release commits is on `main` since. Finished or
+  stopped, it prints the `git push` commands that send each tag it made to GitHub again on its
+  own: GitHub makes no tag events when one push carries more than three tags. **`preflight
+  finish`** after a partial ship installs the final builds of what was released and names the
+  rest, whose worlds keep their candidates.
 - What a run changed is kept in the work folder's `preflight.json`, saved as soon as each world's
   backup is whole and after every world, so a run cut short can still be rolled back.
 

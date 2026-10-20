@@ -139,6 +139,8 @@ pub trait Machine {
     /// The body of `url` (plain HTTP, on this machine), or why there is none: no answer, or an
     /// error status.
     fn get(&mut self, url: &str) -> Result<String, String>;
+    /// Whether something here listens on `port` of the loopback address already.
+    fn port_taken(&mut self, port: u16) -> bool;
     /// A wait of `ms` milliseconds between two tries of something that is still starting.
     fn pause(&mut self, ms: u64);
 }
@@ -345,6 +347,10 @@ impl Machine for Real {
             .map_err(|e| format!("{url}: {e}"))
     }
 
+    fn port_taken(&mut self, port: u16) -> bool {
+        std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).is_err()
+    }
+
     fn pause(&mut self, ms: u64) {
         std::thread::sleep(std::time::Duration::from_millis(ms));
     }
@@ -449,6 +455,10 @@ impl Machine for DryRun {
     fn get(&mut self, url: &str) -> Result<String, String> {
         println!("would ask {url}");
         Err("a dry run asks nothing".to_owned())
+    }
+
+    fn port_taken(&mut self, port: u16) -> bool {
+        Real.port_taken(port)
     }
 
     fn pause(&mut self, _ms: u64) {}

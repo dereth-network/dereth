@@ -16,11 +16,14 @@
 //!   hub's world list; with `--web`, the web client the preflight built served on this machine
 //!   alone, on the same list.
 //! - **`preflight rollback`**: every world put back from its backup, the dev hub stopped.
-//! - **`ship`**: `main` fast-forwarded to exactly the preflighted commit (refused when the branch
-//!   has moved since), and each changed product released and pushed, as `cargo xtask release`
-//!   does it, in this process; with Dereth, the web client's release tagged on Dereth's.
-//! - **`preflight finish`**: the final builds, from `main`, installed in the dev worlds, each
-//!   pointed back at the hub it named, and the dev hub stopped.
+//! - **`ship`**: tier 0 run once on exactly the preflighted commit (its output kept in the work
+//!   folder's `tier0.log`), `main` fast-forwarded to it (refused when the branch has moved since),
+//!   and each changed product released and pushed, as `cargo xtask release` does it, in this
+//!   process; with Dereth, the web client's release tagged on Dereth's. A ship that stopped carries
+//!   on from the next release.
+//! - **`preflight finish`**: the final builds of what was released, from `main`, installed in the
+//!   dev worlds, each pointed back at the hub it named, and the dev hub stopped; after a ship that
+//!   stopped partway, what it did not release is named, and its worlds keep their candidates.
 //! - **`preflight setup`**: the one-time setup scripts, one per machine, written from the setup
 //!   file.
 //!
@@ -290,7 +293,9 @@ pub fn preflight(args: &[String]) -> i32 {
                 r.map(|()| println!("Every world is as it was before the preflight, and the dev hub is stopped."))
             })
         }
-        Some("finish") => with_config(|cfg, _| finish(cfg)),
+        Some("finish") => with_config(|cfg, _| {
+            finish(&mut Real, cfg, &workspace_root()).map(|said| println!("{said}"))
+        }),
         Some("status") => with_config(|cfg, _| {
             let ledger = Ledger::load(&mut Real, &cfg.work_dir)?;
             print!("{}", steps::summary(cfg, &ledger));
@@ -432,6 +437,13 @@ pub fn run(
     if ledger.stage == Stage::Shipped {
         return Err("the last preflight is shipped: `cargo xtask preflight finish` first".into());
     }
+    if ledger.shipped.main.is_some() {
+        return Err(
+            "the last preflight is shipped partway: `cargo xtask ship` carries on from \
+                    where it stopped, or `cargo xtask preflight finish` ends it"
+                .into(),
+        );
+    }
     let releases = releases(repo, &mut ledger.stamped)?;
     // A Lyceum release that `ship` would refuse for want of highlights is said now, before
     // anything is built or stopped.
@@ -492,6 +504,7 @@ pub fn run(
     ledger.commit = Some(repo.commit.clone());
     ledger.branch = Some(repo.branch.clone());
     ledger.releases = releases;
+    ledger.shipped = steps::Shipped::default();
     ledger.save(m, &cfg.work_dir)?;
     let hub = builds
         .hub
@@ -661,6 +674,11 @@ fn play_web(
             bundle.display()
         ));
     }
+    if m.port_taken(port) {
+        return Err(format!(
+            "port {port} is in use on this machine: give another with `--port <n>`"
+        ));
+    }
     m.run(
         Some(root),
         "cargo",
@@ -694,18 +712,23 @@ fn play_web(
     ))
 }
 
-/// After `ship`: the final builds, from `main`, installed in the dev worlds.
-fn finish(cfg: &Config) -> Result<(), String> {
-    let root = workspace_root();
-    let m = &mut Real;
+/// After `ship`, or a ship that stopped partway: the final builds of the products it released,
+/// from `main`, installed in the dev worlds that took their candidates. Answers what to say,
+/// naming what was not released: no final build of it is made, and its worlds keep their
+/// candidates.
+fn finish(m: &mut dyn Machine, cfg: &Config, root: &Path) -> Result<String, String> {
     let mut ledger = Ledger::load(m, &cfg.work_dir)?;
-    if ledger.stage != Stage::Shipped {
+    let partway = ledger.stage == Stage::Preflighted && !ledger.shipped.released.is_empty();
+    if ledger.stage != Stage::Shipped && !partway {
         return Err(
             "nothing is shipped to finish: `cargo xtask ship` first (or `preflight rollback`)"
                 .into(),
         );
     }
-    let commit = git(&root, &["rev-parse", "main"])?;
+    let commit = m
+        .run(Some(root), "git", &["rev-parse".into(), "main".into()], &[])?
+        .trim()
+        .to_owned();
     // The final build of each world's product, for the worlds that took a candidate.
     let took: Vec<&config::World> = cfg
         .worlds
@@ -720,9 +743,42 @@ fn finish(cfg: &Config) -> Result<(), String> {
     let versions: BTreeMap<Product, String> = ledger
         .releases
         .iter()
+        .filter(|r| ledger.released(r.product))
         .filter(|r| took.iter().any(|w| steps::product_of(w) == r.product))
         .map(|r| (r.product, r.version.clone()))
         .collect();
+    let mut unreleased = Vec::new();
+    for r in ledger
+        .releases
+        .iter()
+        .filter(|r| !ledger.released(r.product))
+    {
+        let kept: Vec<String> = ledger
+            .worlds
+            .iter()
+            .filter(|d| {
+                took.iter()
+                    .any(|w| w.name == d.name && steps::product_of(w) == r.product)
+            })
+            .map(|d| {
+                format!(
+                    "{} keeps its candidate {}",
+                    d.name,
+                    d.version.as_deref().unwrap_or_default()
+                )
+            })
+            .collect();
+        unreleased.push(format!(
+            "  {} {}{}",
+            r.product.command_name(),
+            r.version,
+            if kept.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", kept.join(", "))
+            }
+        ));
+    }
     let targets = steps::targets(&versions, &took);
     steps::check_tools(m, &targets, versions.contains_key(&Product::Ace))?;
     let ace = if versions.contains_key(&Product::Ace) {
@@ -735,12 +791,56 @@ fn finish(cfg: &Config) -> Result<(), String> {
         targets,
         ace,
     };
-    let builds = steps::build(m, &root, &cfg.work_dir, &commit, &wanted)?;
+    let builds = steps::build(m, root, &cfg.work_dir, &commit, &wanted)?;
     let r = steps::finish(m, cfg, &builds, &mut ledger);
     ledger.save(m, &cfg.work_dir)?;
     r?;
-    println!("The dev worlds run the released builds and link to their own hubs again; the dev hub is stopped.");
-    Ok(())
+    let mut said = "The dev worlds run the released builds and link to their own hubs again; the \
+                    dev hub is stopped."
+        .to_owned();
+    if !unreleased.is_empty() {
+        said.push_str(&format!(
+            "\nNot released, so no final build of it is installed:\n{}",
+            unreleased.join("\n")
+        ));
+    }
+    Ok(said)
+}
+
+/// Tier 0 run on this checkout as `cargo xtask ci tier0` runs it, by this program itself (never by
+/// starting cargo, whose build of this program could not replace it while it runs), its output
+/// shown as it comes and kept in `log`. Whether it passed.
+fn tier0_logged(root: &Path, log: &Path) -> Result<bool, String> {
+    use std::io::{Read, Write};
+    let failed = |e: std::io::Error| format!("{}: {e}", log.display());
+    let file = std::fs::File::create(log).map_err(failed)?;
+    let err = file.try_clone().map_err(failed)?;
+    let mut shown = std::fs::File::open(log).map_err(failed)?;
+    let exe = std::env::current_exe().map_err(|e| format!("this program: {e}"))?;
+    let mut child = std::process::Command::new(exe)
+        .args(["ci", "tier0"])
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .stdout(file)
+        .stderr(err)
+        .spawn()
+        .map_err(|e| format!("cargo xtask ci tier0: {e}"))?;
+    let mut out = std::io::stdout();
+    let mut chunk = Vec::new();
+    loop {
+        // Asked before the file is read, so that the last read shows everything it wrote.
+        let done = child
+            .try_wait()
+            .map_err(|e| format!("cargo xtask ci tier0: {e}"))?;
+        chunk.clear();
+        shown.read_to_end(&mut chunk).map_err(failed)?;
+        let _ = out.write_all(&chunk);
+        let _ = out.flush();
+        if let Some(status) = done {
+            return Ok(status.success());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 /// `cargo xtask ship [--dry-run]`.
@@ -762,7 +862,8 @@ pub fn ship_command(args: &[String]) -> i32 {
             .or_else(|| cfg.release_ace_dir());
         let remote = cfg.remote.clone();
         // Each release cut here, as `cargo xtask release` cuts it: never by starting cargo, whose
-        // build of this program could not replace it while it runs.
+        // build of this program could not replace it while it runs. Tier 0 is run once, by
+        // `ship`, on the commit it ships: the releases leave it out.
         let mut cut = |product: Product, version: &str| {
             crate::release::cut(
                 product.command_name(),
@@ -770,10 +871,16 @@ pub fn ship_command(args: &[String]) -> i32 {
                 true,
                 &remote,
                 ace.as_deref(),
+                false,
             )
         };
-        let r = ship::ship(m, &root, &cfg.remote, &mut cut, &mut ledger, dry_run);
+        let mut tier0 = |log: &Path| tier0_logged(&root, log);
+        let r = ship::ship(m, cfg, &root, &mut cut, &mut tier0, &mut ledger, dry_run);
         ledger.save(m, &cfg.work_dir)?;
+        // Finished or stopped, how to send each tag it made again, on its own.
+        if let Some(resends) = ship::tag_resends(&ledger).filter(|_| !dry_run) {
+            println!("\n{resends}");
+        }
         r?;
         if !dry_run {
             println!("Shipped. The release workflows draft each release; `cargo xtask preflight finish` puts the final builds in the dev worlds.");

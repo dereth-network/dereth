@@ -1,19 +1,30 @@
-//! `cargo xtask ship`: `main` fast-forwarded to exactly the commit that was preflighted, and every
-//! product it changed released (its version commit and tag, as `cargo xtask release` makes them)
-//! and pushed, each release cut in this process. A Dereth release brings the web client's, which
-//! carries Dereth's version: its tag on Dereth's release commit, pushed. It refuses when the branch
-//! preflighted has moved since, here or on the remote: what was checked is what ships.
+//! `cargo xtask ship`: tier 0 run once on exactly the commit that was preflighted, `main`
+//! fast-forwarded to it, and every product it changed released (its version commit and tag, as
+//! `cargo xtask release` makes them, tier 0 left out) and pushed, each release cut in this process.
+//! A Dereth release brings the web client's, which carries Dereth's version: its tag on Dereth's
+//! release commit, pushed. It refuses when the branch preflighted has moved since, here or on the
+//! remote: what was checked is what ships. Each step is recorded in the ledger as it is done, so a
+//! ship that stopped carries on from the next release, with `main` past the preflighted commit by
+//! its own release commits and nothing else.
 
 use std::path::Path;
 
+use super::config::Config;
 use super::machine::Machine;
 use super::plan::Product;
 use super::steps::{Ledger, Stage};
 use crate::package::version::DERETH_TAG_PREFIX;
 
 /// One product's release cut and pushed, `cargo xtask release <product> <version> --push`'s
-/// steps run in this process: the product and the version.
+/// steps run in this process, tier 0 left out: the product and the version.
 pub type Cut<'a> = dyn FnMut(Product, &str) -> Result<(), String> + 'a;
+
+/// Tier 0 run on the checkout, its output shown and kept in the file given: whether it passed, or
+/// why it could not run.
+pub type Tier0<'a> = dyn FnMut(&Path) -> Result<bool, String> + 'a;
+
+/// Tier 0's output, in the work folder.
+pub const TIER0_LOG: &str = "tier0.log";
 
 fn s(x: &str) -> String {
     x.to_owned()
@@ -30,17 +41,106 @@ pub fn web_tag(version: &str) -> String {
     format!("{}{version}", crate::package::web::TAG_PREFIX)
 }
 
-/// Ships what the ledger preflighted: each product's release cut and pushed with `cut`, in the
-/// order the ledger lists them, and after Dereth's, the web client's tag. With `dry_run`, says
+/// The name `cargo xtask release` gives `product`'s release commits, and its tags' prefix.
+fn release_names(product: Product) -> (&'static str, &'static str) {
+    use crate::package::version::Product as Released;
+    use crate::release::network::Part;
+    let name = product.command_name();
+    match (
+        Released::from_command_name(name),
+        Part::from_command_name(name),
+    ) {
+        (Some(p), _) => (p.display_name(), p.tag_prefix()),
+        (None, Some(p)) => (p.display_name(), p.tag_prefix()),
+        (None, None) => (name, name),
+    }
+}
+
+/// The public repository the release workflows run in.
+const PUBLIC_REPO: &str = "git@github.com:dereth-network/dereth.git";
+
+/// The commands that send each tag the ship has made and pushed to the public repository again,
+/// on its own, so that its release workflow starts: GitHub makes no tag events for a push that
+/// carries more than three tags. `None` when it has made none.
+pub fn tag_resends(ledger: &Ledger) -> Option<String> {
+    let mut tags = Vec::new();
+    for r in &ledger.releases {
+        if !ledger.shipped.released.contains(&r.product) {
+            continue;
+        }
+        tags.push(format!("{}{}", release_names(r.product).1, r.version));
+        if r.product == Product::Dereth && ledger.shipped.web {
+            tags.push(web_tag(&r.version));
+        }
+    }
+    let lines: Vec<String> = tags
+        .iter()
+        .map(|t| {
+            format!("git push {PUBLIC_REPO} :refs/tags/{t}\ngit push {PUBLIC_REPO} refs/tags/{t}")
+        })
+        .collect();
+    (!lines.is_empty()).then(|| {
+        format!(
+            "If GitHub did not start the release workflows (it makes no tag events when one push \
+             carries more than three tags), send each tag again on its own:\n{}",
+            lines.join("\n")
+        )
+    })
+}
+
+/// Whether every commit on `main` past `left` (where this ship's last step left it) is the next
+/// release's own, left by its cut when it stopped partway: named `<Product> <version>`, or
+/// `<Product> <version>: ...` as releases once named their changes' and fixtures' commits. Its cut
+/// takes them up again; it does not bump twice.
+fn own_commits(
+    m: &mut dyn Machine,
+    root: &Path,
+    ledger: &Ledger,
+    left: &str,
+) -> Result<bool, String> {
+    let Some(next) = ledger.releases.iter().find(|r| !ledger.released(r.product)) else {
+        return Ok(false);
+    };
+    if git(m, root, &["merge-base", "--is-ancestor", left, "main"]).is_err() {
+        return Ok(false);
+    }
+    let subjects = git(m, root, &["log", "--format=%s", &format!("{left}..main")])?;
+    let named = format!("{} {}", release_names(next.product).0, next.version);
+    let own = |s: &str| s == named || s.starts_with(&format!("{named}: "));
+    Ok(!subjects.is_empty() && subjects.lines().all(own))
+}
+
+/// The tests a test run's output names as failing: each `failures:` list's names.
+pub fn failing_tests(output: &str) -> Vec<String> {
+    let lines: Vec<&str> = output.lines().collect();
+    let mut out = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if l.trim_end() == "failures:" {
+            out.extend(
+                lines[i + 1..]
+                    .iter()
+                    .take_while(|n| n.starts_with("    ") && !n.trim().is_empty())
+                    .map(|n| n.trim().to_owned()),
+            );
+        }
+    }
+    out
+}
+
+/// Ships what the ledger preflighted: tier 0 run on the commit, then each product's release cut
+/// and pushed with `cut`, in the order the ledger lists them, and after Dereth's, the web
+/// client's tag. What a ship that stopped did already is not done again. With `dry_run`, says
 /// what it would do and does nothing past the checks.
 pub fn ship(
     m: &mut dyn Machine,
+    cfg: &Config,
     root: &Path,
-    remote: &str,
     cut: &mut Cut<'_>,
+    tier0: &mut Tier0<'_>,
     ledger: &mut Ledger,
     dry_run: bool,
 ) -> Result<(), String> {
+    let remote = cfg.remote.as_str();
     let commit = match (ledger.stage, &ledger.commit) {
         (Stage::Preflighted, Some(c)) => c.clone(),
         (Stage::Shipped, _) => {
@@ -59,8 +159,11 @@ pub fn ship(
         );
     };
     git(m, root, &["fetch", remote])?;
+    // A ship that stopped left `main` where its last step put it: past the preflighted commit by
+    // its own release commits, and nothing else.
+    let shipped_main = ledger.shipped.main.clone();
     // The branch here, and on the remote when it is there (main on the remote is behind it, as it
-    // should be).
+    // should be). A preflight of `main` itself finds it where the ship left it.
     let mut tips = vec![(
         branch.clone(),
         git(m, root, &["rev-parse", &format!("refs/heads/{branch}")])?,
@@ -73,6 +176,10 @@ pub fn ship(
         }
     }
     for (name, tip) in tips {
+        // `main` itself, when it is the branch, is checked below with what this ship put on it.
+        if name == "main" && shipped_main.is_some() {
+            continue;
+        }
         if tip != commit {
             return Err(format!(
                 "{name} has moved since the preflight ({} then, {} now): preflight it again, so that \
@@ -83,12 +190,26 @@ pub fn ship(
         }
     }
     let main = git(m, root, &["rev-parse", "main"])?;
-    if git(m, root, &["merge-base", "--is-ancestor", "main", &commit]).is_err() {
-        return Err(format!(
-            "main ({}) is not behind the preflighted commit ({}): it cannot be fast-forwarded",
-            short(&main),
-            short(&commit)
-        ));
+    match &shipped_main {
+        Some(left) if main != *left && !own_commits(m, root, ledger, left)? => {
+            return Err(format!(
+                "main has moved since this ship stopped ({} then, {} now): what is on it now was \
+                 not preflighted",
+                short(left),
+                short(&main)
+            ))
+        }
+        Some(_) => {}
+        None => {
+            if git(m, root, &["merge-base", "--is-ancestor", "main", &commit]).is_err() {
+                return Err(format!(
+                    "main ({}) is not behind the preflighted commit ({}): it cannot be \
+                     fast-forwarded",
+                    short(&main),
+                    short(&commit)
+                ));
+            }
+        }
     }
     // The web client's tag is made after Dereth's release is pushed: one already there would
     // stop the run halfway, so it is asked after first.
@@ -96,7 +217,8 @@ pub fn ship(
         .releases
         .iter()
         .find(|r| r.product == Product::Dereth)
-        .map(|r| web_tag(&r.version));
+        .map(|r| web_tag(&r.version))
+        .filter(|_| !ledger.shipped.web);
     if let Some(tag) = &web {
         let here = git(
             m,
@@ -116,7 +238,7 @@ pub fn ship(
         )?;
         if !here.is_empty() || !there.is_empty() {
             return Err(format!(
-                "the web client's tag {tag} is there already{}: nothing is shipped",
+                "the web client's tag {tag} is there already{}: nothing more is shipped",
                 if here.is_empty() {
                     " on the remote"
                 } else {
@@ -125,17 +247,28 @@ pub fn ship(
             ));
         }
     }
-    println!(
-        "main {} -> {} ({branch}, as preflighted)",
-        short(&main),
-        short(&commit)
-    );
+    match &shipped_main {
+        Some(_) => println!(
+            "main {} ({branch}, as preflighted, and this ship's releases so far)",
+            short(&main)
+        ),
+        None => println!(
+            "main {} -> {} ({branch}, as preflighted)",
+            short(&main),
+            short(&commit)
+        ),
+    }
     for r in &ledger.releases {
         println!(
-            "  release {} {}: {}",
+            "  release {} {}: {}{}",
             r.product.command_name(),
             r.version,
-            r.why
+            r.why,
+            if ledger.released(r.product) {
+                " (released already)"
+            } else {
+                ""
+            }
         );
     }
     if let Some(tag) = &web {
@@ -145,14 +278,57 @@ pub fn ship(
         println!("A dry run: nothing is changed.");
         return Ok(());
     }
+    // Tier 0 once, on the commit itself, before anything moves; the releases leave it out. A ship
+    // that stopped after it passed does not run it again: the checks above found the tree as it
+    // was then, but for this ship's own release commits.
+    if ledger.shipped.tier0.as_ref() != Some(&commit) {
+        git(m, root, &["checkout", &branch])?;
+        let log = cfg.work_dir.join(TIER0_LOG);
+        println!(
+            "\n=== cargo xtask ci tier0 on {commit} (its output is kept in {})",
+            log.display()
+        );
+        if !tier0(&log).map_err(|e| format!("tier 0 could not run: {e}"))? {
+            let output = m.read(&log).unwrap_or_default();
+            let tests = failing_tests(&output);
+            let named = if tests.is_empty() {
+                String::new()
+            } else {
+                format!("\nThe tests that failed:\n    {}", tests.join("\n    "))
+            };
+            return Err(format!(
+                "tier 0 failed on {}; nothing is shipped.{named}\nIts whole output is in {}",
+                short(&commit),
+                log.display()
+            ));
+        }
+        ledger.shipped.tier0 = Some(commit.clone());
+        ledger.save(m, &cfg.work_dir)?;
+    }
     git(m, root, &["checkout", "main"])?;
-    git(m, root, &["merge", "--ff-only", &commit])?;
+    if shipped_main.is_none() {
+        git(m, root, &["merge", "--ff-only", &commit])?;
+        ledger.shipped.main = Some(git(m, root, &["rev-parse", "main"])?);
+        ledger.save(m, &cfg.work_dir)?;
+    }
     for r in ledger.releases.clone() {
-        cut(r.product, &r.version)
-            .map_err(|e| format!("releasing {} {}: {e}", r.product.command_name(), r.version))?;
-        if r.product == Product::Dereth {
+        if !ledger.released(r.product) {
+            cut(r.product, &r.version).map_err(|e| {
+                format!(
+                    "releasing {} {}: {e}\n`cargo xtask ship` carries on from it once that is fixed.",
+                    r.product.command_name(),
+                    r.version
+                )
+            })?;
+            ledger.shipped.released.push(r.product);
+            ledger.shipped.main = Some(git(m, root, &["rev-parse", "main"])?);
+            ledger.save(m, &cfg.work_dir)?;
+        }
+        if r.product == Product::Dereth && !ledger.shipped.web {
             tag_web(m, root, remote, &r.version)
                 .map_err(|e| format!("the web client's release {}: {e}", r.version))?;
+            ledger.shipped.web = true;
+            ledger.save(m, &cfg.work_dir)?;
         }
     }
     if ledger.releases.is_empty() {

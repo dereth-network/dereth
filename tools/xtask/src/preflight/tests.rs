@@ -30,6 +30,8 @@ struct Fake {
     /// What each address answers over HTTP, in turn, the last again and again; an address not here
     /// answers as a dev hub that runs, with every world linked ([`Fake::http`]).
     http: BTreeMap<String, Vec<Result<String, String>>>,
+    /// The ports something here listens on already.
+    taken: BTreeSet<u16>,
 }
 
 /// The dev hub's world list as it answers once it runs.
@@ -411,6 +413,10 @@ impl Machine for Fake {
         }
     }
 
+    fn port_taken(&mut self, port: u16) -> bool {
+        self.taken.contains(&port)
+    }
+
     fn pause(&mut self, ms: u64) {
         self.log.push(format!("pause {ms}"));
     }
@@ -694,6 +700,9 @@ impl Machine for Counting {
     }
     fn get(&mut self, url: &str) -> Result<String, String> {
         Machine::get(&mut self.inner, url)
+    }
+    fn port_taken(&mut self, port: u16) -> bool {
+        self.inner.port_taken(port)
     }
     fn pause(&mut self, ms: u64) {
         self.inner.pause(ms);
@@ -1539,10 +1548,31 @@ fn cutter(
     move |product, version| {
         cuts.borrow_mut().push((product, version.to_owned()));
         if failing == Some(product) {
-            return Err("tier 0 failed; no tag was made".to_owned());
+            return Err("packaging failed; no tag was made".to_owned());
         }
         Ok(())
     }
+}
+
+/// The logs tier 0 was run with, one for each run.
+type Runs = std::rc::Rc<std::cell::RefCell<Vec<String>>>;
+
+/// `ship` of what `l` preflighted, on `f`, its releases cut by `cut`, and tier 0 a stand-in that
+/// records each run in `runs` and passes when `passes`.
+fn ship_with(
+    f: &mut Fake,
+    l: &mut Ledger,
+    cut: &mut ship::Cut<'_>,
+    runs: &Runs,
+    passes: bool,
+    dry_run: bool,
+) -> Result<(), String> {
+    let runs = runs.clone();
+    let mut tier0 = move |log: &Path| {
+        runs.borrow_mut().push(key(log));
+        Ok(passes)
+    };
+    ship::ship(f, &cfg(), Path::new("D:/repo"), cut, &mut tier0, l, dry_run)
 }
 
 /// A ship of the commit preflighted on the branch `release` (`commit`), of `products`, where the
@@ -1572,15 +1602,9 @@ fn shipping(products: &[Product], here: &str, there: &str, ancestor: bool) -> (F
 fn ship_fast_forwards_main_to_exactly_the_preflighted_commit_and_releases_each_product() {
     let commit = "c0ffee0000000000000000000000000000000001";
     let products = [Product::Hub, Product::Empyrean];
+    let runs = Runs::default();
     let ship = |f: &mut Fake, l: &mut Ledger, cuts: &Cuts, dry_run: bool| {
-        ship::ship(
-            f,
-            Path::new("D:/repo"),
-            "origin",
-            &mut cutter(cuts, None),
-            l,
-            dry_run,
-        )
+        ship_with(f, l, &mut cutter(cuts, None), &runs, true, dry_run)
     };
     let cuts = Cuts::default();
 
@@ -1640,17 +1664,17 @@ fn ship_fast_forwards_main_to_exactly_the_preflighted_commit_and_releases_each_p
     // A release that fails stops the ship there, and says which.
     let cuts = Cuts::default();
     let (mut f, mut l) = shipping(&products, commit, commit, true);
-    let e = ship::ship(
+    let e = ship_with(
         &mut f,
-        Path::new("D:/repo"),
-        "origin",
-        &mut cutter(&cuts, Some(Product::Hub)),
         &mut l,
+        &mut cutter(&cuts, Some(Product::Hub)),
+        &Runs::default(),
+        true,
         false,
     )
     .expect_err("stopped");
     assert!(
-        e.starts_with("releasing network-hub 0.2.2: tier 0 failed"),
+        e.starts_with("releasing network-hub 0.2.2: packaging failed"),
         "{e}"
     );
     assert_eq!(cuts.borrow().len(), 1, "nothing after it");
@@ -1660,15 +1684,9 @@ fn ship_fast_forwards_main_to_exactly_the_preflighted_commit_and_releases_each_p
 #[test]
 fn ship_tags_the_web_client_on_dereths_release_commit_and_pushes_the_tag() {
     let commit = "c0ffee0000000000000000000000000000000001";
+    let runs = Runs::default();
     let ship = |f: &mut Fake, l: &mut Ledger, cuts: &Cuts, dry_run: bool| {
-        ship::ship(
-            f,
-            Path::new("D:/repo"),
-            "origin",
-            &mut cutter(cuts, None),
-            l,
-            dry_run,
-        )
+        ship_with(f, l, &mut cutter(cuts, None), &runs, true, dry_run)
     };
     let cuts = Cuts::default();
     let (mut f, mut l) = shipping(&[Product::Empyrean, Product::Dereth], commit, commit, true);
@@ -1706,6 +1724,360 @@ fn ship_tags_the_web_client_on_dereths_release_commit_and_pushes_the_tag() {
         assert!(e.contains("dereth-web-v0.4.4 is there already"), "{e}");
         assert!(f.done("git checkout").is_empty() && cuts.borrow().is_empty());
     }
+}
+
+/// What a red tier 0 leaves in its log: a test binary's failures, among everything else it said.
+const RED_TIER0: &str = "\
+running 3 tests
+test plan::tests::a_patch ... ok
+test plan::tests::the_hub_takes_a_minor_release ... FAILED
+test plan::tests::the_mod_takes_a_patch ... FAILED
+
+failures:
+
+---- plan::tests::the_hub_takes_a_minor_release stdout ----
+thread 'plan::tests::the_hub_takes_a_minor_release' panicked at src/plan.rs:9:5:
+assertion failed
+
+failures:
+    plan::tests::the_hub_takes_a_minor_release
+    plan::tests::the_mod_takes_a_patch
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out
+
+error: test failed, to rerun pass `-p xtask --bin xtask`
+
+CI tier 0 -- no data (before pushing; public CI)
+";
+
+#[test]
+fn ship_runs_tier0_once_on_the_preflighted_commit_before_main_moves_and_keeps_its_log() {
+    let commit = "c0ffee0000000000000000000000000000000001";
+    let products = [Product::Hub, Product::Empyrean, Product::Dereth];
+
+    let cuts = Cuts::default();
+    let runs = Runs::default();
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false).expect("shipped");
+    assert_eq!(
+        *runs.borrow(),
+        ["D:/preflight/tier0.log"],
+        "once for three releases, its output in the work folder"
+    );
+    assert_eq!(cuts.borrow().len(), 3);
+    // On the preflighted branch, which is the commit, before main is checked out and moved.
+    assert!(f.at("git checkout release") < f.at("git checkout main"));
+    assert_eq!(l.shipped.tier0.as_deref(), Some(commit));
+
+    // A dry run does not run it.
+    let runs = Runs::default();
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, true).expect("a dry run");
+    assert!(runs.borrow().is_empty());
+
+    // A red tier 0 stops the ship before anything moves, and names the tests that failed and
+    // where its whole output is.
+    let cuts = Cuts::default();
+    let runs = Runs::default();
+    let (f, mut l) = shipping(&products, commit, commit, true);
+    let mut f = f.file("D:/preflight/tier0.log", RED_TIER0);
+    let e = ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, None),
+        &runs,
+        false,
+        false,
+    )
+    .expect_err("stopped")
+    .replace('\\', "/");
+    assert_eq!(
+        e,
+        "tier 0 failed on c0ffee0000; nothing is shipped.\n\
+         The tests that failed:\n    \
+         plan::tests::the_hub_takes_a_minor_release\n    \
+         plan::tests::the_mod_takes_a_patch\n\
+         Its whole output is in D:/preflight/tier0.log"
+    );
+    assert!(f.done("git checkout main").is_empty() && f.done("git merge --ff-only").is_empty());
+    assert!(cuts.borrow().is_empty());
+    assert_eq!(l.shipped, steps::Shipped::default());
+    assert_eq!(l.stage, Stage::Preflighted);
+}
+
+#[test]
+fn a_ship_that_stopped_carries_on_from_the_next_release_and_tags_the_web_client_once() {
+    let commit = "c0ffee0000000000000000000000000000000001";
+    let products = [Product::Hub, Product::Empyrean, Product::Dereth];
+    let cuts = Cuts::default();
+    let runs = Runs::default();
+
+    // Stopped on its second release: the first is recorded, and saved, as it was cut.
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    let e = ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, Some(Product::Empyrean)),
+        &runs,
+        true,
+        false,
+    )
+    .expect_err("stopped");
+    assert!(
+        e.starts_with("releasing empyrean 0.3.2: packaging failed"),
+        "{e}"
+    );
+    assert_eq!(l.shipped.released, [Product::Hub]);
+    assert_eq!(l.shipped.main.as_deref(), Some("beef"));
+    assert_eq!(l.stage, Stage::Preflighted);
+    assert_eq!(
+        Ledger::load(&mut f, Path::new("D:\\preflight")).expect("saved"),
+        l
+    );
+    let stopped = l.clone();
+
+    // Still refused when the branch moved since the preflight, or main since the ship stopped.
+    let (mut moved, _) = shipping(&products, "feed", commit, true);
+    let e = ship_with(
+        &mut moved,
+        &mut stopped.clone(),
+        &mut cutter(&cuts, None),
+        &runs,
+        true,
+        false,
+    )
+    .expect_err("refused");
+    assert!(e.starts_with("release has moved"), "{e}");
+    let (moved, _) = shipping(&products, commit, commit, true);
+    let mut moved = moved.reply("git rev-parse main", Ok("f00d")).reply(
+        "git log --format=%s beef..main",
+        Ok("fix: something else\n"),
+    );
+    let e = ship_with(
+        &mut moved,
+        &mut stopped.clone(),
+        &mut cutter(&cuts, None),
+        &runs,
+        true,
+        false,
+    )
+    .expect_err("refused");
+    assert!(
+        e.starts_with("main has moved since this ship stopped"),
+        "{e}"
+    );
+    assert_eq!(cuts.borrow().len(), 2, "nothing cut by either");
+
+    // Carried on: the rest released, tier 0 not run again, main not moved again, the web tag made.
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false).expect("shipped");
+    assert_eq!(
+        *cuts.borrow(),
+        [
+            (Product::Hub, "0.2.2".to_owned()),
+            (Product::Empyrean, "0.3.2".to_owned()),
+            (Product::Empyrean, "0.3.2".to_owned()),
+            (Product::Dereth, "0.4.4".to_owned()),
+        ]
+    );
+    assert_eq!(runs.borrow().len(), 1);
+    assert_eq!(f.done("git merge --ff-only").len(), 1);
+    assert_eq!(f.done("git tag").len(), 1);
+    assert_eq!(l.stage, Stage::Shipped);
+
+    // A release that stopped after its version commit is carried on from it: main is past where
+    // the ship left it by that release's own commits, by either name a release gives them.
+    for subjects in [
+        "Empyrean 0.3.2\n",
+        "Empyrean 0.3.2: its upgrade fixture\nEmpyrean 0.3.2: its changes\n",
+    ] {
+        let cuts = Cuts::default();
+        let (f, _) = shipping(&products, commit, commit, true);
+        let mut f = f
+            .reply("git rev-parse main", Ok("f00d"))
+            .reply("git log --format=%s beef..main", Ok(subjects));
+        let mut l = stopped.clone();
+        ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false)
+            .expect("carried on");
+        assert_eq!(
+            *cuts.borrow(),
+            [
+                (Product::Empyrean, "0.3.2".to_owned()),
+                (Product::Dereth, "0.4.4".to_owned()),
+            ]
+        );
+    }
+
+    // Stopped after Dereth's release and the web client's tag: carried on, the tag is not asked
+    // after or made again.
+    let cuts = Cuts::default();
+    let (mut f, mut l) = shipping(&[Product::Dereth, Product::Lyceum], commit, commit, true);
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&cuts, Some(Product::Lyceum)),
+        &runs,
+        true,
+        false,
+    )
+    .expect_err("stopped");
+    assert!(l.shipped.web);
+    let mut f = f.reply(
+        "git rev-parse --verify --quiet refs/tags/dereth-web-v0.4.4",
+        Ok("b0a7\n"),
+    );
+    ship_with(&mut f, &mut l, &mut cutter(&cuts, None), &runs, true, false).expect("shipped");
+    assert_eq!(f.done("git tag").len(), 1, "{:#?}", f.record());
+    assert_eq!(
+        cuts.borrow().last(),
+        Some(&(Product::Lyceum, "0.1.1".to_owned()))
+    );
+}
+
+#[test]
+fn ship_says_how_to_send_each_tag_it_made_again_on_its_own() {
+    let commit = "c0ffee0000000000000000000000000000000001";
+    let products = [Product::Hub, Product::Empyrean, Product::Dereth];
+    let runs = Runs::default();
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    ship_with(
+        &mut f,
+        &mut l,
+        &mut cutter(&Cuts::default(), None),
+        &runs,
+        true,
+        false,
+    )
+    .expect("shipped");
+    assert_eq!(
+        ship::tag_resends(&l).as_deref(),
+        Some(
+            "If GitHub did not start the release workflows (it makes no tag events when one push \
+             carries more than three tags), send each tag again on its own:\n\
+             git push git@github.com:dereth-network/dereth.git :refs/tags/network-hub-v0.2.2\n\
+             git push git@github.com:dereth-network/dereth.git refs/tags/network-hub-v0.2.2\n\
+             git push git@github.com:dereth-network/dereth.git :refs/tags/empyrean-v0.3.2\n\
+             git push git@github.com:dereth-network/dereth.git refs/tags/empyrean-v0.3.2\n\
+             git push git@github.com:dereth-network/dereth.git :refs/tags/dereth-v0.4.4\n\
+             git push git@github.com:dereth-network/dereth.git refs/tags/dereth-v0.4.4\n\
+             git push git@github.com:dereth-network/dereth.git :refs/tags/dereth-web-v0.4.4\n\
+             git push git@github.com:dereth-network/dereth.git refs/tags/dereth-web-v0.4.4"
+        )
+    );
+
+    // Stopped after its first release: that one's alone.
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    let cut = &mut cutter(&Cuts::default(), Some(Product::Empyrean));
+    ship_with(&mut f, &mut l, cut, &runs, true, false).expect_err("stopped");
+    assert_eq!(
+        ship::tag_resends(&l).as_deref(),
+        Some(
+            "If GitHub did not start the release workflows (it makes no tag events when one push \
+             carries more than three tags), send each tag again on its own:\n\
+             git push git@github.com:dereth-network/dereth.git :refs/tags/network-hub-v0.2.2\n\
+             git push git@github.com:dereth-network/dereth.git refs/tags/network-hub-v0.2.2"
+        )
+    );
+
+    // Stopped before any: none.
+    let (mut f, mut l) = shipping(&products, commit, commit, true);
+    let cut = &mut cutter(&Cuts::default(), Some(Product::Hub));
+    ship_with(&mut f, &mut l, cut, &runs, true, false).expect_err("stopped");
+    assert_eq!(ship::tag_resends(&l), None);
+}
+
+#[test]
+fn finish_after_a_ship_that_stopped_installs_what_was_released_and_names_the_rest() {
+    let mut m = counting(fake());
+    preflight(
+        &mut m,
+        &[Product::Hub, Product::Ace, Product::Empyrean],
+        &[],
+    )
+    .expect("preflighted");
+    let mut l = ledger(&mut m);
+    l.shipped.released = vec![Product::Hub, Product::Ace];
+    l.shipped.main = Some("beef".to_owned());
+    l.save(&mut m, Path::new("D:\\preflight")).expect("saved");
+
+    // A new preflight would lose what is left to release.
+    let e = preflight(&mut m, &[Product::Empyrean], &[]).expect_err("refused");
+    assert!(e.contains("shipped partway"), "{e}");
+
+    m.inner = std::mem::take(&mut m.inner).reply("git rev-parse main", Ok("beef\n"));
+    let before = m.inner.log.len();
+    let said = super::finish(&mut m, &cfg(), Path::new("D:/repo")).expect("finished");
+    let f = &m.inner;
+    let done = &f.record()[before..];
+    assert!(done.contains(&"git worktree add --detach D:/preflight/src beef".to_owned()));
+    // The mod's final build, from main, in the ACE world; no Empyrean build, never tagged.
+    let mods: Vec<&String> = done
+        .iter()
+        .filter(|l| l.starts_with("dotnet build"))
+        .collect();
+    assert!(
+        mods.len() == 1 && mods[0].contains("network-ace-0.1.3-ace"),
+        "{mods:#?}"
+    );
+    assert!(
+        done.iter().all(|l| !l.contains("empyrean-server")),
+        "{done:#?}"
+    );
+    assert_eq!(
+        f.get("D:/worlds/emp/empyrean-server.exe"),
+        Some("empyrean 0.3.2-rc.1"),
+        "it keeps its candidate"
+    );
+    assert_eq!(
+        f.get("D:/worlds/emp/empyrean.toml"),
+        Some(EMP_TOML),
+        "its own hub again"
+    );
+    assert_eq!(f.services.get("EmpyreanDev"), Some(&Service::Running));
+    assert_eq!(
+        f.done("kill").len(),
+        2,
+        "the dev hub and its tunnel stopped"
+    );
+    assert!(
+        said.ends_with(
+            "Not released, so no final build of it is installed:\n  \
+             empyrean 0.3.2 (emp keeps its candidate 0.3.2-rc.1)"
+        ),
+        "{said}"
+    );
+    let l = ledger(&mut m);
+    assert_eq!(l.stage, Stage::Idle);
+    assert_eq!(l.shipped, steps::Shipped::default());
+    assert!(l.worlds.is_empty() && l.releases.is_empty());
+
+    // Nothing shipped yet: nothing to finish.
+    let mut m = counting(fake());
+    preflight(&mut m, &[Product::Hub, Product::Empyrean], &[]).expect("preflighted");
+    let e = super::finish(&mut m, &cfg(), Path::new("D:/repo")).expect_err("refused");
+    assert!(e.starts_with("nothing is shipped to finish"), "{e}");
+}
+
+#[test]
+fn play_web_says_when_its_port_is_taken_and_starts_nothing() {
+    let mut m = counting(web_fake());
+    preflight(&mut m, &[Product::Hub, Product::Dereth], &[]).expect("preflighted");
+    let l = ledger(&mut m);
+    m.inner.taken.insert(8080);
+    let e = super::play_web(&mut m, &cfg(), &l, Path::new("D:/repo"), 8080).expect_err("taken");
+    assert_eq!(
+        e,
+        "port 8080 is in use on this machine: give another with `--port <n>`"
+    );
+    assert!(m
+        .inner
+        .done("cargo build --release -p dereth-web-dev")
+        .is_empty());
+    assert_eq!(
+        m.inner.done("spawn ").len(),
+        2,
+        "only the dev hub and its tunnel"
+    );
+    super::play_web(&mut m, &cfg(), &l, Path::new("D:/repo"), 8081).expect("another port");
 }
 
 #[test]
@@ -3272,12 +3644,12 @@ fn a_lyceum_release_is_preflighted_and_shipped_and_needs_its_highlights_first() 
     let commit = "c0ffee0000000000000000000000000000000001";
     let cuts = Cuts::default();
     let (mut f, mut l) = shipping(&[Product::Hub, Product::Lyceum], commit, commit, true);
-    ship::ship(
+    ship_with(
         &mut f,
-        Path::new("D:/repo"),
-        "origin",
-        &mut cutter(&cuts, None),
         &mut l,
+        &mut cutter(&cuts, None),
+        &Runs::default(),
+        true,
         false,
     )
     .expect("shipped");

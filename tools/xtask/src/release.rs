@@ -7,9 +7,10 @@
 //! On a clean `main` it sets the version of every crate that carries the product's version
 //! (Empyrean: every `empyrean-*` crate; Dereth: the client and the launcher; Lyceum: the editor,
 //! the command and the Foundry) to `<version>` and commits that with the lock files (skipped when
-//! the tree already carries it), runs `cargo xtask ci tier0` and packages the host's own target as
-//! a smoke test, then makes the annotated tag `empyrean-v<version>`, `dereth-v<version>` or
-//! `lyceum-v<version>`. An Empyrean release also makes its
+//! the tree already carries it), runs `cargo xtask ci tier0` (`cargo xtask ship` runs it once for
+//! all its releases instead) and packages the host's own target as a smoke test, then makes the
+//! annotated tag `empyrean-v<version>`, `dereth-v<version>` or `lyceum-v<version>`. An Empyrean
+//! release also makes its
 //! database upgrade fixture (`empyrean/crates/store/UPGRADES.md`) when the tree has none for that
 //! release, and commits it with the version. A final release turns the Unreleased section of the
 //! product's `CHANGES.md` (`empyrean/CHANGES.md`, `dereth/CHANGES.md`, `lyceum/CHANGES.md`) into
@@ -175,7 +176,7 @@ pub fn release(args: &[String]) -> i32 {
         }
     };
     let outcome = match what {
-        Releasable::Product(product) => run(product, &requested, push, &remote),
+        Releasable::Product(product) => run(product, &requested, push, &remote, true),
         Releasable::Network(part) => network::run(part, &requested, push, &remote),
     };
     match outcome {
@@ -189,8 +190,9 @@ pub fn release(args: &[String]) -> i32 {
 
 /// One release cut in this process: what `cargo xtask release <name> <requested> --push --remote
 /// <remote>` does (`push` false leaves out the push), with `ace_dir` in place of `DERETH_ACE_DIR`
-/// for the ACE mod's checks. `cargo xtask ship` cuts its releases this way, never by starting
-/// cargo, whose build of this program could not replace it while it runs.
+/// for the ACE mod's checks, and tier 0 left out when `tier0` is false. `cargo xtask ship` cuts
+/// its releases this way, never by starting cargo, whose build of this program could not replace
+/// it while it runs, and runs tier 0 itself, once, on the commit it ships.
 ///
 /// # Errors
 /// What the release command would stop with.
@@ -200,9 +202,10 @@ pub fn cut(
     push: bool,
     remote: &str,
     ace_dir: Option<&Path>,
+    tier0: bool,
 ) -> Result<(), String> {
     match Releasable::from_command_name(name).ok_or(USAGE)? {
-        Releasable::Product(product) => run(product, requested, push, remote),
+        Releasable::Product(product) => run(product, requested, push, remote, tier0),
         Releasable::Network(part) => network::run_with(
             part,
             requested,
@@ -371,7 +374,13 @@ fn stamp_changes(ws: &Path, product: Product, requested: &str) -> Result<Option<
     Ok(Some(file.to_owned()))
 }
 
-fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<(), String> {
+fn run(
+    product: Product,
+    requested: &str,
+    push: bool,
+    remote: &str,
+    tier0: bool,
+) -> Result<(), String> {
     let ws = workspace_root();
     let name = product.display_name();
     let state = state(&ws, product, remote)?;
@@ -468,9 +477,13 @@ fn run(product: Product, requested: &str, push: bool, remote: &str) -> Result<()
     } else {
         ""
     };
-    println!("\n=== cargo xtask ci tier0 on {head}");
-    if crate::tier0(Profile::TestRelease) != 0 {
-        return Err(format!("tier 0 failed; no tag was made.{undo}"));
+    if tier0 {
+        println!("\n=== cargo xtask ci tier0 on {head}");
+        if crate::tier0(Profile::TestRelease) != 0 {
+            return Err(format!("tier 0 failed; no tag was made.{undo}"));
+        }
+    } else {
+        println!("\n=== tier 0 is not run again: `cargo xtask ship` ran it on the commit it ships");
     }
     println!("\n=== packaging the host's own target as a smoke test");
     let host = String::from_utf8_lossy(
