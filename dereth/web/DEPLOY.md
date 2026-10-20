@@ -116,6 +116,32 @@ outside the list, any file over 25 MiB, and a module or script that names the bu
 folders. The Horizon interface's art in `pkg/horizon/` is the client's own, not the game's.
 Players' data files stay in their own browsers.
 
+### Deploying to Cloudflare Pages
+
+`cargo xtask deploy web` puts a published release on a Cloudflare Pages project:
+
+```text
+cargo xtask deploy web <version>|latest [--project <name>] [--branch <name>] [--zip <file>] [--dry-run]
+```
+
+- **Which release:** `latest` is the newest, found as in step 2 above; a version names
+  `dereth-web-v<version>`. A draft cannot be deployed: it reads GitHub's public API, which shows
+  no drafts.
+- **What it does:** downloads `web.json` and the archive, checks the archive's size and SHA-256,
+  unpacks it into a fresh temporary folder, checks every file against `files` (and that none is
+  over 25 MiB), and runs `wrangler pages deploy <folder> --project-name <name>`, with
+  `--branch <name>` when given.
+- **`--zip <file>`** deploys a package made locally (`cargo xtask package web`) instead, checked
+  against the `web.json` beside it.
+- **`--dry-run`** downloads and checks, and prints the command without running it.
+
+It needs:
+
+- **wrangler**, on the `PATH` or through `npx`, signed in with `wrangler login`, or given
+  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment. xtask never reads them;
+  wrangler does.
+- **The project's name:** `--project my-pages-project`, or `DERETH_PAGES_PROJECT=my-pages-project`.
+
 ### Making a release
 
 The owner of the repository runs releases:

@@ -30,6 +30,7 @@ mod bundle;
 mod check;
 mod comment_lint;
 mod crate_docs;
+mod deploy;
 mod gates;
 mod line_endings;
 mod lint;
@@ -131,6 +132,11 @@ Release and packaging:
                             writes the merged index and the notes; --publish publishes the draft.
                             A dry run unless --yes; the token is DERETH_PUBLISH_TOKEN or
                             GITHUB_TOKEN (CONTRIBUTING.md, Releasing without GitHub Actions)
+  deploy web <version>|latest [--project <name>] [--branch <name>] [--zip <file>] [--dry-run]
+                            put a published web client release on Cloudflare Pages: downloads it,
+                            checks it against its web.json, unpacks it and runs `wrangler pages
+                            deploy` on it; the project is --project or DERETH_PAGES_PROJECT, the
+                            login wrangler's own (dereth/web/DEPLOY.md)
   release empyrean|dereth|lyceum <version> [--push] [--remote <name>]
                             cut a release on a clean main: set the version and commit it, run
                             tier 0 and a host package, tag empyrean-v<version>,
@@ -240,6 +246,7 @@ fn main() {
         Some("bundle-macos") => bundle::bundle_macos(&args[1..]),
         Some("package") => package::package(&args[1..]),
         Some("publish") => publish::publish(&args[1..]),
+        Some("deploy") => deploy::deploy(&args[1..]),
         Some("release") => release::release(&args[1..]),
         Some("release-notes") => release::notes::release_notes(&args[1..]),
         Some("preflight") => preflight::preflight(&args[1..]),

@@ -19,6 +19,9 @@
 //!   name, size and SHA-256, and every file's path, size and SHA-256 ([`manifest`]);
 //! - `SHA256SUMS`: both, for `sha256sum -c`.
 //!
+//! A consumer reads the manifest back with [`Manifest::read`] and checks a bundle it unpacked with
+//! [`check_unpacked`] (`cargo xtask deploy web` does both).
+//!
 //! The web client is the Dereth client in a browser, so it carries Dereth's version (the client's
 //! and the launcher's, which `cargo xtask release dereth` moves for all three), and its release tag
 //! is `dereth-web-v<version>` ([`TAG_PREFIX`]); `--tag` refuses a tag that names another version.
@@ -251,6 +254,139 @@ pub fn manifest(
         "size": members.iter().map(|m| m.bytes.len()).sum::<usize>(),
         "files": files,
     })
+}
+
+/// The files a bundle holds whatever its version: the page, its headers and the module.
+pub const CORE: &[&str] = &["index.html", "_headers", "pkg/dereth_web_bg.wasm"];
+
+/// One file a manifest lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// A release's manifest, read back by a consumer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Manifest {
+    pub version: String,
+    pub tag: String,
+    /// The archive's file name, the folder inside it, its size and SHA-256.
+    pub archive_file: String,
+    pub archive_root: String,
+    pub archive_size: u64,
+    pub archive_sha256: String,
+    pub files: Vec<Listed>,
+}
+
+impl Manifest {
+    /// `web.json` read back, and held to what [`manifest`] writes: this product, a schema this
+    /// reads, and the archive and its folder named for the version.
+    ///
+    /// # Errors
+    /// Not JSON, another product's, another schema, or a field missing or not as written.
+    pub fn read(bytes: &[u8]) -> Result<Self, String> {
+        let v: serde_json::Value =
+            serde_json::from_slice(bytes).map_err(|e| format!("{MANIFEST}: {e}"))?;
+        if v["schema"].as_u64() != Some(SCHEMA) {
+            return Err(format!(
+                "{MANIFEST}: schema {} is not one this reads ({SCHEMA})",
+                v["schema"]
+            ));
+        }
+        if v["product"] != "dereth-web" {
+            return Err(format!(
+                "{MANIFEST}: product {}, not dereth-web",
+                v["product"]
+            ));
+        }
+        let text = |v: &serde_json::Value, what: &str| {
+            v.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("{MANIFEST}: no {what}"))
+        };
+        let number = |v: &serde_json::Value, what: &str| {
+            v.as_u64().ok_or_else(|| format!("{MANIFEST}: no {what}"))
+        };
+        let version = text(&v["version"], "version")?;
+        version::parse_release_version(&version)?;
+        let a = &v["archive"];
+        let m = Self {
+            tag: text(&v["tag"], "tag")?,
+            archive_file: text(&a["file"], "archive.file")?,
+            archive_root: text(&a["root"], "archive.root")?,
+            archive_size: number(&a["size"], "archive.size")?,
+            archive_sha256: text(&a["sha256"], "archive.sha256")?,
+            files: v["files"]
+                .as_array()
+                .ok_or_else(|| format!("{MANIFEST}: no files"))?
+                .iter()
+                .map(|f| {
+                    Ok(Listed {
+                        path: text(&f["path"], "file path")?,
+                        size: number(&f["size"], "file size")?,
+                        sha256: text(&f["sha256"], "file sha256")?,
+                    })
+                })
+                .collect::<Result<_, String>>()?,
+            version,
+        };
+        let tag = format!("{TAG_PREFIX}{}", m.version);
+        let (file, root) = (archive_name(&m.version), archive_root(&m.version));
+        if m.tag != tag || m.archive_file != file || m.archive_root != root {
+            return Err(format!(
+                "{MANIFEST}: version {} names tag {}, archive {} and folder {}, not {tag}, \
+                 {file} and {root}",
+                m.version, m.tag, m.archive_file, m.archive_root
+            ));
+        }
+        Ok(m)
+    }
+}
+
+/// Every finding over a bundle unpacked into `dir`, by its own manifest's list, so that a release
+/// older or newer than this tree is read as it was made: the deny scan with that list (exactly
+/// those files, none over [`FILE_CAP`], no link, no game data), each file its size and SHA-256,
+/// the [`CORE`] files among them, and the module a WebAssembly module.
+pub(crate) fn check_unpacked(dir: &Path, m: &Manifest) -> Vec<String> {
+    let entries = match guard::staged_entries(dir) {
+        Ok(e) => e,
+        Err(e) => return vec![format!("{}: {e}", dir.display())],
+    };
+    let listed: Vec<String> = m.files.iter().map(|f| f.path.clone()).collect();
+    let mut findings = guard::scan_tree(&entries, &listed, &[], FILE_CAP, TOTAL_CAP);
+    for core in CORE {
+        if !listed.iter().any(|p| p == core) {
+            findings.push(format!("{core}: not in the bundle"));
+        }
+    }
+    for f in &m.files {
+        let plain = !f.path.contains(['\\', ':'])
+            && f.path.split('/').all(|c| !matches!(c, "" | "." | ".."));
+        if !plain {
+            findings.push(format!("{}: not a path inside the bundle", f.path));
+            continue;
+        }
+        // A missing file is the scan's finding already.
+        let Ok(bytes) = std::fs::read(dir.join(&f.path)) else {
+            continue;
+        };
+        let sha256 = sha256_hex(&bytes);
+        if bytes.len() as u64 != f.size || sha256 != f.sha256 {
+            findings.push(format!(
+                "{}: {} bytes with SHA-256 {sha256}, where {MANIFEST} gives {} bytes and {}",
+                f.path,
+                bytes.len(),
+                f.size,
+                f.sha256
+            ));
+        }
+        if f.path.ends_with(".wasm") && !bytes.starts_with(b"\0asm") {
+            findings.push(format!("{}: not a WebAssembly module", f.path));
+        }
+    }
+    findings
 }
 
 /// The options of one run.

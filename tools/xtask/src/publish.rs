@@ -38,7 +38,7 @@
 //! `--upload` checks the folder alone, and the other steps refuse.
 
 mod files;
-mod github;
+pub(crate) mod github;
 
 #[cfg(test)]
 mod tests;

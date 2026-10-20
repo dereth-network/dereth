@@ -1,5 +1,5 @@
-//! The GitHub REST API calls `publish` makes, over a [`Transport`]: the real one is HTTPS with
-//! `ureq` ([`Https`]); the tests put an in-memory GitHub behind the same trait.
+//! The GitHub REST API calls `publish` and `deploy` make, over a [`Transport`]: the real one is
+//! HTTPS with `ureq` ([`Https`]); the tests put an in-memory GitHub behind the same trait.
 //!
 //! A [`GitHub`] made for a dry run refuses every call that would change anything before it is
 //! sent, so a dry run cannot write even through a mistake in the steps above it.
@@ -92,11 +92,21 @@ impl Token {
 #[derive(Debug)]
 pub struct Https {
     agent: ureq::Agent,
-    token: Token,
+    token: Option<Token>,
 }
 
 impl Https {
     pub fn new(token: Token) -> Self {
+        Self::with(Some(token))
+    }
+
+    /// One that sends no token: the public API, which reads a public repository's published
+    /// releases (never its drafts).
+    pub fn anonymous() -> Self {
+        Self::with(None)
+    }
+
+    fn with(token: Option<Token>) -> Self {
         let agent = ureq::Agent::config_builder()
             .user_agent(concat!("dereth-xtask-publish/", env!("CARGO_PKG_VERSION")))
             // Every status is an answer: the steps say what a 404 or a 422 means.
@@ -112,12 +122,20 @@ impl Https {
     }
 }
 
+/// `b` with the token's `Authorization` header, when there is a token.
+fn authorized<B>(b: ureq::RequestBuilder<B>, auth: Option<&str>) -> ureq::RequestBuilder<B> {
+    match auth {
+        Some(a) => b.header("Authorization", a),
+        None => b,
+    }
+}
+
 /// The largest answer read: more than the largest release file.
 const BODY_LIMIT: u64 = 1 << 30;
 
 impl Transport for Https {
     fn send(&mut self, r: &HttpRequest<'_>) -> Result<HttpResponse, String> {
-        let auth = format!("Bearer {}", self.token.0);
+        let auth = self.token.as_ref().map(|t| format!("Bearer {}", t.0));
         let what = || format!("{} {}", r.method.name(), r.url);
         let result = match r.method {
             Method::Get | Method::Delete => {
@@ -126,7 +144,7 @@ impl Transport for Https {
                 } else {
                     self.agent.delete(&r.url)
                 };
-                b.header("Authorization", &auth)
+                authorized(b, auth.as_deref())
                     .header("Accept", r.accept)
                     .header("X-GitHub-Api-Version", API_VERSION)
                     .call()
@@ -137,7 +155,7 @@ impl Transport for Https {
                 } else {
                     self.agent.patch(&r.url)
                 };
-                b.header("Authorization", &auth)
+                authorized(b, auth.as_deref())
                     .header("Accept", r.accept)
                     .header("X-GitHub-Api-Version", API_VERSION)
                     .content_type(r.content_type.unwrap_or("application/json"))

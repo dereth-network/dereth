@@ -187,6 +187,49 @@ pub fn zip_entries(bytes: &[u8]) -> Result<Vec<Entry>, String> {
     Ok(out)
 }
 
+/// The files of a `.zip` under `root/`, written below `dest` as they lie below `root/`: plain
+/// files and folders only.
+///
+/// # Errors
+/// An entry outside `root/`, a link, a name that is not a plain relative path, or a file that
+/// cannot be written.
+pub fn unpack_zip(bytes: &[u8], root: &str, dest: &Path) -> Result<(), String> {
+    let mut z =
+        zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| format!("zip: {e}"))?;
+    let prefix = format!("{root}/");
+    for i in 0..z.len() {
+        let mut f = z.by_index(i).map_err(|e| format!("zip: {e}"))?;
+        let name = f.name().to_owned();
+        let Some(rest) = name.strip_prefix(&prefix) else {
+            return Err(format!("zip: {name} is outside {prefix}"));
+        };
+        let rest = rest.trim_end_matches('/');
+        let plain = f.enclosed_name().is_some()
+            && !rest.contains(['\\', ':'])
+            && rest.split('/').all(|c| !matches!(c, "." | ".."));
+        if !plain {
+            return Err(format!("zip: {name} is not a plain path"));
+        }
+        if f.is_symlink() || f.unix_mode().is_some_and(|m| m & 0o170_000 == 0o120_000) {
+            return Err(format!("zip: {name} is a link"));
+        }
+        let path = dest.join(rest);
+        let made = |p: &Path, e: std::io::Error| format!("{}: {e}", p.display());
+        if f.is_dir() {
+            std::fs::create_dir_all(&path).map_err(|e| made(&path, e))?;
+            continue;
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| made(dir, e))?;
+        }
+        let mut data = Vec::new();
+        f.read_to_end(&mut data)
+            .map_err(|e| format!("zip: {name}: {e}"))?;
+        std::fs::write(&path, &data).map_err(|e| made(&path, e))?;
+    }
+    Ok(())
+}
+
 fn octal_field(b: &[u8]) -> Result<u64, String> {
     let text: String = b
         .iter()
