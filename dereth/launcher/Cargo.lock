@@ -834,6 +834,7 @@ dependencies = [
  "dereth-dat",
  "dereth-primitives",
  "thiserror 2.0.21",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
@@ -881,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-launcher"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dereth-launch",
  "gilrs",

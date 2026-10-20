@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-client"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dereth-animation",
  "dereth-assets",
@@ -1164,7 +1164,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-headless"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dereth-client-sdk",
  "thiserror 2.0.20",
@@ -1494,7 +1494,7 @@ dependencies = [
 
 [[package]]
 name = "dereth-web"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "dereth-classic-dat",
  "dereth-classic-fonts",

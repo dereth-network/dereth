@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.5 (2026-10-20)
+
 - Better Lighting smooths jagged edges.
 - New /report and /perfcapture commands.
 - Better Lighting runs faster.
