@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.3.3 (2026-10-20)
+
 - Worlds tell the Dereth Network their WebSocket address.
 - New `@reload-dat-overlay`: the world reads its data overlay again and rebuilds landblocks, no restart.
 
