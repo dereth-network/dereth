@@ -12,6 +12,8 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+## 0.1.0 (2026-10-20)
+
 - First release of Lyceum, the world builder.
 - A start screen opens your recent worlds, or a new one from the sample.
 - Edit a world in a window that draws it as the client does.
