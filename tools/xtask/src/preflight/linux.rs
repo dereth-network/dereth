@@ -62,11 +62,13 @@ pub fn place(w: &World) -> String {
 }
 
 /// `w`'s files put back from its backup: its server, its configuration, and each database file,
-/// or, when the backup has none, the file taken out (a log made since).
+/// or, when the backup has none, the file taken out (a log made since). A plain copy over each
+/// file keeps its owner and mode: the files are the service's, and the account that signs in may
+/// write them but not set their times, as `cp -a` would.
 pub fn restore(w: &World, dbs: &[String]) -> String {
     let b = backup_dir(w);
     let mut s = format!(
-        "set -e\ncp -a {} {}\ncp -a {} {}\n",
+        "set -e\ncp {} {}\ncp {} {}\n",
         sh(&format!("{b}/replaced")),
         sh(&w.replaced()),
         sh(&format!("{b}/config")),
@@ -75,7 +77,7 @@ pub fn restore(w: &World, dbs: &[String]) -> String {
     for f in database_files(dbs) {
         let kept = sh(&format!("{b}/db/{}", base(&f)));
         s.push_str(&format!(
-            "if [ -e {kept} ]; then cp -a {kept} {f_}; else rm -f {f_}; fi\n",
+            "if [ -e {kept} ]; then cp {kept} {f_}; else rm -f {f_}; fi\n",
             f_ = sh(&f)
         ));
     }

@@ -1956,9 +1956,9 @@ fn a_world_on_a_linux_machine_takes_empyrean_built_here_with_zigbuild_copied_ove
     steps::rollback(&mut m, &cfg(), &mut l).expect("rolled back");
     let f = &m.inner;
     let restore = format!(
-        "set -e\ncp -a '{b}/replaced' '/srv/emp/empyrean-server'\ncp -a '{b}/config' '/srv/emp/empyrean.toml'\n{}",
+        "set -e\ncp '{b}/replaced' '/srv/emp/empyrean-server'\ncp '{b}/config' '/srv/emp/empyrean.toml'\n{}",
         dbs.iter()
-            .map(|d| format!("if [ -e '{b}/db/{d}' ]; then cp -a '{b}/db/{d}' '/srv/emp/{d}'; else rm -f '/srv/emp/{d}'; fi\n"))
+            .map(|d| format!("if [ -e '{b}/db/{d}' ]; then cp '{b}/db/{d}' '/srv/emp/{d}'; else rm -f '/srv/emp/{d}'; fi\n"))
             .collect::<String>()
     );
     let removed = format!("set -e\nrm -rf '{b}'\n");
@@ -2463,7 +2463,7 @@ Copy-Item -LiteralPath (Join-Path $backup 'config') -Destination '{BOX_MOD}\\Set
     );
     assert_eq!(restores, [mod_restore, box_emp_restore_script()]);
     assert!(
-        f.at("ssh owner@world-vm set -e\ncp -a '/srv/empyrean/.preflight-backup/replaced'")
+        f.at("ssh owner@world-vm set -e\ncp '/srv/empyrean/.preflight-backup/replaced'")
             < f.last("ssh owner@world-box # box-ace on world-box: put back")
     );
     assert_eq!(l.stage, Stage::Idle);
