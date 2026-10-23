@@ -816,6 +816,9 @@ impl World {
             MonitorType::NetworkManagerInboundClientMessageQueueRun,
         );
 
+        // DIVERGE (V454): process already queued character messages before the final save.
+        sessions::finish_clean_disconnects(self);
+
         // Not ACE: the shard's callbacks re-enter the world here (see the module docs).
         run_stage(
             self,
@@ -964,6 +967,29 @@ fn run_stage<R>(w: &mut World, name: &str, default: R, f: impl FnOnce(&mut World
 ///   player (which keeps the session's game half, as ACE keeps `session.Player`), else the game
 ///   half is dropped.
 pub fn handle_network_events(w: &mut World) {
+    let waiting: Vec<_> = w
+        .sessions
+        .iter()
+        .filter_map(|(id, s)| {
+            s.pending_login
+                .as_ref()
+                .map(|(from, request)| (id, *from, request.clone()))
+        })
+        .collect();
+    for (session, from, request) in waiting {
+        if w.net.session(session).is_some() {
+            handle_network_event(
+                w,
+                Event::LoginRequest {
+                    session,
+                    from,
+                    request,
+                },
+            );
+        } else {
+            w.sessions.remove(session);
+        }
+    }
     let events: Vec<Event> = w.net.events().collect();
     for event in events {
         run_stage(w, "NetworkManager (session event)", (), |w| {
@@ -1003,6 +1029,22 @@ fn handle_network_event(w: &mut World, event: Event) {
         } => {
             if w.sessions.get(session).is_none() {
                 w.sessions.insert(session, SessionData::default());
+            }
+            // DIVERGE (V454): retain the request while a cleanly disconnected player finishes
+            // cleanup. A live or silent account still goes through the ordinary conflict checks.
+            let cleaning = w.net.find_by_account(&request.account).is_some_and(|old| {
+                old != session
+                    && w.net.session(old).is_some_and(|s| {
+                        s.core.pending_termination.as_ref().is_some_and(|p| {
+                        p.reason == empyrean_net::SessionTerminationReason::PacketHeaderDisconnect
+                    })
+                    })
+            });
+            if let Some(s) = w.sessions.get_mut(session) {
+                s.pending_login = cleaning.then(|| (from, request.clone()));
+            }
+            if cleaning {
+                return;
             }
             // Task t = new Task(() => DoLogin(session, loginRequest));
             crate::network::handlers::authentication_handler::do_login(w, session, from, &request);

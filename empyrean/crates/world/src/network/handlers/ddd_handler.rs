@@ -19,6 +19,7 @@ use crate::network::game_messages::messages::game_message_boot_account::game_mes
 use crate::network::game_messages::messages::game_message_ddd_begin_ddd::game_message_ddd_begin_ddd;
 use crate::network::game_messages::messages::game_message_ddd_end_ddd::game_message_ddd_end_ddd;
 use crate::network::game_messages::messages::game_message_ddd_error_message::game_message_ddd_error_message;
+use crate::network::game_messages::messages::game_message_ddd_interrogation::game_message_ddd_interrogation;
 use crate::network::game_messages::messages::game_message_system_chat::game_message_system_chat;
 use crate::network::managers::inbound_message_manager::{HandlerResult, Payload};
 use crate::network::structure::c_all_iteration_list::read_c_all_iteration_list;
@@ -106,6 +107,11 @@ pub const PRE_TOD_OTHER_CLIENT_REASON: &str =
 /// Not ACE: why a client holding other base data files than a world's data overlay was made
 /// against is booted (the account-booted message puts it after "because").
 pub const OVERLAY_OTHER_BASE_REASON: &str = "this world's data overlay was made against other data files than your client's. Install the data files the world names";
+
+/// Not ACE: why a client that keeps no data overlay of its own, missing iterations of a world with
+/// a data overlay, is booted when its own files are not patched (the account-booted message puts it
+/// after "because").
+pub const OVERLAY_NOT_KEPT_REASON: &str = "this world changes the game's data files, and your client does not take a world's changes. Play it with Dereth, which the world patches";
 
 /// The client's iteration lists: boot it when its dats are newer than the server's; when they
 /// are older, start patching (or boot it when patching is off); otherwise end DDD at once.
@@ -199,6 +205,43 @@ pub fn ddd_interrogation_response_with(
                 SessionTerminationReason::DATsPatchingDisabled,
                 boot,
             );
+            return Ok(());
+        }
+    }
+    // DIVERGE (V437): a client that keeps a folder for each world a server serves answers with
+    // the lists of the world it played at this address last, and names it. Named another world
+    // than this one, it is told this world's name (the manifest; one naming no world from a world
+    // without an overlay) and asked again, once a session, so the lists it then answers with are
+    // this world's own.
+    if let Some(theirs) = extension
+        .as_ref()
+        .and_then(dereth_protocol::admin::DddInterrogationResponse::world)
+    {
+        let ours = empyrean_dat::data_overlay::world_hash(
+            &dats.portal_dat().overlay_world_key().unwrap_or_default(),
+        );
+        let asked = w
+            .sessions
+            .get(session)
+            .is_some_and(|s| s.overlay_asked_again);
+        if theirs != ours && !asked {
+            log::info!(
+                "[DDD] client {} answered for another world than this one; it is told this                  world's name and asked again",
+                account(w, session)
+            );
+            if let Some(s) = w.sessions.get_mut(session) {
+                s.overlay_asked_again = true;
+            }
+            enqueue_send(
+                w,
+                session,
+                dat_overlay::game_message_overlay_manifest(&dat_overlay::manifest(
+                    &dats,
+                    &client_bases,
+                )),
+            );
+            let again = game_message_ddd_interrogation(w);
+            enqueue_send(w, session, again);
             return Ok(());
         }
     }
@@ -496,7 +539,13 @@ pub fn ddd_interrogation_response_with(
             }
         }
     } else if client_is_missing_iterations && !enable_dat_patching {
-        let msg = property_manager::get_string(w, "dat_older_warning_msg", "", true).item;
+        // DIVERGE (V437): a client that keeps no overlay of its own, missing a world's overlay, is
+        // told which client the world patches.
+        let msg = if overlay_world && extension.is_none() {
+            OVERLAY_NOT_KEPT_REASON.to_owned()
+        } else {
+            property_manager::get_string(w, "dat_older_warning_msg", "", true).item
+        };
         let boot =
             game_message_boot_account(Some(&format!(" because {}", msg.trim_end_matches('.'))));
         terminate(

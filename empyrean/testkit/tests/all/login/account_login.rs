@@ -595,3 +595,83 @@ fn log_off_returns_to_character_select_after_aces_six_seconds() {
         Some(SessionState::AuthConnected)
     );
 }
+
+/// Divergence: V454
+#[test]
+fn a_clean_disconnect_allows_immediate_reauthentication_without_the_flush_delay() {
+    let mut ts = seeded();
+    let first = login(&mut ts, "acct", "secret");
+    let old = session_of(&ts, "acct");
+    ts.client_mut(first).log_off();
+    let again = ts.add_client("acct", "secret");
+    assert!(ts.run_until(1.0, |ts| !ts
+        .received::<LoginCharacterSet>(again)
+        .is_empty()));
+    assert!(errors(&ts, again).is_empty());
+    assert!(ts.world.net.session(old).is_none());
+    let replacement = session_of(&ts, "acct");
+    assert_ne!(old, replacement);
+    assert!(!ts.world.net.finish_clean_disconnect(old));
+    assert!(!ts.world.net.finish_clean_disconnect(replacement));
+    assert_eq!(ts.world.net.find_by_account("acct"), Some(replacement));
+}
+
+/// Divergence: V454
+#[test]
+fn a_clean_disconnect_keeps_the_account_until_player_cleanup_and_saves_finish() {
+    let mut ts = seeded();
+    let first = login(&mut ts, "acct", "secret");
+    let old = session_of(&ts, "acct");
+    ts.send_message(first, NetQueue::Logon, &LoginSendEnterWorldRequest);
+    assert!(ts.run_until(1.0, |ts| !ts
+        .received::<LoginEnterGameServerReady>(first)
+        .is_empty()));
+    ts.send_message(
+        first,
+        NetQueue::Logon,
+        &LoginSendEnterWorld {
+            character: ObjectId(ALPHA),
+            account: "acct".to_owned(),
+        },
+    );
+    assert!(ts.run_until(1.0, |ts| ts.world.sessions.player(old).is_some()));
+    ts.client_mut(first).log_off();
+    let again = ts.add_client("acct", "secret");
+    ts.step();
+    assert!(ts.received::<LoginCharacterSet>(again).is_empty());
+    assert!(ts.run_until(10.0, |ts| !ts
+        .received::<LoginCharacterSet>(again)
+        .is_empty()));
+    assert!(errors(&ts, again).is_empty());
+    assert!(ts.world.sessions.get(old).is_none());
+    assert!(ts.world.objects.get(ObjectGuid::new(ALPHA)).is_none());
+    assert!(ts.shard().get_character(ALPHA).is_some());
+}
+
+/// Divergence: V454
+#[test]
+fn a_clean_disconnect_waits_for_the_database_callback_even_past_two_seconds() {
+    let mut ts = seeded();
+    let _first = login(&mut ts, "acct", "secret");
+    let old = session_of(&ts, "acct");
+    let now = ts.world.now;
+    ts.world.net.terminate(
+        old,
+        SessionTerminationReason::PacketHeaderDisconnect,
+        None,
+        String::new(),
+        now,
+    );
+    sessions::finish_clean_disconnects(&mut ts.world);
+    let mut later = now;
+    later.utc = later.utc.add_seconds(3.0);
+    ts.world.net.do_session_work(later);
+    assert_eq!(
+        ts.world.net.find_by_account("acct"),
+        Some(old),
+        "the save barrier has not completed"
+    );
+    world_manager::run_shard_callbacks(&mut ts.world);
+    assert!(ts.world.net.session(old).is_none());
+    assert!(ts.world.net.find_by_account("acct").is_none());
+}

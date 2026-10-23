@@ -1012,11 +1012,44 @@ pub fn root_guid_ref(w: &World, this: ObjectGuid) -> ObjectGuid {
     }
     match empyrean_tables::house_cell::ROOT_GUIDS.get(&this.full()) {
         Some(root_guid) => ObjectGuid::new(*root_guid),
-        None => {
+        None => root_by_links(w, this).unwrap_or_else(|| {
             log::error!("House.RootGuid - couldn't find root guid for house guid {this}");
             this
-        }
+        }),
     }
+}
+
+/// The root of a house the retail table does not list, one added to the world later: of the houses
+/// with its house id, the one whose links hold its slumlord, which is how every house of the retail
+/// table finds its root.
+// DIVERGE (V457): a house the retail table of root houses does not list finds its root by its links (the
+// house of its id holding the slumlord) rather than answering for itself.
+fn root_by_links(w: &World, this: ObjectGuid) -> Option<ObjectGuid> {
+    let house_id = w.objects.get(this)?.house_id()?;
+    let guids = w.house_manager.house_id_to_guid.as_ref()?.get(&house_id)?;
+    guids
+        .iter()
+        .copied()
+        .find(|g| holds_slumlord(w, *g))
+        .map(ObjectGuid::new)
+}
+
+/// Whether the world instance `guid` links a slumlord.
+fn holds_slumlord(w: &World, guid: u32) -> bool {
+    let Ok(landblock) = u16::try_from((guid >> 12) & 0xFFFF) else {
+        return false;
+    };
+    let instances = w.content.get_cached_instances_by_landblock(landblock);
+    let Some(house) = instances.iter().find(|i| i.guid == guid) else {
+        return false;
+    };
+    house.landblock_instance_link.iter().any(|l| {
+        instances
+            .iter()
+            .find(|i| i.guid == l.child_guid)
+            .and_then(|i| w.content.get_cached_weenie(i.weenie_class_id))
+            .is_some_and(|x| x.weenie_type == WeenieType::SlumLord)
+    })
 }
 
 // ACE: House.GetAllegianceAccessLevel

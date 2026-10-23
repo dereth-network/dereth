@@ -17,6 +17,8 @@
 //!   short form for a line in the Global room.
 //! - [`reload_dat_overlay`]: `reload-dat-overlay`, a new name: the world's data overlay read again
 //!   and landblocks built again from it, for a world builder's live loop.
+//! - [`save_world`]: `save-world`, a new name: every player and what the world keeps saved now, as
+//!   a clean shutdown saves them, with the world left running.
 //!
 //! [`command_handlers`] is added to the table after every ported file, so a row here with an ACE
 //! command's name replaces ACE's row in its slot, and a new name is added at the end.
@@ -26,8 +28,10 @@
 
 pub mod dn;
 pub mod help_commands;
+pub mod playtest_character;
 pub mod reload_dat_overlay;
 pub mod report_bug;
+pub mod save_world;
 pub mod source;
 
 use crate::command_handler_info::CommandHandlerInfo;
@@ -40,5 +44,7 @@ pub fn command_handlers() -> Vec<CommandHandlerInfo> {
     all.extend(source::command_handlers());
     all.extend(dn::command_handlers());
     all.extend(reload_dat_overlay::command_handlers());
+    all.extend(playtest_character::command_handlers());
+    all.extend(save_world::command_handlers());
     all
 }

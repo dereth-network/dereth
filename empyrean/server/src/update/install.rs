@@ -127,9 +127,20 @@ pub struct Processes {
     pub work_dir: PathBuf,
 }
 
+fn process(exe: &Path) -> Command {
+    #[allow(unused_mut)]
+    let mut command = Command::new(exe);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 impl Build for Processes {
     fn facts(&self, exe: &Path) -> Result<Facts, String> {
-        let out = Command::new(exe)
+        let out = process(exe)
             .arg("--release-facts")
             .stdin(Stdio::null())
             .output()
@@ -150,7 +161,7 @@ impl Build for Processes {
             .map_err(|e| format!("{}: {e}", self.work_dir.display()))?;
         let ready = self.work_dir.join("ready.json");
         let _ = std::fs::remove_file(&ready);
-        let mut command = Command::new(exe);
+        let mut command = process(exe);
         command.arg("--update-trial").arg(&ready);
         if let Some(config) = &self.config {
             command.arg("--config").arg(config);
@@ -190,7 +201,7 @@ impl Build for Processes {
     }
 
     fn rebuild_pack(&self, importer: &Path, inputs: &PackInputs, out: &Path) -> Result<(), String> {
-        let mut command = Command::new(importer);
+        let mut command = process(importer);
         command.arg("--sql").arg(&inputs.sql);
         for (json, path) in &inputs.patches {
             command
@@ -295,7 +306,7 @@ struct Moved {
 
 /// A free name to move `file` aside to: `<file>.previous-v<from>` (with `.2`, `.3`, ... when that
 /// name is taken by a file that cannot be removed, such as a still-running executable).
-fn aside_name(file: &Path, from: &Version) -> PathBuf {
+pub(super) fn aside_name(file: &Path, from: &Version) -> PathBuf {
     let base = format!(
         "{}.previous-v{from}",
         file.file_name().unwrap_or_default().to_string_lossy()

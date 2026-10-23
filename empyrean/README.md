@@ -138,6 +138,9 @@ for. Keys that are Empyrean's own:
 - `[server] status_public_url` (default empty): where players reach `/status` from outside; with
   the Dereth Network on, the world tells its hub this and the WebSocket endpoint's URL.
 - `[server] interactive_console` (default `true`): read console commands from standard input.
+- `[server] admin_channel` (default `true`): the console for programs on this computer, on
+  loopback, its address and secret in `admin-channel.json` in the server's folder
+  ([SETUP.md](SETUP.md), "The console").
 - `[server] source_url` (default empty: the repository the build came from): where players are told
   the server's source is (see [Licence](#licence)).
 - `[database] shard_db_path` and `auth_db_path` (defaults `./shard.db` and `./auth.db`): the SQLite

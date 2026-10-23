@@ -218,7 +218,8 @@ mod real_content {
         // cells only the server lists. ACE never lists a static in another landblock's land
         // cells, follows a portal only into the cells its own cell sees, and finds a part box's
         // land cells from the part's position rather than the cell's (V1).
-        let expected: BTreeMap<(u16, &str, u64), (Vec<u32>, Vec<u32>)> = [
+        type Differences<'a> = BTreeMap<(u16, &'a str, u64), (Vec<u32>, Vec<u32>)>;
+        let expected: Differences<'_> = [
             ((0x03A7, "interior", 52), (vec![], vec![0x03A7_018A])),
             ((0x376A, "object", 21), (vec![], vec![0x376A_015A])),
             (

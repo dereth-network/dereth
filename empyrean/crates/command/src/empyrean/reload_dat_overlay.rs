@@ -54,43 +54,47 @@ pub fn landblock_of(p: &str) -> Option<u16> {
 /// `reload-dat-overlay`: reopens the world's files with the overlay, then builds each named
 /// landblock again; says how many of them were loaded.
 pub fn handle_reload_dat_overlay(w: &mut World, session: Option<SessionId>, parameters: &[String]) {
+    let (revision, parameters) = if parameters.first().is_some_and(|p| p == "--revision") {
+        let Some(revision) = parameters.get(1).and_then(|p| p.parse::<u64>().ok()) else {
+            write_output_error(
+                w,
+                session,
+                "Invalid overlay revision.",
+                ChatMessageType::Broadcast,
+            );
+            return;
+        };
+        (Some(revision), &parameters[2..])
+    } else {
+        (None, parameters)
+    };
+    let result = reload(w, parameters);
+    match result {
+        Ok((built, count)) => write_output_info(w, session, &revision.map_or_else(
+            || format!("The data overlay is read again; {built} of {count} landblock(s) named were loaded and are built again."),
+            |r| format!("Overlay revision {r}: applied; {built} of {count} landblocks rebuilt.")), ChatMessageType::Broadcast),
+        Err(error) => write_output_error(w, session, &revision.map_or_else(
+            || if error.contains(" is not a landblock:") { error.clone() } else { format!("The data overlay was not read again: {error}") },
+            |r| format!("Overlay revision {r}: rejected; {error}")), ChatMessageType::Broadcast),
+    }
+}
+
+fn reload(w: &mut World, parameters: &[String]) -> Result<(usize, usize), String> {
     let mut folder: Option<PathBuf> = None;
-    let mut blocks: Vec<u16> = Vec::new();
+    let mut blocks = std::collections::BTreeSet::new();
     for p in parameters {
         match landblock_of(p) {
-            Some(lb) => blocks.push(lb),
-            None if folder.is_none() && blocks.is_empty() => folder = Some(PathBuf::from(p)),
-            None => {
-                write_output_error(
-                    w,
-                    session,
-                    &format!("{p} is not a landblock: give it as XXYY"),
-                    ChatMessageType::Broadcast,
-                );
-                return;
+            Some(lb) => {
+                blocks.insert(lb);
             }
+            None if folder.is_none() && blocks.is_empty() => folder = Some(PathBuf::from(p)),
+            None => return Err(format!("{p} is not a landblock: give it as XXYY")),
         }
     }
-    if let Err(e) = dat_overlay::reopen(w, folder.as_deref()) {
-        write_output_error(
-            w,
-            session,
-            &format!("The data overlay was not read again: {e}"),
-            ChatMessageType::Broadcast,
-        );
-        return;
-    }
+    dat_overlay::reopen(w, folder.as_deref())?;
     let built = blocks
         .iter()
         .filter(|lb| dat_overlay::reload_landblock(w, **lb))
         .count();
-    write_output_info(
-        w,
-        session,
-        &format!(
-            "The data overlay is read again; {built} of {} landblock(s) named were loaded and are built again.",
-            blocks.len()
-        ),
-        ChatMessageType::Broadcast,
-    );
+    Ok((built, blocks.len()))
 }

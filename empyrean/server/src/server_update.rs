@@ -355,6 +355,93 @@ fn usage(why: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
+/// Machine-readable controls for a separate launcher; no game world is started here.
+pub fn managed_command(args: impl Iterator<Item = String>) -> ExitCode {
+    let result = managed_request(args);
+    let success = result.is_ok();
+    let value = match result {
+        Ok(value) => serde_json::json!({ "ok": true, "result": value }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    // A trial server can leave its console prompt unterminated on inherited stdout.
+    println!("\n{value}");
+    if success {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn managed_request(mut args: impl Iterator<Item = String>) -> Result<serde_json::Value, String> {
+    use empyrean_server::update::managed;
+    let action = args
+        .next()
+        .ok_or("managed-update needs check, stage, apply, status, cancel or rollback")?;
+    let mut config = None;
+    let mut candidate = None;
+    let mut index_path = None;
+    let mut approved = None;
+    while let Some(flag) = args.next() {
+        let value = args.next().ok_or_else(|| format!("{flag} needs a value"))?;
+        match flag.as_str() {
+            "--config" => config = Some(value),
+            "--candidate" => candidate = Some(std::path::PathBuf::from(value)),
+            "--index" => index_path = Some(std::path::PathBuf::from(value)),
+            "--approve" => approved = Some(value),
+            _ => return Err(format!("Unknown managed-update flag: {flag}")),
+        }
+    }
+    let config = config.ok_or("managed-update requires an explicit --config")?;
+    let (config, paths, file) =
+        crate::program::load_config(Some(&config)).map_err(|e| e.to_string())?;
+    let updater = update::for_this_installation(&config, &paths, file.as_deref())?;
+    std::fs::create_dir_all(&updater.layout.work_dir).map_err(|e| e.to_string())?;
+    let guard = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(updater.layout.work_dir.join("managed.lock"))
+        .map_err(|e| e.to_string())?;
+    guard
+        .try_lock()
+        .map_err(|_| "Another managed update is in progress.")?;
+    match action.as_str() {
+        "cancel" => {
+            managed::discard(&updater)?;
+            Ok(serde_json::Value::Null)
+        }
+        "status" => serde_json::to_value(managed::pending(&updater)?).map_err(|e| e.to_string()),
+        "check" | "stage" => {
+            let candidate = candidate.ok_or("--candidate is required")?;
+            let index_path = index_path.ok_or("--index is required")?;
+            let index = update::release::ReleaseIndex::parse(
+                &std::fs::read_to_string(index_path).map_err(|e| e.to_string())?,
+            )?;
+            let plan = if action == "check" {
+                let facts = updater
+                    .build
+                    .facts(&candidate.join(update::install::server_file_name()))?;
+                managed::inspect(&updater.mine, &index, &facts, updater.pack_inputs.is_some())?
+            } else {
+                managed::prepare(&updater, &candidate, &index, approved.as_deref())?
+            };
+            serde_json::to_value(plan).map_err(|e| e.to_string())
+        }
+        "apply" | "rollback" => {
+            if let Some(why) = server_running(&config) {
+                return Err(format!("Stop the server first: {why}"));
+            }
+            if action == "apply" {
+                serde_json::to_value(managed::apply_with_config(&updater, file.as_deref())?)
+                    .map_err(|e| e.to_string())
+            } else {
+                Ok(serde_json::json!({ "version": managed::rollback(&updater)? }))
+            }
+        }
+        _ => Err(format!("Unknown managed-update action: {action}")),
+    }
+}
+
 /// Why the server looks to be running (its game port is taken), or `None`.
 fn server_running(config: &MasterConfiguration) -> Option<String> {
     let n = &config.server.network;

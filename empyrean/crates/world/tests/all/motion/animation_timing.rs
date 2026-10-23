@@ -325,13 +325,13 @@ fn server_motion_timings_match_client_playback_on_every_retail_motion_table() {
     ] {
         d.sort_by(f64::total_cmp);
         if let (Some(lo), Some(hi)) = (d.first(), d.last()) {
-            let q = |f: f64| d[((d.len() - 1) as f64 * f) as usize];
+            let q = |percent: usize| d[(d.len() - 1) * percent / 100];
             println!(
                 "{name}: {} values, min {lo:.4} p10 {:.4} median {:.4} p90 {:.4} max {hi:.4}",
                 d.len(),
-                q(0.1),
-                q(0.5),
-                q(0.9)
+                q(10),
+                q(50),
+                q(90)
             );
         }
     }

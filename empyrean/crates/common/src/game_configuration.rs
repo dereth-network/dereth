@@ -127,6 +127,12 @@ pub struct GameConfiguration {
     #[serde(rename = "InteractiveConsole")]
     pub interactive_console: bool,
 
+    /// Not ACE: the admin channel, the console for a program on this computer: on loopback, its
+    /// secret in `admin-channel.json` in the server's folder (default true).
+    /// DIVERGE: an extra key; ACE's console is its terminal alone.
+    #[serde(rename = "AdminChannel")]
+    pub admin_channel: bool,
+
     /// Not ACE: the text the character screen's message box shows, sent with the character list
     /// at log-in. Empty (the default) sends `Welcome to <world name>!`. The clients of the 2005 era
     /// and Dereth's interfaces show it; the final retail client ignores it.
@@ -217,6 +223,7 @@ impl Default for GameConfiguration {
             status_address: String::new(),
             status_public_url: String::new(),
             interactive_console: true,
+            admin_channel: true,
             source_url: String::new(),
             update: DEFAULT_UPDATE.to_owned(),
             update_check_hours: 6,

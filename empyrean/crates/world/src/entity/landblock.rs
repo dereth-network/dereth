@@ -1640,6 +1640,14 @@ pub fn destroy_all_non_player_objects(w: &mut World, id: LandblockId) {
     lb_mut(w, id).action_queue.clear();
 }
 
+/// Not ACE: the landblock's objects saved now, as its periodic database save saves them, for the
+/// console's `save-world`.
+pub fn save_now(w: &mut World, id: LandblockId) {
+    process_pending(w, id);
+    save_db(w, id);
+    lb_mut(w, id).last_database_save = w.now.utc;
+}
+
 // ACE: Landblock.SaveDB
 fn save_db(w: &mut World, id: LandblockId) {
     let mut biotas: Vec<ObjectGuid> = Vec::new();

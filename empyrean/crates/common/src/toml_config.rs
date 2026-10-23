@@ -212,6 +212,14 @@ pub const SECTIONS: &[Section] = &[
                  service or in a container with no terminal.",
             ),
             e(
+                "admin_channel",
+                "AdminChannel",
+                "A console for programs on this computer, such as the Dereth launcher: it listens on\n\
+                 loopback only, and writes its address and a new secret to admin-channel.json in the\n\
+                 server's folder at each start. Whoever can read that file can type console commands.\n\
+                 Set it false to have no console but the terminal.",
+            ),
+            e(
                 "source_url",
                 "SourceUrl",
                 "Where players are told this server's source code is (the login welcome, @source, the\n\

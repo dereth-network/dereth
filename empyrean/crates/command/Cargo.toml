@@ -22,6 +22,8 @@ dereth-physics.workspace = true
 dereth-primitives.workspace = true
 empyrean-tables.workspace = true
 log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 # The interactive console: raw-mode key input and the terminal size (log lines print above the
 # prompt and the half-typed line, which is redrawn after them).
 crossterm = { version = "0.29", default-features = false, features = ["events", "windows"] }

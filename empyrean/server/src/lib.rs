@@ -17,10 +17,12 @@
 //! data files and the content pack, [`database_manager`] opens the stores, [`guid_manager_boot`]
 //! seeds the object-id allocator, [`status_endpoint`] serves the status query, [`websocket`] is the
 //! WebSocket endpoint, beside the UDP listeners, and [`federation_link`] is the Dereth Network's link
-//! to its hub. [`update`] finds, checks and installs new
+//! to its hub. [`admin_channel`] is the console for a program on the same computer. [`update`]
+//! finds, checks and installs new
 //! releases (`server.update`, `empyrean-server update`). The ported `Program.*` modules stay in
 //! the binary.
 
+pub mod admin_channel;
 pub mod config_file;
 pub mod dat_directory;
 pub mod database_manager;

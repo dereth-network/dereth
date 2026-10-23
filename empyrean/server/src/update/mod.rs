@@ -21,6 +21,7 @@
 pub mod archive;
 pub mod handover;
 pub mod install;
+pub mod managed;
 pub mod policy;
 pub mod release;
 pub mod source;

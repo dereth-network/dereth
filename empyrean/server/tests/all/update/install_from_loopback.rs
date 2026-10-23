@@ -14,6 +14,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use empyrean_server::update::install::{self, Build, Layout, PackInputs, Processes};
@@ -543,4 +544,270 @@ fn the_update_command_needs_check_or_apply() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
+}
+
+fn managed_candidate(
+    installation: &Installation,
+    version: &str,
+    kind: &str,
+    healthy: bool,
+) -> (PathBuf, empyrean_server::update::release::ReleaseIndex) {
+    let dir = installation.dir.join("candidate");
+    std::fs::create_dir_all(&dir).unwrap();
+    let next = facts(version, if kind == "patch" { 1 } else { 2 }, 1);
+    std::fs::write(
+        dir.join(install::server_file_name()),
+        fake_binary(next.clone(), healthy),
+    )
+    .unwrap();
+    std::fs::write(dir.join(install::import_file_name()), b"new importer").unwrap();
+    let index = empyrean_server::update::release::ReleaseIndex::parse(
+        &serde_json::json!({
+            "version": version, "assets": [], "upgrade": {
+                "kind": kind, "previous": "0.1.0", "upgrades_from": "0.1.0",
+                "databases": next.databases, "world_pack": next.world_pack,
+                "migrations": [], "world_pack_rebuild": false, "config": []
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    (dir, index)
+}
+fn managed_updater(installation: &Installation) -> Updater {
+    installation.updater(&Loopback {
+        base: "http://127.0.0.1:1".into(),
+        files: Arc::default(),
+    })
+}
+
+#[test]
+fn managed_patches_are_prepared_without_changing_the_world_and_installed_only_on_apply() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-patch");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
+    let original = installation.read(&install::server_file_name());
+    assert!(
+        managed::prepare(&updater, &candidate, &index, None)
+            .unwrap()
+            .automatic
+    );
+    assert_eq!(installation.read(&install::server_file_name()), original);
+    assert_eq!(installation.shard_version(), 1);
+    assert_eq!(managed::apply(&updater).unwrap().unwrap().version, "0.1.1");
+    assert!(managed::pending(&updater).unwrap().is_none());
+    assert_eq!(
+        updater
+            .build
+            .facts(&updater.layout.server_exe())
+            .unwrap()
+            .version,
+        "0.1.1"
+    );
+}
+
+#[test]
+fn managed_minor_and_major_releases_need_approval_of_the_exact_target_version() {
+    use empyrean_server::update::managed;
+    for (version, kind) in [("0.2.0", "minor"), ("1.0.0", "major")] {
+        let installation = Installation::new(&format!("managed-approval-{kind}"));
+        let updater = managed_updater(&installation);
+        let (candidate, index) = managed_candidate(&installation, version, kind, true);
+        assert!(managed::prepare(&updater, &candidate, &index, None).is_err());
+        assert!(managed::prepare(&updater, &candidate, &index, Some("9.9.9")).is_err());
+        assert!(managed::pending(&updater).unwrap().is_none());
+        assert!(
+            !managed::prepare(&updater, &candidate, &index, Some(version))
+                .unwrap()
+                .automatic
+        );
+        assert_eq!(managed::apply(&updater).unwrap().unwrap().version, version);
+        assert_eq!(installation.shard_version(), 2);
+    }
+}
+
+#[test]
+fn a_modified_staged_binary_is_refused_before_backups_or_installation() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-tamper");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
+    let original = installation.read(&install::server_file_name());
+    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(updater.layout.work_dir.join("managed-pending.json")).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        Path::new(receipt["dir"].as_str().unwrap()).join(install::server_file_name()),
+        b"changed",
+    )
+    .unwrap();
+    assert!(managed::apply(&updater)
+        .unwrap_err()
+        .contains("changed after verification"));
+    assert_eq!(installation.read(&install::server_file_name()), original);
+    assert!(!updater
+        .layout
+        .work_dir
+        .join("managed-recovery.json")
+        .exists());
+}
+
+#[test]
+fn a_failed_managed_trial_restores_binaries_and_database_schema() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-failed");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", false);
+    let original = installation.read(&install::server_file_name());
+    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    assert!(managed::apply(&updater)
+        .unwrap_err()
+        .contains("restored to 0.1.0"));
+    assert_eq!(installation.read(&install::server_file_name()), original);
+    assert_eq!(installation.shard_version(), 1);
+    assert!(managed::pending(&updater).unwrap().is_none());
+}
+
+#[test]
+fn a_later_rollback_restores_the_preupdate_character_snapshot() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-rollback");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", true);
+    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::apply(&updater).unwrap();
+    rusqlite::Connection::open(installation.dir.join("shard.db"))
+        .unwrap()
+        .execute("DELETE FROM hero", [])
+        .unwrap();
+    assert_eq!(managed::rollback(&updater).unwrap(), "0.1.0");
+    let name: String = rusqlite::Connection::open(installation.dir.join("shard.db"))
+        .unwrap()
+        .query_row("SELECT name FROM hero", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(name, "Asheron");
+    assert_eq!(installation.shard_version(), 1);
+}
+
+#[test]
+fn an_interrupted_install_recovers_before_another_update_can_start() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-interrupted");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", true);
+    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::apply(&updater).unwrap();
+    let path = updater.layout.work_dir.join("managed-recovery.json");
+    let mut journal: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    journal["state"] = "applying".into();
+    std::fs::write(&path, serde_json::to_vec(&journal).unwrap()).unwrap();
+    assert!(
+        managed::prepare(&updater, &candidate, &index, Some("0.2.0"))
+            .unwrap_err()
+            .contains("interrupted")
+    );
+    assert!(managed::apply(&updater)
+        .unwrap_err()
+        .contains("restored to 0.1.0"));
+    assert_eq!(installation.shard_version(), 1);
+    assert_eq!(
+        updater
+            .build
+            .facts(&updater.layout.server_exe())
+            .unwrap()
+            .version,
+        "0.1.0"
+    );
+}
+
+#[test]
+fn canceling_a_prepared_update_leaves_binaries_and_characters_unchanged() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-cancel");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
+    let original = installation.read(&install::server_file_name());
+    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::discard(&updater).unwrap();
+    assert!(managed::pending(&updater).unwrap().is_none());
+    assert!(managed::apply(&updater).unwrap().is_none());
+    assert_eq!(installation.read(&install::server_file_name()), original);
+    assert_eq!(installation.shard_version(), 1);
+}
+
+#[test]
+fn a_damaged_recovery_backup_refuses_rollback_before_changing_installed_files() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-damaged-backup");
+    let updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.2.0", "minor", true);
+    managed::prepare(&updater, &candidate, &index, Some("0.2.0")).unwrap();
+    managed::apply(&updater).unwrap();
+    let installed = installation.read(&install::server_file_name());
+    let journal: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(updater.layout.work_dir.join("managed-recovery.json")).unwrap(),
+    )
+    .unwrap();
+    let backup = journal["databases"][0][1].as_str().unwrap();
+    std::fs::write(backup, b"damaged").unwrap();
+    assert!(managed::rollback(&updater)
+        .unwrap_err()
+        .contains("backup is damaged"));
+    assert_eq!(installation.read(&install::server_file_name()), installed);
+    assert_eq!(installation.shard_version(), 2);
+}
+
+#[test]
+fn an_installed_update_with_an_uncleared_receipt_is_not_applied_twice() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-receipt");
+    let mut updater = managed_updater(&installation);
+    let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
+    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    let path = updater.layout.work_dir.join("managed-pending.json");
+    let receipt = std::fs::read(&path).unwrap();
+    updater.mine = managed::apply(&updater).unwrap().unwrap();
+    std::fs::write(&path, receipt).unwrap();
+    assert_eq!(managed::apply(&updater).unwrap().unwrap().version, "0.1.1");
+    assert!(!path.exists());
+    assert_eq!(managed::rollback(&updater).unwrap(), "0.1.0");
+}
+
+#[test]
+fn rollback_removes_a_database_created_by_the_trial_when_none_existed_before() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-new-database");
+    let updater = managed_updater(&installation);
+    let shard = installation.dir.join("shard.db");
+    std::fs::remove_file(&shard).unwrap();
+    let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
+    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::apply(&updater).unwrap();
+    assert!(shard.is_file());
+    managed::rollback(&updater).unwrap();
+    assert!(!shard.exists());
+}
+
+#[test]
+fn later_rollback_restores_configuration_and_content_with_the_characters() {
+    use empyrean_server::update::managed;
+    let installation = Installation::new("managed-config-snapshot");
+    let updater = managed_updater(&installation);
+    let config = installation.dir.join("empyrean.toml");
+    std::fs::write(&config, b"original configuration").unwrap();
+    let (candidate, index) = managed_candidate(&installation, "0.1.1", "patch", true);
+    managed::prepare(&updater, &candidate, &index, None).unwrap();
+    managed::apply_with_config(&updater, Some(&config)).unwrap();
+    std::fs::write(&config, b"later configuration").unwrap();
+    std::fs::write(&updater.layout.world_pack, b"later content").unwrap();
+    managed::rollback(&updater).unwrap();
+    assert_eq!(std::fs::read(&config).unwrap(), b"original configuration");
+    assert_eq!(
+        std::fs::read(&updater.layout.world_pack).unwrap(),
+        b"old pack"
+    );
 }

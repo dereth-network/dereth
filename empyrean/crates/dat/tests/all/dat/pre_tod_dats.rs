@@ -2,8 +2,10 @@
 //! The server's dat layer on the February 2005 dat set (portal.dat and cell.dat, before Throne of
 //! Destiny): the files open with their header iterations, the tables ACE reads up front decode in
 //! their own layouts (the skill table keeps its own weapon skills), and a character's body enters
-//! the world in the outdoor starter areas and in a dungeon cell.
-//! Fixture: the February 2005 portal and cell files (`DERETH_TEST_PRETOD_DAT_DIR`).
+//! the world in the outdoor starter areas and in a dungeon cell. With a data overlay over them,
+//! their own iterations are the version checked, not the overlay's revisions.
+//! Fixture: the February 2005 portal and cell files (`DERETH_TEST_PRETOD_DAT_DIR`), and an overlay
+//! written over them in a scratch folder.
 
 use std::sync::{Arc, OnceLock};
 
@@ -241,4 +243,68 @@ fn the_era_chooses_the_set_a_folder_holding_both_serves_and_a_missing_set_is_ref
     assert!(RealDats::open_era(&only_older, ContainerEra::Modern).is_err());
     let only_later = dereth_dat::testing::dat_dir();
     assert!(RealDats::open_era(&only_later, ContainerEra::Classic).is_err());
+}
+
+#[test]
+fn an_overlay_over_the_february_2005_files_is_not_taken_for_another_version() {
+    use dereth_dat::overlay::{OverlayDir, OverlayWriter};
+    use empyrean_dat::dat_manager::{iteration_warning, ITERATION_PORTAL};
+    let scratch = dereth_dat::testing::ScratchDir::new("pre-tod-overlay").expect("scratch");
+    let dir = dereth_dat::testing::classic_dat_dir().unwrap_or_else(|| {
+        panic!(
+            "{}",
+            dereth_dat::testing::classic_shortfall().unwrap_or_default()
+        )
+    });
+    let base = dereth_dat::RetailDatStore::open_classic_dir(&dir).expect("the 2005 dats");
+    let overlay = OverlayDir::new(&scratch.path().join("overlay")).expect("an overlay folder");
+    for (target, file, name) in [
+        (
+            dereth_dat::ModernDat::Portal,
+            base.portal().base(),
+            "portal.dat",
+        ),
+        (dereth_dat::ModernDat::Cell, base.cell().base(), "cell.dat"),
+    ] {
+        let revision = dereth_dat::decompose::revision_over(&file);
+        let id = file.iter_ids().nth(1).expect("a record");
+        let bytes = file.read(id).expect("the record");
+        let mut w = OverlayWriter::open_or_create(&overlay.container(target), &file, name, "w", 0)
+            .expect("the overlay");
+        w.put(id, &bytes, 1, revision, 0).expect("put");
+        w.add_iteration(revision, 0).expect("the revision");
+        w.flush(0).expect("flushed");
+    }
+    let real = RealDats::open_era(&dir, ContainerEra::Classic)
+        .expect("the 2005 dats")
+        .with_overlay(overlay.path())
+        .expect("the overlay over them");
+    let dats = DatManager::initialize(Arc::new(real)).expect("initialized");
+    // The overlay's revision is on top of the files' own iterations.
+    assert_eq!(
+        dats.portal_dat().iteration(),
+        ITERATION_PORTAL_FEBRUARY_2005 + 1
+    );
+    assert_eq!(
+        dats.cell_dat().iteration(),
+        ITERATION_CELL_FEBRUARY_2005 + 1
+    );
+    assert_eq!(
+        iteration_warning(dats.portal_dat(), ITERATION_PORTAL_FEBRUARY_2005),
+        None
+    );
+    assert_eq!(
+        iteration_warning(dats.cell_dat(), ITERATION_CELL_FEBRUARY_2005),
+        None
+    );
+    // Files that are not the version expected are still warned of.
+    let warning = iteration_warning(dats.portal_dat(), ITERATION_PORTAL).expect("a warning");
+    assert!(
+        warning.contains("expected February 2005 version of 2072"),
+        "{warning}"
+    );
+    assert_eq!(
+        iteration_warning(self::dats().portal_dat(), ITERATION_PORTAL_FEBRUARY_2005),
+        None
+    );
 }

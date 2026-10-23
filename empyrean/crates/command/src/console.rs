@@ -17,6 +17,10 @@
 //! owns the terminal, a log line goes through the editor (to standard output) only when standard
 //! error is that terminal too; redirected, it is written to the redirect as usual.
 //!
+//! **A tap.** Every line the console shows, a reply or a log line, is also handed to the tap set
+//! with [`set_tap`], when there is one: the server's admin channel passes them on to whoever is
+//! connected to it.
+//!
 //! **Terminal state.** The editor puts the terminal in raw mode (no echo, keys one at a time; on
 //! Windows the console's VT processing is turned on for the escape sequences it writes). [`stop`]
 //! gives the terminal back — the server calls it before it exits, however it exits — and a Ctrl-C
@@ -50,6 +54,29 @@ type InterruptHandler = Box<dyn Fn() + Send + Sync>;
 
 static INTERRUPT: Mutex<Option<InterruptHandler>> = Mutex::new(None);
 
+/// What [`set_tap`] sets: a function given each line the console shows.
+pub type Tap = Box<dyn Fn(&str) + Send + Sync>;
+
+/// What every line the console shows is handed to, besides the terminal ([`set_tap`]).
+static TAP: Mutex<Option<Tap>> = Mutex::new(None);
+
+/// Sets what every line the console shows (each reply and each log line, one line at a time) is
+/// handed to, besides the terminal, in place of the one before; `None` takes it away. The tap runs
+/// under the console's lock, so it must not block or write to the console.
+pub fn set_tap(tap: Option<Tap>) {
+    *TAP.lock().unwrap_or_else(PoisonError::into_inner) = tap;
+}
+
+/// Hands each line of `text` to the tap.
+fn tap(text: &str) {
+    let tap = TAP.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(tap) = tap.as_ref() {
+        for line in text.lines() {
+            tap(line);
+        }
+    }
+}
+
 fn console() -> MutexGuard<'static, Console> {
     CONSOLE.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -73,6 +100,7 @@ fn columns() -> usize {
 /// on standard output.
 pub fn write_line(text: &str) {
     let console = console();
+    tap(text);
     match &console.editor {
         Some(editor) => write_stdout(&editor.print_above(text, columns())),
         None => write_stdout(&format!("{text}\n")),
@@ -91,6 +119,7 @@ pub fn write(text: &str) {
 /// shows, else on standard error.
 pub fn write_log_line(line: &str) {
     let console = console();
+    tap(line);
     match &console.editor {
         Some(editor) if console.stderr_on_terminal => {
             write_stdout(&editor.print_above(line, columns()))

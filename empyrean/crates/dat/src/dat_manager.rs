@@ -394,21 +394,36 @@ impl DatManager {
 }
 
 fn log_opened(db: &DatDatabase, expected: i32) {
-    let set = if db.container_era() == ContainerEra::Classic {
-        "February 2005"
-    } else {
-        "end-of-retail"
-    };
     let count = db.all_files_count();
     let iteration = db.iteration();
     log::info!(
         "Successfully opened {} file, containing {count} records, iteration {iteration}",
         db.file_path()
     );
-    if iteration != expected {
-        log::warn!(
+    if let Some(warning) = iteration_warning(db, expected) {
+        log::warn!("{warning}");
+    }
+}
+
+/// What the server warns of when the file `db` is not the version it expects, `expected`
+/// iterations; `None` when it is. Not ACE: under a data overlay the file's own iterations are
+/// compared, not the overlay's revisions on top of them, which are the world's and never a
+/// mismatch.
+#[must_use]
+pub fn iteration_warning(db: &DatDatabase, expected: i32) -> Option<String> {
+    let set = if db.container_era() == ContainerEra::Classic {
+        "February 2005"
+    } else {
+        "end-of-retail"
+    };
+    let own = db.overlay().map_or_else(
+        || db.iteration(),
+        |layer| i32::try_from(layer.manifest().base_iterations).unwrap_or(i32::MAX),
+    );
+    (own != expected).then(|| {
+        format!(
             "{} iteration does not match expected {set} version of {expected}.",
             db.file_path()
-        );
-    }
+        )
+    })
 }

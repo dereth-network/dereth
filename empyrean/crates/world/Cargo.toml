@@ -42,6 +42,8 @@ getrandom.workspace = true
 
 [dev-dependencies]
 dereth-client-net = { workspace = true, features = ["test-support"] }
+# The Dereth client's patcher, to patch a client's overlay from what the server sends.
+dereth-client-runtime.workspace = true
 dereth-dat = { workspace = true, features = ["test-support"] }
 serde_json.workspace = true
 dereth-client-model.workspace = true

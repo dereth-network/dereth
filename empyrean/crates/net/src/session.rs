@@ -53,6 +53,8 @@ pub struct SessionCore {
     pub access_level: u32,
     pub logging_identifier: String,
     pub pending_termination: Option<SessionTerminationDetails>,
+    /// DIVERGE (V454): keep a clean disconnect reserved until the world finishes cleanup.
+    pub clean_disconnect_waiting_for_world: bool,
     /// Stands for ACE's `Player != null && logOffRequestTime == DateTime.MinValue`, the guard in
     /// `NetworkSession.VerifyEcho`. The world sets it.
     pub player_active: bool,
@@ -71,6 +73,7 @@ impl SessionCore {
         extra_reason: String,
         utc_now: DotNetDateTime,
     ) {
+        self.clean_disconnect_waiting_for_world = false;
         self.pending_termination = Some(SessionTerminationDetails::new(
             reason,
             extra_reason,
@@ -126,6 +129,7 @@ impl Session {
                 access_level: 0,
                 logging_identifier: "Unverified".to_string(),
                 pending_termination: None,
+                clean_disconnect_waiting_for_world: false,
                 player_active: false,
                 login_request: None,
             },
@@ -183,7 +187,9 @@ impl Session {
                 // "boot messages may need sending"
                 self.network.update(&self.core, io);
                 if let Some(pending) = self.core.pending_termination.as_mut() {
-                    if io.now.utc > pending.termination_end_ticks {
+                    if !self.core.clean_disconnect_waiting_for_world
+                        && io.now.utc > pending.termination_end_ticks
+                    {
                         pending.termination_status = SessionTerminationPhase::SessionWorkCompleted;
                     }
                 }

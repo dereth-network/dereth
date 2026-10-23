@@ -32,6 +32,9 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     program::init_logging();
+    if std::env::args().nth(1).as_deref() == Some("managed-update") {
+        return server_update::managed_command(std::env::args().skip(2));
+    }
     if std::env::args().nth(1).as_deref() == Some("update") {
         return server_update::command(std::env::args().skip(2));
     }

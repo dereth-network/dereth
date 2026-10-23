@@ -51,6 +51,13 @@ pub type CharacterSummary = empyrean_store::models::shard::Character;
 pub struct SessionData {
     // ACE: Session.GameEventSequence
     pub game_event_sequence: u32,
+    /// DIVERGE (V454): the final database barrier has been queued for this disconnect.
+    pub disconnect_save_pending: bool,
+    /// DIVERGE (V454): a new login waits for the previous clean disconnect's cleanup.
+    pub pending_login: Option<(
+        std::net::SocketAddr,
+        empyrean_net::PacketInboundLoginRequest,
+    )>,
     // ACE: Session.State
     pub state: SessionState,
     // ACE: Session.AccountId
@@ -94,6 +101,9 @@ pub struct SessionData {
     /// being counted: when it began and the bytes sent in it.
     pub overlay_bytes_per_second: u32,
     pub overlay_window: (DotNetDateTime, u64),
+    /// Not ACE (V437): this session's client answered for another world than this one and was
+    /// asked again; it is asked once.
+    pub overlay_asked_again: bool,
 }
 
 impl Default for SessionData {
@@ -101,6 +111,8 @@ impl Default for SessionData {
     fn default() -> Self {
         Self {
             game_event_sequence: 0,
+            disconnect_save_pending: false,
+            pending_login: None,
             state: SessionState::AuthLoginRequest,
             account_id: 0,
             account: None,
@@ -122,6 +134,7 @@ impl Default for SessionData {
             overlay_rate_limiter: None,
             overlay_bytes_per_second: 0,
             overlay_window: (DotNetDateTime::MIN_VALUE, 0),
+            overlay_asked_again: false,
         }
     }
 }
@@ -221,6 +234,54 @@ impl Sessions {
     /// The sessions in handle order.
     pub fn iter(&self) -> impl Iterator<Item = (SessionId, &SessionData)> {
         self.map.iter().map(|(k, v)| (*k, v))
+    }
+}
+
+/// DIVERGE (V454): clean disconnects finish after player removal and queued database saves.
+pub fn finish_clean_disconnects(w: &mut World) {
+    let ids: Vec<_> = w
+        .net
+        .sessions()
+        .filter(|s| {
+            s.core.pending_termination.as_ref().is_some_and(|p| {
+                p.reason == empyrean_net::SessionTerminationReason::PacketHeaderDisconnect
+            })
+        })
+        .map(|s| s.core.id)
+        .collect();
+    for session in ids {
+        w.net.hold_clean_disconnect(session);
+        log_off_player(w, session, false);
+        if w.sessions
+            .player(session)
+            .is_some_and(|p| player_manager::get_online_player(w, p.full()).is_some())
+        {
+            continue;
+        }
+        if w.sessions.player(session).is_some() {
+            send_final_log_off_messages(w, session);
+        }
+        if w.sessions.player(session).is_some() {
+            continue;
+        }
+        let Some(s) = w.sessions.get_mut(session) else {
+            w.net.finish_clean_disconnect(session);
+            continue;
+        };
+        if s.disconnect_save_pending {
+            continue;
+        }
+        s.disconnect_save_pending = true;
+        // The serialized read runs after all saves queued by the player's final cleanup.
+        w.shard.get_characters(
+            s.account_id,
+            false,
+            Some(Box::new(move |w: &mut World, _| {
+                if w.sessions.player(session).is_none() && w.net.finish_clean_disconnect(session) {
+                    w.sessions.remove(session);
+                }
+            })),
+        );
     }
 }
 

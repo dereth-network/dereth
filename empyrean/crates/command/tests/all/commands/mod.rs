@@ -7,3 +7,5 @@ pub(crate) mod developer_commands;
 pub(crate) mod empyrean_commands;
 pub(crate) mod fix_and_account_commands;
 pub(crate) mod server_performance;
+
+mod playtest_character;

@@ -495,6 +495,13 @@ pub fn main(options: &Options) -> ExitCode {
 
     let status = start_status_endpoint(options, &config, &commands, started);
 
+    // Not ACE: the admin channel (`server.admin_channel`), never in the updater's health check,
+    // which must leave the running server's file alone.
+    let admin = match &options.update_trial {
+        Some(_) => None,
+        None => start_admin_channel(&config, &paths, &commands),
+    };
+
     // Not ACE: the updater (`server.update`); never in the updater's own health check.
     let auto_update = match &options.update_trial {
         Some(_) => None,
@@ -543,6 +550,10 @@ pub fn main(options: &Options) -> ExitCode {
     // The status address is free for whichever server runs next.
     if let Some(status) = status {
         status.shutdown();
+    }
+    // The channel's file goes with it: a server that follows writes its own.
+    if let Some(admin) = admin {
+        admin.shutdown();
     }
     // Not ACE: a release the updater staged is installed now that everything is saved, and the
     // new server (or, when it fails, the restored one) takes over this process.
@@ -1206,6 +1217,38 @@ fn start_status_endpoint(
         }
         Err(e) => {
             log::error!("Status endpoint not started: {e}");
+            None
+        }
+    }
+}
+
+/// Not ACE: starts the admin channel in the server's folder while `server.admin_channel` is on
+/// ([`empyrean_server::admin_channel`]); off, a file an earlier run left there is removed.
+fn start_admin_channel(
+    config: &MasterConfiguration,
+    paths: &PathBase,
+    commands: &Sender<WorldCommand>,
+) -> Option<empyrean_server::admin_channel::AdminChannel> {
+    use empyrean_server::admin_channel;
+    if !config.server.admin_channel {
+        admin_channel::remove_stale(&paths.base);
+        return None;
+    }
+    let hello = serde_json::json!({
+        "hello": "empyrean",
+        "version": env!("CARGO_PKG_VERSION"),
+        "world": config.server.world_name,
+    });
+    match admin_channel::start(&paths.base, commands.clone(), hello) {
+        Ok(channel) => {
+            log::info!(
+                "Admin channel: on loopback, written to {}",
+                channel.file().display()
+            );
+            Some(channel)
+        }
+        Err(e) => {
+            log::warn!("Admin channel not started: {e}");
             None
         }
     }

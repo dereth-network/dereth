@@ -620,6 +620,36 @@ impl ServerNet {
             .map(|s| s.core.id)
     }
 
+    /// DIVERGE (V454): reserve a cleanly disconnected account during world cleanup.
+    pub fn hold_clean_disconnect(&mut self, session: SessionId) -> bool {
+        let Some(i) = self.resolve(session) else {
+            return false;
+        };
+        let s = self.session_map[i].as_mut().expect("resolved session");
+        if !s
+            .core
+            .pending_termination
+            .as_ref()
+            .is_some_and(|p| p.reason == SessionTerminationReason::PacketHeaderDisconnect)
+        {
+            return false;
+        }
+        s.core.clean_disconnect_waiting_for_world = true;
+        true
+    }
+
+    /// DIVERGE (V454): release only this generation after its player and saves are finished.
+    pub fn finish_clean_disconnect(&mut self, session: SessionId) -> bool {
+        let Some(i) = self.resolve(session) else {
+            return false;
+        };
+        if !self.hold_clean_disconnect(session) {
+            return false;
+        }
+        self.drop_session(i);
+        true
+    }
+
     // ACE: NetworkManager.RemoveSession
     fn remove_session(&mut self, index: usize) -> Option<Session> {
         self.session_map.get_mut(index)?.take()

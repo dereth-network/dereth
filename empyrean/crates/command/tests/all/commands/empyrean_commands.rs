@@ -1,6 +1,7 @@
 //! Divergence: V367, V368, V452
 //! Empyrean's own command names sit after ACE's rows and answer on the console; reportbug keeps
-//! ACE's slot with Empyrean's handler and points at the issue tracker.
+//! ACE's slot with Empyrean's handler and points at the issue tracker; save-world saves what a
+//! clean shutdown saves, with the world left running.
 //! Fixture: checked-in ACE JSON vectors and the local case adapters.
 
 use empyrean_command::command_manager;
@@ -11,7 +12,7 @@ use empyrean_entity::enums::AccessLevel;
 pub const REPLACED: [&str; 1] = ["reportbug"];
 
 /// Commands only Empyrean has.
-pub const EMPYREAN_NAMES: [&str; 8] = [
+pub const EMPYREAN_NAMES: [&str; 10] = [
     "emphelp",
     "empcommands",
     "empversion",
@@ -20,6 +21,8 @@ pub const EMPYREAN_NAMES: [&str; 8] = [
     "derethnetwork",
     "dng",
     "reload-dat-overlay",
+    "playtest-character",
+    "save-world",
 ];
 
 /// ACE's names for Empyrean's commands: ACE's rows, listed as "Same as @<ours> (ACE's name).".
@@ -281,5 +284,79 @@ fn reload_dat_overlay_answers_on_the_console_and_takes_landblocks_as_xxyy() {
     assert_eq!(
         console(&["overlay-b", "A9B4", "nowhere"]),
         ["nowhere is not a landblock: give it as XXYY"]
+    );
+}
+
+#[test]
+fn overlay_revision_rejection_names_the_exact_revision_and_keeps_the_world() {
+    use empyrean_command::empyrean::reload_dat_overlay::handle_reload_dat_overlay;
+    let _table = super::command_manager::initialized_table();
+    let mut ts = empyrean_testkit::TestServer::new();
+    let original = std::sync::Arc::clone(&ts.world.dats);
+    command_manager::start_console_capture();
+    handle_reload_dat_overlay(
+        &mut ts.world,
+        None,
+        &[
+            "--revision".into(),
+            "17".into(),
+            "unavailable".into(),
+            "A9B4".into(),
+        ],
+    );
+    let output = command_manager::take_console_output();
+    assert_eq!(output.len(), 1);
+    assert!(output[0].starts_with("Overlay revision 17: rejected;"));
+    assert!(std::sync::Arc::ptr_eq(&original, &ts.world.dats));
+}
+
+/// `save-world` is an admin's, from the console too: it saves now what a clean shutdown saves (here
+/// an offline player with changes), says at once what it is saving, and says `Saved.` only once
+/// the database has answered for all of it, at the world's next turn.
+#[test]
+fn save_world_saves_now_and_says_saved_once_the_database_has_answered() {
+    use empyrean_command::empyrean::save_world;
+    use empyrean_entity::enums::{PropertyString, WeenieType};
+    use empyrean_world::entity::offline_player::OfflinePlayer;
+    let _table = super::command_manager::initialized_table();
+    let rows = command_manager::get_command_by_name("save-world");
+    assert_eq!(rows.len(), 1, "registered once");
+    assert_eq!(rows[0].attribute.access, AccessLevel::Admin);
+    assert_eq!(rows[0].attribute.parameter_count, 0);
+    let mut ts = empyrean_testkit::TestServer::new();
+    const SAM: u32 = 0x5000_0042;
+    let mut biota = empyrean_entity::Biota {
+        id: SAM,
+        weenie_class_id: 1,
+        weenie_type: WeenieType::Creature,
+        ..Default::default()
+    };
+    biota.set_property(PropertyString::Name, "Sam".to_owned());
+    let mut sam = {
+        let mut shard = ts.shard();
+        let mut auth = ts.auth();
+        OfflinePlayer::new(biota, &mut **shard, &mut **auth)
+    };
+    sam.changes_detected = true;
+    ts.world.player_manager.offline_players.insert(SAM, sam);
+    assert!(ts.shard().get_biota(SAM, true).is_none(), "not saved yet");
+
+    command_manager::start_console_capture();
+    save_world::handle_save_world(&mut ts.world, None, &[]);
+    assert_eq!(
+        command_manager::take_console_output(),
+        ["Saving 0 players and 0 landblocks..."]
+    );
+    command_manager::start_console_capture();
+    ts.step();
+    assert_eq!(command_manager::take_console_output(), ["Saved."]);
+    assert_eq!(
+        ts.shard().get_biota(SAM, true).map(|b| b.id),
+        Some(SAM),
+        "the offline player with changes is saved"
+    );
+    assert_eq!(
+        save_world::saving_message(1, 1),
+        "Saving 1 player and 1 landblock..."
     );
 }

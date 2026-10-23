@@ -110,6 +110,13 @@ status_public_url = ""
 # service or in a container with no terminal.
 interactive_console = true
 
+# default: true (Empyrean only)
+# A console for programs on this computer, such as the Dereth launcher: it listens on
+# loopback only, and writes its address and a new secret to admin-channel.json in the
+# server's folder at each start. Whoever can read that file can type console commands.
+# Set it false to have no console but the terminal.
+admin_channel = true
+
 # default: "" (Empyrean only)
 # Where players are told this server's source code is (the login welcome, @source, the
 # version report and the status endpoint). Empty means the repository the build came

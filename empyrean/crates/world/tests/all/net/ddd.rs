@@ -757,8 +757,10 @@ mod real_content {
             .read(dereth_dat::divine::ITERATION_LIST)
             .expect("an iteration list");
         let ints: Vec<i32> = raw
-            .chunks_exact(4)
-            .map(|c| i32::from_le_bytes(c.try_into().expect("4 bytes")))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| i32::from_le_bytes(*c))
             .collect();
         MostlyConsecutiveIntSet {
             iterations: ints[0],

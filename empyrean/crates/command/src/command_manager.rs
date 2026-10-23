@@ -455,6 +455,27 @@ fn console_line(command_line: String, submit: &dyn Fn(WorldCommand) -> bool) -> 
     }))
 }
 
+/// Not ACE: one line from the server's admin channel, run as a line typed at the console is:
+/// parsed here, then looked up and run on the world thread through `submit`. A blank line is
+/// skipped, and one that does not parse is logged as the console logs it. False when the world
+/// thread is gone.
+pub fn submit_console_line(command_line: &str, submit: &dyn Fn(WorldCommand) -> bool) -> bool {
+    if command_line.chars().all(char::is_whitespace) {
+        return true;
+    }
+    let (command, parameters) = match parse_command(command_line) {
+        Ok(parsed) => parsed,
+        Err(ex) => {
+            log::error!("Exception while parsing command: {command_line} ({ex})");
+            return true;
+        }
+    };
+    let command_line = command_line.to_owned();
+    submit(Box::new(move |w: &mut World| {
+        run_console_command(w, &command_line, command, parameters)
+    }))
+}
+
 /// The rest of one console line (`CommandThread`), on the world thread:
 /// `GetCommandHandler(null, ...)` and, when `Ok`, the invoke.
 pub fn run_console_command(

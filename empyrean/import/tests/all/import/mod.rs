@@ -1,5 +1,6 @@
 pub(crate) mod content_clock;
 mod dump_reader;
+mod gdle_export;
 pub(crate) mod gdle_import;
 pub(crate) mod gdle_loaders;
 pub(crate) mod import_json;

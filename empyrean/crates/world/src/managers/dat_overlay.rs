@@ -10,8 +10,11 @@
 //!   ones the overlay was made against (a client holding another base is refused, with the reason,
 //!   rather than patched into an incoherent world; a client that checks bases by their records is
 //!   left to check a file laid out otherwise itself); `DDD_OverlayManifestMessage` (`0xF7EC`) names
-//!   the world, the bases, every record with its SHA-256 and every deletion; and the world's cell
-//!   records come in the patch itself rather than being purged for the client to ask for one by one.
+//!   the world, the bases, every record with its SHA-256 and every deletion; the world's cell
+//!   records come in the patch itself rather than being purged for the client to ask for one by
+//!   one; and a client that names the world its iteration lists are of, and names another, is told
+//!   this world's name and asked again (`0xF7E5`), once a session, so it answers from this world's
+//!   own folder.
 //! - **Deletions** (V438): a record the overlay deletes from the portal, language or high-res file
 //!   is purged in its revision, which ACE never does; a deleted cell takes its landblock family's
 //!   purge for a client without the extension (the retail purge's own reach), and stays a

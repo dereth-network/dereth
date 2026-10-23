@@ -289,7 +289,24 @@ When the server runs in a terminal, it reads commands at the `empyrean>> ` promp
   (ACE's `acehelp`).
 - `exit` shuts the server down cleanly. Ctrl-C does the same; a second Ctrl-C exits at once,
   **without saving**.
+- `save-world` saves every player and what the world keeps (houses, what is stored in them,
+  everything a clean shutdown saves) now, and keeps the world running. It says `Saved.` once the
+  database has written it all.
 - `config-write [<path>] [-f]` writes the configuration in use as a commented `empyrean.toml`.
+
+**The admin channel.** A program on the same computer can use the console too, which is how the
+Dereth launcher passes commands to a world it did not start, a service among them. At each start
+the server listens on loopback, on a port the system picks, and writes the address and a new
+random secret to `admin-channel.json` in its folder (the configuration's, else the working
+directory); it removes the file when it stops. A program that reads the file connects, sends the
+secret as its first line, then sends console commands, one a line, and reads what the console
+shows, replies and log lines, as JSON lines (`{"line": "..."}`). A connection that does not begin
+with the secret is closed without a word, and at most four are connected at once.
+
+So whoever can read the world's folder can type console commands, as whoever can read it can read
+its databases. On Linux and macOS the file is readable by the server's own user alone; on Windows
+it has the folder's permissions, so keep a world that runs as a service in a folder only its
+administrators can read. `[server] admin_channel = false` turns the channel off: no port, no file.
 
 ### 4.4 Logs
 
@@ -854,3 +871,23 @@ where every path resolved.
 
 Logs go to standard error: the terminal, the file you redirect it to, or your service manager's
 journal.
+
+
+## Launcher-managed updates
+
+A launcher-managed host disables the independent updater and stages verified downloads with
+`empyrean-server managed-update stage --config <file> --candidate <directory> --index <release.json>`.
+This local control interface trusts the caller to check the download first. The launcher checks
+the archive and `release.json` against the release's `SHA256SUMS`, as `update` does. `check` accepts the
+same inputs without staging; `status` reports the prepared update and `cancel` discards it.
+Every control returns a JSON response with `ok` and either `result` or `error`.
+
+Only compatible patches stage automatically. Other releases need `--approve <exact-version>`
+and must declare the installed version as their predecessor. Required configuration changes
+are refused; world-pack changes need the configured source SQL for rebuilding.
+
+With the world stopped, `managed-update apply --config <file>` backs up databases and affected
+files, installs the release and trial-starts it. A failed trial restores the backup. An interrupted
+transaction restores before another start is allowed. `managed-update rollback --config <file>`
+restores the retained previous version and databases, discarding progress made since that backup.
+Keep `.empyrean-update` with the runtime until its recovery data is no longer needed.

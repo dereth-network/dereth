@@ -705,6 +705,70 @@ mod real {
     }
 }
 
+/// A house the retail table of root houses does not list (one added to the world later) answers
+/// to the house of its house id whose links hold its slumlord: a villa's basement house to the
+/// house above, the house above to itself, and a mansion's other buildings' houses to the one
+/// holding the slumlord.
+#[test]
+fn a_house_the_retail_table_does_not_list_answers_to_the_house_of_its_id_holding_its_slumlord() {
+    const VILLA: u32 = 100_001;
+    const ABOVE: u32 = 0x7F6F_6FFE;
+    const ANNEX: u32 = 0x7F6F_6FFF;
+    const BELOW: u32 = 0x7F6E_0FFF;
+    const LORD: u32 = 0x7F6F_6FFD;
+    let thing = |wcid: u32, class: &str, t: WeenieType| {
+        Weenie::new(wcid, class, t)
+            .with_string(PropertyString::Name, class)
+            .with_did(PropertyDataId::Setup, land::TEST_SETUP)
+    };
+    let link = |id: u32, parent_guid: u32, child_guid: u32| LandblockInstanceLink {
+        id,
+        parent_guid,
+        child_guid,
+        ..Default::default()
+    };
+    let mut above = LandblockInstance::new(ABOVE, VILLA, 0xF6F6_0105, [80.0, 10.0, 94.0]);
+    above.landblock_instance_link = vec![link(1, ABOVE, LORD)];
+    let content = MemContent::new()
+        .weenie(
+            thing(VILLA, "housevilla100001", WeenieType::House)
+                .with_int(PropertyInt::HouseType, HouseType::Villa.0)
+                .with_did(PropertyDataId::HouseId, VILLA),
+        )
+        .weenie(thing(SLUMLORD, "slumlordvilla", WeenieType::SlumLord))
+        .landblock_instance(above)
+        .landblock_instance(LandblockInstance::new(
+            ANNEX,
+            VILLA,
+            0xF6F6_0109,
+            [100.0, 10.0, 94.0],
+        ))
+        .landblock_instance(LandblockInstance {
+            is_link_child: true,
+            ..LandblockInstance::new(LORD, SLUMLORD, 0xF6F6_0000, [82.0, 4.0, 94.0])
+        })
+        .landblock_instance(LandblockInstance::new(
+            BELOW,
+            VILLA,
+            0xF6E0_0110,
+            [20.0, -18.0, -6.0],
+        ));
+    let mut ts = TestServer::new();
+    ts.world.content = Arc::new(content);
+    house_manager::initialize(&mut ts.world);
+    guid_manager::initialize(&mut ts.world, &mut EmptyShard);
+    let w = &mut ts.world;
+    for g in [ABOVE, ANNEX, BELOW] {
+        assert!(empyrean_tables::house_cell::ROOT_GUIDS.get(&g).is_none());
+    }
+    let above = house::load(w, ABOVE, false).expect("the house above");
+    let below = house::load(w, BELOW, true).expect("the basement's house");
+    assert_eq!(house::root_guid(w, above), ObjectGuid::new(ABOVE));
+    assert_eq!(house::root_guid(w, below), ObjectGuid::new(ABOVE));
+    let annex = house::load(w, ANNEX, true).expect("the annex's house");
+    assert_eq!(house::root_guid(w, annex), ObjectGuid::new(ABOVE));
+}
+
 /// `Container(Biota)` (Container.cs): a storage chest restored from its saved biota when its
 /// landblock loads loads its own saved inventory from the shard (`GetInventoryInParallel`, then
 /// `SortBiotasIntoInventory` on its queue), as the insertion hook starts it.

@@ -80,7 +80,8 @@
 //! form shows), which the world editor reads: see [`schema`].
 //!
 //! `gdle` writes content for GDLE: the weenies, landblock spawns and quests SQL content reaches,
-//! as Lifestoned and GDLE JSON: see [`gdle`].
+//! as Lifestoned and GDLE JSON, and the quests it adds or changes as GDLE's `quests.json`, merged
+//! into a server's own when one is named, less the quests it takes away: see [`gdle`].
 //!
 //! `--corrections` lists every correction entry of this build (applies, stale or absent, with the
 //! stored and corrected values and the divergence row), every value each correction rule changes,
@@ -128,8 +129,10 @@ fn usage() -> ExitCode {
          \x20                  (the setups the world's spawns are drawn with, how many and where, for the art survey)\n\
          \x20      empyrean-import schema [--out <schema.json>]\n\
          \x20                  (the names of the world's content, for the world editor's forms)\n\
-         \x20      empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>\n\
-         \x20                  (the weenies, landblock spawns and quests the patches reach, as GDLE's JSON)\n\
+         \x20      empyrean-import gdle --sql <dump.sql> --patches <dir|file>... [--quests <quests.json>] [--now <YYYY-MM-DD HH:MM:SS>] --out <dir>\n\
+         \x20                  (the weenies, landblock spawns and quests the patches reach, as GDLE's JSON,\n\
+         \x20                  and quests.json, the quests they add or change merged into the --quests list,\n\
+         \x20                  less those they take away, which quests-removed.json names)\n\
          \x20      empyrean-import --sql <dump.sql> [--patches ...] [--json ...] [--era ...] --overlay <overlay.sqlite> [--overlay-journal <dir>]\n\
          \x20                  --out <world.pack> [--report <report.json>]\n\
          \x20  --era      the era the pack is for, recorded in it: eor (default, the end of retail) or infiltration\n\
