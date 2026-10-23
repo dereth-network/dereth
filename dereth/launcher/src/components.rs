@@ -522,6 +522,7 @@ fn list_worlds(home: Option<&Path>, opened: &[PathBuf]) -> Vec<(PathBuf, bool)> 
         .into_iter()
         .flatten()
         .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().starts_with(DELETING))
         .map(|e| e.path().join("world.toml"))
         .filter(|p| p.is_file())
         .filter(|p| seen.insert(identity(p)))
@@ -1457,6 +1458,116 @@ pub async fn upgrade_lyceum_world(shared: State<'_, Shared>, world: PathBuf) -> 
     Ok(())
 }
 
+/// Delete the Lyceum world `world` (its `world.toml`, or the folder that holds it) and everything
+/// in its folder, while Lyceum is closed. The page has the person confirm it in place first. The
+/// worlds it was published to keep playing it: a publish is a copy in the hosted world's folder.
+#[tauri::command]
+pub async fn delete_lyceum_world(shared: State<'_, Shared>, world: PathBuf) -> Result<(), String> {
+    let shared = shared.inner().clone();
+    let (root, home) = {
+        let mut store = lock(&shared);
+        let root = store.root.clone();
+        let e = entry(&mut store, Product::Lyceum);
+        e.children
+            .retain_mut(|child| !matches!(child.try_wait(), Ok(Some(_))));
+        if e.view.busy || !e.children.is_empty() {
+            return Err("Cannot delete while Lyceum is open".into());
+        }
+        e.view.busy = true;
+        e.view.error = false;
+        e.view.message = Some("Deleting the world...".into());
+        (root, e.view.home.clone())
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let recent = lyceum_settings().map(|d| d.join("recent-worlds.toml"));
+        delete_world(&world, home.as_deref(), &root, recent.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r);
+    let mut store = lock(&shared);
+    store.listed = None;
+    let e = entry(&mut store, Product::Lyceum);
+    e.view.busy = false;
+    e.view.message = None;
+    result
+}
+
+/// Delete the world `world` ([`crate::lyceum_world::deletable`] says which folder, and refuses
+/// any other), then forget it in the launcher's own list in its data folder `root` and in
+/// Lyceum's recent worlds file `recent`. The folder is first moved aside to a hidden folder
+/// beside it, which fails while a program holds one of its files, and then nothing is changed;
+/// only once it is moved is the world forgotten and the moved folder deleted.
+fn delete_world(
+    world: &Path,
+    home: Option<&Path>,
+    root: &Path,
+    recent: Option<&Path>,
+) -> Result<(), String> {
+    let folder = crate::lyceum_world::deletable(world, home)?;
+    let file = folder.join("world.toml");
+    // Which entries name it is read while it is there to compare.
+    let names = |w: &Path| {
+        let w = if w.is_dir() {
+            w.join("world.toml")
+        } else {
+            w.to_path_buf()
+        };
+        w.canonicalize().is_ok_and(|w| w == file)
+    };
+    let mut opened = launcher_opened(root);
+    let opened_before = opened.len();
+    opened.retain(|w| !names(w));
+    let recent_text = recent
+        .and_then(|r| std::fs::read_to_string(r).ok())
+        .and_then(|t| without_recent(&t, &names));
+    let aside = aside_of(&folder)?;
+    std::fs::rename(&folder, &aside).map_err(|_| "Cannot delete while Lyceum is open")?;
+    if opened.len() != opened_before {
+        if let Ok(bytes) = serde_json::to_vec_pretty(&opened) {
+            let _ = std::fs::write(root.join(OPENED_FILE), bytes);
+        }
+    }
+    if let (Some(recent), Some(text)) = (recent, recent_text) {
+        let _ = std::fs::write(recent, text);
+    }
+    std::fs::remove_dir_all(&aside).map_err(|e| {
+        eprintln!(
+            "dereth-launcher: what is left of a deleted world is in {}: {e}",
+            plain_path(&aside).display()
+        );
+        FAILED.to_owned()
+    })
+}
+
+/// What a delete of a world says when it fails for any reason but Lyceum being open or the
+/// folder holding no world.
+const FAILED: &str = "Failed to delete Lyceum world";
+
+/// The start of the name of a world's folder while it is being deleted; such a folder is never
+/// listed.
+const DELETING: &str = ".deleting-";
+
+/// A free name beside `folder` to move it to while it is deleted: `.deleting-<name>-<n>`.
+fn aside_of(folder: &Path) -> Result<PathBuf, String> {
+    let parent = folder.parent().ok_or(FAILED)?;
+    let name = folder.file_name().ok_or(FAILED)?.to_string_lossy();
+    (0..1000)
+        .map(|n| parent.join(format!("{DELETING}{name}-{n}")))
+        .find(|p| std::fs::symlink_metadata(p).is_err())
+        .ok_or_else(|| FAILED.to_owned())
+}
+
+/// Lyceum's recent worlds file `text` without the worlds `names` matches, the rest of it as it
+/// was; `None` when it names none of them, or does not read.
+fn without_recent(text: &str, names: &dyn Fn(&Path) -> bool) -> Option<String> {
+    let mut doc = text.parse::<toml_edit::DocumentMut>().ok()?;
+    let worlds = doc.get_mut("worlds")?.as_array_mut()?;
+    let before = worlds.len();
+    worlds.retain(|w| !w.as_str().is_some_and(|w| names(Path::new(w))));
+    (worlds.len() != before).then(|| doc.to_string())
+}
+
 /// Hold Lyceum while a world is published: its `lyceum` command builds the world, so the editor
 /// must be closed and nothing else may use it meanwhile.
 pub fn begin_build(shared: &Shared) -> Result<PathBuf, String> {
@@ -1864,6 +1975,160 @@ mod tests {
         }
         assert_eq!(launcher_opened(&root).len(), OPENED_KEPT);
         assert!(launcher_opened(temp.path()).is_empty(), "no list yet");
+    }
+
+    /// A link at `link` to the folder `target`: a junction on Windows, which needs no rights.
+    fn link_to(target: &Path, link: &Path) {
+        #[cfg(windows)]
+        assert!(Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap()
+            .status
+            .success());
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    /// Deleting a world removes its whole folder and forgets it on the launcher's list and in
+    /// Lyceum's recent worlds, keeping the other worlds and the rest of Lyceum's file.
+    #[test]
+    fn deleting_a_world_removes_its_folder_and_forgets_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let home = temp.path().join("Documents/Lyceum");
+        let doomed = made_world(&home, "doomed");
+        let kept = made_world(&home, "kept");
+        std::fs::create_dir_all(home.join("doomed/sample/edits")).unwrap();
+        std::fs::write(home.join("doomed/sample/pack.toml"), "name = 'sample'\n").unwrap();
+        remember_opened(&root, &doomed);
+        remember_opened(&root, &kept);
+        let recent = temp.path().join("recent-worlds.toml");
+        let entry = |w: &Path| toml::Value::from(w.display().to_string()).to_string();
+        std::fs::write(
+            &recent,
+            format!(
+                "# Lyceum's list.\ndats = 'C:/Games/AC'\nworlds = [{}, {}]\n",
+                entry(doomed.parent().unwrap()),
+                entry(&kept)
+            ),
+        )
+        .unwrap();
+
+        delete_world(&doomed, Some(&home), &root, Some(&recent)).unwrap();
+        assert!(!home.join("doomed").exists());
+        assert!(kept.is_file());
+        assert_eq!(launcher_opened(&root), [plain_path(&kept)]);
+        let text = std::fs::read_to_string(&recent).unwrap();
+        assert_eq!(recent_from(&text), [plain_path(&kept)]);
+        assert!(text.starts_with("# Lyceum's list.\ndats = 'C:/Games/AC'\n"));
+        assert_eq!(
+            list_worlds(Some(&home), &launcher_opened(&root)),
+            [(plain_path(&kept), true)]
+        );
+
+        // A world named by its folder is deleted the same.
+        delete_world(kept.parent().unwrap(), Some(&home), &root, None).unwrap();
+        assert!(!home.join("kept").exists());
+        assert!(home.is_dir(), "Lyceum's folder for worlds stays");
+        assert_eq!(
+            std::fs::read_dir(&home).unwrap().count(),
+            0,
+            "nothing is left aside"
+        );
+
+        // A folder left part deleted is never listed as a world.
+        made_world(&home, ".deleting-gone-0");
+        assert!(list_worlds(Some(&home), &[]).is_empty());
+    }
+
+    /// A world one of whose files a program holds is left whole: its folder, the launcher's list
+    /// and Lyceum's recent worlds are as they were, and the reason is to close Lyceum.
+    #[cfg(windows)]
+    #[test]
+    fn a_world_whose_file_is_held_open_is_not_deleted_at_all() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let home = temp.path().join("Documents/Lyceum");
+        let world = made_world(&home, "held");
+        std::fs::create_dir_all(home.join("held/sample")).unwrap();
+        std::fs::write(home.join("held/sample/pack.toml"), "name = 'sample'\n").unwrap();
+        remember_opened(&root, &world);
+        let recent = temp.path().join("recent-worlds.toml");
+        let text = format!(
+            "worlds = [{}]\n",
+            toml::Value::from(world.display().to_string())
+        );
+        std::fs::write(&recent, &text).unwrap();
+        let opened = std::fs::read(root.join(OPENED_FILE)).unwrap();
+        // Held as an editor holds a file it has open: others may read it, not move it.
+        let _held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(home.join("held/sample/pack.toml"))
+            .unwrap();
+        assert_eq!(
+            delete_world(&world, Some(&home), &root, Some(&recent)).unwrap_err(),
+            "Cannot delete while Lyceum is open"
+        );
+        assert!(world.is_file());
+        assert!(home.join("held/sample/pack.toml").is_file());
+        assert_eq!(std::fs::read_dir(&home).unwrap().count(), 1);
+        assert_eq!(std::fs::read(root.join(OPENED_FILE)).unwrap(), opened);
+        assert_eq!(std::fs::read_to_string(&recent).unwrap(), text);
+    }
+
+    /// Only a world's own folder is deleted: never one without a world file, nor Lyceum's folder
+    /// for worlds or the folders that hold it, nor a folder that holds a link, whose target is
+    /// left as it was.
+    #[test]
+    fn deleting_refuses_a_folder_that_is_not_just_a_world() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("data");
+        let documents = temp.path().join("Documents");
+        let home = documents.join("Lyceum");
+        let delete = |w: &Path| delete_world(w, Some(&home), &root, None);
+
+        let plain = home.join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::write(plain.join("notes.txt"), "mine").unwrap();
+        assert!(delete(&plain).unwrap_err().contains("does not appear"));
+        assert!(delete(&plain.join("world.toml")).is_err());
+        assert!(plain.join("notes.txt").is_file());
+
+        // A world file put straight in Documents, or in Lyceum's folder, leaves both alone.
+        std::fs::write(documents.join("world.toml"), "key = 'loose'\n").unwrap();
+        std::fs::write(home.join("world.toml"), "key = 'loose'\n").unwrap();
+        for folder in [&documents, &home] {
+            assert!(delete(&folder.join("world.toml"))
+                .unwrap_err()
+                .contains("Failed to delete"));
+            assert!(folder.join("world.toml").is_file());
+        }
+
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("keep.txt"), "keep").unwrap();
+        let linked = made_world(&home, "linked");
+        link_to(&outside, &linked.parent().unwrap().join("art"));
+        assert!(delete(&linked).unwrap_err().contains("Failed to delete"));
+        assert!(linked.is_file());
+        assert!(outside.join("keep.txt").is_file());
+
+        // A world reached through a link is not deleted through it.
+        let real = made_world(&outside, "real");
+        let through = home.join("through");
+        link_to(real.parent().unwrap(), &through);
+        assert!(delete(&through).unwrap_err().contains("Failed to delete"));
+        assert!(delete(&through.join("world.toml"))
+            .unwrap_err()
+            .contains("Failed to delete"));
+        assert!(real.is_file());
     }
 
     /// What `lyceum facts` said of a world is shown while the world's sources and the command are

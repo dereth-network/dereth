@@ -52,6 +52,8 @@ pub struct View {
     /// For a world that plays a published Lyceum world: whether that world's saved sources differ
     /// from the ones it was published from. `None` while that is not known yet.
     pub unpublished_changes: Option<bool>,
+    /// The Lyceum world it plays was published from a world file that is gone.
+    pub source_gone: bool,
 }
 
 /// Whether a world whose configuration names `slug` is on the Dereth Network's list, whose
@@ -125,6 +127,7 @@ pub fn views(shared: &Shared) -> Vec<View> {
             .ok()
             .flatten()
             .map(|(_, p)| p);
+        let source_gone = publication.as_ref().is_some_and(|p| !p.source.is_file());
         let unpublished_changes = publication.as_ref().and_then(|p| {
             if p.sources.is_empty() || !p.source.is_file() {
                 return None;
@@ -145,6 +148,7 @@ pub fn views(shared: &Shared) -> Vec<View> {
             update: crate::host_updates::view(&dir),
             publication,
             unpublished_changes,
+            source_gone,
             federation_slug: federation_slug(&text),
             listed: false,
             plays: crate::host_config::plays(&text, &dir),
@@ -835,6 +839,9 @@ pub async fn publish_host_world(
             None => return Ok(()),
         },
     };
+    if let Some(why) = crate::host_publication::gone(&dir_of(&shared, &id)?, &world) {
+        return Err(why);
+    }
     let builder = crate::components::begin_build(&components)?;
     let dir = match begin(&shared, &id, "Publishing the world...") {
         Ok(dir) => dir,

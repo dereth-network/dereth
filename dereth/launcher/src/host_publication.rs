@@ -214,6 +214,21 @@ pub fn selected(dir: &Path) -> Result<Option<(PathBuf, Publication)>, String> {
     Ok(Some((folder, publication)))
 }
 
+/// Why the Lyceum world `world` cannot be published to the world in `dir`, when its world file is
+/// gone: said plainly when it is the one the world plays was published from.
+#[must_use]
+pub fn gone(dir: &Path, world: &Path) -> Option<String> {
+    if world.is_file() {
+        return None;
+    }
+    let source = selected(dir).ok().flatten().map(|(_, p)| p.source);
+    Some(if source.is_some_and(|s| s == world) {
+        "The Lyceum world it was published from is gone.".into()
+    } else {
+        "That Lyceum world is gone.".into()
+    })
+}
+
 fn run(program: &Path, args: &[&std::ffi::OsStr], dir: &Path) -> Result<(), String> {
     let out = components::command(program)
         .args(args)
@@ -834,6 +849,25 @@ mod tests {
         assert_eq!(std::fs::read(dir.join("empyrean.toml")).unwrap(), config);
         assert_eq!(selected(&dir).unwrap().unwrap().1.build, old.build);
         assert!(!dir.join("published/snapshot-1").exists());
+    }
+    /// A Lyceum world whose world file is gone is not published, and the reason says so plainly;
+    /// when it is the one the world plays was published from, it says that. The world keeps
+    /// playing its published copy.
+    #[test]
+    fn publishing_a_world_that_is_gone_says_so() {
+        let (_root, dir) = host();
+        let (_, old) = snapshot(&dir);
+        assert_eq!(
+            gone(&dir, &old.source).as_deref(),
+            Some("The Lyceum world it was published from is gone.")
+        );
+        assert_eq!(
+            gone(&dir, &dir.join("other/world.toml")).as_deref(),
+            Some("That Lyceum world is gone.")
+        );
+        std::fs::write(&old.source, "key = 'test'\n").unwrap();
+        assert_eq!(gone(&dir, &old.source), None);
+        assert_eq!(selected(&dir).unwrap().unwrap().1.build, old.build);
     }
     #[test]
     fn a_deleted_server_is_forgotten_by_the_worlds_that_played_it() {

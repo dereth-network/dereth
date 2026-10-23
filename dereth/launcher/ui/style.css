@@ -181,13 +181,13 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 .panel.grow { flex: 1 1 auto; }
 .panel > header {
   display: flex; align-items: center; gap: 12px;
-  min-height: 58px;
+  min-height: 46px;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .panel > header h1 {
   flex: 1; margin: 0;
-  font: 600 22px var(--display);
+  font: 600 19px var(--display);
   letter-spacing: 0.1em;
   color: var(--gold-bright);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -246,7 +246,7 @@ p { margin: 6px 0; }
 
 /* The plate. Banded green rather than a smooth gradient, with a lit top edge and a gold frame. */
 .play {
-  width: 100%; height: 76px;
+  width: 100%; height: 64px;
   border: calc(var(--px) * 4) solid transparent;
   border-image: var(--frame) 4 / calc(var(--px) * 4) stretch;
   background:
@@ -257,7 +257,7 @@ p { margin: 6px 0; }
       #33772f 40%, #33772f 62%,
       #2a6628 62%, #2a6628 84%,
       #214f21 84%);
-  font: 700 36px var(--display);
+  font: 700 32px var(--display);
   letter-spacing: 0.16em;
   color: #f7f0dc;
   text-shadow: 0 3px 0 rgba(12, 10, 16, 0.55);
@@ -357,7 +357,7 @@ select.field.mini { height: 28px; width: auto; min-width: 120px; max-width: 220p
 .list { display: flex; flex-direction: column; }
 .row {
   display: flex; align-items: center; gap: 14px;
-  min-height: 58px; padding: 6px 14px;
+  min-height: 50px; padding: 6px 14px;
   border: 1px solid transparent;
   border-bottom-color: var(--line);
   border-radius: var(--radius-small);
@@ -551,13 +551,6 @@ table.worlds tr.detail td { white-space: normal; padding-top: 0; }
   font: 600 11px var(--display); letter-spacing: 0.12em; color: var(--high);
 }
 
-@media (max-height: 760px) {
-  .play { height: 64px; font-size: 32px; }
-  .row { min-height: 50px; }
-  .panel > header { min-height: 46px; margin-bottom: 10px; }
-  .panel > header h1 { font-size: 19px; }
-}
-
 /* ----- Host a world and Build a world --------------------------------------------------------- */
 
 /* Between the play buttons and the two for hosting and building worlds: a gold rule one art pixel
@@ -666,6 +659,8 @@ p.reach { margin: 2px 0 8px 160px; }
 .ly-detail p { margin: 0; }
 .ly-detail .strip b { font: 600 11px var(--display); letter-spacing: 0.14em; color: var(--gold); margin-right: 6px; }
 .ly-detail .share-row .btn { min-width: 108px; }
+.ly-actions { display: flex; flex-direction: column; gap: 2px; }
+.ly-actions .share-row { min-height: 28px; }
 
 /* A world's Lyceum and Advanced sections: each line's button or label first, and what it says of
  * the world after it, in one column. */

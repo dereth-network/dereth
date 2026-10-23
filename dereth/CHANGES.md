@@ -22,7 +22,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Check from outside whether friends can reach a world you host.
 - A world link from a friend opens Add world in the launcher.
 - Empyrean's page also shows other world servers running here, and an Empyrean one's console.
-- Get Empyrean and Lyceum, and make, open and export Lyceum worlds, from the launcher.
+- Get Empyrean and Lyceum, and make, open, export and delete Lyceum worlds, from the launcher.
 - A world whose data is refused now stops before you play, and says why.
 
 ## 0.4.5 (2026-10-20)

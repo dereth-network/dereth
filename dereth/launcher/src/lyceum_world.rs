@@ -184,6 +184,58 @@ pub fn current_digest(world: &Path) -> Option<String> {
     None
 }
 
+/// The folder a delete of the world `world` (its `world.toml`, or the folder that holds it)
+/// removes, canonical. Refused when the folder holds no `world.toml`, when it or anything in it
+/// is a link, and when it is a drive's root, Lyceum's folder for worlds `home`, or a folder that
+/// holds `home` (the person's Documents among them).
+pub fn deletable(world: &Path, home: Option<&Path>) -> Result<PathBuf, String> {
+    let no_world = || "This folder does not appear to be a Lyceum world".to_owned();
+    let failed = || "Failed to delete Lyceum world".to_owned();
+    let named = std::fs::symlink_metadata(world).map_err(|_| no_world())?;
+    if named.is_symlink() {
+        return Err(failed());
+    }
+    let folder = if named.is_dir() {
+        world
+    } else {
+        world.parent().ok_or_else(no_world)?
+    };
+    let meta = std::fs::symlink_metadata(folder).map_err(|_| no_world())?;
+    if meta.is_symlink() {
+        return Err(failed());
+    }
+    if !std::fs::symlink_metadata(folder.join("world.toml")).is_ok_and(|m| m.is_file()) {
+        return Err(no_world());
+    }
+    let folder = folder.canonicalize().map_err(|_| no_world())?;
+    if folder.parent().is_none() {
+        return Err(failed());
+    }
+    // `home` may not have been made yet, while the folders that would hold it are there.
+    if home.is_some_and(|h| {
+        h.ancestors()
+            .any(|a| a.canonicalize().is_ok_and(|a| a == folder))
+    }) {
+        return Err(failed());
+    }
+    if holds_link(&folder)? {
+        return Err(failed());
+    }
+    Ok(folder)
+}
+
+/// Whether anything in `dir`, at any depth, is a link or a junction.
+fn holds_link(dir: &Path) -> Result<bool, String> {
+    for e in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let e = e.map_err(|e| e.to_string())?;
+        let kind = e.file_type().map_err(|e| e.to_string())?;
+        if kind.is_symlink() || (kind.is_dir() && holds_link(&e.path())?) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

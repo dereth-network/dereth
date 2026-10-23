@@ -445,8 +445,8 @@ console takes commands as the launcher's own worlds' do. One whose console is of
 world** forgets a remembered one.
 
 **Your Lyceum worlds.** Lyceum's page lists the worlds in two kinds: **Your Worlds**, those in its
-folder for worlds (the Lyceum folder in your Documents, which **Open Folder** shows), and **Opened
-from elsewhere**, the others Lyceum or the launcher opened (Lyceum's own recent worlds, and the
+folder for worlds (the Lyceum folder in your Documents, which **Open Folder** shows), and **Other
+Worlds**, the others Lyceum or the launcher opened (Lyceum's own recent worlds, and the
 launcher's list of the worlds it opened, so a world opened with **Open World** is listed at once).
 Each world is listed once, however its path is spelled, with its folder under its name and
 **Open**. A world whose files are in an older format than this Lyceum's (as `lyceum upgrade
@@ -460,7 +460,10 @@ new textures and models; asked again whenever its sources or Lyceum change); the
 with Empyrean, ACE or GDLE, which writes the world for that server with `lyceum export` into a
 folder you choose (that folder when it is empty or an earlier export, else `<world>-<server>` in
 it), over the game data its era is built on; and **Publish To** with the worlds you host, which
-publishes it to the one chosen, as its page's Lyceum section does.
+publishes it to the one chosen, as its page's Lyceum section does. Under them, **Delete** asks to
+confirm in place, then deletes the world's folder and forgets it in the launcher's and Lyceum's
+lists; it waits until Lyceum is closed, and refuses a folder without a `world.toml` or one holding
+a link. The worlds it was published to keep playing it: a publish is a copy in the hosted world.
 
 **New World** asks for a name, a **Folder** (Lyceum's folder in your Documents unless you choose
 another) and an **Era** (End of Retail or Infiltration), and **Start Building** makes an empty world

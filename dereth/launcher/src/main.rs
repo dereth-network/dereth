@@ -698,6 +698,7 @@ fn main() {
             components::choose_lyceum_parent,
             components::new_lyceum_world,
             components::upgrade_lyceum_world,
+            components::delete_lyceum_world,
             components::export_lyceum_world,
             hosts::check_host_update,
             hosts::publish_host_world,

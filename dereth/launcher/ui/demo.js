@@ -314,6 +314,7 @@
     open_worlds_folder: () => {},
     choose_lyceum_world: () => {},
     upgrade_lyceum_world: ({ world }) => { const c = components.find((c) => c.product === "lyceum"); c.worlds.find((w) => w.path === world).outdated = false; c.message = "2 source file(s) upgraded; world.lock is unchanged."; },
+    delete_lyceum_world: ({ world }) => { const c = components.find((c) => c.product === "lyceum"); c.worlds = c.worlds.filter((w) => w.path !== world); },
     export_lyceum_world: ({ world, target }) => {
       const c = components.find((c) => c.product === "lyceum");
       const name = world.split("\\").slice(-2, -1)[0];

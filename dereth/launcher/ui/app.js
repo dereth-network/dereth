@@ -46,6 +46,7 @@ const ui = {
   lyOpen: null,            // the Lyceum world whose row is open, by its world file
   lyExport: {},            // per Lyceum world: the server chosen to export it for
   lyPublish: {},           // per Lyceum world: the hosted world chosen to publish it to
+  lyDelete: null,          // the Lyceum world whose Delete asks to be confirmed, by its world file
   addFind: null,           // { purpose: "retail" | "dats", find }: a folder read from Library, waiting to be confirmed
 };
 
@@ -735,7 +736,7 @@ function serverList() {
       <div class="btns end" style="margin-top:12px"><button class="btn" data-act="srv-new-cancel">Cancel</button><button class="btn" data-act="srv-create">Make world</button></div></section>`
     : "";
   const rows = hosts.map(serverRow).join("")
-    || `<p class="muted">${ready("empyrean") ? "No worlds yet. New world makes one." : "Download Empyrean to host a world."}</p>`;
+    || `<p class="muted">${ready("empyrean") ? "No world servers." : "Download Empyrean to host a world."}</p>`;
   const otherRows = others.length ? `<h2>OTHER WORLD SERVERS ON THIS COMPUTER</h2><div class="list">${others.map(localRow).join("")}</div>` : "";
   return `<div class="column wide" style="height:100%">${pending}
       <section class="panel grow"><header>${brand("empyrean")}<h1>EMPYREAN: HOST A WORLD SERVER</h1>${ready("empyrean") && !ui.serverDraft ? `<button class="btn" data-act="srv-new">+ New world</button>` : ""}</header>
@@ -823,7 +824,9 @@ function lyceumBlock(h, running) {
     : "Unmodified.";
   const why = !lyceum ? "Download Lyceum first." : running ? "Stop the world first." : "";
   let publish;
-  if (p) {
+  if (p && h.source_gone) {
+    publish = `<div class="share-row"><span class="muted small">The Lyceum world it was published from is gone.</span></div>`;
+  } else if (p) {
     const latest = h.unpublished_changes === false;
     const next = latest ? `<b>${esc(p.key)}</b>${p.revision ? ` version <b>${p.revision}</b>` : ""} is the latest`
       : `<b>${esc(p.key)}</b>${p.revision ? ` version <b>${p.revision + 1}</b>` : ""}`;
@@ -1136,12 +1139,22 @@ function lyceumRow(w, on, busy) {
   const detail = `<div class="ly-detail" data-stop>
       <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
       ${w.facts ? `<p class="small">${esc(factsText(w.facts))}</p>` : ""}
-      <div class="share-row"><button class="btn mini-btn" data-ly-export="${esc(w.path)}" ${on && !busy ? "" : "disabled"}>Export For</button>
+      <div class="ly-actions"><div class="share-row"><button class="btn mini-btn" data-ly-export="${esc(w.path)}" ${on && !busy ? "" : "disabled"}>Export For</button>
         <select class="field mini" data-ly-export-pick="${esc(w.path)}" aria-label="The server to export for">${exportOpts}</select></div>
       <div class="share-row"><button class="btn mini-btn" data-ly-publish="${esc(w.path)}" ${on && !busy && hosts.length && !(host && isRunning(host)) && !host?.busy ? "" : "disabled"} title="${esc(publishWhy)}">Publish To</button>
         ${hosts.length ? `<select class="field mini" data-ly-publish-pick="${esc(w.path)}" aria-label="The world you host to publish it to">${hostOpts}</select>` : `<span class="muted small">You host no worlds yet.</span>`}</div>
+      ${lyceumDeleteRow(w, busy, c?.running)}</div>
     </div>`;
   return `<div class="ly-world open">${row}${detail}</div>`;
+}
+
+// A Lyceum world's Delete, confirmed in place.
+function lyceumDeleteRow(w, busy, running) {
+  if (ui.lyDelete === w.path) {
+    return `<div class="share-row confirm"><span class="warn">Delete the Lyceum world ${esc(worldName(w.path))}?</span>
+      <button class="btn mini-btn" data-ly-delete="${esc(w.path)}">Delete</button><button class="btn mini-btn" data-act="ly-delete-cancel">Cancel</button></div>`;
+  }
+  return `<div class="share-row"><button class="btn mini-btn" data-ly-confirm-delete="${esc(w.path)}" ${busy || running ? "disabled" : ""} title="${running ? "Cannot delete while Lyceum is open" : ""}">Delete</button></div>`;
 }
 
 function makePage() {
@@ -1152,9 +1165,9 @@ function makePage() {
   const mine = worlds.filter((w) => w.home);
   const elsewhere = worlds.filter((w) => !w.home);
   const rows = mine.map((w) => lyceumRow(w, on, busy)).join("")
-    || `<p class="muted">${on ? `No worlds in ${esc(c?.home ?? "Lyceum's folder")} yet. New world makes one.` : "Download Lyceum to build a world."}</p>`;
+    || `<p class="muted">${on ? "No worlds." : "Download Lyceum to build a world."}</p>`;
   const others = elsewhere.length
-    ? `<h2>OPENED FROM ELSEWHERE</h2><div class="list">${elsewhere.map((w) => lyceumRow(w, on, busy)).join("")}</div>` : "";
+    ? `<h2>OTHER WORLDS</h2><div class="list">${elsewhere.map((w) => lyceumRow(w, on, busy)).join("")}</div>` : "";
   let pending = "";
   const d = ui.lyceumDraft;
   if (d) {
@@ -1987,7 +2000,7 @@ async function saveInterface() {
 // ----- events -------------------------------------------------------------------------------------
 
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop]");
+  const t = ev.target.closest("[data-srv-start],[data-srv-stop],[data-srv-prepare],[data-srv-play],[data-srv-open],[data-srv-publish],[data-srv-republish],[data-srv-unpublish],[data-srv-service],[data-srv-config],[data-srv-folder],[data-srv-delete],[data-confirm-delete],[data-srv-export],[data-local-open],[data-local-start],[data-local-stop],[data-local-play],[data-local-forget],[data-reveal-local],[data-reveal-host],[data-copy],[data-copy-link],[data-check-outside],[data-allow-service],[data-send],[data-shutdown-cancel],[data-ly-row],[data-ly-export],[data-ly-publish],[data-ly-confirm-delete],[data-ly-delete],[data-srv-check],[data-srv-approve],[data-srv-cancel-update],[data-srv-rollback],[data-lyceum-world],[data-lyceum-upgrade],[data-get],[data-remove],[data-go],[data-act],[data-url],[data-home],[data-world],[data-filter],[data-unfav],[data-fav],[data-client],[data-default-set],[data-reset-set],[data-delete-set],[data-remember],[data-forget-account],[data-section],[data-open-world],[data-trash],[data-iface],[data-stop]");
   if (!t) return;
   if (t.dataset.stop !== undefined && !ev.target.closest("[data-act]")) return;
   const d = t.dataset;
@@ -2025,7 +2038,14 @@ document.addEventListener("click", async (ev) => {
   if (d.send) { await submitCommand(d.send); return; }
   if (d.shutdownCancel) { if ((await sendCommand(d.shutdownCancel, "cancel-shutdown")) !== undefined) { delete ui.shutdownAt[d.shutdownCancel]; render(); } return; }
   // Build a world: a world's row opens and shuts in place, one at a time.
-  if (d.lyRow) { ui.lyOpen = ui.lyOpen === d.lyRow ? null : d.lyRow; render(); return; }
+  if (d.lyRow) { ui.lyOpen = ui.lyOpen === d.lyRow ? null : d.lyRow; ui.lyDelete = null; render(); return; }
+  if (d.lyConfirmDelete) { ui.lyDelete = d.lyConfirmDelete; render(); return; }
+  if (d.lyDelete) {
+    ui.lyDelete = null;
+    await act("delete_lyceum_world", { world: d.lyDelete });
+    if (!(comp("lyceum")?.worlds ?? []).some((w) => w.path === d.lyDelete)) { ui.lyOpen = null; render(); }
+    return;
+  }
   if (d.lyExport) { await act("export_lyceum_world", { world: d.lyExport, target: ui.lyExport[d.lyExport] ?? "empyrean", dats: defaultDats(), classic: defaultClassicDats() }); return; }
   if (d.lyPublish) {
     const hosts = ui.snap.hosts ?? [];
@@ -2089,6 +2109,7 @@ document.addEventListener("click", async (ev) => {
     case "key-cancel": ui.keyDraft = null; render(); break;
     case "key-save": await saveKey(); break;
     case "delete-cancel": ui.confirmDelete = null; render(); break;
+    case "ly-delete-cancel": ui.lyDelete = null; render(); break;
     case "ly-new": ui.lyceumDraft = { name: "", parent: null, era: "eor" }; render(); focusSoon("ly-name"); break;
     case "ly-cancel": ui.lyceumDraft = null; render(); break;
     case "ly-parent": { const where = await act("choose_lyceum_parent"); if (where) { ui.lyceumDraft.parent = where; render(); } break; }
