@@ -90,6 +90,10 @@ pub struct Nearby {
     from: Option<Vec3>,
     /// Frames since it was gathered.
     age: u32,
+    /// The editor's frame the tab was last drawn in: the list is gathered only while it is shown.
+    drawn: Option<u64>,
+    /// Each indoor cell's middle in its own frame, by its environment and cell structure.
+    middles: std::collections::HashMap<(u32, u16), Vec3>,
     /// Where each shown entry was drawn, as last drawn: its place in [`Self::shown`] and its row.
     pub rects: Vec<(usize, egui::Rect)>,
 }
@@ -221,17 +225,8 @@ impl EditorApp {
                     );
                 }
                 let middle = self
-                    .session
-                    .environment(cell.environment)
-                    .and_then(|e| e.cells.get(usize::from(cell.cell_struct)).cloned())
-                    .map_or(cell.frame.origin, |cs| {
-                        let vs = &cs.vertex_array.vertices;
-                        #[allow(clippy::cast_precision_loss)]
-                        let n = vs.len().max(1) as f32;
-                        vs.iter().fold(Vec3::ZERO, |m, v| {
-                            m.add(localtoglobal(&cell.frame, v.position).mul(1.0 / n))
-                        })
-                    });
+                    .cell_middle(cell.environment, cell.cell_struct)
+                    .map_or(cell.frame.origin, |m| localtoglobal(&cell.frame, m));
                 let select = Selection::Cell {
                     landblock: lb,
                     cell: index,
@@ -254,10 +249,9 @@ impl EditorApp {
                 continue;
             }
             let weenie = self.session.spawn_weenie(&s);
-            let name = self
-                .weenies
-                .iter()
-                .find(|w| Some(&w.weenie) == weenie.as_ref())
+            let name = weenie
+                .as_ref()
+                .and_then(|w| self.weenie_entry(w))
                 .map_or_else(|| s.weenie.clone(), |w| w.name.clone());
             push_spawn.push((name, s));
         }
@@ -283,15 +277,41 @@ impl EditorApp {
         out
     }
 
-    /// Gather the list again when the camera has moved, or an edit has made it stale.
+    /// The middle of the vertices of cell structure `cs` of environment `env`, in the cell's own
+    /// frame; read once.
+    fn cell_middle(&mut self, env: dereth_primitives::DataId, cs: u16) -> Option<Vec3> {
+        if let Some(m) = self.nearby.middles.get(&(env.raw(), cs)) {
+            return Some(*m);
+        }
+        let vs = &self
+            .environment(env)?
+            .cells
+            .get(usize::from(cs))?
+            .vertex_array
+            .vertices;
+        #[allow(clippy::cast_precision_loss)]
+        let n = vs.len().max(1) as f32;
+        let m = vs
+            .iter()
+            .fold(Vec3::ZERO, |m, v| m.add(v.position.mul(1.0 / n)));
+        self.nearby.middles.insert((env.raw(), cs), m);
+        Some(m)
+    }
+
+    /// Gather the list again when the camera has moved, an edit has made it stale, or the tab
+    /// was not shown the frame before. Called as the tab is drawn, so a hidden list costs nothing.
     pub(super) fn nearby_frame(&mut self) {
         let eye = self.eye();
         let moved = self.nearby.from.is_none_or(|f| {
             let d = f.sub(eye);
             d.dot(d) > MOVED * MOVED
         });
+        let frame = self.stats.frames;
+        let hidden = self.nearby.drawn.is_none_or(|d| d + 1 != frame);
+        self.nearby.drawn = Some(frame);
         self.nearby.age += 1;
-        if moved || self.nearby.age >= FRAMES {
+        if moved || hidden || self.nearby.age >= FRAMES {
+            self.stats.nearby_gathers += 1;
             self.nearby.entries = self.nearby_entries();
             self.nearby.from = Some(eye);
             self.nearby.age = 0;
@@ -334,13 +354,10 @@ impl EditorApp {
 
     /// The Nearby tab.
     pub(super) fn nearby_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        self.nearby_frame();
         let t = self.text.table();
-        ui.label(t.fill("nearby.help", &[("n", &format!("{REACH:.0}"))]));
-        ui.add(
-            egui::TextEdit::singleline(&mut self.nearby.filter)
-                .hint_text(t.get("nearby.filter_hint"))
-                .desired_width(f32::INFINITY),
-        );
+        ui.label(t.get("nearby.help"));
+        super::panels::search_box(ui, &mut self.nearby.filter, t.get("nearby.filter_hint"));
         ui.horizontal_wrapped(|ui| {
             if ui
                 .selectable_label(self.nearby.kinds.is_empty(), t.get("nearby.all"))
@@ -359,8 +376,9 @@ impl EditorApp {
                 }
             }
         });
+        let shown: Vec<NearbyEntry> = self.nearby.shown().into_iter().cloned().collect();
         ui.horizontal(|ui| {
-            ui.weak(t.get("nearby.sort"));
+            ui.label(t.get("nearby.sort"));
             for (s, key) in [
                 (NearbySort::Distance, "nearby.by_distance"),
                 (NearbySort::Name, "nearby.by_name"),
@@ -373,13 +391,14 @@ impl EditorApp {
                     self.nearby.sort = s;
                 }
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.weak(t.fill(
+                    "nearby.shown",
+                    &[("n", &shown.len()), ("all", &self.nearby.entries.len())],
+                ));
+            });
         });
         ui.separator();
-        let shown: Vec<NearbyEntry> = self.nearby.shown().into_iter().cloned().collect();
-        ui.weak(t.fill(
-            "nearby.shown",
-            &[("n", &shown.len()), ("all", &self.nearby.entries.len())],
-        ));
         self.nearby.rects.clear();
         let row = 18.0;
         egui::ScrollArea::vertical()

@@ -55,7 +55,8 @@ dereth-world-render.workspace = true
 png.workspace = true
 # The panels: egui's widgets, docked panels and tables, drawn through the overlay.
 egui.workspace = true
-egui_dock.workspace = true
+# The docked layout, kept between starts.
+egui_dock = { workspace = true, features = ["serde"] }
 egui_extras.workspace = true
 # The scripted mode's file.
 toml.workspace = true

@@ -15,8 +15,8 @@
 //! turns a selected static or spawn with its handles; Place puts the browser's model on the ground
 //! (or on what is under the pointer), the browser showing each model's picture
 //! ([`crate::thumbs`]) and name ([`lyceum_foundry::models`]); Terrain paints with the brush; Spawn
-//! places the chosen weenie. **Dungeon mode** is the same tools inside one dungeon: its grid takes
-//! the map's place, and what is placed stands in the room under the pointer. A building the world
+//! places the chosen weenie. **Dungeon mode** is the same tools inside one dungeon: its grid and its
+//! floors from the south take the map's tab, and what is placed stands in the room under the pointer. A building the world
 //! places, chosen in Place, is dropped whole: its rooms, doors and outdoor statics with it
 //! ([`building_drop`]).
 
@@ -54,7 +54,7 @@ mod panels;
 
 #[path = "form.rs"]
 mod form;
-pub use form::{quests_named, FormEdit};
+pub use form::{quests_named, weenie_label, FormEdit};
 
 #[path = "embedded.rs"]
 mod embedded;
@@ -78,7 +78,7 @@ pub use dungeons::{with_destination, DungeonList, InDungeon, MapMark};
 
 #[path = "flows.rs"]
 mod flows;
-pub use flows::{Flow, Group as FlowGroup};
+pub use flows::{symbol_of, yes_no, Flow, Group as FlowGroup};
 
 #[path = "fly.rs"]
 mod fly;
@@ -107,8 +107,9 @@ mod hierarchy;
 
 #[path = "nearby.rs"]
 mod nearby;
+pub use crate::docks::Tab;
 pub use nearby::{Nearby, NearbyEntry, NearbyKind, NearbySort, REACH as NEARBY_REACH};
-pub use panels::Tab;
+pub use panels::{saved_ago, unsaved_edits};
 
 /// The runtime's application with the editor's front end in it.
 pub type CoreApp = dereth_client_runtime::app::App<EditorShell>;
@@ -327,6 +328,12 @@ pub struct Panels {
     pub furnishing_combo: Option<egui::Rect>,
     pub furnishing_rows: Vec<(Option<usize>, egui::Rect)>,
     pub house_box: Option<egui::Rect>,
+    /// Whether the log's findings are unfolded.
+    pub findings_open: bool,
+    /// Each entry of a selected generator's list, as drawn last.
+    pub spawn_rows: Vec<egui::Rect>,
+    /// A selected portal's destination, as drawn last.
+    pub destination_link: Option<egui::Rect>,
 }
 
 /// A selected generator's marks as drawn: where it is on screen and the radius it scatters
@@ -373,7 +380,7 @@ impl WeenieEntry {
             .map(str::trim)
             .map(str::to_owned)
             .unwrap_or_else(|| match &weenie {
-                Weenie::Symbol(s) => s.clone(),
+                Weenie::Symbol(s) => s.rsplit(':').next().unwrap_or(s).to_owned(),
                 Weenie::Class(c) => format!("class {c}"),
             });
         let id = match &weenie {
@@ -432,6 +439,10 @@ pub struct Stats {
     pub whole_writes: u64,
     /// Model pictures shown in the browser.
     pub pictures: u64,
+    /// Times the Nearby list was gathered.
+    pub nearby_gathers: u64,
+    /// Times a landblock's rooms were read to find the room the camera is in.
+    pub room_reads: u64,
 }
 
 /// The editor.
@@ -461,6 +472,8 @@ pub struct EditorApp {
     /// The model the place tool places.
     pub model: Option<DataId>,
     all_models: Vec<DataId>,
+    /// How many of them each category holds, as the model names last said.
+    model_counts: BTreeMap<Category, usize>,
     /// What each model is called, for the browser.
     pub names: ModelNames,
     /// Where the data files place each model, once gathered, and the gathering while it runs.
@@ -486,11 +499,20 @@ pub struct EditorApp {
     browser_path: Option<PathBuf>,
     saved_view: Option<FlyCamera>,
     pub hierarchy_rects: Vec<(Selection, egui::Rect)>,
-    pub checks_button: Option<egui::Rect>,
-    /// The top bar's Play (or Stop) button, as last drawn.
+    /// The top bar's Play (or Stop) button, each tool's button and the settings' button, as last
+    /// drawn.
     pub play_button: Option<egui::Rect>,
+    pub tool_rects: Vec<(Mode, egui::Rect)>,
+    pub settings_button: Option<egui::Rect>,
+    /// Whether the settings menu was open at the last pass: its button is lit only then.
+    pub settings_open: bool,
+    /// The history's place and the clock when the world was last saved.
+    pub saved: Option<(usize, f64)>,
+    /// Every message the status bar has shown, the newest last, and the last one logged.
+    pub log: Vec<String>,
+    log_last: String,
     /// The browser's pictures: opened when first shown, with the folder they are kept in.
-    thumbs: Option<Result<crate::thumbs::Thumbs, String>>,
+    thumbs: Option<crate::thumbs::Worker>,
     thumbs_root: PathBuf,
     /// The files the pictures are drawn from: the player's, without the world's overlay.
     base_store: Arc<dereth_dat::RetailDatStore>,
@@ -498,7 +520,15 @@ pub struct EditorApp {
     pictures: Pictures,
     /// The panels, and their docked layout (taken out while the panels are drawn).
     gui: crate::gui::Gui,
-    dock: Option<egui_dock::DockState<panels::Tab>>,
+    dock: Option<egui_dock::DockState<Tab>>,
+    dungeon_dock: Option<egui_dock::DockState<Tab>>,
+    /// The default layout outdoors, not yet fitted to the map: its upper right part is made as
+    /// tall as the map is wide once it is laid out.
+    fit_map: bool,
+    /// The Tool tab's body, as laid out last.
+    tool_body: Option<egui::Rect>,
+    /// Where the layouts are kept, in the editor's settings folder.
+    layout_file: Option<PathBuf>,
     /// Where each of the checks' findings is listed on screen, as last drawn.
     pub fault_rects: Vec<egui::Rect>,
     /// The world tab's rectangle, as last drawn.
@@ -514,9 +544,9 @@ pub struct EditorApp {
     pub dungeon_block: Option<u16>,
     /// Whether the camera is in a room of that dungeon, as last looked.
     pub in_dungeon: bool,
-    /// The rooms of the landblock the flying camera is over, for which one it is in: read again
-    /// after every edit.
-    rooms: Option<(u16, Vec<lyceum_foundry::walk::CellShape>)>,
+    /// The rooms of the landblocks the flying camera was last looked for in (the dungeon's and the
+    /// one it is over), for which one it is in: read again after every edit.
+    rooms: Vec<(u16, Vec<lyceum_foundry::walk::CellShape>)>,
     /// Where the browser drew each model's picture, and its favorite star, as last drawn.
     pub picture_rects: Vec<(DataId, egui::Rect)>,
     pub picture_stars: Vec<(DataId, egui::Rect)>,
@@ -524,6 +554,8 @@ pub struct EditorApp {
     pub vertex_marks: Vec<VertexMark>,
     /// Every weenie the spawn tool can place: the packs' and the server's.
     pub weenies: Vec<WeenieEntry>,
+    /// Each weenie's place in [`Self::weenies`].
+    weenie_at: std::collections::HashMap<Weenie, usize>,
     /// The server's names for the forms, when given; the server SQL its weenies were read from;
     /// the spell table's names, read the first time a form names a spell.
     pub schema: Option<lyceum_foundry::content::Schema>,
@@ -542,21 +574,19 @@ pub struct EditorApp {
     pub scene_rects: Vec<(u16, egui::Rect)>,
     /// Where each brush's button was drawn last.
     pub brush_rects: Vec<(Brush, egui::Rect)>,
-    /// Where the note beside a selected building was drawn last.
-    pub building_note: Option<egui::Rect>,
     /// A selected generator's marks, as drawn last.
     pub generator_marks: GeneratorMarks,
+    /// The projection the marks on the world were drawn with last.
+    pub marks_view: Option<View>,
     /// What each terrain's scenes grow, read the first time the scene brush shows it.
     scenes: BTreeMap<u16, Vec<Vec<DataId>>>,
     input: Input,
     held: Held,
     look: Option<(f32, f32)>,
     ctrl: bool,
-    /// Shift held; a click made while it was (the rest of that hold does not lower the camera);
-    /// Q held; and whether the body is walking because Shift is held.
-    shift: bool,
-    shift_clicked: bool,
-    q_down: bool,
+    /// The flying camera's keys (Shift among them); and whether the body is walking because
+    /// Shift is held.
+    keys: crate::camera::FlyKeys,
     shift_walking: bool,
     /// Device events a script queued for the frames to come, one batch a frame.
     later: std::collections::VecDeque<Vec<HostEvent>>,
@@ -583,7 +613,7 @@ pub struct EditorApp {
     ui_scale_note: u32,
     /// How the playtest client starts (the Play options), kept in its own settings.
     pub play_options: play::PlayOptions,
-    /// GDLE's own quests.json, as the Export menu names it, which an export for GDLE merges the
+    /// GDLE's own quests.json, as a script names it, which an export for GDLE merges the
     /// world's quests into; empty for none.
     pub gdle_quests: String,
     pub characters: crate::characters::Characters,
@@ -604,6 +634,12 @@ pub struct EditorApp {
     pub layout: Layout,
     /// The field of view the world view is drawn with, in degrees, as last set.
     field_of_view: f32,
+    /// The flying speeds indoors and outdoors, each kept apart.
+    pub speeds: crate::camera::Speeds,
+    /// This frame's window events and seconds, till the camera's step takes them.
+    frame_input: Option<(Vec<HostEvent>, f32)>,
+    /// The camera as last handed to the world.
+    given_camera: Option<FlyCamera>,
     /// The chosen building's ghost under the pointer, as last worked out; each model's edges as
     /// a ghost draws them; and the words beside the ghost, where they were drawn last.
     ghost: Option<DropGhost>,
@@ -845,7 +881,7 @@ impl EditorApp {
             scratch,
             camera,
             walking: false,
-            collide: false,
+            collide: true,
             collider: None,
             mode: Mode::Select,
             selection: None,
@@ -857,6 +893,7 @@ impl EditorApp {
             model: None,
             all_models,
             names: ModelNames::default(),
+            model_counts: BTreeMap::new(),
             placements: None,
             world_map: None,
             map_rect: None,
@@ -870,8 +907,13 @@ impl EditorApp {
             browser_path,
             saved_view: None,
             hierarchy_rects: Vec::new(),
-            checks_button: None,
             play_button: None,
+            tool_rects: Vec::new(),
+            settings_button: None,
+            settings_open: false,
+            saved: None,
+            log: Vec::new(),
+            log_last: String::new(),
             fetching: None,
             tags,
             thumbs: None,
@@ -879,10 +921,16 @@ impl EditorApp {
             base_store,
             pictures: Pictures::default(),
             gui: crate::gui::Gui::new(),
-            dock: Some(panels::default_dock()),
+            dock: Some(crate::docks::outdoors()),
+            dungeon_dock: Some(crate::docks::in_dungeon()),
+            fit_map: true,
+            tool_body: None,
+            layout_file: cfg_settings
+                .as_ref()
+                .map(|d| d.join(crate::docks::FILE_NAME)),
             fault_rects: Vec::new(),
             world_rect: None,
-            rooms: None,
+            rooms: Vec::new(),
             nearby: Nearby::default(),
             dungeon_list: DungeonList::default(),
             dungeon: None,
@@ -892,6 +940,7 @@ impl EditorApp {
             picture_stars: Vec::new(),
             vertex_marks: Vec::new(),
             weenies: Vec::new(),
+            weenie_at: std::collections::HashMap::new(),
             schema,
             server_sql: args.weenies.clone(),
             spells: None,
@@ -901,16 +950,14 @@ impl EditorApp {
             terrain_rects: Vec::new(),
             scene_rects: Vec::new(),
             brush_rects: Vec::new(),
-            building_note: None,
             generator_marks: GeneratorMarks::default(),
+            marks_view: None,
             scenes: BTreeMap::new(),
             input: Input::default(),
             held: Held::default(),
             look: None,
             ctrl: false,
-            shift: false,
-            shift_clicked: false,
-            q_down: false,
+            keys: crate::camera::FlyKeys::default(),
             shift_walking: false,
             later: std::collections::VecDeque::new(),
             last_time: None,
@@ -959,6 +1006,9 @@ impl EditorApp {
                 furnishing_combo: None,
                 furnishing_rows: Vec::new(),
                 house_box: None,
+                findings_open: false,
+                spawn_rows: Vec::new(),
+                destination_link: None,
             },
             faults,
             stats: Stats::default(),
@@ -987,6 +1037,9 @@ impl EditorApp {
             server_classes: form::ServerClasses::default(),
             layout: Layout::default(),
             field_of_view: dereth_client_contract::camera::DEFAULT_FOV_DEGREES,
+            speeds: crate::camera::Speeds::default(),
+            frame_input: None,
+            given_camera: None,
             ghost: None,
             ghost_edges: building_drop::GhostEdges::default(),
             ghost_note: None,
@@ -994,6 +1047,7 @@ impl EditorApp {
             world_path: args.world.clone(),
             window_seen: None,
         };
+        app.count_models();
         app.rebuild_weenies();
         app.looks = app.spawn_looks();
         let scale = app
@@ -1002,6 +1056,12 @@ impl EditorApp {
             .and_then(crate::gui::read_scale)
             .unwrap_or_else(|| app.monitor_scale());
         app.gui.set_scale(scale);
+        if let Some(path) = &app.layout_file {
+            let (out, dungeon) = crate::docks::read_file(path);
+            app.fit_map = crate::docks::is_new_outdoors(&out);
+            app.dock = Some(out);
+            app.dungeon_dock = Some(dungeon);
+        }
         // The window where it was left, and the world where it was left (unless the command line
         // names where to start).
         if !headless {
@@ -1039,6 +1099,7 @@ impl EditorApp {
             camera: self.camera,
             mode: mode.to_owned(),
             dungeon: self.dungeon.map(|d| (d.landblock, d.back)),
+            speeds: Some((self.speeds.indoors, self.speeds.outdoors)),
         }
     }
 
@@ -1053,6 +1114,9 @@ impl EditorApp {
             }
         }
         self.camera = left.camera;
+        if let Some((indoors, outdoors)) = left.speeds {
+            self.speeds = crate::camera::Speeds::kept(indoors, outdoors);
+        }
         if let Some(m) = Mode::named(&left.mode) {
             self.mode = m;
         }
@@ -1065,6 +1129,12 @@ impl EditorApp {
     /// A file would not write.
     pub fn keep_place(&self) -> Result<(), String> {
         crate::place::write(&self.world_path, &self.left())?;
+        if let (Some(path), Some(out), Some(dungeon)) =
+            (&self.layout_file, &self.dock, &self.dungeon_dock)
+        {
+            crate::docks::write_file(path, out, dungeon)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        }
         if let (Some(w), Some(path)) = (self.window_seen, &self.ui_scale_file) {
             crate::gui::write_window(path, w).map_err(|e| format!("{}: {e}", path.display()))?;
         }
@@ -1131,7 +1201,8 @@ impl EditorApp {
         };
         if self.collider.is_none() {
             let cfg = self.core.cfg.scene_config();
-            match Collider::new(&self.core.store, &region, &cfg) {
+            let doors = fly::door_models(&self.session.weenies_by_setup());
+            match Collider::new(&self.core.store, &region, &cfg, doors) {
                 Ok(c) => self.collider = Some(c),
                 Err(e) => {
                     self.panels.message = e;
@@ -1260,7 +1331,7 @@ impl EditorApp {
 
     fn after(&mut self, touched: &Touched) -> Result<(), String> {
         self.stats.edits += 1;
-        self.rooms = None;
+        self.rooms.clear();
         self.nearby.stale();
         self.live_dirty = true;
         if touched.sql {
@@ -1331,12 +1402,11 @@ impl EditorApp {
             self.stats.records_written += (written.put + written.reverted) as u64;
         }
         let dir = written.dir;
-        // The flying camera's world is built again over what the edit changed.
-        if self
-            .collider
-            .as_ref()
-            .is_some_and(|c| touched.landblocks.iter().any(|lb| c.blocks.contains(lb)))
-        {
+        // The flying camera's world is built again over what the edit changed, and after a change
+        // of the SQL, which may make a model a door's.
+        if self.collider.as_ref().is_some_and(|c| {
+            touched.sql || touched.landblocks.iter().any(|lb| c.blocks.contains(lb))
+        }) {
             self.collider = None;
         }
         self.core.cfg.overlay_dat_dir = Some(dir.clone());
@@ -1528,8 +1598,8 @@ impl EditorApp {
                         if pressed && over {
                             continue;
                         }
-                        if pressed && self.shift {
-                            self.shift_clicked = true;
+                        if pressed {
+                            self.keys.clicked();
                         }
                         self.input.down = pressed;
                         if pressed {
@@ -1546,41 +1616,24 @@ impl EditorApp {
                 HostEvent::MouseWheel { notches } if !over => self.input.wheel += notches,
                 HostEvent::KeyboardInput { key, pressed, .. } => {
                     let vk = u32::try_from(key.virtual_key).unwrap_or(0);
-                    match vk {
-                        0x11 | 0xA2 | 0xA3 => self.ctrl = pressed,
-                        0x10 | 0xA0 | 0xA1 => {
-                            // Shift lowers the flying camera, and walks the body (the run key
-                            // held); a click with it held adds to the selection instead, and
-                            // stops the camera for the rest of the hold.
-                            self.shift = pressed;
-                            if !pressed {
-                                self.shift_clicked = false;
-                            }
-                            if self.walking && pressed != self.shift_walking {
-                                self.shift_walking = pressed;
-                                self.core.inject_action(if pressed {
-                                    Action::begin(movement::TOGGLE_RUN_WALK)
-                                } else {
-                                    Action::end(movement::TOGGLE_RUN_WALK)
-                                });
-                            }
-                        }
-                        _ => {}
+                    if matches!(vk, 0x11 | 0xA2 | 0xA3) {
+                        self.ctrl = pressed;
                     }
-                    // Keys typed into a field are the field's; a key let go always lets go.
-                    if typing && pressed {
+                    // Keys typed into a field are the field's, Shift too; a key let go always
+                    // lets go.
+                    if !self.keys.key(vk, pressed, typing, self.ctrl) {
                         continue;
                     }
-                    let set = |h: &mut bool| *h = pressed;
-                    match vk {
-                        0x57 => set(&mut self.held.forward),
-                        0x53 if !self.ctrl => set(&mut self.held.back),
-                        0x41 => set(&mut self.held.left),
-                        0x44 if !self.ctrl => set(&mut self.held.right),
-                        // Space rises as E does; walking, it charges a jump (below).
-                        0x45 | 0x20 => set(&mut self.held.up),
-                        0x51 => self.q_down = pressed,
-                        _ => {}
+                    // Shift lowers the flying camera, and walks the body (the run key held); a
+                    // click with it held adds to the selection instead, and stops the camera for
+                    // the rest of the hold.
+                    if self.walking && self.keys.shift != self.shift_walking {
+                        self.shift_walking = self.keys.shift;
+                        self.core.inject_action(if self.shift_walking {
+                            Action::begin(movement::TOGGLE_RUN_WALK)
+                        } else {
+                            Action::end(movement::TOGGLE_RUN_WALK)
+                        });
                     }
                     if self.walking {
                         let id = match vk {
@@ -1610,7 +1663,7 @@ impl EditorApp {
         }
         // Shift lowers the camera, but while it places a building freely.
         let freely = self.dropping_building();
-        self.held.down = self.q_down || self.shift && !self.shift_clicked && !freely;
+        self.held = self.keys.held(freely);
         keys
     }
 
@@ -1618,7 +1671,6 @@ impl EditorApp {
     fn update(&mut self) {
         // The creator's text, read again when they save it.
         self.text.refresh();
-        self.nearby_frame();
         if let Err(e) = self.take_catalog(false) {
             self.panels.message = e;
         }
@@ -1637,21 +1689,26 @@ impl EditorApp {
         }
         let events = std::mem::take(&mut self.shell.inbox);
         let now = self.core.timer.local_time;
-        // The panels first: what they take, the world does not.
+        #[allow(clippy::cast_possible_truncation)]
+        let dt = self
+            .last_time
+            .map_or(0.0, |t| (now - t) as f32)
+            .clamp(0.0, 0.25);
+        self.last_time = Some(now);
+        // The panels first: what they take, the world does not. The camera moves within their
+        // pass, once the world view is laid out and before the marks on it are drawn, so the
+        // marks and the world are drawn from the same place.
         let (w, h) = self.core.present.size();
         let raw = self.gui.input(&events, (w, h), now);
+        self.frame_input = Some((events, dt));
         let ctx = self.gui.ctx.clone();
         let mut pass = panels::Pass::default();
         let out = ctx.run_ui(raw, |ui| pass = self.panels_ui(ui));
         self.world_rect = pass.world;
-        let over = ctx.egui_is_using_pointer()
-            || ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| {
-                !pass.world.is_some_and(|r| r.contains(p))
-                    || ctx
-                        .layer_id_at(p)
-                        .is_some_and(|l| l.order != egui::Order::Background)
-            });
-        let typing = ctx.egui_wants_keyboard_input();
+        if self.frame_input.is_some() {
+            self.camera_step(&ctx, &mut pass);
+        }
+        let (keys, over) = (std::mem::take(&mut pass.keys), pass.over);
         self.shell.items = self.gui.paint(out, (w, h));
         // The dungeon piece's ghost, under the panels and the marks.
         let mut items = self.ghost_items();
@@ -1671,13 +1728,6 @@ impl EditorApp {
             })
             .sum();
         self.shell.uploads.append(&mut self.gui.uploads);
-        let keys = self.read_input(events, over, typing);
-        #[allow(clippy::cast_possible_truncation)]
-        let dt = self
-            .last_time
-            .map_or(0.0, |t| (now - t) as f32)
-            .clamp(0.0, 0.25);
-        self.last_time = Some(now);
         let mut actions = Vec::new();
         for (vk, ctrl) in keys {
             if let Some(a) = self.scale_key(vk, ctrl) {
@@ -1704,19 +1754,16 @@ impl EditorApp {
                 _ => {}
             }
         }
-        // The camera.
-        if !self.walking {
-            self.fly(dt);
-        }
         actions.append(&mut pass.actions);
         for a in actions {
             self.ui_action(a);
         }
         if !over && self.look.is_none() {
             if self.input.wheel != 0.0 {
+                let mut c = self.camera;
                 #[allow(clippy::cast_possible_truncation)]
-                self.camera.change_speed(self.input.wheel.signum() as i32);
-                self.walk_speed();
+                c.change_speed(self.input.wheel.signum() as i32);
+                self.set_speed(c.speed);
             }
             self.world_tool();
         } else if self.drag.is_some() || self.box_from.is_some() {
@@ -1729,21 +1776,61 @@ impl EditorApp {
             self.box_from = None;
         }
         self.settle_message();
-        if !self.walking {
-            let cell = self.camera_cell();
-            // In dungeon mode, outside its rooms, the dungeon alone, every room it reaches.
-            let (cell, whole) = match cell {
-                None if self.dungeon.is_some() => (self.dungeon_view_cell(), true),
-                c => (c, false),
-            };
-            self.draw_every_room(whole);
-            if let (Some(block), Some(ws)) = (self.viewer_block(), self.core.world.as_mut()) {
-                ws.camera = self.camera.to_free(block);
-                // In a room, the world draws it from inside, as from a body's camera there.
-                ws.free_camera_cell = cell;
-            }
+        // A camera put somewhere since (gone to, or out of a dungeon) is drawn from there now.
+        if !self.walking && self.given_camera != Some(self.camera) {
+            self.camera_to_world();
         }
         self.live_frame();
+    }
+
+    /// The camera's step of the frame, within the panels' pass once the world view is laid out:
+    /// the window's events read, the camera flown and handed to the world, and the world view's
+    /// field of view kept; what is over the panels and what the keys asked for, into `pass`.
+    fn camera_step(&mut self, ctx: &egui::Context, pass: &mut panels::Pass) {
+        let Some((events, dt)) = self.frame_input.take() else {
+            return;
+        };
+        let world = self.world_rect;
+        pass.over = ctx.egui_is_using_pointer()
+            || ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| {
+                !world.is_some_and(|r| r.contains(p))
+                    || ctx
+                        .layer_id_at(p)
+                        .is_some_and(|l| l.order != egui::Order::Background)
+            });
+        let typing = ctx.egui_wants_keyboard_input();
+        pass.keys = self.read_input(events, pass.over, typing);
+        if self.walking {
+            return;
+        }
+        self.fly(dt);
+        self.camera_to_world();
+        if let Some(v) = self.play_view() {
+            self.hold_field_of_view(v);
+        }
+    }
+
+    /// Hand the flying camera to the world: the world draws from it, in the room it is in. It
+    /// flies at the speed of where it is, indoors or outdoors.
+    fn camera_to_world(&mut self) {
+        let cell = self.camera_cell();
+        // Indoors, in a dungeon or a room, the camera flies at the speed it flies at indoors.
+        let indoors = self.dungeon.is_some() || cell.is_some();
+        if self.speeds.arrive(&mut self.camera, indoors) {
+            self.walk_speed();
+        }
+        // In dungeon mode, outside its rooms, the dungeon alone, every room it reaches.
+        let (cell, whole) = match cell {
+            None if self.dungeon.is_some() => (self.dungeon_view_cell(), true),
+            c => (c, false),
+        };
+        self.draw_every_room(whole);
+        if let (Some(block), Some(ws)) = (self.viewer_block(), self.core.world.as_mut()) {
+            ws.camera = self.camera.to_free(block);
+            // In a room, the world draws it from inside, as from a body's camera there.
+            ws.free_camera_cell = cell;
+        }
+        self.given_camera = Some(self.camera);
     }
 
     /// Answer one action of the panels or the keys.
@@ -1759,10 +1846,30 @@ impl EditorApp {
                 self.show_tab(Tab::Inspector);
                 Ok(())
             }
+            UiAction::SelectHere(selection) => {
+                self.selection = Some(selection);
+                self.also.clear();
+                Ok(())
+            }
+            UiAction::NewCopy(class, name) => self.new_copy(class, &name).map(|_| ()),
+            UiAction::OpenModel(m) => {
+                // Shown in the Place tool whatever it was filtered to.
+                self.panels.filter = format!("{:#010X}", m.raw());
+                self.panels.kinds.clear();
+                self.panels.tag = None;
+                self.panels.shelf = crate::browser_state::Shelf::All;
+                self.show_tab(Tab::Tool);
+                self.choose_model(m)
+            }
+            UiAction::AskDeleteDungeon(lb) => {
+                self.dungeon_list.confirm = Some(lb);
+                Ok(())
+            }
             UiAction::Favorite(model) => self.toggle_favorite(model),
-            UiAction::TopDown => self.toggle_top_down(),
             UiAction::Mode(m) => {
                 self.mode = m;
+                // The tool chosen is brought forward.
+                self.show_tab(Tab::Tool);
                 Ok(())
             }
             UiAction::Undo => self.edit(&Edit::Undo).map(|_| ()),
@@ -1778,7 +1885,7 @@ impl EditorApp {
                 Ok(())
             }
             UiAction::PlaceFit(k) => self.place_fit(k),
-            UiAction::DeleteDungeon(lb) => self.ask_delete_dungeon(lb),
+            UiAction::DeleteDungeon(lb) => self.delete_dungeon(lb),
             UiAction::KeepDungeon => {
                 self.dungeon_list.confirm = None;
                 Ok(())
@@ -1818,7 +1925,7 @@ impl EditorApp {
                 Ok(())
             }
             UiAction::Floor(f) => {
-                self.layout.floor = Some(f);
+                self.choose_floor(f);
                 Ok(())
             }
             UiAction::FloorStep(by) => {
@@ -1866,19 +1973,15 @@ impl EditorApp {
                 self.name_dungeon(lb, &name)
             }
             UiAction::DungeonLook(lb, of) => self.choose_dungeon_look(lb, of),
-            UiAction::ShowTab(tab) => {
-                self.show_tab(tab);
-                Ok(())
-            }
             UiAction::SaveCharacter => self.characters.save(),
             UiAction::ResetCharacter => self.prepare_character(true),
             UiAction::PlayOptions(o) => {
                 self.play_options = o;
                 play::write_play_options(&self.live_args.playtest.join("client"), o)
             }
-            UiAction::Export(target) => self.export_world(target, false),
             UiAction::Save => match self.session.save() {
                 Ok(w) => {
+                    self.saved = Some((self.session.history().0, self.core.timer.local_time));
                     self.panels.message = self.say_with("messages.saved", &[("n", &w.len())]);
                     Ok(())
                 }
@@ -1906,6 +2009,12 @@ impl EditorApp {
                 };
                 restored.and_then(|()| self.set_walking(!self.walking))
             }
+            UiAction::Speed(steps) => {
+                let mut c = self.camera;
+                c.change_speed(steps);
+                self.set_speed(c.speed);
+                Ok(())
+            }
             UiAction::Collide => {
                 self.collide = !self.collide;
                 Ok(())
@@ -1916,11 +2025,6 @@ impl EditorApp {
                         self.camera.snap(g);
                     }
                 }
-                Ok(())
-            }
-            UiAction::Speed(d) => {
-                self.camera.change_speed(d);
-                self.walk_speed();
                 Ok(())
             }
             UiAction::Model(m) => self.choose_model(m),
@@ -1963,11 +2067,6 @@ impl EditorApp {
             UiAction::ShowWeenie => {
                 self.show_weenie();
                 Ok(())
-            }
-            UiAction::NewWeenie(name, from, blank) => {
-                self.new_weenie(&name, from, blank).map(|()| {
-                    self.panels.form_typing.remove("new:name");
-                })
             }
             UiAction::WeenieCategory(c) => {
                 self.panels.weenie_category = c;
@@ -2012,6 +2111,13 @@ impl EditorApp {
     /// piece down once its ghost fits (or it is let go), the playtest starting once it is in the
     /// world, anything else at the next edit.
     fn settle_message(&mut self) {
+        if !self.panels.message.is_empty() && self.panels.message != self.log_last {
+            self.log_last.clone_from(&self.panels.message);
+            self.log.push(self.panels.message.clone());
+            if self.log.len() > LOG_LINES {
+                self.log.remove(0);
+            }
+        }
         if self.panels.message != self.panels.message_seen {
             self.panels.message_seen.clone_from(&self.panels.message);
             self.panels.message_until = if self.panels.message == self.say("play.waiting") {
@@ -2163,16 +2269,25 @@ impl EditorApp {
             blocks.push(lb);
         }
         for (k, lb) in blocks.into_iter().enumerate() {
-            if self.rooms.as_ref().is_none_or(|(at, _)| *at != lb) {
-                self.rooms = Some((lb, self.session.cell_shapes(lb)));
-            }
+            // The two landblocks asked of last, the dungeon's and the camera's, kept.
+            let i = match self.rooms.iter().position(|(at, _)| *at == lb) {
+                Some(i) => i,
+                None => {
+                    if self.rooms.len() >= 2 {
+                        self.rooms.remove(0);
+                    }
+                    self.stats.room_reads += 1;
+                    self.rooms.push((lb, self.session.cell_shapes(lb)));
+                    self.rooms.len() - 1
+                }
+            };
             let o = pick::block_origin(lb);
             let p = self.camera.position;
             let local = Vec3::new(p.x - o.x, p.y - o.y, p.z - o.z);
-            let room = self
-                .rooms
-                .as_ref()
-                .and_then(|(_, rooms)| rooms.iter().find(|r| r.holds(local)))
+            let room = self.rooms[i]
+                .1
+                .iter()
+                .find(|r| r.holds(local))
                 .map(|r| (r.index, r.seen_outside));
             if k == 0 && self.dungeon_block == Some(lb) {
                 self.in_dungeon = room.is_some();
@@ -2311,6 +2426,7 @@ impl EditorApp {
                 .inject_action(Action::end(movement::TOGGLE_RUN_WALK));
         } else {
             self.held = Held::default();
+            self.keys.held = Held::default();
             if self.shift_walking {
                 self.shift_walking = false;
                 self.core
@@ -2324,6 +2440,13 @@ impl EditorApp {
             self.walking = false;
         }
         Ok(())
+    }
+
+    /// Fly at speed `step` of [`crate::camera::SPEEDS`] where the camera is now, indoors or
+    /// outdoors: kept for there.
+    pub fn set_speed(&mut self, step: usize) {
+        self.speeds.set(&mut self.camera, step);
+        self.walk_speed();
     }
 
     /// Give the walking body the speed the camera flies at, as its run rate, and a Jump skill,
@@ -2369,13 +2492,13 @@ impl EditorApp {
             // Outdoors: no room is looked for the camera in first any more.
             self.dungeon_block = None;
             self.in_dungeon = false;
-            self.rooms = None;
+            self.rooms.clear();
             let yaw = self.camera.yaw.to_degrees();
             self.look_at(lb, at, distance, yaw, -30.0);
             return;
         };
         self.dungeon_block = Some(lb);
-        self.rooms = None;
+        self.rooms.clear();
         let shapes = self.session.cell_shapes(lb);
         let room = shapes.iter().find(|s| s.index == cell);
         let (s, c) = (
@@ -2730,7 +2853,7 @@ impl EditorApp {
         }
         if self.input.released {
             if let Some(from) = self.box_from.take() {
-                let add = self.ctrl || self.shift;
+                let add = self.ctrl || self.keys.shift;
                 let (dx, dy) = (p.0 - from.0, p.1 - from.1);
                 if dx * dx + dy * dy < BOX_MIN * BOX_MIN {
                     self.click_select(p, add);
@@ -3283,9 +3406,7 @@ impl EditorApp {
         // floor.
         let op = if let Some((lb, cell, at, facing)) = self.cell_point(p) {
             let door = self
-                .weenies
-                .iter()
-                .find(|w| w.weenie == weenie)
+                .weenie_entry(&weenie)
                 .is_some_and(|w| w.category == Category::Door);
             let (at, heading) = self.snapped(lb, cell, at, facing, door, true);
             Op::PlaceSpawnInCell {
@@ -3316,14 +3437,40 @@ impl EditorApp {
         Ok(())
     }
 
-    /// Bring the weenie tab forward.
+    /// Bring the log forward, its findings unfolded.
+    pub fn show_findings(&mut self) {
+        self.panels.findings_open = true;
+        self.show_tab(Tab::Log);
+    }
+
+    /// Bring the Definition tab forward.
     pub fn show_weenie(&mut self) {
-        self.show_tab(Tab::Weenie);
+        self.show_tab(Tab::Definition);
+    }
+
+    /// Whether `tab` is in front in the layout shown now.
+    #[must_use]
+    pub fn tab_in_front(&self, tab: Tab) -> bool {
+        let dock = if self.dungeon.is_some() {
+            self.dungeon_dock.as_ref()
+        } else {
+            self.dock.as_ref()
+        };
+        dock.and_then(|d| {
+            let (node, at) = d.main_surface().find_tab(&tab)?;
+            d.main_surface()[node].get_leaf().map(|l| l.active == at)
+        })
+        .unwrap_or(false)
     }
 
     /// Tab `tab` brought forward in its dock.
     pub fn show_tab(&mut self, tab: Tab) {
-        if let Some(dock) = self.dock.as_mut() {
+        let dock = if self.dungeon.is_some() {
+            self.dungeon_dock.as_mut()
+        } else {
+            self.dock.as_mut()
+        };
+        if let Some(dock) = dock {
             if let Some(at) = dock.find_tab(&tab) {
                 let _ = dock.set_active_tab(at);
             }
@@ -3337,16 +3484,16 @@ impl EditorApp {
     #[must_use]
     pub fn browser_list(&self) -> Vec<DataId> {
         let filter = self.panels.filter.trim();
+        let f = filter.to_lowercase();
         // Buildings among the kinds: the gallery's, before the models of the other kinds.
         let mut gallery: Vec<DataId> = Vec::new();
         if self.panels.kinds.contains(&Category::Building) {
             if let Some(c) = self.session.buildings() {
-                let f = filter.to_lowercase();
                 gallery = c
                     .gallery()
                     .into_iter()
                     .filter(|e| {
-                        self.names.matches(e.model, filter, self.tags.of(e.model))
+                        self.names.matches_lower(e.model, &f, self.tags.of(e.model))
                             || building_drop::building_name(e, None)
                                 .to_lowercase()
                                 .contains(&f)
@@ -3366,6 +3513,7 @@ impl EditorApp {
             }
         }
         let nearby = self.nearby_models();
+        let near: BTreeSet<DataId> = nearby.iter().copied().collect();
         let mut list: Vec<DataId> = nearby
             .iter()
             .copied()
@@ -3373,25 +3521,21 @@ impl EditorApp {
                 self.all_models
                     .iter()
                     .copied()
-                    .filter(|m| !nearby.contains(m)),
+                    .filter(|m| !near.contains(m)),
             )
             .filter(|m| self.in_shelf(*m))
-            .filter(|m| self.names.matches(*m, filter, self.tags.of(*m)))
+            .filter(|m| self.names.matches_lower(*m, &f, self.tags.of(*m)))
             .collect();
         self.shelve(&mut list);
-        let f = filter.to_lowercase();
-        let (mut named, rest): (Vec<DataId>, Vec<DataId>) = list.into_iter().partition(|m| {
-            f.is_empty()
-                || self
-                    .names
-                    .label(*m)
-                    .is_some_and(|l| l.to_lowercase().contains(&f))
-        });
+        let (mut named, rest): (Vec<DataId>, Vec<DataId>) = list
+            .into_iter()
+            .partition(|m| f.is_empty() || self.names.label_holds(*m, &f));
         named.extend(rest);
         if gallery.is_empty() {
             return named;
         }
-        named.retain(|m| !gallery.contains(m));
+        let shown: BTreeSet<DataId> = gallery.iter().copied().collect();
+        named.retain(|m| !shown.contains(m));
         gallery.extend(named);
         gallery
     }
@@ -3511,7 +3655,17 @@ impl EditorApp {
         );
         server.sort_by(|a, b| a.name.cmp(&b.name));
         out.extend(server);
+        self.weenie_at.clear();
+        for (i, e) in out.iter().enumerate() {
+            self.weenie_at.entry(e.weenie.clone()).or_insert(i);
+        }
         self.weenies = out;
+    }
+
+    /// Weenie `w` as the spawn tool lists it.
+    #[must_use]
+    pub fn weenie_entry(&self, w: &Weenie) -> Option<&WeenieEntry> {
+        self.weenie_at.get(w).and_then(|i| self.weenies.get(*i))
     }
 
     /// The spawn browser's weenies, by their place in [`Self::weenies`]: those answering its
@@ -3531,15 +3685,23 @@ impl EditorApp {
     /// How many models each category holds.
     #[must_use]
     pub fn category_counts(&self) -> BTreeMap<Category, usize> {
-        let mut out = BTreeMap::new();
-        for m in &self.all_models {
-            *out.entry(self.names.category(*m)).or_default() += 1;
-        }
+        let mut out = self.model_counts.clone();
         // The buildings, once read, as the gallery has them.
         if let Some(c) = self.session.buildings() {
             out.insert(Category::Building, c.gallery().len());
         }
         out
+    }
+
+    /// Count the models of each category again, after the model names change.
+    fn count_models(&mut self) {
+        self.model_counts.clear();
+        for m in &self.all_models {
+            *self
+                .model_counts
+                .entry(self.names.category(*m))
+                .or_default() += 1;
+        }
     }
 
     /// Take in what the gathering found once it has finished: the server's weenies, so its
@@ -3565,12 +3727,15 @@ impl EditorApp {
         if learned {
             self.session.learn_server(ready.server);
             self.dungeon_list.listed = None;
+            // The flying camera's world is built again, without the doors now known.
+            self.collider = None;
         }
         if let Some(b) = ready.buildings {
             self.session.learn_buildings(b);
             self.ghost = None;
         }
         self.names = ModelNames::new(&ready.placements, &self.session.weenies_by_setup());
+        self.count_models();
         self.rebuild_weenies();
         self.placements = Some(ready.placements);
         if let Some(mut map) = ready.map {
@@ -3667,17 +3832,13 @@ impl EditorApp {
         }
         if self.thumbs.is_none() {
             let backend = self.backend();
-            let opened = crate::thumbs::Thumbs::open(
+            self.thumbs = Some(crate::thumbs::Worker::open(
                 Arc::clone(&self.base_store),
                 backend,
                 &self.thumbs_root,
-            );
-            if let Err(e) = &opened {
-                tracing::warn!("the model browser shows no pictures: {e}");
-            }
-            self.thumbs = Some(opened);
+            ));
         }
-        let data = self.thumbs.as_mut()?.as_mut().ok()?.get(m, budget)?.clone();
+        let data = self.thumbs.as_mut()?.get(m, budget)?.clone();
         let mut rgba = data.levels.first().cloned().unwrap_or_default();
         for px in rgba.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
@@ -3878,19 +4039,21 @@ impl EditorApp {
     /// The pictures drawn and read from the cache so far.
     #[must_use]
     pub fn pictures(&self) -> (u64, u64) {
-        match &self.thumbs {
-            Some(Ok(t)) => (t.drawn, t.read),
-            _ => (0, 0),
+        self.thumbs.as_ref().map_or((0, 0), |t| (t.drawn, t.read))
+    }
+
+    /// Wait until every picture the browser has asked for has been read or drawn, so the next
+    /// frame shows it.
+    pub fn wait_for_pictures(&mut self) {
+        if let Some(t) = self.thumbs.as_mut() {
+            t.wait();
         }
     }
 
     /// Where model `m`'s picture is kept, when the browser has opened its pictures.
     #[must_use]
     pub fn picture_path(&self, m: DataId) -> Option<PathBuf> {
-        match &self.thumbs {
-            Some(Ok(t)) => Some(t.path(m)),
-            _ => None,
-        }
+        self.thumbs.as_ref().map(|t| t.path(m))
     }
 
     /// The models the statics around the camera stand as, most used first.
@@ -3970,7 +4133,7 @@ impl EditorApp {
         }
         if let Some(tab) = &s.show {
             match tab.as_str() {
-                "weenie" => self.show_weenie(),
+                "definition" | "weenie" => self.show_weenie(),
                 "characters" => self.characters.open = true,
                 other => return Err(format!("{other:?} is not a tab to show")),
             }
@@ -4215,9 +4378,11 @@ impl EditorApp {
         frames: u64,
         captures: &[(u64, PathBuf)],
     ) -> Result<(), String> {
-        // The model browser's names first, so a capture shows them whatever the machine.
+        // The model browser's names first, so a capture shows them whatever the machine; and
+        // each frame the pictures the frame before asked for, for the same reason.
         self.wait_for_names()?;
         for n in 1..=frames {
+            self.wait_for_pictures();
             for s in steps.iter().filter(|s| s.frame == n) {
                 self.step(s).map_err(|e| format!("frame {n}: {e}"))?;
             }
@@ -4247,8 +4412,15 @@ impl EditorApp {
 #[derive(Debug, Clone, PartialEq)]
 enum UiAction {
     Select(Selection),
+    /// A selection made where it shows already (the dungeon's grid): no other tab brought forward.
+    SelectHere(Selection),
+    /// A new weenie, a copy of a server's class, named as players will see it.
+    NewCopy(u32, String),
+    /// A model chosen in the Place tool.
+    OpenModel(DataId),
+    /// The question before a dungeon is taken away.
+    AskDeleteDungeon(u16),
     Favorite(DataId),
-    TopDown,
     Mode(Mode),
     Undo,
     Redo,
@@ -4259,6 +4431,7 @@ enum UiAction {
     Snap,
     /// The flying camera made to stop at things, or to pass through them.
     Collide,
+    /// The flying speed a step faster or slower.
     Speed(i32),
     Model(DataId),
     Brush(Brush),
@@ -4280,10 +4453,6 @@ enum UiAction {
     Form(FormEdit),
     /// The weenie tab brought forward.
     ShowWeenie,
-    /// A server class copied into the pack being edited, to edit.
-
-    /// A new weenie named so, made from a class (a blank of it, or a copy).
-    NewWeenie(String, u32, bool),
     /// The camera flown to world meters.
     FlyTo(f32, f32),
     /// The map zoomed in (`> 1`) or out by a factor.
@@ -4338,8 +4507,6 @@ enum UiAction {
     KeepDungeon,
     /// The selected statics and spawns copied beside themselves.
     Duplicate,
-    /// A docked tab brought forward.
-    ShowTab(Tab),
     /// A new weenie made for what it is for, named so.
     NewFor(Flow, String),
     /// A spawn of the weenie where the camera is.
@@ -4349,8 +4516,6 @@ enum UiAction {
     DestinationDungeon(u16),
     /// A spawn selected and flown to.
     GoToSpawn(PathBuf, String),
-    /// The world written out for a server.
-    Export(lyceum_foundry::export::Target),
     /// The playtest stopped.
     StopPlay,
     /// The panels drawn at this scale (pixels to the point).
@@ -4364,6 +4529,9 @@ pub fn percent(scale: f32) -> u32 {
     let p = (scale * 100.0).round().max(0.0) as u32;
     p
 }
+
+/// How many of the status bar's messages the log keeps.
+const LOG_LINES: usize = 500;
 
 /// How many frames the status bar shows a new panels' scale for: three seconds at 60 a second.
 const UI_SCALE_NOTE_FRAMES: u32 = 180;

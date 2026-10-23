@@ -4,6 +4,7 @@
 //!
 //! ```toml
 //! camera = [41570.5, 34650.0, 112.0, 30.0, -20.0, 3]   # world meters, yaw and pitch, speed
+//! speeds = [3, 6]                                       # indoors and outdoors
 //! mode = "select"
 //! dungeon = 0x0163
 //! back = [41570.5, 34650.0, 112.0, 30.0, -20.0, 3]
@@ -32,6 +33,8 @@ pub struct Left {
     pub mode: String,
     /// The dungeon gone into, and where the camera was before.
     pub dungeon: Option<(u16, FlyCamera)>,
+    /// The flying speeds indoors and outdoors, each a step of [`crate::camera::SPEEDS`].
+    pub speeds: Option<(usize, usize)>,
 }
 
 impl Left {
@@ -83,6 +86,9 @@ pub fn text(left: &Left) -> String {
         String::from("# Where Lyceum left this world: the camera, the tool and the dungeon.\n");
     s.push_str(&format!("camera = {}\n", camera_value(&left.camera)));
     s.push_str(&format!("mode = \"{}\"\n", left.mode));
+    if let Some((indoors, outdoors)) = left.speeds {
+        s.push_str(&format!("speeds = [{indoors}, {outdoors}]\n"));
+    }
     if let Some((lb, back)) = &left.dungeon {
         s.push_str(&format!("dungeon = 0x{lb:04X}\n"));
         s.push_str(&format!("back = {}\n", camera_value(back)));
@@ -108,10 +114,24 @@ pub fn read_text(text: &str) -> Option<Left> {
             let back = t.get("back").and_then(camera_of).unwrap_or(camera);
             (lb, back)
         });
+    let speeds = t
+        .get("speeds")
+        .and_then(toml::Value::as_array)
+        .and_then(|a| {
+            let n: Vec<usize> = a
+                .iter()
+                .filter_map(|x| x.as_integer().and_then(|i| usize::try_from(i).ok()))
+                .collect();
+            match n[..] {
+                [indoors, outdoors] => Some((indoors, outdoors)),
+                _ => None,
+            }
+        });
     Some(Left {
         camera,
         mode,
         dungeon,
+        speeds,
     })
 }
 
@@ -144,9 +164,11 @@ mod tests {
             camera,
             mode: "spawn".into(),
             dungeon: Some((0x0163, back)),
+            speeds: Some((2, 7)),
         };
         let again = read_text(&text(&left)).expect("it reads");
         assert_eq!(again.mode, "spawn");
+        assert_eq!(again.speeds, Some((2, 7)));
         assert_eq!(again.dungeon.map(|(lb, _)| lb), Some(0x0163));
         let close = |a: &FlyCamera, b: &FlyCamera| {
             (a.position.x - b.position.x).abs() < 0.01
@@ -160,9 +182,11 @@ mod tests {
         // Outdoors, nothing of a dungeon.
         let out = Left {
             dungeon: None,
+            speeds: None,
             ..left
         };
-        assert_eq!(read_text(&text(&out)).unwrap().dungeon, None);
+        let again = read_text(&text(&out)).unwrap();
+        assert_eq!((again.dungeon, again.speeds), (None, None));
         assert_eq!(read_text("not = [toml"), None);
     }
 }

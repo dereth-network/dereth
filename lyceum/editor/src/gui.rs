@@ -34,6 +34,10 @@ static SANS: &[u8] =
 static MONO: &[u8] =
     include_bytes!("../../../dereth/client/crates/classic-fonts/fonts/LiberationMono-Bold.ttf");
 
+/// The most egui's clock moves in one frame, in seconds: a press and its release either side of
+/// a slow frame (a world loading) are still a click.
+const LONGEST_STEP: f64 = 0.25;
+
 /// The first overlay key egui's textures take.
 const KEY_BASE: u64 = 0xED20_0000;
 
@@ -58,7 +62,8 @@ pub struct Gui {
     /// Pixels to the point.
     scale: f32,
     /// The time egui was last given, and what is added to a frame's time so that egui's never
-    /// goes back: the editor's frames and a playtest's are timed by different clocks.
+    /// goes back (the editor's frames and a playtest's are timed by different clocks) and never
+    /// leaps more than [`LONGEST_STEP`].
     last_time: Option<f64>,
     time_offset: f64,
 }
@@ -269,6 +274,10 @@ impl Gui {
             self.time_offset += last - time;
             time = last;
         }
+        if let Some(last) = self.last_time.filter(|last| time > *last + LONGEST_STEP) {
+            self.time_offset -= time - last - LONGEST_STEP;
+            time = last + LONGEST_STEP;
+        }
         self.last_time = Some(time);
         let s = self.scale;
         #[allow(clippy::cast_precision_loss)] // a screen
@@ -394,6 +403,29 @@ impl Gui {
             size.1.max(1) as f32 / self.scale,
         );
         let to_clip = |p: egui::Pos2| [p.x / w * 2.0 - 1.0, 1.0 - p.y / h * 2.0, 0.5];
+        // Runs of vertices share a color: the last one's straight form is kept.
+        let mut last = (egui::Color32::TRANSPARENT, 0);
+        let mut v = move |x: &egui::epaint::Vertex| {
+            if x.color != last.0 {
+                last = (x.color, straight(x.color));
+            }
+            OverlayVertex {
+                position: to_clip(x.pos),
+                color: last.1,
+                uv: [x.uv.x, x.uv.y],
+            }
+        };
+        // Counter-clockwise in clip space (y up), the overlay's front face.
+        let wound = |a: OverlayVertex, b: OverlayVertex, c: OverlayVertex| {
+            let turn = (b.position[0] - a.position[0]) * (c.position[1] - a.position[1])
+                - (b.position[1] - a.position[1]) * (c.position[0] - a.position[0]);
+            if turn >= 0.0 {
+                [a, b, c]
+            } else {
+                [a, c, b]
+            }
+        };
+        let mut converted: Vec<OverlayVertex> = Vec::new();
         for egui::ClippedPrimitive {
             clip_rect,
             primitive,
@@ -411,47 +443,53 @@ impl Gui {
                 wrap_v: false,
             };
             let key = tex.key;
-            let mut vertices = Vec::with_capacity(mesh.indices.len());
-            for t in mesh.indices.as_chunks::<3>().0 {
-                let tri = [
-                    mesh.vertices[t[0] as usize],
-                    mesh.vertices[t[1] as usize],
-                    mesh.vertices[t[2] as usize],
-                ];
-                for poly in clip(&tri, clip_rect) {
-                    let v = |x: &egui::epaint::Vertex| OverlayVertex {
-                        position: to_clip(x.pos),
-                        color: straight(x.color),
-                        uv: [x.uv.x, x.uv.y],
-                    };
-                    let (a, b, c) = (v(&poly[0]), v(&poly[1]), v(&poly[2]));
-                    // Counter-clockwise in clip space (y up), the overlay's front face.
-                    let turn = (b.position[0] - a.position[0]) * (c.position[1] - a.position[1])
-                        - (b.position[1] - a.position[1]) * (c.position[0] - a.position[0]);
-                    if turn >= 0.0 {
-                        vertices.extend([a, b, c]);
-                    } else {
-                        vertices.extend([a, c, b]);
+            // Into the last batch when it draws with the same texture and sampler, else a new one.
+            let joins = matches!(
+                items.last(),
+                Some(OverlayItem::Triangles { texture, sampler: s, .. })
+                    if *texture == key && *s == sampler
+            );
+            if !joins {
+                items.push(OverlayItem::Triangles {
+                    material: OverlayMaterial::Image,
+                    texture: key,
+                    sampler,
+                    vertices: Vec::new(),
+                    depth: dereth_client_contract::overlay::OverlayDepth::Over,
+                });
+            }
+            let Some(OverlayItem::Triangles { vertices, .. }) = items.last_mut() else {
+                continue;
+            };
+            vertices.reserve(mesh.indices.len());
+            let triangles = mesh.indices.as_chunks::<3>().0;
+            if mesh.vertices.iter().all(|x| clip_rect.contains(x.pos)) {
+                // Inside its clip rectangle whole: each vertex worked out once, however many
+                // triangles share it.
+                converted.clear();
+                converted.extend(mesh.vertices.iter().map(&mut v));
+                for t in triangles {
+                    let at = |i: u32| converted[i as usize];
+                    vertices.extend(wound(at(t[0]), at(t[1]), at(t[2])));
+                }
+            } else {
+                for t in triangles {
+                    let tri = [
+                        mesh.vertices[t[0] as usize],
+                        mesh.vertices[t[1] as usize],
+                        mesh.vertices[t[2] as usize],
+                    ];
+                    if tri.iter().all(|x| clip_rect.contains(x.pos)) {
+                        vertices.extend(wound(v(&tri[0]), v(&tri[1]), v(&tri[2])));
+                        continue;
+                    }
+                    for poly in clip(&tri, clip_rect) {
+                        vertices.extend(wound(v(&poly[0]), v(&poly[1]), v(&poly[2])));
                     }
                 }
             }
             if vertices.is_empty() {
-                continue;
-            }
-            match items.last_mut() {
-                Some(OverlayItem::Triangles {
-                    texture,
-                    sampler: s,
-                    vertices: v,
-                    ..
-                }) if *texture == key && *s == sampler => v.extend(vertices),
-                _ => items.push(OverlayItem::Triangles {
-                    material: OverlayMaterial::Image,
-                    texture: key,
-                    sampler,
-                    vertices,
-                    depth: dereth_client_contract::overlay::OverlayDepth::Over,
-                }),
+                items.pop();
             }
         }
         #[allow(clippy::iter_over_hash_type)]
@@ -699,6 +737,103 @@ mod tests {
             (lo - 0.0).abs() < 0.01 && (hi - 1.0).abs() < 0.01,
             "{lo} {hi}"
         );
+    }
+
+    #[test]
+    fn panels_inside_their_clip_and_across_its_edge_give_the_triangles_each_cut_alone_gives() {
+        let mut g = Gui::new();
+        let input = g.input(&[], (400, 300), 1.0);
+        let ctx = g.ctx.clone();
+        let bounds = egui::Rect::from_min_max(egui::pos2(50.0, 50.0), egui::pos2(250.0, 200.0));
+        let out = ctx.run_ui(input, |ui| {
+            let p = ui.painter().with_clip_rect(bounds);
+            // Inside whole, and across the clip's right edge.
+            p.circle_filled(
+                egui::pos2(120.0, 120.0),
+                30.0,
+                egui::Color32::from_rgb(200, 40, 40),
+            );
+            p.rect_filled(
+                egui::Rect::from_min_max(egui::pos2(200.0, 80.0), egui::pos2(320.0, 150.0)),
+                4.0,
+                egui::Color32::from_rgba_unmultiplied(40, 200, 40, 128),
+            );
+        });
+        // A corner to a hundredth of a point: back from clip space it may differ in its last bit.
+        #[allow(clippy::cast_possible_truncation)]
+        let at = |x: f32, y: f32| [(x * 100.0).round() as i64, (y * 100.0).round() as i64];
+        // What each triangle gives cut alone, worked out from the same shapes.
+        let primitives = ctx.tessellate(out.shapes.clone(), out.pixels_per_point);
+        let mut want = Vec::new();
+        for p in &primitives {
+            let egui::epaint::Primitive::Mesh(mesh) = &p.primitive else {
+                continue;
+            };
+            for t in mesh.indices.as_chunks::<3>().0 {
+                let tri = [
+                    mesh.vertices[t[0] as usize],
+                    mesh.vertices[t[1] as usize],
+                    mesh.vertices[t[2] as usize],
+                ];
+                for poly in clip(&tri, p.clip_rect) {
+                    let mut c: Vec<[i64; 2]> = poly.iter().map(|v| at(v.pos.x, v.pos.y)).collect();
+                    c.sort_unstable();
+                    want.push((c, straight(poly[0].color)));
+                }
+            }
+        }
+        let items = g.paint(out, (400, 300));
+        let mut got = Vec::new();
+        for i in &items {
+            if let OverlayItem::Triangles { vertices, .. } = i {
+                for t in vertices.as_chunks::<3>().0 {
+                    let mut c: Vec<[i64; 2]> = t
+                        .iter()
+                        .map(|v| {
+                            at(
+                                (v.position[0] + 1.0) / 2.0 * 400.0,
+                                (1.0 - v.position[1]) / 2.0 * 300.0,
+                            )
+                        })
+                        .collect();
+                    c.sort_unstable();
+                    got.push((c, t[0].color));
+                }
+            }
+        }
+        assert!(want.len() > 20, "{}", want.len());
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn a_press_and_its_release_either_side_of_a_slow_frame_are_still_a_click() {
+        let mut g = Gui::new();
+        let ctx = g.ctx.clone();
+        let mut clicked = false;
+        let button = |ui: &mut egui::Ui, clicked: &mut bool| {
+            let r = ui.put(
+                egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(80.0, 30.0)),
+                egui::Button::new("Go"),
+            );
+            *clicked |= r.clicked();
+        };
+        let press = |pressed| HostEvent::MouseInput {
+            button: MouseButton::Left,
+            pressed,
+        };
+        let frames: [(f64, Vec<HostEvent>); 4] = [
+            (1.0, vec![HostEvent::CursorMoved { x: 40.0, y: 20.0 }]),
+            (1.02, vec![press(true)]),
+            // Five seconds later, as after a long load.
+            (6.02, vec![press(false)]),
+            (6.04, vec![]),
+        ];
+        for (t, events) in frames {
+            let input = g.input(&events, (400, 300), t);
+            let out = ctx.run_ui(input, |ui| button(ui, &mut clicked));
+            let _ = g.paint(out, (400, 300));
+        }
+        assert!(clicked);
     }
 
     #[test]

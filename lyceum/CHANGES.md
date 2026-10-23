@@ -12,12 +12,13 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+- Lyceum is faster while flying, browsing scenery and with big dungeons open.
 - Build worlds on the Infiltration (February 2005) data files, portal and cell alike.
-- Export a world for Empyrean, ACE or GDLE, from the Export menu or `lyceum export`.
+- Export a world for Empyrean, ACE or GDLE with `lyceum export`.
 - Fixed the start screen listing a world twice.
 - Drop any retail building from Place, with its rooms and doors, then move it.
 - Dropped cottages, villas and mansions are houses players can buy.
-- Find rooms in Hierarchy, switch views, and keep favorite scenery handy.
+- Find rooms in Hierarchy and keep favorite scenery handy.
 - Search scenery, filter it by several kinds, star favorites, and tag it by right click.
 - Scenery lands on the ground, or on top of what you click.
 - Terrain brushes have icons and dropdowns, and a radius in land vertices.
@@ -32,16 +33,21 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 - Add your own dungeon pieces from glTF and join them in the kit.
 - Import your own models from glTF.
 - Check how collision fits your model and compare replacement models.
-- Keep playtest characters and edit templates for stats, skills, and equipment.
+- Playtest characters keep their progress between playtests.
 - Play inside the editor's world view; Stop ends the playtest.
 - Live edits update the running playtest without logging out.
-- Scale the editor's panels from the Views menu or with Ctrl+= and Ctrl+-.
+- Scale the editor's panels from Settings or with Ctrl+= and Ctrl+-.
 - Lay out dungeons on a grid a floor at a time, building up and down from where players arrive.
 - New dungeons start on the open sea floor, near where you choose.
 - Dungeons are a mode: go in from the list, name them, and choose their look.
 - Things placed in a dungeon room move and go with it.
 - Portals are added like any object; their card picks where they lead.
-- New layout: the world view over the map, and the controls in one column on the right.
+- A new default layout, with a Tool tab that follows the tool, kept as you arrange it.
+- The camera keeps its own speed indoors (10 m/s to start) and outdoors (100 m/s).
+- With Collision on, a camera stuck inside something passes through until it is clear.
+- With Collision on, the camera passes through doors.
+- Shift no longer lowers the camera while you type.
+- New weenies take the name you type.
 - See the server's weenies and generators in place; your first change copies them.
 - Empyrean comes with Lyceum; download its world database from the editor.
 - Upgrade older world sources with backups and keep their assigned IDs.

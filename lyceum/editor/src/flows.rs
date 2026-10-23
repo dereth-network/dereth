@@ -123,8 +123,9 @@ impl Flow {
 /// What a field is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
-    Identity,
-    Appearance,
+    /// What it is: its name, its looks, its size, its worth. More properties join it by naming it
+    /// as their group.
+    Basic,
     Use,
     Combat,
     Trade,
@@ -132,9 +133,8 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Self; 6] = [
-        Self::Identity,
-        Self::Appearance,
+    pub const ALL: [Self; 5] = [
+        Self::Basic,
         Self::Use,
         Self::Combat,
         Self::Trade,
@@ -144,8 +144,7 @@ impl Group {
     #[must_use]
     pub const fn key(self) -> &'static str {
         match self {
-            Self::Identity => "flows.identity",
-            Self::Appearance => "flows.appearance",
+            Self::Basic => "flows.basic",
             Self::Use => "flows.use",
             Self::Combat => "flows.combat",
             Self::Trade => "flows.trade",
@@ -160,7 +159,8 @@ pub enum Widget {
     Text,
     Whole,
     Decimal,
-    YesNo,
+    /// Yes or no; the value the server takes while the weenie sets none.
+    YesNo(bool),
     /// One of these values, each by its key in the text (`fields.<key>`).
     Choice(&'static [(u32, &'static str)]),
     /// Any of these bits.
@@ -227,35 +227,35 @@ use Flow::{Chest, Creature, Door, Item, Portal, QuestGiver, Talker, Vendor};
 pub static FIELDS: &[Field] = &[
     Field {
         key: "name",
-        group: Group::Identity,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::String, 1),
         widget: Widget::Text,
         flows: &[],
     },
     Field {
         key: "model",
-        group: Group::Identity,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::DataId, 1),
         widget: Widget::DataId,
         flows: &[],
     },
     Field {
         key: "icon",
-        group: Group::Identity,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::DataId, 8),
         widget: Widget::DataId,
         flows: &[Item, Chest, Door, Portal],
     },
     Field {
         key: "description",
-        group: Group::Identity,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::String, 16),
         widget: Widget::Text,
         flows: &[Item, Chest, Door, Portal, Vendor],
     },
     Field {
         key: "scale",
-        group: Group::Appearance,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::Float, 39),
         widget: Widget::Decimal,
         flows: &[],
@@ -276,14 +276,14 @@ pub static FIELDS: &[Field] = &[
     },
     Field {
         key: "value",
-        group: Group::Use,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::Int, 19),
         widget: Widget::Whole,
         flows: &[Item],
     },
     Field {
         key: "weight",
-        group: Group::Use,
+        group: Group::Basic,
         target: Target::Property(PropertyKind::Int, 5),
         widget: Widget::Whole,
         flows: &[Item],
@@ -299,21 +299,21 @@ pub static FIELDS: &[Field] = &[
         key: "shows_destination",
         group: Group::Use,
         target: Target::Property(PropertyKind::Bool, 88),
-        widget: Widget::YesNo,
+        widget: Widget::YesNo(true),
         flows: &[Portal],
     },
     Field {
         key: "locked",
         group: Group::Use,
         target: Target::Property(PropertyKind::Bool, 3),
-        widget: Widget::YesNo,
+        widget: Widget::YesNo(false),
         flows: &[Door, Chest],
     },
     Field {
         key: "starts_locked",
         group: Group::Use,
         target: Target::Property(PropertyKind::Bool, 35),
-        widget: Widget::YesNo,
+        widget: Widget::YesNo(false),
         flows: &[Door, Chest],
     },
     Field {
@@ -355,7 +355,7 @@ pub static FIELDS: &[Field] = &[
         key: "attackable",
         group: Group::Combat,
         target: Target::Property(PropertyKind::Bool, 19),
-        widget: Widget::YesNo,
+        widget: Widget::YesNo(true),
         flows: &[Creature, Talker, QuestGiver, Vendor],
     },
     Field {
@@ -443,6 +443,30 @@ pub static FIELDS: &[Field] = &[
         flows: &[QuestGiver],
     },
 ];
+
+/// A yes-or-no property's value as the server takes it: as written (`value`), else `unset`, the
+/// server's value while the weenie sets none.
+#[must_use]
+pub fn yes_no(value: Option<&str>, unset: bool) -> bool {
+    value.map_or(unset, |v| {
+        matches!(content::bare(v).as_str(), "True" | "true" | "1")
+    })
+}
+
+/// The symbol of a weenie named `words` as players see it: lowercase letters and digits, the rest
+/// hyphens.
+#[must_use]
+pub fn symbol_of(words: &str) -> String {
+    words
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
 
 /// The emote set of `category` (for `quest`, when one is named) in `doc`.
 fn set_of(doc: &SqlDoc, category: u32, quest: Option<&str>) -> Option<usize> {
@@ -670,16 +694,7 @@ impl EditorApp {
         if words.is_empty() {
             return Err(self.say("messages.name_it"));
         }
-        let symbol: String = words
-            .to_lowercase()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect::<String>()
-            .split('-')
-            .filter(|w| !w.is_empty())
-            .collect::<Vec<_>>()
-            .join("-");
-        self.new_weenie(&symbol, flow.blank(), true)?;
+        self.new_weenie(&symbol_of(words), flow.blank(), true)?;
         // The form shows the new weenie, not a selected spawn's.
         self.selection = None;
         self.also.clear();
@@ -702,6 +717,33 @@ impl EditorApp {
                 name: t.get("flows.start_quest").to_owned(),
             })?;
         }
+        self.show_weenie();
+        Ok(w)
+    }
+
+    /// A new weenie of the pack being edited, a copy of server class `class`, named `name` as
+    /// players will see it. The weenie tab shows it.
+    ///
+    /// # Errors
+    /// No server database to copy it from, or a name taken.
+    pub fn new_copy(&mut self, class: u32, name: &str) -> Result<Weenie, String> {
+        let words = name.trim();
+        if words.is_empty() {
+            return Err(self.say("messages.name_it"));
+        }
+        self.new_weenie(&symbol_of(words), class, false)?;
+        self.selection = None;
+        self.also.clear();
+        let w = self
+            .panels
+            .weenie
+            .clone()
+            .ok_or_else(|| self.say("messages.no_weenie_shown"))?;
+        self.form_edit(&FormEdit::Property {
+            kind: PropertyKind::String,
+            id: 1,
+            value: Some(words.to_owned()),
+        })?;
         self.show_weenie();
         Ok(w)
     }
@@ -773,10 +815,6 @@ impl EditorApp {
     ) {
         let t = self.text.table();
         let flow = Flow::of(doc);
-        ui.horizontal(|ui| {
-            ui.weak(t.get("flows.is_a"));
-            ui.strong(t.get(&format!("flows.{}", flow.key())));
-        });
         for group in Group::ALL {
             let fields: Vec<&Field> = flow
                 .fields()
@@ -814,13 +852,11 @@ impl EditorApp {
             _ => format!("flow:{}", f.key),
         };
         match (f.target, f.widget) {
-            (Target::Property(kind, id), Widget::YesNo) => {
-                let now = doc
-                    .property(kind, id)
-                    .map(|v| matches!(content::bare(&v).as_str(), "True" | "true" | "1"));
+            (Target::Property(kind, id), Widget::YesNo(unset)) => {
+                let now = yes_no(doc.property(kind, id).as_deref(), unset);
                 ui.horizontal(|ui| {
                     for (v, label) in [(true, "fields.yes"), (false, "fields.no")] {
-                        if ui.selectable_label(now == Some(v), t.get(label)).clicked() {
+                        if ui.selectable_label(now == v, t.get(label)).clicked() && v != now {
                             out.push(UiAction::Form(FormEdit::Property {
                                 kind,
                                 id,
@@ -978,21 +1014,6 @@ impl EditorApp {
                         },
                         out,
                     );
-                    if id == 1 {
-                        if let Some(m) = self.model {
-                            if ui
-                                .small_button(t.get("fields.use_browser_model"))
-                                .on_hover_text(t.get("fields.use_browser_model_about"))
-                                .clicked()
-                            {
-                                out.push(UiAction::Form(FormEdit::Property {
-                                    kind,
-                                    id,
-                                    value: Some(format!("0x{:08X}", m.raw())),
-                                }));
-                            }
-                        }
-                    }
                 });
             }
             (Target::Property(kind, id), _) => {
@@ -1230,12 +1251,17 @@ impl EditorApp {
             });
     }
 
-    /// The "New ..." flows: a name, and a button for each kind.
+    /// New Weenie, folded till opened: a name, a button for each kind, and a copy of the weenie
+    /// shown (a server's class).
     pub(super) fn new_flows(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let t = self.text.table();
+        let copy_of = match self.form_weenie() {
+            Some(Weenie::Class(c)) => Some(c),
+            _ => None,
+        };
         egui::CollapsingHeader::new(t.get("flows.new"))
             .id_salt("new flows")
-            .default_open(true)
+            .default_open(false)
             .show(ui, |ui| {
                 if self.server_sql.is_none() {
                     ui.weak(t.get("flows.new_needs_server"));
@@ -1263,6 +1289,17 @@ impl EditorApp {
                             .clicked()
                         {
                             out.push(UiAction::NewFor(flow, name.clone()));
+                        }
+                    }
+                    if ui
+                        .add_enabled(
+                            copy_of.is_some(),
+                            egui::Button::new(t.get("flows.new_copy")),
+                        )
+                        .clicked()
+                    {
+                        if let Some(c) = copy_of {
+                            out.push(UiAction::NewCopy(c, name.clone()));
                         }
                     }
                 });
@@ -1336,7 +1373,6 @@ mod tests {
             }
         }
         for flow in Flow::ALL {
-            need(format!("flows.{}", flow.key()));
             need(format!("flows.new_{}", flow.key()));
             need(format!("flows.{}_about", flow.key()));
         }
@@ -1345,6 +1381,34 @@ mod tests {
         }
         assert!(missing.is_empty(), "{missing:?}");
     }
+
+    #[test]
+    fn a_yes_or_no_field_the_weenie_leaves_unset_shows_the_value_the_server_takes() {
+        let field = |key: &str| FIELDS.iter().find(|f| f.key == key).unwrap();
+        // As the server reads them unset: a portal shows where it leads, a creature can be
+        // attacked, and a door is neither locked nor locks again.
+        for (key, unset) in [
+            ("shows_destination", true),
+            ("attackable", true),
+            ("locked", false),
+            ("starts_locked", false),
+        ] {
+            assert_eq!(field(key).widget, Widget::YesNo(unset), "{key}");
+            assert_eq!(yes_no(None, unset), unset, "{key}");
+        }
+        // Set, the weenie's own: a portal marked to hide where it leads.
+        assert!(!yes_no(Some("False"), true));
+        assert!(yes_no(Some("1"), false));
+        let doc = SqlDoc::parse(PORTAL_BLANK);
+        assert!(yes_no(
+            doc.property(PropertyKind::Bool, 88).as_deref(),
+            true
+        ));
+    }
+
+    /// A portal as a blank of the server's makes it: no property saying whether it shows where it
+    /// leads.
+    const PORTAL_BLANK: &str = "INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)\nVALUES ({{wcid:gate}}, 'gate', 7, '2005-02-09 10:00:00');\n";
 
     #[test]
     fn a_quest_giver_asks_after_its_quest_stamps_it_and_answers_both_ways() {

@@ -100,19 +100,6 @@ impl EditorApp {
         )
         .id_salt((lb, n))
         .show(ui, |ui| {
-            if ui
-                .selectable_label(
-                    self.selection
-                        == Some(Selection::Cell {
-                            landblock: lb,
-                            cell: n,
-                        }),
-                    text.get("hierarchy.enter_room"),
-                )
-                .clicked()
-            {
-                out.push(UiAction::ChooseCell(lb, n));
-            }
             for (index, object) in cell.static_objects.iter().enumerate() {
                 let name = self
                     .names

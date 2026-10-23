@@ -1,6 +1,7 @@
-//! The dungeon's grid, in the 2D panel under the world view while in dungeon mode: the dungeon's
-//! rooms from above, one floor at a time, on the grid the world's dungeons are built on
-//! ([`lyceum_foundry::grid`]), with the floor selector and a side view of the floors.
+//! The dungeon's grid, its own tab in dungeon mode: the dungeon's rooms from above, one floor at a
+//! time, on the grid the world's dungeons are built on ([`lyceum_foundry::grid`]), with the floor
+//! selector; and in a tab of its own a side view of the floors. The floor shown is the one the
+//! camera is on, or one chosen until the camera goes to another floor.
 //!
 //! A click on a free doorway (a dot), or on an empty square beside the rooms, chooses where to
 //! build: the palette then lists what fits there, best first, and the pointer over one shows its
@@ -203,6 +204,12 @@ pub struct Lifted {
     pub names: Vec<String>,
 }
 
+/// How near the grid starts, in points to the meter: a room or two round the camera.
+pub const GRID_ZOOM: f32 = 3.5;
+
+/// How near the cross-section may be zoomed, times its fit.
+const SIDE_ZOOM_MOST: f32 = 40.0;
+
 /// The grid's state.
 #[derive(Default)]
 pub struct Layout {
@@ -210,8 +217,10 @@ pub struct Layout {
     /// fit the dungeon the first time.
     pub center: Option<(f32, f32)>,
     pub zoom: f32,
-    /// The floor shown, by its height (landblock meters); the floors, as last worked out.
-    pub floor: Option<f32>,
+    /// The floor chosen to be shown, by its height (landblock meters), with the floor the camera
+    /// was on as it was chosen: shown while the camera stays on that floor. The floors, as last
+    /// worked out.
+    pub floor: Option<(f32, f32)>,
     pub floors: Vec<f32>,
     /// Quarter turns of the first room, and which placement at a square R has chosen.
     pub turn: u8,
@@ -225,6 +234,10 @@ pub struct Layout {
     pub moving: Option<Lifted>,
     /// Edits made since the dungeon was gone into: what the marks were worked out for.
     revision: u64,
+    /// The cross-section's zoom, times its fit (1 or more), and how far it is panned from the
+    /// dungeon's middle, east and up, in meters.
+    pub side_zoom: f32,
+    pub side_pan: (f32, f32),
     /// Parts from above, by environment and part; their spaces; the landblock's rooms.
     plans: BTreeMap<(u32, u16), Option<PiecePlan>>,
     spaces: BTreeMap<(u32, u16), Option<Space>>,
@@ -241,6 +254,8 @@ pub struct Layout {
     pub doorway_dots: Vec<(Link, egui::Pos2)>,
     /// Each opening up or down marked on its own floor, the floor shown, as drawn.
     pub marked_ways: Vec<(Link, egui::Pos2)>,
+    /// The room outlines the floors seen from the south drew last.
+    pub side_outlines: usize,
 }
 
 impl std::fmt::Debug for Layout {
@@ -270,6 +285,8 @@ impl Layout {
         self.invalidate();
         self.center = None;
         self.zoom = 0.0;
+        self.side_zoom = 1.0;
+        self.side_pan = (0.0, 0.0);
         self.floor = None;
         self.turn = 0;
         self.target = None;
@@ -328,6 +345,31 @@ pub fn floor_of(floors: &[f32], low: f32) -> Option<usize> {
         .or((!floors.is_empty()).then_some(0))
 }
 
+/// The floor of `floors` the camera at height `camera` (landblock meters) is on.
+#[must_use]
+pub fn camera_floor(floors: &[f32], camera: f32) -> Option<f32> {
+    floor_of(floors, camera - 1.0).and_then(|i| floors.get(i).copied())
+}
+
+/// The floor of `floors` the grid shows with the camera at height `camera`: the one chosen
+/// (`chosen`, with the floor the camera was on as it was chosen) while the camera stays on that
+/// floor, else the camera's own; `arrival` when there are none.
+#[must_use]
+pub fn shown_floor(floors: &[f32], chosen: Option<(f32, f32)>, camera: f32, arrival: f32) -> f32 {
+    let near = |z: f32| {
+        floors
+            .iter()
+            .copied()
+            .min_by(|a, b| (a - z).abs().total_cmp(&(b - z).abs()))
+    };
+    let own = camera_floor(floors, camera);
+    chosen
+        .filter(|(_, from)| own.is_none_or(|o| (o - from).abs() < 0.01))
+        .and_then(|(f, _)| near(f))
+        .or(own)
+        .unwrap_or(arrival)
+}
+
 /// The lowest point of an opening: its sill.
 #[must_use]
 pub fn sill(f: &Free) -> f32 {
@@ -368,7 +410,7 @@ pub fn opens_on(f: &Free, floor: f32) -> bool {
 }
 
 impl EditorApp {
-    /// Whether the grid is shown, in the map's place: in dungeon mode.
+    /// Whether the grid is shown: in dungeon mode.
     #[must_use]
     pub fn grid_shown(&self) -> bool {
         self.dungeon.is_some() && self.playing.is_none()
@@ -589,21 +631,26 @@ impl EditorApp {
             lows.push(arrival);
         }
         let floors = floors_of(lows);
-        let near = |z: f32| {
-            floors
-                .iter()
-                .copied()
-                .min_by(|a, b| (a - z).abs().total_cmp(&(b - z).abs()))
-        };
-        let camera = self.camera.position.z - lyceum_foundry::pick::block_origin(lb).z;
-        let shown = self
-            .layout
-            .floor
-            .and_then(near)
-            .or_else(|| floor_of(&floors, camera - 1.0).and_then(|i| floors.get(i).copied()))
-            .unwrap_or(arrival);
+        let camera = self.camera_height(lb);
+        let shown = shown_floor(&floors, self.layout.floor, camera, arrival);
         self.layout.floors.clone_from(&floors);
         (floors, shown)
+    }
+
+    /// The camera's eye's height in dungeon `lb`, landblock meters: the flying camera's, or the
+    /// walking body's.
+    fn camera_height(&self, lb: u16) -> f32 {
+        self.eye().z - lyceum_foundry::pick::block_origin(lb).z
+    }
+
+    /// Show floor `f` of the dungeon being edited, until the camera goes to another floor.
+    pub fn choose_floor(&mut self, f: f32) {
+        let Some(lb) = self.dungeon_mode() else {
+            return;
+        };
+        let (floors, _) = self.plan_floors(lb);
+        let own = camera_floor(&floors, self.camera_height(lb)).unwrap_or(f);
+        self.layout.floor = Some((f, own));
     }
 
     /// The selector's name of floor `z` of dungeon `lb`: its number from the floor players arrive
@@ -631,7 +678,7 @@ impl EditorApp {
             .ok()
             .and_then(|i| floors.get(i).copied())
         {
-            self.layout.floor = Some(f);
+            self.choose_floor(f);
             self.layout.ghost = None;
             self.layout.marks = None;
             self.layout.target = None;
@@ -924,13 +971,14 @@ impl EditorApp {
         self.layout.moving = Some(lifted);
         self.layout.marks = None;
         self.layout.target = None;
+        // Set down on the grid: it is brought forward.
+        self.show_tab(super::Tab::Grid);
         self.panels.message = self.say("layout.lifted");
         Ok(())
     }
 
-    /// The grid, drawn in the map's place: the floor selector, the rooms of the floor shown, its
-    /// open doorways, the marks where the chosen piece fits and its ghost, and a side view of the
-    /// floors; answering the pointer.
+    /// The Grid tab: the floor selector, the rooms of the floor shown, its open doorways, the
+    /// marks where the chosen piece fits and its ghost; answering the pointer.
     #[allow(clippy::too_many_lines)]
     pub(super) fn grid_ui(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let Some(lb) = self.dungeon_mode() else {
@@ -959,39 +1007,19 @@ impl EditorApp {
                 out.push(UiAction::FloorStep(1));
             }
             self.layout.floor_buttons = Some((down.rect, up.rect));
-            if self.panels.show_hints {
-                ui.weak(t.get("hints.layout"));
-            }
         });
-        let full = ui.available_rect_before_wrap();
-        let side_w = (full.width() * 0.22).clamp(60.0, 240.0);
-        let rect = egui::Rect::from_min_max(full.min, egui::pos2(full.max.x - side_w, full.max.y));
-        let side = egui::Rect::from_min_max(egui::pos2(rect.max.x, full.min.y), full.max);
+        let rect = ui.available_rect_before_wrap();
         let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
         let painter = ui.painter_at(rect);
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(18, 20, 24));
         self.layout.rect = Some(rect);
         let cells = self.cells_of(lb);
-        // Fit the dungeon the first time.
+        // The first time: about the camera, near enough to see the rooms round it.
         if self.layout.center.is_none() || self.layout.zoom <= 0.0 {
-            let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
-            for c in cells.values() {
-                if c.frame.origin.z <= lyceum_foundry::cells::CLOSED_DEPTH + 1.0 {
-                    continue;
-                }
-                lo = (lo.0.min(c.frame.origin.x), lo.1.min(c.frame.origin.y));
-                hi = (hi.0.max(c.frame.origin.x), hi.1.max(c.frame.origin.y));
-            }
-            // A new dungeon: the middle of its landblock, a few squares across.
-            let span = if lo.0 > hi.0 {
-                lo = (90.0, 90.0);
-                hi = (90.0, 90.0);
-                4.0 * PITCH
-            } else {
-                (hi.0 - lo.0 + 40.0).max(hi.1 - lo.1 + 40.0).max(40.0)
-            };
-            self.layout.center = Some(((lo.0 + hi.0) / 2.0, (lo.1 + hi.1) / 2.0));
-            self.layout.zoom = (rect.width().min(rect.height()) / span).clamp(0.5, 40.0);
+            let o = lyceum_foundry::pick::block_origin(lb);
+            let cam = self.camera.position;
+            self.layout.center = Some((cam.x - o.x, cam.y - o.y));
+            self.layout.zoom = GRID_ZOOM;
         }
         let (cx, cy) = self.layout.center.unwrap_or((96.0, 96.0));
         let zoom = self.layout.zoom;
@@ -1319,7 +1347,7 @@ impl EditorApp {
                 } else if let Some(l) = over_doorway {
                     out.push(UiAction::Target(Some(Target::Doorway(l))));
                 } else if let Some(n) = under {
-                    out.push(UiAction::Select(super::Selection::Cell {
+                    out.push(UiAction::SelectHere(super::Selection::Cell {
                         landblock: lb,
                         cell: n,
                     }));
@@ -1338,23 +1366,24 @@ impl EditorApp {
             }
         }
         if response.hovered() {
-            let scroll = ui.input(|i| {
-                i.raw
-                    .events
-                    .iter()
-                    .filter_map(|e| match e {
-                        egui::Event::MouseWheel { delta, .. } => Some(delta.y),
-                        _ => None,
-                    })
-                    .sum::<f32>()
-            });
+            let scroll = wheel(ui);
             if scroll != 0.0 {
                 self.layout.zoom =
                     (self.layout.zoom * if scroll > 0.0 { 1.25 } else { 0.8 }).clamp(0.5, 60.0);
             }
         }
         self.layout.pointer = pointer.map(to_world);
-        // The side view: every room across the dungeon from the south, its floors stacked.
+    }
+
+    /// The Side tab: every room of the dungeon across it from the south, its floors stacked; a
+    /// click on a floor shows it.
+    pub(super) fn side_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        let Some(lb) = self.dungeon_mode() else {
+            return;
+        };
+        let (floors, shown) = self.plan_floors(lb);
+        let side = ui.available_rect_before_wrap();
+        ui.allocate_rect(side, egui::Sense::hover());
         self.side_view(ui, side, lb, &floors, shown, out);
     }
 
@@ -1374,13 +1403,6 @@ impl EditorApp {
         painter.line_segment(
             [side.left_top(), side.left_bottom()],
             egui::Stroke::new(1.0, egui::Color32::from_gray(70)),
-        );
-        painter.text(
-            side.left_top() + egui::vec2(6.0, 4.0),
-            egui::Align2::LEFT_TOP,
-            self.text.table().get("layout.side"),
-            egui::FontId::proportional(11.0),
-            egui::Color32::from_gray(170),
         );
         let cells = self.cells_of(lb);
         let mut boxes: Vec<(f32, f32, f32, f32)> = Vec::new();
@@ -1416,17 +1438,55 @@ impl EditorApp {
             (a.0.min(b.0), a.1.max(b.1), a.2.min(b.2), a.3.max(b.3))
         });
         let (x0, x1) = if x0 > x1 { (0.0, 10.0) } else { (x0, x1) };
-        let inner = side.shrink(10.0).with_min_y(side.min.y + 20.0);
+        let inner = side.shrink(10.0);
         let sx = inner.width() / (x1 - x0).max(1.0);
         let sz = inner.height() / (z1 - z0).max(1.0);
-        let s = sx.min(sz);
+        // Fitted, then zoomed with the wheel and panned with a right or middle drag, as the grid.
+        let zoom = self.layout.side_zoom.max(1.0);
+        let s = sx.min(sz) * zoom;
+        let (px, pz) = self.layout.side_pan;
+        let (mx, mz) = ((x0 + x1) / 2.0 + px, (z0 + z1) / 2.0 + pz);
         let at = |x: f32, z: f32| {
             egui::pos2(
-                inner.center().x + (x - (x0 + x1) / 2.0) * s,
-                inner.center().y - (z - (z0 + z1) / 2.0) * s,
+                inner.center().x + (x - mx) * s,
+                inner.center().y - (z - mz) * s,
             )
         };
-        let response = ui.interact(side, ui.id().with("floors side"), egui::Sense::click());
+        let response = ui.interact(
+            side,
+            ui.id().with("floors side"),
+            egui::Sense::click_and_drag(),
+        );
+        if response.dragged_by(egui::PointerButton::Secondary)
+            || response.dragged_by(egui::PointerButton::Middle)
+        {
+            let d = response.drag_delta();
+            self.layout.side_pan = (px - d.x / s, pz + d.y / s);
+        }
+        if response.hovered() {
+            let scroll = wheel(ui);
+            if scroll != 0.0 {
+                // About the point under the pointer: it stays under it.
+                let factor = if scroll > 0.0 { 1.25 } else { 0.8 };
+                let now = (zoom * factor).clamp(1.0, SIDE_ZOOM_MOST);
+                if let Some(p) = response.hover_pos() {
+                    let (wx, wz) = (
+                        mx + (p.x - inner.center().x) / s,
+                        mz - (p.y - inner.center().y) / s,
+                    );
+                    let s2 = s / zoom * now;
+                    let (nx, nz) = (
+                        wx - (p.x - inner.center().x) / s2,
+                        wz + (p.y - inner.center().y) / s2,
+                    );
+                    self.layout.side_pan = (nx - (x0 + x1) / 2.0, nz - (z0 + z1) / 2.0);
+                }
+                if now <= 1.0 {
+                    self.layout.side_pan = (0.0, 0.0);
+                }
+                self.layout.side_zoom = now;
+            }
+        }
         for f in floors {
             let band = egui::Rect::from_two_pos(at(x0, *f), at(x1, *f + FLOOR_BAND.max(3.0)));
             let lit = (f - shown).abs() < 0.01;
@@ -1447,8 +1507,18 @@ impl EditorApp {
                 out.push(UiAction::Floor(*f));
             }
         }
+        // Rooms in a line north to south stand on one another seen from the south: each outline
+        // is drawn once.
+        let mut drawn = std::collections::HashSet::new();
+        self.layout.side_outlines = 0;
         for (bx0, bx1, bz0, bz1) in boxes {
             let r = egui::Rect::from_two_pos(at(bx0, bz0), at(bx1, bz1));
+            #[allow(clippy::cast_possible_truncation)] // a point on screen, to an eighth of one
+            let key = [r.min.x, r.min.y, r.max.x, r.max.y].map(|v| (v * 8.0).round() as i32);
+            if !drawn.insert(key) {
+                continue;
+            }
+            self.layout.side_outlines += 1;
             painter.rect_stroke(
                 r,
                 0.0,
@@ -1457,6 +1527,20 @@ impl EditorApp {
             );
         }
     }
+}
+
+/// The wheel's turn this frame, up positive.
+fn wheel(ui: &egui::Ui) -> f32 {
+    ui.input(|i| {
+        i.raw
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                egui::Event::MouseWheel { delta, .. } => Some(delta.y),
+                _ => None,
+            })
+            .sum::<f32>()
+    })
 }
 
 /// Whether point `p` is inside polygon `poly` (both from above).
@@ -1485,6 +1569,23 @@ mod tests {
         assert_eq!(floor_of(&floors, -0.4), Some(1));
         assert_eq!(floor_of(&floors, -20.0), Some(0));
         assert_eq!(floor_of(&[], 3.0), None);
+    }
+
+    #[test]
+    fn the_grid_shows_the_floor_the_camera_is_on_and_one_chosen_holds_till_the_camera_changes_floor(
+    ) {
+        let floors = [-6.0, 0.0, 6.0];
+        // The eye a body's height over each floor.
+        assert_eq!(shown_floor(&floors, None, 1.6, 0.0), 0.0);
+        assert_eq!(shown_floor(&floors, None, 7.6, 0.0), 6.0);
+        assert_eq!(shown_floor(&floors, None, -4.4, 0.0), -6.0);
+        // The floor above chosen from floor 0: shown while the camera stays there.
+        let chosen = Some((6.0, 0.0));
+        assert_eq!(shown_floor(&floors, chosen, 1.6, 0.0), 6.0);
+        assert_eq!(shown_floor(&floors, chosen, 3.0, 0.0), 6.0);
+        // The camera flies down a floor: the grid follows it.
+        assert_eq!(shown_floor(&floors, chosen, -4.4, 0.0), -6.0);
+        assert_eq!(shown_floor(&[], chosen, 1.6, 12.0), 12.0);
     }
 
     #[test]

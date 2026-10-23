@@ -1354,6 +1354,27 @@ mod imp {
     mod overlay_tests {
         use super::*;
 
+        /// Each vertex is its position, its color and its texture coordinates, little-endian.
+        #[test]
+        fn an_overlay_vertex_is_written_as_its_24_byte_record() {
+            let v = OverlayVertex {
+                position: [1.0, -2.0, 0.5],
+                color: 0x8040_20FF,
+                uv: [0.25, 0.75],
+            };
+            let bytes = overlay_vertex_bytes(&[v, v]);
+            let mut want = Vec::new();
+            for f in [1.0f32, -2.0, 0.5] {
+                want.extend_from_slice(&f.to_le_bytes());
+            }
+            want.extend_from_slice(&0x8040_20FFu32.to_le_bytes());
+            for f in [0.25f32, 0.75] {
+                want.extend_from_slice(&f.to_le_bytes());
+            }
+            assert_eq!(bytes[..24], want[..]);
+            assert_eq!(bytes[24..], want[..]);
+        }
+
         /// Each of the UI's eight sampler indices is one overlay sampler: the filter and the two
         /// address modes it names come back as that index.
         #[test]
@@ -1393,14 +1414,14 @@ mod imp {
     /// The overlay's vertices as the 24-byte `XYZ | DIFFUSE | TEX1` records the device draws.
     #[must_use]
     pub fn overlay_vertex_bytes(vertices: &[OverlayVertex]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(vertices.len() * 24);
-        for v in vertices {
-            for c in v.position {
-                out.extend_from_slice(&c.to_le_bytes());
-            }
-            out.extend_from_slice(&v.color.to_le_bytes());
-            out.extend_from_slice(&v.uv[0].to_le_bytes());
-            out.extend_from_slice(&v.uv[1].to_le_bytes());
+        let mut out = vec![0; vertices.len() * 24];
+        for (v, o) in vertices.iter().zip(out.as_chunks_mut::<24>().0) {
+            o[0..4].copy_from_slice(&v.position[0].to_le_bytes());
+            o[4..8].copy_from_slice(&v.position[1].to_le_bytes());
+            o[8..12].copy_from_slice(&v.position[2].to_le_bytes());
+            o[12..16].copy_from_slice(&v.color.to_le_bytes());
+            o[16..20].copy_from_slice(&v.uv[0].to_le_bytes());
+            o[20..24].copy_from_slice(&v.uv[1].to_le_bytes());
         }
         out
     }

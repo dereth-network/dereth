@@ -30,7 +30,8 @@
 //! |---|---|
 //! | [`args`] | the command line |
 //! | [`catalog`] | what the model browser knows of each model, gathered off the frame loop |
-//! | [`camera`] | the free camera, its speeds and the snap to the ground |
+//! | [`camera`] | the free camera, its keys, its speeds and the snap to the ground |
+//! | [`docks`] | the docked tabs and their layout, outdoors and in dungeon mode, kept between starts |
 //! | [`view`] | the projection: world to screen, and a pixel's ray |
 //! | [`gizmo`] | the move and turn handles: where they are drawn and what a drag on one does |
 //! | [`gui`] | the panels' toolkit: egui, fed the window's events and drawn through the overlay |
@@ -48,6 +49,7 @@ pub mod camera;
 pub mod catalog;
 pub mod characters;
 pub mod database;
+pub mod docks;
 pub mod gizmo;
 pub mod gui;
 pub mod live;

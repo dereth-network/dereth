@@ -5,10 +5,11 @@
 //! on), each line one piece of text: `onto_ground = "Onto the ground"`. A text that names
 //! something it is shown with says so in braces, `"{n} of {all}"`, and the braces are filled in.
 //!
-//! The editor is built with its own copy ([`BUILT_IN`]), which it writes out as the file the first
-//! time it runs. After that the file is the creator's: a line it lacks takes the built-in text, a
-//! file that does not read says which line, and the built-in text stands until it is put right;
-//! and a change to the file is read again while the editor runs.
+//! The editor is built with its own copy ([`BUILT_IN`]). The file only changes it: a line in the
+//! file wins, a line it lacks takes the built-in text, and no file at all is the built-in text. A
+//! file that does not read says which line, and the built-in text stands until it is put right; a
+//! change to the file is read again while the editor runs. `--write-text` writes the whole
+//! built-in text out as the file, to start from ([`write_built_in`]).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -87,6 +88,36 @@ impl Default for Text {
     }
 }
 
+/// Write the whole built-in text, every line, to `path`, making its folder; a file already there
+/// is replaced only when `overwrite` says so.
+///
+/// # Errors
+/// A file already there (without `overwrite`), or one that could not be written, with the reason.
+pub fn write_built_in(path: &Path, overwrite: bool) -> Result<(), String> {
+    use std::io::Write as _;
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    if overwrite {
+        options.write(true).create(true).truncate(true);
+    } else {
+        options.write(true).create_new(true);
+    }
+    let mut file = options.open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            format!(
+                "{} is already there; add --overwrite to replace it",
+                path.display()
+            )
+        } else {
+            format!("{}: {e}", path.display())
+        }
+    })?;
+    file.write_all(BUILT_IN.as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// `text` read as the file is: every `[panel]`'s `name = "text"`, as `panel.name`.
 ///
 /// # Errors
@@ -140,18 +171,10 @@ impl Text {
         }
     }
 
-    /// The text of file `path`, which is written with the built-in text first when it is not
-    /// there.
+    /// The text of file `path` over the built-in text; the built-in text alone while there is no
+    /// file.
     #[must_use]
     pub fn open(path: &Path) -> Self {
-        if !path.exists() {
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            if let Err(e) = std::fs::write(path, BUILT_IN) {
-                tracing::warn!("{}: {e}", path.display());
-            }
-        }
         let mut t = Self {
             file: Some(path.to_path_buf()),
             ..Self::built_in()
@@ -184,7 +207,8 @@ impl Text {
         self.stamp = Self::stamp_of(&path);
         let own = match std::fs::read_to_string(&path) {
             Ok(text) => read(&text),
-            // A file that has gone: the built-in text, said once.
+            // No file: the built-in text, and nothing to say.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(HashMap::new()),
             Err(e) => Err(format!("{}: {e}", path.display())),
         };
         let built_in = Rc::clone(&self.built_in);
@@ -282,15 +306,57 @@ mod tests {
     }
 
     #[test]
-    fn the_file_is_written_on_first_run_and_its_own_text_is_shown() {
+    fn no_file_is_written_on_first_run_and_the_built_in_text_is_shown() {
         let dir = scratch("first");
         let path = dir.join(FILE_NAME);
         let t = Text::open(&path);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), BUILT_IN);
-        assert_eq!(t.table().get("top.save"), "Save");
+        assert!(!path.exists(), "the editor wrote its text out");
+        assert_eq!(
+            (t.problem.as_deref(), t.table().get("top.save")),
+            (None, "Save")
+        );
         std::fs::write(&path, "[top]\nsave = \"Keep\"\n").unwrap();
         let t = Text::open(&path);
         assert_eq!(t.table().get("top.save"), "Keep");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_partial_file_changes_only_its_own_lines() {
+        let dir = scratch("partial");
+        let path = dir.join(FILE_NAME);
+        std::fs::write(
+            &path,
+            "[top]\nsave = \"Keep\"\n\n[tabs]\nlog = \"Messages\"\n",
+        )
+        .unwrap();
+        let t = Text::open(&path).table();
+        let built_in = read(BUILT_IN).unwrap();
+        for (key, text) in &built_in {
+            let want = match key.as_str() {
+                "top.save" => "Keep",
+                "tabs.log" => "Messages",
+                _ => text,
+            };
+            assert_eq!(t.get(key), want, "{key}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_written_text_holds_every_built_in_line_and_is_not_written_over_unasked() {
+        let dir = scratch("write");
+        let path = dir.join("more").join(FILE_NAME);
+        write_built_in(&path, false).unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(read(&written).unwrap(), read(BUILT_IN).unwrap());
+        let own = "[top]\nsave = \"Keep\"\n";
+        std::fs::write(&path, own).unwrap();
+        let refused = write_built_in(&path, false).unwrap_err();
+        assert!(refused.contains("--overwrite"), "{refused}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), own);
+        write_built_in(&path, true).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), BUILT_IN);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -339,6 +405,13 @@ mod tests {
         std::fs::write(&path, "[checks\n").unwrap();
         assert!(t.refresh_now());
         assert!(t.problem.as_deref().is_some_and(|p| p.contains("line 1")));
+        // Taken away: the built-in text, and nothing said.
+        std::fs::remove_file(&path).unwrap();
+        assert!(t.refresh_now());
+        assert_eq!(
+            (t.problem.as_deref(), t.table().get("top.save")),
+            (None, "Save")
+        );
         std::fs::write(&path, "[top]\nsave = \"Keep it\"\n").unwrap();
         assert!(t.refresh_now());
         assert_eq!(

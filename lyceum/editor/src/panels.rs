@@ -1,12 +1,12 @@
-//! The editor's panels, in egui: the bar of modes and switches along the top, the status along the
-//! bottom, and between them docked tabs: the world view at the top left, the map (in dungeon
-//! mode, the dungeon's grid) under it, and one column of controls on the right, the tool of the
-//! mode over the inspector, the lists and the checks. The world shows through its own tab, and
-//! the marks on it (the selection's box, the handles, the brush) are painted under the panels.
+//! The editor's panels, in egui: the bar of tools along the top, the status along the bottom, and
+//! between them docked tabs ([`crate::docks`]): the world view, and around it the tool of the mode,
+//! the map (in dungeon mode, the dungeon's grid and its floors from the south), the lists, the
+//! inspector and the log. The world shows through its own tab, and the marks on it (the
+//! selection's box, the handles, the brush) are painted under the panels.
 
 use dereth_primitives::frame::{globaltolocal, localtoglobal};
 use dereth_primitives::{DataId, Frame, Vec3};
-use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
+use egui_dock::{DockArea, TabViewer};
 use lyceum_foundry::brush::Brush;
 use lyceum_foundry::compile::{Field, StaticOrigin};
 use lyceum_foundry::edit::Weenie;
@@ -15,22 +15,9 @@ use lyceum_foundry::pick;
 
 use super::{add, amount_of, step_brush, value_of, EditorApp, Mode, Selection, UiAction};
 use crate::camera::landblock_of;
+pub use crate::docks::Tab;
 use crate::gizmo::{self, Handle};
 use crate::view::View;
-
-/// A docked tab.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Tab {
-    World,
-    Tools,
-    Inspector,
-    Weenie,
-    Map,
-    Checks,
-    Nearby,
-    Dungeons,
-    Hierarchy,
-}
 
 /// Colours of the marks on the world.
 pub(crate) mod mark {
@@ -48,42 +35,30 @@ pub(crate) mod mark {
     pub const GENERATOR: Color32 = Color32::from_rgb(0x60, 0xD0, 0xFF);
 }
 
-/// The layout: the world view at the top left with the map (the
-/// dungeon's grid, in dungeon mode) under it, and one column of controls on the right: the tool
-/// over the inspector, the lists and the checks.
-#[must_use]
-pub fn default_dock() -> DockState<Tab> {
-    let mut d = DockState::new(vec![Tab::World]);
-    let tree = d.main_surface_mut();
-    let [world, tools] = tree.split_right(NodeIndex::root(), 0.68, vec![Tab::Tools]);
-    tree.split_below(
-        tools,
-        0.6,
-        vec![
-            Tab::Inspector,
-            Tab::Nearby,
-            Tab::Hierarchy,
-            Tab::Dungeons,
-            Tab::Weenie,
-            Tab::Checks,
-        ],
-    );
-    tree.split_below(world, 0.64, vec![Tab::Map]);
-    d
-}
-
 /// What one pass of the panels found.
 #[derive(Debug, Default)]
 pub struct Pass {
     pub actions: Vec<UiAction>,
     /// The world tab's rectangle on screen.
     pub world: Option<egui::Rect>,
+    /// The keys pressed for the world, each with Ctrl held or not, and whether the pointer was
+    /// over the panels.
+    pub keys: Vec<(u32, bool)>,
+    pub over: bool,
 }
 
 /// The tabs' contents, drawn from the editor.
 struct Viewer<'a> {
     app: &'a mut EditorApp,
     pass: &'a mut Pass,
+}
+
+/// A tab's contents in a vertical scroll that fills the tab, whatever their height.
+fn filled(ui: &mut egui::Ui, id: &str, add: impl FnOnce(&mut egui::Ui)) {
+    egui::ScrollArea::vertical()
+        .id_salt(id)
+        .auto_shrink(false)
+        .show(ui, add);
 }
 
 impl TabViewer for Viewer<'_> {
@@ -97,32 +72,28 @@ impl TabViewer for Viewer<'_> {
         let t = self.app.text.table();
         match tab {
             Tab::World => t.get("tabs.world").into(),
-            Tab::Tools => match self.app.mode {
-                Mode::Select if self.app.dungeon.is_some() => t.get("tabs.dungeon").into(),
-                Mode::Select => t.get("tabs.select").into(),
-                Mode::Place => t.get("tabs.models").into(),
-                Mode::Terrain => t.get("tabs.brush").into(),
-                Mode::Spawn => t.get("tabs.spawn").into(),
-            },
-            Tab::Hierarchy => t.get("tabs.hierarchy").into(),
-            Tab::Inspector => t.get("tabs.inspector").into(),
-            Tab::Weenie => t.get("tabs.weenie").into(),
-            Tab::Map if self.app.grid_shown() => t.get("tabs.grid").into(),
+            Tab::Side => t.get("tabs.side").into(),
+            Tab::Tool => t.get("tabs.tool").into(),
             Tab::Map => t.get("tabs.map").into(),
-            Tab::Nearby => t.get("tabs.nearby").into(),
+            Tab::Grid => t.get("tabs.grid").into(),
             Tab::Dungeons => t.get("tabs.dungeons").into(),
-            Tab::Checks => {
+            Tab::Nearby => t.get("tabs.nearby").into(),
+            Tab::Definition => t.get("tabs.definition").into(),
+            Tab::Inspector => t.get("tabs.inspector").into(),
+            Tab::Hierarchy => t.get("tabs.hierarchy").into(),
+            Tab::Log => {
                 let n = self.app.faults.len();
                 if n == 0 {
-                    t.get("tabs.checks").into()
+                    t.get("tabs.log").into()
                 } else {
-                    t.fill("tabs.checks_n", &[("n", &n)]).into()
+                    t.fill("tabs.log_n", &[("n", &n)]).into()
                 }
             }
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+        let out = &mut self.pass.actions;
         match tab {
             Tab::World => {
                 self.pass.world = Some(ui.max_rect());
@@ -130,15 +101,19 @@ impl TabViewer for Viewer<'_> {
                 // world view as it is laid out now.
                 self.app.world_rect = Some(ui.max_rect());
             }
-            Tab::Tools => self.app.tools_tab(ui, &mut self.pass.actions),
-            Tab::Hierarchy => self.app.hierarchy_tab(ui, &mut self.pass.actions),
-            Tab::Inspector => self.app.inspector_tab(ui, &mut self.pass.actions),
-            Tab::Weenie => self.app.weenie_tab(ui, &mut self.pass.actions),
-            Tab::Map if self.app.grid_shown() => self.app.grid_ui(ui, &mut self.pass.actions),
-            Tab::Map => self.app.map_tab(ui, &mut self.pass.actions),
-            Tab::Nearby => self.app.nearby_tab(ui, &mut self.pass.actions),
-            Tab::Dungeons => self.app.dungeons_tab(ui, &mut self.pass.actions),
-            Tab::Checks => self.app.checks_tab(ui, &mut self.pass.actions),
+            Tab::Side => self.app.side_tab(ui, out),
+            Tab::Tool => {
+                self.app.tool_body = Some(ui.max_rect());
+                self.app.tools_tab(ui, out);
+            }
+            Tab::Map => self.app.map_tab(ui, out),
+            Tab::Grid => self.app.grid_ui(ui, out),
+            Tab::Dungeons => self.app.dungeons_tab(ui, out),
+            Tab::Nearby => self.app.nearby_tab(ui, out),
+            Tab::Definition => self.app.weenie_tab(ui, out),
+            Tab::Inspector => filled(ui, "inspector", |ui| self.app.inspector_tab(ui, out)),
+            Tab::Hierarchy => filled(ui, "hierarchy", |ui| self.app.hierarchy_tab(ui, out)),
+            Tab::Log => filled(ui, "log", |ui| self.app.log_tab(ui, out)),
         }
     }
 
@@ -150,16 +125,37 @@ impl TabViewer for Viewer<'_> {
         *tab != Tab::World
     }
 
-    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        if *tab == Tab::World {
-            [false, false]
-        } else {
-            [false, true]
-        }
+    /// Each tab scrolls what it holds itself, so a list fills its tab.
+    fn scroll_bars(&self, _tab: &Tab) -> [bool; 2] {
+        [false, false]
     }
 
     fn allowed_in_windows(&self, tab: &mut Tab) -> bool {
         *tab != Tab::World
+    }
+}
+
+/// How long ago a save `ago` seconds since was, as the status bar says it: the key of its words
+/// and the number they name.
+#[must_use]
+pub fn saved_ago(ago: f64) -> (&'static str, u64) {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // seconds since a save
+    let s = ago.max(0.0) as u64;
+    match s {
+        0..60 => ("status.saved_now", 0),
+        60..3600 => ("status.saved_minutes", s / 60),
+        _ => ("status.saved_hours", s / 3600),
+    }
+}
+
+/// The number of edits the status bar counts as not saved: none when the files are as saved, else
+/// the steps between the history's place now and where it was saved, one at least.
+#[must_use]
+pub fn unsaved_edits(unsaved: bool, steps: usize, saved_at: usize) -> usize {
+    if unsaved {
+        steps.abs_diff(saved_at).max(1)
+    } else {
+        0
     }
 }
 
@@ -170,7 +166,15 @@ impl EditorApp {
         let mut pass = Pass::default();
         egui::Panel::top("bar").show(ui, |ui| self.top_bar(ui, &mut pass.actions));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui, &mut pass.actions));
-        let mut dock = self.dock.take().unwrap_or_else(default_dock);
+        // Outdoors and in dungeon mode each have a layout of their own.
+        let in_dungeon = self.dungeon.is_some();
+        let mut dock = if in_dungeon {
+            self.dungeon_dock
+                .take()
+                .unwrap_or_else(crate::docks::in_dungeon)
+        } else {
+            self.dock.take().unwrap_or_else(crate::docks::outdoors)
+        };
         DockArea::new(&mut dock)
             .show_close_buttons(false)
             .show_leaf_close_all_buttons(false)
@@ -182,7 +186,16 @@ impl EditorApp {
                     pass: &mut pass,
                 },
             );
-        self.dock = Some(dock);
+        if in_dungeon {
+            self.dungeon_dock = Some(dock);
+        } else {
+            if self.fit_map {
+                self.fit_to_map(&mut dock, ui.spacing());
+            }
+            self.dock = Some(dock);
+        }
+        // The world view laid out, the camera moves: the marks are drawn from where the world is.
+        self.camera_step(ui.ctx(), &mut pass);
         if let Some(rect) = pass.world {
             // The marks on the world are drawn in the window's pixels, as the world is; the
             // words over it in the panels' points.
@@ -207,7 +220,6 @@ impl EditorApp {
             }
             if self.panels.show_hints && self.playing.is_none() {
                 let key = match self.mode {
-                    Mode::Select if self.dungeon.is_some() => "hints.dungeon",
                     Mode::Select => "hints.select",
                     Mode::Place if self.dropping_building() => "hints.place_building",
                     Mode::Place => "hints.place",
@@ -224,9 +236,31 @@ impl EditorApp {
             }
         }
         self.character_panel(ui.ctx(), &mut pass.actions);
+        self.delete_dungeon_question(ui.ctx(), &mut pass.actions);
         pass
     }
 
+    /// Fit the default layout's upper right part to the map, as soon as it is laid out: as tall
+    /// as the map's square, its zoom over it, needs at the part's width. The Tool tab shares the
+    /// part and is shown first; its body is the map's.
+    fn fit_to_map(&mut self, dock: &mut egui_dock::DockState<Tab>, spacing: &egui::style::Spacing) {
+        let Some(body) = self.tool_body.filter(|b| b.width() > 1.0) else {
+            return;
+        };
+        self.fit_map = false;
+        let tree = dock.main_surface();
+        let shared = matches!(
+            (tree.find_tab(&Tab::Tool), tree.find_tab(&Tab::Map)),
+            (Some((a, _)), Some((b, _))) if a == b
+        );
+        if shared {
+            let wanted = body.width() + spacing.interact_size.y + spacing.item_spacing.y;
+            crate::docks::grow(dock, Tab::Map, wanted - body.height());
+        }
+    }
+
+    /// The bar of tools: the four tools, undo and redo, play, the editor's own server and the
+    /// settings, and save; each an icon named by its tooltip.
     fn top_bar(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let t = self.text.table();
         egui::ScrollArea::horizontal()
@@ -234,235 +268,216 @@ impl EditorApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let in_dungeon = self.dungeon.is_some();
-                    for (label, tip, m) in [
-                        ("top.select", "top.select_tip", Mode::Select),
-                        ("top.place", "top.place_tip", Mode::Place),
-                        ("top.terrain", "top.terrain_tip", Mode::Terrain),
-                        ("top.spawn", "top.spawn_tip", Mode::Spawn),
+                    self.tool_rects.clear();
+                    for (icon, label, m) in [
+                        (Icon::Select, "top.select", Mode::Select),
+                        (Icon::Place, "top.place", Mode::Place),
+                        (Icon::Spawn, "top.spawn", Mode::Spawn),
+                        (Icon::Terrain, "top.terrain", Mode::Terrain),
                     ] {
                         // A dungeon has no land to paint.
                         let enabled = !(in_dungeon && m == Mode::Terrain);
-                        if ui
-                            .add_enabled(
-                                enabled,
-                                egui::Button::selectable(self.mode == m, t.get(label)),
-                            )
-                            .on_hover_text(t.get(tip))
-                            .clicked()
-                        {
+                        let r = tip(tool_button(ui, icon, self.mode == m, enabled), t.get(label));
+                        self.tool_rects.push((m, r.rect));
+                        if r.clicked() {
                             out.push(UiAction::Mode(m));
                         }
                     }
                     ui.separator();
                     let (undo, redo) = self.session.history();
-                    if ui
-                        .add_enabled(undo > 0, egui::Button::new(t.get("top.undo")))
-                        .clicked()
+                    if tip(
+                        tool_button(ui, Icon::Undo, false, undo > 0),
+                        t.get("top.undo"),
+                    )
+                    .clicked()
                     {
                         out.push(UiAction::Undo);
                     }
-                    if ui
-                        .add_enabled(redo > 0, egui::Button::new(t.get("top.redo")))
-                        .clicked()
+                    if tip(
+                        tool_button(ui, Icon::Redo, false, redo > 0),
+                        t.get("top.redo"),
+                    )
+                    .clicked()
                     {
                         out.push(UiAction::Redo);
-                    }
-                    if ui
-                        .add_enabled(self.session.unsaved(), egui::Button::new(t.get("top.save")))
-                        .clicked()
-                    {
-                        out.push(UiAction::Save);
-                    }
-                    ui.separator();
-                    ui.label(t.get("top.speed"));
-                    if ui.small_button("-").clicked() {
-                        out.push(UiAction::Speed(-1));
-                    }
-                    ui.monospace(t.fill(
-                        "top.speed_value",
-                        &[("n", &format!("{:>5}", self.camera.meters_per_second()))],
-                    ));
-                    if ui.small_button("+").clicked() {
-                        out.push(UiAction::Speed(1));
                     }
                     ui.separator();
                     if self.server_sql.is_none() {
                         let fetching = self.fetching.is_some();
-                        if ui
-                            .add_enabled(
-                                !fetching,
-                                egui::Button::new(t.get(if fetching {
-                                    "top.database_fetching"
-                                } else {
-                                    "top.database_fetch"
-                                })),
-                            )
-                            .on_hover_text(t.get("top.database_fetch_tip"))
-                            .clicked()
-                        {
+                        let r = tip(
+                            tool_button(ui, Icon::Download, false, !fetching),
+                            t.get(if fetching {
+                                "top.database_fetching"
+                            } else {
+                                "top.database_fetch_tip"
+                            }),
+                        );
+                        if r.clicked() {
                             out.push(UiAction::FetchDatabase);
                         }
                     }
                     let (up, starting) = self.live_state();
                     if self.playing.is_some() || self.waiting_play.is_some() {
-                        let stop = ui
-                            .add(egui::Button::new(
-                                egui::RichText::new(t.get("top.stop")).color(mark::FAULT),
-                            ))
-                            .on_hover_text(t.get("top.stop_tip"));
+                        let stop = tip(tool_button(ui, Icon::Stop, true, true), t.get("top.stop"));
                         self.play_button = Some(stop.rect);
                         if stop.clicked() {
                             out.push(UiAction::StopPlay);
                         }
                     } else {
-                        let play = ui
-                            .add_enabled(up, egui::Button::new(t.get("top.play")))
-                            .on_hover_text(t.get("top.play_tip"));
+                        let play = tip(
+                            tool_button(ui, Icon::Play, false, up),
+                            t.get("top.play_tip"),
+                        );
                         self.play_button = Some(play.rect);
                         if play.clicked() {
                             out.push(UiAction::Play);
                         }
                     }
-                    if ui
-                        .selectable_label(
-                            up || starting,
-                            t.get(if starting {
-                                "top.live_starting"
-                            } else {
-                                "top.live"
-                            }),
-                        )
-                        .on_hover_text(t.get("top.live_tip"))
-                        .clicked()
-                    {
+                    let live = tip(
+                        tool_button(ui, Icon::Live, up || starting, true),
+                        t.get(if starting {
+                            "top.live_starting"
+                        } else {
+                            "top.live_tip"
+                        }),
+                    );
+                    if live.clicked() {
                         out.push(UiAction::Live(!(up || starting)));
                     }
-                    if ui.button(t.get("characters.title")).clicked() {
-                        self.characters.open = true;
+                    self.settings_menu(ui, out);
+                    ui.separator();
+                    let save = tip(
+                        tool_button(ui, Icon::Save, false, self.session.unsaved()),
+                        t.get("top.save"),
+                    );
+                    if save.clicked() {
+                        out.push(UiAction::Save);
                     }
-                    ui.menu_button(t.get("top.play_options"), |ui| {
-                        let mut o = self.play_options;
-                        ui.label(t.get("top.interface"));
-                        for i in super::PlayInterface::ALL {
-                            ui.radio_value(
-                                &mut o.interface,
-                                i,
-                                t.or(&format!("top.{}", i.word()), i.name()),
-                            );
-                        }
-                        ui.weak(t.get("top.play_options_note"));
-                        if o != self.play_options {
-                            out.push(UiAction::PlayOptions(o));
-                        }
-                    });
-                    ui.menu_button(t.get("top.export"), |ui| {
-                        use lyceum_foundry::export::Target;
-                        for target in Target::ALL {
-                            let (label, tip) = match target {
-                                Target::Empyrean => {
-                                    ("top.export_for_empyrean", "top.export_for_empyrean_tip")
-                                }
-                                Target::Ace => ("top.export_for_ace", "top.export_for_ace_tip"),
-                                Target::Gdle => ("top.export_for_gdle", "top.export_for_gdle_tip"),
-                            };
-                            let ready = !target.needs_world_database() || self.server_sql.is_some();
-                            if ui
-                                .add_enabled(ready, egui::Button::new(t.get(label)))
-                                .on_hover_text(t.get(tip))
-                                .on_disabled_hover_text(t.get("top.export_needs_database"))
-                                .clicked()
-                            {
-                                out.push(UiAction::Export(target));
-                                ui.close();
-                            }
-                        }
-                        ui.separator();
-                        ui.label(t.get("top.export_gdle_quests"))
-                            .on_hover_text(t.get("top.export_gdle_quests_tip"));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.gdle_quests)
-                                .hint_text(t.get("top.export_gdle_quests_hint"))
-                                .desired_width(280.0),
-                        )
-                        .on_hover_text(t.get("top.export_gdle_quests_tip"));
-                    });
-                    ui.menu_button(t.get("views.title"), |ui| {
-                        if ui
-                            .selectable_label(self.panels.top_down, t.get("views.top_down"))
-                            .clicked()
-                        {
-                            out.push(UiAction::TopDown);
-                        }
-                        if ui
-                            .selectable_label(self.walking, t.get("top.walking"))
-                            .clicked()
-                        {
-                            out.push(UiAction::ToggleWalk);
-                        }
-                        if ui.button(t.get("top.snap")).clicked() {
-                            out.push(UiAction::Snap);
-                        }
-                        ui.checkbox(&mut self.panels.show_hints, t.get("views.hints"));
-                        ui.menu_button(t.get("views.ui_scale"), |ui| {
-                            let now = self.gui.scale();
-                            for scale in crate::gui::SCALES {
-                                let label =
-                                    t.fill("views.ui_scale_n", &[("n", &super::percent(scale))]);
-                                if ui.radio(now == scale, label).clicked() {
-                                    out.push(UiAction::UiScale(scale));
-                                }
-                            }
-                            ui.weak(t.get("views.ui_scale_keys"));
-                        });
-                    });
+                    ui.separator();
+                    self.speed_control(ui, out);
                 });
             });
     }
 
+    /// The settings: the playtest's interface, walking or flying, the key hints, and the panels'
+    /// scale.
+    fn settings_menu(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        use egui::containers::menu::{MenuButton, SubMenuButton};
+        let t = self.text.table();
+        let open = self.settings_open;
+        let (r, menu) = MenuButton::from_button(
+            egui::Button::selectable(open, "").min_size(BUTTON),
+        )
+        .ui(ui, |ui| {
+            SubMenuButton::from_button(egui::Button::new(t.get("top.interface")).right_text(">"))
+                .ui(ui, |ui| {
+                    let mut o = self.play_options;
+                    for i in super::PlayInterface::ALL {
+                        ui.radio_value(
+                            &mut o.interface,
+                            i,
+                            t.or(&format!("top.{}", i.word()), i.name()),
+                        );
+                    }
+                    if o != self.play_options {
+                        out.push(UiAction::PlayOptions(o));
+                    }
+                });
+            let mut walk = self.walking;
+            if ui.checkbox(&mut walk, t.get("top.walk_mode")).changed() {
+                out.push(UiAction::ToggleWalk);
+            }
+            ui.checkbox(&mut self.panels.show_hints, t.get("views.hints"));
+            SubMenuButton::from_button(egui::Button::new(t.get("views.ui_scale")).right_text(">"))
+                .ui(ui, |ui| {
+                    let now = self.gui.scale();
+                    for scale in crate::gui::SCALES {
+                        let label = t.fill("views.ui_scale_n", &[("n", &super::percent(scale))]);
+                        if ui.radio(now == scale, label).clicked() {
+                            out.push(UiAction::UiScale(scale));
+                        }
+                    }
+                    ui.weak(t.get("views.ui_scale_keys"));
+                });
+        });
+        // Lit only while its menu is open.
+        self.settings_open = menu.is_some();
+        let color = ui.style().interact_selectable(&r, open).fg_stroke.color;
+        draw_icon(ui.painter(), r.rect, Icon::Settings, color);
+        self.settings_button = Some(r.rect);
+        let _ = r.on_hover_text(t.get("top.settings"));
+    }
+
+    /// The flying speed, a step slower or faster; indoors and outdoors each have their own.
+    fn speed_control(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        let t = self.text.table();
+        let last = crate::camera::SPEEDS.len() - 1;
+        if tip(
+            ui.add_enabled(self.camera.speed > 0, egui::Button::new("-")),
+            t.get("top.slower"),
+        )
+        .clicked()
+        {
+            out.push(UiAction::Speed(-1));
+        }
+        ui.monospace(t.fill(
+            "top.speed_value",
+            &[("n", &format!("{:>3}", self.camera.meters_per_second()))],
+        ))
+        .on_hover_text(t.get("top.speed_tip"));
+        if tip(
+            ui.add_enabled(self.camera.speed < last, egui::Button::new("+")),
+            t.get("top.faster"),
+        )
+        .clicked()
+        {
+            out.push(UiAction::Speed(1));
+        }
+    }
+
+    /// Where the status bar says the eye is: its landblock and its meters in it. In a dungeon,
+    /// the dungeon's landblock, whose rooms may lie beyond its own square.
+    #[must_use]
+    pub fn status_place(&self) -> Option<(u16, Vec3)> {
+        let eye = self.eye();
+        let lb = match self.dungeon_mode() {
+            Some(lb) => lb,
+            None => landblock_of(eye)?.0,
+        };
+        let o = pick::block_origin(lb);
+        Some((lb, Vec3::new(eye.x - o.x, eye.y - o.y, eye.z - o.z)))
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let t = self.text.table();
-        let place = landblock_of(self.eye()).map_or_else(
+        let place = self.status_place().map_or_else(
             || t.get("status.off_world").to_owned(),
-            |(lb, x, y)| format!("{lb:04X} {x:.1}, {y:.1}, {:.1}", self.eye().z),
+            |(lb, p)| format!("{lb:04X} {:.1}, {:.1}, {:.1}", p.x, p.y, p.z),
         );
-        let (edits, saved) = (self.session.history().0, !self.session.unsaved());
+        let edits = unsaved_edits(
+            self.session.unsaved(),
+            self.session.history().0,
+            self.saved.map_or(0, |(steps, _)| steps),
+        );
         ui.horizontal(|ui| {
-            let checks = ui.button(t.fill("tabs.checks_n", &[("n", &self.faults.len())]));
-            self.checks_button = Some(checks.rect);
-            if checks.clicked() {
-                out.push(UiAction::ShowTab(Tab::Checks));
-            }
             ui.monospace(place);
-            ui.label(t.fill(
-                "status.selected",
-                &[(
-                    "n",
-                    &(usize::from(self.selection.is_some()) + self.also.len()),
-                )],
-            ));
-            ui.checkbox(&mut self.panels.show_grid, t.get("status.grid"));
             if ui
-                .selectable_label(self.collide, t.get("top.collide"))
+                .selectable_label(self.collide, t.get("status.collision"))
+                .on_hover_text(t.get("status.collision_tip"))
                 .clicked()
             {
                 out.push(UiAction::Collide);
             }
-            ui.checkbox(&mut self.panels.show_bounds, t.get("status.bounds"));
-            ui.label(t.get(match self.mode {
-                Mode::Select if self.dungeon.is_some() => "status.dungeon",
-                Mode::Select => "status.select",
-                Mode::Place => "status.place",
-                Mode::Terrain => "status.terrain",
-                Mode::Spawn => "status.spawn",
-            }));
-            ui.label(t.fill(
-                if saved {
-                    "status.edits_saved"
-                } else {
-                    "status.edits"
-                },
-                &[("n", &edits)],
-            ));
+            ui.menu_button(t.get("status.view"), |ui| {
+                ui.checkbox(&mut self.panels.show_grid, t.get("status.grid"));
+                ui.checkbox(&mut self.panels.show_bounds, t.get("status.bounds"));
+            });
+            if edits > 0 {
+                ui.label(t.fill("status.edits", &[("n", &edits)]));
+            } else if let Some((_, at)) = self.saved {
+                let (key, n) = saved_ago(self.core.timer.local_time - at);
+                ui.weak(t.fill(key, &[("n", &n)]));
+            }
             if let Some(p) = &self.text.problem {
                 ui.colored_label(mark::WARN, p);
             }
@@ -474,24 +489,90 @@ impl EditorApp {
         });
     }
 
+    /// The Tool tab: what the tool of the mode works with. In dungeon mode the dungeon's card heads
+    /// it, and the select tool lays out its pieces.
     fn tools_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         self.brush_rects.clear();
-        // In dungeon mode, the dungeon's card heads every tool, and the select tool lays out its
-        // pieces.
         if let Some(lb) = self.dungeon_mode() {
+            self.dungeon_card(ui, lb, out);
             if self.mode == Mode::Select {
-                self.dungeon_tab(ui, out);
+                self.dungeon_pieces(ui, out);
                 return;
             }
-            self.dungeon_card(ui, lb, out);
         }
         match self.mode {
             Mode::Select => {
-                ui.label(self.text.table().get("select.help"));
+                let t = self.text.table();
+                filled(ui, "select", |ui| {
+                    ui.strong(t.get("select.title"));
+                    ui.add_space(6.0);
+                    ui.label(t.get("select.help"));
+                });
             }
             Mode::Place => self.browser(ui, out),
-            Mode::Terrain => self.brushes(ui, out),
+            Mode::Terrain => filled(ui, "brushes", |ui| self.brushes(ui, out)),
             Mode::Spawn => self.spawn_browser(ui, out),
+        }
+    }
+
+    /// The Log tab: the checks' findings under a header that folds, then every message the status
+    /// bar has shown, the newest last.
+    fn log_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        let t = self.text.table();
+        let faults = self.faults.iter().filter(|f| !f.warning).count();
+        let warnings = self.faults.len() - faults;
+        let count = |one: &str, many: &str, n: usize| {
+            if n == 1 {
+                t.get(one).to_owned()
+            } else {
+                t.fill(many, &[("n", &n)])
+            }
+        };
+        let head = format!(
+            "{}, {}",
+            count("checks.error", "checks.errors", faults),
+            count("checks.warning", "checks.warnings", warnings)
+        );
+        let open = self.panels.findings_open;
+        let header = egui::CollapsingHeader::new(head)
+            .id_salt("findings")
+            .open(Some(open))
+            .show(ui, |ui| self.findings(ui, out));
+        if header.header_response.clicked() {
+            self.panels.findings_open = !open;
+        }
+        if !open {
+            self.fault_rects.clear();
+        }
+        ui.separator();
+        for line in &self.log {
+            ui.label(line);
+        }
+    }
+
+    /// The checks' findings, each going to what it is about when clicked.
+    fn findings(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+        self.fault_rects.clear();
+        for f in &self.faults {
+            let text = egui::RichText::new(&f.text).color(if f.warning {
+                mark::WARN
+            } else {
+                mark::FAULT
+            });
+            let r = ui.selectable_label(false, text);
+            self.fault_rects.push(r.rect);
+            if r.clicked() {
+                if let Some((lb, at)) = f.at {
+                    out.push(UiAction::GoTo(lb, at));
+                } else if let Some(w) = f.text.split_once(".sql:").and_then(|(p, _)| {
+                    self.session
+                        .weenie_of_file(std::path::Path::new(&format!("{p}.sql")))
+                }) {
+                    // A weenie's finding: its form.
+                    out.push(UiAction::Weenie(w));
+                    out.push(UiAction::ShowWeenie);
+                }
+            }
         }
     }
 
@@ -574,7 +655,7 @@ impl EditorApp {
                             let (r, rect) = picker_cell(ui, cell, picture, &w.name, chosen);
                             self.weenie_rects.push((w.weenie.clone(), rect));
                             let id = match &w.weenie {
-                                Weenie::Symbol(s) => s.clone(),
+                                Weenie::Symbol(s) => s.rsplit(':').next().unwrap_or(s).to_owned(),
                                 Weenie::Class(c) => t.fill("spawn.class", &[("id", c)]),
                             };
                             let from = t.get(if w.pack {
@@ -891,11 +972,7 @@ impl EditorApp {
                 ("brush.smooth", Brush::Smooth, Icon::Smooth),
             ] {
                 let on = std::mem::discriminant(&b) == std::mem::discriminant(&brush);
-                let r = icon_button(ui, icon, on).on_hover_text(format!(
-                    "{}\n{}",
-                    t.get(label),
-                    t.get(&format!("{label}_tip"))
-                ));
+                let r = icon_button(ui, icon, on).on_hover_text(t.get(label));
                 self.brush_rects.push((brush, r.rect));
                 if r.clicked() {
                     out.push(UiAction::Brush(brush));
@@ -928,7 +1005,10 @@ impl EditorApp {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // ten at most
             let n = (self.panels.radius / g).round().max(0.0) as u32;
             ui.monospace(match n {
-                0 => t.get("brush.radius_under").to_owned(),
+                0 => t.fill(
+                    "brush.radius_under",
+                    &[("m", &format!("{:.0}", self.panels.radius))],
+                ),
                 1 => t.fill("brush.radius_one", &[("m", &format!("{g:.0}"))]),
                 _ => t.fill(
                     "brush.radius_n",
@@ -995,14 +1075,13 @@ impl EditorApp {
         );
         self.terrain_rects.clear();
         ui.horizontal(|ui| {
-            ui.label(t.get("brush.terrain"));
             let shown_tex = types
                 .iter()
                 .find(|(v, ..)| *v == chosen)
                 .and_then(|(_, _, tex)| *tex)
                 .and_then(|tex| self.texture_picture(tex));
             if let Some(id) = shown_tex {
-                ui.add(egui::Image::new((id, egui::vec2(22.0, 22.0))));
+                ui.add(egui::Image::new((id, egui::vec2(40.0, 40.0))));
             }
             let combo = egui::ComboBox::from_id_salt("terrain brush")
                 .selected_text(name)
@@ -1148,6 +1227,34 @@ impl EditorApp {
                 }
             });
         self.panels.brush_combo = Some(combo.response.rect);
+        // What the chosen scene grows, under the dropdown.
+        if let Some(models) = scenes.get(usize::from(chosen)) {
+            ui.horizontal_wrapped(|ui| {
+                for m in models {
+                    let (rect, r) =
+                        ui.allocate_exact_size(egui::vec2(56.0, 56.0), egui::Sense::hover());
+                    match self.picture(*m, &mut budget) {
+                        Some(id) => {
+                            ui.painter().image(
+                                id,
+                                rect,
+                                egui::Rect::from_min_max(
+                                    egui::pos2(0.0, 0.0),
+                                    egui::pos2(1.0, 1.0),
+                                ),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                        None => {
+                            ui.painter()
+                                .rect_filled(rect, 2.0, egui::Color32::from_gray(20));
+                        }
+                    }
+                    let label = self.names.label(*m).unwrap_or_default();
+                    r.on_hover_text(format!("{label}\n{:#010X}", m.raw()));
+                }
+            });
+        }
     }
 
     /// The world from above, centered on the camera and zoomed with the wheel: the camera's spot
@@ -1309,13 +1416,12 @@ impl EditorApp {
         self.panels.place_rects.clear();
         if !self.also.is_empty() {
             ui.strong(t.fill("inspector.selected_n", &[("n", &(self.also.len() + 1))]));
-            ui.weak(t.get("inspector.several_help"));
             ui.horizontal(|ui| {
                 if ui.button(t.get("inspector.delete_all")).clicked() {
                     out.push(UiAction::Delete);
                 }
                 let dup = ui
-                    .button(t.get("inspector.duplicate"))
+                    .button(t.get("inspector.duplicate_all"))
                     .on_hover_text(t.get("inspector.duplicate_tip"));
                 self.panels.duplicate = Some(dup.rect);
                 if dup.clicked() {
@@ -1347,13 +1453,10 @@ impl EditorApp {
                     "inspector.static_title",
                     &[("n", &index), ("landblock", &format!("{landblock:04X}"))],
                 ));
-                ui.label(t.fill(
-                    "inspector.model",
-                    &[("id", &format!("{:#010X}", model.raw()))],
-                ));
                 if let Some(label) = self.names.label(model) {
                     ui.weak(label);
                 }
+                model_link(ui, &t, model, out);
                 // The world's own, moved by the pack being edited: changed there.
                 if let Some(StaticOrigin::Base(i)) = origin {
                     let target = &self.session.packs()[self.session.target()];
@@ -1370,16 +1473,14 @@ impl EditorApp {
                         );
                     }
                 }
-                ui.weak(match origin {
-                    Some(StaticOrigin::Base(i)) => t.fill("inspector.base_static", &[("n", &i)]),
-                    Some(StaticOrigin::Pack { pack, name, .. }) => name.unwrap_or_else(|| {
+                if let Some(StaticOrigin::Pack { pack, name, .. }) = origin {
+                    ui.weak(name.unwrap_or_else(|| {
                         t.fill(
                             "inspector.pack_unnamed",
                             &[("pack", &self.session.packs()[pack].name)],
                         )
-                    }),
-                    None => String::new(),
-                });
+                    }));
+                }
                 self.place_fields(
                     ui,
                     &Selection::Static { landblock, index },
@@ -1434,13 +1535,10 @@ impl EditorApp {
                         ("landblock", &format!("{landblock:04X}")),
                     ],
                 ));
-                ui.label(t.fill(
-                    "inspector.model",
-                    &[("id", &format!("{:#010X}", model.raw()))],
-                ));
                 if let Some(label) = self.names.label(model) {
                     ui.weak(label);
                 }
+                model_link(ui, &t, model, out);
                 let room = self.cells_of(landblock).get(&cell).map(|c| c.frame);
                 self.place_fields(
                     ui,
@@ -1553,24 +1651,12 @@ impl EditorApp {
                     "inspector.building_title",
                     &[("n", &index), ("landblock", &format!("{landblock:04X}"))],
                 ));
-                ui.label(t.fill(
-                    "inspector.model",
-                    &[("id", &format!("{:#010X}", b.id.raw()))],
-                ));
-                ui.weak(t.fill("inspector.portals", &[("n", &b.portals.len())]));
+                model_link(ui, &t, b.id, out);
                 let dropped = self.dropped_name(landblock, index);
                 let sel = Selection::Building { landblock, index };
                 self.place_fields(ui, &sel, landblock, &b.frame, None, out);
-                match dropped {
-                    Some(name) => {
-                        ui.label(t.fill("inspector.dropped_building", &[("name", &name)]));
-                        if ui.button(t.get("inspector.delete")).clicked() {
-                            out.push(UiAction::Delete);
-                        }
-                    }
-                    None => {
-                        ui.label(t.get("inspector.building_moves"));
-                    }
+                if dropped.is_some() && ui.button(t.get("inspector.delete")).clicked() {
+                    out.push(UiAction::Delete);
                 }
             }
             Some(Selection::Vertex { gx, gy }) => {
@@ -1610,15 +1696,14 @@ impl EditorApp {
                     return;
                 };
                 let which = self.session.spawn_weenie(&s);
-                let name = self
-                    .weenies
-                    .iter()
-                    .find(|w| Some(&w.weenie) == which.as_ref())
+                let name = which
+                    .as_ref()
+                    .and_then(|w| self.weenie_entry(w))
                     .map(|w| w.name.clone());
                 ui.strong(name.unwrap_or_else(|| t.get("inspector.spawn").into()));
                 let lb = (s.cell >> 16) as u16;
                 if s.server {
-                    ui.weak(t.get("inspector.server_spawn"));
+                    // The server's own: no file of the packs places it yet.
                 } else if file == self.session.override_file(lb) {
                     // The server's own spawn, which the pack places again.
                     ui.colored_label(
@@ -1651,16 +1736,16 @@ impl EditorApp {
                     guid: s.guid.clone(),
                 };
                 self.place_fields(ui, &sel, lb, &s.frame, room.as_ref(), out);
-                if let Some(to) = self.portal_destination(&s) {
-                    self.destination_card(ui, to, out);
+                match s.setup {
+                    Some(id) => model_link(ui, &t, id, out),
+                    None => {
+                        ui.weak(t.get("inspector.setup_unknown"));
+                    }
                 }
-                ui.weak(match s.setup {
-                    Some(id) => t.fill(
-                        "inspector.drawn_as",
-                        &[("id", &format!("{:#010X}", id.raw()))],
-                    ),
-                    None => t.get("inspector.setup_unknown").into(),
-                });
+                if let Some(to) = self.portal_destination(&s) {
+                    let at = self.portal_destination_at(&s);
+                    self.destination_card(ui, to, at, out);
+                }
                 ui.horizontal(|ui| {
                     if ui.button(t.get("inspector.its_weenie")).clicked() {
                         out.push(UiAction::ShowWeenie);
@@ -1677,7 +1762,7 @@ impl EditorApp {
                     }
                 });
                 if let Some(g) = self.spawn_generator(&s) {
-                    self.generator_card(ui, &g);
+                    self.generator_card(ui, &g, out);
                 }
             }
         }
@@ -1745,10 +1830,9 @@ impl EditorApp {
         }
         for s in &spawns {
             let which = self.session.spawn_weenie(s);
-            let name = self
-                .weenies
-                .iter()
-                .find(|w| Some(&w.weenie) == which.as_ref())
+            let name = which
+                .as_ref()
+                .and_then(|w| self.weenie_entry(w))
                 .map_or_else(|| s.weenie.clone(), |w| w.name.clone());
             rows.push((
                 Selection::Spawn {
@@ -1798,11 +1882,9 @@ impl EditorApp {
             None => (frame.origin, gizmo::heading_of(frame.rotation)),
         };
         let now = [p.x, p.y, p.z, h.rem_euclid(360.0)];
-        ui.weak(t.get(if room.is_some() {
-            "inspector.place_in_room"
-        } else {
-            "inspector.place_in_landblock"
-        }));
+        if room.is_some() {
+            ui.weak(t.get("inspector.place_in_room"));
+        }
         let steps = (self.panels.step, self.panels.turn_step);
         let mut set: Option<[f32; 4]> = None;
         egui::Grid::new(("place", format!("{sel:?}")))
@@ -1892,27 +1974,54 @@ impl EditorApp {
         }
     }
 
-    /// A portal's destination on its card: where it sends who uses it, and the choices: here
-    /// (where the camera is), or a dungeon (at its drop point).
-    fn destination_card(&mut self, ui: &mut egui::Ui, to: Option<u32>, out: &mut Vec<UiAction>) {
+    /// A portal's destination on its card: where it sends who uses it (`to`, a cell; `at`, the place
+    /// in its landblock), a click on which goes there: into a dungeon at its drop point, or the
+    /// camera to the place. Then the choices: where the camera is, or a dungeon.
+    fn destination_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        to: Option<u32>,
+        at: Option<Vec3>,
+        out: &mut Vec<UiAction>,
+    ) {
         let t = self.text.table();
         let dungeons = self.dungeons();
-        let shown = to.map_or_else(
-            || t.get("fields.nowhere").to_owned(),
-            |c| {
-                let lb = u16::try_from(c >> 16).unwrap_or(0);
-                dungeons
-                    .iter()
-                    .find(|d| d.landblock == lb && c & 0xFFFF >= 0x0100)
-                    .map_or_else(|| format!("0x{c:08X}"), |d| self.dungeon_name(d))
-            },
-        );
+        let dungeon = to.and_then(|c| {
+            let lb = u16::try_from(c >> 16).unwrap_or(0);
+            dungeons
+                .iter()
+                .find(|d| d.landblock == lb && c & 0xFFFF >= 0x0100)
+        });
+        let shown = match (to, dungeon) {
+            (None, _) => t.get("fields.nowhere").to_owned(),
+            (Some(_), Some(d)) => self.dungeon_name(d),
+            (Some(c), None) => format!("0x{c:08X}"),
+        };
         ui.separator();
         ui.horizontal_wrapped(|ui| {
             ui.strong(t.get("fields.destination"));
-            ui.label(shown);
+            match to {
+                None => {
+                    ui.label(shown);
+                }
+                Some(c) => {
+                    let r = ui.add(egui::Link::new(shown));
+                    self.panels.destination_link = Some(r.rect);
+                    if r.clicked() {
+                        let lb = u16::try_from(c >> 16).unwrap_or(0);
+                        match (dungeon, at) {
+                            (Some(d), _) => out.push(UiAction::EnterDungeon(d.landblock)),
+                            (None, Some(at)) => out.push(UiAction::GoTo(lb, at)),
+                            (None, None) => {
+                                out.push(UiAction::GoTo(lb, Vec3::new(96.0, 96.0, 0.0)));
+                            }
+                        }
+                    }
+                }
+            }
         });
         ui.horizontal(|ui| {
+            ui.label(t.get("fields.set_destination"));
             if ui
                 .button(t.get("fields.destination_here"))
                 .on_hover_text(t.get("fields.destination_here_about"))
@@ -1933,45 +2042,14 @@ impl EditorApp {
         });
     }
 
-    fn checks_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
-        let faults = self.faults.iter().filter(|f| !f.warning).count();
-        let warnings = self.faults.len() - faults;
-        ui.strong(self.text.table().fill(
-            "checks.count",
-            &[("faults", &faults), ("warnings", &warnings)],
-        ));
-        self.fault_rects.clear();
-        for f in &self.faults {
-            let text = egui::RichText::new(&f.text).color(if f.warning {
-                mark::WARN
-            } else {
-                mark::FAULT
-            });
-            let r = ui.selectable_label(false, text);
-            self.fault_rects.push(r.rect);
-            if r.clicked() {
-                if let Some((lb, at)) = f.at {
-                    out.push(UiAction::GoTo(lb, at));
-                } else if let Some(w) = f.text.split_once(".sql:").and_then(|(p, _)| {
-                    self.session
-                        .weenie_of_file(std::path::Path::new(&format!("{p}.sql")))
-                }) {
-                    // A weenie's finding: its form.
-                    out.push(UiAction::Weenie(w));
-                    out.push(UiAction::ShowWeenie);
-                }
-            }
-        }
-    }
-
     // -------------------------------------------------------------------------------------------
     // the marks on the world
     // -------------------------------------------------------------------------------------------
 
     /// The selection's box, the handles and the brush.
     fn world_marks(&mut self, painter: &egui::Painter) {
-        self.building_note = None;
-        let Some(view) = self.view() else {
+        self.marks_view = self.view();
+        let Some(view) = self.marks_view else {
             return;
         };
         let line = |a: (f32, f32), b: (f32, f32), w: f32, c: egui::Color32| {
@@ -1980,7 +2058,7 @@ impl EditorApp {
                 egui::Stroke::new(w, c),
             );
         };
-        if self.panels.show_grid {
+        if self.landscape_grid_shown() {
             if let Some((lb, ..)) = self.work_block() {
                 for x in 0..=8u32 {
                     for y in 0..=8u32 {
@@ -2102,28 +2180,6 @@ impl EditorApp {
                 {
                     self.model_box(painter, &view, landblock, b.id, &b.frame);
                     self.draw_handles(painter);
-                    // What goes with it, said beside it.
-                    let at = add(pick::block_origin(landblock), b.frame.origin);
-                    let note = match self.dropped_name(landblock, index) {
-                        Some(name) => self
-                            .text
-                            .table()
-                            .fill("inspector.dropped_building", &[("name", &name)]),
-                        None => self.text.table().get("inspector.building_moves").to_owned(),
-                    };
-                    if let Some((x, y)) = view.project(at) {
-                        let shown = egui::Area::new(egui::Id::new("building moves"))
-                            .order(egui::Order::Tooltip)
-                            .fixed_pos(egui::pos2(x + 12.0, y + 12.0))
-                            .interactable(false)
-                            .show(painter.ctx(), |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    ui.set_max_width(220.0);
-                                    ui.label(&note);
-                                });
-                            });
-                        self.building_note = Some(shown.response.rect);
-                    }
                 }
             }
             Some(Selection::Vertex { gx, gy }) => {
@@ -2412,16 +2468,48 @@ impl EditorApp {
     }
 }
 
-/// A brush's icon.
+/// An icon the panels draw: the tools, the bar's buttons and the ground's brushes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Icon {
+    Select,
+    Place,
+    Spawn,
+    Terrain,
+    Undo,
+    Redo,
+    Download,
+    Play,
+    Stop,
+    Live,
+    Settings,
+    Save,
     Raise,
     Lower,
     Flatten,
     Smooth,
 }
 
-/// A square button showing `icon`, lit when `on`.
+/// The size of a button of the bar of tools.
+const BUTTON: egui::Vec2 = egui::vec2(30.0, 28.0);
+
+/// `r` with `text` as its tooltip, enabled or not.
+fn tip(r: egui::Response, text: &str) -> egui::Response {
+    r.on_hover_text(text).on_disabled_hover_text(text)
+}
+
+/// A button of the bar of tools showing `icon`: lit when `on`, dimmed when not `enabled`.
+fn tool_button(ui: &mut egui::Ui, icon: Icon, on: bool, enabled: bool) -> egui::Response {
+    let r = ui.add_enabled(enabled, egui::Button::selectable(on, "").min_size(BUTTON));
+    let color = if enabled {
+        ui.style().interact_selectable(&r, on).fg_stroke.color
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    draw_icon(ui.painter(), r.rect, icon, color);
+    r
+}
+
+/// A square button showing a brush's `icon`, lit when `on`.
 fn icon_button(ui: &mut egui::Ui, icon: Icon, on: bool) -> egui::Response {
     let (rect, r) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
     let painter = ui.painter_at(rect);
@@ -2433,49 +2521,160 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, on: bool) -> egui::Response {
         egui::Color32::from_gray(38)
     };
     painter.rect_filled(rect, 4.0, fill);
+    draw_icon(&painter, rect, icon, egui::Color32::from_gray(225));
+    r
+}
+
+/// `icon` drawn in the middle of `rect` in `color`, as lines and convex shapes.
+#[allow(clippy::too_many_lines)]
+fn draw_icon(painter: &egui::Painter, rect: egui::Rect, icon: Icon, color: egui::Color32) {
     let c = rect.center();
-    let line = egui::Stroke::new(2.0, egui::Color32::from_gray(225));
+    let p = |x: f32, y: f32| c + egui::vec2(x, y);
+    let line = egui::Stroke::new(2.0, color);
+    let thin = egui::Stroke::new(1.5, color);
     let ground = egui::Stroke::new(2.0, egui::Color32::from_rgb(140, 190, 110));
+    let fill = |pts: Vec<egui::Pos2>| {
+        painter.add(egui::Shape::convex_polygon(pts, color, egui::Stroke::NONE));
+    };
+    // An arc about `o` of radius `r` from angle `a` to `b` (radians, clockwise on screen).
+    let arc = |o: egui::Pos2, r: f32, a: f32, b: f32| -> Vec<egui::Pos2> {
+        (0..=16)
+            .map(|k| {
+                #[allow(clippy::cast_precision_loss)]
+                let t = a + (b - a) * (k as f32) / 16.0;
+                o + egui::vec2(
+                    dereth_primitives::num::math::cosf(t) * r,
+                    dereth_primitives::num::math::sinf(t) * r,
+                )
+            })
+            .collect()
+    };
     match icon {
-        Icon::Raise | Icon::Lower => {
-            // A mound or a dip over the ground, and an arrow up or down.
-            let up = icon == Icon::Raise;
-            let sign = if up { -1.0 } else { 1.0 };
-            painter.line_segment(
-                [c + egui::vec2(-10.0, 8.0), c + egui::vec2(10.0, 8.0)],
-                ground,
-            );
-            painter.line_segment(
-                [
-                    c + egui::vec2(0.0, 5.0 * -sign),
-                    c + egui::vec2(0.0, 9.0 * sign),
-                ],
-                line,
-            );
-            painter.add(egui::Shape::convex_polygon(
+        Icon::Select => {
+            // A pointer.
+            painter.add(egui::Shape::closed_line(
                 vec![
-                    c + egui::vec2(0.0, 11.0 * sign),
-                    c + egui::vec2(-5.0, 4.0 * sign),
-                    c + egui::vec2(5.0, 4.0 * sign),
+                    p(-5.0, -9.0),
+                    p(-5.0, 6.0),
+                    p(-1.5, 2.5),
+                    p(1.5, 9.0),
+                    p(4.0, 8.0),
+                    p(1.0, 1.5),
+                    p(6.0, 1.5),
                 ],
-                egui::Color32::from_gray(225),
-                egui::Stroke::NONE,
+                thin,
             ));
         }
+        Icon::Place => {
+            // A tree.
+            fill(vec![p(0.0, -10.0), p(7.0, 4.0), p(-7.0, 4.0)]);
+            painter.rect_filled(
+                egui::Rect::from_min_max(p(-1.5, 4.0), p(1.5, 9.0)),
+                0.0,
+                color,
+            );
+        }
+        Icon::Spawn => {
+            // Someone.
+            painter.circle_filled(p(0.0, -5.5), 3.5, color);
+            fill(vec![p(-6.0, 9.0), p(-4.0, 0.0), p(4.0, 0.0), p(6.0, 9.0)]);
+        }
+        Icon::Terrain => {
+            // Hills.
+            fill(vec![p(-11.0, 8.0), p(-3.0, -6.0), p(5.0, 8.0)]);
+            fill(vec![p(0.0, 8.0), p(5.0, -1.0), p(11.0, 8.0)]);
+        }
+        Icon::Undo | Icon::Redo => {
+            // A turning arrow, back or on.
+            let s = if icon == Icon::Undo { 1.0 } else { -1.0 };
+            let pts: Vec<egui::Pos2> = arc(
+                p(0.0, 2.0),
+                7.0,
+                std::f32::consts::PI,
+                std::f32::consts::TAU,
+            )
+            .into_iter()
+            .map(|q| egui::pos2(c.x + (q.x - c.x) * s, q.y))
+            .collect();
+            painter.add(egui::Shape::line(pts, line));
+            let at = p(-7.0 * s, 2.0);
+            fill(vec![
+                at + egui::vec2(-4.0, -1.0),
+                at + egui::vec2(4.0, -1.0),
+                at + egui::vec2(0.0, 5.0),
+            ]);
+        }
+        Icon::Download => {
+            painter.line_segment([p(0.0, -9.0), p(0.0, 3.0)], line);
+            fill(vec![p(-5.0, 1.0), p(5.0, 1.0), p(0.0, 7.0)]);
+            painter.line_segment([p(-8.0, 9.0), p(8.0, 9.0)], line);
+        }
+        Icon::Play => fill(vec![p(-5.0, -8.0), p(8.0, 0.0), p(-5.0, 8.0)]),
+        Icon::Stop => {
+            painter.rect_filled(
+                egui::Rect::from_center_size(c, egui::vec2(13.0, 13.0)),
+                1.0,
+                mark::FAULT,
+            );
+        }
+        Icon::Live => {
+            // A server sending: a dot, and its waves either side.
+            painter.circle_filled(c, 2.5, color);
+            let half = std::f32::consts::PI;
+            for r in [5.5, 9.0] {
+                painter.add(egui::Shape::line(arc(c, r, -0.9, 0.9), thin));
+                painter.add(egui::Shape::line(arc(c, r, half - 0.9, half + 0.9), thin));
+            }
+        }
+        Icon::Settings => {
+            // A gear: a ring, and its teeth round it.
+            painter.circle_stroke(c, 5.0, line);
+            for k in 0..8 {
+                #[allow(clippy::cast_precision_loss)]
+                let a = std::f32::consts::TAU * (k as f32) / 8.0;
+                let d = egui::vec2(
+                    dereth_primitives::num::math::cosf(a),
+                    dereth_primitives::num::math::sinf(a),
+                );
+                painter.line_segment([c + d * 6.0, c + d * 9.5], egui::Stroke::new(2.5, color));
+            }
+        }
+        Icon::Save => {
+            // A disk: its outline, its shutter and its label.
+            painter.rect_stroke(
+                egui::Rect::from_min_max(p(-8.0, -8.0), p(8.0, 8.0)),
+                1.5,
+                thin,
+                egui::StrokeKind::Middle,
+            );
+            painter.rect_filled(
+                egui::Rect::from_min_max(p(-4.5, -8.0), p(4.5, -3.0)),
+                0.0,
+                color,
+            );
+            painter.rect_stroke(
+                egui::Rect::from_min_max(p(-5.0, 1.5), p(5.0, 8.0)),
+                0.0,
+                thin,
+                egui::StrokeKind::Middle,
+            );
+        }
+        Icon::Raise | Icon::Lower => {
+            // A mound or a dip over the ground, and an arrow up or down.
+            let sign = if icon == Icon::Raise { -1.0 } else { 1.0 };
+            painter.line_segment([p(-10.0, 8.0), p(10.0, 8.0)], ground);
+            painter.line_segment([p(0.0, 5.0 * -sign), p(0.0, 9.0 * sign)], line);
+            fill(vec![
+                p(0.0, 11.0 * sign),
+                p(-5.0, 4.0 * sign),
+                p(5.0, 4.0 * sign),
+            ]);
+        }
         Icon::Flatten => {
-            painter.line_segment(
-                [c + egui::vec2(-11.0, 2.0), c + egui::vec2(11.0, 2.0)],
-                ground,
-            );
-            painter.line_segment(
-                [c + egui::vec2(-7.0, -5.0), c + egui::vec2(7.0, -5.0)],
-                line,
-            );
-            painter.line_segment(
-                [c + egui::vec2(-7.0, -5.0), c + egui::vec2(-7.0, -1.0)],
-                line,
-            );
-            painter.line_segment([c + egui::vec2(7.0, -5.0), c + egui::vec2(7.0, -1.0)], line);
+            painter.line_segment([p(-11.0, 2.0), p(11.0, 2.0)], ground);
+            painter.line_segment([p(-7.0, -5.0), p(7.0, -5.0)], line);
+            painter.line_segment([p(-7.0, -5.0), p(-7.0, -1.0)], line);
+            painter.line_segment([p(7.0, -5.0), p(7.0, -1.0)], line);
         }
         Icon::Smooth => {
             let wave: Vec<egui::Pos2> = (0..=16)
@@ -2486,17 +2685,26 @@ fn icon_button(ui: &mut egui::Ui, icon: Icon, on: bool) -> egui::Response {
                         + 4.0
                             * dereth_primitives::num::math::sinf(x * 0.6)
                             * (1.0 - (x + 11.0) / 26.0);
-                    c + egui::vec2(x, y)
+                    p(x, y)
                 })
                 .collect();
             painter.add(egui::Shape::line(wave, ground));
         }
     }
-    r
+}
+
+/// A model's id as a link: a click chooses it in the Place tool.
+fn model_link(ui: &mut egui::Ui, t: &crate::text::Table, m: DataId, out: &mut Vec<UiAction>) {
+    let r = ui.add(egui::Link::new(
+        t.fill("inspector.model", &[("id", &format!("{:#010X}", m.raw()))]),
+    ));
+    if r.on_hover_text(t.get("inspector.model_tip")).clicked() {
+        out.push(UiAction::OpenModel(m));
+    }
 }
 
 /// A search box: a magnifier, then the field, its hint `hint` while empty.
-fn search_box(ui: &mut egui::Ui, text: &mut String, hint: &str) -> egui::Response {
+pub(super) fn search_box(ui: &mut egui::Ui, text: &mut String, hint: &str) -> egui::Response {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 18.0), egui::Sense::hover());
         let c = r.center() - egui::vec2(1.5, 1.5);
@@ -2598,4 +2806,36 @@ fn picker_cell(
     let x = rect.center().x - galley.size().x.min(cell.x) / 2.0;
     painter.galley(egui::pos2(x, at.max.y + 1.0), galley, egui::Color32::WHITE);
     (r, at)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: the world editor's status bar)
+    use super::*;
+
+    #[test]
+    fn the_status_bar_says_how_long_ago_the_world_was_saved_by_the_clock_it_is_given() {
+        assert_eq!(saved_ago(0.0), ("status.saved_now", 0));
+        assert_eq!(saved_ago(59.9), ("status.saved_now", 0));
+        assert_eq!(saved_ago(60.0), ("status.saved_minutes", 1));
+        assert_eq!(saved_ago(3599.0), ("status.saved_minutes", 59));
+        assert_eq!(saved_ago(7300.0), ("status.saved_hours", 2));
+        assert_eq!(
+            saved_ago(-5.0),
+            ("status.saved_now", 0),
+            "a clock gone back"
+        );
+    }
+
+    #[test]
+    fn edits_not_saved_are_counted_from_where_the_history_was_saved_and_none_once_saved() {
+        assert_eq!(unsaved_edits(false, 7, 3), 0);
+        assert_eq!(unsaved_edits(true, 7, 3), 4);
+        assert_eq!(unsaved_edits(true, 1, 3), 2, "undone past the save");
+        assert_eq!(
+            unsaved_edits(true, 3, 3),
+            1,
+            "changed, though the steps match"
+        );
+    }
 }

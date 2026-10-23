@@ -298,11 +298,11 @@ pub fn build_three_floors(ed: &mut EditorApp, shots_of: &str) -> ThreeFloors {
     assert_eq!(built, BTreeSet::from([-1, 0, 1]));
     let (floors, _) = ed.plan_floors(lb);
     assert_eq!(rounded(&floors), [-12, -6, 0, 6, 12]);
-    ed.layout.floor = Some(6.0);
+    ed.choose_floor(6.0);
     ed.frame();
     assert_eq!(step(ed, lb, 1), 2);
     assert_eq!(step(ed, lb, 1), 2, "no further than one past");
-    ed.layout.floor = Some(0.0);
+    ed.choose_floor(0.0);
     ed.layout.target = None;
     for _ in 0..2 {
         ed.frame();

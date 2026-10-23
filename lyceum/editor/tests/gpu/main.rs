@@ -209,6 +209,92 @@ fn a_click_on_a_static_selects_it_and_its_handles_are_drawn_where_they_project()
 }
 
 #[test]
+fn the_marks_on_the_world_are_drawn_from_the_view_the_world_is_drawn_with_while_it_resizes_and_moves(
+) {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-marks-in-step");
+    let mut ed = editor(&world);
+    let stone = stone_west(&mut ed);
+    let at = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(stone.x, stone.y, stone.z + 1.5))
+        .unwrap();
+    click(&mut ed, at);
+    assert!(ed.handles().is_some(), "the stone selected");
+    let key = |vk: usize, pressed| HostEvent::KeyboardInput {
+        key: dereth_input::keys::Key::new(vk, 0),
+        pressed,
+        text: None,
+    };
+    let probe = Vec3::new(stone.x + 2.0, stone.y + 1.0, stone.z + 0.5);
+    ed.set_speed(1); // 2.5 m/s
+                     // Each frame the window is a new size, so the world view is too, and the camera flies back
+                     // and turns with a right drag as it does: the marks are drawn from the view the world is.
+    ed.queue(key(0x53, true));
+    ed.queue(HostEvent::MouseInput {
+        button: MouseButton::Right,
+        pressed: true,
+    });
+    for i in 0..8_u32 {
+        ed.resize(800 + i * 40, 600 + i * 25);
+        ed.queue(HostEvent::CursorMoved {
+            x: f64::from(at.0 + i as f32),
+            y: f64::from(at.1),
+        });
+        let before = ed.camera.position;
+        ed.frame();
+        assert_ne!(ed.camera.position, before, "it flies");
+        let marks = ed.marks_view.expect("the marks drawn");
+        let drawn = ed.view().expect("the world drawn");
+        assert_eq!(marks.viewport(), drawn.viewport(), "frame {i}");
+        for p in [probe, stone] {
+            let (a, b) = (marks.project(p).unwrap(), drawn.project(p).unwrap());
+            assert!(
+                (a.0 - b.0).abs() < 0.05 && (a.1 - b.1).abs() < 0.05,
+                "frame {i}: {a:?} {b:?}"
+            );
+        }
+    }
+    ed.queue(key(0x53, false));
+    ed.queue(HostEvent::MouseInput {
+        button: MouseButton::Right,
+        pressed: false,
+    });
+    // Still, at a size the window has taken: the arrows are drawn where the world's view puts
+    // them.
+    ed.resize(1100, 760);
+    ed.frame();
+    ed.frame();
+    let h = ed.handles().expect("its handles");
+    let img = capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("marks-in-step").join("after.png"),
+    )
+    .unwrap();
+    let tip = h.arrows.iter().find(|(k, _)| *k == Handle::X).unwrap().1;
+    let on = (0..20)
+        .filter(|i| {
+            #[allow(clippy::cast_precision_loss)]
+            let t = 0.3 + 0.03 * *i as f32;
+            let p = pixel(
+                &img,
+                h.origin.0 + (tip.0 - h.origin.0) * t,
+                h.origin.1 + (tip.1 - h.origin.1) * t,
+            );
+            p.iter()
+                .zip([0xE8, 0x4A, 0x3C])
+                .all(|(a, b)| (i32::from(*a) - b).abs() <= 12)
+        })
+        .count();
+    assert!(
+        on >= 16,
+        "{on} of 20 points in the east arrow's color: {h:?}"
+    );
+}
+
+#[test]
 fn a_drag_along_the_east_arrow_moves_the_static_east_by_what_the_pointer_swept() {
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-drag");
@@ -530,7 +616,7 @@ fn a_static_placed_inside_a_house_is_warned_of_and_a_click_on_the_warning_goes_t
     let (lb, at) = f.at.expect("a place");
     assert_eq!(lb, HOLTBURG);
     assert!((at.x - 79.5).abs() < 1e-3 && (at.y - 37.5).abs() < 1e-3);
-    ed.show_tab(lyceum_editor::app::Tab::Checks);
+    ed.show_findings();
     ed.frame();
     // The finding is listed with the checks; a click on its row.
     let row = ed.fault_rect(0).expect("the finding listed");
@@ -581,7 +667,7 @@ fn a_building_moved_off_the_ground_is_warned_of_its_doors_and_a_click_on_the_war
         (at.x - 79.5).abs() < 1e-3 && (at.y - 37.5).abs() < 1e-3,
         "{at:?}"
     );
-    ed.show_tab(lyceum_editor::app::Tab::Checks);
+    ed.show_findings();
     ed.frame();
     let i = ed.faults.iter().position(|x| x == f).unwrap();
     let row = ed.fault_rect(i).expect("the finding listed");
@@ -854,7 +940,7 @@ fn the_walking_body_walks_on_ground_raised_while_it_stands_there() {
     let (_dir, world) = sample("editor-walk-raise");
     let mut ed = editor(&world);
     // Slowly, so the few steps stay on the raised ground.
-    ed.camera.speed = 0;
+    ed.set_speed(0);
     let at = (120.0, 110.0);
     let z = ed.session.ground(HOLTBURG, at.0, at.1).unwrap();
     ed.look_at(HOLTBURG, Vec3::new(at.0, at.1, z), 6.0, 0.0, -30.0);
@@ -925,7 +1011,9 @@ fn the_model_browser_draws_a_models_picture_once_names_it_and_finds_it_by_name()
             ed.names.label(gribble).as_deref(),
             Some("Gribble the Painted")
         );
+        // Drawn off the frame: shown in the frame after the one that asked for it.
         ed.frame();
+        ed.wait_for_pictures();
         ed.frame();
         assert_eq!(ed.pictures(), (1, 0), "drawn once, and held");
         path = ed.picture_path(gribble).unwrap();
@@ -952,6 +1040,7 @@ fn the_model_browser_draws_a_models_picture_once_names_it_and_finds_it_by_name()
         ed.panels.filter = "01000a2b".into();
         assert_eq!(ed.browser_list(), [house]);
         ed.frame();
+        ed.wait_for_pictures();
         assert_eq!(ed.pictures(), (2, 0));
     }
     // A picture already drawn is read from the cache, not drawn again.
@@ -960,6 +1049,7 @@ fn the_model_browser_draws_a_models_picture_once_names_it_and_finds_it_by_name()
     ed.mode = lyceum_editor::app::Mode::Place;
     ed.panels.filter = "gribble".into();
     ed.frame();
+    ed.wait_for_pictures();
     assert_eq!(ed.pictures(), (0, 1));
     assert_eq!(ed.picture_path(gribble).unwrap(), path);
 }
@@ -970,9 +1060,9 @@ fn the_body_walks_at_the_speed_the_camera_flies_at() {
     let (_dir, world) = sample("editor-walk-speed");
     let mut ed = editor(&world);
     let start = (120.0, 110.0);
-    ed.camera.speed = 2; // 5 m/s
+    ed.set_speed(2); // 5 m/s
     let slow = walk_north(&mut ed, start, 60, |_| {});
-    ed.camera.speed = 4; // 25 m/s
+    ed.set_speed(4); // 25 m/s
     let fast = walk_north(&mut ed, start, 60, |_| {});
     assert!(slow > 1.0, "{slow} m");
     assert!(fast > 3.0 * slow, "{fast} m against {slow} m");
@@ -1446,6 +1536,9 @@ fn the_scene_brush_lists_what_each_scene_grows_on_the_terrain_under_it_in_a_drop
         .copied()
         .collect();
     assert!(!shown.is_empty());
+    // The pictures are drawn off the frame: shown once they have come back.
+    ed.wait_for_pictures();
+    ed.frame();
     let img = capture(&mut ed, dir.path());
     let (_, r) = shown[0];
     let colors: std::collections::BTreeSet<[u8; 3]> = (0..30)
@@ -1468,6 +1561,7 @@ fn the_map_shows_the_camera_on_the_world_a_click_flies_there_and_an_edit_redraws
     let mut ed = editor(&world);
     ed.wait_for_names().unwrap();
     assert!(ed.world_map.is_some());
+    ed.show_tab(lyceum_editor::app::Tab::Map);
     ed.frame();
     ed.frame();
     assert!(ed.map_rect.is_some());
@@ -1493,7 +1587,12 @@ fn the_map_shows_the_camera_on_the_world_a_click_flies_there_and_an_edit_redraws
     );
     let img = capture(&mut ed, dir.path());
     let inside = pixel(&img, shown.center().x, shown.top() + 2.0);
-    let beside = pixel(&img, panel.left() + 2.0, panel.center().y);
+    // Beside it in the panel: to its side in a wide panel, over it in a tall one.
+    let beside = if panel.width() > panel.height() {
+        pixel(&img, panel.left() + 2.0, panel.center().y)
+    } else {
+        pixel(&img, panel.center().x, panel.top() + 2.0)
+    };
     assert_ne!(inside, beside, "the map drawn in its square alone");
     std::fs::copy(
         dir.path().join("frame.png"),
@@ -1561,9 +1660,9 @@ fn the_map_shows_the_camera_on_the_world_a_click_flies_there_and_an_edit_redraws
 }
 
 #[test]
-fn a_selected_building_is_moved_by_its_handles_with_its_cells_and_says_so_beside_it() {
+fn a_selected_building_is_moved_by_its_handles_with_its_cells() {
     let _gpu = gpu_lock();
-    let (dir, world) = sample("editor-building");
+    let (_dir, world) = sample("editor-building");
     let mut ed = editor(&world);
     let info = ed.session.statics(HOLTBURG).unwrap();
     let b = info.buildings[0].clone();
@@ -1595,20 +1694,6 @@ fn a_selected_building_is_moved_by_its_handles_with_its_cells_and_says_so_beside
         })
     );
     assert!(ed.handles().is_some(), "a building has handles");
-    ed.frame();
-    let note = ed.building_note.expect("the note beside it");
-    let img = capture(&mut ed, dir.path());
-    let colors: std::collections::BTreeSet<[u8; 3]> = (0..400)
-        .flat_map(|x| (0..200).map(move |y| (x, y)))
-        .map(|(x, y)| egui::pos2(note.min.x + x as f32, note.min.y + y as f32))
-        .filter(|p| note.contains(*p))
-        .map(|p| pixel(&img, p.x, p.y))
-        .collect();
-    assert!(
-        colors.len() > 6,
-        "words in the note: {} colors",
-        colors.len()
-    );
     // Dragged along its east arrow: the building and every cell inside it go together.
     let before = ed.session.cells(HOLTBURG);
     let doors: Vec<u16> = b.portals.iter().map(|p| p.other_cell_id).collect();
@@ -1630,10 +1715,10 @@ fn a_selected_building_is_moved_by_its_handles_with_its_cells_and_says_so_beside
     // One step of the history, undone as one.
     ed.edit(&Edit::Undo).unwrap();
     assert_eq!(ed.session.cells(HOLTBURG), before);
-    // Nothing selected, no note.
+    // Esc: nothing selected.
     hold_key(&mut ed, 0x1B, 1);
     ed.frame();
-    assert!(ed.selection.is_none() && ed.building_note.is_none());
+    assert!(ed.selection.is_none());
 }
 
 #[test]
@@ -1756,6 +1841,10 @@ fn the_place_tool_filters_by_several_kinds_at_once_stars_favorites_tags_by_right
     );
     // On open ground: on the ground.
     let z = ed.session.ground(HOLTBURG, 40.0, 10.0).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(40.0, 10.0, z), 22.0, -40.0, -25.0);
+    for _ in 0..2 {
+        ed.frame();
+    }
     let at = ed
         .view()
         .unwrap()
@@ -1793,7 +1882,11 @@ fn the_spawn_browser_lists_every_weenie_by_name_kind_and_picture_and_places_the_
     let (dir, world) = sample("editor-weenies");
     let sql = dir.path().join("server.sql");
     std::fs::write(&sql, SERVER_WEENIES).unwrap();
-    let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
+    // A window tall enough for the browser's tiles under its search and kinds.
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1280x900"],
+    );
     ed.wait_for_names().unwrap();
     // The pack's guide first, then the server's by name.
     let names: Vec<&str> = ed.weenies.iter().map(|w| w.name.as_str()).collect();
@@ -2135,7 +2228,7 @@ fn a_server_class_is_shown_as_it_is_and_its_first_edit_makes_the_packs_copy_whic
         shown.contains("VALUES (90005, 'drudgeskulker', 10,"),
         "{shown}"
     );
-    ed.show_tab(lyceum_editor::app::Tab::Weenie);
+    ed.show_tab(lyceum_editor::app::Tab::Definition);
     for _ in 0..2 {
         ed.frame();
     }
@@ -2586,7 +2679,7 @@ fn the_checks_list_what_the_weenie_names_that_the_world_does_not_have() {
     assert!(!new.iter().any(|f| f.contains("90004")));
     // A click on one of them opens the guide's form.
     ed.panels.weenie = None;
-    ed.show_tab(lyceum_editor::app::Tab::Checks);
+    ed.show_findings();
     ed.frame();
     // (The first of the guide's findings the list shows whole.)
     let r = (0..ed.faults.len())
@@ -2898,7 +2991,7 @@ fn the_dungeon_list_names_a_dungeon_and_one_click_goes_in_at_its_portals_drop_po
         (p.x - o.x - 40.0).abs() < 1e-3 && (p.y - o.y + 40.0).abs() < 1e-3,
         "{p:?}"
     );
-    // The grid in the map's place, and the world view drawing the room round the camera.
+    // The grid in its tab, and the world view drawing the room round the camera.
     for _ in 0..3 {
         ed.frame();
     }
@@ -2910,8 +3003,8 @@ fn the_dungeon_list_names_a_dungeon_and_one_click_goes_in_at_its_portals_drop_po
     let grid = ed.layout.rect.unwrap();
     let view = ed.world_rect.unwrap();
     assert!(
-        grid.top() >= view.bottom() - 1.0,
-        "the grid under the world view"
+        grid.left() >= view.right() - 1.0,
+        "the grid beside the world view"
     );
     capture(&mut ed, dir.path());
     std::fs::copy(
@@ -3053,6 +3146,14 @@ fn each_new_flow_writes_its_kind_of_weenie_whose_sql_passes_the_checks_and_one_i
         ed.place_one_here(&w).unwrap();
         assert_eq!(ed.spawns_of(&w).len(), 1, "{flow:?}");
     }
+    // A copy of the server's portal, named as typed: it is listed by that name, not its symbol.
+    let copy = ed.new_copy(371, "Coolest Dungeon").unwrap();
+    assert_eq!(
+        copy,
+        lyceum_foundry::edit::Weenie::Symbol("holtburg:coolest-dungeon".into())
+    );
+    let entry = ed.weenies.iter().find(|e| e.weenie == copy).unwrap();
+    assert_eq!(entry.name, "Coolest Dungeon");
     // A portal sent into a dungeon; a vendor's trade changed through its form.
     let portal = lyceum_foundry::edit::Weenie::Symbol("holtburg:test-portal".into());
     ed.panels.weenie = Some(portal.clone());
@@ -3133,7 +3234,7 @@ fn with_collide_on_the_flying_camera_stops_at_a_house_and_the_ground_and_flies_t
         ed.camera.position = start;
         ed.camera.yaw = 0.0;
         ed.camera.pitch = 0.0;
-        ed.camera.speed = 4; // 25 m/s
+        ed.set_speed(4); // 25 m/s
         ed.frame();
     };
     aim(&mut ed);
@@ -3432,6 +3533,59 @@ fn an_idle_frame_reads_no_cells_and_picks_nothing_in_every_tool_outdoors_and_in_
 }
 
 #[test]
+fn a_hidden_list_and_the_rooms_round_the_camera_are_not_worked_out_again_every_frame() {
+    use lyceum_editor::app::Tab;
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-frame-work");
+    let mut ed = editor(&world);
+    ed.wait_for_names().unwrap();
+    let z = ed.session.ground(HOLTBURG, 96.0, 96.0).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(96.0, 96.0, z), 60.0, 30.0, -30.0);
+    // The Nearby list, behind another tab: never gathered, however far the camera flies.
+    ed.show_tab(Tab::Tool);
+    ed.frame();
+    let hidden = ed.stats.nearby_gathers;
+    for _ in 0..40 {
+        ed.camera.position.x += 2.0;
+        ed.frame();
+    }
+    assert_eq!(ed.stats.nearby_gathers, hidden);
+    // Brought forward: gathered as it is drawn, and not again while the camera stands still.
+    ed.show_tab(Tab::Nearby);
+    ed.frame();
+    assert_eq!(ed.stats.nearby_gathers, hidden + 1);
+    assert!(!ed.nearby.entries.is_empty());
+    for _ in 0..5 {
+        ed.frame();
+    }
+    assert_eq!(ed.stats.nearby_gathers, hidden + 1);
+    // In a dungeon, flown out of its rooms, which lie outside its landblock's square: the rooms
+    // of each landblock the camera is looked for in are read once, not every frame.
+    ed.enter_dungeon(0x019E).unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    ed.camera.position.z += 200.0;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let read = ed.stats.room_reads;
+    for _ in 0..20 {
+        ed.camera.position.x += 0.5;
+        ed.frame();
+    }
+    assert_eq!(ed.stats.room_reads, read);
+    // Seen from the south, rooms in a line north to south make one outline.
+    let rooms = ed
+        .cells_of(0x019E)
+        .values()
+        .filter(|c| c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0)
+        .count();
+    let outlines = ed.layout.side_outlines;
+    assert!(outlines > 0 && outlines < rooms, "{outlines} of {rooms}");
+}
+
+#[test]
 fn packs_at_odds_are_listed_with_the_checks_and_a_click_on_one_goes_there() {
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-conflicts");
@@ -3453,8 +3607,8 @@ fn packs_at_odds_are_listed_with_the_checks_and_a_click_on_one_goes_there() {
         "key = \"sample-world\"\npacks = [\"holtburg\", \"rival\"]\nout = \"build\"\n",
     )
     .unwrap();
-    let mut ed = editor(&world);
-    ed.show_tab(lyceum_editor::app::Tab::Checks);
+    let mut ed = editor_with(&world, &["--size", "1400x1000"]);
+    ed.show_findings();
     let i = ed
         .faults
         .iter()
@@ -3497,32 +3651,68 @@ fn packs_at_odds_are_listed_with_the_checks_and_a_click_on_one_goes_there() {
 }
 
 #[test]
-fn the_workspace_is_the_world_builders_the_world_view_top_left_the_map_under_it_controls_in_one_column(
+fn the_workspace_is_the_world_view_on_the_left_three_quarters_and_the_tool_and_lists_over_the_inspector_on_the_right(
 ) {
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-workspace-layout");
-    let mut ed = editor_with(&world, &["--size", "1400x900"]);
+    let mut ed = editor_with(&world, &["--size", "1920x1080"]);
     ed.wait_for_names().unwrap();
     ed.mode = lyceum_editor::app::Mode::Select;
     ed.frame();
     let select = ed.world_rect.unwrap();
-    let map = ed.map_rect.expect("the map drawn");
-    // The world view at the top left; the map under it; the controls to the right of both.
+    // The world view takes the left three quarters, from the bar to the status.
     assert!(select.left() < 20.0 && select.top() < 80.0, "{select:?}");
+    let split = 1920.0 * lyceum_editor::docks::WORLD_WIDTH;
     assert!(
-        map.top() >= select.bottom() && map.left() < select.center().x,
-        "{map:?}"
+        select.right() < split && select.right() > split - 12.0,
+        "{select:?}"
     );
-    assert!(select.right() < 1100.0, "{select:?}");
-    // A tool's controls take their column: the world view stays where it is.
-    for mode in [
-        lyceum_editor::app::Mode::Place,
-        lyceum_editor::app::Mode::Terrain,
-        lyceum_editor::app::Mode::Spawn,
-    ] {
-        ed.mode = mode;
+    assert!(select.bottom() > 1000.0, "{select:?}");
+    // The map, beside the tool on the right, holds the whole world square under its zoom, its
+    // part fitted to it: no room to spare above or below.
+    ed.show_tab(lyceum_editor::app::Tab::Map);
+    ed.frame();
+    ed.frame();
+    let (map, panel) = (ed.map_rect.expect("the map drawn"), ed.map_panel.unwrap());
+    assert!(map.left() > select.right(), "{map:?}");
+    assert!(
+        (map.width() - panel.width()).abs() < 12.0 && (map.height() - map.width()).abs() < 2.0,
+        "{map:?} in {panel:?}"
+    );
+    assert!(
+        (panel.height() - panel.width()).abs() < 6.0,
+        "the map's part fits it: {panel:?}"
+    );
+    // A tool's controls take their tab: the world view stays where it is. Each tool is a button
+    // of the bar, in the order Select, Place, Spawn, Terrain.
+    let order: Vec<lyceum_editor::app::Mode> = ed.tool_rects.iter().map(|(m, _)| *m).collect();
+    assert_eq!(
+        order,
+        [
+            lyceum_editor::app::Mode::Select,
+            lyceum_editor::app::Mode::Place,
+            lyceum_editor::app::Mode::Spawn,
+            lyceum_editor::app::Mode::Terrain,
+        ]
+    );
+    for (mode, rect) in ed.tool_rects.clone() {
+        // Chosen, a tool brings its tab forward.
+        ed.show_tab(lyceum_editor::app::Tab::Map);
+        ed.frame();
+        click(&mut ed, (rect.center().x, rect.center().y));
+        assert_eq!(ed.mode, mode);
+        assert!(ed.tab_in_front(lyceum_editor::app::Tab::Tool), "{mode:?}");
         ed.frame();
         assert_eq!(ed.world_rect.unwrap(), select, "{mode:?}");
+        for _ in 0..2 {
+            ed.frame();
+        }
+        capture(&mut ed, dir.path());
+        std::fs::copy(
+            dir.path().join("frame.png"),
+            shots("layout").join(format!("tool-{mode:?}.png").to_lowercase()),
+        )
+        .unwrap();
     }
     ed.mode = lyceum_editor::app::Mode::Select;
     ed.show_tab(lyceum_editor::app::Tab::Hierarchy);
@@ -3536,8 +3726,7 @@ fn the_workspace_is_the_world_builders_the_world_view_top_left_the_map_under_it_
     click(&mut ed, (rect.center().x, rect.center().y));
     assert_eq!(ed.selection, Some(selection));
     ed.frame();
-    let checks = ed.checks_button.unwrap();
-    click(&mut ed, (checks.center().x, checks.center().y));
+    ed.show_findings();
     ed.frame();
     assert_eq!(
         ed.faults.len(),
@@ -3545,17 +3734,46 @@ fn the_workspace_is_the_world_builders_the_world_view_top_left_the_map_under_it_
             .filter(|i| ed.fault_rect(*i).is_some())
             .count()
     );
-    let original = ed.camera;
-    ed.toggle_top_down().unwrap();
-    assert!(ed.camera.pitch < -1.5 && ed.camera.position.z > original.position.z);
-    ed.toggle_top_down().unwrap();
-    assert_eq!(ed.camera, original);
+    ed.show_tab(lyceum_editor::app::Tab::Tool);
+    for _ in 0..2 {
+        ed.frame();
+    }
     capture(&mut ed, dir.path());
     std::fs::copy(
         dir.path().join("frame.png"),
         shots("layout").join("workspace.png"),
     )
     .unwrap();
+    // In dungeon mode the grid takes a tab beside the inspector and the cross-section a strip
+    // under the world view; the map and the list of dungeons are not shown.
+    ed.new_dungeon(None).unwrap();
+    ed.show_tab(lyceum_editor::app::Tab::Grid);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let world = ed.world_rect.unwrap();
+    let grid = ed.layout.rect.expect("the grid drawn");
+    assert!(
+        grid.left() > world.right() && grid.top() > 500.0,
+        "{grid:?}"
+    );
+    assert!(world.bottom() < 900.0, "the side view under it: {world:?}");
+    for tab in [
+        lyceum_editor::app::Tab::Map,
+        lyceum_editor::app::Tab::Dungeons,
+    ] {
+        ed.show_tab(tab);
+        assert!(!ed.tab_in_front(tab), "{tab:?}");
+    }
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("layout").join("dungeon.png"),
+    )
+    .unwrap();
+    ed.leave_dungeon();
+    ed.frame();
+    assert_eq!(ed.world_rect.unwrap(), select);
 }
 
 #[test]
@@ -4041,7 +4259,7 @@ fn what_is_placed_in_a_room_belongs_to_it_is_listed_in_place_and_moves_and_goes_
     // The room selected on the grid lists both, each by its place in the room.
     ed.mode = lyceum_editor::app::Mode::Select;
     ed.selection = None;
-    ed.show_tab(lyceum_editor::app::Tab::Inspector);
+    ed.show_tab(lyceum_editor::app::Tab::Grid);
     ed.frame();
     // Its middle: the mean of its corners.
     let mid = {
@@ -4067,6 +4285,7 @@ fn what_is_placed_in_a_room_belongs_to_it_is_listed_in_place_and_moves_and_goes_
             cell: b
         })
     );
+    ed.show_tab(lyceum_editor::app::Tab::Inspector);
     ed.frame();
     assert_eq!(ed.panels.in_place.len(), 2, "the static and the spawn");
     capture(&mut ed, dir.path());
@@ -4196,6 +4415,7 @@ fn a_portal_is_placed_like_any_spawn_its_card_sends_it_into_a_dungeon_or_here_an
     ed.enter_dungeon(0x019E).unwrap();
     ed.leave_dungeon();
     ed.mode = lyceum_editor::app::Mode::Select;
+    ed.show_tab(lyceum_editor::app::Tab::Map);
     for _ in 0..2 {
         ed.frame();
     }
@@ -4385,11 +4605,11 @@ fn the_world_is_drawn_only_in_its_view_and_a_pick_near_the_views_edge_meets_what
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-world-view");
     let mut ed = editor_with(&world, &["--size", "1200x800"]);
-    // The tool's column beside the world view, and the map under it.
+    // The tool's column beside the world view, which takes the window's height.
     ed.mode = lyceum_editor::app::Mode::Place;
     let stone = stone_west(&mut ed);
     let vp = view_pixels(&ed);
-    assert!(vp.x + vp.width < 1000 && vp.y + vp.height < 600, "{vp:?}");
+    assert!(vp.x + vp.width < 1000 && vp.y + vp.height > 700, "{vp:?}");
     assert_eq!(
         ed.view().unwrap().viewport(),
         vp,
@@ -4510,6 +4730,7 @@ fn going_to_what_stands_in_a_room_from_nearby_or_hierarchy_puts_the_camera_in_th
     let mut ed = editor_with(&world, &["--size", "1000x1200"]);
     // In a dungeon: a static of another room, some way off, chosen from the Nearby list.
     ed.enter_dungeon(0x019E).unwrap();
+    ed.show_tab(lyceum_editor::app::Tab::Nearby);
     for _ in 0..3 {
         ed.frame();
     }
@@ -5274,4 +5495,135 @@ fn a_cottage_dropped_in_the_editor_is_walked_into_through_its_door_by_the_playte
     ed.stop_play();
     assert!(ed.wait_world_empty(), "the character logged off");
     ed.set_live(false).unwrap();
+}
+
+#[test]
+fn with_collide_on_a_camera_held_inside_a_wall_passes_through_till_it_is_clear_and_then_stops_again(
+) {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-unstick");
+    let mut ed = editor(&world);
+    let o = pick::block_origin(HOLTBURG);
+    // Flown north at the house at (79.5, 37.5) till it stops at its south wall.
+    let z = ed.session.ground(HOLTBURG, 79.5, 20.0).unwrap();
+    ed.camera.position = Vec3::new(o.x + 79.5, o.y + 20.0, z + 1.5);
+    ed.camera.yaw = 0.0;
+    ed.camera.pitch = 0.0;
+    ed.set_speed(2); // 5 m/s
+    ed.frame();
+    ed.collide = true;
+    let wall = fly_until_still(&mut ed, 0x57, 600);
+    // Pressed against it, it stays: a step away still goes, so it is not held.
+    let again = fly_until_still(&mut ed, 0x57, 30);
+    assert!((again.y - wall.y).abs() < 0.01, "{again:?} at {wall:?}");
+    assert!(!ed.collider.as_ref().unwrap().passing());
+    // Put inside the wall, as a click on the map can: it goes on, through the wall.
+    ed.camera.position = Vec3::new(wall.x, wall.y + 0.3, wall.z);
+    if let Some(c) = ed.collider.as_mut() {
+        c.lost();
+    }
+    ed.frame();
+    let k = |pressed| HostEvent::KeyboardInput {
+        key: dereth_input::keys::Key::new(0x57, 0),
+        pressed,
+        text: None,
+    };
+    ed.queue(k(true));
+    // However far each frame takes it, it passes till it is clear, then stops passing.
+    let mut passed = false;
+    for _ in 0..600 {
+        ed.frame();
+        let passing = ed.collider.as_ref().unwrap().passing();
+        passed |= passing;
+        if passed && !passing {
+            break;
+        }
+    }
+    ed.queue(k(false));
+    ed.frame();
+    assert!(passed, "it passed through");
+    assert!(
+        ed.camera.position.y > wall.y + 0.3,
+        "through the wall: {:?} from {wall:?}",
+        ed.camera.position
+    );
+    // Clear of it, it stops at things again: inside the house, at its north wall.
+    assert!(!ed.collider.as_ref().unwrap().passing());
+    let north = fly_until_still(&mut ed, 0x57, 600);
+    assert!(
+        north.y - o.y < 37.5 + 12.0 && !ed.collider.as_ref().unwrap().passing(),
+        "stopped inside the house: {north:?}"
+    );
+}
+
+/// A door of the server's, drawn with the model of Holtburg's house doors.
+const SERVER_DOOR: &str = "INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (90412, 'door-aluvian-house', 19, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
+VALUES (90412, 1, 'Door');
+INSERT INTO `weenie_properties_d_i_d` (`object_Id`, `type`, `value`)
+VALUES (90412, 1, 0x020019FF);
+";
+
+#[test]
+fn with_collide_on_the_flying_camera_passes_through_a_door_and_still_stops_at_a_stone() {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-collide-door");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_DOOR).unwrap();
+    let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
+    ed.wait_for_names().unwrap();
+    let o = pick::block_origin(HOLTBURG);
+    let place = |ed: &mut EditorApp, model: u32, x: f32, y: f32| {
+        ed.edit(&Edit::Op(lyceum_foundry::edit::Op::PlaceStatic {
+            landblock: HOLTBURG,
+            model: dereth_primitives::DataId(model),
+            at: lyceum_foundry::source::Place {
+                x,
+                y,
+                z: lyceum_foundry::source::Height::Ground,
+            },
+            rotation: lyceum_foundry::source::Rotation::Heading(0.0),
+            name: None,
+        }))
+        .unwrap();
+    };
+    // In the open meadow north of the houses: a door, and a stone further north.
+    place(&mut ed, 0x0200_19FF, 120.0, 117.0);
+    place(&mut ed, 0x0200_040B, 120.0, 140.0);
+    // North from 5 m south of `y`, a body's height over the ground there: how far north it got.
+    let fly_north = |ed: &mut EditorApp, y: f32| {
+        let z = ed.session.ground(HOLTBURG, 120.0, y).unwrap();
+        ed.collide = false;
+        ed.camera.position = Vec3::new(o.x + 120.0, o.y + y - 5.0, z + 1.2);
+        ed.camera.yaw = 0.0;
+        ed.camera.pitch = 0.0;
+        ed.set_speed(2);
+        ed.frame();
+        ed.collide = true;
+        let mut end = ed.camera.position;
+        let k = |pressed| HostEvent::KeyboardInput {
+            key: dereth_input::keys::Key::new(0x57, 0),
+            pressed,
+            text: None,
+        };
+        ed.queue(k(true));
+        for _ in 0..600 {
+            ed.frame();
+            end = ed.camera.position;
+            if end.y - o.y > y + 3.0 {
+                break;
+            }
+        }
+        ed.queue(k(false));
+        ed.frame();
+        end.y - o.y
+    };
+    let past_door = fly_north(&mut ed, 117.0);
+    assert!(past_door > 117.0 + 3.0, "through the door: y {past_door}");
+    let at_stone = fly_north(&mut ed, 140.0);
+    assert!(
+        at_stone > 135.0 && at_stone < 140.0,
+        "stopped at the stone: y {at_stone}"
+    );
 }

@@ -148,6 +148,10 @@ pub struct ModelNames {
     uses: BTreeMap<u32, ModelUse>,
     categories: BTreeMap<u32, Category>,
     labels: BTreeMap<u32, String>,
+    /// Each label in lower case, and each model's words a filter can find it by (as
+    /// [`Self::matches`] reads them), in lower case, one to a line.
+    lower_labels: BTreeMap<u32, String>,
+    words: BTreeMap<u32, String>,
 }
 
 /// What the data files say of every model: where the world places it, the scenery it is and
@@ -578,6 +582,8 @@ impl ModelNames {
             uses,
             categories: BTreeMap::new(),
             labels: BTreeMap::new(),
+            lower_labels: BTreeMap::new(),
+            words: BTreeMap::new(),
         };
         out.resolve();
         out
@@ -628,6 +634,21 @@ impl ModelNames {
             if let Some(l) = label {
                 self.labels.insert(*m, l);
             }
+        }
+        for (m, l) in &self.labels {
+            self.lower_labels.insert(*m, l.to_lowercase());
+        }
+        // A part answers to its own category, not to the name of what it is part of.
+        for (m, u) in &self.uses {
+            let c = self.category(DataId(*m));
+            let label = self.labels.get(m).filter(|_| c != Category::Part);
+            let words: Vec<&str> = std::iter::once(c.name())
+                .chain(label.map(String::as_str))
+                .chain(u.weenies.iter().map(String::as_str))
+                .chain(u.scenery.iter().map(String::as_str))
+                .chain(u.towns.iter().map(String::as_str))
+                .collect();
+            self.words.insert(*m, words.join("\n").to_lowercase());
         }
     }
 
@@ -690,30 +711,38 @@ impl ModelNames {
     /// of `tags`, holds the text, whatever its case.
     #[must_use]
     pub fn matches(&self, id: DataId, filter: &str, tags: &[String]) -> bool {
-        let f = filter.trim().to_lowercase();
+        self.matches_lower(id, &filter.trim().to_lowercase(), tags)
+    }
+
+    /// [`Self::matches`] for a filter already trimmed and in lower case, as a list asks it of
+    /// every model.
+    #[must_use]
+    pub fn matches_lower(&self, id: DataId, f: &str, tags: &[String]) -> bool {
         if f.is_empty() {
             return true;
         }
-        let hex = format!("{:08x}", id.raw());
-        if hex.contains(f.trim_start_matches("0x")) {
-            return true;
-        }
-        let has = |n: &str| n.to_lowercase().contains(&f);
-        // A part answers to its own category, not to the name of what it is part of.
-        let category = self.category(id);
-        if tags.iter().any(|t| has(t))
-            || has(category.name())
-            || (category != Category::Part && self.label(id).is_some_and(|l| has(&l)))
+        // Its id in hexadecimal, which only a filter of hexadecimal digits can be in.
+        let digits = f.trim_start_matches("0x");
+        if digits.bytes().all(|b| b.is_ascii_hexdigit())
+            && format!("{:08x}", id.raw()).contains(digits)
         {
             return true;
         }
-        self.get(id).is_some_and(|u| {
-            u.weenies
-                .iter()
-                .chain(&u.scenery)
-                .chain(&u.towns)
-                .any(|n| has(n))
-        })
+        if tags.iter().any(|t| t.to_lowercase().contains(f)) {
+            return true;
+        }
+        match self.words.get(&id.raw()) {
+            Some(words) => words.contains(f),
+            None => self.category(id).name().to_lowercase().contains(f),
+        }
+    }
+
+    /// Whether model `id`'s label holds `lower`, a text in lower case.
+    #[must_use]
+    pub fn label_holds(&self, id: DataId, lower: &str) -> bool {
+        self.lower_labels
+            .get(&id.raw())
+            .is_some_and(|l| l.contains(lower))
     }
 }
 
@@ -851,5 +880,64 @@ impl Tags {
         }
         std::fs::write(&self.path, self.doc.to_string())
             .map_err(|e| format!("{}: {e}", self.path.display()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: the model browser's filter)
+    use super::*;
+
+    #[test]
+    fn a_filter_finds_a_model_by_any_of_its_words_whatever_its_case_and_a_part_not_by_its_setup() {
+        let mut uses = BTreeMap::new();
+        uses.insert(
+            0x0200_0001,
+            ModelUse {
+                scenery: vec!["Lush Grass".into()],
+                towns: vec!["Holtburg".into()],
+                outdoors: 3,
+                landblocks: 1,
+                ..ModelUse::default()
+            },
+        );
+        uses.insert(
+            0x0100_0002,
+            ModelUse {
+                parents: vec![0x0200_0001],
+                ..ModelUse::default()
+            },
+        );
+        let weenies = BTreeMap::from([(
+            0x0200_0001,
+            vec![WeenieFacts {
+                name: Some("Drudge Skulker".into()),
+                ..WeenieFacts::default()
+            }],
+        )]);
+        let names = ModelNames::new(&Placements { uses }, &weenies);
+        let (setup, part) = (DataId(0x0200_0001), DataId(0x0100_0002));
+        for f in [
+            "lush",
+            "GRASS",
+            "holtburg",
+            "skulker",
+            "0001",
+            "0x02000001",
+            "",
+        ] {
+            assert!(names.matches(setup, f, &[]), "{f}");
+        }
+        assert!(!names.matches(setup, "olthoi", &[]));
+        assert!(names.matches(setup, "inn", &["Inn".into()]));
+        // A part answers to its own kind, and to its id, not to its setup's label.
+        let label = names.label(part).unwrap();
+        assert!(label.starts_with("Part of"), "{label}");
+        assert!(names.label_holds(part, "part of"));
+        assert!(!names.matches(part, "lush", &[]));
+        assert!(names.matches(part, "part", &[]) && names.matches(part, "0002", &[]));
+        // A model the world does not use answers to its kind.
+        assert!(names.matches(DataId(0x0200_0003), "other", &[]));
+        assert!(!names.matches(DataId(0x0200_0003), "grass", &[]));
     }
 }

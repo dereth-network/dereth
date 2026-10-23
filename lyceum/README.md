@@ -25,18 +25,31 @@ cargo run -p lyceum-editor -- lyceum/sample/world.toml --dats <your client folde
 A world built on Infiltration's files is drawn from `portal.dat` and `cell.dat`: beside the client's
 files, or in the folder `--classic-dats` names. Its server is that era's, over its world database.
 
-Its settings, and `lyceum-text.toml`, every word it shows, which you can change, are kept in its
-own settings folder (`Dereth/lyceum` beside the client's). It opens where you left it: the window
-where it was, and each world with its camera, tool and dungeon as they were (kept beside the world
-in `.lyceum-place.toml`), unless the command line names a landblock.
+Its settings are kept in its own settings folder (`Dereth/lyceum` beside the client's). To change
+the words it shows, put a `lyceum-text.toml` there with only the lines you want changed; the rest
+stay the editor's own. `lyceum-editor --write-text` writes every line there to start from (or to the
+file named after it), and `--overwrite` replaces a file already there.
 
-The world view is at the top left, the map under it, and one column of controls on the right.
-The mode bar keeps Select, Place scenery, Terrain and Add object beside Undo, Redo, Save,
-speed, Play, Live and Export (for Empyrean, ACE or GDLE, as `lyceum export` writes them). The
-active tool heads the right column; under it are Inspector, Nearby, Hierarchy, Dungeons, Weenie and Checks. Hierarchy selects buildings, their rooms and scenery, or dungeon cells.
-The status bar opens Checks and shows position, landblock, selection count, Grid, Collide and
-Bounds. Views offers a top-down camera and hideable key hints. The map opens on the whole world,
-square and in the middle of its panel; the wheel zooms in from there.
+It opens where you left it: the window where it was (a 1080p window the first time), its panels
+as you arranged them (in `lyceum-layout.json`), and each world with its camera, tool and dungeon as they were (kept beside
+the world in `.lyceum-place.toml`), unless the command line names a landblock.
+
+The world view takes the left three quarters of the window. On the right, the Tool tab shows what
+the tool works with, beside Map, Nearby, Hierarchy and Dungeons, sized to fit the map; under them
+are Inspector, Definition (the selected weenie's) and Log. Choosing a tool brings the Tool tab
+forward. Log holds the checks' findings, under a header that folds, and every message the status
+bar has shown. Any tab can be dragged elsewhere; a layout from an older Lyceum is replaced by this
+one.
+
+The bar along the top has Select, Place, Spawn and Terrain, then Undo and Redo, then Play, Live
+and Settings, then Save, each an icon named by its tooltip, and last the flying speed. The camera
+keeps two speeds, 10 m/s indoors (in a dungeon or a room) and 100 m/s outdoors, each as you last
+changed it with its buttons or the wheel. Settings chooses the playtest's interface, walking or
+flying, the key hints and the UI scale. The status bar shows the landblock and position (in a
+dungeon, the dungeon's landblock), Collision (on to start with), View (the landscape grid, never
+drawn in a dungeon, and the selection's bounds), and the edits not yet saved or when the world was
+last saved. The map opens on the whole world, square and in the middle of its panel; the wheel
+zooms in from there.
 
 The scenery browser has Recent and Favorites shelves, a search box, a dropdown of the kinds of
 model to show, as many as you tick (Clear shows every kind), and one for your tags. Choose a model to add it to Recent; the star in a tile's
@@ -57,14 +70,17 @@ with all of that.
 Dungeons are a mode. A click on one in the Dungeons tab goes in, at the place its portals
 drop you; New dungeon starts one on the open sea floor, near a landblock you type or near the
 camera; Leave goes back where you were. Until you leave, the world view draws the dungeon alone,
-all of it when the camera flies outside its rooms, and the map's place shows its grid, one floor
-at a time. The world's own dungeons stand on a grid of 10 m squares, turned in quarter turns,
+all of it when the camera flies outside its rooms; the Map and Dungeons tabs give way to the Grid
+tab, the dungeon one floor at a time about the camera (the floor the camera is on, or one you
+choose until the camera goes to another), and the Cross-section under the world view shows its
+floors from the south. Both zoom with the wheel and pan with a right drag. The world's own dungeons stand on a grid of 10 m squares, turned in quarter turns,
 with floors 6 m apart.
 
-The dungeon's card comes first: its look (the textures a set of the world's dungeons share), its
-name, and Delete dungeon. Under it are the look's pieces, each a whole room set down at once,
-drawn as a floor plan (its floors, outline, doorways, and openings up and down) and grouped by
-what it is on the grid: dead ends, corridors, corners, T junctions, crossings, rooms by their
+The dungeon's card heads the Tool tab: its name with Leave and Delete, and folded under them a
+new name and its look (the textures a set of the world's dungeons share). With Select, under it
+are the look's pieces, each a whole room set down at once,
+drawn as a floor plan (its floors, outline, doorways, and openings up and down) and grouped,
+each group folding, by what it is on the grid: dead ends, corridors, corners, T junctions, crossings, rooms by their
 squares, stairs and ramps, shafts and ceilings. Every piece adds the rest of the world's pieces,
 drawn in this look by what each surface covers; a pack's own pieces are offered in every look, in
 their own materials.
@@ -80,15 +96,17 @@ free to build on again.
 Another look chosen restyles the whole dungeon: each room as the world draws that piece in the
 look, where it does, else each surface by what it covers (floor, ceiling, walls, trim). A new name
 renames the portals that lead in too, the world's own by the pack's copy of their weenie; quests,
-books and what characters say keep the old name. Delete dungeon takes it away with its rooms, what
-stands in them and the portals to it; one of the world's own asks first, naming what goes.
+books and what characters say keep the old name. Delete takes it away with its rooms, what stands
+in them and the portals to it, once you say yes.
 
 What you place in a room belongs to it: the room's card lists it, with its place in the room, and
 moving or removing the room carries it along. A door set by a doorway stands in it, facing
 through; anything else lands on the floor, or against the wall clicked. Ctrl+D (or Duplicate)
 copies what is selected beside itself and selects the copies. Portals are added like any object;
-a portal's card sends it into a dungeon or to where the camera is. With Collide on, the flying
-camera stops at the ground, walls and things, as the client's own camera does.
+a portal's card sends it into a dungeon or to where the camera is. With Collision on, the flying
+camera stops at the ground, walls and things, as the client's own camera does, but passes
+through doors, open or closed; put inside something it cannot fly out of, it passes through
+until it is clear, as a player does after a portal.
 
 Releases include Empyrean and its import tool beside the editor. Play and Live use that
 server. On first use, choose **Download world database**; the editor downloads it into
@@ -163,7 +181,7 @@ cargo run -p lyceum-cli -- build lyceum/sample/world.toml --dats <your client fo
 
 ## Exporting a world
 
-`lyceum export`, or the editor's Export menu, writes a world out for another server. The folder
+`lyceum export` writes a world out for another server. The folder
 it writes into is new, empty, or an earlier export, and it holds a `README.txt` saying where each
 part goes and what players need.
 
@@ -179,8 +197,7 @@ cache, downloaded when there is none. `--era` chooses the world database, the en
 (`eor`, the default) or Infiltration's. A retail client reads only plain files, so its players
 need the baked data files; Empyrean patches a Dereth client itself.
 
-GDLE reads all its quests from one `quests.json`. `--gdle-quests` (or the field under the Export
-menu's targets) names the server's own: the export's `quests.json` is then that list with the
+GDLE reads all its quests from one `quests.json`. `--gdle-quests` names the server's own: the export's `quests.json` is then that list with the
 world's quests merged in, and the README names the quests the world adds and those whose entries
 it replaces. A quest the world leaves as the world database has it keeps the server's entry, and
 one the world removes loses it; the README lists those under a heading of their own. Without it,
@@ -533,24 +550,9 @@ editor's window and graphics device; no separate client installation is needed.
 
 ### Playtest characters
 
-Open **Characters** to choose a saved template or name a new character. Templates live in
-`characters/<name>.json` beside the world file. Set the level, attributes, named skills and
-purchased ranks, then add equipment by its weenie ID. Start Live to load the server's skill and
-wield-location choices. Equipment can start in inventory or at a valid, unoccupied wield location.
-
-**Save template** saves source, not a played character's state. A new character uses its template
-on first Play. Existing characters retain their progress, including characters made before
-this feature. **Reset from template** logs the character out and applies the template explicitly.
-The listed skills are replaced; unlisted skills and unrelated character properties remain intact.
-Equipment replaces the current inventory and worn items, including nested container contents.
-The server validates the complete request and commits it as one transaction.
-
-Each reset saves the previous character and its possessions under
-`.playtest/character-backups/`. To recover one, leave the character logged out and use the owned
-server's console: `playtest-character restore "+Character Name" "backup.sqlite" "before-restore.sqlite"`.
-Use full paths to the chosen backup and a new recovery file. Restore keeps another backup first
-and refuses object IDs now used outside that character's possessions. Character identity,
-account ownership and other characters are preserved.
+Play takes control of the playtest character, whose template is kept in `characters/<name>.json`
+beside the world file. A new character uses its template on first Play; an existing one keeps
+its progress.
 
 ### Editing a running playtest
 

@@ -1,7 +1,7 @@
 //! The editor's own world, from the editor's side: started and stopped (the Live button), each
 //! edit pushed to it once the hand that made it lets go, its answers shown, and the Dereth client
-//! started in it at the camera (the Play button). And the world written out for a server (the
-//! Export menu: Empyrean, ACE or GDLE), off the frame loop.
+//! started in it at the camera (the Play button). And the world written out for a server
+//! (Empyrean, ACE or GDLE, as a script asks), off the frame loop.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

@@ -49,7 +49,7 @@ use crate::symbol;
 use crate::world::World;
 
 /// A weenie a spawn places: a pack's, by its symbol in full, or a class id of the server's own.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Weenie {
     Symbol(String),
     Class(u32),
@@ -384,9 +384,10 @@ pub struct Session {
     today: String,
     /// What the server's own weenies are, by class id, when the session was given them.
     retail: BTreeMap<u32, sql_ids::WeenieFacts>,
-    /// The server's own instances by landblock, and its generators' links (parent, child).
+    /// The server's own instances by landblock, and its generators' links: each parent's
+    /// children, in the order the server lists them.
     retail_instances: BTreeMap<u16, Vec<sql_ids::Instance>>,
-    retail_links: Vec<(u32, u32)>,
+    retail_links: BTreeMap<u32, Vec<u32>>,
     /// The landblocks whose server spawns are shown.
     shown: BTreeSet<u16>,
     /// The server's quests and death treasures.
@@ -1137,7 +1138,7 @@ impl Session {
             today: today(),
             retail: BTreeMap::new(),
             retail_instances: BTreeMap::new(),
-            retail_links: Vec::new(),
+            retail_links: BTreeMap::new(),
             shown: BTreeSet::new(),
             retail_quests: BTreeMap::new(),
             retail_treasure: BTreeMap::new(),
@@ -1235,7 +1236,9 @@ impl Session {
                 self.retail_instances.entry(lb).or_default().push(i);
             }
         }
-        self.retail_links.extend(content.links);
+        for (parent, child) in content.links {
+            self.retail_links.entry(parent).or_default().push(child);
+        }
         self.retail_quests.extend(content.quests);
         self.retail_treasure.extend(content.treasure);
     }
@@ -2235,12 +2238,7 @@ impl Session {
             g.radius = self.retail.get(c).and_then(|f| f.generator_radius);
         }
         if let Some(guid) = sql_ids::number(&s.guid) {
-            let mut kids: Vec<u32> = self
-                .retail_links
-                .iter()
-                .filter(|(p, _)| *p == guid)
-                .map(|(_, c)| *c)
-                .collect();
+            let mut kids: Vec<u32> = self.retail_links.get(&guid).cloned().unwrap_or_default();
             kids.sort_unstable();
             kids.dedup();
             g.children = kids.into_iter().map(guid_text).collect();
@@ -2294,12 +2292,7 @@ impl Session {
                         guid_text(guid)
                     ))
                 })?;
-            let children = self
-                .retail_links
-                .iter()
-                .filter(|(p, _)| *p == guid)
-                .map(|(_, c)| *c)
-                .collect();
+            let children = self.retail_links.get(&guid).cloned().unwrap_or_default();
             e.insert(Override::Placed(i.clone(), children));
         }
         Ok(o.render(lb, &self.today, &|w| self.weenie_name(w)))

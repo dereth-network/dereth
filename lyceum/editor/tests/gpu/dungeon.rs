@@ -143,6 +143,8 @@ pub fn put_camera(ed: &mut EditorApp, lb: u16, at: Vec3, yaw: f32, pitch: f32) {
         pitch.to_radians(),
     );
     ed.camera.speed = speed;
+    // The grid about the camera again, as the creator would scroll it there.
+    ed.layout.center = None;
 }
 
 #[test]
@@ -1031,8 +1033,18 @@ fn a_packs_dungeon_is_deleted_whole_with_its_portal_and_the_worlds_own_once_the_
     assert_eq!(ed.portal_names(lb).len(), 1);
     assert_eq!(ed.entrances(lb).len(), 1);
     let steps = ed.session.history().0;
-    // Its row's Delete: gone at once, with its portal's spawn and weenie.
+    // Its row's Delete, and the question answered: gone, with its portal's spawn and weenie.
     delete_from_list(&mut ed, lb);
+    assert_eq!(ed.dungeon_list.confirm, Some(lb), "asked first");
+    // The question laid out, then shown.
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let yes = ed
+        .dungeon_list
+        .confirm_button
+        .expect("the question's Delete");
+    click(&mut ed, (yes.center().x * s, yes.center().y * s));
     assert_eq!(ed.session.history().0, steps + 1, "{}", ed.panels.message);
     assert!(ed.session.cell_names(lb).is_empty());
     assert!(ed.portal_names(lb).is_empty());
@@ -1296,4 +1308,50 @@ fn in_a_dungeons_room_a_door_set_by_a_doorway_stands_in_it_a_chest_on_the_floor_
     assert_ne!(index, n);
     ed.frame();
     keep(&mut ed, "decorate", "02-chest-copied.png");
+}
+
+#[test]
+fn in_a_dungeon_the_camera_flies_at_its_indoor_speed_and_the_status_bar_names_the_dungeons_landblock(
+) {
+    let _g = gpu_lock();
+    let (_dir, mut ed) = into_redoubt("dungeon-speed");
+    assert_eq!(ed.camera.meters_per_second(), 10.0, "indoors");
+    let (lb, _) = ed.status_place().expect("a place");
+    assert_eq!(lb, REDOUBT);
+    ed.set_speed(4);
+    ed.leave_dungeon();
+    ed.frame();
+    assert_eq!(ed.camera.meters_per_second(), 100.0, "outdoors");
+    ed.enter_dungeon(REDOUBT).unwrap();
+    ed.frame();
+    assert_eq!(
+        ed.camera.meters_per_second(),
+        25.0,
+        "indoors as it was left"
+    );
+}
+
+#[test]
+fn the_landscape_grid_is_never_drawn_in_a_dungeon_and_comes_back_outdoors() {
+    let _g = gpu_lock();
+    let (_dir, world) = sample("editor-dungeon-grid");
+    let mut ed = editor_with(&world, &[]);
+    ed.panels.show_grid = true;
+    ed.frame();
+    assert!(ed.landscape_grid_shown(), "outdoors, as the View menu says");
+    ed.enter_dungeon(REDOUBT).unwrap();
+    ed.frame();
+    assert!(!ed.landscape_grid_shown(), "in dungeon mode");
+    ed.leave_dungeon();
+    ed.frame();
+    assert!(ed.landscape_grid_shown(), "out again, the setting kept");
+    // Gone to a room of the Drudge Hideout, not in dungeon mode.
+    ed.go_to(0x019E, Vec3::new(10.0, -31.75, 0.0), Some(0x0110), 0.0);
+    ed.frame();
+    assert_eq!(
+        ed.camera_cell().map(|(c, seen)| (c.0, seen)),
+        Some((0x019E_0110, false))
+    );
+    assert!(!ed.landscape_grid_shown(), "in a dungeon's room");
+    assert!(ed.panels.show_grid);
 }

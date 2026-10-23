@@ -1,6 +1,7 @@
-//! A generator explained in plain words, as the inspector shows a selected spawn that is one:
-//! what it makes (each entry, by name, with its picture), how many at once, where, how soon it
-//! makes more, and what starts it. Every line names the server's field it reads in its tooltip.
+//! A generator explained in plain words, as the inspector shows a selected spawn that is one: how
+//! many it keeps and makes at first, how far it spawns, how often and how soon, and what it spawns
+//! (each entry by name, with its picture; a click shows its weenie). Every line names the server's
+//! field it reads in its tooltip.
 //! A server's own generator is read from the server's database, as it is: nothing is copied.
 
 use dereth_primitives::DataId;
@@ -34,33 +35,6 @@ pub fn shares(profiles: &[Profile]) -> Vec<Option<f32>> {
         .collect()
 }
 
-/// The keys of the words for where an entry is made, by the bits of `where_Create`.
-fn places(place: u32) -> Vec<&'static str> {
-    [
-        (0x01, "generator.on_top"),
-        (0x02, "generator.scatter"),
-        (0x04, "generator.specific"),
-        (0x08, "generator.contain"),
-        (0x10, "generator.wield"),
-        (0x20, "generator.shop"),
-        (0x40, "generator.treasure"),
-    ]
-    .into_iter()
-    .filter(|(bit, _)| place & bit != 0)
-    .map(|(_, key)| key)
-    .collect()
-}
-
-/// The key of the words for what lets an entry be made again, by `when_Create`.
-fn when(when: u32) -> &'static str {
-    match when {
-        1 => "generator.when_destroyed",
-        2 => "generator.when_picked_up",
-        4 => "generator.when_killed",
-        _ => "generator.when_gone",
-    }
-}
-
 impl EditorApp {
     /// The generator spawn `s` is, its entries read from the server's class when no pack writes
     /// it (`None` while that is being read, or for a spawn that is no generator).
@@ -83,20 +57,26 @@ impl EditorApp {
         g.filter(|g| g.radius.is_some() || !g.profiles.is_empty() || !g.children.is_empty())
     }
 
-    /// The inspector's account of generator `g`.
-    pub(super) fn generator_card(&mut self, ui: &mut egui::Ui, g: &Generator) {
+    /// The inspector's account of generator `g`: how many it keeps and makes at first, how far and
+    /// how often, and each of what it spawns, a click on which shows its weenie.
+    pub(super) fn generator_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        g: &Generator,
+        out: &mut Vec<super::UiAction>,
+    ) {
         let t = self.text.table();
         ui.separator();
         ui.strong(t.get("generator.title"));
         ui.label(t.get("generator.about"));
         let tip = |key: &str| t.get(key).to_owned();
-        // How many, all told.
         if g.most.is_some() || g.first.is_some() {
             let most = g
                 .most
                 .map_or_else(|| t.get("generator.no_limit").to_owned(), |n| n.to_string());
-            let first = g.first.unwrap_or(0);
-            ui.label(t.fill("generator.how_many", &[("most", &most), ("first", &first)]))
+            ui.label(t.fill("generator.most", &[("n", &most)]))
+                .on_hover_text(tip("generator.how_many_tip"));
+            ui.label(t.fill("generator.first", &[("n", &g.first.unwrap_or(0))]))
                 .on_hover_text(tip("generator.how_many_tip"));
         }
         if let Some(r) = g.radius {
@@ -107,11 +87,9 @@ impl EditorApp {
             ui.label(t.fill("generator.refill", &[("s", &format!("{s:.0}"))]))
                 .on_hover_text(tip("generator.refill_tip"));
         }
-        let start = match g.initial_delay.filter(|d| *d > 0.0) {
-            Some(d) => t.fill("generator.start_after", &[("s", &format!("{d:.0}"))]),
-            None => t.get("generator.start").to_owned(),
-        };
-        ui.label(start).on_hover_text(tip("generator.start_tip"));
+        let delay = g.initial_delay.filter(|d| *d > 0.0).unwrap_or(0.0);
+        ui.label(t.fill("generator.start_after", &[("s", &format!("{delay:.0}"))]))
+            .on_hover_text(tip("generator.start_tip"));
         if let Some(key) = match g.time {
             Some(2) => Some("generator.time_defined"),
             Some(3) => Some("generator.time_event"),
@@ -125,80 +103,80 @@ impl EditorApp {
         if !g.children.is_empty() {
             ui.label(t.fill("generator.owns", &[("n", &g.children.len())]));
         }
-        // What it makes.
         if g.profiles.is_empty() {
             return;
         }
-        ui.label(t.fill("generator.makes", &[("n", &g.profiles.len())]));
+        ui.label(t.get("generator.makes"));
         let shares = shares(&g.profiles);
         let mut budget = super::PICTURES_A_FRAME;
+        self.panels.spawn_rows.clear();
         for (i, p) in g.profiles.iter().enumerate() {
             let class = lyceum_foundry::sql_ids::number(&p.class);
             let name = self.class_name(&p.class).unwrap_or_else(|| p.class.clone());
+            let weenie = self.weenie_written(&p.class);
             let setup = class
                 .and_then(|c| self.session.class_facts(c))
                 .and_then(|f| f.setup)
                 .or_else(|| {
-                    self.weenies
-                        .iter()
-                        .find(|w| w.name == name)
+                    weenie
+                        .as_ref()
+                        .and_then(|w| self.weenie_entry(w))
                         .and_then(|w| w.setup)
                 });
             ui.push_id(("profile", i), |ui| {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if let Some(id) = setup.and_then(|s| self.picture(DataId(s), &mut budget)) {
-                            ui.add(egui::Image::new((id, egui::vec2(40.0, 40.0))));
+                ui.horizontal(|ui| {
+                    if let Some(id) = setup.and_then(|s| self.picture(DataId(s), &mut budget)) {
+                        ui.add(egui::Image::new((id, egui::vec2(32.0, 32.0))));
+                    }
+                    ui.vertical(|ui| {
+                        let r = ui.add(egui::Link::new(&name));
+                        self.panels.spawn_rows.push(r.rect);
+                        if r.clicked() {
+                            if let Some(w) = weenie.clone() {
+                                out.push(super::UiAction::Weenie(w));
+                                out.push(super::UiAction::ShowWeenie);
+                            }
                         }
-                        ui.vertical(|ui| {
-                            ui.strong(&name);
-                            let most = if p.max < 0 {
-                                t.get("generator.no_limit").to_owned()
-                            } else {
-                                p.max.to_string()
-                            };
-                            ui.label(
-                                t.fill("generator.count", &[("first", &p.init), ("most", &most)]),
-                            )
-                            .on_hover_text(tip("generator.count_tip"));
-                            let wheres: Vec<String> = places(p.place)
-                                .into_iter()
-                                .map(|k| {
-                                    t.fill(k, &[("m", &format!("{:.1}", g.radius.unwrap_or(0.0)))])
-                                })
-                                .collect();
-                            if !wheres.is_empty() {
-                                ui.label(wheres.join(", "))
-                                    .on_hover_text(tip("generator.place_tip"));
-                            }
-                            let again = match p.delay.filter(|d| *d > 0.0) {
-                                Some(d) => t.fill(
-                                    "generator.again_after",
-                                    &[("when", &t.get(when(p.when))), ("s", &format!("{d:.0}"))],
-                                ),
-                                None => {
-                                    t.fill("generator.again", &[("when", &t.get(when(p.when)))])
-                                }
-                            };
-                            ui.label(again).on_hover_text(tip("generator.again_tip"));
-                            match shares[i] {
-                                Some(share) => {
-                                    ui.weak(t.fill(
-                                        "generator.chance",
-                                        &[("n", &format!("{share:.0}"))],
-                                    ))
-                                    .on_hover_text(tip("generator.chance_tip"));
-                                }
-                                None => {
-                                    ui.weak(t.get("generator.always"))
-                                        .on_hover_text(tip("generator.chance_tip"));
-                                }
-                            }
-                        });
+                        let most = if p.max < 0 {
+                            t.get("generator.no_limit").to_owned()
+                        } else {
+                            p.max.to_string()
+                        };
+                        let mut words =
+                            t.fill("generator.count", &[("first", &p.init), ("most", &most)]);
+                        if let Some(d) = p.delay.filter(|d| *d > 0.0) {
+                            words
+                                .push_str(&t.fill("generator.again", &[("s", &format!("{d:.0}"))]));
+                        }
+                        if let Some(share) = shares[i].filter(|s| *s < 99.5) {
+                            words.push_str(
+                                &t.fill("generator.chance", &[("n", &format!("{share:.0}"))]),
+                            );
+                        }
+                        ui.weak(words).on_hover_text(format!(
+                            "{}\n{}\n{}",
+                            tip("generator.count_tip"),
+                            tip("generator.again_tip"),
+                            tip("generator.chance_tip")
+                        ));
                     });
                 });
             });
         }
+    }
+
+    /// The weenie a generator's entry names as written: a class id, or a pack weenie's token.
+    fn weenie_written(&self, written: &str) -> Option<Weenie> {
+        let w = written.trim();
+        if let Some(c) = lyceum_foundry::sql_ids::number(w) {
+            return Some(Weenie::Class(c));
+        }
+        let sym = w.strip_prefix("{{wcid:")?.strip_suffix("}}")?;
+        self.weenies
+            .iter()
+            .map(|e| &e.weenie)
+            .find(|e| matches!(e, Weenie::Symbol(s) if s == sym || s.ends_with(&format!(":{sym}"))))
+            .cloned()
     }
 }
 
@@ -231,15 +209,5 @@ mod tests {
         // A total lower than the one before starts again.
         let s = shares(&[profile(Some(0.5)), profile(Some(0.5))]);
         assert!((s[0].unwrap() - 100.0).abs() < 1e-3 && s[1].unwrap().abs() < 1e-3);
-    }
-
-    #[test]
-    fn where_and_when_are_told_by_their_bits() {
-        assert_eq!(
-            places(0x02 | 0x40),
-            ["generator.scatter", "generator.treasure"]
-        );
-        assert_eq!(when(4), "generator.when_killed");
-        assert_eq!(when(0), "generator.when_gone");
     }
 }

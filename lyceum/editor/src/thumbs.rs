@@ -6,9 +6,13 @@
 //! bounding box, on black. It is drawn [`SIZE`] * 2 pixels square and halved, so its edges are
 //! smooth. The cache folder holds one folder per set of files (named by the portal file's
 //! fingerprint), so pictures of other files are never shown.
+//!
+//! The pictures are read and drawn on a thread of their own ([`Worker`]), on its own device, so
+//! the editor's frame never waits on one: a picture asked for is shown in a later frame.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::Arc;
 
 use dereth_dat::RetailDatStore;
@@ -24,26 +28,173 @@ pub const SIZE: u32 = 48;
 const YAW: f32 = 35.0;
 const PITCH: f32 = -24.0;
 
-/// The pictures of one set of files.
-pub struct Thumbs {
+/// How many pictures are asked of the worker at most before it has answered: a list scrolled
+/// past quickly leaves little behind to draw.
+const IN_FLIGHT: usize = 16;
+
+/// What draws the pictures of one set of files, on the worker's thread.
+struct Thumbs {
     gpu: Gpu,
     space: PreviewSpace,
     store: Arc<RetailDatStore>,
     dir: PathBuf,
+}
+
+/// A picture the worker answers with: read from the cache, or drawn; `None` for a model that
+/// will not draw.
+struct Answer {
+    id: u32,
+    picture: Option<TextureData>,
+    drawn: bool,
+}
+
+/// The pictures of one set of files, read and drawn on a thread of their own and held here as
+/// they come back.
+pub struct Worker {
+    asks: Option<mpsc::Sender<u32>>,
+    answers: mpsc::Receiver<Result<Answer, String>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    dir: PathBuf,
     ready: BTreeMap<u32, TextureData>,
     failed: BTreeSet<u32>,
+    asked: BTreeSet<u32>,
+    /// Why there are no pictures, when the device would not open.
+    pub problem: Option<String>,
     /// How many pictures were drawn, and how many read from the cache.
     pub drawn: u64,
     pub read: u64,
 }
 
-impl std::fmt::Debug for Thumbs {
+impl std::fmt::Debug for Worker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Thumbs")
+        f.debug_struct("Worker")
             .field("dir", &self.dir)
             .field("ready", &self.ready.len())
             .field("failed", &self.failed.len())
+            .field("asked", &self.asked.len())
             .finish_non_exhaustive()
+    }
+}
+
+impl Worker {
+    /// The pictures of `store`'s files, kept under `root`, drawn on a device of `backend` of the
+    /// machine's own graphics card, which the worker opens.
+    #[must_use]
+    pub fn open(store: Arc<RetailDatStore>, backend: Backend, root: &Path) -> Self {
+        let dir = folder(root, &store);
+        let (asks, asked) = mpsc::channel::<u32>();
+        let (answer, answers) = mpsc::channel();
+        let at = dir.clone();
+        let thread = std::thread::Builder::new()
+            .name("lyceum pictures".into())
+            .spawn(move || {
+                let mut thumbs = match Thumbs::open(store, backend, at) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let _ = answer.send(Err(e));
+                        return;
+                    }
+                };
+                for id in asked {
+                    let (picture, drawn) = thumbs.picture(DataId(id));
+                    if answer.send(Ok(Answer { id, picture, drawn })).is_err() {
+                        return;
+                    }
+                }
+            })
+            .ok();
+        Self {
+            asks: Some(asks),
+            answers,
+            thread,
+            dir,
+            ready: BTreeMap::new(),
+            failed: BTreeSet::new(),
+            asked: BTreeSet::new(),
+            problem: None,
+            drawn: 0,
+            read: 0,
+        }
+    }
+
+    /// Where model `id`'s picture is kept.
+    #[must_use]
+    pub fn path(&self, id: DataId) -> PathBuf {
+        self.dir.join(format!("{:08X}.png", id.raw()))
+    }
+
+    /// Model `id`'s picture, when it has come back. One not yet asked for is asked for while
+    /// `budget` lasts (and taken from it) and the worker is not too far behind.
+    pub fn get(&mut self, id: DataId, budget: &mut u32) -> Option<&TextureData> {
+        self.take_answers();
+        let raw = id.raw();
+        if !self.ready.contains_key(&raw)
+            && !self.failed.contains(&raw)
+            && !self.asked.contains(&raw)
+            && *budget > 0
+            && self.asked.len() < IN_FLIGHT
+            && self.problem.is_none()
+        {
+            if let Some(asks) = &self.asks {
+                if asks.send(raw).is_ok() {
+                    *budget -= 1;
+                    self.asked.insert(raw);
+                }
+            }
+        }
+        self.ready.get(&raw)
+    }
+
+    /// Wait until every picture asked for has come back.
+    pub fn wait(&mut self) {
+        while !self.asked.is_empty() && self.problem.is_none() {
+            match self.answers.recv() {
+                Ok(a) => self.take(a),
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn take_answers(&mut self) {
+        while let Ok(a) = self.answers.try_recv() {
+            self.take(a);
+        }
+    }
+
+    fn take(&mut self, a: Result<Answer, String>) {
+        match a {
+            Ok(a) => {
+                self.asked.remove(&a.id);
+                match a.picture {
+                    Some(p) => {
+                        if a.drawn {
+                            self.drawn += 1;
+                        } else {
+                            self.read += 1;
+                        }
+                        self.ready.insert(a.id, p);
+                    }
+                    None => {
+                        self.failed.insert(a.id);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("the model browser shows no pictures: {e}");
+                self.problem = Some(e);
+                self.asked.clear();
+            }
+        }
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        // The worker ends after the picture it is on once nothing more can be asked of it.
+        self.asks = None;
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
     }
 }
 
@@ -65,12 +216,12 @@ pub fn default_root() -> PathBuf {
 }
 
 impl Thumbs {
-    /// The pictures of `store`'s files, kept under `root`, drawn on a device of `backend` of the
+    /// The pictures of `store`'s files, kept in `dir`, drawn on a device of `backend` of the
     /// machine's own graphics card.
     ///
     /// # Errors
     /// The device will not open.
-    pub fn open(store: Arc<RetailDatStore>, backend: Backend, root: &Path) -> Result<Self, String> {
+    fn open(store: Arc<RetailDatStore>, backend: Backend, dir: PathBuf) -> Result<Self, String> {
         let cfg = DeviceConfig {
             width: SIZE * 2,
             height: SIZE * 2,
@@ -91,53 +242,25 @@ impl Thumbs {
         Ok(Self {
             gpu,
             space,
-            dir: folder(root, &store),
+            dir,
             store,
-            ready: BTreeMap::new(),
-            failed: BTreeSet::new(),
-            drawn: 0,
-            read: 0,
         })
     }
 
-    /// Where model `id`'s picture is kept.
-    #[must_use]
-    pub fn path(&self, id: DataId) -> PathBuf {
-        self.dir.join(format!("{:08X}.png", id.raw()))
-    }
-
-    /// Model `id`'s picture: held, else read from the cache, else drawn when `budget` allows
-    /// (and taken from it). `None` for one that will not draw, or that waits for a budget.
-    pub fn get(&mut self, id: DataId, budget: &mut u32) -> Option<&TextureData> {
-        let raw = id.raw();
-        if self.failed.contains(&raw) {
-            return None;
+    /// Model `id`'s picture, read from the cache, else drawn and kept there; and whether it was
+    /// drawn. `None` for a model that will not draw.
+    fn picture(&mut self, id: DataId) -> (Option<TextureData>, bool) {
+        let path = self.dir.join(format!("{:08X}.png", id.raw()));
+        if let Some(p) = read_png(&path) {
+            return (Some(p), false);
         }
-        if !self.ready.contains_key(&raw) {
-            let picture = match read_png(&self.path(id)) {
-                Some(p) => {
-                    self.read += 1;
-                    p
-                }
-                None if *budget > 0 => {
-                    *budget -= 1;
-                    match self.draw(id) {
-                        Ok(Some(p)) => {
-                            self.drawn += 1;
-                            let _ = write_png(&self.path(id), &p);
-                            p
-                        }
-                        Ok(None) | Err(_) => {
-                            self.failed.insert(raw);
-                            return None;
-                        }
-                    }
-                }
-                None => return None,
-            };
-            self.ready.insert(raw, picture);
+        match self.draw(id) {
+            Ok(Some(p)) => {
+                let _ = write_png(&path, &p);
+                (Some(p), true)
+            }
+            Ok(None) | Err(_) => (None, true),
         }
-        self.ready.get(&raw)
     }
 
     /// Draw model `id` and read the picture back. `None` for a model that will not load.

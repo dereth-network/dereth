@@ -9,6 +9,7 @@
 //!               [--renderer vulkan|d3d12|wgpu]
 //!               [--headless] [--size <w>x<h>] [--frames <n>] [--script <file>]
 //!               [--capture-at <frame>:<png>]...
+//! lyceum-editor --write-text [<toml>] [--overwrite]
 //! ```
 //!
 //! - `--dats`: the player's data files (the later set); the folder the client would find otherwise.
@@ -34,6 +35,11 @@
 //! - `--headless`: no window; the frames are drawn off screen on the machine's graphics card.
 //!   `--frames` ends the run, `--script` runs a list of edits and pointer events by frame
 //!   ([`crate::script`]), and `--capture-at` writes the frame drawn then as a PNG.
+//! - `--text`: the file the editor's text is read from; `lyceum-text.toml` in its settings folder
+//!   otherwise.
+//! - `--write-text`: writes every piece of the editor's built-in text to `lyceum-text.toml` in its
+//!   settings folder, or to the file named, and starts nothing; a file already there is kept
+//!   unless `--overwrite` is given.
 
 use std::path::PathBuf;
 
@@ -77,6 +83,49 @@ lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--pack <name>]
               [--size <w>x<h>]
               [--frames <n>] [--script <file>] [--capture-at <frame>:<png>]...";
 
+/// `--write-text`'s command line: where to write the built-in text (the settings folder's file when
+/// it names none), and whether a file already there is replaced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteText {
+    pub to: Option<PathBuf>,
+    pub overwrite: bool,
+}
+
+/// `--write-text`'s usage line.
+pub const WRITE_TEXT_USAGE: &str = "lyceum-editor --write-text [<toml>] [--overwrite]";
+
+/// Read `argv` (without the program's name) as `--write-text`'s; `None` when it does not ask for
+/// the text to be written.
+///
+/// # Errors
+/// A `--write-text` command line with anything else in it.
+pub fn write_text(argv: &[String]) -> Option<Result<WriteText, String>> {
+    if !argv.iter().any(|a| a == "--write-text") {
+        return None;
+    }
+    let mut w = WriteText {
+        to: None,
+        overwrite: false,
+    };
+    for arg in argv {
+        match arg.as_str() {
+            "--write-text" => {}
+            "--overwrite" => w.overwrite = true,
+            other if other.starts_with("--") => {
+                return Some(Err(format!(
+                    "{other} does not go with --write-text\n{WRITE_TEXT_USAGE}"
+                )));
+            }
+            other => {
+                if w.to.replace(PathBuf::from(other)).is_some() {
+                    return Some(Err(format!("one file\n{WRITE_TEXT_USAGE}")));
+                }
+            }
+        }
+    }
+    Some(Ok(w))
+}
+
 /// Read `argv` (without the program's name).
 ///
 /// # Errors
@@ -99,7 +148,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         text: None,
         renderer: None,
         headless: false,
-        size: (1280, 800),
+        size: (1920, 1080),
         frames: None,
         script: None,
         captures: Vec::new(),
@@ -288,6 +337,31 @@ mod tests {
         assert!(args(&["w.toml", "--frames", "3"]).is_err());
         assert!(args(&["w.toml", "--fly"]).is_err());
         assert!(args(&[]).is_err());
+    }
+
+    #[test]
+    fn writing_the_text_takes_a_file_and_an_overwrite_and_nothing_else() {
+        let w = |s: &[&str]| write_text(&s.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>());
+        assert_eq!(w(&["w.toml"]), None);
+        assert_eq!(
+            w(&["--write-text"]),
+            Some(Ok(WriteText {
+                to: None,
+                overwrite: false
+            }))
+        );
+        assert_eq!(
+            w(&["--write-text", "mine.toml", "--overwrite"]),
+            Some(Ok(WriteText {
+                to: Some(PathBuf::from("mine.toml")),
+                overwrite: true
+            }))
+        );
+        assert!(matches!(
+            w(&["--write-text", "a.toml", "b.toml"]),
+            Some(Err(_))
+        ));
+        assert!(matches!(w(&["--write-text", "--headless"]), Some(Err(_))));
     }
 
     #[test]

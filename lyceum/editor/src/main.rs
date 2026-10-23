@@ -3,6 +3,7 @@
 //! ```text
 //! lyceum-editor lyceum/sample/world.toml --dats <your client folder>
 //! lyceum-editor <world.toml> --headless --script edits.toml --frames 60 --capture-at 60:after.png
+//! lyceum-editor --write-text
 //! ```
 //!
 //! The command line is [`lyceum_editor::args`]'s. A windowed run edits until its window closes and
@@ -36,6 +37,27 @@ fn main() -> std::process::ExitCode {
     if argv == ["--version"] {
         print!("{}", start::version_text());
         return std::process::ExitCode::SUCCESS;
+    }
+    // `--write-text`: the built-in text written out as a file to change, and nothing started.
+    if let Some(w) = lyceum_editor::args::write_text(&argv) {
+        let written = w.and_then(|w| {
+            let to = w
+                .to
+                .or_else(|| start::settings_dir().map(|d| d.join(lyceum_editor::text::FILE_NAME)))
+                .ok_or("no settings folder: name the file")?;
+            lyceum_editor::text::write_built_in(&to, w.overwrite)?;
+            Ok(to)
+        });
+        return match written {
+            Ok(to) => {
+                println!("{}", to.display());
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("lyceum-editor: {e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
     }
     if let Some(start::NoWorld::List { dats }) = start::no_world(&argv) {
         print!("{}", start::list(dats));

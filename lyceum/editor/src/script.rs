@@ -20,7 +20,7 @@
 //! `pitch` in degrees) or `look_at` (the camera put `distance` meters from a point, looking at it);
 //! `walk` (true walks with a body, false flies); `mode`; `model` (the static the place tool
 //! places); `filter` (what the model browser is typed to find); `shelf` (the browser's category
-//! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `weenie`);
+//! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `definition`);
 //! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
 //! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the
 //! world's dungeon whose look it takes, `0163`); `piece` (the dungeon kit's, by its label,
@@ -37,7 +37,7 @@
 //! `live` (true starts the editor's own world and waits for it, false stops it); `export`
 //! (`empyrean`, `ace` or `gdle`: the world written out for that server, waited for;
 //! `export_gdle = true` is `export = "gdle"`; `gdle_quests`, GDLE's own quests.json, which an
-//! export for GDLE merges the world's quests into, as the Export menu names it); `play` (the
+//! export for GDLE merges the world's quests into); `play` (the
 //! Dereth client started in
 //! that world at the camera, with these switches after the editor's, waited for). The frames after the last step run with nothing new happening.
 

@@ -359,6 +359,16 @@ pub fn apply_edit(doc: &mut SqlDoc, edit: &FormEdit, schema: Option<&content::Sc
     }
 }
 
+/// How the weenie tab names weenie `w` under its name: a server's class by its id, a pack's own by
+/// its name in its pack (its symbol without the pack's name before it).
+#[must_use]
+pub fn weenie_label(w: &Weenie, t: &crate::text::Table) -> String {
+    match w {
+        Weenie::Symbol(s) => s.rsplit(':').next().unwrap_or(s).to_owned(),
+        Weenie::Class(c) => t.fill("weenie.class", &[("id", c)]),
+    }
+}
+
 /// A property type's heading in the form: its key in the text.
 fn kind_name(k: PropertyKind) -> &'static str {
     match k {
@@ -729,7 +739,7 @@ impl EditorApp {
             return;
         };
         let file = self.session.weenie_file(&w);
-        let entry = self.weenies.iter().find(|e| e.weenie == w).cloned();
+        let entry = self.weenie_entry(&w).cloned();
         // The head: its picture, its name, where it is written.
         ui.horizontal(|ui| {
             let mut budget = super::PICTURES_A_FRAME;
@@ -746,17 +756,13 @@ impl EditorApp {
                         .as_ref()
                         .map_or(t.get("weenie.a_weenie"), |e| e.name.as_str()),
                 );
-                ui.weak(match &w {
-                    Weenie::Symbol(s) => s.clone(),
-                    Weenie::Class(c) => t.fill("weenie.class", &[("id", c)]),
-                });
+                ui.weak(weenie_label(&w, &t));
                 if let Some(e) = &entry {
                     let c = e.category.name();
                     ui.weak(t.or(&format!("categories.{c}"), c));
                 }
             });
         });
-        self.new_weenie_section(ui, &w, out);
         let (path, mine) = match (&w, file) {
             (_, Some(f)) => f,
             (Weenie::Class(c), None) => {
@@ -778,7 +784,6 @@ impl EditorApp {
                     }
                     Some(Some(text)) => text,
                 };
-                ui.label(t.get("weenie.servers_own"));
                 let doc = SqlDoc::parse(&text);
                 egui::ScrollArea::vertical()
                     .id_salt("weenie form")
@@ -831,45 +836,6 @@ impl EditorApp {
                     }
                 });
         });
-    }
-
-    /// Making a new weenie: from a blank of a kind, or a copy of the server class shown.
-    fn new_weenie_section(&mut self, ui: &mut egui::Ui, w: &Weenie, out: &mut Vec<UiAction>) {
-        if self.server_sql.is_none() {
-            return;
-        }
-        let t = self.text.table();
-        egui::CollapsingHeader::new(t.get("weenie.new"))
-            .id_salt("new weenie")
-            .show(ui, |ui| {
-                let mut name = self
-                    .panels
-                    .form_typing
-                    .get("new:name")
-                    .cloned()
-                    .unwrap_or_default();
-                ui.add(
-                    egui::TextEdit::singleline(&mut name)
-                        .hint_text(t.get("weenie.new_name_hint"))
-                        .desired_width(200.0),
-                );
-                self.panels
-                    .form_typing
-                    .insert("new:name".into(), name.clone());
-                ui.horizontal_wrapped(|ui| {
-                    ui.weak(t.get("weenie.a_blank"));
-                    for b in content::BLANKS {
-                        if ui.small_button(b.kind).clicked() && !name.trim().is_empty() {
-                            out.push(UiAction::NewWeenie(name.clone(), b.class, true));
-                        }
-                    }
-                });
-                if let Weenie::Class(c) = w {
-                    if ui.button(t.get("weenie.a_copy")).clicked() && !name.trim().is_empty() {
-                        out.push(UiAction::NewWeenie(name.clone(), *c, false));
-                    }
-                }
-            });
     }
 
     /// The form's sections over `doc`.
@@ -1523,5 +1489,22 @@ impl ServerClasses {
             self.world = Some(world);
             self.done.insert(class, rows);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (tooling: the world editor's weenie tab)
+    use super::*;
+
+    #[test]
+    fn a_packs_weenie_is_named_by_its_own_name_not_its_packs() {
+        let t = crate::text::Table::default();
+        let w = Weenie::Symbol("holtburg:coolest-dungeon".into());
+        assert_eq!(weenie_label(&w, &t), "coolest-dungeon");
+        assert_eq!(
+            super::super::flows::symbol_of("Coolest Dungeon!"),
+            "coolest-dungeon"
+        );
     }
 }

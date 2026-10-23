@@ -163,7 +163,7 @@ impl EditorApp {
             at.y,
             self.panels.building_turns,
         )?;
-        Some(if self.shift {
+        Some(if self.keys.shift {
             (lb, at.x, at.y, heading)
         } else {
             (lb, x, y, heading)
@@ -187,7 +187,7 @@ impl EditorApp {
                 c.yaw.to_bits(),
                 c.pitch.to_bits(),
             ],
-            self.shift,
+            self.keys.shift,
             self.panels.building_turns,
             model.raw(),
             layout,

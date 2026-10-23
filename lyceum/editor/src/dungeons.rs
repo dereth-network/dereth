@@ -116,6 +116,15 @@ impl EditorApp {
         self.dungeon.map(|d| d.landblock)
     }
 
+    /// Whether the landscape grid is drawn: as the View menu says, but never in a dungeon (in
+    /// dungeon mode, or with the camera in a room not seen from outside). The setting stands for
+    /// when the camera is out again.
+    pub fn landscape_grid_shown(&mut self) -> bool {
+        self.panels.show_grid
+            && self.dungeon.is_none()
+            && self.camera_cell().is_none_or(|(_, seen)| seen)
+    }
+
     /// The landblock the camera works in: in dungeon mode, or with the camera in one of a
     /// dungeon's rooms, the dungeon's; else the one it is over.
     #[must_use]
@@ -185,7 +194,7 @@ impl EditorApp {
     }
 
     /// Into dungeon `lb`, in dungeon mode: the camera at its drop point (or, for a dungeon with
-    /// no room yet, under the middle of its landblock), its grid in the map's place. Leaving puts
+    /// no room yet, under the middle of its landblock), its grid shown. Leaving puts
     /// the camera back where it was before the first dungeon gone into.
     ///
     /// # Errors
@@ -222,7 +231,7 @@ impl EditorApp {
         self.dungeon_list.marked = Some(lb);
         self.dungeon_list.naming = None;
         self.in_dungeon = !empty;
-        self.rooms = None;
+        self.rooms.clear();
         self.selection = None;
         self.also.clear();
         if self.mode == Mode::Terrain {
@@ -245,7 +254,7 @@ impl EditorApp {
         self.camera = d.back;
         self.dungeon_block = None;
         self.in_dungeon = false;
-        self.rooms = None;
+        self.rooms.clear();
         self.selection = None;
         self.also.clear();
         self.layout.reset();
@@ -625,145 +634,126 @@ impl EditorApp {
         Ok(())
     }
 
-    /// Delete dungeon `lb` as its button asks: the pack's own at once; one of the world's after
-    /// the creator confirms it, naming what goes with it.
-    ///
-    /// # Errors
-    /// The pack would not take it.
-    pub fn ask_delete_dungeon(&mut self, lb: u16) -> Result<(), String> {
-        let worlds = self
-            .cells_of(lb)
-            .keys()
-            .any(|n| !self.session.cell_names(lb).contains_key(n));
-        if worlds && self.dungeon_list.confirm != Some(lb) {
-            self.dungeon_list.confirm = Some(lb);
-            return Ok(());
-        }
-        self.delete_dungeon(lb)
-    }
-
-    /// The dungeon card at the head of the tools in dungeon mode: its name (typed and kept, its
-    /// portals renamed with it), its look first (chosen from the world's, its textures shown,
-    /// every room drawn in it), the way out, and taking it away.
-    #[allow(clippy::too_many_lines)]
+    /// The dungeon card at the head of the tools in dungeon mode: its name with Leave and Delete,
+    /// and folded under them its new name, its look (chosen from the world's, every room drawn in
+    /// it) and the look's textures.
     pub(super) fn dungeon_card(&mut self, ui: &mut egui::Ui, lb: u16, out: &mut Vec<UiAction>) {
         let t = self.text.table();
         let name = self.dungeon_name_of(lb);
-        ui.horizontal(|ui| {
-            ui.heading(t.fill("dungeon.header", &[("name", &name)]));
-            let leave = ui
-                .button(t.get("dungeon.leave"))
-                .on_hover_text(t.get("dungeon.leave_tip"));
-            self.dungeon_list.leave_button = Some(leave.rect);
-            if leave.clicked() {
-                out.push(UiAction::LeaveDungeon);
-            }
-        });
-        // The look first: its name and its textures.
-        let shown = self.dungeon_look(lb);
-        let shown_name = shown.map_or_else(
-            || t.get("dungeon.no_look").to_owned(),
-            |f| self.family_name(f),
-        );
-        let mut pick: Option<Option<u16>> = None;
-        self.kit.look_rects.clear();
-        ui.horizontal(|ui| {
-            ui.label(t.get("dungeon.look"));
-            let combo = egui::ComboBox::from_id_salt("dungeon look")
-                .selected_text(shown_name)
-                .width(ui.available_width() - 8.0)
-                .height(360.0)
-                .show_ui(ui, |ui| {
-                    for f in 0..self.kit.families.len() {
-                        if !self.offered_look(f) {
-                            continue;
-                        }
-                        let first = self.kit.families[f].landblocks[0].0;
-                        let label = self.family_name(f);
-                        let r = ui
-                            .horizontal(|ui| {
-                                let r = ui.selectable_label(shown == Some(f), label);
-                                self.swatches(ui, f, 16.0, 6);
-                                r
-                            })
-                            .inner;
-                        self.kit.look_rects.push((f, r.rect));
-                        if r.clicked() {
-                            pick = Some(Some(first));
-                        }
+        let id = ui.make_persistent_id(("dungeon card", lb));
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+            .show_header(ui, |ui| {
+                ui.strong(t.fill("dungeon.header", &[("name", &name)]));
+                let leave = ui
+                    .button(t.get("dungeon.leave"))
+                    .on_hover_text(t.get("dungeon.leave_tip"));
+                self.dungeon_list.leave_button = Some(leave.rect);
+                if leave.clicked() {
+                    out.push(UiAction::LeaveDungeon);
+                }
+                let del = ui.button(t.get("dungeon.delete_short"));
+                self.dungeon_list.delete_button = Some(del.rect);
+                if del.clicked() {
+                    out.push(UiAction::AskDeleteDungeon(lb));
+                }
+            })
+            .body(|ui| self.dungeon_card_body(ui, lb, out));
+        ui.separator();
+    }
+
+    /// The card's folded part: the new name, the look and its textures.
+    fn dungeon_card_body(&mut self, ui: &mut egui::Ui, lb: u16, out: &mut Vec<UiAction>) {
+        let t = self.text.table();
+        let now = self.dungeon_name_of(lb);
+        egui::Grid::new(("dungeon card", lb))
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label(t.get("dungeon.rename"));
+                let typed = self
+                    .dungeon_list
+                    .naming
+                    .get_or_insert_with(|| self.session.dungeon_info(lb).name.unwrap_or_default());
+                let r = ui.add(
+                    egui::TextEdit::singleline(typed)
+                        .hint_text(now)
+                        .desired_width(200.0),
+                );
+                if r.lost_focus() {
+                    let typed = typed.clone();
+                    if Some(typed.trim()) != self.session.dungeon_info(lb).name.as_deref() {
+                        out.push(UiAction::NameDungeon(lb, typed));
                     }
-                });
-            self.dungeon_list.look_combo = Some(combo.response.rect);
-        });
-        if let Some(f) = shown {
+                }
+                ui.end_row();
+                ui.label(t.get("dungeon.look"));
+                let shown = self.dungeon_look(lb);
+                let shown_name = shown.map_or_else(
+                    || t.get("dungeon.no_look").to_owned(),
+                    |f| self.family_name(f),
+                );
+                let mut pick: Option<Option<u16>> = None;
+                self.kit.look_rects.clear();
+                let combo = egui::ComboBox::from_id_salt("dungeon look")
+                    .selected_text(shown_name)
+                    .width(200.0)
+                    .height(360.0)
+                    .show_ui(ui, |ui| {
+                        for f in 0..self.kit.families.len() {
+                            if !self.offered_look(f) {
+                                continue;
+                            }
+                            let first = self.kit.families[f].landblocks[0].0;
+                            let label = self.family_name(f);
+                            let r = ui
+                                .horizontal(|ui| {
+                                    let r = ui.selectable_label(shown == Some(f), label);
+                                    self.swatches(ui, f, 16.0, 6);
+                                    r
+                                })
+                                .inner;
+                            self.kit.look_rects.push((f, r.rect));
+                            if r.clicked() {
+                                pick = Some(Some(first));
+                            }
+                        }
+                    });
+                self.dungeon_list.look_combo = Some(combo.response.rect);
+                if let Some(p) = pick {
+                    out.push(UiAction::DungeonLook(lb, p));
+                }
+                ui.end_row();
+            });
+        if let Some(f) = self.dungeon_look(lb) {
             ui.horizontal_wrapped(|ui| {
                 self.swatches(ui, f, 34.0, 8);
             });
         }
-        if let Some(p) = pick {
-            out.push(UiAction::DungeonLook(lb, p));
-        }
-        ui.horizontal(|ui| {
-            ui.label(t.get("dungeon.name"));
-            let typed = self
-                .dungeon_list
-                .naming
-                .get_or_insert_with(|| self.session.dungeon_info(lb).name.unwrap_or_default());
-            let r = ui
-                .add(
-                    egui::TextEdit::singleline(typed)
-                        .hint_text(t.get("dungeon.name_hint"))
-                        .desired_width(180.0),
-                )
-                .on_hover_text(t.get("dungeon.name_tip"));
-            if r.lost_focus() {
-                let now = typed.clone();
-                if Some(now.trim()) != self.session.dungeon_info(lb).name.as_deref() {
-                    out.push(UiAction::NameDungeon(lb, now));
-                }
-            }
-            let del = ui
-                .button(t.get("dungeon.delete"))
-                .on_hover_text(t.get("dungeon.delete_tip"));
-            self.dungeon_list.delete_button = Some(del.rect);
-            if del.clicked() {
-                out.push(UiAction::DeleteDungeon(lb));
-            }
-        });
-        self.confirm_delete(ui, lb, out);
-        ui.separator();
     }
 
-    /// The question before one of the world's own dungeons is taken away, naming what goes.
-    fn confirm_delete(&mut self, ui: &mut egui::Ui, lb: u16, out: &mut Vec<UiAction>) {
-        if self.dungeon_list.confirm != Some(lb) {
+    /// The question before a dungeon is taken away, over the whole window.
+    pub(super) fn delete_dungeon_question(&mut self, ctx: &egui::Context, out: &mut Vec<UiAction>) {
+        let Some(lb) = self.dungeon_list.confirm else {
             return;
-        }
-        let (rooms, things, portals) = self.dungeon_contents(lb);
+        };
         let name = self.dungeon_name_of(lb);
         let t = self.text.table();
-        ui.colored_label(
-            super::panels::mark::FAULT,
-            t.fill(
-                "dungeon.delete_confirm",
-                &[
-                    ("name", &name),
-                    ("rooms", &rooms),
-                    ("things", &things),
-                    ("portals", &portals),
-                ],
-            ),
-        );
-        ui.horizontal(|ui| {
-            let yes = ui.button(t.get("dungeon.delete_yes"));
-            self.dungeon_list.confirm_button = Some(yes.rect);
-            if yes.clicked() {
-                out.push(UiAction::DeleteDungeon(lb));
-            }
-            if ui.button(t.get("dungeon.delete_no")).clicked() {
-                out.push(UiAction::KeepDungeon);
-            }
+        let shown = egui::Modal::new(egui::Id::new("delete dungeon")).show(ctx, |ui| {
+            ui.label(t.fill("dungeon.delete_confirm", &[("name", &name)]));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let yes = ui.button(t.get("dungeon.delete_yes"));
+                self.dungeon_list.confirm_button = Some(yes.rect);
+                if yes.clicked() {
+                    out.push(UiAction::DeleteDungeon(lb));
+                }
+                if ui.button(t.get("dungeon.delete_no")).clicked() {
+                    out.push(UiAction::KeepDungeon);
+                }
+            });
         });
+        if shown.should_close() {
+            out.push(UiAction::KeepDungeon);
+        }
     }
 
     /// The textures of look `f` as swatches `side` points square, at most `most`.
@@ -882,8 +872,22 @@ impl EditorApp {
         (facts.kind == Some(PORTAL_KIND)).then_some(facts.destination)
     }
 
-    /// The Dungeons tab: every dungeon, the world's and the packs', by name; a click on one goes
-    /// into it. New dungeon starts one near a landblock typed, or near the camera.
+    /// Where portal spawn `s` sends who uses it in its cell's landblock, when its weenie says.
+    #[must_use]
+    pub fn portal_destination_at(&self, s: &lyceum_foundry::edit::Spawn) -> Option<Vec3> {
+        let facts = match self.session.spawn_weenie(s)? {
+            lyceum_foundry::edit::Weenie::Symbol(sym) => self.session.pack_weenies().remove(&sym),
+            lyceum_foundry::edit::Weenie::Class(c) => self
+                .session
+                .pack_classes()
+                .remove(&c)
+                .or_else(|| self.session.class_facts(c)),
+        }?;
+        facts.destination_at.map(|[x, y, z]| Vec3::new(x, y, z))
+    }
+
+    /// The Dungeons tab: every dungeon, the world's and the packs', by landblock and name; a click on
+    /// one goes into it. New dungeon starts one near a landblock typed, or near the camera.
     pub(super) fn dungeons_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let t = self.text.table();
         ui.horizontal_wrapped(|ui| {
@@ -905,10 +909,10 @@ impl EditorApp {
         ui.separator();
         let all = self.dungeons();
         ui.strong(t.fill("dungeon.list", &[("n", &all.len())]));
-        ui.add(
-            egui::TextEdit::singleline(&mut self.dungeon_list.filter)
-                .hint_text(t.get("dungeon.list_filter"))
-                .desired_width(f32::INFINITY),
+        super::panels::search_box(
+            ui,
+            &mut self.dungeon_list.filter,
+            t.get("dungeon.list_filter"),
         );
         let f = self.dungeon_list.filter.trim().to_lowercase();
         let shown: Vec<(Dungeon, String)> = all
@@ -925,58 +929,29 @@ impl EditorApp {
             .collect();
         self.dungeon_list.rects.clear();
         self.dungeon_list.delete_rects.clear();
-        if let Some(lb) = self
-            .dungeon_list
-            .confirm
-            .filter(|lb| self.dungeon_mode() != Some(*lb))
-        {
-            self.confirm_delete(ui, lb, out);
-        }
         let here = self.dungeon_mode();
-        egui::ScrollArea::vertical().id_salt("dungeons").show_rows(
-            ui,
-            20.0,
-            shown.len(),
-            |ui, rows| {
+        egui::ScrollArea::vertical()
+            .id_salt("dungeons")
+            .auto_shrink(false)
+            .show_rows(ui, 20.0, shown.len(), |ui, rows| {
                 for i in rows {
                     let (d, name) = &shown[i];
-                    let whose = t.get(if d.pack {
-                        "dungeon.packs"
-                    } else {
-                        "dungeon.worlds"
-                    });
                     ui.horizontal(|ui| {
-                        let del = ui
-                            .small_button(t.get("dungeon.delete_short"))
-                            .on_hover_text(t.get("dungeon.delete_tip"));
+                        ui.monospace(format!("{:04X}", d.landblock));
+                        let del = ui.small_button(t.get("dungeon.delete_short"));
                         self.dungeon_list.delete_rects.push((d.landblock, del.rect));
                         if del.clicked() {
-                            out.push(UiAction::DeleteDungeon(d.landblock));
+                            out.push(UiAction::AskDeleteDungeon(d.landblock));
                         }
-                        let row = ui
-                            .selectable_label(
-                                here == Some(d.landblock),
-                                format!(
-                                    "{name}   {}",
-                                    t.fill(
-                                        "dungeon.list_row",
-                                        &[
-                                            ("landblock", &format!("{:04X}", d.landblock)),
-                                            ("n", &d.cells),
-                                            ("whose", &whose),
-                                        ],
-                                    )
-                                ),
-                            )
-                            .on_hover_text(t.get("dungeon.enter_tip"));
+                        let row = ui.selectable_label(here == Some(d.landblock), name);
+                        ui.weak(t.fill("dungeon.cells_n", &[("n", &d.cells)]));
                         self.dungeon_list.rects.push((d.landblock, row.rect));
                         if row.clicked() {
                             out.push(UiAction::EnterDungeon(d.landblock));
                         }
                     });
                 }
-            },
-        );
+            });
     }
 }
 

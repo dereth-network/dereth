@@ -105,6 +105,8 @@ pub struct Kit {
     pub every: bool,
     pub filter: String,
     pub chosen: Option<usize>,
+    /// The groups of the palette folded away.
+    pub folded: std::collections::BTreeSet<Kind>,
     fits: Option<(FitsKey, std::rc::Rc<Vec<Fit>>)>,
     /// The dungeons' names, and how many weenies they were read with.
     names: Option<(usize, BTreeMap<u16, String>)>,
@@ -428,6 +430,7 @@ impl EditorApp {
             cell: n,
         });
         self.also.clear();
+        self.show_tab(super::Tab::Inspector);
         self.fly_into_cell(lb, n)
     }
 
@@ -1291,7 +1294,7 @@ impl EditorApp {
         });
         self.camera.position = mid.add(lyceum_foundry::pick::block_origin(lb));
         self.dungeon_block = Some(lb);
-        self.rooms = None;
+        self.rooms.clear();
         Ok(())
     }
 
@@ -1415,21 +1418,19 @@ impl EditorApp {
         }
     }
 
-    /// The tools in dungeon mode with the select tool: the dungeon's card (its look first), then
-    /// what fits where the grid's choice is, or the look's pieces in their groups.
-    pub(super) fn dungeon_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
+    /// The tool in dungeon mode with the select tool, under the dungeon's card: what fits where the
+    /// grid's choice is, or the look's pieces in their groups.
+    pub(super) fn dungeon_pieces(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let Some(lb) = self.dungeon_mode() else {
             return;
         };
         if self.kit_pieces().is_none() {
-            self.dungeon_card(ui, lb, out);
             ui.weak(self.text.table().get("dungeon.gathering"));
             return;
         }
         if self.kit.look.is_none() {
             self.kit.look = self.dungeon_look(lb);
         }
-        self.dungeon_card(ui, lb, out);
         if self.layout.target.is_some() {
             self.fits_list(ui, lb, out);
             return;
@@ -1439,8 +1440,6 @@ impl EditorApp {
             ui.colored_label(super::panels::mark::TURN, t.get("layout.lifted"));
         } else if self.kit.look.is_none() && !self.kit.every {
             ui.colored_label(super::panels::mark::TURN, t.get("dungeon.choose_look"));
-        } else {
-            ui.weak(t.get("dungeon.help"));
         }
         ui.horizontal(|ui| {
             ui.add(
@@ -1579,9 +1578,18 @@ impl EditorApp {
             Header(Kind, usize),
             Pieces(Vec<usize>),
         }
+        if let Some(r) = self.kit.reveal {
+            // A piece to show unfolds its group.
+            if let Some((k, _)) = groups.iter().find(|(_, list)| list.contains(&r)) {
+                self.kit.folded.remove(k);
+            }
+        }
         let mut rows: Vec<Row> = Vec::new();
         for (k, list) in &groups {
             rows.push(Row::Header(*k, list.len()));
+            if self.kit.folded.contains(k) {
+                continue;
+            }
             for chunk in list.chunks(columns) {
                 rows.push(Row::Pieces(chunk.to_vec()));
             }
@@ -1610,21 +1618,35 @@ impl EditorApp {
             for row in &rows {
                 match row {
                     Row::Header(k, n) => {
-                        let (rect, _) = ui.allocate_exact_size(
+                        let (rect, r) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width(), header_h),
-                            egui::Sense::hover(),
+                            egui::Sense::click(),
                         );
-                        let painter = ui.painter_at(rect);
-                        painter.rect_filled(rect.shrink(1.0), 3.0, egui::Color32::from_gray(32));
+                        // Folded and unfolded as the dungeon card's own header is: its
+                        // triangle, then its name.
                         let name = self.kind_name(*k);
-                        painter.text(
-                            rect.left_center() + egui::vec2(8.0, 0.0),
+                        let folded = self.kit.folded.contains(k);
+                        let icon = egui::Rect::from_center_size(
+                            rect.left_center()
+                                + egui::vec2(4.0 + ui.spacing().icon_width / 2.0, 0.0),
+                            egui::vec2(ui.spacing().icon_width, ui.spacing().icon_width),
+                        );
+                        egui::collapsing_header::paint_default_icon(
+                            ui,
+                            if folded { 0.0 } else { 1.0 },
+                            &r.clone().with_new_rect(icon),
+                        );
+                        ui.painter_at(rect).text(
+                            egui::pos2(icon.right() + ui.spacing().icon_spacing, rect.center().y),
                             egui::Align2::LEFT_CENTER,
                             format!("{name}  ({n})"),
-                            egui::FontId::proportional(14.0),
-                            egui::Color32::from_gray(230),
+                            egui::TextStyle::Body.resolve(ui.style()),
+                            ui.visuals().strong_text_color(),
                         );
                         self.kit.group_rects.push((*k, rect));
+                        if r.clicked() && !self.kit.folded.remove(k) {
+                            self.kit.folded.insert(*k);
+                        }
                     }
                     Row::Pieces(v) => {
                         ui.horizontal(|ui| {
