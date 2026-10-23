@@ -524,6 +524,15 @@ impl DatFile {
         }
     }
 
+    /// This file with no overlay over it: the client's records, when it carries them, stay.
+    #[must_use]
+    pub fn without_overlay(&self) -> Self {
+        Self {
+            layer: None,
+            ..self.clone()
+        }
+    }
+
     /// This file with the client's own records (`client`, [`crate::client_layer`]) beneath any
     /// overlay over it, in place of any it carried.
     #[must_use]

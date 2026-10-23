@@ -30,18 +30,16 @@ impl PictureWorker {
     pub(super) fn start() -> Option<Self> {
         let (jobs, asked) = mpsc::channel::<Job>();
         let (send, done) = mpsc::channel::<Done>();
-        std::thread::Builder::new()
-            .name("ground pictures".to_owned())
-            .spawn(move || {
-                for (id, generation, store, detail) in asked {
-                    let textures = TextureStore::with_environment_texture_detail(&store, detail);
-                    let picture = textures.bgra8(id).ok().map(Arc::new);
-                    if send.send((id, generation, picture)).is_err() {
-                        return;
-                    }
+        crate::workers::spawn("ground pictures", move || {
+            for (id, generation, store, detail) in asked {
+                let textures = TextureStore::with_environment_texture_detail(&store, detail);
+                let picture = textures.bgra8(id).ok().map(Arc::new);
+                if send.send((id, generation, picture)).is_err() {
+                    return;
                 }
-            })
-            .ok()?;
+            }
+        })
+        .ok()?;
         Some(Self { jobs, done })
     }
 

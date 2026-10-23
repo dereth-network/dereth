@@ -12,6 +12,9 @@ use super::window::WindowEvents;
 use crate::clipboard::HostClipboard;
 use crate::cursor::{CursorImages, PortableCursors};
 
+/// The classic interface's fonts, as a host hands them over ([`Host::classic_fonts`]).
+pub use dereth_classic_dat::fonts::FontSource;
+
 /// What the shell needs from the platform under it.
 pub trait Host: 'static {
     /// The program's name and version, as `@version` prints them after "Client version" (for

@@ -190,6 +190,11 @@ impl Play {
             },
         )
         .map_err(|e| e.to_string())?;
+        // A world whose data the client refuses at the start is never connected to: the page
+        // says why where the player chose it.
+        if let Some(why) = app.world_refused() {
+            return Err(why.to_owned());
+        }
         app.start_shell().map_err(|e| e.to_string())?;
         app.defer_static_scene(scene);
         let mut net = ClientNetwork::new(&nominal_host(host), 9000, account, password, sequence)

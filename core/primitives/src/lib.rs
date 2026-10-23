@@ -52,7 +52,7 @@ pub use render::{DrawBatch, RenderBackend};
 pub use space::{Frame, Position, Quat, Vec3};
 pub use time::{LocalTime, ServerTime};
 pub use transport::{IncomingMessage, NetBlobId, NetQueue, RecipientId, Transport};
-pub use viewport::Viewport;
+pub use viewport::{Inset, Viewport};
 pub use world_rules::{TextKey, VitaeCurve, WorldRules};
 
 #[cfg(test)]

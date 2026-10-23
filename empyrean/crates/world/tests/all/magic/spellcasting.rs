@@ -485,6 +485,7 @@ fn dats_with(defs: Vec<Def>, target_type: u32) -> Arc<empyrean_dat::DatManager> 
         default_mtable_id: DataId(0),
         default_stable_id: DataId(0),
         default_phstable_id: DataId(0),
+        written_order: Default::default(),
     };
     empyrean_testkit::dats::with_stat_tables(FakeDats::new())
         .with_spell_table(table)

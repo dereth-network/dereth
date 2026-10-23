@@ -170,6 +170,22 @@ impl<H: Host> App<H> {
         self.core.frame(&mut self.shell)
     }
 
+    /// Compose the host's controls after the game interface. During entry the host may
+    /// cover the game interface with its own loading screen.
+    pub fn set_host_overlay(
+        &mut self,
+        items: Vec<dereth_client_contract::overlay::OverlayItem>,
+        hide_ui: bool,
+    ) {
+        self.shell.host_overlay = items;
+        self.shell.host_hides_ui = hide_ui;
+    }
+
+    /// Advance a hosted session while another view may own the display.
+    pub fn frame_with_drawing(&mut self, draw: bool) -> bool {
+        self.core.frame_with_drawing(&mut self.shell, draw)
+    }
+
     /// Start input, sound, and the UI shell in the client's order.
     ///
     /// # Errors
@@ -182,6 +198,17 @@ impl<H: Host> App<H> {
     pub fn shutdown(self) -> dereth_client_runtime::shutdown::CleanupLog {
         let Self { core, mut shell } = self;
         core.shutdown(&mut shell)
+    }
+
+    /// Release this session while returning its shared presentation to the host.
+    pub fn shutdown_retaining_presentation(
+        self,
+    ) -> (
+        Box<dyn ClientPresentation>,
+        dereth_client_runtime::shutdown::CleanupLog,
+    ) {
+        let Self { core, mut shell } = self;
+        core.shutdown_retaining_presentation(&mut shell)
     }
 
     /// The HUD's event application against this application's own object tables, as the frame

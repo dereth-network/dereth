@@ -188,6 +188,19 @@ pub struct Setup {
     pub default_mtable_id: DataId,
     pub default_stable_id: DataId,
     pub default_phstable_id: DataId,
+    /// The keys of the record's four tables in the order it writes them (a hash table's), so it
+    /// can be written again as it was. Empty for a setup made here, whose tables are written in
+    /// key order.
+    pub written_order: SetupOrder,
+}
+
+/// The keys of a setup's tables, each in its record's order.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SetupOrder {
+    pub holding_locations: Vec<u32>,
+    pub connection_points: Vec<u32>,
+    pub placement_frames: Vec<u32>,
+    pub lights: Vec<u32>,
 }
 
 impl Decode for Setup {
@@ -213,13 +226,15 @@ impl Decode for Setup {
             None
         };
 
-        let holding_locations = location_table(c)?;
-        let connection_points = location_table(c)?;
+        let mut written_order = SetupOrder::default();
+        let holding_locations = location_table(c, &mut written_order.holding_locations)?;
+        let connection_points = location_table(c, &mut written_order.connection_points)?;
 
         let n = c.u32()? as usize;
         let mut placement_frames = BTreeMap::new();
         for _ in 0..n {
             let key = c.u32()?;
+            written_order.placement_frames.push(key);
             let frames = read_n(c, num_parts, Cursor::frame)?;
             let hooks = read_hooks(c)?;
             placement_frames.insert(key, Placement { frames, hooks });
@@ -249,6 +264,7 @@ impl Decode for Setup {
         let mut lights = BTreeMap::new();
         for _ in 0..n {
             let key = c.u32()?;
+            written_order.lights.push(key);
             lights.insert(
                 key,
                 LightInfo {
@@ -293,15 +309,20 @@ impl Decode for Setup {
             default_mtable_id,
             default_stable_id,
             default_phstable_id,
+            written_order,
         })
     }
 }
 
-fn location_table(c: &mut Cursor<'_>) -> Result<BTreeMap<u32, LocationEntry>, AssetError> {
+fn location_table(
+    c: &mut Cursor<'_>,
+    order: &mut Vec<u32>,
+) -> Result<BTreeMap<u32, LocationEntry>, AssetError> {
     let n = c.u32()? as usize;
     let mut m = BTreeMap::new();
     for _ in 0..n {
         let key = c.u32()?;
+        order.push(key);
         let part_id = c.u32()?;
         let frame = c.placed_frame()?;
         m.insert(key, LocationEntry { part_id, frame });

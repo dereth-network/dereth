@@ -285,6 +285,8 @@ pub struct Gpu {
     sampler_pair_sets: RefCell<HashMap<(u32, u32), vk::DescriptorSet>>,
     texture_filtering: u32,
     sharp_lod_bias: bool,
+    /// The part of the target the frames draw into as a screen of their own, while one is set.
+    pub(crate) inset: std::cell::Cell<Option<dereth_primitives::Inset>>,
     /// Whether the pixel shaders apply the bound sampler's level-of-detail bias, which then goes
     /// to each draw in the frame block, and the samplers carry none. A device whose samplers
     /// cannot carry a bias does this; so does one configured to with
@@ -784,6 +786,7 @@ impl Gpu {
             sampler_pair_sets: RefCell::new(HashMap::new()),
             texture_filtering: crate::sampler::STARTUP_FILTERING,
             sharp_lod_bias: false,
+            inset: Cell::new(None),
             shader_lod_bias,
             bound_sampler: Cell::new(None),
             texture_pool,

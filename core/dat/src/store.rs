@@ -592,10 +592,54 @@ impl RetailDatStore {
         self
     }
 
+    /// This store with no world's overlay over its files: the files as the player installed
+    /// them, with the client's own records still beneath. The high-resolution file stays open
+    /// when it was granted.
+    #[must_use]
+    pub fn without_overlay(mut self) -> Self {
+        let alias = Arc::ptr_eq(&self.local, &self.portal);
+        let bare = |f: &Arc<DatFile>| {
+            if f.layer().is_some() {
+                Arc::new(f.without_overlay())
+            } else {
+                Arc::clone(f)
+            }
+        };
+        self.portal = bare(&self.portal);
+        self.cell = bare(&self.cell);
+        self.local = if alias {
+            Arc::clone(&self.portal)
+        } else {
+            bare(&self.local)
+        };
+        if let Some(h) = self.highres.get() {
+            let lock = OnceLock::new();
+            let _ = lock.set(bare(h));
+            self.highres = lock;
+        }
+        self.overlay = None;
+        self
+    }
+
     /// The world's overlay folder, when one is laid over this store.
     #[must_use]
     pub fn overlay_dir(&self) -> Option<&crate::overlay::OverlayDir> {
         self.overlay.as_ref().map(|(d, _)| d)
+    }
+
+    /// The world whose overlay the store's files read through, as its containers name it; `None`
+    /// when no file reads through one.
+    #[must_use]
+    pub fn overlay_world(&self) -> Option<String> {
+        [
+            Some(&*self.portal),
+            Some(&*self.cell),
+            Some(&*self.local),
+            self.highres(),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|f| f.layer().map(|l| l.manifest().world_key.clone()))
     }
 
     /// Whether any of the world's files reads through an overlay.

@@ -170,6 +170,7 @@ pub(crate) fn setup_model() -> empyrean_dat::file_types::SetupModel {
         default_mtable_id: DataId(0),
         default_stable_id: DataId(0),
         default_phstable_id: DataId(0),
+        written_order: Default::default(),
     }
 }
 

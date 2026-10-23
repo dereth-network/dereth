@@ -129,6 +129,61 @@ fn process_env(name: &str) -> Option<OsString> {
     std::env::var_os(name)
 }
 
+/// **The person's Documents folder**, where the files they make and keep go: the folder Windows
+/// knows as Documents, wherever it has been moved (OneDrive among them), else
+/// `%USERPROFILE%\Documents`; `~/Documents` on macOS; and on Linux the XDG user directory
+/// `XDG_DOCUMENTS_DIR` that `user-dirs.dirs` names, else `~/Documents`. `None` when the
+/// environment names no home at all.
+#[must_use]
+pub fn documents_dir() -> Option<PathBuf> {
+    let env: Env<'_> = &process_env;
+    #[cfg(windows)]
+    {
+        windows::Storage::UserDataPaths::GetDefault()
+            .and_then(|paths| paths.Documents())
+            .ok()
+            .map(|path| PathBuf::from(path.to_os_string()))
+            .filter(|path| path.is_absolute())
+            .or_else(|| windows_documents(env))
+    }
+    #[cfg(not(windows))]
+    {
+        if cfg!(target_os = "macos") {
+            return absolute(env, "HOME").map(|h| h.join("Documents"));
+        }
+        let config = absolute(env, "XDG_CONFIG_HOME")
+            .or_else(|| absolute(env, "HOME").map(|h| h.join(".config")));
+        let user_dirs = config.and_then(|c| std::fs::read_to_string(c.join("user-dirs.dirs")).ok());
+        xdg_documents(env, user_dirs.as_deref())
+    }
+}
+
+/// The XDG documents folder: what `XDG_DOCUMENTS_DIR` names in `user-dirs.dirs` (whose text is
+/// `user_dirs`), a path under `$HOME/` or an absolute one; else `~/Documents`. A value that names
+/// the home folder itself means the person has none, and `~/Documents` is taken then too.
+#[cfg_attr(windows, allow(dead_code))]
+fn xdg_documents(env: Env<'_>, user_dirs: Option<&str>) -> Option<PathBuf> {
+    let home = absolute(env, "HOME")?;
+    let named = user_dirs.and_then(|text| {
+        text.lines().find_map(|line| {
+            let value = line
+                .trim()
+                .strip_prefix("XDG_DOCUMENTS_DIR=")?
+                .trim()
+                .trim_matches('"');
+            match value.strip_prefix("$HOME") {
+                Some(rest) => Some(home.join(rest.trim_start_matches('/'))),
+                None => Some(PathBuf::from(value)).filter(|p| p.has_root()),
+            }
+        })
+    });
+    Some(
+        named
+            .filter(|p| *p != home)
+            .unwrap_or_else(|| home.join("Documents")),
+    )
+}
+
 /// The folder Dereth's launcher and client keep their settings under, on this platform. `None`
 /// when the environment names no home at all, in which case the client saves nothing.
 #[must_use]
@@ -480,6 +535,48 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// On Linux the Documents folder is the one the person's `user-dirs.dirs` names, under their
+    /// home or anywhere; one naming the home folder itself, or none, means `~/Documents`.
+    #[test]
+    fn the_documents_folder_is_the_one_user_dirs_names_else_documents_at_home() {
+        let home = abs("a");
+        let env = env_of(&[("HOME", &home)]);
+        let home = PathBuf::from(home);
+        let named = |line: &str| {
+            xdg_documents(
+                &env,
+                Some(&format!("# written by xdg-user-dirs-update\n{line}\n")),
+            )
+        };
+        assert_eq!(xdg_documents(&env, None), Some(home.join("Documents")));
+        assert_eq!(
+            named("XDG_DOCUMENTS_DIR=\"$HOME/Papers\""),
+            Some(home.join("Papers"))
+        );
+        assert_eq!(
+            named("XDG_DOCUMENTS_DIR=\"$HOME/\""),
+            Some(home.join("Documents"))
+        );
+        assert_eq!(
+            named("XDG_MUSIC_DIR=\"$HOME/Music\""),
+            Some(home.join("Documents"))
+        );
+        let elsewhere = abs("shared");
+        assert_eq!(
+            named(&format!("XDG_DOCUMENTS_DIR=\"{elsewhere}\"")),
+            Some(PathBuf::from(elsewhere))
+        );
+        assert_eq!(xdg_documents(&env_of(&[]), None), None);
+    }
+
+    /// On Windows the Documents folder is the one the system names, wherever it was moved.
+    #[cfg(windows)]
+    #[test]
+    fn windows_names_the_documents_folder() {
+        let documents = documents_dir().expect("a Documents folder");
+        assert!(documents.is_absolute(), "{}", documents.display());
     }
 
     /// Each platform's rule, asserted on every host: the resolvers take the environment as an

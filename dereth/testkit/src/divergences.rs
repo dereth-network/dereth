@@ -276,12 +276,14 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-031",
         title: "A world's own data is kept in an overlay over the installed files",
         change: "Data a server sends during the update exchange is written into that world's \
-                 overlay folder (--overlay-dat-dir, else one per server in the per-user cache, \
-                 or in a browser one per server in its own storage), \
-                 never into the installed data files; a purge hides records there rather than \
-                 deleting them. With a server that sends the world's overlay manifest, an \
-                 overlay made against other files, for a blocked world or for another world's \
-                 folder is refused, and every record is checked against the manifest.",
+                 overlay folder (--overlay-dat-dir; else, in the per-user cache, one for each \
+                 world a server serves, in a folder for the server; in a browser, one per server \
+                 in its own storage), never into the installed data files; a purge hides records \
+                 there rather than deleting them. With a server that sends the world's overlay \
+                 manifest, an overlay made against other files, for a blocked world or for \
+                 another world's folder is refused, and every record is checked against the \
+                 manifest. A refused world is not played: the session ends before the character \
+                 list, and a refusal the client can tell at the start is made before it connects.",
         why: "One set of installed files serves every world, each world's changes stay its own, \
               and a server cannot change the files the player installed.",
     },

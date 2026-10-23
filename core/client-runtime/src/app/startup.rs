@@ -79,8 +79,10 @@ impl<S: Shell> App<S> {
         // five receive queues before the database opens because the dat cache uses queue 5. The
         // socket is bound later, when the run path connects before entering its frame loop.
         // Both are done here, because `App::new` is where this crate's fallible startup lives and
-        // `App::run` returns a frame count rather than a `Result`. The observable difference is
-        // only *when* a bad `-h` is reported, and it is still reported before any frame.
+        // `App::run` returns a frame count rather than a `Result`: the command line is checked
+        // first, and the connection is made once the data files are open and the world's overlay
+        // is one the client takes. The observable difference is only *when* a bad `-h` is
+        // reported, and it is still reported before any frame.
         //
         // A failure is fatal: startup returns the error and the process displays it before exit.
         //
@@ -91,7 +93,7 @@ impl<S: Shell> App<S> {
         // the launcher's child process does; given neither, it draws the world with no server.
         // `--no-connect` is the explicit opt-out, and giving one of the two without the other is
         // still the documented error rather than a silent offline start.
-        let link = if cfg.will_connect() {
+        if cfg.will_connect() {
             cfg.require_account_and_host().map_err(|e| {
                 // The dialog shows corestrings 205 whatever went wrong and discards accumulated
                 // connection text, so the detail goes to the log, which
@@ -99,6 +101,30 @@ impl<S: Shell> App<S> {
                 tracing::error!("{}", e.detail);
                 StartupError::CommandLine(e.to_string())
             })?;
+        }
+
+        // Step 10: open the data files. Files the platform opened carry the world's overlay as
+        // files opened from a folder do; they are kept as the base a reopen lays it over again.
+        let (store, base_store, refused) = match store {
+            Some(base) => {
+                let (laid, refused) = crate::world_overlay::lay_over_noting((*base).clone(), &cfg);
+                let store = if laid.has_overlay() {
+                    std::sync::Arc::new(laid)
+                } else {
+                    std::sync::Arc::clone(&base)
+                };
+                (store, Some(base), refused)
+            }
+            None => {
+                let (store, refused) = crate::assets::open_store_noting(&cfg)?;
+                (std::sync::Arc::new(store), None, refused)
+            }
+        };
+
+        // Step 9's connection, once the world's overlay is known to be one the client takes: a
+        // world whose overlay it refuses at the start is never connected to, and the reason is
+        // the session's end (client divergence CD-031).
+        let link = if cfg.will_connect() && refused.is_none() {
             // The connection sequence number is the low 32 bits of the current real-time
             // millisecond count. ACE reads it as `Timestamp` and otherwise ignores it.
             #[allow(clippy::cast_possible_truncation)]
@@ -122,23 +148,8 @@ impl<S: Shell> App<S> {
             None
         };
         // A headless client with no server answers for the server: see `crate::server_stub`.
-        let server_stub =
-            (link.is_none() && cfg.headless).then(crate::server_stub::ServerStub::default);
-
-        // Step 10: open the data files. Files the platform opened carry the world's overlay as
-        // files opened from a folder do; they are kept as the base a reopen lays it over again.
-        let (store, base_store) = match store {
-            Some(base) => {
-                let laid = crate::world_overlay::lay_over((*base).clone(), &cfg);
-                let store = if laid.has_overlay() {
-                    std::sync::Arc::new(laid)
-                } else {
-                    std::sync::Arc::clone(&base)
-                };
-                (store, Some(base))
-            }
-            None => (std::sync::Arc::new(crate::assets::open_store(&cfg)?), None),
-        };
+        let server_stub = (link.is_none() && cfg.headless && refused.is_none())
+            .then(crate::server_stub::ServerStub::default);
 
         // Step 12: UI initialization -> (windowed, title, 800, 600, visible, "").
         // The window and its metrics; `Platform` is supplied by a headless caller
@@ -248,7 +259,7 @@ impl<S: Shell> App<S> {
         });
         #[cfg(feature = "hifi")]
         let hifi_interface = cfg.render.fidelity.interface;
-        Ok(Self {
+        let mut app = Self {
             cfg,
             state: AppState::Startup,
             pump,
@@ -342,7 +353,13 @@ impl<S: Shell> App<S> {
             teleport: crate::teleport::Teleport::new(),
             anim_assets,
             object_identity,
-        })
+        };
+        // A world overlay refused at the start ends the session before it began: the interface
+        // shows why, as for any session's end, and its way out is the only one.
+        if let Some(refusal) = refused {
+            app.end_session_refused(&refusal);
+        }
+        Ok(app)
     }
 
     /// The asset seam, which is all any other consumer ever needs.

@@ -102,8 +102,19 @@ impl<S: Shell> App<S> {
             // before the shell's own edge test could see it.
             None => (true, false, self.host_state.error.clone()),
         };
+        // A session the client ended over the world's data says so, whatever the transport says
+        // of the connection it closed; one it ended at the start is a run that connects and never
+        // did, with no data check over.
+        let refused = self.world_refused().is_some();
+        let error = if refused {
+            self.host_state.error.clone()
+        } else {
+            error
+        };
+        let refused_at_start = refused && !has_net;
+        let connected = connected && !refused_at_start;
         self.host_state.connected = connected;
-        self.host_state.has_packet_controller = has_net;
+        self.host_state.has_packet_controller = has_net || refused_at_start;
         self.host_state.in_world = in_world;
         if self.host_state.disconnect.is_none() {
             if let Some(code) = self.link.as_ref().and_then(|l| l.net.error()) {
@@ -117,7 +128,7 @@ impl<S: Shell> App<S> {
         // With a live connection the DDD stream is real and `patch_finished` is what the
         // patch-time-end message says rather than an assumption. Without one there is no shared
         // asset cache to interrogate anything, so the phase is over before it starts.
-        if !has_net {
+        if !has_net && !refused_at_start {
             self.host_state.patch_finished = true;
         }
         // Drained into the screen once per frame; `HostState` is cloned into `UiShell::frame`, so
@@ -543,6 +554,14 @@ impl<S: Shell> App<S> {
                 }
             }
         }
+        if self.link.is_none() && self.world_refused().is_some() {
+            // Refused at the start, before any connection: a run with no screen to show why, or
+            // whose script has nobody to press its button, ends here.
+            if !shell.has_ui() || self.cfg.enter_world {
+                self.script = EnterWorldScript::Done;
+            }
+            return;
+        }
         let Some(link) = self.link.as_mut() else {
             return;
         };
@@ -626,32 +645,6 @@ impl<S: Shell> App<S> {
                             .collect::<Vec<_>>()
                             .join(", ")
                     );
-                    // A front end whose pre-game drive ([`Shell::drive_pregame_screens`])
-                    // presses its screens' own buttons does the rest itself. For every other one
-                    // -- `--no-ui` included -- the runtime logs the character on here.
-                    if scripted
-                        && runtime_enters
-                        && self.script == EnterWorldScript::AwaitingCharacterSet
-                    {
-                        // `-u`/`-user` names the character in the retail switch set and this build
-                        // is the first thing to read it; without one, the first slot.
-                        let pick = set
-                            .characters
-                            .iter()
-                            .find(|c| !wanted.is_empty() && c.name.eq_ignore_ascii_case(&wanted))
-                            .or_else(|| set.characters.first());
-                        if let Some(c) = pick {
-                            tracing::info!("entering the world as {:?}", c.name);
-                            let account = set.account.clone();
-                            // See `CharacterAction::LogOn`.
-                            self.host_state.entered_character = Some(c.name.clone());
-                            link.net.enter_world(c.gid, &account);
-                            self.script = EnterWorldScript::Entering;
-                        } else {
-                            tracing::info!("the account has no characters");
-                            self.script = EnterWorldScript::Done;
-                        }
-                    }
                 }
                 SessionEvent::WorldInfo {
                     name,
@@ -697,6 +690,11 @@ impl<S: Shell> App<S> {
                 SessionEvent::CharacterDeleted => {
                     tracing::info!("0xF655 the slot was deleted");
                 }
+                // Nothing more of a world whose data the client refused is answered or taken: the
+                // session ends once this frame's events are through.
+                SessionEvent::Ddd(d) if self.ddd.refusal().is_some() => {
+                    tracing::debug!("DDD {d:?} after the world's data was refused");
+                }
                 SessionEvent::Ddd(dereth_client_net::client_session::DddEvent::Interrogation(
                     interrogation,
                 )) => {
@@ -720,10 +718,14 @@ impl<S: Shell> App<S> {
                         }
                         self.ddd.set_bases(&self.store);
                     }
+                    // The lists are those of the world whose overlay the files read through, and
+                    // the answer names it (the overlay extension, client divergence CD-031).
+                    let world = crate::world_overlay::laid_world(&self.store);
                     let response = ddd_interrogation_response(
                         &self.store,
                         interrogation.product_id,
                         self.ddd.keeps_overlay(),
+                        world.as_deref(),
                     );
                     tracing::debug!(
                         "0xF7E6 answering with {} iteration list(s): {:?}",
@@ -739,6 +741,7 @@ impl<S: Shell> App<S> {
                     // that arrive from here until `0xF7E7` are early saves, which the begin handler
                     // subtracts from the byte count it shows the player.
                     self.ddd.on_interrogation();
+                    self.ddd.answered_for(world.as_deref());
                     self.pending_ddd
                         .push(dereth_client_contract::pregame::DddEvent::PatchtimeInterrogation);
                     tracing::debug!("DDD Interrogation({interrogation:?})");
@@ -794,9 +797,38 @@ impl<S: Shell> App<S> {
                             Some(UiDdd::PatchtimePending { total: 0 })
                         }
                         // The overlay extension's manifest, ahead of the patch: the patcher
-                        // checks it names this client's bases and a world it takes.
+                        // checks it names this client's bases and a world it takes. A world kept
+                        // in a folder of its own at its server, which names itself as another
+                        // than the one the files read through, is read through its own folder
+                        // from now on, before the server asks again.
                         dereth_client_net::client_session::DddEvent::OverlayManifest(m) => {
                             self.ddd.on_manifest(m);
+                            if self.ddd.take_switched() {
+                                let base = self
+                                    .base_store
+                                    .as_deref()
+                                    .cloned()
+                                    .unwrap_or_else(|| (*self.store).clone().without_overlay());
+                                let dir = self.ddd.target().map(|t| t.dir().clone());
+                                let (fresh, refused) = crate::world_overlay::lay_folder(
+                                    base,
+                                    dir.as_ref(),
+                                    &crate::world_overlay::blocklist(&self.cfg),
+                                );
+                                match refused {
+                                    Some(refusal) => self.ddd.refuse_for(refusal),
+                                    None => adopt_store_into(
+                                        StoreHolders {
+                                            store: &mut self.store,
+                                            anim_assets: &mut self.anim_assets,
+                                            objects: &mut self.objects,
+                                            ddd: &mut self.ddd,
+                                            generation: &mut self.store_generation,
+                                        },
+                                        std::sync::Arc::new(fresh),
+                                    ),
+                                }
+                            }
                             None
                         }
                         dereth_client_net::client_session::DddEvent::Error(e) => {
@@ -898,6 +930,69 @@ impl<S: Shell> App<S> {
         // The `DDD_PatchtimeEnd` cache-invalidation arm is taken here
         // rather than in the loop because it needs `&mut self` and the loop holds `link`.
         self.invalidate_after_ddd();
+        // A world whose data the client refused during the data patch, or reading what it left,
+        // is not played: the session ends before any character goes in (client divergence
+        // CD-031).
+        if self.host_state.entered_character.is_none() {
+            if let Some(refusal) = self.ddd.refusal().cloned() {
+                self.host_state.patch_finished = false;
+                // Once: a session another notice ended first (the server's own boot) keeps it.
+                if self.host_state.disconnect.is_none() {
+                    self.end_session_refused(&refusal);
+                }
+                if no_ui || scripted {
+                    self.script = EnterWorldScript::Done;
+                }
+                return;
+            }
+        }
+        let Some(link) = self.link.as_mut() else {
+            return;
+        };
+        // A front end whose pre-game drive ([`Shell::drive_pregame_screens`]) presses its screens'
+        // own buttons does the rest itself. For every other one -- `--no-ui` included -- the
+        // runtime logs the character on here, once the character list has arrived and the server
+        // has finished with the data files, as the screens' own Log In waits for both.
+        let ready = scripted
+            && runtime_enters
+            && self.script == EnterWorldScript::AwaitingCharacterSet
+            && self.host_state.patch_finished;
+        if let Some(set) = self.host_state.character_set.as_ref().filter(|_| ready) {
+            // `-u`/`-user` names the character in the retail switch set and this build is the
+            // first thing to read it; without one, the first slot.
+            let pick = set
+                .set
+                .iter()
+                .find(|c| !wanted.is_empty() && c.name.eq_ignore_ascii_case(&wanted))
+                .or_else(|| set.set.first())
+                .map(|c| (c.id, c.name.clone()));
+            let account = set.account.clone();
+            if let Some((gid, name)) = pick {
+                tracing::info!("entering the world as {name:?}");
+                // See `CharacterAction::LogOn`.
+                self.host_state.entered_character = Some(name);
+                link.net.enter_world(gid, &account);
+                self.script = EnterWorldScript::Entering;
+            } else {
+                tracing::info!("the account has no characters");
+                self.script = EnterWorldScript::Done;
+            }
+        }
+    }
+
+    /// End the session over `refusal`, the world's data the client did not take: the server is
+    /// told goodbye when it was connected to, and the interface shows why, as it shows any
+    /// session's end, with its one way out. Nothing of the world is entered.
+    pub(super) fn end_session_refused(&mut self, refusal: &crate::world_overlay::Refusal) {
+        let text = refusal.message();
+        tracing::warn!("the world's data is refused and the session ends: {text}");
+        if let Some(link) = self.link.as_mut() {
+            let (sent, queued) = link.log_off_server();
+            tracing::debug!("goodbye: {sent} of {queued} datagram(s) sent");
+        }
+        self.host_state.error = Some(text.clone());
+        self.host_state.disconnect =
+            Some(dereth_client_contract::pregame::DisconnectNotice::OverlayRefused(text));
     }
 
     /// Handle `DDD_PatchtimeEnd` by making caches forget what
@@ -941,42 +1036,63 @@ impl<S: Shell> App<S> {
             // impose on a session that had no patch.
             return;
         }
-        match self.reopen_store() {
-            Ok(fresh) => {
-                self.adopt_store(std::sync::Arc::new(fresh));
-                tracing::info!(
-                    "DDD reopened the dat files; {} changed",
-                    summary
-                        .changed
-                        .iter()
-                        .map(|t| t.file_name())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-            // Reopening failed, so the old store stands. Stale is better than absent: the client
-            // has a complete, self-consistent view of the files as they were.
-            Err(e) => tracing::warn!(
-                "DDD could not reopen the dat files ({}); the old view stands and a \
-                 restart is needed to see the patch",
-                e.cause
-            ),
+        let (fresh, refused) = self.reopen_store_noting();
+        if let Some(refusal) = refused {
+            // What the patch left will not lie over the files: the world is not played without
+            // it.
+            self.ddd.refuse_for(refusal);
+            return;
         }
+        self.adopt_store(std::sync::Arc::new(fresh));
+        tracing::info!(
+            "DDD reopened the dat files; {} changed",
+            summary
+                .changed
+                .iter()
+                .map(|t| t.file_name())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
-    /// The data files opened again after a patch, with the world's overlay over them: from
-    /// [`crate::config::Config::dat_dir`], or, when the platform opened the files itself, over the
-    /// files it opened ([`Self::bring_up_with_store`]), which a patch never changes.
+    /// The data files opened again after a patch, with the world's overlay over them: the files
+    /// as the application reads them, or, when the platform opened the files itself, the files it
+    /// opened ([`Self::bring_up_with_store`]), neither of which a patch changes, with the overlay
+    /// of the folder the run names ([`crate::config::Config::overlay_dat_dir`]), else the folder
+    /// the patcher writes the world's records in.
     ///
     /// # Errors
-    /// The files will not open.
+    /// None: the files are already open, and an overlay that will not lie over them is left out
+    /// and logged ([`Self::reopen_store_noting`] says why).
     pub fn reopen_store(
         &self,
     ) -> Result<dereth_dat::RetailDatStore, crate::assets::DataFilesError> {
-        match &self.base_store {
-            Some(base) => Ok(crate::world_overlay::lay_over((**base).clone(), &self.cfg)),
-            None => crate::assets::open_store(&self.cfg),
-        }
+        Ok(self.reopen_store_noting().0)
+    }
+
+    /// [`Self::reopen_store`], with the reason when the overlay is refused.
+    #[must_use]
+    pub fn reopen_store_noting(
+        &self,
+    ) -> (
+        dereth_dat::RetailDatStore,
+        Option<crate::world_overlay::Refusal>,
+    ) {
+        let base = self
+            .base_store
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| (*self.store).clone().without_overlay());
+        let dir = if self.cfg.overlay_dat_dir.is_some() {
+            crate::world_overlay::folder(&self.cfg)
+        } else {
+            self.ddd.target().map(|t| t.dir().clone())
+        };
+        crate::world_overlay::lay_folder(
+            base,
+            dir.as_ref(),
+            &crate::world_overlay::blocklist(&self.cfg),
+        )
     }
 
     /// Make `fresh`, the data files reopened after a patch, the store every reader of this
@@ -989,13 +1105,16 @@ impl<S: Shell> App<S> {
     /// reaches it in play, a landblock answering a run-time get, is handed to the land source by
     /// its caller.
     pub fn adopt_store(&mut self, fresh: std::sync::Arc<dereth_dat::RetailDatStore>) {
-        self.anim_assets = std::sync::Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
-            std::sync::Arc::clone(&fresh),
-        ));
-        self.objects.set_store(std::sync::Arc::clone(&fresh));
-        self.ddd.set_bases(&fresh);
-        self.store = fresh;
-        self.store_generation += 1;
+        adopt_store_into(
+            StoreHolders {
+                store: &mut self.store,
+                anim_assets: &mut self.anim_assets,
+                objects: &mut self.objects,
+                ddd: &mut self.ddd,
+                generation: &mut self.store_generation,
+            },
+            fresh,
+        );
     }
 
     /// How many times the data files have been reopened since start-up. See
@@ -1411,12 +1530,14 @@ pub const PRODUCT_HIGHRES: u32 = 4;
 ///
 /// `keeps_overlay` is whether the client keeps the world's records in an overlay this run
 /// ([`crate::ddd::DddPatcher::keeps_overlay`]): only then does the answer carry the overlay
-/// extension.
+/// extension. `world` is the world whose overlay `store`'s files read through, when they read
+/// through one: the answer then names it, after the bases.
 #[must_use]
 pub fn ddd_interrogation_response(
     store: &dereth_dat::RetailDatStore,
     product_id: u32,
     keeps_overlay: bool,
+    world: Option<&str>,
 ) -> dereth_protocol::admin::DddInterrogationResponse {
     use dereth_protocol::admin::{
         DddInterrogationResponse, MostlyConsecutiveIntSet, TaggedIterationList,
@@ -1493,6 +1614,19 @@ pub fn ddd_interrogation_response(
             }
         }
     }
+    let mut flags = if keeps_overlay {
+        DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_RECORDS
+    } else {
+        0
+    };
+    // The world the lists are of, so a server that is another world asks again once this client
+    // reads through that world's own folder.
+    if let Some(world) = world.filter(|_| keeps_overlay) {
+        flags |= DddInterrogationResponse::FLAG_WORLD;
+        overlay_bases.push(dereth_protocol::admin::OverlayBase::world(
+            dereth_dat::overlay::world_hash(world),
+        ));
+    }
     DddInterrogationResponse {
         // Read the local language. 1 is English, which is the only `client_local_*.dat` this
         // install has; `-language` does not reach this yet.
@@ -1500,11 +1634,30 @@ pub fn ddd_interrogation_response(
         iters_with_keys,
         // "a second `CAllIterationList`, always empty in practice" -- and ACE does not read it.
         iters_without_keys: Vec::new(),
-        flags: if keeps_overlay {
-            DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_RECORDS
-        } else {
-            0
-        },
+        flags,
         overlay_bases,
     }
+}
+
+/// The holders of the application's store, which a reopen of the data files replaces together.
+pub(super) struct StoreHolders<'a> {
+    pub store: &'a mut std::sync::Arc<dereth_dat::RetailDatStore>,
+    pub anim_assets: &'a mut std::sync::Arc<dereth_world_data::anim_assets::DatAnimAssets>,
+    pub objects: &'a mut crate::objects::ObjectStream,
+    pub ddd: &'a mut crate::ddd::DddPatcher,
+    pub generation: &'a mut u64,
+}
+
+/// [`App::adopt_store`] on its holders, for a caller that holds the link at the same time.
+pub(super) fn adopt_store_into(
+    holders: StoreHolders<'_>,
+    fresh: std::sync::Arc<dereth_dat::RetailDatStore>,
+) {
+    *holders.anim_assets = std::sync::Arc::new(dereth_world_data::anim_assets::DatAnimAssets::new(
+        std::sync::Arc::clone(&fresh),
+    ));
+    holders.objects.set_store(std::sync::Arc::clone(&fresh));
+    holders.ddd.set_bases(&fresh);
+    *holders.store = fresh;
+    *holders.generation += 1;
 }

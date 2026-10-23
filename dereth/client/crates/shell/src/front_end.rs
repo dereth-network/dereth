@@ -182,6 +182,8 @@ fn dispatch_ui_owner_requests<H: Host>(
 /// The executable's front end: everything the frame hands the UI, and the state the UI keeps
 /// across frames.
 pub struct ClientShell<H: Host> {
+    pub(crate) host_overlay: Vec<dereth_client_contract::overlay::OverlayItem>,
+    pub(crate) host_hides_ui: bool,
     pub(crate) modern: ModernFrontEnd,
     pub(crate) shared: FrontEndServices<H>,
     pub(crate) classic: crate::classic_face::ClassicFace,
@@ -363,6 +365,8 @@ impl<H: Host> ClientShell<H> {
                 ui_draw_list: Vec::new(),
                 files_read: 0,
             },
+            host_overlay: Vec::new(),
+            host_hides_ui: false,
             classic: crate::classic_face::ClassicFace::default(),
             horizon: horizon::HorizonFace::default(),
         }
@@ -2531,8 +2535,20 @@ impl<H: Host> Shell for ClientShell<H> {
         &mut self,
         present: &mut Self::Present,
     ) -> Result<(), dereth_client_runtime::present::PresentError> {
-        let (front, services) = self.front_and_services();
-        front.draw(present, services)
+        if !self.host_hides_ui {
+            let (front, services) = self.front_and_services();
+            front.draw(present, services)?;
+        }
+        // The host's own controls go over its whole window, whatever part of it the game drew in.
+        let region = present.inset();
+        if region.is_some() {
+            present.set_inset(None);
+        }
+        let drawn = present.draw_overlay(&self.host_overlay);
+        if region.is_some() {
+            present.set_inset(region);
+        }
+        drawn
     }
 
     /// Broadcast the global refresh message — `UiSystem::refresh_event`, which re-lays the root

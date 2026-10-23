@@ -3,7 +3,8 @@
 //! Fixture: the shipped retail DAT records.
 
 use dereth_assets::{
-    CellLandblock, Decode, EnvCell, LandblockInfo, RenderSurface, Surface, SurfaceTexture,
+    CellLandblock, Decode, EnvCell, Environment, GfxObj, LandblockInfo, RenderSurface, Setup,
+    Surface, SurfaceTexture,
 };
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_primitives::DataId;
@@ -122,4 +123,56 @@ fn every_render_surface_encodes_back_to_its_own_bytes() {
     );
     // The portal file's and the high-res file's.
     assert_eq!(n, 20_684 + 2_294);
+}
+
+#[test]
+fn every_model_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::GfxObj);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::GfxObj, id).unwrap(),
+        |id, b| GfxObj::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 15_318, "every model");
+}
+
+#[test]
+fn every_setup_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::Setup);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::Setup, id).unwrap(),
+        |id, b| Setup::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 5_935, "every setup");
+}
+
+#[test]
+fn every_environment_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::Environment);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::Environment, id).unwrap(),
+        |id, b| Environment::decode_payload(id, b).unwrap().encode(),
+    );
+    assert_eq!(n, 772, "every environment");
+}
+
+#[test]
+fn every_detail_record_encodes_back_to_its_own_bytes() {
+    let s = store();
+    let ids = s.ids_of(DbType::DegradeInfo);
+    let n = round_trip(
+        &ids,
+        |id| s.read_typed(DbType::DegradeInfo, id).unwrap(),
+        |id, b| {
+            dereth_assets::motion::GfxObjDegradeInfo::decode_payload(id, b)
+                .unwrap()
+                .encode()
+        },
+    );
+    assert_eq!(n, 4_131, "every detail record");
 }

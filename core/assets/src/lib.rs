@@ -54,13 +54,13 @@ pub mod verify;
 pub mod world;
 
 use dereth_dat::{ContainerEra, Cursor, DbType};
-use dereth_primitives::DataId;
+use dereth_primitives::{DataId, EraId};
 
 pub use audio::{SoundTable, Wave};
 pub use common::{BspKind, BspNode, BspTree, Plane, Polygon, Sphere, SwVertex, VertexArray};
 pub use dbobj::{check_id_echo, read_dbobj_header, DbObjHeader};
 pub use error::AssetError;
-pub use geometry::{Animation, Environment, GfxObj, Setup};
+pub use geometry::{Animation, Environment, GfxObj, Setup, SetupOrder};
 pub use hook::{AnimHook, HookData};
 pub use material::{Palette, PaletteSet, RenderSurface, RenderTexture, Surface, SurfaceTexture};
 pub use motion::{
@@ -128,6 +128,15 @@ pub trait Decode: Sized {
                 Ok(v)
             }
         }
+    }
+
+    /// Full payload to value in the layout the files of `era` hold it in, with `expect_end()` and
+    /// the DataID echo check: the inverse of the `encode_for` of the records a world builder
+    /// writes. Each era reads in the layout of its dat set
+    /// ([`dereth_primitives::EraId::container_era`]), where a type whose layout varied within a
+    /// set reads whichever its record holds.
+    fn decode_payload_for(era: EraId, id: DataId, bytes: &[u8]) -> Result<Self, AssetError> {
+        Self::decode_payload_in(era.container_era(), id, bytes)
     }
 
     /// The same, without the echo check, for callers testing a synthetic payload.

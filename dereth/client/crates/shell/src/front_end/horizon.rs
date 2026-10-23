@@ -63,6 +63,7 @@ pub(super) fn build_horizon<H: Host>(cx: &mut Cx<'_, H>) -> Result<HorizonFrontE
     let config = cx.config();
     if config.enter_world {
         options.auto_login = true;
+        options.immediate_entry = config.hosted_entry;
         let named = |s: &str| (!s.is_empty()).then(|| s.to_owned());
         options.start_character = named(&config.start_char);
         options.create_character = named(&config.create_char);

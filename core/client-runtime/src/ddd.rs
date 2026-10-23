@@ -53,7 +53,11 @@
 //! world's overlay manifest (`0xF7EC`) before the patch: the world's name, the base each file's
 //! overlay was made against, and every record's SHA-256 and every deletion. The client refuses an
 //! overlay made against another base, a world on its blocklist, and a folder holding another
-//! world's overlay, and it refuses any record whose bytes are not the ones the manifest names.
+//! world's overlay, and it refuses any record whose bytes are not the ones the manifest names; a
+//! refused world is not played ([`crate::world_overlay`]). A run that keeps a folder for each world
+//! at its server answers with the lists of the world the server served last and names it; a world
+//! that names itself as another is written in its own folder from then on, and the server asks
+//! again, so the answer it patches from is that world's.
 //! Without the extension (a stock ACE server) the patch is retail's, into the overlay all the same.
 //!
 //! # The safety rails that are not native's
@@ -75,13 +79,15 @@
 //!    from the wire.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dereth_dat::overlay::{OverlayDir, OverlayError, OverlayWriter};
 use dereth_dat::write::SaveOutcome;
 use dereth_dat::{DatError, DatFile, DatKind, RetailDatStore};
 use dereth_primitives::DataId;
 use dereth_protocol::admin::{DddBeginDdd, DddData, DddError, DddOverlayManifest, DddRequestData};
+
+use crate::world_overlay::Refusal;
 
 /// The `0xFFFF0000` mask used for a type-1 purge, which removes the whole landblock
 /// family containing the named record.
@@ -307,6 +313,10 @@ pub struct OverlayTarget {
     /// The world the overlay belongs to: the manifest's name for it, else the folder's, else the
     /// name the client knows the server by.
     world_key: String,
+    /// The server's folder, which keeps a folder for each world the server serves, and the name
+    /// the client knows the server by (the name of a world that names none); `None` when the run
+    /// keeps the one folder `dir`.
+    each_world: Option<(PathBuf, String)>,
 }
 
 impl OverlayTarget {
@@ -319,9 +329,23 @@ impl OverlayTarget {
             dir,
             bases: BTreeMap::new(),
             world_key,
+            each_world: None,
         };
         me.set_bases(store);
         me
+    }
+
+    /// This target as one world's folder in the server's folder `root`, which holds a folder for
+    /// each world the server serves: `world` is the world this folder is for (its own name for it
+    /// when it holds an overlay already), and `address` the name of a world that names none. When
+    /// the server names another world, that world's folder takes this one's place.
+    #[must_use]
+    pub fn for_each_world_in(mut self, root: &Path, address: &str, world: &str) -> Self {
+        if self.dir.world_key().is_none() {
+            world.clone_into(&mut self.world_key);
+        }
+        self.each_world = Some((root.to_path_buf(), address.to_owned()));
+        self
     }
 
     /// The overlay folder `dir` over the given base files, for the world `world_key`.
@@ -347,6 +371,7 @@ impl OverlayTarget {
             dir,
             bases,
             world_key,
+            each_world: None,
         }
     }
 
@@ -392,8 +417,9 @@ impl OverlayTarget {
 pub struct DddPatcher {
     target: Option<OverlayTarget>,
     /// Why this world's overlay is refused, when it is: nothing is written and the patch ends at
-    /// once.
+    /// once. The log's words, then the player's.
     overlay_refused: Option<String>,
+    overlay_refusal: Option<Refusal>,
     /// The record hashes the world's overlay manifest names, by file and id.
     expected: BTreeMap<(DatTarget, u32), [u8; 32]>,
     /// The single-record deletions the manifest names, by file and revision.
@@ -408,6 +434,15 @@ pub struct DddPatcher {
     unchecked: Vec<(DatTarget, u32)>,
     /// Whether the manifest has arrived.
     manifest_seen: bool,
+    /// The world whose iteration lists the last answer to the server's question carried, when it
+    /// named one.
+    answered: Option<String>,
+    /// The folder changed to the world's own when the world named itself, for the caller to lay
+    /// over the files.
+    switched: bool,
+    /// The world named itself as another than the one the answer carried, and the server is to
+    /// ask again.
+    asked_again: bool,
     /// The files whose overlay carries the world's own iteration list, by the manifest: their
     /// records are the world's whatever iteration the base has of them.
     exact: BTreeSet<DatTarget>,
@@ -445,12 +480,16 @@ impl DddPatcher {
         Self {
             target,
             overlay_refused: None,
+            overlay_refusal: None,
             expected: BTreeMap::new(),
             manifest_tombstones: BTreeMap::new(),
             blocklist: BTreeSet::new(),
             created: BTreeSet::new(),
             unchecked: Vec::new(),
             manifest_seen: false,
+            answered: None,
+            switched: false,
+            asked_again: false,
             exact: BTreeSet::new(),
             phase: DddPhase::Idle,
             writers: BTreeMap::new(),
@@ -493,10 +532,13 @@ impl DddPatcher {
         self.blocklist = keys.into_iter().collect();
         if let Some(t) = &self.target {
             if self.blocklist.contains(&t.world_key) {
-                self.refuse(format!(
-                    "the world {:?} is on the overlay blocklist",
-                    t.world_key
-                ));
+                let world = t.world_key.clone();
+                self.refuse(
+                    Refusal::Blocked {
+                        world: world.clone(),
+                    },
+                    format!("the world {world:?} is on the overlay blocklist"),
+                );
             }
         }
     }
@@ -514,6 +556,31 @@ impl DddPatcher {
         self.overlay_refused.as_deref()
     }
 
+    /// Why this world's overlay is refused, as the player is told it.
+    #[must_use]
+    pub fn refusal(&self) -> Option<&Refusal> {
+        self.overlay_refusal.as_ref()
+    }
+
+    /// Refuse this world's overlay for `refusal`, which the caller found: nothing more of it is
+    /// written.
+    pub fn refuse_for(&mut self, refusal: Refusal) {
+        let why = refusal.message();
+        self.refuse(refusal, why);
+    }
+
+    /// Note the world whose iteration lists the answer to the server's question carried (`None`
+    /// when it named none): the world the server is to name, or else ask again.
+    pub fn answered_for(&mut self, world: Option<&str>) {
+        self.answered = world.map(str::to_owned);
+    }
+
+    /// Whether the world named itself as another than the folder's and its own folder took that
+    /// one's place since this was last asked: the files are to be read through it now.
+    pub fn take_switched(&mut self) -> bool {
+        std::mem::take(&mut self.switched)
+    }
+
     /// The file a patch target names, as this client holds it (`portal.dat` beside an older
     /// world, `client_portal.dat` beside a later one).
     fn name_of(&self, target: DatTarget) -> String {
@@ -523,7 +590,7 @@ impl DddPatcher {
             .map_or_else(|| target.file_name().to_owned(), |(_, n)| n.clone())
     }
 
-    fn refuse(&mut self, why: String) {
+    fn refuse(&mut self, refusal: Refusal, why: String) {
         if self.overlay_refused.is_none() {
             tracing::warn!(
                 "DDD the world's overlay is refused and nothing of it is written: {why}"
@@ -531,6 +598,7 @@ impl DddPatcher {
             self.notices
                 .push(format!("the world's overlay is refused: {why}"));
             self.overlay_refused = Some(why);
+            self.overlay_refusal = Some(refusal);
             self.writers.clear();
             // What this session made of the overlay goes with it.
             if let Some(t) = &self.target {
@@ -544,18 +612,69 @@ impl DddPatcher {
     /// `0xF7EC`, the world's overlay manifest: check it names this client's bases and a world it
     /// takes, and keep its record hashes and deletions for the patch that follows.
     pub fn on_manifest(&mut self, m: &DddOverlayManifest) {
-        if self.blocklist.contains(&m.world_key) {
-            self.refuse(format!(
-                "the world {:?} is on the overlay blocklist",
-                m.world_key
-            ));
+        // A world that keeps no overlay names none, and names no file.
+        let keeps_none = m.world_key.is_empty() && m.files.is_empty();
+        if let Some((root, address)) = self.target.as_ref().and_then(|t| t.each_world.clone()) {
+            // The server serves this world now: the next run starts on its folder.
+            let world = if keeps_none {
+                address
+            } else {
+                m.world_key.clone()
+            };
+            if let Err(e) = crate::world_overlay::remember_world(&root, &world) {
+                tracing::warn!(
+                    "DDD {} could not note the world {world:?}: {e}",
+                    root.display()
+                );
+            }
+        }
+        if !keeps_none && self.blocklist.contains(&m.world_key) {
+            self.refuse(
+                Refusal::Blocked {
+                    world: m.world_key.clone(),
+                },
+                format!("the world {:?} is on the overlay blocklist", m.world_key),
+            );
             return;
         }
         self.manifest_seen = true;
+        if self.target.is_none() {
+            if keeps_none {
+                return;
+            }
+            self.refuse(
+                Refusal::NoFolder,
+                "there is no overlay folder for this world".into(),
+            );
+            return;
+        }
+        if self.target.as_ref().is_some_and(|t| t.each_world.is_some()) {
+            if let Err((refusal, why)) = self.follow_world(m, keeps_none) {
+                self.refuse(refusal, why);
+                return;
+            }
+        }
         let Some(target) = &mut self.target else {
-            self.refuse("there is no overlay folder for this world".into());
             return;
         };
+        if keeps_none {
+            // A world that keeps none is played from a folder holding none: the run's own folder
+            // holding another world's overlay is refused.
+            if target.each_world.is_none() {
+                if let Some(found) = target.dir.world_key() {
+                    let why = format!(
+                        "{} holds the overlay of the world {found:?}, and this world keeps none",
+                        target.dir.path().display()
+                    );
+                    let refusal = Refusal::OtherWorld {
+                        folder: target.dir.path().to_path_buf(),
+                        held: found,
+                    };
+                    self.refuse(refusal, why);
+                }
+            }
+            return;
+        }
         if let Some(found) = target.dir.world_key() {
             // Records may arrive ahead of the manifest. The containers they went into carry the
             // name the client knew the world by; when this session made every one of them, the
@@ -576,7 +695,11 @@ impl DddPatcher {
                     target.dir.path().display(),
                     m.world_key
                 );
-                self.refuse(why);
+                let refusal = Refusal::OtherWorld {
+                    folder: target.dir.path().to_path_buf(),
+                    held: found,
+                };
+                self.refuse(refusal, why);
                 return;
             }
         }
@@ -615,7 +738,7 @@ impl DddPatcher {
             }
         }
         if let Some(why) = mismatch {
-            self.refuse(why);
+            self.refuse(Refusal::OtherFiles, why);
             return;
         }
         // The records that came ahead of the manifest are held to it now.
@@ -625,10 +748,11 @@ impl DddPatcher {
             want.is_some_and(|w| have != Some(*w))
         });
         if let Some((t, id)) = forged.copied() {
-            self.refuse(format!(
+            let why = format!(
                 "{id:#010X} of {} is not the record the world's overlay manifest names",
                 self.name_of(t)
-            ));
+            );
+            self.refuse(Refusal::BadRecord, why);
             return;
         }
         self.unchecked.clear();
@@ -642,6 +766,130 @@ impl DddPatcher {
                 .map(Vec::len)
                 .sum::<usize>()
         ));
+    }
+
+    /// For a run keeping a folder for each world at its server: the world `m` names (the server's
+    /// own name for one that keeps no overlay) is written in its own folder from now on. A folder
+    /// holding only what this session wrote, ahead of the world's name, goes with it; records of
+    /// the world written into another world's folder refuse it, as does its own folder holding
+    /// another world's overlay.
+    fn follow_world(
+        &mut self,
+        m: &DddOverlayManifest,
+        keeps_none: bool,
+    ) -> Result<(), (Refusal, String)> {
+        let Some(target) = self.target.as_mut() else {
+            return Ok(());
+        };
+        let Some((root, address)) = target.each_world.clone() else {
+            return Ok(());
+        };
+        let world = if keeps_none {
+            address
+        } else {
+            m.world_key.clone()
+        };
+        let other_world = |folder: &Path, held: String| {
+            let why = format!(
+                "{} holds the overlay of the world {held:?}, and this world is {world:?}",
+                folder.display()
+            );
+            (
+                Refusal::OtherWorld {
+                    folder: folder.to_path_buf(),
+                    held,
+                },
+                why,
+            )
+        };
+        if target.world_key == world {
+            return match target.dir.world_key() {
+                Some(held) if held != world => Err(other_world(target.dir.path(), held)),
+                _ => Ok(()),
+            };
+        }
+        let to = crate::world_overlay::world_folder(&root, &world);
+        let next = crate::world_overlay::open_folder(&to).map_err(|e| {
+            (
+                Refusal::from_error(&e),
+                format!("{} cannot hold the world's overlay: {e}", to.display()),
+            )
+        })?;
+        if let Some(held) = next.world_key().filter(|h| *h != world) {
+            return Err(other_world(&to, held));
+        }
+        let made_here = target.dir.containers();
+        let ours = !made_here.is_empty()
+            && made_here
+                .iter()
+                .all(|p| self.created.iter().any(|c| target.dir.container(*c) == *p));
+        if ours {
+            // Records that came ahead of the world's name were written in the folder the run
+            // started on, which held nothing before: they are this world's, and go to its folder.
+            if !next.containers().is_empty() {
+                return Err((
+                    Refusal::WorldChanged,
+                    format!(
+                        "this session wrote the world {world:?} into {} and {} holds it already",
+                        target.dir.path().display(),
+                        to.display()
+                    ),
+                ));
+            }
+            for w in self.writers.values_mut() {
+                w.set_world_key(&world);
+            }
+            // Each writer writes what it holds as it closes.
+            self.writers.clear();
+            let moved = std::fs::create_dir_all(&to).and_then(|()| {
+                made_here.iter().try_for_each(|from| {
+                    let name = from.file_name().unwrap_or_default();
+                    std::fs::rename(from, to.join(name))
+                })
+            });
+            if let Err(e) = moved {
+                return Err((
+                    Refusal::Unreadable,
+                    format!(
+                        "the world's overlay could not be moved to {}: {e}",
+                        to.display()
+                    ),
+                ));
+            }
+        } else if !self.writers.is_empty() {
+            // The world's records went into another world's folder.
+            return Err((
+                Refusal::WorldChanged,
+                format!(
+                    "records of the world {world:?} were written into {}, another world's folder",
+                    target.dir.path().display()
+                ),
+            ));
+        }
+        tracing::info!(
+            "DDD the world {world:?} is kept in {} from now on",
+            next.path().display()
+        );
+        target.dir = next;
+        target.world_key.clone_from(&world);
+        self.switched = true;
+        // The answer carried another world's lists: a server that knows the world it answered for
+        // asks again, and one that does not has patched this world as that one.
+        if self.answered.as_deref().is_some_and(|a| a != world) {
+            self.asked_again = true;
+        }
+        // The containers that moved are written on, and held to the manifest, where they are now.
+        if ours {
+            for t in self.created.clone() {
+                if let Err(e) = self.writer(t) {
+                    return Err((
+                        Refusal::Unreadable,
+                        format!("the world's overlay could not be opened again: {e}"),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -670,6 +918,7 @@ impl DddPatcher {
     /// `0xF7E5` was answered. Records that arrive from here to `0xF7E7` are early saves.
     pub fn on_interrogation(&mut self) {
         self.phase = DddPhase::InterrogationReceved;
+        self.asked_again = false;
     }
 
     /// Answer whether this `QualifiedDataID` needs a `0xF7E3` sent
@@ -713,6 +962,14 @@ impl DddPatcher {
     /// subtraction the begin handler performs — together with whether the client owes a `0xF7EA`
     /// already, which it does whenever there is nothing left to wait for.
     pub fn on_begin(&mut self, m: &DddBeginDdd) -> (u64, DddAction) {
+        if self.asked_again {
+            // The server patches the world as the one the answer carried the lists of.
+            self.refuse(
+                Refusal::WorldChanged,
+                "the server named another world than the answer's and patched it as that one"
+                    .into(),
+            );
+        }
         self.phase = DddPhase::Patching;
         self.revisions.clear();
         self.pending.clear();
@@ -1111,7 +1368,7 @@ impl DddPatcher {
                 Err(OverlayError::Dat(e)) => return Err(e),
                 Err(e) => {
                     let why = e.to_string();
-                    self.refuse(why.clone());
+                    self.refuse(Refusal::from_error(&e), why.clone());
                     return Err(DatError::Io(std::io::Error::other(why)));
                 }
             };
@@ -1469,6 +1726,116 @@ mod tests {
         let mut layout = patcher("layout");
         layout.on_manifest(&manifest(None));
         assert!(layout.refused().is_some_and(|r| r.contains("made against")));
+        drop(scratch);
+    }
+
+    /// Behaviour: none (a world kept in a folder of its own: records that come ahead of its name)
+    /// Records that come ahead of the world's name, written in the folder the run started on, go
+    /// with the world into its own folder when it names itself, and are held to its manifest
+    /// there: the one it names is kept, another refuses the world and goes.
+    #[test]
+    fn records_ahead_of_the_worlds_name_go_into_its_own_folder_and_are_held_to_its_manifest() {
+        const ADDRESS: &str = "127.0.0.1:9000";
+        const RECORD: u32 = 0x2100_0003;
+        let scratch =
+            dereth_dat::testing::ScratchDir::new("ddd-each-world").expect("scratch directory");
+        let base = language_file(&scratch.path().join("base"), [0x2100_0001, 0x2100_0002], 1);
+        let body = vec![7u8; 24];
+        let turn = |tag: &str, sent: &[u8]| {
+            let root = scratch.path().join(tag);
+            let start = crate::world_overlay::world_folder(&root, ADDRESS);
+            let mut p = DddPatcher::new(Some(
+                OverlayTarget::with_bases(
+                    OverlayDir::new(&start).expect("a folder"),
+                    [(DatTarget::Local, base.clone())],
+                    ADDRESS,
+                )
+                .for_each_world_in(&root, ADDRESS, ADDRESS),
+            ));
+            p.on_interrogation();
+            p.answered_for(None);
+            let data = DddData {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                resource_type: 0x21,
+                resource_id: RECORD,
+                iteration: 2,
+                compressed: 0,
+                version: 1,
+                data_size: u32::try_from(sent.len() + 4).unwrap(),
+                data: sent.to_vec(),
+            };
+            assert!(p.on_data(&data).0.wrote(), "ahead of the name");
+            p.on_manifest(&DddOverlayManifest {
+                world_key: "World".into(),
+                total_bytes: 0,
+                files: vec![dereth_protocol::admin::OverlayFileManifest {
+                    dat_file_type: 1,
+                    dat_file_id: 3,
+                    base_name: "client_local_English.dat".into(),
+                    base_fingerprint: dereth_dat::overlay::fingerprint(&base),
+                    base_records: None,
+                    base_iterations: 1,
+                    exact_iterations: false,
+                    revisions: vec![2],
+                    records: vec![dereth_protocol::admin::OverlayRecord {
+                        id: RECORD,
+                        iteration: 2,
+                        size: 24,
+                        sha256: dereth_dat::overlay::record_hash(&body),
+                    }],
+                    tombstones: Vec::new(),
+                }],
+            });
+            (p, root, start)
+        };
+
+        let (mut p, root, start) = turn("named", &body);
+        assert_eq!(p.refused(), None, "{:?}", p.notices());
+        assert!(p.take_switched());
+        let own = crate::world_overlay::world_folder(&root, "World");
+        assert_eq!(p.dir(), Some(own.as_path()));
+        assert!(
+            OverlayDir::new(&start).unwrap().containers().is_empty(),
+            "nothing is left where the run started"
+        );
+        let (_, action) = p.on_begin(&DddBeginDdd {
+            data_expected: 24,
+            revisions: vec![dereth_protocol::admin::PatchRevision {
+                dat_file_type: 1,
+                dat_file_id: 3,
+                iteration: 2,
+                ids_to_download: vec![RECORD],
+                ids_to_purge: Vec::new(),
+            }],
+        });
+        assert!(
+            action.send_end,
+            "the record ahead of the name retired its download"
+        );
+        p.on_end();
+        let dir = OverlayDir::new(&own).unwrap();
+        assert_eq!(dir.world_key().as_deref(), Some("World"));
+        let layer = dir
+            .layer_over(DatTarget::Local, &base, Some("World"))
+            .expect("the world's own")
+            .expect("a container");
+        assert_eq!(layer.read(DataId(RECORD)).unwrap(), body);
+
+        let (p, root, _) = turn("forged", &[9u8; 24]);
+        assert!(
+            p.refused().is_some_and(|r| r.contains("not the record")),
+            "{:?}",
+            p.refused()
+        );
+        assert!(
+            OverlayDir::new(&crate::world_overlay::world_folder(&root, "World"))
+                .unwrap()
+                .containers()
+                .is_empty(),
+            "the session's container goes with the refusal"
+        );
+        drop(p);
         drop(scratch);
     }
 

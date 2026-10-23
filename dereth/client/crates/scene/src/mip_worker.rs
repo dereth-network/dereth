@@ -58,19 +58,17 @@ impl MipWorker {
     pub fn new() -> Self {
         let (jobs, rx) = mpsc::channel::<Job>();
         let (tx, done) = mpsc::channel::<Done>();
-        let thread = std::thread::Builder::new()
-            .name("dere mip chains".into())
-            .spawn(move || {
-                for (key, data) in rx {
-                    let chain = dereth_render::mip::compressed_system_chain(&data)
-                        .ok()
-                        .flatten();
-                    if tx.send((key, chain)).is_err() {
-                        break;
-                    }
+        let thread = crate::workers::spawn("dere mip chains", move || {
+            for (key, data) in rx {
+                let chain = dereth_render::mip::compressed_system_chain(&data)
+                    .ok()
+                    .flatten();
+                if tx.send((key, chain)).is_err() {
+                    break;
                 }
-            })
-            .ok();
+            }
+        })
+        .ok();
         Self {
             jobs: thread.is_some().then_some(jobs),
             done,

@@ -600,6 +600,8 @@ pub struct Gpu {
     sampler_pairs: RefCell<HashMap<(u32, u32), wgpu::BindGroup>>,
     texture_filtering: u32,
     sharp_lod_bias: bool,
+    /// The part of the target the frames draw into as a screen of their own, while one is set.
+    pub(crate) inset: std::cell::Cell<Option<dereth_primitives::Inset>>,
     bound_sampler: Cell<Option<u32>>,
     bound_bias: Cell<f32>,
 
@@ -857,6 +859,7 @@ impl Gpu {
             sampler_pairs: RefCell::new(HashMap::new()),
             texture_filtering: 1,
             sharp_lod_bias: false,
+            inset: Cell::new(None),
             bound_sampler: Cell::new(None),
             bound_bias: Cell::new(0.0),
             textures: HashMap::new(),

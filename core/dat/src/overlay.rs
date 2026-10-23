@@ -274,6 +274,12 @@ pub fn record_hash(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
+/// A world's name as the data patch's question names it: the SHA-256 of the name.
+#[must_use]
+pub fn world_hash(world_key: &str) -> [u8; 32] {
+    Sha256::digest(world_key.as_bytes()).into()
+}
+
 /// A file's layout as an overlay names its base: the SHA-256 of its header and of its whole
 /// directory (every record's id, place in the file, size, version, date and iteration). Any write
 /// to the file moves a record's place or date, so two files with the same fingerprint hold the

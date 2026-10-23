@@ -357,6 +357,124 @@ pub fn dat_captures_or_fail() -> Vec<(String, String, PathBuf)> {
     out
 }
 
+/// A container in the layout from before Throne of Destiny holding `records`, as a test's
+/// fixture: the 44-byte header at `0x12C` with `iteration`, each record a chain of consecutive
+/// blocks of `block` bytes, and a directory of at most two levels (up to 3,843 records), with no
+/// free blocks. `block` is `0x400` for a portal file, `0x100` for a cell file.
+///
+/// # Panics
+/// More records than two levels hold, or a container past 4 GB.
+#[must_use]
+pub fn classic_container(block: usize, iteration: u32, records: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    use crate::btree::CLASSIC_NODE_SIZE;
+    const PER_NODE: usize = 61;
+    let mut bytes = vec![0u8; 0x400];
+    let at = |bytes: &Vec<u8>| u32::try_from(bytes.len()).expect("a container under 4 GB");
+    let chain = |bytes: &mut Vec<u8>, payload: &[u8]| -> u32 {
+        let first = at(bytes);
+        let per = block - 4;
+        let blocks = payload.len().div_ceil(per).max(1);
+        for i in 0..blocks {
+            let next = if i + 1 == blocks {
+                0
+            } else {
+                at(bytes) + u32::try_from(block).expect("a block size")
+            };
+            let start = bytes.len();
+            bytes.extend_from_slice(&next.to_le_bytes());
+            let part = &payload[(i * per).min(payload.len())..((i + 1) * per).min(payload.len())];
+            bytes.extend_from_slice(part);
+            bytes.resize(start + block, 0);
+        }
+        first
+    };
+    let node = |children: &[u32], entries: &[(u32, u32, u32)]| -> Vec<u8> {
+        let mut n = vec![0; CLASSIC_NODE_SIZE];
+        for (i, c) in children.iter().enumerate() {
+            n[i * 4..i * 4 + 4].copy_from_slice(&c.to_le_bytes());
+        }
+        let count = u32::try_from(entries.len()).expect("a node's entries");
+        n[248..252].copy_from_slice(&count.to_le_bytes());
+        for (i, (id, first, size)) in entries.iter().enumerate() {
+            let o = 252 + i * 12;
+            n[o..o + 4].copy_from_slice(&id.to_le_bytes());
+            n[o + 4..o + 8].copy_from_slice(&first.to_le_bytes());
+            n[o + 8..o + 12].copy_from_slice(&size.to_le_bytes());
+        }
+        n
+    };
+    let mut sorted: Vec<&(u32, Vec<u8>)> = records.iter().collect();
+    sorted.sort_by_key(|(id, _)| *id);
+    let entries: Vec<(u32, u32, u32)> = sorted
+        .iter()
+        .map(|(id, payload)| {
+            let size = u32::try_from(payload.len()).expect("a record under 4 GB");
+            (*id, chain(&mut bytes, payload), size)
+        })
+        .collect();
+    let root = if entries.len() <= PER_NODE {
+        let n = node(&[], &entries);
+        chain(&mut bytes, &n)
+    } else {
+        // Leaves of 61 with one separator between each two, under one root.
+        let mut leaves = Vec::new();
+        let mut separators = Vec::new();
+        let mut rest = entries.as_slice();
+        while !rest.is_empty() {
+            let take = rest.len().min(PER_NODE);
+            let n = node(&[], &rest[..take]);
+            leaves.push(chain(&mut bytes, &n));
+            rest = &rest[take..];
+            if let Some((sep, more)) = rest.split_first() {
+                separators.push(*sep);
+                rest = more;
+            }
+        }
+        assert!(
+            separators.len() < leaves.len() && leaves.len() <= PER_NODE + 1,
+            "too many records for two levels"
+        );
+        let n = node(&leaves, &separators);
+        chain(&mut bytes, &n)
+    };
+    let size = at(&bytes);
+    let block = u32::try_from(block).expect("a block size");
+    let words = [0x5442, block, size, iteration, 0, 0, 0, root, 0, 0, 0];
+    for (i, w) in words.iter().enumerate() {
+        bytes[0x12C + i * 4..0x12C + i * 4 + 4].copy_from_slice(&w.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod classic_tests {
+    use super::*;
+
+    /// Behaviour: none (a test's container from before Throne of Destiny reads as it was built).
+    #[test]
+    fn a_classic_fixture_reads_back_with_one_level_and_with_two() {
+        for n in [3u32, 200] {
+            let records: Vec<(u32, Vec<u8>)> = (0..n)
+                .map(|k| {
+                    (
+                        0x0100_0000 + k * 7,
+                        vec![u8::try_from(k % 251).unwrap(); 900],
+                    )
+                })
+                .collect();
+            let bytes = classic_container(0x100, 1593, &records);
+            let file = crate::DatFile::from_storage("cell.dat".into(), Box::new(bytes)).unwrap();
+            assert_eq!(file.era(), crate::ContainerEra::Classic);
+            assert_eq!(file.header_iteration(), Some(1593));
+            assert_eq!(file.len(), records.len());
+            for (id, payload) in &records {
+                assert_eq!(&file.read(dereth_primitives::DataId(*id)).unwrap(), payload);
+            }
+            assert!(file.verify_structure().unwrap().is_sound());
+        }
+    }
+}
+
 #[cfg(test)]
 mod scratch_tests {
     use super::*;

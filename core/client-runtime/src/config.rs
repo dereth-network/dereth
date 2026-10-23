@@ -284,8 +284,10 @@ pub struct Config {
     pub world_base: Option<dereth_primitives::ContainerEra>,
     /// `--overlay-dat-dir <dir>`: the folder this world's overlay is kept in for the run (the
     /// records the world adds, replaces and deletes over the locked data files, which a patch from
-    /// the server writes and nothing else does). Only where the overlay is follows from it.
-    /// `None`: a folder per server in the per-user cache ([`crate::world_overlay::overlay_dir`]).
+    /// the server writes and nothing else does). Only where the overlay is follows from it: the
+    /// folder holds one world's overlay, and another world is refused.
+    /// `None`: a folder per server in the per-user cache, with one folder in it for each world the
+    /// server has served ([`crate::world_overlay::overlay_dir`]).
     pub overlay_dat_dir: Option<PathBuf>,
     /// `--object-visuals <world|legacy|modern>`: the era whose look the world's objects draw
     /// with, over `[Render] Objects` (which it also sets, so the options page shows it). `None`:
@@ -415,6 +417,8 @@ pub struct Config {
     /// connected acceptance run reproducible; injected keystrokes do not prove that the client reached the
     /// playable state on its own.
     pub enter_world: bool,
+    /// Enter a hosted playtest as soon as its character screens are ready.
+    pub hosted_entry: bool,
     /// `--linger <seconds>`: how long `--enter-world` stays in the world before logging off.
     ///
     /// A populated-world demo needs it: objects appear the instant the world burst arrives, but
@@ -524,6 +528,7 @@ impl Default for Config {
             time_of_day: None,
             connect: true,
             enter_world: false,
+            hosted_entry: false,
             linger: 0.0,
             cast: None,
             say: Vec::new(),

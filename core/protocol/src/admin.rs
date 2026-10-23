@@ -619,13 +619,21 @@ impl Message for DddInterrogation {
 /// reads the message as a retail one. A client that also sets [`Self::FLAG_RECORDS`] checks a base
 /// the manifest names by its records itself, so a server may send it an overlay made over the same
 /// records in another layout.
+///
+/// A client that keeps one overlay for each world it plays at an address answers with the
+/// iteration lists of the world it played there last, and sets [`Self::FLAG_WORLD`] to say which
+/// world that is ([`OverlayBase::world`], the last of the bases). A server that knows the flag and
+/// is another world names itself ([`DddOverlayManifest`]) and asks again (`0xF7E5`), and the client
+/// answers from that world's own overlay. The world rides among the bases so that a server that
+/// reads the extension but not this flag reads the message as before.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DddInterrogationResponse {
     pub client_language: u32,
     pub iters_with_keys: Vec<TaggedIterationList>,
     pub iters_without_keys: Vec<TaggedIterationList>,
     pub flags: u32,
-    /// The base files the client holds, sent only with [`Self::FLAG_OVERLAY`].
+    /// The base files the client holds, sent only with [`Self::FLAG_OVERLAY`]; with
+    /// [`Self::FLAG_WORLD`], the world's entry last.
     pub overlay_bases: Vec<OverlayBase>,
 }
 
@@ -635,6 +643,22 @@ impl DddInterrogationResponse {
     /// The client takes a manifest that names each base by its records too
     /// ([`OverlayFileManifest::base_records`]), and checks its own files against them.
     pub const FLAG_RECORDS: u32 = 0x0000_0002;
+    /// The iteration lists are those of one world's overlay, which [`OverlayBase::world`] names.
+    pub const FLAG_WORLD: u32 = 0x0000_0004;
+
+    /// The world the iteration lists are of, by [`OverlayBase::world`]'s hash, when the client
+    /// names one.
+    #[must_use]
+    pub fn world(&self) -> Option<[u8; 32]> {
+        if self.flags & Self::FLAG_OVERLAY == 0 || self.flags & Self::FLAG_WORLD == 0 {
+            return None;
+        }
+        self.overlay_bases
+            .iter()
+            .rev()
+            .find(|b| (b.dat_file_type, b.dat_file_id) == OverlayBase::WORLD)
+            .map(|b| b.fingerprint)
+    }
 }
 
 /// One base file a client holds, by the file's wire pair and its fingerprint (the SHA-256 of its
@@ -644,6 +668,23 @@ pub struct OverlayBase {
     pub dat_file_type: u32,
     pub dat_file_id: u32,
     pub fingerprint: [u8; 32],
+}
+
+impl OverlayBase {
+    /// The wire pair of the entry that names a world rather than a file: `"Wrld"` read as a
+    /// little-endian dword, and 0. No data file answers to it.
+    pub const WORLD: (u32, u32) = (u32::from_le_bytes(*b"Wrld"), 0);
+
+    /// The entry naming the world whose iteration lists the answer carries, by `hash`, the SHA-256
+    /// of the world's name.
+    #[must_use]
+    pub fn world(hash: [u8; 32]) -> Self {
+        Self {
+            dat_file_type: Self::WORLD.0,
+            dat_file_id: Self::WORLD.1,
+            fingerprint: hash,
+        }
+    }
 }
 
 fn read_hash(r: &mut Reader<'_>) -> Result<[u8; 32], MessageError> {
@@ -924,7 +965,10 @@ const MANIFEST_BASE_RECORDS: u32 = 2;
 /// outside the retail client's `0xF7E2..=0xF7EB` dispatch, sent only to a client that set
 /// [`DddInterrogationResponse::FLAG_OVERLAY`], before its `0xF7E7`. It names the world, the base
 /// each file's overlay was made against, and every record and deletion the overlay holds, so the
-/// client can refuse an overlay made against another base and check every record it is sent.
+/// client can refuse an overlay made against another base and check every record it is sent. It
+/// also goes ahead of a second `0xF7E5` to a client whose answer named another world
+/// ([`DddInterrogationResponse::FLAG_WORLD`]); from a world that keeps no overlay it is then empty:
+/// no name and no files.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DddOverlayManifest {
     /// The world the overlay belongs to, as the world names itself.
@@ -1083,6 +1127,35 @@ mod tests {
             r.pstring().unwrap();
         }
         assert!(r.expect_exhausted().is_err());
+    }
+
+    /// The world an answer's iteration lists are of rides as the last of its bases, so a reader
+    /// that knows the overlay extension and not the world reads the same message.
+    #[test]
+    fn the_world_an_answer_names_rides_among_its_bases() {
+        let file = OverlayBase {
+            dat_file_type: 0,
+            dat_file_id: 1,
+            fingerprint: [1; 32],
+        };
+        let mut answer = DddInterrogationResponse {
+            client_language: 1,
+            flags: DddInterrogationResponse::FLAG_OVERLAY | DddInterrogationResponse::FLAG_WORLD,
+            overlay_bases: vec![file.clone(), OverlayBase::world([7; 32])],
+            ..DddInterrogationResponse::default()
+        };
+        let back: DddInterrogationResponse = round_trip(&write_body(&answer).unwrap());
+        assert_eq!(back, answer);
+        assert_eq!(back.world(), Some([7; 32]));
+        assert_eq!(
+            back.overlay_bases[0], file,
+            "the files come first, as before"
+        );
+        // Without the flag the entry is no world, and without the extension there is none.
+        answer.flags = DddInterrogationResponse::FLAG_OVERLAY;
+        assert_eq!(answer.world(), None);
+        answer.flags = DddInterrogationResponse::FLAG_WORLD;
+        assert_eq!(answer.world(), None);
     }
 
     /// The ddd end message is f7ea both ways.

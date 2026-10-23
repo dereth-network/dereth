@@ -154,6 +154,8 @@ pub enum DisconnectNotice {
     Banned { expiry: i32, reason: String },
     /// The transport's own error, by its string id.
     Net(String),
+    /// The client refused the world's data, before the world was entered: what it says why.
+    OverlayRefused(String),
 }
 
 /// A DDD event → the string id the data-patch screen shows for it, from table enum `0x10000002`.

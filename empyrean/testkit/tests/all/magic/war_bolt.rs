@@ -157,6 +157,7 @@ fn world_dats() -> Arc<empyrean_dat::DatManager> {
         default_mtable_id: DataId(0),
         default_stable_id: DataId(0),
         default_phstable_id: DataId(0),
+        written_order: Default::default(),
     };
     dats::with_stat_tables(FakeDats::new())
         .with_spell_table(table)

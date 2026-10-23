@@ -1403,8 +1403,8 @@ fn next_iteration(s: &Scratch) -> u32 {
 /// Behaviour: net.dat-patch.an-overlay-the-client-cannot-take-is-refused-and-nothing-is-written
 /// A world's overlay is refused, reported, and nothing of it written, when its manifest names
 /// another base than the file the client holds, when the world is on the player's blocklist, or
-/// when the folder already holds another world's overlay; the patch then ends at once and the
-/// world is read from the installed files alone.
+/// when the folder already holds another world's overlay; the patch then ends at once, and the
+/// session with it.
 #[test]
 fn an_overlay_made_against_another_base_or_for_a_blocked_or_other_world_is_refused() {
     let next = 9999;

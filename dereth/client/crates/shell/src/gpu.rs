@@ -933,6 +933,14 @@ mod imp {
             SceneRenderer::set_presentation_sync(self, full_screen, sync_to_refresh);
         }
 
+        fn set_inset(&mut self, region: Option<dereth_primitives::Inset>) {
+            SceneRenderer::set_inset(self, region);
+        }
+
+        fn inset(&self) -> Option<dereth_primitives::Inset> {
+            SceneRenderer::inset(self)
+        }
+
         fn capture_png(
             &mut self,
             path: &Path,

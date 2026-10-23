@@ -534,6 +534,11 @@ mod imp {
             self.object_identity = Some(identity);
         }
 
+        /// Exchange the drawn world with another world built on this device.
+        pub fn swap_world(&mut self, other: &mut Option<crate::world_scene::SceneDraw>) {
+            std::mem::swap(&mut self.world, other);
+        }
+
         /// The scene, for the startup log line and the tests.
         #[must_use]
         pub fn world(&self) -> Option<&crate::world_scene::SceneDraw> {
@@ -1108,7 +1113,35 @@ mod imp {
         /// # Errors
         /// Any failure from the runtime.
         pub fn resize(&mut self, width: u32, height: u32) -> Result<(), RenderError> {
+            // Drawing into a region, a new size is the region's screen's: the back buffer is the
+            // window's around it, and stays as it is.
+            if let Some(region) = self.gpu.inset() {
+                if width == 0 || height == 0 {
+                    return Err(RenderError::BadDimensions {
+                        width,
+                        height,
+                        reason: "a presentation must have a non-zero extent",
+                    });
+                }
+                self.gpu.set_inset(Some(dereth_primitives::Inset {
+                    extent: (width, height),
+                    ..region
+                }));
+                return Ok(());
+            }
             self.gpu.resize(width, height)
+        }
+
+        /// Draw the frames that follow into part of the back buffer, as a screen of their own
+        /// ([`dereth_render::device::Gpu::set_inset`]); `None` over the whole of it again.
+        pub fn set_inset(&mut self, region: Option<dereth_primitives::Inset>) {
+            self.gpu.set_inset(region);
+        }
+
+        /// The part of the back buffer the frames draw into, while one is set.
+        #[must_use]
+        pub fn inset(&self) -> Option<dereth_primitives::Inset> {
+            self.gpu.inset()
         }
 
         /// Wait for the GPU before dropping any device resource.

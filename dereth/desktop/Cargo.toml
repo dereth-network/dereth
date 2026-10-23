@@ -48,11 +48,11 @@ png.workspace = true
 # The sound device.
 cpal.workspace = true
 
-# The local clock and the URL launch on Windows (WinRT, safe bindings).
+# The local clock, the URL launch and the Documents folder on Windows (WinRT, safe bindings).
 [target.'cfg(windows)'.dependencies]
 # The classic interface's fonts from the Windows font system.
 dereth-classic-gdi.workspace = true
-windows = { version = "0.62", features = ["Foundation", "Globalization", "System"] }
+windows = { version = "0.62", features = ["Foundation", "Globalization", "Storage", "System"] }
 # The pads, through the system's XInput.
 gilrs = { workspace = true, features = ["xinput"] }
 

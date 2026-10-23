@@ -114,10 +114,7 @@ impl BakeWorker {
         ));
         let (send, done) = mpsc::channel();
         let queue = Arc::clone(&shared);
-        std::thread::Builder::new()
-            .name("landblock bakes".to_owned())
-            .spawn(move || run(&queue, &send))
-            .ok()?;
+        crate::workers::spawn("landblock bakes", move || run(&queue, &send)).ok()?;
         Some(Self { shared, done })
     }
 

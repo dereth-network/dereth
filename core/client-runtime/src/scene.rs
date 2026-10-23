@@ -130,6 +130,12 @@ pub struct SceneConfig {
     /// within 6 px of an opening — so this is a small, local and *stated* difference, not a
     /// large one.
     pub portal_clip: bool,
+    /// Draw every interior cell the viewer's cell reaches through its portals, whichever way each
+    /// faces the viewer, and nothing outdoors: a whole dungeon seen from outside its rooms.
+    ///
+    /// Off in the client, which has no switch: it is the world editor's view of the dungeon it is
+    /// building while its camera flies outside the rooms.
+    pub whole_interior: bool,
     /// Draw the `mode == 1` **portal depth stamp**,
     /// with mask constant 7: a pre-transformed quad at the constant device depth `0.999999`,
     /// depth compare `ALWAYS`, no colour.
@@ -460,6 +466,7 @@ impl Default for SceneConfig {
             particles: true,
             building_portals: true,
             portal_clip: true,
+            whole_interior: false,
             portal_depth_stamp: true,
             portal_alpha_flush: true,
             auto_degrades: false,

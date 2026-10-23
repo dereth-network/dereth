@@ -66,7 +66,7 @@ impl SceneDraw {
         use dereth_render::pso::portal_stamp_mask;
         use dereth_world_render::cells::clip::{poly_clip_finish, ScreenPoint, ViewPoly};
         use dereth_world_render::cells::portal_view::{
-            construct_view, construct_view_clipped, indoor_steps, IndoorStep,
+            construct_view, construct_view_clipped, construct_whole_view, indoor_steps, IndoorStep,
         };
         let Some(start) = ws.viewer_cell() else {
             return Ok(());
@@ -128,7 +128,9 @@ impl SceneDraw {
         // `SceneConfig::portal_clip` is the same switch the **outdoor** building path already
         // takes this branch under, so the two halves of the portal machinery cannot disagree
         // about whether clipping is on. Off is the unclipped superset, kept verbatim.
-        let view = if self.cfg.portal_clip {
+        let view = if self.cfg.whole_interior {
+            construct_whole_view(&cells, start)
+        } else if self.cfg.portal_clip {
             construct_view_clipped(&cells, start, None, None, &full, &eye, &project)
         } else {
             construct_view(&cells, start, &|_, _| true)

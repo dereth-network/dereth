@@ -356,6 +356,43 @@ pub fn construct_view_from(
     out
 }
 
+/// Every cell `start` reaches through its portals, whichever way each portal faces the viewer:
+/// a whole interior, seen from outside its cells. Nearest first, by the nearest corner of the
+/// portal each cell is first reached through, so the draw is still far to near; nothing outdoors.
+///
+/// Not the client's traversal, which goes on only through portals the viewer looks out of: this
+/// is a world editor's view of a whole dungeon from outside its rooms.
+#[must_use]
+pub fn construct_whole_view(
+    cells: &BTreeMap<u32, TraversalCell>,
+    start: CellId,
+) -> ConstructedView {
+    let mut out = ConstructedView::default();
+    if !cells.contains_key(&start.0) {
+        return out;
+    }
+    let mut queued = std::collections::BTreeSet::from([start.0]);
+    let mut todo: Vec<(CellId, f32)> = Vec::new();
+    ins_cell_todo_list(&mut todo, start, 0.0);
+    while let Some((id, _)) = todo.pop() {
+        out.cell_draw_list.push(id);
+        let Some(c) = cells.get(&id.0) else { continue };
+        for portal in &c.portals {
+            let other = portal.other_cell_id;
+            if other == OUTDOORS || !cells.contains_key(&other) || !queued.insert(other) {
+                continue;
+            }
+            let near = portal
+                .vertex_dist_sq
+                .iter()
+                .copied()
+                .fold(f32::MAX, f32::min);
+            ins_cell_todo_list(&mut todo, CellId(other), near);
+        }
+    }
+    out
+}
+
 /// Construct a view with the screen-space clip actually performed.
 ///
 /// [`construct_view_from`] takes clipping as a `bool` predicate; answered "visible" throughout,
@@ -943,6 +980,43 @@ mod tests {
             vec![0x102, 0x101, 0x100],
             "draw_cells walks it backwards: far to near"
         );
+    }
+
+    /// Seen from outside, every portal faces away from the viewer and the traversal stops at its
+    /// own cell; the whole view still reaches every cell, nearest first, and nothing outdoors.
+    #[test]
+    fn a_whole_interior_seen_from_outside_reaches_every_cell_whichever_way_its_portals_face() {
+        let mut cells = corridor();
+        for c in cells.values_mut() {
+            for p in &mut c.portals {
+                p.viewpoint_side_distance = -1.0;
+            }
+        }
+        let start = CellId(0x0001_0100);
+        assert_eq!(
+            construct_view(&cells, start, &|_, _| true)
+                .cell_draw_list
+                .len(),
+            1
+        );
+        let v = construct_whole_view(&cells, start);
+        assert_eq!(
+            v.cell_draw_list
+                .iter()
+                .map(|c| c.0 & 0xFFFF)
+                .collect::<Vec<_>>(),
+            vec![0x100, 0x101, 0x102]
+        );
+        assert_eq!(v.outside_view_count, 0);
+        assert!(indoor_steps(&v)
+            .iter()
+            .all(|s| *s != IndoorStep::OutdoorsThroughPortals));
+        // Reached from its far end, the near end comes last.
+        let v = construct_whole_view(&cells, CellId(0x0001_0102));
+        assert_eq!(v.cell_draw_list.last(), Some(&start));
+        assert!(construct_whole_view(&cells, CellId(0x0001_0999))
+            .cell_draw_list
+            .is_empty());
     }
 
     /// Oracle: if `n == 0`, the opening is clipped away entirely. A closed

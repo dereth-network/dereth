@@ -18,8 +18,14 @@ impl<S: Shell> App<S> {
 
     /// One iteration of the main loop, in the documented order. Returns false when
     /// the loop should end.
-    #[allow(clippy::too_many_lines)]
     pub fn frame(&mut self, shell: &mut S) -> bool {
+        self.frame_with_drawing(shell, true)
+    }
+
+    /// Advance the session and scene, optionally presenting the frame. A host can keep a
+    /// connected world current while another view owns the display.
+    #[allow(clippy::too_many_lines)]
+    pub fn frame_with_drawing(&mut self, shell: &mut S, draw: bool) -> bool {
         // The frame's spans: the frame and, as each step starts, that step. See
         // `crate::frame::FrameSpans`.
         let mut spans = crate::frame::FrameSpans::begin(self.frames_drawn() + 1);
@@ -396,70 +402,75 @@ impl<S: Shell> App<S> {
             }
         }
 
-        spans.step(FrameStep::PrepareDevice);
-        self.events.push(FrameEvent::Step(FrameStep::PrepareDevice));
-        self.present.prepare_graphics_device();
+        if draw {
+            spans.step(FrameStep::PrepareDevice);
+            self.events.push(FrameEvent::Step(FrameStep::PrepareDevice));
+            self.present.prepare_graphics_device();
 
-        spans.step(FrameStep::BeginFrame);
-        self.events.push(FrameEvent::Step(FrameStep::BeginFrame));
-        if let Err(e) = self.present.start_frame() {
-            tracing::error!("starting a frame failed: {e}");
-            if let Some(effect) = self.resolution.cancel() {
-                self.apply_resolution_effect(effect);
+            spans.step(FrameStep::BeginFrame);
+            self.events.push(FrameEvent::Step(FrameStep::BeginFrame));
+            if let Err(e) = self.present.start_frame() {
+                tracing::error!("starting a frame failed: {e}");
+                if let Some(effect) = self.resolution.cancel() {
+                    self.apply_resolution_effect(effect);
+                }
+                self.state = AppState::ShuttingDown;
+                return false;
             }
-            self.state = AppState::ShuttingDown;
-            return false;
-        }
 
-        // **The 3D viewport follows the smart box.**
-        //
-        // Moving or resizing a docked object updates the smart-box region
-        // and broadcasts the resulting change. The
-        // handler that decides the final rectangle **ignores the notice's four parameters** and
-        // re-reads its own region.
-        //
-        // So the rectangle is `<SBOX>`'s screen box, and reading it here -- once per frame, from
-        // the live tree -- is the same answer the notice would carry with none of the machinery,
-        // because a notice this build has no subscriber list for would be transcribed and unwired
-        // rather than a fix. What is *not* optional is that something consume it: without this,
-        // `hud::world_view::client_rect` and `dereth_render::camera::compute_game_viewport` are
-        // called by nobody and the viewport never moves.
-        spans.step(FrameStep::DrawWorld);
-        self.events.push(FrameEvent::Step(FrameStep::DrawWorld));
-        self.present.set_game_viewport(shell.game_viewport());
-        if let Err(e) = self.present.draw_scene(self.world.as_ref()) {
-            tracing::warn!("draw failed: {e}");
-        }
+            // **The 3D viewport follows the smart box.**
+            //
+            // Moving or resizing a docked object updates the smart-box region
+            // and broadcasts the resulting change. The
+            // handler that decides the final rectangle **ignores the notice's four parameters** and
+            // re-reads its own region.
+            //
+            // So the rectangle is `<SBOX>`'s screen box, and reading it here -- once per frame, from
+            // the live tree -- is the same answer the notice would carry with none of the machinery,
+            // because a notice this build has no subscriber list for would be transcribed and unwired
+            // rather than a fix. What is *not* optional is that something consume it: without this,
+            // `hud::world_view::client_rect` and `dereth_render::camera::compute_game_viewport` are
+            // called by nobody and the viewport never moves.
+            spans.step(FrameStep::DrawWorld);
+            self.events.push(FrameEvent::Step(FrameStep::DrawWorld));
+            self.present.set_game_viewport(shell.game_viewport());
+            if let Err(e) = self.present.draw_scene(self.world.as_ref()) {
+                tracing::warn!("draw failed: {e}");
+            }
 
-        // Ending the frame with `true` is three things in one call: **the 2D UI
-        // overlay**, `EndScene` and `Present`. The overlay is composited over the finished 3D
-        // frame with the depth test off, which is why it is inside this step and not a step of its
-        // own -- the documented frame order has fourteen calls and this is one of them.
-        spans.step(FrameStep::PresentFrame);
-        self.events.push(FrameEvent::Step(FrameStep::PresentFrame));
-        if let Err(e) = shell.draw_ui(&mut self.present) {
-            tracing::warn!("the UI overlay failed: {e}");
-        }
-        // The performance panel, over whatever the interface drew.
-        if perf_panel && self.perf_font {
-            let items = crate::perf::panel_items(&self.perf.summary().lines(), self.present.size());
-            if let Err(e) = self.present.draw_overlay(&items) {
-                tracing::warn!("the performance panel failed: {e}");
+            // Ending the frame with `true` is three things in one call: **the 2D UI
+            // overlay**, `EndScene` and `Present`. The overlay is composited over the finished 3D
+            // frame with the depth test off, which is why it is inside this step and not a step of its
+            // own -- the documented frame order has fourteen calls and this is one of them.
+            spans.step(FrameStep::PresentFrame);
+            self.events.push(FrameEvent::Step(FrameStep::PresentFrame));
+            if let Err(e) = shell.draw_ui(&mut self.present) {
+                tracing::warn!("the UI overlay failed: {e}");
             }
-        }
-        if let Err(e) = self.present.end_frame() {
-            tracing::error!("finishing a frame failed: {e}");
-            if let Some(effect) = self.resolution.cancel() {
-                self.apply_resolution_effect(effect);
+            // The performance panel, over whatever the interface drew.
+            if perf_panel && self.perf_font {
+                let items =
+                    crate::perf::panel_items(&self.perf.summary().lines(), self.present.size());
+                if let Err(e) = self.present.draw_overlay(&items) {
+                    tracing::warn!("the performance panel failed: {e}");
+                }
             }
-            self.state = AppState::ShuttingDown;
-            return false;
+            if let Err(e) = self.present.end_frame() {
+                tracing::error!("finishing a frame failed: {e}");
+                if let Some(effect) = self.resolution.cancel() {
+                    self.apply_resolution_effect(effect);
+                }
+                self.state = AppState::ShuttingDown;
+                return false;
+            }
+            self.events.push(FrameEvent::FrameDrawn);
         }
-        self.events.push(FrameEvent::FrameDrawn);
 
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
-        crate::platform::clock::pace_frame(self.pacer.as_mut(), self.pump.state.is_active_app);
+        if draw {
+            crate::platform::clock::pace_frame(self.pacer.as_mut(), self.pump.state.is_active_app);
+        }
         self.perf_steps = spans.times();
 
         // `--enter-world` ends the loop when its script has run: `0x0013` made the session

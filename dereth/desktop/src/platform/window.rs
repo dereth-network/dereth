@@ -464,6 +464,23 @@ impl DesktopWindow {
         self.window.set_cursor(cursor.0.clone());
     }
 
+    /// Make the window system's own arrow the pointer's image over the window again.
+    pub fn set_default_cursor(&self) {
+        self.window.set_cursor(winit::window::CursorIcon::Default);
+    }
+
+    /// The window's scale factor: its monitor's pixels to the point, as the desktop is set.
+    #[must_use]
+    pub fn scale_factor(&self) -> f64 {
+        self.window.scale_factor()
+    }
+
+    /// Whether the window holds the pointer for a camera drag.
+    #[must_use]
+    pub fn holds_pointer(&self) -> bool {
+        self.hold.get() != Hold::Free
+    }
+
     /// Hide the pointer and hold it still for a camera drag, where it is at `at` in client
     /// pixels. While it is held the window reports the mouse's movement
     /// ([`HostEvent::PointerMotion`]) and not the pointer's.

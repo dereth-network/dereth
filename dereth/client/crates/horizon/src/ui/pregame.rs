@@ -237,17 +237,22 @@ impl Pregame {
         options: &HorizonOptions,
         out: &mut Outcome,
     ) {
+        // Not before the server has finished with the data files, as Log In and Create wait.
+        if state.connect_phase != crate::ui::game::ConnectPhase::Ready {
+            return;
+        }
         let wait = ctx.time - self.auto.at;
         // A character to make, when the account has none of that name: made as the Create
         // button and the wizard's Create make one, with the wizard's first choices.
         let make = options.create_character.as_deref().filter(|n| {
-            !state
-                .characters
-                .iter()
-                .any(|c| c.name.eq_ignore_ascii_case(n))
+            !state.characters.iter().any(|c| {
+                c.name.eq_ignore_ascii_case(n)
+                    || (options.immediate_entry
+                        && c.name.trim_start_matches('+').eq_ignore_ascii_case(n))
+            })
         });
         if let (Some(name), 0, Screen::Lobby) = (make, self.auto.step, &*screen) {
-            if wait > 1.5 && state.free_slot.is_some() {
+            if (options.immediate_entry || wait > 1.5) && state.free_slot.is_some() {
                 if let Some((tables, texts)) = self.creation_source.clone() {
                     let mut c = crate::ui::creation::Creation::new(
                         tables,
@@ -269,17 +274,20 @@ impl Pregame {
             return;
         }
         match (self.auto.step, &*screen) {
-            (0, Screen::Lobby) if wait > 1.5 && !state.characters.is_empty() => {
+            (0, Screen::Lobby)
+                if (options.immediate_entry || wait > 1.5) && !state.characters.is_empty() =>
+            {
                 let wanted = options
                     .start_character
                     .as_deref()
                     .or(options.create_character.as_deref());
                 let index = wanted
                     .and_then(|n| {
-                        state
-                            .characters
-                            .iter()
-                            .position(|c| c.name.eq_ignore_ascii_case(n))
+                        state.characters.iter().position(|c| {
+                            c.name.eq_ignore_ascii_case(n)
+                                || (options.immediate_entry
+                                    && c.name.trim_start_matches('+').eq_ignore_ascii_case(n))
+                        })
                     })
                     .unwrap_or(0);
                 self.selected = index;
@@ -291,7 +299,7 @@ impl Pregame {
                     at: ctx.time,
                 };
             }
-            (1, Screen::Lobby) if wait > 1.0 => {
+            (1, Screen::Lobby) if options.immediate_entry || wait > 1.0 => {
                 if let Some(Confirm::LogIn(id, _)) = self.confirm.take() {
                     out.character_actions.push(CharacterAction::LogOn(id));
                     *screen = Screen::Entering;
@@ -1143,13 +1151,26 @@ mod tests {
 
     /// A scripted entry asked to make a character: what it sends over 600 frames from the
     /// lobby of an account holding `characters`, the characters made and those logged in.
-    fn scripted_entry(characters: &[&str]) -> (Vec<String>, Vec<ObjectId>) {
+    fn scripted_entry_with_clock(
+        characters: &[&str],
+        immediate: bool,
+    ) -> (Vec<String>, Vec<ObjectId>) {
+        scripted_entry_in(characters, immediate, crate::ui::game::ConnectPhase::Ready)
+    }
+
+    /// [`scripted_entry_with_clock`] with the server at `phase`.
+    fn scripted_entry_in(
+        characters: &[&str],
+        immediate: bool,
+        phase: crate::ui::game::ConnectPhase,
+    ) -> (Vec<String>, Vec<ObjectId>) {
         use dereth_client_contract::pregame::CharGenAction;
         use std::rc::Rc;
         let mut ui = crate::ui::HorizonUi::new(
             std::sync::Arc::new(crate::art::Art::empty()),
             crate::options::HorizonOptions {
                 auto_login: true,
+                immediate_entry: immediate,
                 create_character: Some("Builder".into()),
                 ..crate::options::HorizonOptions::default()
             },
@@ -1160,7 +1181,7 @@ mod tests {
         ));
         let state = GameState {
             connected: true,
-            connect_phase: crate::ui::game::ConnectPhase::Ready,
+            connect_phase: phase,
             host: "127.0.0.1:9000".into(),
             world: Some("Test".into()),
             characters: characters
@@ -1179,7 +1200,8 @@ mod tests {
         let mut input = crate::ui::input::InputFrame::default();
         let (mut made, mut logged) = (Vec::new(), Vec::new());
         for _ in 0..600 {
-            let out = ui.frame(&mut list, (1920.0, 1080.0), 1.0 / 60.0, &state, &mut input);
+            let dt = if immediate { 0.0 } else { 1.0 / 60.0 };
+            let out = ui.frame(&mut list, (1920.0, 1080.0), dt, &state, &mut input);
             input.next_frame();
             for r in out.requests {
                 if let dereth_client_contract::UiRequest::CharGenAction(
@@ -1196,6 +1218,51 @@ mod tests {
             }
         }
         (made, logged)
+    }
+
+    fn scripted_entry(characters: &[&str]) -> (Vec<String>, Vec<ObjectId>) {
+        scripted_entry_with_clock(characters, false)
+    }
+
+    #[test]
+    fn hosted_entry_uses_character_readiness_without_advancing_the_clock() {
+        assert_eq!(
+            scripted_entry_with_clock(&["Other", "+Builder"], true),
+            (vec![], vec![ObjectId(0x5000_0002)])
+        );
+        assert_eq!(
+            scripted_entry_with_clock(&["Other", "builder"], true),
+            (vec![], vec![ObjectId(0x5000_0002)])
+        );
+        assert_eq!(
+            scripted_entry_with_clock(&["Other"], true),
+            (vec!["Builder".to_owned()], vec![])
+        );
+        assert_eq!(
+            scripted_entry_with_clock(&[], true),
+            (vec!["Builder".to_owned()], vec![])
+        );
+    }
+
+    /// While the server is still sending the data files, a scripted entry neither logs in nor
+    /// makes a character, as the buttons it presses wait.
+    #[test]
+    fn a_scripted_entry_waits_for_the_data_files_to_be_updated() {
+        use crate::ui::game::ConnectPhase;
+        for immediate in [false, true] {
+            assert_eq!(
+                scripted_entry_in(&["Builder"], immediate, ConnectPhase::Updating),
+                (vec![], vec![])
+            );
+            assert_eq!(
+                scripted_entry_in(&["Other"], immediate, ConnectPhase::Updating),
+                (vec![], vec![])
+            );
+        }
+        assert_eq!(
+            scripted_entry_in(&["Builder"], false, ConnectPhase::Ready),
+            (vec![], vec![ObjectId(0x5000_0001)])
+        );
     }
 
     /// The account has no character of the name: it is made, once, and nothing is logged in

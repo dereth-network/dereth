@@ -695,7 +695,12 @@ impl Gpu {
     /// # Errors
     /// The backend's own.
     pub fn begin_frame(&mut self) -> Result<(), RenderError> {
-        dispatch!(self, g => g.begin_frame())
+        dispatch!(self, g => g.begin_frame())?;
+        // A frame drawn into a region starts with the whole region as its viewport.
+        if self.inset().is_some() {
+            self.reset_viewport();
+        }
+        Ok(())
     }
 
     /// # Errors
@@ -718,9 +723,36 @@ impl Gpu {
 
     // --- the back buffer ---------------------------------------------------------------------
 
+    /// The extent the frames draw at: the back buffer's, or while a region is set
+    /// ([`Self::set_inset`]) the extent of the screen the region stands for.
     #[must_use]
     pub fn size(&self) -> (u32, u32) {
+        self.inset()
+            .map_or_else(|| self.target_size(), |region| region.extent)
+    }
+
+    /// The back buffer's own extent, whatever region is set.
+    #[must_use]
+    pub fn target_size(&self) -> (u32, u32) {
         dispatch!(self, g => g.size())
+    }
+
+    /// Draw what follows into part of the back buffer as though it were a whole screen: every
+    /// viewport, depth clear and size read is then the region's screen's, placed and scaled into
+    /// `region.rect` (see [`dereth_primitives::Inset`]). `None` draws over the whole back
+    /// buffer again. Taken at once inside a frame: the viewport becomes the new whole.
+    pub fn set_inset(&self, region: Option<dereth_primitives::Inset>) {
+        let cell: &std::cell::Cell<Option<dereth_primitives::Inset>> =
+            dispatch!(self, g => &g.inset);
+        if cell.replace(region) != region && self.frame_open() {
+            self.reset_viewport();
+        }
+    }
+
+    /// The region set, if any.
+    #[must_use]
+    pub fn inset(&self) -> Option<dereth_primitives::Inset> {
+        dispatch!(self, g => g.inset.get())
     }
 
     /// A presentation change, and the device reset it drives.
@@ -811,14 +843,19 @@ impl Gpu {
     }
 
     pub fn set_viewport(&self, v: crate::camera::Viewport) {
+        let v = self.inset().map_or(v, |region| region.place(v));
         dispatch!(self, g => g.set_viewport(v));
     }
 
     pub fn reset_viewport(&self) {
-        dispatch!(self, g => g.reset_viewport());
+        match self.inset() {
+            Some(region) => dispatch!(self, g => g.set_viewport(region.rect)),
+            None => dispatch!(self, g => g.reset_viewport()),
+        }
     }
 
     pub fn clear_depth(&self, v: crate::camera::Viewport) {
+        let v = self.inset().map_or(v, |region| region.place(v));
         dispatch!(self, g => g.clear_depth(v));
     }
 

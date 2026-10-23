@@ -238,7 +238,7 @@ fn a_client_drawing_the_february_2005_world_answers_ddd_with_that_worlds_iterati
     let store =
         dereth_dat::RetailDatStore::open_classic_with_modern(&old, &dereth_dat::testing::dat_dir())
             .expect("the two dat sets");
-    let r = ddd_interrogation_response(&store, 0, true);
+    let r = ddd_interrogation_response(&store, 0, true, None);
     let by = |ty: u32, id: u32| {
         r.iters_with_keys
             .iter()
@@ -331,6 +331,72 @@ fn a_windowed_app_takes_one_relay_endpoint() {
         "one link at a time"
     );
 }
+
+/// Behaviour: none (tooling: the scripted world entry with no interface).
+/// With no interface, `--enter-world` takes the character the list names only once the server has
+/// finished updating the data files, as the screens' own Log In waits.
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_scripted_entry_with_no_interface_waits_for_the_data_files_to_be_updated() {
+    use dereth_client_net::client_session::{DddEvent, SessionEvent};
+    use dereth_protocol::login::{CharacterIdentity, LoginCharacterSet};
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        enter_world: true,
+        start_char: "builder".into(),
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    let net = crate::net::ClientNetwork::new("127.0.0.1", 9000, "builder", "password", 1)
+        .expect("an endpoint");
+    assert!(app.attach_replay_network(net).is_ok());
+    let mut shell = NullShell;
+    let one = |gid: u32, name: &str| CharacterIdentity {
+        gid: dereth_primitives::ObjectId(gid),
+        name: name.into(),
+        seconds_greyed_out: 0,
+    };
+    let set = LoginCharacterSet {
+        characters: vec![one(0x5000_0001, "Other"), one(0x5000_0002, "Builder")],
+        account: "builder".into(),
+        ..LoginCharacterSet::default()
+    };
+    app.process_logon_event_queue(&mut shell, vec![SessionEvent::CharacterSet(Box::new(set))]);
+    app.process_logon_event_queue(&mut shell, Vec::new());
+    assert_eq!(
+        app.script,
+        EnterWorldScript::AwaitingCharacterSet,
+        "not while the files are being updated"
+    );
+    assert_eq!(app.host_state().entered_character, None);
+    app.process_logon_event_queue(&mut shell, vec![SessionEvent::Ddd(DddEvent::End)]);
+    assert_eq!(app.script, EnterWorldScript::Entering);
+    assert_eq!(
+        app.host_state().entered_character.as_deref(),
+        Some("Builder")
+    );
+}
+
+mod world_refusal;
 
 /// A frame drawn while the window is not the active one is paced as a background frame while Slow
 /// Down in the Background is on, as the active window's while it is off, and the change reaches
@@ -647,4 +713,39 @@ fn screens_before_the_world_drawn_at_the_players_size_are_full_screen_and_a_swit
     login.own_size = false;
     show(&mut app, &mut login);
     assert!(!app.applied_full_screen);
+}
+
+/// Behaviour: none (hosting a connected simulation behind another view).
+#[test]
+#[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+fn a_host_can_advance_a_session_without_presenting_over_its_other_view() {
+    let store = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap());
+    let cfg = Config {
+        headless: true,
+        connect: false,
+        sound: false,
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store),
+        |_| Ok(Platform::headless(64, 64)),
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .unwrap();
+    let mut shell = NullShell;
+    assert!(app.frame_with_drawing(&mut shell, false));
+    assert_eq!(app.frames_drawn(), 0);
+    assert!(app.timer.local_time > 0.0);
+    assert!(app.frame(&mut shell));
+    assert_eq!(app.frames_drawn(), 1);
+    let (mut present, log) = app.shutdown_retaining_presentation(&mut shell);
+    let device = present
+        .as_any_mut()
+        .downcast_mut::<crate::present::NullPresentation>()
+        .unwrap();
+    assert_eq!(device.counts().start_frame, 1);
+    assert_eq!(device.counts().end_frame, 1);
+    assert_eq!(device.counts().wait_idle, 1);
+    assert_eq!(log.order(), crate::shutdown::Step::ORDER);
 }

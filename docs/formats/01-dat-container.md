@@ -378,3 +378,14 @@ landblock none of whose base records the world keeps as they are is one family d
 record whose bytes are the base's is left to it whatever its iteration says. By default every change
 goes into one revision, one past the base's iterations; `--iterations world` keeps the world's own
 list instead.
+
+**A world published again** is numbered as the revision after the overlay it was last published
+with, so a server patches a client holding that overlay with what changed alone. A record that
+reads as it did keeps its revision (the last overlay's copy of it, as it was); a record that reads
+otherwise, or is new, goes into the next revision; a record the last overlay read and the new one
+does not is deleted in the next revision, as a deletion of its id alone; and the last overlay's
+deletions stay in their revisions, so a client patched to an older revision still makes them. The
+overlay's iteration list is the last one's with the next revision added. A client patched to the
+last overlay is sent the next revision alone, a client with none every revision, and either then
+reads as the new overlay does. A file a world stops changing has a revision that reads as its base
+again; a file that reads as it did gets no new revision.

@@ -210,9 +210,28 @@ fn open_retail_files(
 /// # Errors
 /// [`DataFilesError`] as [`open_data_files`].
 pub fn open_store(cfg: &crate::config::Config) -> Result<RetailDatStore, DataFilesError> {
-    let set = world_set(cfg);
-    let store = open_world_files(&cfg.dat_dir, cfg.classic_dat_dir.as_deref(), set)?;
-    Ok(crate::world_overlay::lay_over(store, cfg))
+    open_store_noting(cfg).map(|(store, _)| store)
+}
+
+/// [`open_store`], with the reason when the world's overlay is refused.
+///
+/// # Errors
+/// [`DataFilesError`] as [`open_data_files`].
+pub fn open_store_noting(
+    cfg: &crate::config::Config,
+) -> Result<(RetailDatStore, Option<crate::world_overlay::Refusal>), DataFilesError> {
+    Ok(crate::world_overlay::lay_over_noting(
+        open_locked_store(cfg)?,
+        cfg,
+    ))
+}
+
+/// The world's files from its folders ([`open_world_files`]), without the world's overlay.
+///
+/// # Errors
+/// [`DataFilesError`] as [`open_data_files`].
+pub fn open_locked_store(cfg: &crate::config::Config) -> Result<RetailDatStore, DataFilesError> {
+    open_world_files(&cfg.dat_dir, cfg.classic_dat_dir.as_deref(), world_set(cfg))
 }
 
 /// The dat set the world is drawn from: the one its overlay was made against when the overlay
@@ -656,8 +675,8 @@ mod tests {
             let bare = open_retail_files(&dir, None, era).expect("both sets open");
             for product in [1, 1 | crate::app::PRODUCT_HIGHRES] {
                 assert_eq!(
-                    crate::app::ddd_interrogation_response(&store, product, true),
-                    crate::app::ddd_interrogation_response(&bare, product, true),
+                    crate::app::ddd_interrogation_response(&store, product, true, None),
+                    crate::app::ddd_interrogation_response(&bare, product, true, None),
                     "{era:?}"
                 );
             }

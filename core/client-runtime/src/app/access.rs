@@ -93,15 +93,28 @@ impl<S: Shell> App<S> {
         &self.objects
     }
 
+    /// What the player is told of the world's data the client refused, when it refused it: at
+    /// the start, before it connects, or during the data patch. The session ends there.
+    #[must_use]
+    pub fn world_refused(&self) -> Option<&str> {
+        match &self.host_state.disconnect {
+            Some(dereth_client_contract::pregame::DisconnectNotice::OverlayRefused(text)) => {
+                Some(text)
+            }
+            _ => None,
+        }
+    }
+
     /// Install a socket-free replay endpoint on a headless App that has no live link. The real
     /// frame consumes its raw transport queues; no decoded event/model replacement is injected.
-    /// Returns the unconsumed endpoint on refusal, preserving an existing live/replay session.
+    /// Returns the unconsumed endpoint on refusal, preserving an existing live/replay session; a
+    /// run that refused its world's data at the start takes none.
     #[allow(clippy::result_large_err)] // the refused network is handed back whole, once
     pub fn attach_replay_network(
         &mut self,
         net: crate::net::ClientNetwork,
     ) -> Result<(), crate::net::ClientNetwork> {
-        if !self.cfg.headless || self.link.is_some() {
+        if !self.cfg.headless || self.link.is_some() || self.world_refused().is_some() {
             return Err(net);
         }
         self.link = Some(NetLink::replay(net));
@@ -114,13 +127,14 @@ impl<S: Shell> App<S> {
     /// nothing else about the run changes.
     ///
     /// # Errors
-    /// The endpoint back, unconsumed, when the App already has a link.
+    /// The endpoint back, unconsumed, when the App already has a link, or refused its world's
+    /// data at the start ([`Self::world_refused`]).
     #[allow(clippy::result_large_err)] // the refused network is handed back whole, once
     pub fn attach_relay_network(
         &mut self,
         net: crate::net::ClientNetwork,
     ) -> Result<(), crate::net::ClientNetwork> {
-        if self.link.is_some() {
+        if self.link.is_some() || self.world_refused().is_some() {
             return Err(net);
         }
         self.link = Some(NetLink::replay(net));

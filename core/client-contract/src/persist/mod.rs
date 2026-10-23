@@ -23,6 +23,7 @@
 //! is here is the shape of the data, the text format, and the parse/serialise pair either side of
 //! it — all of which a server, a tool or a test can use with no disk at all.
 
+pub mod overlay_blocklist;
 pub mod persistent_data;
 pub mod preferences;
 pub mod screen_layout;

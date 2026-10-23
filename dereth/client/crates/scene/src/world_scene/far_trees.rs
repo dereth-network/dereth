@@ -157,34 +157,32 @@ impl Worker {
         let stop = Arc::new(AtomicBool::new(false));
         let (send, done) = mpsc::channel();
         let (q, halt) = (Arc::clone(&queue), Arc::clone(&stop));
-        std::thread::Builder::new()
-            .name("far trees".to_owned())
-            .spawn(move || {
-                let mut reads = Reads::default();
-                loop {
-                    let next = {
-                        let (lock, wake) = &*q;
-                        let mut list = lock.lock().unwrap_or_else(PoisonError::into_inner);
-                        while list.is_empty() && !halt.load(Ordering::Relaxed) {
-                            list = wake.wait(list).unwrap_or_else(PoisonError::into_inner);
-                        }
-                        list.pop_front()
-                    };
-                    if halt.load(Ordering::Relaxed) {
-                        return;
+        crate::workers::spawn("far trees", move || {
+            let mut reads = Reads::default();
+            loop {
+                let next = {
+                    let (lock, wake) = &*q;
+                    let mut list = lock.lock().unwrap_or_else(PoisonError::into_inner);
+                    while list.is_empty() && !halt.load(Ordering::Relaxed) {
+                        list = wake.wait(list).unwrap_or_else(PoisonError::into_inner);
                     }
-                    let Some((bx, by)) = next else {
-                        continue;
-                    };
-                    let started = web_time::Instant::now();
-                    let trees = block_trees(&src, &mut reads, bx, by);
-                    let ms = started.elapsed().as_secs_f64() * 1000.0;
-                    if send.send(((bx, by), trees, ms)).is_err() {
-                        return;
-                    }
+                    list.pop_front()
+                };
+                if halt.load(Ordering::Relaxed) {
+                    return;
                 }
-            })
-            .ok()?;
+                let Some((bx, by)) = next else {
+                    continue;
+                };
+                let started = web_time::Instant::now();
+                let trees = block_trees(&src, &mut reads, bx, by);
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                if send.send(((bx, by), trees, ms)).is_err() {
+                    return;
+                }
+            }
+        })
+        .ok()?;
         Some(Self { queue, done, stop })
     }
 
@@ -433,14 +431,11 @@ impl FarTrees {
                 Arc::clone(store),
                 region(),
             );
-            let spawned = std::thread::Builder::new()
-                .name("forest cover".to_owned())
-                .spawn(move || {
-                    let models = cover_models(&pack);
-                    let mut scenes =
-                        |id| dereth_client_runtime::world_build::read_scene(&store, id);
-                    let _ = send.send(forest_cover(&world, &region, &mut scenes, &models));
-                });
+            let spawned = crate::workers::spawn("forest cover", move || {
+                let models = cover_models(&pack);
+                let mut scenes = |id| dereth_client_runtime::world_build::read_scene(&store, id);
+                let _ = send.send(forest_cover(&world, &region, &mut scenes, &models));
+            });
             self.cover_loading = spawned.ok().map(|_| receive);
         }
         if let Some(cover) = self.cover_loading.as_ref().and_then(|r| r.try_recv().ok()) {

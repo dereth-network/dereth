@@ -11,7 +11,7 @@
 use dereth_client_contract::overlay::{
     OverlayItem, OverlayReleased, OverlayTexture, PreviewLight, PreviewSpace,
 };
-use dereth_primitives::{CellId, DataId, Frame, ObjectId, Viewport};
+use dereth_primitives::{CellId, DataId, Frame, Inset, ObjectId, Viewport};
 
 /// The scene counters the three census lines in `App` print — `ViewerBlockReport`,
 /// `ObjectReport` and `report_scene`.
@@ -206,6 +206,16 @@ pub trait Presentation: std::fmt::Debug {
     fn size(&self) -> (u32, u32);
     fn resize(&mut self, width: u32, height: u32) -> Result<(), PresentError>;
     fn set_presentation_sync(&mut self, full_screen: bool, sync_to_refresh: bool);
+    /// Draw the frames that follow into part of the back buffer, as a screen of their own: for a
+    /// host that shows the game inside a view of its own window. While a region is set,
+    /// [`Self::size`] and [`Self::resize`] are the region's screen's, and the back buffer stays
+    /// the window's. `None` draws over the whole back buffer again. A presentation with no
+    /// device has nothing to place.
+    fn set_inset(&mut self, _region: Option<Inset>) {}
+    /// The part of the back buffer the frames draw into, while one is set.
+    fn inset(&self) -> Option<Inset> {
+        None
+    }
     /// Save the current back buffer as a PNG.
     ///
     /// # Errors

@@ -159,6 +159,8 @@ pub struct Gpu {
     sampler_descriptions: Vec<D3D12_SAMPLER_DESC>,
     texture_filtering: u32,
     sharp_lod_bias: bool,
+    /// The part of the target the frames draw into as a screen of their own, while one is set.
+    pub(crate) inset: std::cell::Cell<Option<dereth_primitives::Inset>>,
     bound_sampler: std::cell::Cell<Option<u32>>,
     rtv_size: u32,
     srv_size: u32,
@@ -398,6 +400,7 @@ impl Gpu {
             sampler_descriptions: Vec::with_capacity(samplers::DESCRIPTOR_COUNT as usize),
             texture_filtering: crate::sampler::STARTUP_FILTERING,
             sharp_lod_bias: false,
+            inset: std::cell::Cell::new(None),
             bound_sampler: std::cell::Cell::new(None),
             rtv_size,
             srv_size,

@@ -40,6 +40,8 @@ pub struct HorizonOptions {
     pub screen: StartScreen,
     pub open: Vec<String>,
     pub auto_login: bool,
+    /// Skip capture delays when the host covers the entry screens.
+    pub immediate_entry: bool,
     /// The character to log in automatically.
     pub start_character: Option<String>,
     /// The character to make and log in automatically, when the account has none of that name.
@@ -81,6 +83,7 @@ impl Default for HorizonOptions {
             screen: StartScreen::default(),
             open: Vec::new(),
             auto_login: false,
+            immediate_entry: false,
             start_character: None,
             create_character: None,
             script: Vec::new(),

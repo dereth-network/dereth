@@ -49,6 +49,7 @@ fn sphere_setup(id: u32) -> SetupModel {
         default_mtable_id: DataId(0),
         default_stable_id: DataId(0),
         default_phstable_id: DataId(0),
+        written_order: Default::default(),
     }
 }
 

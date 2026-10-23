@@ -351,11 +351,9 @@ impl DrawnGround {
             let (send, receive) = mpsc::channel();
             let store = Arc::clone(store);
             let table = *table;
-            let spawned = std::thread::Builder::new()
-                .name("landscape vertices".to_owned())
-                .spawn(move || {
-                    let _ = send.send(read_world(&store, &table));
-                });
+            let spawned = crate::workers::spawn("landscape vertices", move || {
+                let _ = send.send(read_world(&store, &table));
+            });
             if spawned.is_ok() {
                 self.loading = Some(receive);
             }

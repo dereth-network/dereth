@@ -7,7 +7,15 @@ impl<S: Shell> App<S> {
     ///
     /// The order is [`crate::shutdown::Step::ORDER`]; the recording it returns is what
     /// `dereth/client/tests/gpu/presentation/shutdown.rs` asserts on, because an ordering nothing checks is a comment.
-    pub fn shutdown(mut self, shell: &mut S) -> crate::shutdown::CleanupLog {
+    pub fn shutdown(self, shell: &mut S) -> crate::shutdown::CleanupLog {
+        self.shutdown_retaining_presentation(shell).1
+    }
+
+    /// Release the session and its resources, returning the device to its host.
+    pub fn shutdown_retaining_presentation(
+        mut self,
+        shell: &mut S,
+    ) -> (Box<S::Present>, crate::shutdown::CleanupLog) {
         use crate::shutdown::{Outcome, Step};
         if let Some(effect) = self.resolution.cancel() {
             self.apply_resolution_effect(effect);
@@ -173,6 +181,6 @@ impl<S: Shell> App<S> {
                 }
             },
         );
-        log
+        (self.present, log)
     }
 }

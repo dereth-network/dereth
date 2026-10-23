@@ -426,12 +426,32 @@ pub static ROWS: &[Behaviour] = &[
         id: "net.dat-patch.an-overlay-the-client-cannot-take-is-refused-and-nothing-is-written",
         says: "A world's overlay is refused and reported, and nothing of it is written, when the \
                world's manifest names another base than the data file the client holds, when \
-               the world is on the player's overlay blocklist, or when the overlay folder \
-               already holds another world's overlay; the update then ends at once.",
+               the world is on the player's overlay blocklist, when its folder holds another \
+               world's overlay or cannot be read, or when a record is not the one the manifest \
+               names. The world is not played: refused when the client starts, it is never \
+               connected to; refused during the update exchange, the session ends there, before \
+               the character list, and no character goes in. The player is told why, as for any \
+               session's end.",
         since: THIS_CLIENT,
         divergence: "CD-031",
         evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-REFUSALS"),
         station: "dereth-client::dat::net::dat_patch_apply::an_overlay_made_against_another_base_or_for_a_blocked_or_other_world_is_refused",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "net.dat-patch.each-world-a-server-serves-keeps-its-own-folder",
+        says: "A client keeping a folder for a server keeps one in it for each world the server \
+               serves, starts on the folder of the world the server served last, and names that \
+               world when it answers the update question. A world that names itself as another \
+               is read and written in its own folder from then on, made when it is new, and the \
+               client answers the server's second question from it, so going back to a world \
+               sends nothing it already has; a server that patches it as the world the answer \
+               named is refused. The folder an earlier client kept for the server, holding one \
+               world's overlay, becomes that world's folder.",
+        since: THIS_CLIENT,
+        divergence: "CD-031",
+        evidence: Evidence::Private("AC-EVID-DAT-OVERLAY-EACH-WORLD"),
+        station: "dereth-client-runtime::lib::app::tests::world_refusal::a_world_naming_itself_as_another_is_read_and_answered_for_from_its_own_folder",
         tier: Tier::Dat,
     },
     behaviour! {
