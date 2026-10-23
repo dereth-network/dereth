@@ -93,17 +93,21 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
 /// The Windows zip holds, in one folder, the editor (which carries the icon), the command, the
 /// notices, the README and the change log, and nothing else.
 #[test]
-fn the_windows_zip_holds_both_programs_the_notices_readme_and_changes() {
+fn the_windows_zip_holds_all_four_programs_the_notices_readme_and_changes() {
     let w = target(WINDOWS);
     assert_eq!(lyceum::archive_root(w, V), "lyceum-0.1.0");
     assert_eq!(
         lyceum::contents(w),
         [
             "CHANGES.md",
+            "EMPYREAN-LICENSE",
             "LICENSE",
+            "LIFESTONED-LICENSE.txt",
             "NOTICE.txt",
             "README.md",
             "THIRD-PARTY-LICENSES.html",
+            "empyrean-import.exe",
+            "empyrean-server.exe",
             "lyceum-editor.exe",
             "lyceum.exe",
         ]
@@ -112,25 +116,31 @@ fn the_windows_zip_holds_both_programs_the_notices_readme_and_changes() {
         lyceum::programs(w),
         [
             ("lyceum-editor.exe".to_owned(), true),
-            ("lyceum.exe".to_owned(), false)
+            ("lyceum.exe".to_owned(), false),
+            ("empyrean-server.exe".to_owned(), false),
+            ("empyrean-import.exe".to_owned(), false)
         ]
     );
 }
 
-/// The Linux tarball holds both programs and the desktop entry with its icon, named by the
+/// The Linux tarball holds all four programs and the desktop entry with its icon, named by the
 /// application id the editor's window gives, beside the notices, the README and the change log.
 #[test]
-fn the_linux_tarball_holds_both_programs_and_a_desktop_entry_with_its_icon() {
+fn the_linux_tarball_holds_all_four_programs_and_a_desktop_entry_with_its_icon() {
     let l = target(LINUX);
     assert_eq!(lyceum::archive_root(l, V), "lyceum-0.1.0");
     assert_eq!(
         lyceum::contents(l),
         [
             "CHANGES.md",
+            "EMPYREAN-LICENSE",
             "LICENSE",
+            "LIFESTONED-LICENSE.txt",
             "NOTICE.txt",
             "README.md",
             "THIRD-PARTY-LICENSES.html",
+            "empyrean-import",
+            "empyrean-server",
             "lyceum",
             "lyceum-editor",
             "network.dereth.lyceum.desktop",
@@ -141,7 +151,9 @@ fn the_linux_tarball_holds_both_programs_and_a_desktop_entry_with_its_icon() {
         lyceum::programs(l),
         [
             ("lyceum-editor".to_owned(), true),
-            ("lyceum".to_owned(), false)
+            ("lyceum".to_owned(), false),
+            ("empyrean-server".to_owned(), false),
+            ("empyrean-import".to_owned(), false)
         ]
     );
     let entry = lyceum::desktop_entry();
@@ -165,11 +177,11 @@ fn the_linux_tarball_holds_both_programs_and_a_desktop_entry_with_its_icon() {
     );
 }
 
-/// The macOS bundle carries both programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`
+/// The macOS bundle carries all four programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`
 /// where the editor looks for it, the icon its `Info.plist` names, the notices, the README and the
 /// change log in `Contents/Resources`, and its code signature.
 #[test]
-fn the_macos_bundle_carries_both_programs_moltenvk_the_icon_and_the_notices() {
+fn the_macos_bundle_carries_all_four_programs_moltenvk_the_icon_and_the_notices() {
     for triple in [MAC_ARM, MAC_X64] {
         let m = target(triple);
         assert_eq!(lyceum::archive_root(m, V), "Lyceum.app");
@@ -179,23 +191,29 @@ fn the_macos_bundle_carries_both_programs_moltenvk_the_icon_and_the_notices() {
             "Contents/PkgInfo",
             "Contents/MacOS/lyceum-editor",
             "Contents/MacOS/lyceum",
+            "Contents/MacOS/empyrean-server",
+            "Contents/MacOS/empyrean-import",
             "Contents/Frameworks/libMoltenVK.dylib",
             "Contents/Resources/lyceum.icns",
             "Contents/Resources/NOTICE.txt",
             "Contents/Resources/THIRD-PARTY-LICENSES.html",
             "Contents/Resources/LICENSE",
+            "Contents/Resources/EMPYREAN-LICENSE",
+            "Contents/Resources/LIFESTONED-LICENSE.txt",
             "Contents/Resources/README.md",
             "Contents/Resources/CHANGES.md",
             "Contents/_CodeSignature/CodeResources",
         ] {
             assert!(contents.contains(&need.to_owned()), "{need}");
         }
-        assert_eq!(contents.len(), 12, "{contents:?}");
+        assert_eq!(contents.len(), 16, "{contents:?}");
         assert_eq!(
             lyceum::programs(m),
             [
                 ("Contents/MacOS/lyceum-editor".to_owned(), true),
-                ("Contents/MacOS/lyceum".to_owned(), false)
+                ("Contents/MacOS/lyceum".to_owned(), false),
+                ("Contents/MacOS/empyrean-server".to_owned(), false),
+                ("Contents/MacOS/empyrean-import".to_owned(), false)
             ]
         );
     }
@@ -440,6 +458,8 @@ fn the_bundle_is_signed_inside_out_ad_hoc_or_with_a_developer_id() {
             [
                 "L.app/Contents/Frameworks/libMoltenVK.dylib",
                 "L.app/Contents/MacOS/lyceum",
+                "L.app/Contents/MacOS/empyrean-server",
+                "L.app/Contents/MacOS/empyrean-import",
                 "L.app"
             ]
         );
@@ -469,7 +489,9 @@ fn the_windows_editor_is_windowed_with_its_icon_and_the_command_a_console_progra
         lyceum::programs(w),
         [
             ("lyceum-editor.exe".to_owned(), true),
-            ("lyceum.exe".to_owned(), false)
+            ("lyceum.exe".to_owned(), false),
+            ("empyrean-server.exe".to_owned(), false),
+            ("empyrean-import.exe".to_owned(), false)
         ]
     );
     let editor = pe(0x8664, 2, &["KERNEL32.dll", "USER32.dll"], &[], true);
@@ -579,10 +601,13 @@ fn a_release_build_links_statically_on_windows_and_claims_the_macos_floor() {
         Some("11.0")
     );
     let linux = lyceum::build_env(&ws, &facts, target(LINUX));
+    for env in [&windows, &mac, &linux] {
+        assert_eq!(value(env, "LYCEUM_BUNDLED_SERVER").as_deref(), Some("1"));
+    }
     assert!(!value(&linux, "CARGO_ENCODED_RUSTFLAGS")
         .expect("flags")
         .contains("crt-static"));
-    // What both programs name in `--version`, which the release workflow checks.
+    // What all four programs name in `--version`, which the release workflow checks.
     assert_eq!(
         value(&linux, "LYCEUM_BUILD_COMMIT").as_deref(),
         Some("a".repeat(40).as_str())
@@ -644,6 +669,10 @@ fn the_notice_names_the_source_and_carries_the_licenses_the_package_needs() {
     assert!(text.contains("https://github.com/dereth-network/dereth/tree/abc123"));
     assert!(text.contains("releases/tag/lyceum-v0.1.0"));
     assert!(text.contains("NO GAME DATA"));
+    assert!(text.contains("EMPYREAN-LICENSE"));
+    assert!(text.contains("LIFESTONED-LICENSE.txt"));
+    assert!(text.contains("/tree/abc123/empyrean"));
+    assert!(text.contains("/archive/abc123.tar.gz"));
     assert!(text.contains("THE LIBERATION TYPEFACE") && text.contains("Liberation OFL"));
     assert!(text.contains("the editor draws through MoltenVK") && text.contains("Apache License"));
     let own = text.find("This project's own crates:").expect("own");
@@ -669,6 +698,10 @@ fn every_file_the_lyceum_package_reads_from_the_tree_is_there() {
         "lyceum/about.hbs",
         "lyceum/editor/Cargo.toml",
         "lyceum/cli/Cargo.toml",
+        "empyrean/server/Cargo.toml",
+        "empyrean/import/Cargo.toml",
+        "empyrean/about.toml",
+        "empyrean/about.hbs",
     ] {
         assert!(ws.join(path).is_file(), "{path}");
     }

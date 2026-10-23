@@ -1299,12 +1299,12 @@ impl EditorApp {
         })
     }
 
-    /// The first cell of dungeon `lb` as a portal's destination.
+    /// Dungeon `lb`'s drop point as a portal's destination.
     ///
     /// # Errors
     /// No weenie shown, or the dungeon has no cell.
     pub fn destination_dungeon(&mut self, lb: u16) -> Result<(), String> {
-        let (cell, at) = self.dungeon_door(lb)?;
+        let (cell, at) = self.drop_point(lb)?;
         self.form_edit(&FormEdit::Destination {
             cell,
             at: [at.x, at.y, at.z],

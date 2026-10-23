@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use dereth_assets::world::{EnvCell, LandblockInfo};
 use dereth_assets::Decode;
-use dereth_primitives::DataId;
+use dereth_primitives::{DataId, EraId};
 
 use crate::sql_ids::WeenieFacts;
 
@@ -23,18 +23,19 @@ pub struct Dungeon {
 /// The weenie type of a portal.
 const PORTAL: u32 = 7;
 
-/// Every landblock of the cell file `read` reads whose first indoor cell is not seen from
-/// outside — a dungeon's, where a town's rooms are a building's and seen from outside — with
-/// its number of cells.
+/// Every landblock of the cell file `read` reads (of the files of `era`) whose first indoor cell
+/// is not seen from outside — a dungeon's, where a town's rooms are a building's and seen from
+/// outside — with its number of cells.
 #[must_use]
-pub fn retail(read: &dyn Fn(DataId) -> Option<Vec<u8>>) -> BTreeMap<u16, u32> {
+pub fn retail(read: &dyn Fn(DataId) -> Option<Vec<u8>>, era: EraId) -> BTreeMap<u16, u32> {
     let mut out = BTreeMap::new();
     for lb in 0..=u16::MAX {
         let first = u32::from(lb) << 16;
         let Some(bytes) = read(DataId(first | 0xFFFE)) else {
             continue;
         };
-        let Ok(info) = LandblockInfo::decode_payload(DataId(first | 0xFFFE), &bytes) else {
+        let Ok(info) = LandblockInfo::decode_payload_for(era, DataId(first | 0xFFFE), &bytes)
+        else {
             continue;
         };
         if info.num_cells == 0 {
@@ -42,7 +43,7 @@ pub fn retail(read: &dyn Fn(DataId) -> Option<Vec<u8>>) -> BTreeMap<u16, u32> {
         }
         let id = DataId(first | 0x0100);
         let dungeon = read(id)
-            .and_then(|b| EnvCell::decode_payload(id, &b).ok())
+            .and_then(|b| EnvCell::decode_payload_for(era, id, &b).ok())
             .is_some_and(|c| c.flags & 1 == 0);
         if dungeon {
             out.insert(lb, info.num_cells);

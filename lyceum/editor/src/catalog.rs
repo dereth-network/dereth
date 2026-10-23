@@ -1,14 +1,17 @@
 //! What the model browser knows of every model, and the map's picture of the world, gathered off
 //! the frame loop: where the data files place each model and the world drawn from above (each
 //! kept in a file in the picture cache, by the files' fingerprints, so the next start reads it at
-//! once) and, unless the command line named its own SQL, the weenies of the server database
-//! `empyrean-import fetch` keeps in the user's cache folder.
+//! once); unless the command line named its own SQL, the weenies of the server database
+//! `empyrean-import fetch` keeps in the user's cache folder; and every building the world places,
+//! with the doors that database stands at them ([`lyceum_foundry::buildings`]), kept beside the
+//! placements by the files' and the database's fingerprints.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 use dereth_assets::Region;
+use dereth_primitives::EraId;
+use lyceum_foundry::buildings::Catalog as Buildings;
 use lyceum_foundry::dats::DatSet;
 use lyceum_foundry::map::WorldMap;
 use lyceum_foundry::models::Placements;
@@ -23,6 +26,8 @@ pub struct Ready {
     /// The server's world: its weenies, instances and links; nothing when it was given no
     /// database.
     pub server: ServerContent,
+    /// Every building the world places, what a drop copies; `None` when the files do not open.
+    pub buildings: Option<Buildings>,
     /// The database read, and what went wrong, if anything did.
     pub database: Option<PathBuf>,
     pub problem: Option<String>,
@@ -35,14 +40,16 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// Gather the placements of the data files in `dats` (and the scenery of `region`) and the
-    /// map drawn with the terrain types' `colors`, kept under `cache`, and the weenies of the SQL
-    /// file `database`, on a thread of its own.
+    /// Gather the placements of the data files of `era` in `dats` (and the scenery of `region`)
+    /// and the map drawn with the terrain types' `colors`, kept under `cache`, the weenies of the
+    /// SQL file `database`, and the building catalog with the doors of `doors` (the server
+    /// database the session was given, or `database`), on a thread of its own.
     #[must_use]
     pub fn start(
-        dats: PathBuf,
+        (dats, era): (PathBuf, EraId),
         region: Option<Region>,
         database: Option<PathBuf>,
+        doors: Option<PathBuf>,
         cache: PathBuf,
         colors: Vec<[u8; 3]>,
     ) -> Self {
@@ -50,7 +57,15 @@ impl Catalog {
         let spawned = std::thread::Builder::new()
             .name("model names".into())
             .spawn(move || {
-                let _ = tx.send(gather(&dats, region.as_ref(), database, &cache, &colors));
+                let _ = tx.send(gather(
+                    &dats,
+                    era,
+                    region.as_ref(),
+                    database,
+                    doors.as_deref(),
+                    &cache,
+                    &colors,
+                ));
             });
         if let Err(e) = spawned {
             tracing::warn!("the model browser names no models: {e}");
@@ -110,28 +125,62 @@ pub fn map_file(cache: &Path, set: &DatSet) -> PathBuf {
     ))
 }
 
+/// The file the building catalog of `set` with the doors of the server database `doors` is kept
+/// in, beside the placements: named by the cell file's fingerprint and the database's (its name,
+/// length and time of change), or `none` without one.
+#[must_use]
+pub fn buildings_file(cache: &Path, set: &DatSet, doors: Option<&Path>) -> PathBuf {
+    use std::hash::{Hash, Hasher};
+    let db = doors.and_then(|p| {
+        let meta = std::fs::metadata(p).ok()?;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        p.file_name()?.hash(&mut h);
+        meta.len().hash(&mut h);
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .hash(&mut h);
+        Some(format!("{:016x}", h.finish()))
+    });
+    let placements = placements_file(cache, set);
+    let cell = placements
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .and_then(|s| s.strip_prefix("placements-"))
+        .unwrap_or("cell")
+        .to_owned();
+    placements.with_file_name(format!(
+        "buildings-{cell}-{}.tsv",
+        db.as_deref().unwrap_or("none")
+    ))
+}
+
 fn gather(
     dats: &Path,
+    era: EraId,
     region: Option<&Region>,
     database: Option<PathBuf>,
+    doors: Option<&Path>,
     cache: &Path,
     colors: &[[u8; 3]],
 ) -> Ready {
     let mut problem = None;
-    let (placements, map) = match DatSet::open(dats) {
+    let opened = DatSet::open_era(dats, era);
+    let (placements, map) = match &opened {
         Ok(set) => {
-            let file = placements_file(cache, &set);
+            let file = placements_file(cache, set);
             let placements = Placements::load(&file).unwrap_or_else(|| {
-                let p = Placements::read(&set, region, &town_of);
+                let p = Placements::read(set, region, &town_of);
                 if let Err(e) = p.save(&file) {
                     tracing::warn!("{}: {e}", file.display());
                 }
                 p
             });
-            let file = map_file(cache, &set);
+            let file = map_file(cache, set);
             let map = region.map(|r| {
                 WorldMap::load(&file).unwrap_or_else(|| {
-                    let m = WorldMap::read(&set, r, colors);
+                    let m = WorldMap::read(set, r, colors);
                     if let Err(e) = m.save(&file) {
                         tracing::warn!("{}: {e}", file.display());
                     }
@@ -152,10 +201,28 @@ fn gather(
             Err(e) => problem = Some(format!("{}: {e}", path.display())),
         }
     }
+    let doors = doors.or(database.as_deref());
+    let buildings = opened.ok().map(|set| {
+        let file = buildings_file(cache, &set, doors);
+        Buildings::load(&file).unwrap_or_else(|| {
+            // The database the session was given on its command line, read here for its doors.
+            let given = (doors.is_some() && database.as_deref() != doors)
+                .then(|| doors.and_then(|p| std::fs::read(p).ok()))
+                .flatten()
+                .map(|b| sql_ids::server_content(&String::from_utf8_lossy(&b)));
+            let content = given.as_ref().or((database.is_some()).then_some(&server));
+            let c = Buildings::read(&set, content, &town_of);
+            if let Err(e) = c.save(&file) {
+                tracing::warn!("{}: {e}", file.display());
+            }
+            c
+        })
+    });
     Ready {
         placements,
         map,
         server,
+        buildings,
         database,
         problem,
     }
@@ -185,122 +252,20 @@ pub fn map_coords(lb: u16) -> (f32, f32) {
     )
 }
 
-/// The server database `empyrean-import fetch` keeps in the user's cache folder: the newest
-/// world database there.
+/// The server database `empyrean-import fetch` keeps in the user's cache folder for a world built
+/// on `era`'s files: the newest of that era's world databases there.
 #[must_use]
-pub fn server_database() -> Option<PathBuf> {
-    newest_database(&database_folder(|n| std::env::var_os(n))?)
+pub fn server_database(era: EraId) -> Option<PathBuf> {
+    newest_database_for(&database_cache()?, lyceum_foundry::export::Era::of(era))
 }
 
-/// The folder `empyrean-import fetch` keeps world databases in, reading the environment
-/// through `env`.
-fn database_folder(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let var = |name: &str| {
-        env(name)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-    };
-    let base = if cfg!(windows) {
-        var("LOCALAPPDATA")?.join("Empyrean")
-    } else if cfg!(target_os = "macos") {
-        var("HOME")?.join("Library/Caches/Empyrean")
-    } else {
-        var("XDG_CACHE_HOME")
-            .or_else(|| var("HOME").map(|h| h.join(".cache")))?
-            .join("empyrean")
-    };
-    Some(base.join("world-database"))
-}
-
-/// The newest world database in `dir`: the highest release of the patched line
-/// (`ACE-World-Database-v<x>.<y>.<z>.sql`), else of the original line.
-#[must_use]
-pub fn newest_database(dir: &Path) -> Option<PathBuf> {
-    let mut best: Option<((u8, u32, u32, u32), PathBuf)> = None;
-    for e in std::fs::read_dir(dir).ok()?.flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
-        let (line, rest) = if let Some(r) = name.strip_prefix("ACE-World-Database-v") {
-            (1, r)
-        } else if let Some(r) = name.strip_prefix("ACE-World-16PY-db-v") {
-            (0, r)
-        } else {
-            continue;
-        };
-        let Some(version) = rest.strip_suffix(".sql") else {
-            continue;
-        };
-        let n: Vec<u32> = version.split('.').filter_map(|p| p.parse().ok()).collect();
-        let [a, b, c] = n[..] else { continue };
-        let key = (line, a, b, c);
-        if best.as_ref().is_none_or(|(k, _)| key > *k) {
-            best = Some((key, e.path()));
-        }
-    }
-    best.map(|(_, p)| p)
-}
+/// The import tool's per-user cache, also used by the editor's first-use download.
+pub use lyceum_foundry::export::{database_cache, newest_database, newest_database_for};
 
 #[cfg(test)]
 mod tests {
-    //! Behaviour: none (tooling: where the world editor finds the server's world database, and the town a landblock is in)
+    //! Behaviour: none (tooling: the town a landblock is in)
     use super::*;
-
-    #[test]
-    fn the_newest_patched_world_database_is_chosen_over_older_and_original_ones() {
-        let dir = std::env::temp_dir().join(format!("editor-dbs-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        for f in [
-            "ACE-World-16PY-db-v0.8.8.sql",
-            "ACE-World-Database-v0.9.295.sql",
-            "ACE-World-Database-v0.9.30.sql",
-            "ACE-World-Database-v0.10.1.sql.zip",
-            "notes.txt",
-        ] {
-            std::fs::write(dir.join(f), "").unwrap();
-        }
-        assert_eq!(
-            newest_database(&dir).unwrap().file_name().unwrap(),
-            "ACE-World-Database-v0.9.295.sql"
-        );
-        std::fs::remove_file(dir.join("ACE-World-Database-v0.9.295.sql")).unwrap();
-        std::fs::remove_file(dir.join("ACE-World-Database-v0.9.30.sql")).unwrap();
-        assert_eq!(
-            newest_database(&dir).unwrap().file_name().unwrap(),
-            "ACE-World-16PY-db-v0.8.8.sql"
-        );
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn the_cache_folder_is_the_users_and_a_relative_or_empty_variable_counts_as_none() {
-        let env = |vars: &'static [(&'static str, &'static str)]| {
-            move |n: &str| {
-                vars.iter()
-                    .find(|(k, _)| *k == n)
-                    .map(|(_, v)| OsString::from(v))
-            }
-        };
-        if cfg!(windows) {
-            assert_eq!(
-                database_folder(env(&[("LOCALAPPDATA", "C:\\Users\\a\\AppData\\Local")])),
-                Some(PathBuf::from(
-                    "C:\\Users\\a\\AppData\\Local\\Empyrean\\world-database"
-                ))
-            );
-            assert_eq!(database_folder(env(&[("LOCALAPPDATA", "rel")])), None);
-            assert_eq!(database_folder(env(&[("LOCALAPPDATA", "")])), None);
-        } else if !cfg!(target_os = "macos") {
-            assert_eq!(
-                database_folder(env(&[("HOME", "/home/a")])),
-                Some(PathBuf::from("/home/a/.cache/empyrean/world-database"))
-            );
-            assert_eq!(
-                database_folder(env(&[("XDG_CACHE_HOME", "/c"), ("HOME", "/home/a")])),
-                Some(PathBuf::from("/c/empyrean/world-database"))
-            );
-        }
-    }
 
     #[test]
     fn a_towns_landblock_is_in_the_town_and_open_country_is_in_none() {

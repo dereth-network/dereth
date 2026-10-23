@@ -1,6 +1,6 @@
 [package]
 name = "lyceum-cli"
-description = "Lyceum's command line: builds a world's content packs into its overlay, bakes an overlay into a copy of a player's files, takes modified files apart into an overlay, and packs pictures into Dereth's client layer."
+description = "Lyceum's command line: builds a world's content packs into its overlay, bakes an overlay into a copy of a player's files, exports a world for a server that runs it elsewhere, takes modified files apart into an overlay, and packs pictures into Dereth's client layer."
 version = "0.1.0" # Lyceum's own version, shared by its three crates (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true

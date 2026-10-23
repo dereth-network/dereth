@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use dereth_assets::world::{CellLandblock, LandblockInfo, ObjectEntry};
-use dereth_assets::{Decode, Region};
+use dereth_assets::Region;
 use dereth_dat::ModernDat;
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
@@ -55,6 +55,22 @@ pub enum Weenie {
     Class(u32),
 }
 
+/// A kit piece placed whole ([`crate::kit`]): its environment, the surfaces its parts are drawn
+/// with, where it stands and its turn, and each part (its place in the environment) with its
+/// portals' links in order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NewPiece {
+    pub environment: DataId,
+    pub surfaces: Vec<DataId>,
+    pub at: [f32; 3],
+    pub rotation: Rotation,
+    pub parts: Vec<(u16, Vec<source::Link>)>,
+}
+
+/// A portal of a part of the pieces one placement makes: the piece, the part (its place in that
+/// piece's parts), the portal.
+pub type PartPortal = (usize, usize, usize);
+
 /// One field of one world vertex set to a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VertexSet {
@@ -68,12 +84,15 @@ pub struct VertexSet {
 /// A change to the world, as the editor asks for it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
-    /// Place `model` in `landblock` at `at`, turned `rotation`.
+    /// Place `model` in `landblock` at `at`, turned `rotation`: named `name` (a bare symbol of
+    /// the target pack's), or `static-1`, `static-2`, ... the first no static of the landblock's
+    /// file holds.
     PlaceStatic {
         landblock: u16,
         model: DataId,
         at: Place,
         rotation: Rotation,
+        name: Option<String>,
     },
     /// Move or turn a static of `landblock`, named by where it came from.
     MoveStatic {
@@ -86,6 +105,9 @@ pub enum Op {
     RemoveStatic { landblock: u16, which: StaticOrigin },
     /// Set fields of world vertices.
     SetVertices(Vec<VertexSet>),
+    /// Take the target pack's own setting of fields of world vertices away (where a row sets that
+    /// one vertex): each then shows what the packs under it and the world set.
+    UnsetVertices(Vec<(u32, u32, Field)>),
     /// Place an instance of `weenie` in `landblock` at `origin` (landblock meters), facing
     /// `heading` degrees clockwise from north.
     PlaceSpawn {
@@ -144,6 +166,25 @@ pub enum Op {
     },
     /// Take a new cell of `landblock` away (its symbol, in full); the portals joined to it shut.
     RemoveCell { landblock: u16, name: String },
+    /// Place kit pieces in `landblock`, each part a new cell of the target pack's, its portals
+    /// linked as its parts give them (another new cell's, a reshaped cell's, or shut) and, where
+    /// `joins` pairs two portals of the parts placed together, to each other.
+    PlacePieces {
+        landblock: u16,
+        pieces: Vec<NewPiece>,
+        joins: Vec<(PartPortal, PartPortal)>,
+    },
+    /// Take landblock `landblock`'s own cells `cells` away: each closed, the statics in them gone
+    /// and the spawns standing in them taken away; every way into them shut, the cells beyond
+    /// reshaped as they are so those ways are free doorways to build on.
+    TakeCells { landblock: u16, cells: Vec<u16> },
+    /// Draw cell `cell` of `landblock` with `surfaces`: a new cell of the target pack's in its
+    /// row, any other reshaped as it stands with them.
+    DressCell {
+        landblock: u16,
+        cell: u16,
+        surfaces: Vec<DataId>,
+    },
     /// Reshape cell `cell` of `landblock`'s own: piece `piece` of `environment` in its place,
     /// drawn with `surfaces`, at `at` (landblock meters) turned `rotation`; each of the piece's
     /// portals keeping a way the cell had, shut, or joined to a new cell (whose own link is
@@ -167,20 +208,74 @@ pub enum Op {
         at: [f32; 3],
         rotation: Option<Rotation>,
     },
+    /// Add a static of `model` to indoor cell `cell` of `landblock`, one not of the target
+    /// pack's own (the world's, or another pack's), at `at` (landblock meters) turned
+    /// `rotation`.
+    AddCellStatic {
+        landblock: u16,
+        cell: u16,
+        model: DataId,
+        at: [f32; 3],
+        rotation: Rotation,
+    },
     /// Take the static standing at `index` of indoor cell `cell` of `landblock` away.
     RemoveCellStatic {
         landblock: u16,
         cell: u16,
         index: usize,
     },
-    /// Move building `index` of `landblock` (the base's) to `at`, turned `rotation`, with every
-    /// cell inside it.
+    /// Move building `index` of `landblock` (its place in the compiled building list) to `at`,
+    /// turned `rotation`, with every cell inside it. One of the world's own is moved by a
+    /// `[[move-building]]` row; a dropped one by its `[[add-building]]` row, its set, doors,
+    /// outdoor statics, the spawns and statics in its rooms and its level ground with it
+    /// ([`crate::drops`]).
     MoveBuilding {
         landblock: u16,
         index: usize,
         at: [f32; 3],
         rotation: Rotation,
     },
+    /// Move the pack's new cell `name` (its symbol, in full) of `landblock` to `at` (landblock
+    /// meters) turned `rotation`, its portals joined anew by `links` (as [`Op::PlaceCell`]'s):
+    /// the statics and the spawns standing in it go with it, and the portals it joined before
+    /// are shut.
+    MoveCell {
+        landblock: u16,
+        name: String,
+        at: [f32; 3],
+        rotation: Rotation,
+        links: Vec<source::Link>,
+    },
+    /// Draw the pack's new cell `name` (its symbol, in full) of `landblock` with `surfaces`, by
+    /// its piece's own indices.
+    SetCellSurfaces {
+        landblock: u16,
+        name: String,
+        surfaces: Vec<DataId>,
+    },
+    /// Name the dungeon of `landblock` and choose the look its pieces are drawn in (a dungeon's
+    /// landblock whose look it shares); `None` leaves each unsaid.
+    SetDungeon {
+        landblock: u16,
+        name: Option<String>,
+        look: Option<u16>,
+    },
+    /// Add a copy of a retail building to `landblock`, with its rooms ([`crate::drops`]); or,
+    /// for a name the target pack drops there already, write that row anew.
+    AddBuilding {
+        landblock: u16,
+        building: source::AddBuilding,
+    },
+    /// Add a copy of a retail dungeon to `landblock`, every cell of it ([`crate::drops`]); or,
+    /// for a name the target pack copies there already, write that row anew.
+    AddDungeon {
+        landblock: u16,
+        dungeon: source::AddDungeon,
+    },
+    /// Take dropped building `index` of `landblock` (its place in the compiled building list)
+    /// away: its row, so its set and rooms, its doors and outdoor statics, the spawns and statics
+    /// in its rooms, and the level ground it stood on ([`crate::drops`]).
+    RemoveBuilding { landblock: u16, index: usize },
     /// Several changes as one, each over what the ones before it left.
     Batch(Vec<Op>),
 }
@@ -195,7 +290,7 @@ pub struct Touched {
 }
 
 impl Touched {
-    fn add(&mut self, o: Self) {
+    pub(crate) fn add(&mut self, o: Self) {
         self.landblocks.extend(o.landblocks);
         self.sql |= o.sql;
     }
@@ -209,6 +304,8 @@ pub struct Applied {
     pub placed: Option<(u16, StaticOrigin)>,
     /// The spawn placed, as its file.
     pub spawned: Option<PathBuf>,
+    /// What it warns of, which stops nothing: a dropped building reaching further than retail's.
+    pub warnings: Vec<String>,
 }
 
 /// One step of the history: the text of each file it changed, before and after.
@@ -299,31 +396,152 @@ pub struct Session {
     schema: Option<crate::content::Schema>,
     /// How many times a landblock's cells were read.
     cell_reads: std::cell::Cell<u64>,
+    /// The world's buildings, when the session was given them: what a drop copies.
+    buildings: Option<crate::buildings::Catalog>,
 }
 
 /// What a spawn makes as a generator: how far around it scatters what it makes, each profile
-/// of its weenie, and the instances the world links to it.
+/// of its weenie, its timing and limits as its weenie's properties set them, and the instances
+/// the world links to it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Generator {
+    /// Float 43, `GeneratorRadius`.
     pub radius: Option<f32>,
     pub profiles: Vec<Profile>,
+    /// Float 41, `RegenerationInterval`: how often, in seconds, it looks to make more.
+    pub interval: Option<f32>,
+    /// Float 121, `GeneratorInitialDelay`: how long after its landblock wakes it starts.
+    pub initial_delay: Option<f32>,
+    /// Int 81 and 82, `MaxGeneratedObjects` and `InitGeneratedObjects`.
+    pub most: Option<i32>,
+    pub first: Option<i32>,
+    /// Int 142, `GeneratorTimeType`: 1 always, 2 between set times, 3 during an event, 4 at
+    /// night, 5 by day.
+    pub time: Option<i32>,
     /// The guids (as [`Session::spawns`] writes them) of the instances it owns.
     pub children: Vec<String>,
 }
 
-/// One generator profile: what it makes, how many, and where.
+/// One generator profile: what it makes, how many, where, when, and how likely.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Profile {
     /// The class it makes, as written.
     pub class: String,
     pub init: i32,
     pub max: i32,
-    /// Where it makes it (`where_Create`): bit 2 scattered around the generator, bit 4 at its
-    /// own place.
+    /// Where it makes it (`where_Create`): bit 1 on the generator, bit 2 scattered around it,
+    /// bit 4 at its own place, bit 8 inside it, bit 16 held by it, bit 32 for sale, bit 64 as
+    /// treasure.
     pub place: u32,
     /// Its own place, when it has one: the cell and the meters of its landblock.
     pub cell: Option<u32>,
     pub origin: Option<Vec3>,
+    /// When one is made again (`when_Create`): bit 1 once one is destroyed, bit 2 picked up,
+    /// bit 4 killed.
+    pub when: u32,
+    /// How long after that, in seconds (`delay`).
+    pub delay: Option<f32>,
+    /// Its share of the draw, as the generator's running total writes it (`probability`), or
+    /// `-1` for always.
+    pub probability: Option<f32>,
+}
+
+/// The generator weenie SQL `doc` describes: its properties and profiles (no children).
+#[must_use]
+pub fn generator_of(doc: &crate::content::SqlDoc) -> Generator {
+    use crate::content::PropertyKind;
+    let float = |id: u32| {
+        doc.property(PropertyKind::Float, id)
+            .and_then(|v| v.trim().parse::<f32>().ok())
+    };
+    let int = |id: u32| {
+        doc.property(PropertyKind::Int, id)
+            .and_then(|v| v.trim().parse::<i32>().ok())
+    };
+    let mut g = Generator {
+        radius: float(43),
+        interval: float(41),
+        initial_delay: float(121),
+        most: int(81),
+        first: int(82),
+        time: int(142),
+        ..Generator::default()
+    };
+    for r in doc.rows("weenie_properties_generator") {
+        let num = |c: &str| doc.cell(r, c).and_then(|v| v.trim().parse::<f32>().ok());
+        let origin = match (num("origin_X"), num("origin_Y"), num("origin_Z")) {
+            (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
+            _ => None,
+        };
+        #[allow(clippy::cast_possible_truncation)] // counts, as the SQL writes them
+        g.profiles.push(Profile {
+            class: doc.cell(r, "weenie_Class_Id").unwrap_or_default(),
+            init: num("init_Create").map_or(1, |v| v as i32),
+            max: num("max_Create").map_or(1, |v| v as i32),
+            place: doc
+                .cell(r, "where_Create")
+                .and_then(|v| sql_ids::number(&v))
+                .unwrap_or(0),
+            cell: doc.cell(r, "obj_Cell_Id").and_then(|v| sql_ids::number(&v)),
+            origin,
+            when: doc
+                .cell(r, "when_Create")
+                .and_then(|v| sql_ids::number(&v))
+                .unwrap_or(0),
+            delay: num("delay"),
+            probability: num("probability"),
+        });
+    }
+    g
+}
+
+/// A portal standing in the world that leads into a dungeon: its spawn's guid, its landblock and
+/// where it stands there (landblock meters).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Entrance {
+    pub guid: String,
+    pub landblock: u16,
+    pub at: Vec3,
+    /// The cell it stands in: outdoors, or a room (another dungeon's, a building's).
+    pub cell: u32,
+    /// Where it sends who uses it: the cell, and the place in that cell's landblock.
+    pub to: Option<(u32, Vec3)>,
+}
+
+impl Entrance {
+    /// Whether it stands outdoors.
+    #[must_use]
+    pub fn outdoors(&self) -> bool {
+        self.cell & 0xFFFF < crate::cells::FIRST_CELL.into()
+    }
+}
+
+/// Where the portals `entrances` send who uses them: of those that stand outdoors if any do,
+/// the destination most of them share (to the centimeter), the first such by cell and place.
+#[must_use]
+pub fn drop_point(entrances: &[Entrance]) -> Option<(u32, Vec3)> {
+    let outdoors = entrances.iter().any(|e| e.outdoors() && e.to.is_some());
+    #[allow(clippy::cast_possible_truncation)] // centimeters of a landblock, a few thousand
+    let key = |(c, p): (u32, Vec3)| {
+        (
+            c,
+            (p.x * 100.0).round() as i32,
+            (p.y * 100.0).round() as i32,
+            (p.z * 100.0).round() as i32,
+        )
+    };
+    type Spot = (u32, i32, i32, i32);
+    let mut counts: BTreeMap<Spot, (usize, (u32, Vec3))> = BTreeMap::new();
+    for e in entrances.iter().filter(|e| !outdoors || e.outdoors()) {
+        if let Some(to) = e.to {
+            counts.entry(key(to)).or_insert((0, to)).0 += 1;
+        }
+    }
+    let most = counts.values().map(|(n, _)| *n).max()?;
+    counts
+        .into_values()
+        .find(|(n, _)| *n == most)
+        .map(|(_, to)| to)
 }
 
 /// A guid as an override file writes it.
@@ -523,7 +741,217 @@ fn link_text(l: &source::Link, bare: &dyn Fn(&str) -> String) -> String {
         source::Link::Keep => "keep".to_owned(),
         source::Link::Cell { cell, portal } => format!("{}:{portal}", bare(cell)),
         source::Link::Base { cell, portal } => format!("0x{cell:04X}:{portal}"),
+        source::Link::Many(all) => all
+            .iter()
+            .map(|one| link_text(one, bare))
+            .collect::<Vec<_>>()
+            .join(", "),
     }
+}
+
+/// A portal's link as written with every cell `drop` says taken out of it: of a link that joins
+/// several, the rest; of one, itself or nothing.
+fn without(v: &str, drop: &dyn Fn(&str) -> bool) -> String {
+    v.split(',')
+        .map(str::trim)
+        .filter(|one| !one.is_empty() && !drop(one))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Every portal of `doc`'s rows of `keys` with the cells `drop` says taken out of its link.
+fn unlink(doc: &mut DocumentMut, keys: &[&str], drop: &dyn Fn(&str) -> bool) {
+    for key in keys {
+        if !doc.contains_key(key) {
+            continue;
+        }
+        for t in tables(doc, key).iter_mut() {
+            if let Some(ports) = t.get_mut("portals").and_then(Item::as_array_mut) {
+                for v in ports.iter_mut() {
+                    let Some(now) = v.as_str().map(str::to_owned) else {
+                        continue;
+                    };
+                    let kept = without(&now, drop);
+                    if kept != now.trim() {
+                        *v = Value::from(kept);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Every portal of `doc`'s cells (new and reshaped) joined to the pack's cell `bare`, shut.
+fn unjoin(doc: &mut DocumentMut, bare: &str) {
+    unlink(doc, &["cell", "replace-cell"], &|one| {
+        one.rsplit_once(':').is_some_and(|(c, _)| c == bare)
+    });
+}
+
+/// The partners `links` names, each of the pack's cell `name`'s portals in order, linked back to
+/// it: a new cell's in its row, a reshaped cell's in its row.
+///
+/// # Errors
+/// A partner the landblock's file does not hold.
+fn link_partners(
+    doc: &mut DocumentMut,
+    name: &str,
+    links: &[source::Link],
+    landblock: u16,
+    bare: &dyn Fn(&str) -> String,
+) -> Result<(), Error> {
+    let each = links.iter().enumerate().flat_map(|(slot, l)| match l {
+        source::Link::Many(all) => all.iter().map(|one| (slot, one)).collect::<Vec<_>>(),
+        one => vec![(slot, one)],
+    });
+    for (slot, l) in each {
+        let (what, row) = match l {
+            source::Link::Base { cell, portal } => {
+                let n = i64::from(*cell);
+                let row = tables(doc, "replace-cell")
+                    .iter_mut()
+                    .find(|t| int(t, "cell") == Some(n));
+                let Some(rt) = row else {
+                    return Err(Error::Refused(format!(
+                        "this pack does not reshape cell {cell:04X} of landblock {landblock:04X}"
+                    )));
+                };
+                (format!("cell {cell:04X}"), port(rt, *portal))
+            }
+            source::Link::Cell { cell, portal } => {
+                let partner = bare(cell);
+                let row = tables(doc, "cell")
+                    .iter_mut()
+                    .find(|t| string(t, "name") == Some(partner.as_str()));
+                let Some(pt) = row else {
+                    return Err(Error::Refused(format!(
+                        "no cell {partner} of this pack stands in landblock {landblock:04X}"
+                    )));
+                };
+                (format!("cell {partner}"), port(pt, *portal))
+            }
+            _ => continue,
+        };
+        let Some(v) = row else {
+            return Err(Error::Refused(format!("{what} has no such portal")));
+        };
+        // A portal joined to new cells already joins this one too, through another part of it.
+        let back = format!("{name}:{slot}");
+        let now = v.as_str().unwrap_or("").trim().to_owned();
+        let joins_new = !now.is_empty()
+            && now.split(',').all(|one| one.trim().contains(':'))
+            && !now.split(',').any(|one| one.trim() == back);
+        *v = Value::from(if joins_new {
+            format!("{now}, {back}")
+        } else {
+            back
+        });
+    }
+    Ok(())
+}
+
+/// Portal `k` of a cell's row.
+fn port(t: &mut Table, k: usize) -> Option<&mut Value> {
+    t.get_mut("portals")
+        .and_then(Item::as_array_mut)
+        .and_then(|p| p.get_mut(k))
+}
+
+/// A rotation's heading, degrees clockwise from north, when it turns about the vertical.
+pub(crate) fn heading_of(q: Quat) -> f32 {
+    (-2.0 * dereth_primitives::num::math::atan2f(q.z, q.w)).to_degrees()
+}
+
+/// The rotation a row writes: its heading, or its quaternion; none turns it not at all.
+fn row_rotation(t: &Table) -> Rotation {
+    let num = |v: &Value| v.as_float().or_else(|| v.as_integer().map(|i| i as f64));
+    #[allow(clippy::cast_possible_truncation)]
+    if let Some(h) = t.get("heading").and_then(Item::as_value).and_then(num) {
+        return Rotation::Heading(h as f32);
+    }
+    let q: Option<Vec<f32>> = t.get("rotation").and_then(Item::as_array).map(|a| {
+        #[allow(clippy::cast_possible_truncation)]
+        a.iter().filter_map(num).map(|v| v as f32).collect()
+    });
+    match q.as_deref() {
+        Some([w, x, y, z]) => Rotation::Quat([*w, *x, *y, *z]),
+        _ => Rotation::Heading(0.0),
+    }
+}
+
+/// A rotation as a row writes it: a heading when it turns about the vertical alone.
+fn upright(q: Quat) -> Rotation {
+    if q.x.abs() < 1e-4 && q.y.abs() < 1e-4 {
+        Rotation::Heading(heading_of(q).rem_euclid(360.0))
+    } else {
+        Rotation::Quat([q.w, q.x, q.y, q.z])
+    }
+}
+
+/// A dropped building's `[[add-building]]` row, in pack `pack`: a set's models and templates as
+/// lists, one building's as one value each.
+fn building_row(b: &source::AddBuilding, pack: &str) -> Table {
+    let list = |items: Vec<String>| -> Value {
+        if let [one] = &items[..] {
+            parse_value(one)
+        } else {
+            parse_value(&format!("[{}]", items.join(", ")))
+        }
+    };
+    let mut t = entry();
+    let bare = b.name.strip_prefix(&format!("{pack}:")).unwrap_or(&b.name);
+    t.insert("name", Item::Value(Value::from(bare)));
+    t.insert(
+        "model",
+        Item::Value(list(
+            b.models
+                .iter()
+                .map(|m| format!("0x{:08X}", m.raw()))
+                .collect(),
+        )),
+    );
+    t.insert(
+        "template",
+        Item::Value(list(
+            b.templates.iter().map(|s| format!("\"{s}\"")).collect(),
+        )),
+    );
+    t.insert("at", Item::Value(place_value(&b.at)));
+    set_rotation(&mut t, b.rotation);
+    match &b.furnished {
+        source::Furnished::Template => {}
+        source::Furnished::Bare => {
+            t.insert("furnished", Item::Value(Value::from("bare")));
+        }
+        source::Furnished::Like(sites) => {
+            t.insert(
+                "furnished",
+                Item::Value(list(sites.iter().map(|s| format!("\"{s}\"")).collect())),
+            );
+        }
+    }
+    if !b.house.is_empty() {
+        let bare = |h: &String| h.strip_prefix(&format!("{pack}:")).unwrap_or(h).to_owned();
+        t.insert(
+            "house",
+            Item::Value(list(
+                b.house.iter().map(|h| format!("\"{}\"", bare(h))).collect(),
+            )),
+        );
+    }
+    t
+}
+
+/// A copied dungeon's `[[add-dungeon]]` row, in pack `pack`.
+fn dungeon_row(d: &source::AddDungeon, pack: &str) -> Table {
+    let bare = |n: &str| n.strip_prefix(&format!("{pack}:")).unwrap_or(n).to_owned();
+    let mut t = entry();
+    t.insert("name", Item::Value(Value::from(bare(&d.name))));
+    t.insert("template", Item::Value(hex16(d.template)));
+    if let Some(h) = &d.house {
+        t.insert("house", Item::Value(Value::from(bare(h))));
+    }
+    t
 }
 
 /// A cell's number as the session writes it: `0x0105`.
@@ -689,11 +1117,11 @@ impl Session {
                 .checked_sub(1)
                 .ok_or_else(|| Error::Refused("the world has no pack to edit".into()))?,
         };
-        let base = DatSet::open(dats)?;
+        let base = DatSet::for_world(dats, world.era)?;
         let opened_lock = Lock::read(&world.lock_path())?;
         let compiled = compile::compile(&world, &packs, &base, &opened_lock)?;
         let region = read_compiled(&compiled, &base, ModernDat::Portal, compile::REGION.raw())
-            .and_then(|b| Region::decode_payload(compile::REGION, &b).ok());
+            .and_then(|b| base.decode::<Region>(compile::REGION, &b).ok());
         Ok(Self {
             world,
             base,
@@ -715,7 +1143,33 @@ impl Session {
             retail_treasure: BTreeMap::new(),
             schema: None,
             cell_reads: std::cell::Cell::new(0),
+            buildings: None,
         })
+    }
+
+    /// Learn the world's buildings, read already ([`crate::buildings::Catalog::read`]): what a
+    /// drop copies ([`Self::drop_building`]).
+    pub fn learn_buildings(&mut self, catalog: crate::buildings::Catalog) {
+        self.buildings = Some(catalog);
+    }
+
+    /// The world's buildings, when the session learned them.
+    #[must_use]
+    pub fn buildings(&self) -> Option<&crate::buildings::Catalog> {
+        self.buildings.as_ref()
+    }
+
+    /// How many instances the server's own world places in landblock `lb`, as the session
+    /// learned them.
+    #[must_use]
+    pub fn server_instances(&self, lb: u16) -> usize {
+        self.retail_instances.get(&lb).map_or(0, Vec::len)
+    }
+
+    /// The date the SQL rows the session writes are stamped with.
+    #[must_use]
+    pub fn stamp(&self) -> &str {
+        &self.today
     }
 
     /// How many times a landblock's indoor cells were read ([`Self::cells`]): the work an
@@ -896,6 +1350,107 @@ impl Session {
         out
     }
 
+    /// Every portal standing in the world that leads into landblock `lb`: the packs' spawns of a
+    /// portal whose destination is there, and the server's own (but those a pack writes again or
+    /// takes away), each as its spawn's guid, landblock and place there.
+    #[must_use]
+    pub fn entrances(&self, lb: u16) -> Vec<Entrance> {
+        const PORTAL: u32 = 7;
+        let into = |f: &sql_ids::WeenieFacts| {
+            f.kind == Some(PORTAL) && f.destination.is_some_and(|d| d >> 16 == u32::from(lb))
+        };
+        let to = |f: &sql_ids::WeenieFacts| {
+            let [x, y, z] = f.destination_at.unwrap_or_default();
+            f.destination.map(|c| (c, Vec3::new(x, y, z)))
+        };
+        // The packs' portals, by the weenie as their spawns write it, with where each sends.
+        let mut leads: BTreeMap<String, Option<(u32, Vec3)>> = BTreeMap::new();
+        for p in &self.packs {
+            for f in &p.sql {
+                for (w, x) in sql_ids::weenie_facts(&f.text) {
+                    if into(&x) {
+                        leads.insert(token_symbol(&p.name, &w).unwrap_or(w), to(&x));
+                    }
+                }
+            }
+        }
+        let classes = self.pack_classes();
+        // Where the portal weenie `w` (as pack `pack`'s spawn writes it) sends who uses it, when
+        // it leads in.
+        let leads_in = |pack: usize, w: &str| -> Option<Option<(u32, Vec3)>> {
+            if let Some(sym) = token_symbol(&self.packs[pack].name, w) {
+                return leads.get(&sym).copied();
+            }
+            let c = sql_ids::number(w)?;
+            classes
+                .get(&c)
+                .or_else(|| self.retail.get(&c))
+                .filter(|f| into(f))
+                .map(to)
+        };
+        let mut out: Vec<Entrance> = self
+            .spawns()
+            .into_iter()
+            .filter_map(|s| {
+                let to = leads_in(s.pack, &s.weenie)?;
+                Some(Entrance {
+                    guid: s.guid,
+                    landblock: (s.cell >> 16) as u16,
+                    at: s.frame.origin,
+                    cell: s.cell,
+                    to,
+                })
+            })
+            .collect();
+        // The server's own beyond the landblocks shown.
+        let seen: BTreeSet<String> = out.iter().map(|e| e.guid.clone()).collect();
+        let mut taken: BTreeSet<u32> = BTreeSet::new();
+        for p in &self.packs {
+            for f in &p.sql {
+                taken.extend(
+                    sql_ids::instances(&f.text)
+                        .iter()
+                        .filter_map(|i| sql_ids::number(&i.guid)),
+                );
+                taken.extend(
+                    sql_ids::deleted_instances(&f.text)
+                        .iter()
+                        .filter_map(|g| sql_ids::number(g)),
+                );
+            }
+        }
+        for (at, list) in &self.retail_instances {
+            for i in list {
+                let Some(g) = sql_ids::number(&i.guid).filter(|g| !taken.contains(g)) else {
+                    continue;
+                };
+                let guid = guid_text(g);
+                if seen.contains(&guid) {
+                    continue;
+                }
+                let Some(to) = leads_in(self.target, &i.weenie) else {
+                    continue;
+                };
+                out.push(Entrance {
+                    guid,
+                    landblock: *at,
+                    at: Vec3::new(i.origin[0], i.origin[1], i.origin[2]),
+                    cell: i.cell,
+                    to,
+                });
+            }
+        }
+        out
+    }
+
+    /// Where who goes into dungeon `lb` arrives: the destination of the portals that lead in,
+    /// those that stand outdoors first, then the one most of them share. `None` when no portal
+    /// leads in.
+    #[must_use]
+    pub fn drop_point(&self, lb: u16) -> Option<(u32, Vec3)> {
+        drop_point(&self.entrances(lb))
+    }
+
     /// The SQL file that writes weenie `w`'s rows, and whether it is the pack being edited's:
     /// the pack's file of its symbol, or of a server class the pack writes again.
     #[must_use]
@@ -994,6 +1549,9 @@ impl Session {
                     e.kind = x.kind.or(e.kind);
                     e.stuck = x.stuck.or(e.stuck);
                     e.attackable = x.attackable.or(e.attackable);
+                    e.generator_radius = x.generator_radius.or(e.generator_radius);
+                    e.destination = x.destination.or(e.destination);
+                    e.destination_at = x.destination_at.or(e.destination_at);
                 }
             }
         }
@@ -1062,14 +1620,18 @@ impl Session {
     #[must_use]
     pub fn terrain(&self, lb: u16) -> Option<CellLandblock> {
         let id = (u32::from(lb) << 16) | 0xFFFF;
-        CellLandblock::decode_payload(DataId(id), &self.cell_record(id)?).ok()
+        self.base
+            .decode::<CellLandblock>(DataId(id), &self.cell_record(id)?)
+            .ok()
     }
 
     /// Landblock `lb`'s statics record as the compiled world holds it.
     #[must_use]
     pub fn statics(&self, lb: u16) -> Option<LandblockInfo> {
         let id = (u32::from(lb) << 16) | 0xFFFE;
-        LandblockInfo::decode_payload(DataId(id), &self.cell_record(id)?).ok()
+        self.base
+            .decode::<LandblockInfo>(DataId(id), &self.cell_record(id)?)
+            .ok()
     }
 
     /// Landblock `lb`'s indoor cells as compiled, by index.
@@ -1083,7 +1645,10 @@ impl Session {
             let Some(bytes) = self.cell_record(id) else {
                 break;
             };
-            match dereth_assets::world::EnvCell::decode_payload(DataId(id), &bytes) {
+            match self
+                .base
+                .decode::<dereth_assets::world::EnvCell>(DataId(id), &bytes)
+            {
                 Ok(c) => {
                     out.insert(n, c);
                 }
@@ -1104,11 +1669,137 @@ impl Session {
             .unwrap_or_default()
     }
 
-    /// The environment `id`, as the files hold it.
+    /// The free doorways of the target pack's cells in landblock `lb`: each portal its rows leave
+    /// shut, of its new cells and of the landblock's own it reshaped, with the link a new piece's
+    /// portal there is given. With the new cells `lifting` (their symbols, bare or in full) as
+    /// though taken away: their own portals left out, and those joined to them free.
+    #[must_use]
+    pub fn free_doorways(&self, lb: u16, lifting: &[String]) -> Vec<crate::grid::Doorway> {
+        use crate::source::Link;
+        let pack = &self.packs[self.target].name;
+        let bare = |full: &str| {
+            full.strip_prefix(&format!("{pack}:"))
+                .unwrap_or(full)
+                .to_owned()
+        };
+        let lifted: BTreeSet<String> = lifting.iter().map(|n| bare(n)).collect();
+        let free = |l: &Link| match l {
+            Link::Shut => true,
+            Link::Cell { cell, .. } => lifted.contains(&bare(cell)),
+            _ => false,
+        };
+        let mut envs: BTreeMap<DataId, Option<dereth_assets::Environment>> = BTreeMap::new();
+        let mut env = |id: DataId| {
+            envs.entry(id)
+                .or_insert_with(|| self.environment(id))
+                .clone()
+        };
+        let mut out = Vec::new();
+        for e in self.packs[self.target]
+            .edits
+            .iter()
+            .filter(|e| e.landblock == lb)
+        {
+            for r in &e.replaces {
+                let r = &r.item;
+                let frame = Frame::new(
+                    Vec3::new(r.at[0], r.at[1], r.at[2]),
+                    compile::quat_of(r.rotation),
+                );
+                let Some(en) = env(r.environment) else {
+                    continue;
+                };
+                for (slot, l) in r.portals.iter().enumerate() {
+                    if !free(l) {
+                        continue;
+                    }
+                    if let Some(o) = crate::pieces::opening(&en, r.piece, slot, &frame) {
+                        out.push(crate::grid::Doorway {
+                            link: Link::Base {
+                                cell: r.cell,
+                                portal: slot,
+                            },
+                            opening: o,
+                        });
+                    }
+                }
+            }
+            for a in &e.cells {
+                let a = &a.item;
+                if lifted.contains(&bare(&a.name)) {
+                    continue;
+                }
+                let frame = Frame::new(
+                    Vec3::new(a.at[0], a.at[1], a.at[2]),
+                    compile::quat_of(a.rotation),
+                );
+                let Some(en) = env(a.environment) else {
+                    continue;
+                };
+                for (slot, l) in a.portals.iter().enumerate() {
+                    if !free(l) {
+                        continue;
+                    }
+                    if let Some(o) = crate::pieces::opening(&en, a.piece, slot, &frame) {
+                        out.push(crate::grid::Doorway {
+                            link: Link::Cell {
+                                cell: a.name.clone(),
+                                portal: slot,
+                            },
+                            opening: o,
+                        });
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The environment `id`, with the compiled packs over the base files.
     #[must_use]
     pub fn environment(&self, id: DataId) -> Option<dereth_assets::Environment> {
-        let bytes = self.base.read_portal(id)?;
-        dereth_assets::Environment::decode_payload(id, &bytes).ok()
+        let bytes = read_compiled(&self.compiled, &self.base, ModernDat::Portal, id.raw())?;
+        self.base
+            .decode::<dereth_assets::Environment>(id, &bytes)
+            .ok()
+    }
+
+    /// The packs' original dungeon pieces, with their default surfaces, including unplaced pieces.
+    #[must_use]
+    pub fn new_pieces(&self) -> Vec<crate::pieces::Piece> {
+        use crate::source::{NewRecord, RecordRef, Target};
+        use crate::symbol::Kind;
+        let mut out = Vec::new();
+        for record in self.packs.iter().flat_map(|p| &p.records) {
+            let NewRecord::Geometry { target, record } = &record.item else {
+                continue;
+            };
+            let crate::model_import::Record::Environment { surfaces, .. } = record.as_ref() else {
+                continue;
+            };
+            let id = match target {
+                Target::New(name) => self.compiled.lock.get(Kind::Environment, name).map(DataId),
+                Target::Replace(id) => Some(*id),
+            };
+            let Some(env) = id.and_then(|id| self.environment(id)) else {
+                continue;
+            };
+            let surfaces: Option<Vec<_>> = surfaces
+                .iter()
+                .map(|r| match r {
+                    RecordRef::Id(id) => Some(*id),
+                    RecordRef::Symbol(name) => {
+                        self.compiled.lock.get(Kind::Surface, name).map(DataId)
+                    }
+                })
+                .collect();
+            if let Some(surfaces) = surfaces {
+                out.extend(crate::pieces::original(&env, &surfaces));
+            }
+        }
+        out.sort_by_key(|p| (p.environment, p.piece));
+        out.dedup_by_key(|p| (p.environment, p.piece));
+        out
     }
 
     /// The walk checks of landblock `lb`'s new cells ([`crate::walk`]).
@@ -1131,6 +1822,13 @@ impl Session {
         crate::walk::cell_hit(&self.cells(lb), from, dir, &|id| self.environment(id))
     }
 
+    /// [`Self::cell_hit`], meeting a wall or floor only from its own room's inside: the cell,
+    /// the point, and the way the wall or floor faces into its room.
+    #[must_use]
+    pub fn cell_hit_facing(&self, lb: u16, from: Vec3, dir: Vec3) -> Option<(u16, Vec3, Vec3)> {
+        crate::walk::cell_hit_facing(&self.cells(lb), from, dir, &|id| self.environment(id))
+    }
+
     /// The indoor cell of landblock `lb` point `p` (landblock meters) stands in, and the floor's
     /// height under it.
     #[must_use]
@@ -1143,12 +1841,33 @@ impl Session {
     /// to be kept.
     #[must_use]
     pub fn retail_dungeons(&self) -> BTreeMap<u16, u32> {
-        crate::dungeons::retail(&|id| self.base.cell.read(id).ok())
+        crate::dungeons::retail(&|id| self.base.cell.read(id).ok(), self.base.era)
+    }
+
+    /// What the packs say of landblock `lb`'s dungeon: its name and its look, a later pack's over
+    /// an earlier's.
+    #[must_use]
+    pub fn dungeon_info(&self, lb: u16) -> source::DungeonInfo {
+        let mut out = source::DungeonInfo::default();
+        for p in &self.packs {
+            for e in p.edits.iter().filter(|e| e.landblock == lb) {
+                if let Some(d) = &e.dungeon {
+                    if d.item.name.is_some() {
+                        out.name.clone_from(&d.item.name);
+                    }
+                    if d.item.look.is_some() {
+                        out.look = d.item.look;
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// The dungeons: the world's own (`retail`, as [`Self::retail_dungeons`] found them) and every
-    /// landblock a pack places cells in, each named by the portals the server knows that lead
-    /// into it, in landblock order.
+    /// landblock a pack places cells in or names, each named as a pack names it, else by the
+    /// portals the server knows that lead into it, in landblock order; not one whose every room a
+    /// pack takes away.
     #[must_use]
     pub fn dungeons(&self, retail: &BTreeMap<u16, u32>) -> Vec<crate::dungeons::Dungeon> {
         let names = crate::dungeons::portal_names(&self.retail);
@@ -1176,6 +1895,45 @@ impl Session {
             d.pack = true;
             d.cells = d.cells.max(u32::try_from(cells.len()).unwrap_or(u32::MAX));
         }
+        // A dungeon a pack names: by its name, even before its first room.
+        let named: BTreeSet<u16> = self
+            .packs
+            .iter()
+            .flat_map(|p| p.edits.iter())
+            .filter(|e| e.dungeon.is_some())
+            .map(|e| e.landblock)
+            .collect();
+        for lb in named {
+            let info = self.dungeon_info(lb);
+            let d = out.entry(lb).or_insert_with(|| crate::dungeons::Dungeon {
+                landblock: lb,
+                name: names.get(&lb).cloned(),
+                cells: 0,
+                pack: true,
+            });
+            d.pack = true;
+            if info.name.is_some() {
+                d.name = info.name;
+            }
+        }
+        // A dungeon whose every room a pack takes away is gone.
+        let taking: BTreeSet<u16> = self
+            .packs
+            .iter()
+            .flat_map(|p| p.edits.iter())
+            .filter(|e| !e.taken.is_empty())
+            .map(|e| e.landblock)
+            .collect();
+        for lb in taking {
+            let open = self
+                .cells(lb)
+                .values()
+                .filter(|c| c.frame.origin.z > crate::cells::CLOSED_DEPTH + 1.0)
+                .count();
+            if open == 0 {
+                out.remove(&lb);
+            }
+        }
         out.into_values().collect()
     }
 
@@ -1187,7 +1945,9 @@ impl Session {
     }
 
     /// Building `index` of landblock `lb` moved to `at` (landblock meters) and turned `rotation`,
-    /// the spawns that go with it ([`Self::building_spawns`]) carried along: one step.
+    /// the spawns that go with it ([`Self::building_spawns`]) carried along: one step. A dropped
+    /// building's own move carries what goes with it, and stands it on level ground whatever the
+    /// height asked.
     #[must_use]
     pub fn move_building(
         &self,
@@ -1197,6 +1957,15 @@ impl Session {
         rotation: Rotation,
     ) -> Option<Op> {
         let from = self.statics(lb)?.buildings.get(index)?.frame;
+        // A dropped one: its row, which takes what goes with it along ([`crate::drops`]).
+        if self.dropped_building(lb, index).is_some() {
+            return Some(Op::MoveBuilding {
+                landblock: lb,
+                index,
+                at,
+                rotation,
+            });
+        }
         let to = Frame::new(
             Vec3::new(at[0], at[1], at[2]),
             crate::compile::quat_of(rotation),
@@ -1301,6 +2070,25 @@ impl Session {
             scene: t.scene_type(x, y),
             road: t.road(x, y),
         })
+    }
+
+    /// The packs' spawns standing in the pack's new cell `name` (its symbol, in full) of
+    /// landblock `lb`.
+    #[must_use]
+    pub fn spawns_in_cell(&self, lb: u16, name: &str) -> Vec<Spawn> {
+        let Some(index) = self
+            .cell_names(lb)
+            .into_iter()
+            .find(|(_, n)| n == name)
+            .map(|(c, _)| c)
+        else {
+            return Vec::new();
+        };
+        let id = (u32::from(lb) << 16) | u32::from(index);
+        self.spawns()
+            .into_iter()
+            .filter(|s| s.cell == id && !s.server && s.pack == self.target)
+            .collect()
     }
 
     /// Every spawn the packs' SQL places, with the setup each is drawn with when the session
@@ -1442,29 +2230,7 @@ impl Session {
         let mut g = Generator::default();
         if let Some((file, _)) = self.weenie_file(&w) {
             let text = self.text(&file)?;
-            let doc = crate::content::SqlDoc::parse(&text);
-            g.radius = doc
-                .property(crate::content::PropertyKind::Float, 43)
-                .and_then(|v| v.trim().parse().ok());
-            for r in doc.rows("weenie_properties_generator") {
-                let num = |c: &str| doc.cell(r, c).and_then(|v| v.trim().parse::<f32>().ok());
-                let origin = match (num("origin_X"), num("origin_Y"), num("origin_Z")) {
-                    (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
-                    _ => None,
-                };
-                #[allow(clippy::cast_possible_truncation)] // counts, as the SQL writes them
-                g.profiles.push(Profile {
-                    class: doc.cell(r, "weenie_Class_Id").unwrap_or_default(),
-                    init: num("init_Create").map_or(1, |v| v as i32),
-                    max: num("max_Create").map_or(1, |v| v as i32),
-                    place: doc
-                        .cell(r, "where_Create")
-                        .and_then(|v| sql_ids::number(&v))
-                        .unwrap_or(0),
-                    cell: doc.cell(r, "obj_Cell_Id").and_then(|v| sql_ids::number(&v)),
-                    origin,
-                });
-            }
+            g = generator_of(&crate::content::SqlDoc::parse(&text));
         } else if let Weenie::Class(c) = &w {
             g.radius = self.retail.get(c).and_then(|f| f.generator_radius);
         }
@@ -1674,7 +2440,7 @@ impl Session {
                     }
                 }
             }
-            let cells_before = self.compiled.cells.clone();
+            let cells_before = (self.compiled.cells.clone(), self.compiled.rooms.clone());
             compile::recompile_landblocks(
                 &self.packs,
                 &self.base,
@@ -1682,7 +2448,10 @@ impl Session {
                 &touched.landblocks,
             )?;
             // Cells come or gone: the SQL that names them is filled again.
-            if touched.sql || self.compiled.cells != cells_before {
+            if touched.sql
+                || (&self.compiled.cells, &self.compiled.rooms)
+                    != (&cells_before.0, &cells_before.1)
+            {
                 compile::refresh_sql(
                     &self.world,
                     &self.packs,
@@ -1690,6 +2459,12 @@ impl Session {
                     &self.opened_lock,
                     &mut self.compiled,
                 )?;
+            }
+            // A house's cells name its spawn by the id the SQL gave it.
+            let stale = crate::drops::stale_houses(&self.compiled);
+            if !stale.is_empty() {
+                compile::recompile_landblocks(&self.packs, &self.base, &mut self.compiled, &stale)?;
+                touched.landblocks.extend(stale);
             }
             // A change that sets something another source sets otherwise, with no word from the
             // world on which wins, is refused; those the world had already stand.
@@ -1759,6 +2534,20 @@ impl Session {
     }
 
     fn apply_steps(&mut self, op: &Op) -> Result<Applied, Error> {
+        match op {
+            Op::MoveBuilding {
+                landblock,
+                index,
+                at,
+                rotation,
+            } if self.dropped_building(*landblock, *index).is_some() => {
+                return self.move_dropped(*landblock, *index, *at, *rotation);
+            }
+            Op::RemoveBuilding { landblock, index } => {
+                return self.remove_dropped(*landblock, *index);
+            }
+            _ => {}
+        }
         if let Op::Batch(ops) = op {
             let start = self.undo.len();
             let mut all = Applied::default();
@@ -1804,7 +2593,56 @@ impl Session {
             touched,
             placed,
             spawned,
+            warnings: Vec::new(),
         })
+    }
+
+    /// Apply `ops` as one change of the files: each drafted over the text the ones before it
+    /// left, then the landblocks they reach compiled once. They must not need the world compiled
+    /// between them.
+    pub(crate) fn apply_drafted(&mut self, ops: &[Op]) -> Result<Applied, Error> {
+        let mut texts: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+        for op in ops {
+            self.draft_into(op, &mut texts)?;
+        }
+        self.apply_texts(texts)
+    }
+
+    /// Change the files to `texts` as one step of the history.
+    pub(crate) fn apply_texts(
+        &mut self,
+        texts: BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<Applied, Error> {
+        if texts.is_empty() {
+            return Ok(Applied::default());
+        }
+        let before: BTreeMap<PathBuf, Option<String>> =
+            texts.keys().map(|p| (p.clone(), self.text(p))).collect();
+        let touched = self.change(&texts)?;
+        self.undo.push(Step {
+            before,
+            after: texts,
+        });
+        Ok(Applied {
+            touched,
+            ..Applied::default()
+        })
+    }
+
+    /// Take the history back to `len` steps, as a batch that failed partway is.
+    pub(crate) fn roll_back_to(&mut self, len: usize) {
+        let redo = self.redo.len();
+        while self.undo.len() > len {
+            if self.undo_step().is_err() {
+                break;
+            }
+        }
+        self.redo.truncate(redo);
+    }
+
+    /// How many steps the history holds.
+    pub(crate) fn steps(&self) -> usize {
+        self.undo.len()
     }
 
     fn undo_step(&mut self) -> Result<Touched, Error> {
@@ -1936,6 +2774,18 @@ impl Session {
         Error,
     > {
         let mut out: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
+        let (placed, spawned) = self.draft_into(op, &mut out)?;
+        Ok((out, placed, spawned))
+    }
+
+    /// The file changes `op` makes over those `out` holds already, put into `out`; the static it
+    /// places (landblock and symbol) and the spawn file it writes.
+    #[allow(clippy::too_many_lines, clippy::type_complexity)]
+    pub(crate) fn draft_into(
+        &mut self,
+        op: &Op,
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(Option<(u16, String)>, Option<PathBuf>), Error> {
         let mut placed = None;
         let mut spawned = None;
         match op {
@@ -1944,25 +2794,29 @@ impl Session {
                 model,
                 at,
                 rotation,
+                name,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
-                let used: BTreeSet<String> = self.packs[self.target]
-                    .edits
-                    .iter()
-                    .find(|e| e.landblock == *landblock)
-                    .map(|e| {
-                        e.statics
-                            .iter()
-                            .filter_map(|s| s.item.name.clone())
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let mut doc = self.doc(&path, out)?;
                 let pack = self.packs[self.target].name.clone();
-                let name = (1..)
-                    .map(|n| format!("static-{n}"))
-                    .find(|n| !used.contains(&format!("{pack}:{n}")))
-                    .unwrap_or_default();
+                // The names the file holds, as its text stands now.
+                let used: BTreeSet<String> = tables(&mut doc, "static")
+                    .iter()
+                    .filter_map(|t| string(t, "name"))
+                    .map(|n| format!("{pack}:{n}"))
+                    .collect();
+                let name = match name {
+                    Some(n) if used.contains(&format!("{pack}:{n}")) => {
+                        return Err(Error::Refused(format!(
+                            "landblock {landblock:04X} has a static named {n} already"
+                        )));
+                    }
+                    Some(n) => n.clone(),
+                    None => (1..)
+                        .map(|n| format!("static-{n}"))
+                        .find(|n| !used.contains(&format!("{pack}:{n}")))
+                        .unwrap_or_default(),
+                };
                 let mut t = entry();
                 t.insert("name", Item::Value(Value::from(name.clone())));
                 t.insert("model", Item::Value(hex(model.raw())));
@@ -1979,19 +2833,19 @@ impl Session {
                 rotation,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 self.move_static(&mut doc, *landblock, which, at.as_ref(), *rotation)?;
                 out.insert(path, Some(render(&doc)));
             }
             Op::RemoveStatic { landblock, which } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 self.remove_static(&mut doc, *landblock, which)?;
                 out.insert(path, Some(render(&doc)));
             }
             Op::SetVertices(sets) => {
                 for s in sets {
-                    self.set_vertex(&mut out, *s)?;
+                    self.set_vertex(out, *s)?;
                 }
             }
             Op::PlaceSpawn {
@@ -2024,7 +2878,7 @@ impl Session {
                 rotation,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 let pack = self.packs[self.target].name.clone();
                 let bare = cell
                     .strip_prefix(&format!("{pack}:"))
@@ -2058,6 +2912,35 @@ impl Session {
                 }
                 out.insert(path, Some(render(&doc)));
             }
+            Op::AddCellStatic {
+                landblock,
+                cell,
+                model,
+                at,
+                rotation,
+            } => {
+                let path = self.edits_file(*landblock);
+                let mut doc = self.doc(&path, out)?;
+                let key: Value = match self.cell_names(*landblock).get(cell) {
+                    Some(s) => Value::from(s.clone()),
+                    None => hex16(*cell),
+                };
+                let mut t = entry();
+                t.insert("cell", Item::Value(key));
+                t.insert("model", Item::Value(hex(model.raw())));
+                t.insert(
+                    "at",
+                    Item::Value(parse_value(&format!(
+                        "[{}, {}, {}]",
+                        meters(at[0]),
+                        meters(at[1]),
+                        meters(at[2])
+                    ))),
+                );
+                set_rotation(&mut t, *rotation);
+                push(&mut doc, "add-cell-static", t);
+                out.insert(path, Some(render(&doc)));
+            }
             Op::MoveCellStatic {
                 landblock,
                 cell,
@@ -2066,7 +2949,7 @@ impl Session {
                 rotation,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 self.cell_static(&mut doc, *landblock, *cell, *index, Some((*at, *rotation)))?;
                 out.insert(path, Some(render(&doc)));
             }
@@ -2076,7 +2959,7 @@ impl Session {
                 index,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 self.cell_static(&mut doc, *landblock, *cell, *index, None)?;
                 out.insert(path, Some(render(&doc)));
             }
@@ -2095,7 +2978,10 @@ impl Session {
                         let now = self.text(file).unwrap_or_default();
                         self.overridden(lb, &now, g)?
                     }
-                    None => self.spawn_file(file)?,
+                    None => match out.get(file) {
+                        Some(Some(t)) => t.clone(),
+                        _ => self.spawn_file(file)?,
+                    },
                 };
                 out.insert(
                     file.clone(),
@@ -2158,7 +3044,7 @@ impl Session {
                 links,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 let pack = self.packs[self.target].name.clone();
                 let used: BTreeSet<String> = tables(&mut doc, "cell")
                     .iter()
@@ -2211,51 +3097,7 @@ impl Session {
                 }
                 t.insert("portals", Item::Value(Value::Array(arr)));
                 // The partners link back: a reshaped cell's in its row.
-                for (slot, l) in links.iter().enumerate() {
-                    if let source::Link::Base { cell, portal } = l {
-                        let n = i64::from(*cell);
-                        let Some(rt) = tables(&mut doc, "replace-cell")
-                            .iter_mut()
-                            .find(|t| int(t, "cell") == Some(n))
-                        else {
-                            return Err(Error::Refused(format!(
-                                "this pack does not reshape cell {cell:04X} of landblock {landblock:04X}"
-                            )));
-                        };
-                        let Some(v) = rt
-                            .get_mut("portals")
-                            .and_then(Item::as_array_mut)
-                            .and_then(|p| p.get_mut(*portal))
-                        else {
-                            return Err(Error::Refused(format!(
-                                "cell {cell:04X} has no portal {portal}"
-                            )));
-                        };
-                        *v = Value::from(format!("{name}:{slot}"));
-                        continue;
-                    }
-                    let source::Link::Cell { cell, portal } = l else {
-                        continue;
-                    };
-                    let partner = bare(cell);
-                    let Some(pt) = tables(&mut doc, "cell")
-                        .iter_mut()
-                        .find(|t| string(t, "name") == Some(partner.as_str()))
-                    else {
-                        return Err(Error::Refused(format!(
-                            "no cell {partner} of this pack stands in landblock {landblock:04X}"
-                        )));
-                    };
-                    let Some(ports) = pt.get_mut("portals").and_then(Item::as_array_mut) else {
-                        return Err(Error::Refused(format!("cell {partner} has no portals")));
-                    };
-                    let Some(v) = ports.get_mut(*portal) else {
-                        return Err(Error::Refused(format!(
-                            "cell {partner} has no portal {portal}"
-                        )));
-                    };
-                    *v = Value::from(format!("{name}:{slot}"));
-                }
+                link_partners(&mut doc, &name, links, *landblock, &bare)?;
                 push(&mut doc, "cell", t);
                 out.insert(path, Some(render(&doc)));
                 placed = Some((*landblock, format!("{pack}:{name}")));
@@ -2271,7 +3113,7 @@ impl Session {
                 links,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 let pack = self.packs[self.target].name.clone();
                 let bare = |full: &str| {
                     full.strip_prefix(&format!("{pack}:"))
@@ -2287,17 +3129,7 @@ impl Session {
                     remove_table(&mut doc, "replace-cell", k);
                 }
                 let here = format!("0x{cell:04X}:");
-                if doc.contains_key("cell") {
-                    for t in tables(&mut doc, "cell").iter_mut() {
-                        if let Some(ports) = t.get_mut("portals").and_then(Item::as_array_mut) {
-                            for v in ports.iter_mut() {
-                                if v.as_str().is_some_and(|s| s.starts_with(&here)) {
-                                    *v = Value::from("");
-                                }
-                            }
-                        }
-                    }
-                }
+                unlink(&mut doc, &["cell"], &|one| one.starts_with(&here));
                 let mut t = entry();
                 t.insert("cell", Item::Value(hex16(*cell)));
                 t.insert("environment", Item::Value(hex(environment.raw())));
@@ -2326,9 +3158,62 @@ impl Session {
                 push(&mut doc, "replace-cell", t);
                 out.insert(path, Some(render(&doc)));
             }
+            Op::SetCellSurfaces {
+                landblock,
+                name,
+                surfaces,
+            } => {
+                let path = self.edits_file(*landblock);
+                let mut doc = self.doc(&path, out)?;
+                let pack = self.packs[self.target].name.clone();
+                let bare = name
+                    .strip_prefix(&format!("{pack}:"))
+                    .unwrap_or(name)
+                    .to_owned();
+                let Some(t) = tables(&mut doc, "cell")
+                    .iter_mut()
+                    .find(|t| string(t, "name") == Some(bare.as_str()))
+                else {
+                    return Err(Error::Refused(format!("this pack places no cell {bare}")));
+                };
+                let list = surfaces
+                    .iter()
+                    .map(|s| format!("0x{:08X}", s.raw()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                t.insert("surfaces", Item::Value(parse_value(&format!("[{list}]"))));
+                out.insert(path, Some(render(&doc)));
+            }
+            Op::SetDungeon {
+                landblock,
+                name,
+                look,
+            } => {
+                let path = self.edits_file(*landblock);
+                let mut doc = self.doc(&path, out)?;
+                let name = name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+                if name.is_none() && look.is_none() {
+                    doc.remove("dungeon");
+                } else {
+                    let mut t = Table::new();
+                    // Before the operations, at the head of the file.
+                    t.set_position(Some(0));
+                    if !doc.to_string().trim().is_empty() {
+                        t.decor_mut().set_suffix("");
+                    }
+                    if let Some(n) = name {
+                        t.insert("name", Item::Value(Value::from(n)));
+                    }
+                    if let Some(l) = look {
+                        t.insert("look", Item::Value(hex16(*l)));
+                    }
+                    doc.insert("dungeon", Item::Table(t));
+                }
+                out.insert(path, Some(render(&doc)));
+            }
             Op::RemoveCell { landblock, name } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 let pack = self.packs[self.target].name.clone();
                 let bare = name
                     .strip_prefix(&format!("{pack}:"))
@@ -2339,24 +3224,127 @@ impl Session {
                     .position(|t| string(t, "name") == Some(bare.as_str()))
                     .ok_or_else(|| Error::Refused(format!("this pack places no cell {bare}")))?;
                 remove_table(&mut doc, "cell", k);
-                for key in ["cell", "replace-cell"] {
-                    if !doc.contains_key(key) {
-                        continue;
+                unjoin(&mut doc, &bare);
+                out.insert(path, Some(render(&doc)));
+                // The spawns standing in it go with it.
+                for s in self.spawns_in_cell(*landblock, name) {
+                    let text = self.spawn_file(&s.file)?;
+                    if sql_ids::instances(&text).len() > 1 {
+                        return Err(Error::Refused(format!(
+                            "{} places spawns in cell {bare} and elsewhere; it is taken away only whole, by hand",
+                            s.file.display()
+                        )));
                     }
-                    for t in tables(&mut doc, key).iter_mut() {
-                        if let Some(ports) = t.get_mut("portals").and_then(Item::as_array_mut) {
-                            for v in ports.iter_mut() {
-                                let joined = v.as_str().is_some_and(|s| {
-                                    s.rsplit_once(':').is_some_and(|(c, _)| c == bare)
-                                });
-                                if joined {
-                                    *v = Value::from("");
-                                }
-                            }
-                        }
+                    out.insert(s.file.clone(), None);
+                }
+            }
+            Op::PlacePieces {
+                landblock,
+                pieces,
+                joins,
+            } => {
+                self.draft_pieces(*landblock, pieces, joins, out)?;
+            }
+            Op::TakeCells { landblock, cells } => {
+                self.draft_take(*landblock, cells, out)?;
+            }
+            Op::DressCell {
+                landblock,
+                cell,
+                surfaces,
+            } => {
+                self.draft_dress(*landblock, *cell, surfaces, out)?;
+            }
+            Op::MoveCell {
+                landblock,
+                name,
+                at,
+                rotation,
+                links,
+            } => {
+                let path = self.edits_file(*landblock);
+                let pack = self.packs[self.target].name.clone();
+                let bare = |full: &str| {
+                    full.strip_prefix(&format!("{pack}:"))
+                        .unwrap_or(full)
+                        .to_owned()
+                };
+                let me = bare(name);
+                let old = self.packs[self.target]
+                    .edits
+                    .iter()
+                    .filter(|e| e.landblock == *landblock)
+                    .flat_map(|e| e.cells.iter())
+                    .find(|c| c.item.name == *name || bare(&c.item.name) == me)
+                    .map(|c| c.item.clone())
+                    .ok_or_else(|| Error::Refused(format!("this pack places no cell {me}")))?;
+                let from = Frame::new(
+                    Vec3::new(old.at[0], old.at[1], old.at[2]),
+                    compile::quat_of(old.rotation),
+                );
+                let to = Frame::new(Vec3::new(at[0], at[1], at[2]), compile::quat_of(*rotation));
+                let carry = |p: Vec3| {
+                    dereth_primitives::frame::localtoglobal(
+                        &to,
+                        dereth_primitives::frame::globaltolocal(&from, p),
+                    )
+                };
+                let turn = heading_of(to.rotation) - heading_of(from.rotation);
+                let mut doc = self.doc(&path, out)?;
+                unjoin(&mut doc, &me);
+                let Some(t) = tables(&mut doc, "cell")
+                    .iter_mut()
+                    .find(|t| string(t, "name") == Some(me.as_str()))
+                else {
+                    return Err(Error::Refused(format!("this pack places no cell {me}")));
+                };
+                t.insert(
+                    "at",
+                    Item::Value(parse_value(&format!(
+                        "[{}, {}, {}]",
+                        meters(at[0]),
+                        meters(at[1]),
+                        meters(at[2])
+                    ))),
+                );
+                set_rotation(t, *rotation);
+                let mut arr = toml_edit::Array::new();
+                for l in links {
+                    arr.push(link_text(l, &bare).as_str());
+                }
+                t.insert("portals", Item::Value(Value::Array(arr)));
+                // Its statics, by the same move.
+                if let Some(aot) = t.get_mut("static").and_then(Item::as_array_of_tables_mut) {
+                    for (st, was) in aot.iter_mut().zip(&old.statics) {
+                        let p = carry(Vec3::new(was.at[0], was.at[1], was.at[2]));
+                        st.insert(
+                            "at",
+                            Item::Value(parse_value(&format!(
+                                "[{}, {}, {}]",
+                                meters(p.x),
+                                meters(p.y),
+                                meters(p.z)
+                            ))),
+                        );
+                        let h = heading_of(compile::quat_of(was.rotation)) + turn;
+                        set_rotation(st, Rotation::Heading(h.rem_euclid(360.0)));
                     }
                 }
+                link_partners(&mut doc, &me, links, *landblock, &bare)?;
                 out.insert(path, Some(render(&doc)));
+                // Its spawns, by the same move.
+                for s in self.spawns_in_cell(*landblock, name) {
+                    let text = match out.get(&s.file) {
+                        Some(Some(t)) => t.clone(),
+                        _ => self.spawn_file(&s.file)?,
+                    };
+                    let p = carry(s.frame.origin);
+                    let h = (heading_of(s.frame.rotation) + turn).rem_euclid(360.0);
+                    out.insert(
+                        s.file.clone(),
+                        Some(Self::moved_spawn(&s.file, &text, &s.guid, p, h)?),
+                    );
+                }
             }
             Op::MoveBuilding {
                 landblock,
@@ -2365,7 +3353,7 @@ impl Session {
                 rotation,
             } => {
                 let path = self.edits_file(*landblock);
-                let mut doc = self.doc(&path, &out)?;
+                let mut doc = self.doc(&path, out)?;
                 let i = i64::try_from(*index).unwrap_or(i64::MAX);
                 let aot = tables(&mut doc, "move-building");
                 let existing = aot.iter().position(|t| int(t, "index") == Some(i));
@@ -2391,9 +3379,521 @@ impl Session {
                 }
                 out.insert(path, Some(render(&doc)));
             }
-            Op::Batch(_) => unreachable!("a batch is applied op by op"),
+            Op::AddBuilding {
+                landblock,
+                building,
+            } => {
+                let path = self.edits_file(*landblock);
+                let mut doc = self.doc(&path, out)?;
+                let pack = self.packs[self.target].name.clone();
+                let row = building_row(building, &pack);
+                let bare = string(&row, "name").unwrap_or_default().to_owned();
+                // A drop of that name written anew where it is, its comments kept.
+                let found = tables(&mut doc, "add-building")
+                    .iter()
+                    .position(|t| string(t, "name") == Some(bare.as_str()));
+                match found {
+                    Some(k) => {
+                        let t = tables(&mut doc, "add-building")
+                            .get_mut(k)
+                            .expect("found above");
+                        let decor = t.decor().clone();
+                        *t = row;
+                        *t.decor_mut() = decor;
+                    }
+                    None => push(&mut doc, "add-building", row),
+                }
+                out.insert(path, Some(render(&doc)));
+            }
+            Op::AddDungeon { landblock, dungeon } => {
+                let path = self.edits_file(*landblock);
+                let mut doc = self.doc(&path, out)?;
+                let pack = self.packs[self.target].name.clone();
+                let row = dungeon_row(dungeon, &pack);
+                let bare = string(&row, "name").unwrap_or_default().to_owned();
+                let found = tables(&mut doc, "add-dungeon")
+                    .iter()
+                    .position(|t| string(t, "name") == Some(bare.as_str()));
+                match found {
+                    Some(k) => {
+                        let t = tables(&mut doc, "add-dungeon")
+                            .get_mut(k)
+                            .expect("found above");
+                        let decor = t.decor().clone();
+                        *t = row;
+                        *t.decor_mut() = decor;
+                    }
+                    None => push(&mut doc, "add-dungeon", row),
+                }
+                out.insert(path, Some(render(&doc)));
+            }
+            Op::UnsetVertices(list) => {
+                for (gx, gy, field) in list {
+                    self.unset_vertex(out, *gx, *gy, *field)?;
+                }
+            }
+            Op::RemoveBuilding { .. } | Op::Batch(_) => {
+                unreachable!("a batch, and the taking away of a building, are applied op by op")
+            }
         }
-        Ok((out, placed, spawned))
+        Ok((placed, spawned))
+    }
+
+    /// The cell rows `pieces` make in landblock `lb`'s file, in `out`: each part a new cell, named
+    /// `cell-n` by the first numbers no cell of the landblock has held, its links as given and
+    /// `joins` linking parts placed together; the cells and reshaped cells they join linked back.
+    fn draft_pieces(
+        &mut self,
+        lb: u16,
+        pieces: &[NewPiece],
+        joins: &[(PartPortal, PartPortal)],
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(), Error> {
+        let path = self.edits_file(lb);
+        let mut doc = self.doc(&path, out)?;
+        let pack = self.packs[self.target].name.clone();
+        let bare = |full: &str| {
+            full.strip_prefix(&format!("{pack}:"))
+                .unwrap_or(full)
+                .to_owned()
+        };
+        let mut used: BTreeSet<String> = tables(&mut doc, "cell")
+            .iter()
+            .filter_map(|t| string(t, "name").map(str::to_owned))
+            .collect();
+        let held = |n: &str| {
+            self.compiled
+                .lock
+                .get(
+                    symbol::Kind::Cell,
+                    &compile::cell_symbol(&format!("{pack}:{n}"), lb),
+                )
+                .is_some()
+        };
+        let mut next = 1usize;
+        let mut names: Vec<Vec<String>> = Vec::new();
+        for p in pieces {
+            let mut these = Vec::new();
+            for _ in &p.parts {
+                let name = loop {
+                    let n = format!("cell-{next}");
+                    next += 1;
+                    if !used.contains(&n) && !held(&n) {
+                        break n;
+                    }
+                };
+                used.insert(name.clone());
+                these.push(name);
+            }
+            names.push(these);
+        }
+        let mut links: Vec<Vec<Vec<source::Link>>> = pieces
+            .iter()
+            .map(|p| p.parts.iter().map(|(_, l)| l.clone()).collect())
+            .collect();
+        let has = |links: &Vec<Vec<Vec<source::Link>>>, (k, j, s): PartPortal| {
+            links
+                .get(k)
+                .and_then(|v| v.get(j))
+                .is_some_and(|v| s < v.len())
+        };
+        // A portal joined to several of the parts placed joins each through part of it.
+        let join = |l: &mut source::Link, to: source::Link| {
+            *l = match std::mem::replace(l, source::Link::Shut) {
+                source::Link::Shut => to,
+                source::Link::Many(mut all) => {
+                    all.push(to);
+                    source::Link::Many(all)
+                }
+                one => source::Link::Many(vec![one, to]),
+            };
+        };
+        for (a, b) in joins {
+            if !has(&links, *a) || !has(&links, *b) {
+                return Err(Error::Refused(
+                    "a join names a portal the pieces placed have not".into(),
+                ));
+            }
+            join(
+                &mut links[a.0][a.1][a.2],
+                source::Link::Cell {
+                    cell: format!("{pack}:{}", names[b.0][b.1]),
+                    portal: b.2,
+                },
+            );
+            join(
+                &mut links[b.0][b.1][b.2],
+                source::Link::Cell {
+                    cell: format!("{pack}:{}", names[a.0][a.1]),
+                    portal: a.2,
+                },
+            );
+        }
+        let new: BTreeSet<String> = names.iter().flatten().cloned().collect();
+        for (k, p) in pieces.iter().enumerate() {
+            for (j, (part, _)) in p.parts.iter().enumerate() {
+                let mut t = entry();
+                t.insert("name", Item::Value(Value::from(names[k][j].clone())));
+                t.insert("environment", Item::Value(hex(p.environment.raw())));
+                t.insert("piece", Item::Value(Value::from(i64::from(*part))));
+                let list = p
+                    .surfaces
+                    .iter()
+                    .map(|s| format!("0x{:08X}", s.raw()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                t.insert("surfaces", Item::Value(parse_value(&format!("[{list}]"))));
+                t.insert(
+                    "at",
+                    Item::Value(parse_value(&format!(
+                        "[{}, {}, {}]",
+                        meters(p.at[0]),
+                        meters(p.at[1]),
+                        meters(p.at[2])
+                    ))),
+                );
+                set_rotation(&mut t, p.rotation);
+                let mut arr = toml_edit::Array::new();
+                for l in &links[k][j] {
+                    arr.push(link_text(l, &bare).as_str());
+                }
+                t.insert("portals", Item::Value(Value::Array(arr)));
+                push(&mut doc, "cell", t);
+            }
+        }
+        // The cells and reshaped cells already there that the new parts join, linked back.
+        for (k, p) in pieces.iter().enumerate() {
+            for j in 0..p.parts.len() {
+                let placed_here = |l: &source::Link| matches!(l, source::Link::Cell { cell, .. } if new.contains(&bare(cell)));
+                let outside: Vec<source::Link> = links[k][j]
+                    .iter()
+                    .map(|l| match l {
+                        l if placed_here(l) => source::Link::Shut,
+                        source::Link::Many(all) => {
+                            let rest: Vec<source::Link> =
+                                all.iter().filter(|l| !placed_here(l)).cloned().collect();
+                            match rest.len() {
+                                0 => source::Link::Shut,
+                                1 => rest[0].clone(),
+                                _ => source::Link::Many(rest),
+                            }
+                        }
+                        other => other.clone(),
+                    })
+                    .collect();
+                link_partners(&mut doc, &names[k][j], &outside, lb, &bare)?;
+            }
+        }
+        out.insert(path, Some(render(&doc)));
+        Ok(())
+    }
+
+    /// The links a row reshaping one of the world's own cells, `cell` as compiled now, writes to
+    /// keep its ways: `keep` where a portal of its piece leads somewhere but into `closing`, shut
+    /// elsewhere.
+    fn keeping(
+        &self,
+        cell: &dereth_assets::world::EnvCell,
+        closing: &BTreeSet<u16>,
+    ) -> Vec<String> {
+        let Some(env) = self.environment(cell.environment) else {
+            return Vec::new();
+        };
+        let Some(cs) = env.cells.get(usize::from(cell.cell_struct)) else {
+            return Vec::new();
+        };
+        cs.portals
+            .iter()
+            .map(|poly| {
+                let way = cell.portals.iter().find(|p| p.polygon_id == *poly);
+                match way {
+                    Some(p)
+                        if p.flags & 4 != 0
+                            || !u16::try_from(p.other_cell_id)
+                                .is_ok_and(|o| closing.contains(&o)) =>
+                    {
+                        "keep".to_owned()
+                    }
+                    _ => String::new(),
+                }
+            })
+            .collect()
+    }
+
+    /// A `[[replace-cell]]` row reshaping one of the world's own cells, `cell` (numbered `n`), as
+    /// it stands: its piece and its place, drawn with `surfaces`, its portals linked `portals`.
+    fn standing_row(
+        n: u16,
+        cell: &dereth_assets::world::EnvCell,
+        surfaces: &[DataId],
+        portals: &[String],
+    ) -> Table {
+        let mut t = entry();
+        t.insert("cell", Item::Value(hex16(n)));
+        t.insert("environment", Item::Value(hex(cell.environment.raw())));
+        t.insert(
+            "piece",
+            Item::Value(Value::from(i64::from(cell.cell_struct))),
+        );
+        let list = surfaces
+            .iter()
+            .map(|s| format!("0x{:08X}", s.raw()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        t.insert("surfaces", Item::Value(parse_value(&format!("[{list}]"))));
+        let o = cell.frame.origin;
+        t.insert(
+            "at",
+            Item::Value(parse_value(&format!(
+                "[{}, {}, {}]",
+                meters(o.x),
+                meters(o.y),
+                meters(o.z)
+            ))),
+        );
+        let q = cell.frame.rotation;
+        set_rotation(&mut t, Rotation::Quat([q.w, q.x, q.y, q.z]));
+        let mut arr = toml_edit::Array::new();
+        for p in portals {
+            arr.push(p.as_str());
+        }
+        t.insert("portals", Item::Value(Value::Array(arr)));
+        t
+    }
+
+    /// The changes taking landblock `lb`'s own cells `cells` away makes, in `out`.
+    #[allow(clippy::too_many_lines)]
+    fn draft_take(
+        &mut self,
+        lb: u16,
+        cells: &[u16],
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(), Error> {
+        let taken: BTreeSet<u16> = cells.iter().copied().collect();
+        let mine: BTreeSet<u16> = self.cell_names(lb).keys().copied().collect();
+        if let Some(n) = taken.iter().find(|n| mine.contains(n)) {
+            return Err(Error::Refused(format!(
+                "cell {lb:04X}{n:04X} is the pack's own: it is taken away by its row"
+            )));
+        }
+        let now = self.cells(lb);
+        if let Some(n) = taken.iter().find(|n| !now.contains_key(n)) {
+            return Err(Error::Refused(format!(
+                "landblock {lb:04X} has no cell {n:04X}"
+            )));
+        }
+        let path = self.edits_file(lb);
+        let mut doc = self.doc(&path, out)?;
+        let num = |t: &Table| -> Option<u16> {
+            t.get("cell")
+                .and_then(Item::as_integer)
+                .and_then(|n| u16::try_from(n).ok())
+        };
+        // What the pack did to them goes: their reshaping, and the statics it moved, took away
+        // or added in them.
+        for key in [
+            "replace-cell",
+            "move-cell-static",
+            "remove-cell-static",
+            "add-cell-static",
+        ] {
+            if !doc.contains_key(key) {
+                continue;
+            }
+            loop {
+                let k = tables(&mut doc, key)
+                    .iter()
+                    .position(|t| num(t).is_some_and(|n| taken.contains(&n)));
+                match k {
+                    Some(k) => remove_table(&mut doc, key, k),
+                    None => break,
+                }
+            }
+        }
+        // The pack's own cells joined to them, shut there.
+        let heads: Vec<String> = taken.iter().map(|n| format!("0x{n:04X}:")).collect();
+        unlink(&mut doc, &["cell"], &|one| {
+            heads.iter().any(|h| one.starts_with(h.as_str()))
+        });
+        // The world's own cells around them: reshaped as they stand, their ways into them free.
+        for (n, cell) in &now {
+            if taken.contains(n) || mine.contains(n) {
+                continue;
+            }
+            let into: Vec<u16> = cell
+                .portals
+                .iter()
+                .filter(|p| {
+                    p.flags & 4 == 0
+                        && u16::try_from(p.other_cell_id).is_ok_and(|o| taken.contains(&o))
+                })
+                .map(|p| p.polygon_id)
+                .collect();
+            if into.is_empty() {
+                continue;
+            }
+            let ways = self.keeping(cell, &taken);
+            let at = doc
+                .contains_key("replace-cell")
+                .then(|| {
+                    tables(&mut doc, "replace-cell")
+                        .iter()
+                        .position(|t| num(t) == Some(*n))
+                })
+                .flatten();
+            match at {
+                Some(k) => {
+                    // Reshaped already: the portals that kept those ways shut.
+                    let slots: Vec<usize> = self
+                        .environment(cell.environment)
+                        .and_then(|e| e.cells.get(usize::from(cell.cell_struct)).cloned())
+                        .map(|cs| {
+                            into.iter()
+                                .filter_map(|poly| cs.portals.iter().position(|q| q == poly))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let row = tables(&mut doc, "replace-cell")
+                        .get_mut(k)
+                        .expect("found above");
+                    for s in slots {
+                        if let Some(v) = port(row, s) {
+                            *v = Value::from("");
+                        }
+                    }
+                }
+                None => {
+                    let row = Self::standing_row(*n, cell, &cell.surfaces, &ways);
+                    push(&mut doc, "replace-cell", row);
+                }
+            }
+        }
+        for n in &taken {
+            let exists = doc.contains_key("remove-cell")
+                && tables(&mut doc, "remove-cell")
+                    .iter()
+                    .any(|t| num(t) == Some(*n));
+            if !exists {
+                let mut t = entry();
+                t.insert("cell", Item::Value(hex16(*n)));
+                push(&mut doc, "remove-cell", t);
+            }
+        }
+        out.insert(path, Some(render(&doc)));
+        // The spawns standing in them: the packs' taken away with their files, the server's own
+        // taken away in the landblock's override file.
+        let ids: BTreeSet<u32> = taken
+            .iter()
+            .map(|n| (u32::from(lb) << 16) | u32::from(*n))
+            .collect();
+        for s in self.spawns() {
+            if s.server || s.pack != self.target || !ids.contains(&s.cell) {
+                continue;
+            }
+            let text = match out.get(&s.file) {
+                Some(Some(t)) => t.clone(),
+                Some(None) => continue,
+                None => self.spawn_file(&s.file)?,
+            };
+            if sql_ids::instances(&text).len() > 1 {
+                return Err(Error::Refused(format!(
+                    "{} places spawns in cell {lb:04X}{:04X} and elsewhere; it is taken away \
+                     only whole, by hand",
+                    s.file.display(),
+                    s.cell & 0xFFFF
+                )));
+            }
+            out.insert(s.file.clone(), None);
+        }
+        let guids: Vec<(u32, bool)> = self
+            .retail_instances
+            .get(&lb)
+            .into_iter()
+            .flatten()
+            .filter(|i| ids.contains(&i.cell))
+            .filter_map(|i| sql_ids::number(&i.guid).map(|g| (g, i.link_child)))
+            .collect();
+        if !guids.is_empty() {
+            let file = self.override_file(lb);
+            let now = match out.get(&file) {
+                Some(t) => t.clone().unwrap_or_default(),
+                None => self.text(&file).unwrap_or_default(),
+            };
+            let mut o = Overrides::read(&now);
+            for (g, link_child) in guids {
+                o.entries.insert(g, Override::Removed { link_child });
+            }
+            out.insert(
+                file,
+                Some(o.render(lb, &self.today, &|w| self.weenie_name(w))),
+            );
+        }
+        Ok(())
+    }
+
+    /// The change drawing cell `cell` of landblock `lb` with `surfaces` makes, in `out`.
+    fn draft_dress(
+        &mut self,
+        lb: u16,
+        cell: u16,
+        surfaces: &[DataId],
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+    ) -> Result<(), Error> {
+        let path = self.edits_file(lb);
+        let mut doc = self.doc(&path, out)?;
+        let pack = self.packs[self.target].name.clone();
+        let list = surfaces
+            .iter()
+            .map(|s| format!("0x{:08X}", s.raw()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let value = parse_value(&format!("[{list}]"));
+        let num = |t: &Table| -> Option<u16> {
+            t.get("cell")
+                .and_then(Item::as_integer)
+                .and_then(|n| u16::try_from(n).ok())
+        };
+        if let Some(name) = self.cell_names(lb).get(&cell).cloned() {
+            let bare = name
+                .strip_prefix(&format!("{pack}:"))
+                .unwrap_or(&name)
+                .to_owned();
+            let Some(t) = tables(&mut doc, "cell")
+                .iter_mut()
+                .find(|t| string(t, "name") == Some(bare.as_str()))
+            else {
+                return Err(Error::Refused(format!("this pack places no cell {bare}")));
+            };
+            t.insert("surfaces", Item::Value(value));
+        } else {
+            let row = doc
+                .contains_key("replace-cell")
+                .then(|| {
+                    tables(&mut doc, "replace-cell")
+                        .iter()
+                        .position(|t| num(t) == Some(cell))
+                })
+                .flatten();
+            match row {
+                Some(k) => {
+                    tables(&mut doc, "replace-cell")
+                        .get_mut(k)
+                        .expect("found above")
+                        .insert("surfaces", Item::Value(value));
+                }
+                None => {
+                    let now = self.cells(lb);
+                    let c = now.get(&cell).ok_or_else(|| {
+                        Error::Refused(format!("landblock {lb:04X} has no cell {cell:04X}"))
+                    })?;
+                    let ways = self.keeping(c, &BTreeSet::new());
+                    let row = Self::standing_row(cell, c, surfaces, &ways);
+                    push(&mut doc, "replace-cell", row);
+                }
+            }
+        }
+        out.insert(path, Some(render(&doc)));
+        Ok(())
     }
 
     /// The `[[static]]` entry `entry` of the target pack's file, and its symbol.
@@ -2520,6 +4020,38 @@ impl Session {
                 meters(p[2])
             ))
         };
+        // One a pack adds to the cell: its own row, changed or taken out.
+        if origin & compile::ADDED != 0 {
+            let id = (u32::from(lb) << 16) | u32::from(cell);
+            let (p, row) = self
+                .compiled
+                .cell_static_adds
+                .get(&id)
+                .and_then(|v| v.get(origin & !compile::ADDED))
+                .copied()
+                .ok_or_else(|| Error::Refused(format!("cell {cell:04X} has no static {index}")))?;
+            if p != self.target {
+                return Err(Error::Refused(format!(
+                    "static {index} of cell {cell:04X} is {}'s; it is changed there",
+                    self.packs[p].name
+                )));
+            }
+            match to {
+                Some((at, rotation)) => {
+                    let Some(t) = tables(doc, "add-cell-static").get_mut(row) else {
+                        return Err(Error::Refused(format!(
+                            "cell {cell:04X} has no static {index}"
+                        )));
+                    };
+                    t.insert("at", Item::Value(at_value(at)));
+                    if let Some(r) = rotation {
+                        set_rotation(t, r);
+                    }
+                }
+                None => remove_table(doc, "add-cell-static", row),
+            }
+            return Ok(());
+        }
         // The target pack's own cell: its static entry, changed or taken out.
         if let Some(bare) = symbol
             .as_deref()
@@ -2623,7 +4155,7 @@ impl Session {
             ..Compiled::default()
         };
         read_compiled(&under, &self.base, ModernDat::Cell, id)
-            .and_then(|b| LandblockInfo::decode_payload(DataId(id), &b).ok())
+            .and_then(|b| self.base.decode::<LandblockInfo>(DataId(id), &b).ok())
             .map_or(0, |i| i.objects.len())
     }
 
@@ -2700,11 +4232,13 @@ impl Session {
             tombstones: self.compiled.tombstones.clone(),
             ..Compiled::default()
         };
-        let info = LandblockInfo::decode_payload(
-            DataId(id),
-            &read_compiled(&under, &self.base, ModernDat::Cell, id)?,
-        )
-        .ok()?;
+        let info = self
+            .base
+            .decode::<LandblockInfo>(
+                DataId(id),
+                &read_compiled(&under, &self.base, ModernDat::Cell, id)?,
+            )
+            .ok()?;
         info.objects.get(i).map(|o| o.id.raw())
     }
 
@@ -2827,6 +4361,203 @@ impl Session {
         Ok(())
     }
 
+    /// Take the target pack's setting of `field` of world vertex `(gx, gy)` away, from every row
+    /// of its files that sets that one vertex; a row left setting nothing goes.
+    fn unset_vertex(
+        &mut self,
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+        gx: u32,
+        gy: u32,
+        field: Field,
+    ) -> Result<(), Error> {
+        let key = match field {
+            Field::Height => "height",
+            Field::Terrain => "terrain",
+            Field::Scene => "scene",
+            Field::Road => "road",
+        };
+        let files: BTreeSet<PathBuf> = self.packs[self.target]
+            .edits
+            .iter()
+            .map(|e| e.file.clone())
+            .chain(
+                out.keys()
+                    .filter(|p| source::landblock_of_file(p).is_ok())
+                    .cloned(),
+            )
+            .collect();
+        for path in files {
+            let lb = source::landblock_of_file(&path)?;
+            let (bx, by) = (u32::from(lb >> 8) * 8, u32::from(lb & 0xFF) * 8);
+            let mut doc = self.doc(&path, out)?;
+            let Some(rows) = doc.get_mut("vertex").and_then(Item::as_array_of_tables_mut) else {
+                continue;
+            };
+            let at = |t: &Table| -> Option<(u32, u32)> {
+                let a = t.get("at").and_then(Item::as_array)?;
+                let x = u32::try_from(a.get(0)?.as_integer()?).ok()?;
+                let y = u32::try_from(a.get(1)?.as_integer()?).ok()?;
+                Some((bx + x, by + y))
+            };
+            let mut changed = false;
+            let mut emptied = Vec::new();
+            for (k, t) in rows.iter_mut().enumerate() {
+                if t.contains_key("to") || at(t) != Some((gx, gy)) || !t.contains_key(key) {
+                    continue;
+                }
+                t.remove(key);
+                changed = true;
+                if ["height", "terrain", "scene", "road"]
+                    .iter()
+                    .all(|f| !t.contains_key(f))
+                {
+                    emptied.push(k);
+                }
+            }
+            if !changed {
+                continue;
+            }
+            for k in emptied.into_iter().rev() {
+                remove_table(&mut doc, "vertex", k);
+            }
+            out.insert(path, Some(render(&doc)));
+        }
+        Ok(())
+    }
+
+    /// The rows of the target pack's file of landblock `lb` that add a static to one of `rooms`
+    /// or move one there, carried by the move of their building from `from` to `to`.
+    pub(crate) fn carry_room_statics(
+        &mut self,
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+        lb: u16,
+        rooms: &BTreeSet<u16>,
+        from: &Frame,
+        to: &Frame,
+    ) -> Result<(), Error> {
+        if rooms.is_empty() {
+            return Ok(());
+        }
+        let path = self.edits_file(lb);
+        let mut doc = self.doc(&path, out)?;
+        let mut changed = false;
+        for key in ["add-cell-static", "move-cell-static"] {
+            let Some(rows) = doc.get_mut(key).and_then(Item::as_array_of_tables_mut) else {
+                continue;
+            };
+            for t in rows.iter_mut() {
+                let in_room = int(t, "cell")
+                    .and_then(|c| u16::try_from(c).ok())
+                    .is_some_and(|c| rooms.contains(&c));
+                let at = t.get("at").and_then(Item::as_array).and_then(|a| {
+                    let n = |i: usize| {
+                        a.get(i)
+                            .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+                    };
+                    Some([n(0)?, n(1)?, n(2)?])
+                });
+                let (true, Some([x, y, z])) = (in_room, at) else {
+                    continue;
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                let was = Frame::new(
+                    Vec3::new(x as f32, y as f32, z as f32),
+                    compile::quat_of(row_rotation(t)),
+                );
+                let now = crate::cells::carried(&was, from, to);
+                t.insert(
+                    "at",
+                    Item::Value(parse_value(&format!(
+                        "[{}, {}, {}]",
+                        meters(now.origin.x),
+                        meters(now.origin.y),
+                        meters(now.origin.z)
+                    ))),
+                );
+                set_rotation(t, upright(now.rotation));
+                changed = true;
+            }
+        }
+        if changed {
+            out.insert(path, Some(render(&doc)));
+        }
+        Ok(())
+    }
+
+    /// Dropped building `bare`'s row taken out of the target pack's file of landblock `lb`, with
+    /// the rows that add, move or take away statics in its rooms `rooms`.
+    pub(crate) fn unwrite_drop(
+        &mut self,
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+        lb: u16,
+        bare: &str,
+        rooms: &BTreeSet<u16>,
+    ) -> Result<(), Error> {
+        let path = self.edits_file(lb);
+        let mut doc = self.doc(&path, out)?;
+        let k = tables(&mut doc, "add-building")
+            .iter()
+            .position(|t| string(t, "name") == Some(bare))
+            .ok_or_else(|| {
+                Error::Refused(format!(
+                    "landblock {lb:04X}'s file drops no building {bare}"
+                ))
+            })?;
+        remove_table(&mut doc, "add-building", k);
+        let in_rooms = |t: &Table| {
+            int(t, "cell")
+                .and_then(|c| u16::try_from(c).ok())
+                .is_some_and(|c| rooms.contains(&c))
+        };
+        for key in ["add-cell-static", "move-cell-static", "remove-cell-static"] {
+            while let Some(k) = doc
+                .get(key)
+                .and_then(Item::as_array_of_tables)
+                .and_then(|rows| rows.iter().position(in_rooms))
+            {
+                remove_table(&mut doc, key, k);
+            }
+        }
+        if doc
+            .get("add-building")
+            .and_then(Item::as_array_of_tables)
+            .is_some_and(ArrayOfTables::is_empty)
+        {
+            doc.remove("add-building");
+        }
+        out.insert(path, Some(render(&doc)));
+        Ok(())
+    }
+
+    /// Copied dungeon `bare`'s row taken out of the target pack's file of landblock `lb`.
+    pub(crate) fn unwrite_dungeon(
+        &mut self,
+        out: &mut BTreeMap<PathBuf, Option<String>>,
+        lb: u16,
+        bare: &str,
+    ) -> Result<(), Error> {
+        let path = self.edits_file(lb);
+        let mut doc = self.doc(&path, out)?;
+        let k = tables(&mut doc, "add-dungeon")
+            .iter()
+            .position(|t| string(t, "name") == Some(bare))
+            .ok_or_else(|| {
+                Error::Refused(format!(
+                    "landblock {lb:04X}'s file copies no dungeon {bare}"
+                ))
+            })?;
+        remove_table(&mut doc, "add-dungeon", k);
+        if doc
+            .get("add-dungeon")
+            .and_then(Item::as_array_of_tables)
+            .is_some_and(ArrayOfTables::is_empty)
+        {
+            doc.remove("add-dungeon");
+        }
+        out.insert(path, Some(render(&doc)));
+        Ok(())
+    }
+
     /// The text of `file`, a spawn file of the pack being edited.
     fn spawn_file(&mut self, file: &Path) -> Result<String, Error> {
         if !self.packs[self.target].sql.iter().any(|f| f.path == file) {
@@ -2863,7 +4594,8 @@ impl Session {
             sql_ids::number(&cell_text)
                 .ok_or_else(|| Error::Refused(format!("{}: {guid} has no cell", file.display())))?
         };
-        if !(0.0..192.0).contains(&origin.x) || !(0.0..192.0).contains(&origin.y) {
+        let indoor = named || cell & 0xFFFF >= 0x100;
+        if !indoor && (!(0.0..192.0).contains(&origin.x) || !(0.0..192.0).contains(&origin.y)) {
             return Err(Error::Refused(format!(
                 "a spawn moves within its landblock: {:.1}, {:.1} is outside it",
                 origin.x, origin.y
@@ -3072,19 +4804,21 @@ impl Session {
             let Some((version, bytes)) = version.zip(self.cell_record(id)) else {
                 continue;
             };
-            let Ok(mut cell) = dereth_assets::world::EnvCell::decode_payload(DataId(id), &bytes)
+            let Ok(mut cell) = self
+                .base
+                .decode::<dereth_assets::world::EnvCell>(DataId(id), &bytes)
             else {
                 continue;
             };
             cell.static_objects.extend(extra);
             cell.flags |= 2;
-            records.entry(ModernDat::Cell).or_default().insert(
-                id,
-                Staged {
-                    bytes: cell.encode(),
-                    version,
-                },
-            );
+            let Ok(bytes) = cell.encode_for(self.base.era) else {
+                continue;
+            };
+            records
+                .entry(ModernDat::Cell)
+                .or_default()
+                .insert(id, Staged { bytes, version });
         }
         for (lb, extra) in by_block {
             let lbi = (u32::from(lb) << 16) | 0xFFFE;
@@ -3120,14 +4854,11 @@ impl Session {
                 ),
             };
             info.objects.extend(extra);
+            let Ok(bytes) = info.encode_for(self.base.era) else {
+                continue;
+            };
             let cells = records.entry(ModernDat::Cell).or_default();
-            cells.insert(
-                lbi,
-                Staged {
-                    bytes: info.encode(),
-                    version,
-                },
-            );
+            cells.insert(lbi, Staged { bytes, version });
             if made {
                 if let Some(mut t) = self.terrain(lb) {
                     t.lbi_exists = 1;
@@ -3141,13 +4872,9 @@ impl Session {
                         },
                         |s| s.version,
                     );
-                    cells.insert(
-                        id,
-                        Staged {
-                            bytes: t.encode(),
-                            version,
-                        },
-                    );
+                    if let Ok(bytes) = t.encode_for(self.base.era) {
+                        cells.insert(id, Staged { bytes, version });
+                    }
                 }
             }
         }
@@ -3178,6 +4905,9 @@ impl Session {
         let layered = self.base.with_overlay(dir, Some(&self.world.key))?;
         let mut report =
             crate::validate::validate(&layered, &crate::validate::Scope::of(&self.compiled));
+        report
+            .warnings
+            .extend(self.compiled.warnings.values().flatten().cloned());
         report.problems.extend(sql_ids::check(
             &layered,
             &compile::sql_named(&self.packs, &self.compiled),
@@ -3205,7 +4935,7 @@ impl Session {
                 report.problems.push(line);
             }
         }
-        // The buildings the packs moved.
+        // The buildings the packs moved, and those they dropped.
         let mut moved: BTreeMap<u16, BTreeSet<usize>> = BTreeMap::new();
         for p in &self.packs {
             for e in &p.edits {
@@ -3214,6 +4944,15 @@ impl Session {
                 }
             }
         }
+        for (lb, list) in &self.compiled.dropped {
+            moved
+                .entry(*lb)
+                .or_default()
+                .extend(list.iter().map(|(_, i)| *i));
+        }
+        let (problems, warnings) = crate::drops::checks(self, self.buildings.as_ref());
+        report.problems.extend(problems);
+        report.warnings.extend(warnings);
         for (lb, which) in &moved {
             report
                 .warnings

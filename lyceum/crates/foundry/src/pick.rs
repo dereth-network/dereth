@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dereth_assets::{Decode, GfxObj, Setup};
+use dereth_assets::{GfxObj, Setup};
 use dereth_primitives::frame::{globaltolocal, globaltolocalvec, l2g, localtoglobal, V3};
 use dereth_primitives::{DataId, Frame, Vec3};
 
@@ -204,7 +204,7 @@ pub struct Models {
 }
 
 fn gfxobj_triangles(set: &DatSet, id: DataId) -> Option<Vec<[Vec3; 3]>> {
-    let g = GfxObj::decode_payload(id, &set.read_portal(id)?).ok()?;
+    let g = set.decode::<GfxObj>(id, &set.read_portal(id)?).ok()?;
     let at = |i: u16| {
         g.vertex_array
             .vertices
@@ -237,7 +237,7 @@ impl Models {
                 let triangles = match id.raw() >> 24 {
                     0x01 => gfxobj_triangles(set, id)?,
                     0x02 => {
-                        let s = Setup::decode_payload(id, &set.read_portal(id)?).ok()?;
+                        let s = set.decode::<Setup>(id, &set.read_portal(id)?).ok()?;
                         let placement = s
                             .placement_frames
                             .get(&RESTING)
@@ -332,7 +332,10 @@ pub fn pick(
             if mask.cells && !cells.is_empty() {
                 let from = ray.origin.sub(block_origin(lb));
                 let env = |id: DataId| session.environment(id);
-                if let Some((cell, point)) = crate::walk::cell_hit(&cells, from, ray.dir, &env) {
+                // As the world draws them: a wall or floor met from its own room's inside.
+                if let Some((cell, point, _)) =
+                    crate::walk::cell_hit_facing(&cells, from, ray.dir, &env)
+                {
                     offer(
                         Hit::Cell {
                             landblock: lb,

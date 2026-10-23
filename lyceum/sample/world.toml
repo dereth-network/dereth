@@ -4,5 +4,6 @@
 #
 # The overlay and the SQL go to the workspace's target folder; world.lock keeps the ids.
 key = "sample-world"
+format_version = 1
 packs = ["holtburg"]
 out = "../../../target/pack-sample"

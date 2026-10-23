@@ -1,6 +1,6 @@
 //! Lyceum's command line: builds a world's content packs into its overlay, bakes an overlay into a
-//! copy of a player's files, takes modified files apart into an overlay, and packs pictures into
-//! Dereth's client layer.
+//! copy of a player's files, exports a world for a server that runs it elsewhere, takes modified
+//! files apart into an overlay, and packs pictures into Dereth's client layer.
 //!
 //! **Depends on** the Foundry (`lyceum-foundry`), whose every command this is, and `dereth-dat`
 //! (the data files a world is built over). **Used by** creators and the build, from a terminal, as
@@ -10,17 +10,29 @@
 //! bake writes copies, and the originals are only read.
 //!
 //! ```text
-//! lyceum build <world.toml> --dats <dir> [--out <dir>] [--check]
+//! lyceum new <folder> [--empty] [--era eor|infiltration]   a new world, from the sample or
+//!                                               empty, built on that era's files
+//! lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
 //! lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>]
 //!                 [--schema <json>]
 //! lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>]
 //!             [--dry-run]
+//! lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y>
+//!             <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>]
+//!             [--dry-run]           a house drops as one players can buy, unless --plain
 //! lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 //! lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
+//! lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir>
+//!               [--era eor|infiltration] [--world-sql <dump>] [--empyrean <dir>]
+//!               [--gdle-quests <quests.json>]   GDLE's quests.json, the world's merged into it
 //! lyceum import --base <dir> --world <dir> --out <dir> --world-key <key>
 //!               [--iterations revision|world] [--verify]
+//! lyceum facts <world.toml>                     what the world changes, counted, as one line
+//!                                               of JSON
 //! lyceum layer <manifest> [--out <container>]   write a client layer
 //! lyceum layer <manifest> --check               say whether a client layer is current
+//! lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>]
+//!             [--grid <n>] [--directions <n>]
 //! lyceum --version
 //! ```
 //!
@@ -31,17 +43,24 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use lyceum_foundry::{
-    bake, compile, content, content_check, dats, import, layer, sql_ids, validate,
+    bake, compile, content, content_check, dats, export, facts, import, layer, revise, sample,
+    sql_ids, validate,
 };
 
 const USAGE: &str = "\
-lyceum build <world.toml> --dats <dir> [--out <dir>] [--check]
+lyceum new <folder> [--empty] [--era eor|infiltration]
+lyceum upgrade <world.toml> [--check]
+lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or dir>] [--world <sql>] [--schema <json>]
 lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>] [--dry-run]
+lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>] [--dry-run]
 lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
+lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era eor|infiltration] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
-lyceum layer <manifest> [--out <container>] [--check]";
+lyceum facts <world.toml>
+lyceum layer <manifest> [--out <container>] [--check]
+lyceum fit --dats <dir> --model <id> [--overlay <dir>] [--against <id>] [--grid <n>] [--directions <n>]";
 
 fn usage(why: &str) -> ExitCode {
     eprintln!("lyceum: {why}\n{USAGE}");
@@ -109,15 +128,24 @@ fn fail(e: &lyceum_foundry::Error) -> ExitCode {
 }
 
 fn build(args: &Args) -> ExitCode {
-    if let Err(why) = args.known(&["dats", "out"]) {
+    if let Err(why) = args.known(&["dats", "out", "after"]) {
         return usage(&why);
     }
     let ([world], Some(dats)) = (args.words.as_slice(), args.path("dats")) else {
         return usage("build takes a world file and --dats");
     };
     let check = args.switch("check");
+    let after = args.path("after");
+    if check && after.is_some() {
+        return usage("--after writes a revision, which --check never does");
+    }
     match compile::build(Path::new(world), &dats, args.path("out").as_deref(), check) {
         Ok(b) => {
+            if let Some(last) = &after {
+                if let Err(e) = revise_after(Path::new(world), &dats, last, &b.out) {
+                    return fail(&e);
+                }
+            }
             for (kind, symbol, id) in &b.numbered {
                 if kind.hex() {
                     println!("  numbered {kind} {symbol} = {id:#010X}");
@@ -159,6 +187,39 @@ fn build(args: &Args) -> ExitCode {
         }
         Err(e) => fail(&e),
     }
+}
+
+/// Number the overlay just built into `out` as the revision after `last`, the overlay the world was
+/// last published with, and say what each file's revision holds.
+fn revise_after(
+    world: &Path,
+    dats: &Path,
+    last: &Path,
+    out: &Path,
+) -> Result<(), lyceum_foundry::Error> {
+    let world = lyceum_foundry::world::World::read(world)?;
+    let followed = revise::after(dats, world.era, last, &out.join("overlay"), &world.key)?;
+    if let Some(why) = &followed.restarted {
+        println!("revisions start again: {why}");
+    }
+    for (file, r) in &followed.files {
+        match r.revision {
+            Some(n) => println!(
+                "{}: revision {n}, {} changed, {} deleted, {} kept",
+                file.file_name(),
+                r.changed,
+                r.deleted,
+                r.kept
+            ),
+            None if !r.revisions.is_empty() => println!(
+                "{}: unchanged, revision {}",
+                file.file_name(),
+                r.revisions.last().copied().unwrap_or_default()
+            ),
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 fn run_validate(args: &Args) -> ExitCode {
@@ -284,37 +345,74 @@ fn sql_files(path: &Path) -> Result<Vec<PathBuf>, lyceum_foundry::Error> {
 }
 
 fn run_edit(args: &Args) -> ExitCode {
-    if let Err(why) = args.known(&["dats", "edits", "pack", "weenies"]) {
+    if let Err(why) = args.known(&["dats", "edits", "pack", "weenies", "layout", "furnished"]) {
         return usage(&why);
     }
-    let ([world], Some(dats), Some(edits)) =
-        (args.words.as_slice(), args.path("dats"), args.path("edits"))
-    else {
-        return usage("edit takes a world file, --dats and --edits");
+    let (Some((world, verb)), Some(dats)) = (args.words.split_first(), args.path("dats")) else {
+        return usage("edit takes a world file and --dats");
     };
+    let verb = match verb.split_first() {
+        None => None,
+        Some((v, words)) if v == "add-building" => match lyceum_foundry::script::add_building(
+            words,
+            args.value("layout"),
+            args.value("furnished"),
+            args.switch("bare"),
+            args.switch("plain"),
+        ) {
+            Ok(a) => Some(a),
+            Err(why) => return usage(&why),
+        },
+        Some((v, _)) => return usage(&format!("{v} is not an edit")),
+    };
+    let edits = args.path("edits");
+    if verb.is_some() == edits.is_some() {
+        return usage("edit takes --edits, or one edit (add-building ...)");
+    }
     let mut session =
         match lyceum_foundry::edit::Session::open(Path::new(world), &dats, args.value("pack")) {
             Ok(s) => s,
             Err(e) => return fail(&e),
         };
+    let mut server = None;
     if let Some(sql) = args.path("weenies") {
         match std::fs::read_to_string(&sql) {
-            Ok(text) => session.learn_weenies(&text),
+            Ok(text) => server = Some(sql_ids::server_content(&text)),
             Err(e) => return fail(&lyceum_foundry::Error::io(&sql, e)),
         }
     }
-    let text = match std::fs::read_to_string(&edits) {
-        Ok(t) => t,
-        Err(e) => return fail(&lyceum_foundry::Error::io(&edits, e)),
-    };
     let pack = session.packs()[session.target()].name.clone();
-    let actions = match lyceum_foundry::script::actions(&text, &pack) {
-        Ok(a) => a,
-        Err(why) => return usage(&format!("{}: {why}", edits.display())),
+    let actions = match (&edits, verb) {
+        (Some(edits), _) => {
+            let text = match std::fs::read_to_string(edits) {
+                Ok(t) => t,
+                Err(e) => return fail(&lyceum_foundry::Error::io(edits, e)),
+            };
+            match lyceum_foundry::script::actions(&text, &pack) {
+                Ok(a) => a,
+                Err(why) => return usage(&format!("{}: {why}", edits.display())),
+            }
+        }
+        (None, verb) => verb.into_iter().collect(),
     };
+    // A drop copies from the world's buildings, with the doors the server's world stands at them.
+    if actions
+        .iter()
+        .any(|a| matches!(a, lyceum_foundry::script::Action::AddBuilding { .. }))
+    {
+        let catalog =
+            lyceum_foundry::buildings::Catalog::read(session.base(), server.as_ref(), &|_| None);
+        session.learn_buildings(catalog);
+    }
+    if let Some(content) = server {
+        session.learn_server(content);
+    }
     for (i, a) in actions.iter().enumerate() {
         match session.act(a) {
             Ok(done) => {
+                for w in &done.warnings {
+                    eprintln!("lyceum: edit {}: warning: {w}", i + 1);
+                }
                 let blocks: Vec<String> = done
                     .touched
                     .landblocks
@@ -411,6 +509,82 @@ fn run_bake(args: &Args) -> ExitCode {
             for path in &b.copied {
                 println!("{}: copied", path.display());
             }
+            ExitCode::SUCCESS
+        }
+        Err(e) => fail(&e),
+    }
+}
+
+/// The server's import tool: in the folder `--empyrean` names, else beside this command.
+fn import_program(dir: Option<&Path>) -> Option<PathBuf> {
+    let file = format!("empyrean-import{}", std::env::consts::EXE_SUFFIX);
+    let dir = match dir {
+        Some(d) => d.to_path_buf(),
+        None => std::env::current_exe().ok()?.parent()?.to_path_buf(),
+    };
+    Some(dir.join(file)).filter(|p| p.is_file())
+}
+
+fn run_export(args: &Args) -> ExitCode {
+    if let Err(why) = args.known(&[
+        "dats",
+        "for",
+        "out",
+        "era",
+        "world-sql",
+        "empyrean",
+        "gdle-quests",
+    ]) {
+        return usage(&why);
+    }
+    let ([world], Some(dats), Some(target), Some(out)) = (
+        args.words.as_slice(),
+        args.path("dats"),
+        args.value("for"),
+        args.path("out"),
+    ) else {
+        return usage("export takes a world file, --dats, --for and --out");
+    };
+    let Some(target) = export::Target::parse(target) else {
+        return usage(&format!("--for is empyrean, ace or gdle, not {target}"));
+    };
+    let gdle_quests = args.path("gdle-quests");
+    if gdle_quests.is_some() && target != export::Target::Gdle {
+        return usage("--gdle-quests is for --for gdle");
+    }
+    // The era of the world's files, unless the command line names one.
+    let era = match args.value("era").map(export::Era::parse) {
+        None => match lyceum_foundry::world::World::read(Path::new(world)) {
+            Ok(w) => export::Era::of(w.era),
+            Err(e) => return fail(&e),
+        },
+        Some(Some(era)) => era,
+        Some(None) => return usage("--era is eor or infiltration"),
+    };
+    let named = args.path("empyrean");
+    let program = import_program(named.as_deref());
+    if named.is_some() && program.is_none() {
+        return usage("--empyrean names a folder without empyrean-import");
+    }
+    let importer = program.map(export::ImportProgram);
+    let world_sql = args.path("world-sql");
+    let opts = export::Options {
+        target,
+        out: &out,
+        era,
+        world_sql: world_sql.as_deref(),
+        importer: importer.as_ref().map(|i| i as &dyn export::Importer),
+        gdle_quests: gdle_quests.as_deref(),
+    };
+    match export::export(Path::new(world), &dats, &opts) {
+        Ok(done) => {
+            for w in &done.warnings {
+                println!("warning: {w}");
+            }
+            for line in &done.wrote {
+                println!("{line}");
+            }
+            println!("exported for {} to {}", target.name(), done.out.display());
             ExitCode::SUCCESS
         }
         Err(e) => fail(&e),
@@ -520,15 +694,184 @@ fn version_text() -> String {
     )
 }
 
+fn run_fit(args: &Args) -> ExitCode {
+    if let Err(why) = args.known(&["dats", "overlay", "model", "against", "grid", "directions"]) {
+        return usage(&why);
+    }
+    let Some(dats) = args.path("dats") else {
+        return usage("fit takes --dats and --model");
+    };
+    let id = |s: &str| {
+        u32::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16)
+            .ok()
+            .filter(|n| matches!(n >> 24, 1 | 2))
+    };
+    let Some(candidate) = args.value("model").and_then(id) else {
+        return usage("fit --model is a hexadecimal GfxObj or Setup id");
+    };
+    let original = match args.value("against") {
+        Some(s) => match id(s) {
+            Some(n) => Some(n),
+            None => return usage("fit --against is a hexadecimal GfxObj or Setup id"),
+        },
+        None => None,
+    };
+    let grid = args
+        .value("grid")
+        .map_or(Some(32), |s| s.parse::<usize>().ok());
+    let directions = args
+        .value("directions")
+        .map_or(Some(32), |s| s.parse::<usize>().ok());
+    let (Some(grid), Some(directions)) = (
+        grid.filter(|n| (4..=64).contains(n)),
+        directions.filter(|n| (4..=128).contains(n)),
+    ) else {
+        return usage("fit needs --grid 4 to 64 and --directions 4 to 128");
+    };
+    if !args.words.is_empty() || !args.switches.is_empty() {
+        return usage("fit takes named values only");
+    }
+    let report = match lyceum_foundry::fit::check_files(
+        &dats,
+        args.path("overlay").as_deref(),
+        candidate,
+        original,
+        grid,
+        directions,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("lyceum: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let surface = report.surface;
+    println!(
+        "surface samples within 5 cm: {} / {}",
+        surface.within_five_cm, surface.samples
+    );
+    match surface.largest_gap {
+        Some(gap) => println!("largest sampled surface gap: {gap:.4} m"),
+        None => println!("largest sampled surface gap: unavailable (no collision surface)"),
+    }
+    match surface.volume {
+        Some(v) => println!(
+            "estimated excess collision volume: {:.4} m3 ({} / {} grid cells, {:.6} m3 each)",
+            v.excess_volume(),
+            v.excess_cells,
+            v.cells,
+            v.cell_volume
+        ),
+        None => println!("excess collision volume: unknown (open or non-manifold mesh)"),
+    }
+    if !report.walks.is_empty() {
+        println!(
+            "approaches with different stop outcomes: {} / {}",
+            report
+                .walks
+                .iter()
+                .filter(|w| w.candidate_stopped != w.original_stopped)
+                .count(),
+            report.walks.len()
+        );
+        let largest = report
+            .walks
+            .iter()
+            .map(|w| w.separation)
+            .fold(0.0, f32::max);
+        println!("largest endpoint separation: {largest:.4} m");
+        for (i, w) in report.walks.iter().enumerate() {
+            println!("approach {i}: new stopped={}, base stopped={}, separation={:.4} m; new end=({:.3}, {:.3}, {:.3}); base end=({:.3}, {:.3}, {:.3})",w.candidate_stopped,w.original_stopped,w.separation,w.candidate.end.x,w.candidate.end.y,w.candidate.end.z,w.original.end.x,w.original.end.y,w.original.end.z);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 fn main() -> ExitCode {
     let all: Vec<String> = std::env::args().skip(1).collect();
     let Some(first) = all.first() else {
         return usage("nothing to do");
     };
     let rest = &all[1..];
-    let switches = ["check", "touched-only", "verify", "dry-run", "blank"];
+    let switches = [
+        "check",
+        "touched-only",
+        "verify",
+        "dry-run",
+        "blank",
+        "empty",
+        "bare",
+        "plain",
+    ];
     let parsed = |a: &[String]| parse(a, &switches);
     match first.as_str() {
+        "new" => {
+            let args = match parsed(rest) {
+                Ok(a) => a,
+                Err(why) => return usage(&why),
+            };
+            if args.known(&["era"]).is_err()
+                || args.words.len() != 1
+                || args.switches.iter().any(|s| s != "empty")
+            {
+                return usage("new takes a folder, optional --empty and optional --era");
+            }
+            let era = match args.value("era").map(lyceum_foundry::world::EraId::parse) {
+                None => lyceum_foundry::world::EraId::Eor,
+                Some(Some(era)) => era,
+                Some(None) => return usage("--era is eor or infiltration"),
+            };
+            match sample::make(Path::new(&args.words[0]), args.switch("empty"), era) {
+                Ok(world) => {
+                    println!("{}", world.display());
+                    ExitCode::SUCCESS
+                }
+                Err(why) => {
+                    eprintln!("lyceum: {why}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        "upgrade" => {
+            let args = match parsed(rest) {
+                Ok(a) => a,
+                Err(why) => return usage(&why),
+            };
+            if args.known(&[]).is_err()
+                || args.words.len() != 1
+                || args.switches.iter().any(|s| s != "check")
+            {
+                return usage("upgrade takes a world file and optional --check");
+            }
+            let check = args.switch("check");
+            match lyceum_foundry::format::upgrade(Path::new(&args.words[0]), check) {
+                Ok(paths) => {
+                    println!(
+                        "{} source file(s) {}; world.lock is unchanged.",
+                        paths.len(),
+                        if check { "need upgrading" } else { "upgraded" }
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(error) => fail(&error),
+            }
+        }
+        "facts" => {
+            let args = match parsed(rest) {
+                Ok(a) => a,
+                Err(why) => return usage(&why),
+            };
+            if args.known(&[]).is_err() || args.words.len() != 1 || !args.switches.is_empty() {
+                return usage("facts takes a world file");
+            }
+            match facts::facts(Path::new(&args.words[0])) {
+                Ok(f) => {
+                    println!("{}", f.json());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(&e),
+            }
+        }
         "-h" | "--help" => {
             println!("{USAGE}");
             ExitCode::SUCCESS
@@ -537,7 +880,7 @@ fn main() -> ExitCode {
             print!("{}", version_text());
             ExitCode::SUCCESS
         }
-        "build" | "validate" | "bake" | "import" | "edit" | "template" => {
+        "build" | "validate" | "bake" | "export" | "import" | "edit" | "template" | "fit" => {
             let args = match parsed(rest) {
                 Ok(a) => a,
                 Err(why) => return usage(&why),
@@ -546,8 +889,10 @@ fn main() -> ExitCode {
                 "build" => build(&args),
                 "validate" => run_validate(&args),
                 "bake" => run_bake(&args),
+                "export" => run_export(&args),
                 "edit" => run_edit(&args),
                 "template" => run_template(&args),
+                "fit" => run_fit(&args),
                 _ => run_import(&args),
             }
         }

@@ -39,6 +39,16 @@
 //! heading = 90.0
 //!
 //! [[edit]]
+//! do = "add-building"              # a copy of a retail building, from the building catalog:
+//! model = 0x01002228               # its rooms, doors and outdoor statics come with it, and the
+//! landblock = "A9B4"               # ground under it is made level
+//! at = [60.0, 40.0]                # its origin, landblock meters
+//! heading = 90.0
+//! layout = 0                       # which of the model's layouts; the most common when left out
+//! furnished = "bare"               # or another copy's furniture, "3DC7/1"; left out, the copy's
+//! house = false                    # a house as a plain building; left out, one players can buy
+//!
+//! [[edit]]
 //! do = "undo"                      # or "redo", "save"
 //! ```
 
@@ -79,6 +89,18 @@ pub enum Action {
         index: usize,
         at: [f32; 3],
         rotation: Rotation,
+    },
+    /// A copy of a retail building dropped, from the session's building catalog.
+    AddBuilding {
+        model: DataId,
+        layout: usize,
+        furnished: crate::source::Furnished,
+        /// For a house: one players can buy, or a plain building.
+        house: bool,
+        landblock: u16,
+        x: f32,
+        y: f32,
+        heading: f32,
     },
     /// One dab of a brush, centered in landblock meters.
     Brush {
@@ -173,6 +195,74 @@ fn small(t: &toml::Table, key: &str, max: i64) -> Result<u16, String> {
     }
 }
 
+/// A dropped building's furniture as an edit names it: left out the copy's own, `"bare"`, or
+/// another copy's, `"3DC7/1"`.
+///
+/// # Errors
+/// Anything else.
+pub fn furnished(v: Option<&toml::Value>) -> Result<crate::source::Furnished, String> {
+    use crate::source::Furnished;
+    match v {
+        None => Ok(Furnished::Template),
+        Some(toml::Value::String(s)) if s == "bare" => Ok(Furnished::Bare),
+        Some(toml::Value::String(s)) => crate::buildings::Site::parse(s)
+            .map(|site| Furnished::Like(vec![site]))
+            .ok_or_else(|| format!("{s:?} is not a retail building: \"3DC7/1\" or \"bare\"")),
+        Some(_) => Err("furnished is \"bare\" or a retail building, \"3DC7/1\"".into()),
+    }
+}
+
+/// A drop as the command line writes it: `<model> <landblock> <x> <y> <heading>`, with the
+/// layout, the furniture of another copy, or none, and for a house, whether it is a plain
+/// building rather than one players can buy.
+///
+/// # Errors
+/// Words that do not say that, with the reason.
+pub fn add_building(
+    words: &[String],
+    layout: Option<&str>,
+    furniture: Option<&str>,
+    bare: bool,
+    plain: bool,
+) -> Result<Action, String> {
+    let [model, lb, x, y, heading] = words else {
+        return Err("add-building takes <model> <landblock> <x> <y> <heading>".into());
+    };
+    let number = |s: &str, what: &str| {
+        s.parse::<f32>()
+            .map_err(|_| format!("add-building's {what} is a number, not {s}"))
+    };
+    let furnished = match (furniture, bare) {
+        (Some(_), true) => return Err("add-building takes --furnished or --bare, not both".into()),
+        (Some(f), false) => furnished(Some(&toml::Value::String(f.to_owned())))?,
+        (None, true) => crate::source::Furnished::Bare,
+        (None, false) => crate::source::Furnished::Template,
+    };
+    let landblock = {
+        let mut t = toml::Table::new();
+        t.insert("landblock".into(), toml::Value::String(lb.clone()));
+        landblock(&t)?
+    };
+    Ok(Action::AddBuilding {
+        model: u32::from_str_radix(model.trim_start_matches("0x"), 16)
+            .ok()
+            .filter(|m| matches!(m >> 24, 0x01 | 0x02))
+            .map(DataId)
+            .ok_or_else(|| {
+                format!("add-building's model is a hexadecimal model id, not {model}")
+            })?,
+        layout: layout
+            .map_or(Ok(0), str::parse)
+            .map_err(|_| "a layout is 0, 1, ...".to_owned())?,
+        furnished,
+        house: !plain,
+        landblock,
+        x: number(x, "x")?,
+        y: number(y, "y")?,
+        heading: number(heading, "heading")?,
+    })
+}
+
 /// One edit from its table; `pack` is the pack the edit is written for, whose symbols may be
 /// named bare.
 ///
@@ -196,6 +286,7 @@ pub fn action(t: &toml::Table, pack: &str) -> Result<Action, String> {
                 model: DataId(model),
                 at: place(t)?.ok_or("a placed static says where: at = [x, y, z]")?,
                 rotation: rotation(t)?.unwrap_or(Rotation::Heading(0.0)),
+                name: None,
             })
         }
         "move-static" => Action::Move {
@@ -273,6 +364,41 @@ pub fn action(t: &toml::Table, pack: &str) -> Result<Action, String> {
                     .ok_or("a moved building names its place in the statics record: index = 0")?,
                 at: [at.x, at.y, z],
                 rotation: rotation(t)?.unwrap_or(Rotation::Heading(0.0)),
+            }
+        }
+        "add-building" => {
+            let at = place(t)?.ok_or("a dropped building says where: at = [x, y]")?;
+            Action::AddBuilding {
+                model: t
+                    .get("model")
+                    .and_then(toml::Value::as_integer)
+                    .and_then(|m| u32::try_from(m).ok())
+                    .map(DataId)
+                    .ok_or("a dropped building names its model: model = 0x01002228")?,
+                layout: match t.get("layout") {
+                    None => 0,
+                    Some(v) => v
+                        .as_integer()
+                        .and_then(|i| usize::try_from(i).ok())
+                        .ok_or("a layout is its place in the model's list: 0, 1, ...")?,
+                },
+                furnished: furnished(t.get("furnished"))?,
+                house: match t.get("house") {
+                    None => true,
+                    Some(v) => v
+                        .as_bool()
+                        .ok_or("house is true (one players can buy) or false (a plain building)")?,
+                },
+                landblock: landblock(t)?,
+                x: at.x,
+                y: at.y,
+                heading: match rotation(t)? {
+                    Some(Rotation::Heading(h)) => h,
+                    None => 0.0,
+                    Some(Rotation::Quat(_)) => {
+                        return Err("a dropped building is turned by a heading".into())
+                    }
+                },
             }
         }
         "undo" => Action::Undo,
@@ -393,6 +519,23 @@ impl Session {
                         Error::Refused(format!("landblock {landblock:04X} has no building {index}"))
                     })?;
                 self.apply(&op)
+            }
+            Action::AddBuilding {
+                model,
+                layout,
+                furnished,
+                house,
+                landblock,
+                x,
+                y,
+                heading,
+            } => {
+                let (op, warnings) = self.drop_building_as(
+                    *model, *layout, furnished, *house, *landblock, *x, *y, *heading,
+                )?;
+                let mut done = self.apply(&op)?;
+                done.warnings = warnings;
+                Ok(done)
             }
             Action::Remove { landblock, name } => {
                 let which = self.static_named(*landblock, name)?;

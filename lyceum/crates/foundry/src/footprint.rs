@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_assets::world::{EnvCell, LandblockInfo};
-use dereth_assets::{Decode, Environment};
+use dereth_assets::Environment;
 use dereth_primitives::frame::globaltolocal;
 use dereth_primitives::shape::Plane;
 use dereth_primitives::{DataId, Frame, Vec3};
@@ -71,7 +71,7 @@ impl Environments {
             .entry(id.raw())
             .or_insert_with(|| {
                 let bytes = set.read_portal(id)?;
-                Environment::decode_payload(id, &bytes).ok()
+                set.decode::<Environment>(id, &bytes).ok()
             })
             .as_ref()
     }
@@ -127,7 +127,7 @@ impl Footprints {
                 .cell
                 .read(id)
                 .ok()
-                .and_then(|b| EnvCell::decode_payload(id, &b).ok())
+                .and_then(|b| set.decode::<EnvCell>(id, &b).ok())
             else {
                 return (None, Vec::new());
             };

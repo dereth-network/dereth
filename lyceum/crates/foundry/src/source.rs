@@ -63,6 +63,13 @@
 //! portals = ["keep", ""]         # per portal of the piece: "keep" (the way the cell had there),
 //!                                # "" (shut, free to build on), "outside", "<new cell>:<portal>"
 //!
+//! [[remove-cell]]                # one of the landblock's own cells taken away, its statics with
+//! cell = 0x017D                  # it; it keeps its number, closed far under the landblock
+//!
+//! [dungeon]                      # the landblock's dungeon: what it is called, and the look its
+//! name = "Drudge Warren"         # pieces are drawn in (a dungeon whose look it shares, by its
+//! look = 0x019E                  # landblock)
+//!
 //! [[move-cell-static]]           # a static standing in an indoor cell (a building's room or a
 //! cell = 0x0105                  # dungeon's), by the cell's number or a pack cell's symbol,
 //! index = 2                      # and its place among the cell's own statics
@@ -73,6 +80,28 @@
 //! cell = 0x0105
 //! index = 3
 //! model = 0x02000BCD             # optional: what the cell holds there, checked
+//!
+//! [[add-cell-static]]            # a static added to one of the world's own cells, after the
+//! cell = 0x0105                  # statics it holds
+//! model = 0x0200040B
+//! at = [61.5, 40.2, 94.0]        # landblock meters
+//! heading = 90.0
+//!
+//! [[add-building]]               # a copy of a retail building, its rooms with it
+//! name = "cottage-1"             # its symbol: its rooms are cells cottage-1-room-000 and on
+//! model = 0x01002228             # a set (a mansion's four) lists its models, and a template each
+//! template = "3B9C/3"            # the retail copy: its landblock and its place in its buildings
+//! at = [100.0, 60.0, 82.0]       # its origin, landblock meters; z a height or "ground"
+//! heading = 90.0
+//! furnished = "bare"             # or another copy's furniture, "3DC7/1"; left out, the template's
+//! house = "cottage-1-house"      # optional, a house players can buy: its rooms and its land
+//!                                # cell belong to this spawn of the landblock (a set lists one
+//!                                # for each building)
+//!
+//! [[add-dungeon]]                # a copy of a retail dungeon: every cell of its landblock, in
+//! name = "villa-1-basement"      # the same place; its cells are villa-1-basement-room-000 on
+//! template = 0x0398              # the retail dungeon's landblock
+//! house = "villa-1-basement-house"  # optional: its cells belong to this spawn of the landblock
 //!
 //! [[vertex]]                     # one vertex, or every vertex of the rectangle at..=to
 //! at = [4, 3]
@@ -156,6 +185,10 @@ impl PixelFormat {
 /// A new record, as its source describes it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum NewRecord {
+    Geometry {
+        target: Target,
+        record: Box<crate::model_import::Record>,
+    },
     RenderSurface {
         target: Target,
         /// The picture's path.
@@ -184,6 +217,7 @@ impl NewRecord {
     #[must_use]
     pub fn kind(&self) -> Kind {
         match self {
+            Self::Geometry { record, .. } => record.kind(),
             Self::RenderSurface { .. } => Kind::RenderSurface,
             Self::SurfaceTexture { .. } => Kind::SurfaceTexture,
             Self::Surface { .. } => Kind::Surface,
@@ -193,7 +227,8 @@ impl NewRecord {
     #[must_use]
     pub fn target(&self) -> &Target {
         match self {
-            Self::RenderSurface { target, .. }
+            Self::Geometry { target, .. }
+            | Self::RenderSurface { target, .. }
             | Self::SurfaceTexture { target, .. }
             | Self::Surface { target, .. } => target,
         }
@@ -203,6 +238,7 @@ impl NewRecord {
     #[must_use]
     pub fn references(&self) -> Vec<(Kind, &RecordRef)> {
         match self {
+            Self::Geometry { record, .. } => record.references(),
             Self::RenderSurface { .. } => Vec::new(),
             Self::SurfaceTexture { levels, .. } => {
                 levels.iter().map(|l| (Kind::RenderSurface, l)).collect()
@@ -251,7 +287,7 @@ pub enum Which {
 pub struct AddStatic {
     /// Its symbol, in full.
     pub name: Option<String>,
-    pub model: DataId,
+    pub model: RecordRef,
     pub at: Place,
     pub rotation: Rotation,
 }
@@ -299,6 +335,16 @@ pub struct RemoveCellStatic {
     pub model: Option<DataId>,
 }
 
+/// A static added to an indoor cell not of the pack's own, after the statics it holds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddCellStatic {
+    pub cell: CellRef,
+    pub model: DataId,
+    /// Landblock meters.
+    pub at: [f32; 3],
+    pub rotation: Rotation,
+}
+
 /// Set fields of every vertex of a rectangle, landblock-local, `from..=to`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VertexEdit {
@@ -325,6 +371,10 @@ pub enum Link {
     Outside,
     /// Nowhere: the opening stays shut (a check warns of it).
     Shut,
+    /// Several cells, each through part of the opening: new cells' portals ([`Link::Cell`]) or
+    /// reshaped cells' ([`Link::Base`]). Written as their links with commas between,
+    /// `"cell-3:0, cell-4:0"`.
+    Many(Vec<Link>),
 }
 
 /// A static standing in a cell.
@@ -355,7 +405,7 @@ pub struct AddCell {
 }
 
 /// One of the landblock's own cells reshaped: another piece in its place, keeping its number, its
-/// statics and every way it had, each met by one of the piece's portals.
+/// statics and the doorways matched by the new piece; dropped doorways produce warnings.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReplaceCell {
     pub cell: u16,
@@ -369,6 +419,13 @@ pub struct ReplaceCell {
     pub portals: Vec<Link>,
 }
 
+/// One of the landblock's own cells taken away: it keeps its number, closed and empty far under
+/// the landblock, and the ways into it are shut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RemoveCell {
+    pub cell: u16,
+}
+
 /// Move or turn a building of the base, with everything inside it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MoveBuilding {
@@ -377,6 +434,50 @@ pub struct MoveBuilding {
     /// Its new origin in landblock meters (its height kept when none is given).
     pub at: Option<[f32; 3]>,
     pub rotation: Option<Rotation>,
+}
+
+/// The furniture a dropped building's rooms hold.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Furnished {
+    /// The template's own.
+    Template,
+    /// None.
+    Bare,
+    /// Another copy's, one for each building of the drop: a copy of the same model laid out the
+    /// same way.
+    Like(Vec<crate::buildings::Site>),
+}
+
+/// A copy of a retail building, with its rooms, dropped in the landblock: one building, or a set
+/// of buildings that stand together (a mansion's four), carried together.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AddBuilding {
+    /// Its symbol, in full. Its rooms are numbered as cells named `<name>-room-000` and on.
+    pub name: String,
+    /// Each building's model, and the retail copy it is taken from.
+    pub models: Vec<DataId>,
+    pub templates: Vec<crate::buildings::Site>,
+    /// Where the first building's origin stands, in landblock meters (a height, or the ground's
+    /// with the template's own height over its ground), and its turn. The others keep their
+    /// places from it.
+    pub at: Place,
+    pub rotation: Rotation,
+    pub furnished: Furnished,
+    /// For a house players can buy, the spawn each building's rooms and land cell belong to: its
+    /// symbol in full, without the landblock (the row's own). Empty for a plain building.
+    pub house: Vec<String>,
+}
+
+/// A copy of a retail dungeon: every cell of its landblock, each where it stands there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AddDungeon {
+    /// Its symbol, in full. Its cells are numbered as cells named `<name>-room-000` and on.
+    pub name: String,
+    /// The retail dungeon's landblock.
+    pub template: u16,
+    /// The spawn its cells belong to, when it is a house's: its symbol in full, without the
+    /// landblock.
+    pub house: Option<String>,
 }
 
 /// The operations of one landblock's file.
@@ -393,7 +494,22 @@ pub struct LandblockEdits {
     pub buildings: Vec<Located<MoveBuilding>>,
     pub cell_moves: Vec<Located<MoveCellStatic>>,
     pub cell_removes: Vec<Located<RemoveCellStatic>>,
+    pub cell_adds: Vec<Located<AddCellStatic>>,
     pub replaces: Vec<Located<ReplaceCell>>,
+    /// The landblock's own cells taken away.
+    pub taken: Vec<Located<RemoveCell>>,
+    pub drops: Vec<Located<AddBuilding>>,
+    pub dungeon_copies: Vec<Located<AddDungeon>>,
+    /// The landblock's dungeon, as the pack names it.
+    pub dungeon: Option<Located<DungeonInfo>>,
+}
+
+/// What a pack says of a landblock's dungeon: its name, and the look its pieces are drawn in, as a
+/// dungeon's landblock whose look it shares.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DungeonInfo {
+    pub name: Option<String>,
+    pub look: Option<u16>,
 }
 
 impl LandblockEdits {
@@ -407,12 +523,15 @@ impl LandblockEdits {
             || !self.cells.is_empty()
             || !self.buildings.is_empty()
             || !self.replaces.is_empty()
+            || !self.taken.is_empty()
+            || !self.drops.is_empty()
+            || !self.dungeon_copies.is_empty()
     }
 
     /// Whether the file moves or removes a static standing in an indoor cell.
     #[must_use]
     pub fn touches_cell_statics(&self) -> bool {
-        !self.cell_moves.is_empty() || !self.cell_removes.is_empty()
+        !self.cell_moves.is_empty() || !self.cell_removes.is_empty() || !self.cell_adds.is_empty()
     }
 }
 
@@ -428,6 +547,8 @@ pub struct SqlFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PackFile {
+    #[serde(default, rename = "format_version")]
+    _format_version: u32,
     name: String,
     version: String,
     #[serde(default)]
@@ -439,12 +560,35 @@ struct PackFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecordsFile {
+    #[serde(default)]
+    piece: Vec<Spanned<PieceRow>>,
+    #[serde(default)]
+    model: Vec<Spanned<ModelRow>>,
     #[serde(default, rename = "render-surface")]
     render_surface: Vec<Spanned<RenderSurfaceRow>>,
     #[serde(default, rename = "surface-texture")]
     surface_texture: Vec<Spanned<SurfaceTextureRow>>,
     #[serde(default)]
     surface: Vec<Spanned<SurfaceRow>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PieceRow {
+    name: String,
+    file: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelRow {
+    name: String,
+    replace: Option<u32>,
+    file: String,
+    #[serde(default)]
+    collision: crate::model_import::Collision,
+    #[serde(default)]
+    distances: Vec<f32>,
 }
 
 #[derive(Deserialize)]
@@ -500,8 +644,45 @@ struct EditsFile {
     move_cell_static: Vec<Spanned<MoveCellStaticRow>>,
     #[serde(default, rename = "remove-cell-static")]
     remove_cell_static: Vec<Spanned<RemoveCellStaticRow>>,
+    #[serde(default, rename = "add-cell-static")]
+    add_cell_static: Vec<Spanned<AddCellStaticRow>>,
     #[serde(default, rename = "replace-cell")]
     replace_cell: Vec<Spanned<ReplaceCellRow>>,
+    #[serde(default, rename = "remove-cell")]
+    remove_cell: Vec<Spanned<RemoveCellRow>>,
+    dungeon: Option<Spanned<DungeonRow>>,
+    #[serde(default, rename = "add-building")]
+    add_building: Vec<Spanned<AddBuildingRow>>,
+    #[serde(default, rename = "add-dungeon")]
+    add_dungeon: Vec<Spanned<AddDungeonRow>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddDungeonRow {
+    name: String,
+    template: i64,
+    house: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DungeonRow {
+    name: Option<String>,
+    look: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddBuildingRow {
+    name: String,
+    model: toml::Value,
+    template: toml::Value,
+    at: Vec<toml::Value>,
+    heading: Option<f32>,
+    rotation: Option<Vec<f32>>,
+    furnished: Option<toml::Value>,
+    house: Option<toml::Value>,
 }
 
 #[derive(Deserialize)]
@@ -515,6 +696,22 @@ struct ReplaceCellRow {
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
     portals: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoveCellRow {
+    cell: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddCellStaticRow {
+    cell: toml::Value,
+    model: i64,
+    at: Vec<toml::Value>,
+    heading: Option<f32>,
+    rotation: Option<Vec<f32>>,
 }
 
 #[derive(Deserialize)]
@@ -572,7 +769,7 @@ struct MoveBuildingRow {
 #[serde(deny_unknown_fields)]
 struct StaticRow {
     name: Option<String>,
-    model: i64,
+    model: toml::Value,
     at: Vec<toml::Value>,
     heading: Option<f32>,
     rotation: Option<Vec<f32>>,
@@ -708,6 +905,32 @@ fn read_records(pack: &Pack, path: &Path) -> Result<Vec<Located<NewRecord>>, Err
     let file: RecordsFile = parse_toml(path, &text)?;
     let mut out: Vec<(usize, Located<NewRecord>)> = Vec::new();
     let loc = |start: usize| Loc::at(path, &text, start);
+    for row in &file.piece {
+        let at = loc(row.span().start);
+        let r = row.get_ref();
+        let name = symbol::qualify(&pack.name, &r.name).map_err(|s| Error::source(&at, s))?;
+        for record in
+            crate::model_import::piece::records(&pack.dir, &pack.dir.join(&r.file), &at, &name)?
+        {
+            out.push((row.span().start, record));
+        }
+    }
+    for row in &file.model {
+        let at = loc(row.span().start);
+        let r = row.get_ref();
+        let name = symbol::qualify(&pack.name, &r.name).map_err(|s| Error::source(&at, s))?;
+        for record in crate::model_import::records(
+            &pack.dir,
+            &pack.dir.join(&r.file),
+            &at,
+            &name,
+            r.replace.map(DataId),
+            r.collision,
+            &r.distances,
+        )? {
+            out.push((row.span().start, record));
+        }
+    }
     for row in &file.render_surface {
         let at = loc(row.span().start);
         let r = row.get_ref();
@@ -887,8 +1110,27 @@ fn point(at: &Loc, v: &[toml::Value]) -> Result<[f32; 3], Error> {
     ])
 }
 
-/// A portal's link as written: `"<cell>:<portal>"`, `"outside"`, or `""` for none.
+/// A portal's link as written: `"<cell>:<portal>"`, `"outside"`, or `""` for none; several cells'
+/// with commas between.
 fn link(at: &Loc, pack: &str, v: &str) -> Result<Link, Error> {
+    if v.contains(',') {
+        let all = v
+            .split(',')
+            .map(|one| link(at, pack, one))
+            .collect::<Result<Vec<Link>, Error>>()?;
+        if all
+            .iter()
+            .any(|l| !matches!(l, Link::Cell { .. } | Link::Base { .. }))
+        {
+            return Err(Error::source(
+                at,
+                format!(
+                    "{v:?}: a portal that joins several cells names each by \"<cell>:<portal>\""
+                ),
+            ));
+        }
+        return Ok(Link::Many(all));
+    }
     match v.trim() {
         "" => Ok(Link::Shut),
         "outside" => Ok(Link::Outside),
@@ -975,8 +1217,31 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
         buildings: Vec::new(),
         cell_moves: Vec::new(),
         cell_removes: Vec::new(),
+        cell_adds: Vec::new(),
         replaces: Vec::new(),
+        taken: Vec::new(),
+        dungeon: None,
+        drops: Vec::new(),
+        dungeon_copies: Vec::new(),
     };
+    if let Some(row) = &file.dungeon {
+        let at = loc(row.span().start);
+        let r = row.get_ref();
+        let look = r
+            .look
+            .map(|l| {
+                u16::try_from(l)
+                    .map_err(|_| Error::source(&at, format!("look {l:#X} is not a landblock")))
+            })
+            .transpose()?;
+        edits.dungeon = Some(Located {
+            at,
+            item: DungeonInfo {
+                name: r.name.clone().filter(|n| !n.trim().is_empty()),
+                look,
+            },
+        });
+    }
     for row in &file.statics {
         let at = loc(row.span().start);
         let r = row.get_ref();
@@ -986,15 +1251,14 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
             .map(|n| symbol::qualify(&pack.name, n))
             .transpose()
             .map_err(|why| Error::source(&at, why))?;
-        let model = id_of(&at, r.model, "model")?;
-        if !matches!(model.raw() >> 24, 0x01 | 0x02) {
-            return Err(Error::source(
-                &at,
-                format!(
-                    "{:#010X} is not a model: a GfxObj (0x01) or a Setup (0x02)",
-                    model.raw()
-                ),
-            ));
+        let model = record_ref(&at, &pack.name, &r.model)?;
+        if let RecordRef::Id(id) = &model {
+            if !matches!(id.raw() >> 24, 0x01 | 0x02) {
+                return Err(Error::source(
+                    &at,
+                    "a model is a GfxObj (0x01) or a Setup (0x02)",
+                ));
+            }
         }
         let item = AddStatic {
             name,
@@ -1202,6 +1466,39 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
         }
         edits.replaces.push(Located { at, item });
     }
+    for row in &file.remove_cell {
+        let at = loc(row.span().start);
+        let r = row.get_ref();
+        let CellRef::Number(cell) = cell_ref(&at, &pack.name, &toml::Value::Integer(r.cell))?
+        else {
+            return Err(Error::source(
+                &at,
+                "a cell taken away is named by its number",
+            ));
+        };
+        if let Some(first) = edits.taken.iter().find(|x| x.item.cell == cell) {
+            return Err(twice(
+                &pack.name,
+                format!("cell {landblock:04X} {cell:04X}"),
+                &first.at,
+                &at,
+                "takes it away",
+            ));
+        }
+        if let Some(first) = edits.replaces.iter().find(|x| x.item.cell == cell) {
+            return Err(twice(
+                &pack.name,
+                format!("cell {landblock:04X} {cell:04X}"),
+                &first.at,
+                &at,
+                "reshapes it and takes it away",
+            ));
+        }
+        edits.taken.push(Located {
+            at,
+            item: RemoveCell { cell },
+        });
+    }
     for row in &file.move_cell_static {
         let at = loc(row.span().start);
         let r = row.get_ref();
@@ -1229,7 +1526,249 @@ pub fn parse_edits(pack: &Pack, path: &Path, text: &str) -> Result<LandblockEdit
         };
         edits.cell_removes.push(Located { at, item });
     }
+    for row in &file.add_cell_static {
+        let at = loc(row.span().start);
+        let r = row.get_ref();
+        let model = id_of(&at, r.model, "model")?;
+        if !matches!(model.raw() >> 24, 0x01 | 0x02) {
+            return Err(Error::source(
+                &at,
+                format!("{:#010X} is not a model", model.raw()),
+            ));
+        }
+        let item = AddCellStatic {
+            cell: cell_ref(&at, &pack.name, &r.cell)?,
+            model,
+            at: point(&at, &r.at)?,
+            rotation: rotation(&at, r.heading, r.rotation.as_deref())?
+                .unwrap_or(Rotation::Heading(0.0)),
+        };
+        edits.cell_adds.push(Located { at, item });
+    }
+    for row in &file.add_building {
+        let at = loc(row.span().start);
+        let item = add_building(&at, &pack.name, row.get_ref())?;
+        if let Some(first) = edits.drops.iter().find(|d| d.item.name == item.name) {
+            return Err(twice(
+                &pack.name,
+                format!("building {}", item.name),
+                &first.at,
+                &at,
+                "drops it",
+            ));
+        }
+        // Its rooms are cells by name: no cell of the file may be named as one of them.
+        let rooms = format!("{}-room-", item.name);
+        if let Some(c) = edits.cells.iter().find(|c| c.item.name.starts_with(&rooms)) {
+            return Err(Error::source(
+                &c.at,
+                format!(
+                    "cell {} is named as a room of building {}",
+                    c.item.name, item.name
+                ),
+            ));
+        }
+        edits.drops.push(Located { at, item });
+    }
+    for row in &file.add_dungeon {
+        let at = loc(row.span().start);
+        let item = add_dungeon(&at, &pack.name, row.get_ref())?;
+        let taken = edits
+            .drops
+            .iter()
+            .map(|d| (&d.item.name, &d.at))
+            .chain(edits.dungeon_copies.iter().map(|d| (&d.item.name, &d.at)))
+            .find(|(n, _)| **n == item.name);
+        if let Some((_, first)) = taken {
+            return Err(twice(
+                &pack.name,
+                format!("{}'s rooms", item.name),
+                first,
+                &at,
+                "names them",
+            ));
+        }
+        let rooms = format!("{}-room-", item.name);
+        if let Some(c) = edits.cells.iter().find(|c| c.item.name.starts_with(&rooms)) {
+            return Err(Error::source(
+                &c.at,
+                format!(
+                    "cell {} is named as a room of dungeon {}",
+                    c.item.name, item.name
+                ),
+            ));
+        }
+        edits.dungeon_copies.push(Located { at, item });
+    }
     Ok(edits)
+}
+
+/// A spawn of the row's landblock that a copy's cells belong to, as the row names it: a bare
+/// symbol of the pack.
+fn house_symbol(at: &Loc, pack: &str, s: &str) -> Result<String, Error> {
+    if s.contains(':') || s.contains('@') {
+        return Err(Error::source(
+            at,
+            "a house is named by a bare symbol: a spawn of the row's landblock",
+        ));
+    }
+    symbol::qualify(pack, s).map_err(|why| Error::source(at, why))
+}
+
+fn add_dungeon(at: &Loc, pack: &str, r: &AddDungeonRow) -> Result<AddDungeon, Error> {
+    if r.name.contains(':') || r.name.contains('@') {
+        return Err(Error::source(
+            at,
+            "a copied dungeon is named by a bare symbol",
+        ));
+    }
+    let name = symbol::qualify(pack, &r.name).map_err(|why| Error::source(at, why))?;
+    let template = u16::try_from(r.template)
+        .ok()
+        .filter(|lb| (lb >> 8) < 0xFF && (lb & 0xFF) < 0xFF)
+        .ok_or_else(|| {
+            Error::source(
+                at,
+                format!(
+                    "{:#X} is not a landblock: a dungeon's is 0x0398",
+                    r.template
+                ),
+            )
+        })?;
+    Ok(AddDungeon {
+        name,
+        template,
+        house: r
+            .house
+            .as_deref()
+            .map(|h| house_symbol(at, pack, h))
+            .transpose()?,
+    })
+}
+
+/// One value or a list of them, as a list.
+fn one_or_many(v: &toml::Value) -> Vec<&toml::Value> {
+    match v {
+        toml::Value::Array(a) => a.iter().collect(),
+        other => vec![other],
+    }
+}
+
+/// A site as a row writes it, `"3B9C/3"`.
+fn site(at: &Loc, v: &toml::Value) -> Result<crate::buildings::Site, Error> {
+    v.as_str()
+        .and_then(crate::buildings::Site::parse)
+        .ok_or_else(|| {
+            Error::source(
+                at,
+                "a retail building is written \"3B9C/3\": its landblock and its place in that landblock's buildings",
+            )
+        })
+}
+
+fn add_building(at: &Loc, pack: &str, r: &AddBuildingRow) -> Result<AddBuilding, Error> {
+    let name = symbol::qualify(pack, &r.name).map_err(|why| Error::source(at, why))?;
+    if r.name.contains(':') || r.name.contains('@') {
+        return Err(Error::source(
+            at,
+            "a dropped building is named by a bare symbol",
+        ));
+    }
+    let models = one_or_many(&r.model)
+        .into_iter()
+        .map(|v| {
+            let id = v
+                .as_integer()
+                .ok_or_else(|| Error::source(at, "a building's model is a GfxObj or Setup id"))?;
+            let id = id_of(at, id, "model")?;
+            if matches!(id.raw() >> 24, 0x01 | 0x02) {
+                Ok(id)
+            } else {
+                Err(Error::source(
+                    at,
+                    format!("{:#010X} is not a model", id.raw()),
+                ))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let templates = one_or_many(&r.template)
+        .into_iter()
+        .map(|v| site(at, v))
+        .collect::<Result<Vec<_>, _>>()?;
+    if models.is_empty() || models.len() != templates.len() {
+        return Err(Error::source(
+            at,
+            format!(
+                "a dropped building names one template for each model: {} model(s), {} template(s)",
+                models.len(),
+                templates.len()
+            ),
+        ));
+    }
+    let [x, y, z] = &r.at[..] else {
+        return Err(Error::source(
+            at,
+            "at is [x, y, z], z a height or \"ground\"",
+        ));
+    };
+    let z = match z {
+        toml::Value::String(s) if s == "ground" => Height::Ground,
+        other => Height::At(number(at, other, "z")?),
+    };
+    let furnished = match &r.furnished {
+        None => Furnished::Template,
+        Some(toml::Value::String(s)) if s == "bare" => Furnished::Bare,
+        Some(v) => {
+            let like = one_or_many(v)
+                .into_iter()
+                .map(|v| site(at, v))
+                .collect::<Result<Vec<_>, _>>()?;
+            if like.len() != templates.len() {
+                return Err(Error::source(
+                    at,
+                    "furnished names \"bare\", or one retail building for each template",
+                ));
+            }
+            Furnished::Like(like)
+        }
+    };
+    let house = match &r.house {
+        None => Vec::new(),
+        Some(v) => {
+            let list = one_or_many(v)
+                .into_iter()
+                .map(|v| {
+                    v.as_str()
+                        .ok_or_else(|| Error::source(at, "a house is a spawn's symbol"))
+                        .and_then(|s| house_symbol(at, pack, s))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if list.len() != models.len() {
+                return Err(Error::source(
+                    at,
+                    format!(
+                        "a house names the spawn of each building: {} building(s), {} house(s)",
+                        models.len(),
+                        list.len()
+                    ),
+                ));
+            }
+            list
+        }
+    };
+    Ok(AddBuilding {
+        name,
+        models,
+        templates,
+        at: Place {
+            x: number(at, x, "x")?,
+            y: number(at, y, "y")?,
+            z,
+        },
+        rotation: rotation(at, r.heading, r.rotation.as_deref())?.unwrap_or(Rotation::Heading(0.0)),
+        furnished,
+        house,
+    })
 }
 
 /// A cell an operation names: a number of `0x0100` on, or a pack cell's symbol.
@@ -1271,6 +1810,7 @@ fn twice(pack: &str, what: String, first: &Loc, second: &Loc, sets: &str) -> Err
 pub fn read_pack(dir: &Path) -> Result<Pack, Error> {
     let meta_path = dir.join("pack.toml");
     let text = read_text(&meta_path)?;
+    crate::format::check(&meta_path, &text)?;
     let meta: PackFile = parse_toml(&meta_path, &text)?;
     if !symbol::is_name(&meta.name) {
         return Err(Error::source(

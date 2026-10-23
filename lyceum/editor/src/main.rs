@@ -68,7 +68,12 @@ fn run(argv: &[String]) -> Result<(), String> {
     let mut args = lyceum_editor::args::parse(argv)
         .map_err(|e| format!("{e}\n{}", lyceum_editor::args::USAGE))?;
     lyceum_editor::programs::fill_empyrean(&mut args.empyrean);
-    let mut runtime = args.runtime_argv(args.landblock.unwrap_or(0xA9B4));
+    // Where the world was left, when the command line names no landblock to start at.
+    let start_at = args
+        .landblock
+        .or_else(|| lyceum_editor::place::read(&args.world).and_then(|l| l.landblock()))
+        .unwrap_or(0xA9B4);
+    let mut runtime = args.runtime_argv(start_at);
     if !args.headless {
         runtime.push("--log-file".to_owned());
     }

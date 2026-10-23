@@ -76,9 +76,11 @@ pub struct Recent {
 }
 
 impl Recent {
-    /// The recent worlds `text` holds; nothing when it does not read.
+    /// The recent worlds `text` holds, each once, as a person writes it (the file may name one
+    /// world under two spellings); nothing when it does not read.
     pub fn read(text: &str) -> Self {
         let table: toml::Table = text.parse().unwrap_or_default();
+        let mut seen = std::collections::HashSet::new();
         Self {
             worlds: table
                 .get("worlds")
@@ -86,7 +88,9 @@ impl Recent {
                 .map(|a| {
                     a.iter()
                         .filter_map(toml::Value::as_str)
-                        .map(PathBuf::from)
+                        .map(Path::new)
+                        .filter(|w| seen.insert(identity(w)))
+                        .map(plain_path)
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -127,8 +131,9 @@ impl Recent {
 
     /// `world`, opened over `dats`, as the newest, once.
     pub fn remember(&mut self, world: &Path, dats: &Path) {
-        let world = std::path::absolute(world).unwrap_or_else(|_| world.to_path_buf());
-        self.worlds.retain(|w| *w != world);
+        let world = plain_path(&std::path::absolute(world).unwrap_or_else(|_| world.to_path_buf()));
+        let same = identity(&world);
+        self.worlds.retain(|w| identity(w) != same);
         self.worlds.insert(0, world);
         self.worlds.truncate(RECENT_KEPT);
         self.dats = Some(std::path::absolute(dats).unwrap_or_else(|_| dats.to_path_buf()));
@@ -142,6 +147,28 @@ impl Recent {
             .cloned()
             .collect()
     }
+}
+
+/// `path` without the `\\?\` prefix a canonical path carries on Windows: the spelling a person
+/// writes for the same file.
+fn plain_path(path: &Path) -> PathBuf {
+    let Some(text) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{share}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path.to_path_buf(),
+    }
+}
+
+/// What `path` names, the same for every spelling of one file: its canonical path where it is
+/// there, as a person writes it.
+fn identity(path: &Path) -> PathBuf {
+    path.canonicalize()
+        .map_or_else(|_| plain_path(path), |p| plain_path(&p))
 }
 
 /// Keep `world`, opened over the client folder `dats`, as the newest recent world. A file that
@@ -169,83 +196,21 @@ fn world_in(dir: &Path) -> Option<PathBuf> {
     Some(dir.join("world.toml")).filter(|p| p.is_file())
 }
 
-/// The sample world's files, as the editor carries them, by their place in a world's folder. Its
-/// `world.toml` is written for each new world ([`world_toml`]).
-const SAMPLE: &[(&str, &[u8])] = &[
-    ("world.lock", include_bytes!("../../sample/world.lock")),
-    (
-        "holtburg/pack.toml",
-        include_bytes!("../../sample/holtburg/pack.toml"),
-    ),
-    (
-        "holtburg/art/stripes.png",
-        include_bytes!("../../sample/holtburg/art/stripes.png"),
-    ),
-    (
-        "holtburg/records/stripes.toml",
-        include_bytes!("../../sample/holtburg/records/stripes.toml"),
-    ),
-    (
-        "holtburg/edits/landblocks/A8B4.toml",
-        include_bytes!("../../sample/holtburg/edits/landblocks/A8B4.toml"),
-    ),
-    (
-        "holtburg/edits/landblocks/A9B4.toml",
-        include_bytes!("../../sample/holtburg/edits/landblocks/A9B4.toml"),
-    ),
-    (
-        "holtburg/server/sql/weenies/guide.sql",
-        include_bytes!("../../sample/holtburg/server/sql/weenies/guide.sql"),
-    ),
-    (
-        "holtburg/server/sql/landblocks/A9B4 guide.sql",
-        include_bytes!("../../sample/holtburg/server/sql/landblocks/A9B4 guide.sql"),
-    ),
-];
-
-/// A new world's `world.toml`: the sample's pack, built into the world's own folder.
-fn world_toml(key: &str) -> String {
-    format!(
-        "# A world made from Lyceum's sample: statics west of Holtburg, a hill, a new texture and an\n\
-         # NPC wearing it.\nkey = \"{key}\"\npacks = [\"holtburg\"]\nout = \"build\"\n"
-    )
-}
-
-/// Whether `name` may name a new world: lowercase letters, digits and hyphens.
-pub fn good_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with('-')
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-}
-
-/// Make a new world named `name` in `parent` from the sample: its folder, the sample's files and
-/// its own `world.toml`. Answers its `world.toml`.
+/// Make a new world named `name` in `parent` from the sample ([`lyceum_foundry::sample`]): its
+/// folder, the sample's files and its own `world.toml`. Answers its `world.toml`.
 ///
 /// # Errors
 /// What stops it: a name that will not do, a folder already there, or a file that will not write.
 pub fn make_world(parent: &Path, name: &str) -> Result<PathBuf, Note> {
-    if !good_name(name) {
+    use lyceum_foundry::sample::{self, NotMade};
+    if !lyceum_foundry::symbol::is_name(name) {
         return Err(Note::BadName);
     }
-    let dir = parent.join(name);
-    if dir.exists() {
-        return Err(Note::Taken(name.to_owned()));
-    }
-    let write = |rel: &str, bytes: &[u8]| -> Result<(), Note> {
-        let path = dir.join(rel);
-        if let Some(p) = path.parent() {
-            std::fs::create_dir_all(p)
-                .map_err(|e| Note::Failed(format!("{}: {e}", p.display())))?;
-        }
-        std::fs::write(&path, bytes).map_err(|e| Note::Failed(format!("{}: {e}", path.display())))
-    };
-    for (rel, bytes) in SAMPLE {
-        write(rel, bytes)?;
-    }
-    write("world.toml", world_toml(name).as_bytes())?;
-    Ok(dir.join("world.toml"))
+    sample::make(&parent.join(name), false, dereth_primitives::EraId::Eor).map_err(|e| match e {
+        NotMade::BadName(_) => Note::BadName,
+        NotMade::Taken(_) => Note::Taken(name.to_owned()),
+        NotMade::Failed(why) => Note::Failed(why),
+    })
 }
 
 /// The folders in `dir`, by name, sorted as a person reads them; hidden ones left out.
@@ -272,6 +237,15 @@ pub fn roots() -> Vec<PathBuf> {
     } else {
         vec![PathBuf::from("/")]
     }
+}
+
+/// The folder in the person's Documents that new worlds go in when they choose no other; the
+/// Dereth launcher shows the same one.
+pub const WORLDS_FOLDER: &str = "Lyceum";
+
+/// Where new worlds go when the person has not chosen: [`WORLDS_FOLDER`] in their Documents.
+pub fn worlds_home() -> Option<PathBuf> {
+    dereth_desktop::folders::documents_dir().map(|d| d.join(WORLDS_FOLDER))
 }
 
 /// The person's home folder, where a picker starts when nothing better is known.
@@ -389,6 +363,8 @@ pub struct Screen {
     /// The world chosen, for the editor to open.
     pub chosen: Option<Choice>,
     home: PathBuf,
+    /// Where new worlds go when nothing better is known; made when a new world is first placed.
+    worlds: Option<PathBuf>,
     /// Where a picker may start over, looked for once: a drive that does not answer is not asked
     /// again every frame.
     roots: Vec<PathBuf>,
@@ -414,12 +390,20 @@ impl Screen {
             waiting: None,
             chosen: None,
             home,
+            worlds: None,
             roots: roots(),
         }
     }
 
+    /// The same, with `worlds` the folder new worlds go in when nothing better is known.
+    #[must_use]
+    pub fn with_worlds(mut self, worlds: Option<PathBuf>) -> Self {
+        self.worlds = worlds;
+        self
+    }
+
     /// Where a picker for `purpose` starts: the client folder, or the folder the newest world is
-    /// in, else home.
+    /// in, else the worlds folder, else home.
     fn start_dir(&self, purpose: Purpose) -> PathBuf {
         let known = match purpose {
             Purpose::Client => self.dats.clone(),
@@ -427,7 +411,8 @@ impl Screen {
                 .recent
                 .present()
                 .first()
-                .and_then(|w| w.parent()?.parent().map(Path::to_path_buf)),
+                .and_then(|w| w.parent()?.parent().map(Path::to_path_buf))
+                .or_else(|| self.worlds.clone()),
         };
         known
             .filter(|d| d.is_dir())
@@ -461,6 +446,12 @@ impl Screen {
         match action {
             Action::Recent(world) => self.choose(world),
             Action::Pick(purpose) => {
+                // The first new world makes the worlds folder, so the picker starts in it.
+                if let (Purpose::New, Some(worlds)) = (purpose, &self.worlds) {
+                    if self.recent.present().is_empty() {
+                        let _ = std::fs::create_dir_all(worlds);
+                    }
+                }
                 self.picker = Some(Picker::new(purpose, self.start_dir(purpose)));
                 self.note = None;
             }
@@ -743,7 +734,8 @@ pub fn screen(dats: Option<PathBuf>) -> Result<(), String> {
     dereth_desktop::logging::install::<Lyceum>(&cfg);
     let text = text();
     let recent_file = settings.join(RECENT_FILE);
-    let mut screen = Screen::new(Recent::load(&recent_file), dats, home());
+    let mut screen =
+        Screen::new(Recent::load(&recent_file), dats, home()).with_worlds(worlds_home());
     let events: dereth_client_shell::platform::window::WindowEvents = Default::default();
     let mut platform =
         dereth_desktop::launch::open_platform::<Lyceum>(&cfg, std::rc::Rc::clone(&events))
@@ -922,6 +914,33 @@ mod tests {
         assert_eq!(Recent::read("not [ toml"), Recent::default());
     }
 
+    #[test]
+    fn a_world_named_under_two_spellings_is_listed_once_as_a_person_writes_it() {
+        let d = scratch("spellings");
+        let world = d.join("hills").join("world.toml");
+        std::fs::create_dir_all(world.parent().unwrap()).unwrap();
+        std::fs::write(&world, "key = 'hills'\n").unwrap();
+        let canonical = world.canonicalize().unwrap();
+        let plain = plain_path(&canonical);
+        let other = d.join("other").join("world.toml");
+        let listed = Recent {
+            worlds: vec![canonical.clone(), plain.clone(), other.clone()],
+            dats: None,
+        };
+        let read = Recent::read(&listed.text());
+        assert_eq!(read.worlds, [plain.clone(), other.clone()]);
+        let mut r = Recent {
+            worlds: vec![plain.clone(), other.clone()],
+            dats: None,
+        };
+        r.remember(&canonical, &d);
+        assert_eq!(r.worlds, [plain, other]);
+        assert_eq!(
+            plain_path(Path::new(r"\\?\UNC\nas\worlds\world.toml")),
+            Path::new(r"\\nas\worlds\world.toml")
+        );
+    }
+
     /// A folder that holds the client's files, as the editor recognises one.
     fn client_folder(dir: &Path) -> PathBuf {
         let c = dir.join("client");
@@ -953,7 +972,7 @@ mod tests {
         let toml = std::fs::read_to_string(&world).unwrap();
         assert!(toml.contains("key = \"vale\""), "{toml}");
         assert!(toml.contains("out = \"build\""), "{toml}");
-        for (rel, bytes) in SAMPLE {
+        for (rel, bytes) in lyceum_foundry::sample::FILES {
             assert_eq!(
                 std::fs::read(d.join("vale").join(rel)).unwrap(),
                 *bytes,
@@ -970,38 +989,43 @@ mod tests {
     }
 
     #[test]
-    fn the_sample_the_editor_carries_is_the_sample_world_in_the_tree() {
-        let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sample");
-        let mut on_disk = Vec::new();
-        let mut todo = vec![sample.clone()];
-        while let Some(dir) = todo.pop() {
-            for e in std::fs::read_dir(&dir).unwrap() {
-                let p = e.unwrap().path();
-                // What the editor writes into a world it opens (`.playtest`, `.cache` and the
-                // like) is not the sample's.
-                if p.file_name()
-                    .is_some_and(|n| n.to_string_lossy().starts_with('.'))
-                {
-                    continue;
-                }
-                if p.is_dir() {
-                    todo.push(p);
-                } else {
-                    let rel = p.strip_prefix(&sample).unwrap();
-                    on_disk.push(rel.to_string_lossy().replace('\\', "/"));
-                }
-            }
-        }
-        on_disk.retain(|r| r != "world.toml");
-        on_disk.sort();
-        let mut carried: Vec<String> = SAMPLE.iter().map(|(r, _)| (*r).to_owned()).collect();
-        carried.sort();
-        assert_eq!(carried, on_disk, "the start screen's sample is the tree's");
-        let sample_toml = std::fs::read_to_string(sample.join("world.toml")).unwrap();
-        assert!(
-            sample_toml.contains("packs = [\"holtburg\"]"),
-            "{sample_toml}"
+    fn a_first_world_goes_in_the_worlds_folder_and_later_ones_beside_the_newest() {
+        let d = scratch("worlds-home");
+        let home = d.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let worlds = d.join("Documents").join(WORLDS_FOLDER);
+        let fresh =
+            || Screen::new(Recent::default(), None, home.clone()).with_worlds(Some(worlds.clone()));
+        // Opening looks there only once it exists; placing a first new world makes it.
+        let mut s = fresh();
+        s.act(Action::Pick(Purpose::Open));
+        assert_eq!(s.picker.as_ref().map(|p| p.dir.clone()), Some(home.clone()));
+        s.act(Action::Cancel);
+        s.act(Action::Pick(Purpose::New));
+        assert_eq!(
+            s.picker.as_ref().map(|p| p.dir.clone()),
+            Some(worlds.clone())
         );
+        assert!(worlds.is_dir());
+        let mut s = fresh();
+        s.act(Action::Pick(Purpose::Open));
+        assert_eq!(
+            s.picker.as_ref().map(|p| p.dir.clone()),
+            Some(worlds.clone())
+        );
+        // A world opened elsewhere since: its folder is where the next one goes.
+        let elsewhere = d.join("projects").join("vale").join("world.toml");
+        std::fs::create_dir_all(elsewhere.parent().unwrap()).unwrap();
+        std::fs::write(&elsewhere, "key = \"vale\"").unwrap();
+        let mut recent = Recent::default();
+        recent.remember(&elsewhere, &d);
+        let mut s = Screen::new(recent, None, home.clone()).with_worlds(Some(worlds.clone()));
+        s.act(Action::Pick(Purpose::New));
+        assert_eq!(
+            s.picker.as_ref().map(|p| p.dir.clone()),
+            Some(d.join("projects"))
+        );
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

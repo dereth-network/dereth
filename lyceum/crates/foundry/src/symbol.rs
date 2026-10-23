@@ -13,6 +13,14 @@ use std::fmt;
 /// What a symbol names, and so where its number comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
+    /// A mesh record (`0x01`).
+    GfxObj,
+    /// A composite model (`0x02`).
+    Setup,
+    /// An indoor piece record (`0x0D`).
+    Environment,
+    /// A model's distance bands (`0x11`).
+    Degrade,
     /// A picture record (`0x06`).
     RenderSurface,
     /// An image texture (`0x05`): the images of one texture, largest first.
@@ -29,7 +37,11 @@ pub enum Kind {
 
 impl Kind {
     /// Every kind, in the order the lockfile lists them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 10] = [
+        Self::GfxObj,
+        Self::Setup,
+        Self::Environment,
+        Self::Degrade,
         Self::RenderSurface,
         Self::SurfaceTexture,
         Self::Surface,
@@ -42,6 +54,10 @@ impl Kind {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
+            Self::GfxObj => "gfxobj",
+            Self::Setup => "setup",
+            Self::Environment => "environment",
+            Self::Degrade => "degrade",
             Self::RenderSurface => "render-surface",
             Self::SurfaceTexture => "surface-texture",
             Self::Surface => "surface",
@@ -63,6 +79,10 @@ impl Kind {
     #[must_use]
     pub const fn span(self) -> Option<(u32, u32)> {
         match self {
+            Self::GfxObj => Some((0x0100_0000, 0x01FF_FFFF)),
+            Self::Setup => Some((0x0200_0000, 0x02FF_FFFF)),
+            Self::Environment => Some((0x0D00_0000, 0x0D00_FFFF)),
+            Self::Degrade => Some((0x1100_0000, 0x11FF_FFFF)),
             Self::RenderSurface => Some((0x0600_0000, 0x06EF_FFFF)),
             Self::SurfaceTexture => Some((0x0500_0000, 0x05FF_FFFF)),
             Self::Surface => Some((0x0800_0000, 0x0800_FFFF)),

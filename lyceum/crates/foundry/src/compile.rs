@@ -30,13 +30,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use dereth_assets::world::{CellLandblock, LandblockInfo, ObjectEntry};
-use dereth_assets::{Decode, Region, RenderSurface, Surface, SurfaceTexture};
+use dereth_assets::{Region, Surface, SurfaceTexture};
 use dereth_dat::overlay::{container_name, OverlayDir, OverlayWriter};
 use dereth_dat::{decompose, ModernDat};
 use dereth_primitives::{DataId, Frame, Quat, Vec3};
 
 use crate::conflict::{self, Claim, Item, Override, Settled, SqlKey, SqlSet};
-use crate::dats::DatSet;
+use crate::dats::{files_of, DatSet};
 use crate::error::{Error, Loc};
 use crate::lock::Lock;
 use crate::source::{
@@ -77,6 +77,9 @@ pub enum StaticOrigin {
 /// The records of each file, by id.
 pub type Records = BTreeMap<ModernDat, BTreeMap<u32, Staged>>;
 
+/// The mark of a cell's static a pack adds, in [`Compiled::cell_statics`].
+pub const ADDED: usize = 1 << 30;
+
 /// A world compiled in memory.
 #[derive(Clone, Debug, Default)]
 pub struct Compiled {
@@ -94,15 +97,30 @@ pub struct Compiled {
     pub sql: BTreeMap<PathBuf, String>,
     /// For each landblock with new cells, the cell each new cell's symbol was given.
     pub cells: BTreeMap<u16, BTreeMap<String, u16>>,
+    /// For each landblock with dropped buildings, the cell each of their rooms was given, by the
+    /// room's name ([`crate::drops::room_name`]).
+    pub rooms: BTreeMap<u16, BTreeMap<String, u16>>,
+    /// For each landblock with dropped buildings, each one's name and its place in the compiled
+    /// statics record's building list (a set's buildings each).
+    pub dropped: BTreeMap<u16, Vec<(String, usize)>>,
+    /// For each landblock whose drops are houses, the id its cells and its restriction table
+    /// were given for each house's spawn, by the spawn's symbol.
+    pub houses: BTreeMap<u16, BTreeMap<String, u32>>,
     /// The lockfile, with every new symbol numbered.
     pub lock: Lock,
     /// The symbols numbered in this build, in the order they were numbered.
     pub numbered: Vec<(Kind, String, u32)>,
     /// One line for each landblock edited.
     pub summary: Vec<String>,
-    /// For each indoor cell whose statics the packs move or remove, where each static of its
-    /// compiled record came from: its place among the cell's statics before those edits.
+    /// Nonblocking changes that need review.
+    pub warnings: BTreeMap<u16, Vec<String>>,
+    /// For each indoor cell whose statics the packs move, remove or add, where each static of
+    /// its compiled record came from: its place among the cell's statics before those edits, or
+    /// for one a pack adds, [`ADDED`] and its place among the cell's added statics.
     pub cell_statics: BTreeMap<u32, Vec<usize>>,
+    /// For each such cell, the statics the packs add to it, in order: each by its pack and its
+    /// place among its file's `add-cell-static` rows.
+    pub cell_static_adds: BTreeMap<u32, Vec<(usize, usize)>>,
     /// Which pack wins where two disagree, as the world says.
     pub overrides: Vec<Override>,
     /// The conflicts found and the overrides taken, by the part of the world they are in.
@@ -270,7 +288,28 @@ pub fn number(
             continue;
         }
         let id = match kind {
-            Kind::RenderSurface | Kind::SurfaceTexture | Kind::Surface => {
+            // The files before Throne of Destiny reach a model's detail record by the model's own
+            // id: the record takes the id its nearest level's implies.
+            Kind::Degrade if base.layout() == dereth_dat::ContainerEra::Classic => {
+                let level = crate::model_import::nearest_level(symbol);
+                let model = lock.get(Kind::GfxObj, &level).ok_or_else(|| {
+                    Error::Refused(format!("{symbol} has no model {level} to be found by"))
+                })?;
+                let id = dereth_assets::geometry::implicit_degrade_id(DataId(model)).raw();
+                if base.has_portal(DataId(id)) || lock.holds_record_id(id) {
+                    return Err(Error::Refused(format!(
+                        "{symbol}: {id:#010X}, the id {level} reaches its detail by, is taken"
+                    )));
+                }
+                id
+            }
+            Kind::GfxObj
+            | Kind::Setup
+            | Kind::Environment
+            | Kind::Degrade
+            | Kind::RenderSurface
+            | Kind::SurfaceTexture
+            | Kind::Surface => {
                 let (lo, hi) = kind.span().unwrap_or((0, 0));
                 let staged_in_span = staged
                     .values()
@@ -488,7 +527,14 @@ fn build_records(
     view_base: &DatSet,
     c: &mut Compiled,
 ) -> Result<(), Error> {
+    let era = view_base.era;
     let defined = &defs.defined;
+    // The pictures this build makes, by id: in files whose image textures hold their pixels, a
+    // texture is made from its first image's.
+    let mut pictures: BTreeMap<u32, crate::pictures::Rgba> = BTreeMap::new();
+    // Those textures, made once every picture is: each with its source, its first image and its
+    // version.
+    let mut holding: Vec<(DataId, Loc, DataId, u16)> = Vec::new();
     for p in packs {
         for r in &p.records {
             if defs.skip.contains(&r.at) {
@@ -510,7 +556,45 @@ fn build_records(
                     *id
                 }
             };
+            let version = {
+                let view = View { base: view_base, c };
+                match r.item.target() {
+                    Target::Replace(_) => {
+                        let Some((_, v)) = view.get_portal(id.raw()) else {
+                            return Err(Error::source(
+                                at,
+                                format!(
+                                    "{:#010X} is not in the files; a new record has a name",
+                                    id.raw()
+                                ),
+                            ));
+                        };
+                        v
+                    }
+                    Target::New(_) => NEW_RECORD_VERSION,
+                }
+            };
+            let held = |r: Result<Vec<u8>, dereth_assets::AssetError>| {
+                r.map_err(|e| {
+                    Error::source(
+                        at,
+                        format!(
+                            "{:#010X} cannot be written in {}: {e}",
+                            id.raw(),
+                            files_of(era)
+                        ),
+                    )
+                })
+            };
             let bytes = match &r.item {
+                NewRecord::Geometry { record, .. } => {
+                    if let Some(picture) = record.picture() {
+                        pictures.insert(id.raw(), picture);
+                    }
+                    record.encode(era, id, |kind, reference| {
+                        resolve(&c.lock, defined, at, kind, reference)
+                    })?
+                }
                 NewRecord::RenderSurface {
                     picture,
                     format,
@@ -518,32 +602,44 @@ fn build_records(
                     ..
                 } => {
                     let (width, height, rgba) = read_picture(at, picture)?;
-                    let px = pixels(*format, &rgba);
-                    RenderSurface {
-                        id,
-                        data_category: *category,
+                    let picture = crate::pictures::Rgba {
                         width,
                         height,
-                        format: format.id(),
-                        image_size: u32::try_from(px.len()).unwrap_or(u32::MAX),
-                        data_offset: 0x18,
-                        default_palette_id: None,
-                    }
-                    .encode(&px)
+                        pixels: rgba,
+                    };
+                    let bytes = held(crate::pictures::image_record(era, id, &picture, || {
+                        (format.id(), *category, pixels(*format, &picture.pixels))
+                    }))?;
+                    pictures.insert(id.raw(), picture);
+                    bytes
                 }
                 NewRecord::SurfaceTexture {
                     levels, category, ..
-                } => SurfaceTexture {
-                    id,
-                    data_category: *category,
-                    // The constant every image texture carries.
-                    unknown_byte: 2,
-                    source_levels: levels
+                } => {
+                    let levels: Vec<DataId> = levels
                         .iter()
                         .map(|l| resolve(&c.lock, defined, at, Kind::RenderSurface, l))
-                        .collect::<Result<_, _>>()?,
+                        .collect::<Result<_, _>>()?;
+                    match era.container_era() {
+                        dereth_dat::ContainerEra::Classic => {
+                            let Some(first) = levels.first() else {
+                                return Err(Error::source(at, "an image texture has an image"));
+                            };
+                            holding.push((id, at.clone(), *first, version));
+                            continue;
+                        }
+                        dereth_dat::ContainerEra::Modern => held(
+                            SurfaceTexture {
+                                id,
+                                data_category: *category,
+                                // The constant every image texture carries.
+                                unknown_byte: 2,
+                                source_levels: levels,
+                            }
+                            .encode_for(era),
+                        )?,
+                    }
                 }
-                .encode(),
                 NewRecord::Surface {
                     surface_type,
                     texture,
@@ -553,48 +649,34 @@ fn build_records(
                     luminosity,
                     diffuse,
                     ..
-                } => Surface {
-                    surface_type: *surface_type,
-                    orig_texture_id: texture
-                        .as_ref()
-                        .map(|t| resolve(&c.lock, defined, at, Kind::SurfaceTexture, t))
-                        .transpose()?,
-                    orig_palette_id: if texture.is_some() {
-                        Some(match palette {
-                            Some(RecordRef::Id(id)) => *id,
-                            Some(RecordRef::Symbol(s)) => {
-                                return Err(Error::source(
-                                    at,
-                                    format!("{s}: a palette is named by its id"),
-                                ))
-                            }
-                            None => DataId(0),
-                        })
-                    } else {
-                        None
-                    },
-                    color_value: *color,
-                    translucency: *translucency,
-                    luminosity: *luminosity,
-                    diffuse: *diffuse,
-                }
-                .encode(),
-            };
-            let view = View { base: view_base, c };
-            let version = match r.item.target() {
-                Target::Replace(_) => {
-                    let Some((_, v)) = view.get_portal(id.raw()) else {
-                        return Err(Error::source(
-                            at,
-                            format!(
-                                "{:#010X} is not in the files; a new record has a name",
-                                id.raw()
-                            ),
-                        ));
-                    };
-                    v
-                }
-                Target::New(_) => NEW_RECORD_VERSION,
+                } => held(
+                    Surface {
+                        surface_type: *surface_type,
+                        orig_texture_id: texture
+                            .as_ref()
+                            .map(|t| resolve(&c.lock, defined, at, Kind::SurfaceTexture, t))
+                            .transpose()?,
+                        orig_palette_id: if texture.is_some() {
+                            Some(match palette {
+                                Some(RecordRef::Id(id)) => *id,
+                                Some(RecordRef::Symbol(s)) => {
+                                    return Err(Error::source(
+                                        at,
+                                        format!("{s}: a palette is named by its id"),
+                                    ))
+                                }
+                                None => DataId(0),
+                            })
+                        } else {
+                            None
+                        },
+                        color_value: *color,
+                        translucency: *translucency,
+                        luminosity: *luminosity,
+                        diffuse: *diffuse,
+                    }
+                    .encode_for(era, id),
+                )?,
             };
             c.records
                 .entry(ModernDat::Portal)
@@ -602,7 +684,43 @@ fn build_records(
                 .insert(id.raw(), Staged { bytes, version });
         }
     }
+    for (id, at, first, version) in holding {
+        let picture = match pictures.get(&first.raw()) {
+            Some(p) => p.clone(),
+            None => {
+                let view = View { base: view_base, c };
+                let Some((bytes, _)) = view.get_portal(first.raw()) else {
+                    return Err(Error::source(
+                        &at,
+                        format!("image {:#010X} is not in the files", first.raw()),
+                    ));
+                };
+                crate::pictures::picture_of_image(era, first, &bytes)
+                    .map_err(|e| Error::source(&at, format!("{:#010X}: {e}", first.raw())))?
+            }
+        };
+        let bytes = crate::pictures::texture_holding(era, id, &picture)
+            .map_err(|e| Error::source(&at, format!("{:#010X}: {e}", id.raw())))?;
+        c.records
+            .entry(ModernDat::Portal)
+            .or_default()
+            .insert(id.raw(), Staged { bytes, version });
+    }
     Ok(())
+}
+
+/// A record's bytes in the layout of `base`'s era, or why its files cannot hold it.
+fn written(
+    id: u32,
+    base: &DatSet,
+    r: Result<Vec<u8>, dereth_assets::AssetError>,
+) -> Result<Vec<u8>, Error> {
+    r.map_err(|e| {
+        Error::Dat(format!(
+            "{id:#010X} cannot be written in {}: {e}",
+            files_of(base.era)
+        ))
+    })
 }
 
 /// One field a vertex edit sets.
@@ -781,6 +899,13 @@ pub fn heading_quat(degrees: f32) -> Quat {
     Quat::new(cos + 0.0, 0.0, 0.0, sin + 0.0)
 }
 
+/// What a pack does to one of a landblock's own cells: reshapes it, or takes it away.
+#[derive(Clone, Copy, Debug)]
+enum CellChange<'a> {
+    Reshape(&'a Located<source::ReplaceCell>),
+    Take(&'a Located<source::RemoveCell>),
+}
+
 /// The quaternion a rotation names.
 #[must_use]
 pub fn quat_of(r: Rotation) -> Quat {
@@ -900,6 +1025,26 @@ fn cell_statics(
             ));
         }
     }
+    // The statics the packs add to cells not their own, in pack and file order.
+    type Adds = Vec<(Loc, usize, usize, ObjectEntry)>;
+    let mut adds: BTreeMap<u16, Adds> = BTreeMap::new();
+    for (pi, e) in &edits.files {
+        for (row, a) in e.cell_adds.iter().enumerate() {
+            let n = number(&a.item.cell, &a.at)?;
+            adds.entry(n).or_default().push((
+                a.at.clone(),
+                *pi,
+                row,
+                ObjectEntry {
+                    id: a.item.model,
+                    frame: Frame::new(
+                        Vec3::new(a.item.at[0], a.item.at[1], a.item.at[2]),
+                        quat_of(a.item.rotation),
+                    ),
+                },
+            ));
+        }
+    }
     let mut settled = Settled::default();
     let mut by_cell: BTreeMap<u16, (Moves, Removes)> = BTreeMap::new();
     for ((n, i), list) in changes {
@@ -920,12 +1065,16 @@ fn cell_statics(
     if settled != Settled::default() {
         c.settled.insert(Part::CellStatics(lb), settled);
     }
-    for (n, (moves, removes)) in by_cell {
+    let changed: BTreeSet<u16> = by_cell.keys().chain(adds.keys()).copied().collect();
+    for n in changed {
+        let (moves, removes) = by_cell.remove(&n).unwrap_or_default();
+        let added = adds.remove(&n).unwrap_or_default();
         let id = (u32::from(lb) << 16) | u32::from(n);
         let first = moves
             .values()
             .map(|m| m.0.clone())
             .chain(removes.values().map(|r| r.0.clone()))
+            .chain(added.iter().map(|a| a.0.clone()))
             .next()
             .unwrap_or_else(|| Loc::new(Path::new(""), 0));
         let held = c
@@ -940,7 +1089,8 @@ fn cell_statics(
                 format!("landblock {lb:04X} has no cell {n:04X}"),
             ));
         };
-        let mut cell = dereth_assets::world::EnvCell::decode_payload(DataId(id), &bytes)
+        let mut cell = base
+            .decode::<dereth_assets::world::EnvCell>(DataId(id), &bytes)
             .map_err(|e| Error::Dat(format!("{id:#010X}: {e}")))?;
         let len = cell.static_objects.len();
         let no_static = |at: &Loc, i: usize| {
@@ -986,6 +1136,15 @@ fn cell_statics(
             objects.push(o);
             origins.push(i);
         }
+        let mut placed = Vec::with_capacity(added.len());
+        for (k, (_, pack, row, o)) in added.into_iter().enumerate() {
+            objects.push(o);
+            origins.push(ADDED | k);
+            placed.push((pack, row));
+        }
+        if !placed.is_empty() {
+            c.cell_static_adds.insert(id, placed);
+        }
         cell.static_objects = objects;
         if cell.static_objects.is_empty() {
             cell.flags &= !2;
@@ -995,7 +1154,7 @@ fn cell_statics(
         c.records.entry(ModernDat::Cell).or_default().insert(
             id,
             Staged {
-                bytes: cell.encode(),
+                bytes: written(id, base, cell.encode_for(base.era))?,
                 version,
             },
         );
@@ -1062,6 +1221,64 @@ fn building_says(m: &MoveBuilding) -> String {
     }
 }
 
+/// The buildings landblock `lb`'s files drop and the dungeons they copy, copied from their
+/// templates (read under the packs) with their rooms numbered: a room's number is the
+/// lockfile's, given here the first time, and so is a house's spawn's when no SQL names it.
+fn drop_buildings(
+    edits: &BlockEdits<'_>,
+    lb: u16,
+    base: &DatSet,
+    c: &mut Compiled,
+    region: Option<&Region>,
+    ground_z: &dyn Fn(f32, f32) -> f32,
+) -> Result<Vec<crate::drops::Dropped>, Error> {
+    let rows: Vec<&Located<source::AddBuilding>> = edits
+        .files
+        .iter()
+        .flat_map(|(_, e)| e.drops.iter())
+        .collect();
+    let dungeons: Vec<&Located<source::AddDungeon>> = edits
+        .files
+        .iter()
+        .flat_map(|(_, e)| e.dungeon_copies.iter())
+        .collect();
+    if rows.is_empty() && dungeons.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (prepared, copied) = {
+        let view = View { base, c };
+        let read = |id: u32| view.get(ModernDat::Cell, id).map(|(b, _)| b);
+        (
+            rows.iter()
+                .map(|r| crate::drops::prepare(r, &read, region, base.era))
+                .collect::<Result<Vec<_>, _>>()?,
+            dungeons
+                .iter()
+                .map(|r| crate::drops::prepare_dungeon(r, &read, base.era))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+    };
+    let wanted: BTreeSet<(Kind, String)> = prepared
+        .iter()
+        .flat_map(|p| p.symbols(lb))
+        .chain(copied.iter().flat_map(|d| d.symbols(lb)))
+        .collect();
+    let mut lock = c.lock.clone();
+    let numbered = number(&mut lock, &wanted, base, &c.imported, 0)?;
+    c.lock = lock;
+    c.numbered.extend(numbered);
+    let out: Vec<crate::drops::Dropped> = prepared
+        .iter()
+        .map(|p| p.copy(lb, &c.lock, ground_z))
+        .chain(copied.iter().map(|d| d.copy(lb, &c.lock)))
+        .collect::<Result<_, _>>()?;
+    let houses: BTreeMap<String, u32> = out.iter().flat_map(|d| d.houses.clone()).collect();
+    if !houses.is_empty() {
+        c.houses.insert(lb, houses);
+    }
+    Ok(out)
+}
+
 /// Apply every pack's operations to the landblocks they touch (all of them, or those in `only`),
 /// over the imports and the base, and put the records that come out into `c`.
 #[allow(clippy::too_many_lines)]
@@ -1095,7 +1312,8 @@ fn edit_landblocks(
         let (bytes, version) = view
             .get(ModernDat::Cell, id)
             .ok_or_else(|| Error::Dat(format!("the files have no landblock {lb:04X}")))?;
-        let decoded = CellLandblock::decode_payload(DataId(id), &bytes)
+        let decoded = base
+            .decode::<CellLandblock>(DataId(id), &bytes)
             .map_err(|e| Error::Dat(format!("landblock {lb:04X}: {e}")))?;
         Ok((decoded, version))
     };
@@ -1114,10 +1332,13 @@ fn edit_landblocks(
     let region = {
         let view = View { base, c };
         view.get_portal(REGION.raw())
-            .and_then(|(b, _)| Region::decode_payload(REGION, &b).ok())
+            .and_then(|(b, _)| base.decode::<Region>(REGION, &b).ok())
     };
     for (lb, edits) in &blocks {
         c.cells.remove(lb);
+        c.rooms.remove(lb);
+        c.dropped.remove(lb);
+        c.houses.remove(lb);
         let has_statics = edits.files.iter().any(|(_, e)| e.touches_statics());
         if !has_statics {
             continue;
@@ -1133,7 +1354,7 @@ fn edit_landblocks(
         let made = existing.is_none();
         let (mut info, version) = match existing {
             Some((bytes, v)) => (
-                LandblockInfo::decode_payload(DataId(lbi_id), &bytes)
+                base.decode::<LandblockInfo>(DataId(lbi_id), &bytes)
                     .map_err(|e| Error::Dat(format!("{lbi_id:#010X}: {e}")))?,
                 v,
             ),
@@ -1230,17 +1451,21 @@ fn edit_landblocks(
         let mut placed_by: BTreeMap<String, Vec<(Claim, usize)>> = BTreeMap::new();
         for (pi, e) in &edits.files {
             for (entry, s) in e.statics.iter().enumerate() {
+                let model = match &s.item.model {
+                    RecordRef::Id(id) => *id,
+                    RecordRef::Symbol(sym) => {
+                        DataId(c.lock.get(Kind::Setup, sym).ok_or_else(|| {
+                            Error::source(&s.at, format!("no setup {sym} was numbered"))
+                        })?)
+                    }
+                };
                 let frame = frame_at(s.item.at, quat_of(s.item.rotation), &ground_z);
                 if let Some(name) = &s.item.name {
                     placed_by.entry(name.clone()).or_default().push((
                         Claim::new(
                             name_of(*pi),
                             &s.at,
-                            format!(
-                                "places {:#010X} at {}",
-                                s.item.model.raw(),
-                                place_text(s.item.at)
-                            ),
+                            format!("places {:#010X} at {}", model.raw(), place_text(s.item.at)),
                             format!("{:?} {frame:?}", s.item.model),
                         ),
                         added.len(),
@@ -1250,10 +1475,7 @@ fn edit_landblocks(
                     name: s.item.name.clone(),
                     pack: *pi,
                     entry,
-                    object: ObjectEntry {
-                        id: s.item.model,
-                        frame,
-                    },
+                    object: ObjectEntry { id: model, frame },
                 });
             }
         }
@@ -1382,9 +1604,8 @@ fn edit_landblocks(
             };
             building_moves.push(list[conflict::settle(&overrides, &item, &claims, &mut settled)].1);
         }
-        // A cell of the landblock's own reshaped by two sources is one item.
-        let mut replace_claims: BTreeMap<u16, Vec<(Claim, &Located<source::ReplaceCell>)>> =
-            BTreeMap::new();
+        // A cell of the landblock's own reshaped or taken away by two sources is one item.
+        let mut replace_claims: BTreeMap<u16, Vec<(Claim, CellChange<'_>)>> = BTreeMap::new();
         for (pi, e) in &edits.files {
             for r in &e.replaces {
                 let item = &r.item;
@@ -1402,21 +1623,40 @@ fn edit_landblocks(
                         ),
                         format!("{item:?}"),
                     ),
-                    r,
+                    CellChange::Reshape(r),
+                ));
+            }
+            for t in &e.taken {
+                replace_claims.entry(t.item.cell).or_default().push((
+                    Claim::new(name_of(*pi), &t.at, "takes it away", "taken away"),
+                    CellChange::Take(t),
                 ));
             }
         }
         let mut replaces: Vec<&Located<source::ReplaceCell>> = Vec::new();
+        let mut taken: Vec<u16> = Vec::new();
         for (n, list) in &replace_claims {
             let claims: Vec<Claim> = list.iter().map(|(c, _)| c.clone()).collect();
-            let a = list[0].1.item.at;
-            let item = Item::new(format!("cell {lb:04X} {n:04X}")).at(*lb, a[0], a[1]);
-            replaces.push(list[conflict::settle(&overrides, &item, &claims, &mut settled)].1);
+            let item = Item::new(format!("cell {lb:04X} {n:04X}"));
+            let item = match list[0].1 {
+                CellChange::Reshape(r) => item.at(*lb, r.item.at[0], r.item.at[1]),
+                CellChange::Take(_) => item,
+            };
+            match list[conflict::settle(&overrides, &item, &claims, &mut settled)].1 {
+                CellChange::Reshape(r) => replaces.push(r),
+                CellChange::Take(t) => taken.push(t.item.cell),
+            }
         }
         if settled != Settled::default() {
             c.settled.insert(Part::Statics(*lb), settled);
         }
-        if !adds.is_empty() || !building_moves.is_empty() || !replaces.is_empty() {
+        let dropped = drop_buildings(edits, *lb, base, c, region.as_ref(), &ground_z)?;
+        if !adds.is_empty()
+            || !building_moves.is_empty()
+            || !replaces.is_empty()
+            || !taken.is_empty()
+            || !dropped.is_empty()
+        {
             let view = View { base, c };
             let mut base_cells = BTreeMap::new();
             let mut versions = BTreeMap::new();
@@ -1425,15 +1665,16 @@ fn edit_landblocks(
                 view.get(ModernDat::Cell, (u32::from(*lb) << 16) | u32::from(n))
             {
                 let id = DataId((u32::from(*lb) << 16) | u32::from(n));
-                let cell = dereth_assets::world::EnvCell::decode_payload(id, &bytes)
+                let cell = base
+                    .decode::<dereth_assets::world::EnvCell>(id, &bytes)
                     .map_err(|e| Error::Dat(format!("{:#010X}: {e}", id.raw())))?;
                 base_cells.insert(n, cell);
                 versions.insert(n, v);
                 n += 1;
             }
             let env = |id: DataId| {
-                view.get_portal(id.raw())
-                    .and_then(|(b, _)| dereth_assets::Environment::decode_payload(id, &b).ok())
+                read_compiled(c, base, ModernDat::Portal, id.raw())
+                    .and_then(|b| base.decode::<dereth_assets::Environment>(id, &b).ok())
             };
             let numbers = adds
                 .iter()
@@ -1450,15 +1691,28 @@ fn edit_landblocks(
                 *lb,
                 &mut info,
                 &base_cells,
-                &adds,
-                &numbers,
-                &building_moves,
-                &replaces,
+                &crate::cells::Changes {
+                    adds: &adds,
+                    numbers: &numbers,
+                    moves: &building_moves,
+                    replaces: &replaces,
+                    taken: &taken,
+                    drops: &dropped,
+                },
                 &env,
             )?;
             c.summary.extend(placed.summary);
+            if !placed.warnings.is_empty() {
+                c.warnings.insert(*lb, placed.warnings);
+            }
             if !placed.names.is_empty() {
                 c.cells.insert(*lb, placed.names.clone());
+            }
+            if !placed.rooms.is_empty() {
+                c.rooms.insert(*lb, placed.rooms.clone());
+            }
+            if !placed.dropped.is_empty() {
+                c.dropped.insert(*lb, placed.dropped.clone());
             }
             for (n, cell) in placed.cells {
                 let id = (u32::from(*lb) << 16) | u32::from(n);
@@ -1466,7 +1720,7 @@ fn edit_landblocks(
                 c.records.entry(ModernDat::Cell).or_default().insert(
                     id,
                     Staged {
-                        bytes: cell.encode(),
+                        bytes: written(id, base, cell.encode_for(base.era))?,
                         version,
                     },
                 );
@@ -1486,7 +1740,7 @@ fn edit_landblocks(
                 ""
             }
         ));
-        let bytes = info.encode();
+        let bytes = written(lbi_id, base, info.encode_for(base.era))?;
         c.records
             .entry(ModernDat::Cell)
             .or_default()
@@ -1511,7 +1765,7 @@ fn edit_landblocks(
         c.records.entry(ModernDat::Cell).or_default().insert(
             id,
             Staged {
-                bytes: t.encode(),
+                bytes: written(id, base, t.encode_for(base.era))?,
                 version,
             },
         );
@@ -1526,7 +1780,10 @@ fn fill_sql(
     tokens: &BTreeMap<(usize, usize), Vec<Token>>,
     c: &mut Compiled,
 ) -> Result<(), Error> {
-    let cells = cell_symbols(packs, None);
+    let mut cells = cell_symbols(packs, None);
+    for (lb, rooms) in &c.rooms {
+        cells.extend(rooms.keys().map(|r| (Kind::Cell, cell_symbol(r, *lb))));
+    }
     // Each file filled: its pack, its place in the pack, its path under the output's folder.
     let mut filled: Vec<(usize, usize, PathBuf, String)> = Vec::new();
     for (pi, p) in packs.iter().enumerate() {
@@ -1621,8 +1878,10 @@ fn sql_symbols(packs: &[Pack], defined: &Defined) -> Result<SqlSymbols, Error> {
     for (pi, p) in packs.iter().enumerate() {
         for (fi, f) in p.sql.iter().enumerate() {
             let toks = sql::tokens(&f.path, &p.name, &f.text)?;
+            // A cell is numbered where it is placed: a pack's cell with the others, a dropped
+            // building's room with its building's, in their order.
             for t in &toks {
-                if !t.kind.is_record() {
+                if !t.kind.is_record() && t.kind != Kind::Cell {
                     wanted.insert((t.kind, t.symbol.clone()));
                 }
             }
@@ -1670,6 +1929,52 @@ fn leave_to_base(c: &mut Compiled, base: &DatSet, only: Option<&BTreeSet<u16>>) 
     c.records.retain(|_, r| !r.is_empty());
 }
 
+/// Make the terrain of every landblock whose statics record the world writes (of the landblocks
+/// in `only`, or every one) say it has one: the client loads a landblock's statics only when its
+/// terrain says so. Every terrain of the end of retail's files with a statics record says so
+/// already; a few of the February 2005 files' do not, and their statics are not drawn until a
+/// world changes them.
+fn flag_statics(
+    c: &mut Compiled,
+    base: &DatSet,
+    only: Option<&BTreeSet<u16>>,
+) -> Result<(), Error> {
+    #[allow(clippy::cast_possible_truncation)] // a cell id's top half is its landblock
+    let lbis: Vec<u32> = c
+        .records
+        .get(&ModernDat::Cell)
+        .into_iter()
+        .flat_map(BTreeMap::keys)
+        .copied()
+        .filter(|id| id & 0xFFFF == 0xFFFE && only.is_none_or(|o| o.contains(&((id >> 16) as u16))))
+        .collect();
+    for lbi in lbis {
+        let id = lbi | 0xFFFF;
+        let held = c
+            .records
+            .get(&ModernDat::Cell)
+            .and_then(|r| r.get(&id))
+            .map(|s| (s.bytes.clone(), s.version))
+            .or_else(|| View { base, c }.get(ModernDat::Cell, id));
+        let Some((bytes, version)) = held else {
+            continue;
+        };
+        let mut t = base
+            .decode::<CellLandblock>(DataId(id), &bytes)
+            .map_err(|e| Error::Dat(format!("{id:#010X}: {e}")))?;
+        if t.lbi_exists != 0 {
+            continue;
+        }
+        t.lbi_exists = 1;
+        let bytes = written(id, base, t.encode_for(base.era))?;
+        c.records
+            .entry(ModernDat::Cell)
+            .or_default()
+            .insert(id, Staged { bytes, version });
+    }
+    Ok(())
+}
+
 /// Compile `packs` (the world's, in load order) over `base`, keeping the ids `lock` holds.
 ///
 /// # Errors
@@ -1711,6 +2016,7 @@ pub fn compile(
     fill_sql(packs, &defs.defined, &tokens, &mut c)?;
     // A record that came out as the base holds it is left to the base.
     leave_to_base(&mut c, base, None);
+    flag_statics(&mut c, base, None)?;
     Ok(c)
 }
 
@@ -1756,8 +2062,15 @@ pub fn recompile_landblocks(
             cells.insert(*id, s.clone());
         }
         c.statics.remove(lb);
+        c.warnings.remove(lb);
+        c.cells.remove(lb);
+        c.rooms.remove(lb);
+        c.dropped.remove(lb);
+        c.houses.remove(lb);
         let first = u32::from(*lb) << 16;
         c.cell_statics
+            .retain(|id, _| !(first..=first | 0xFFFF).contains(id));
+        c.cell_static_adds
             .retain(|id, _| !(first..=first | 0xFFFF).contains(id));
         c.settled.remove(&Part::Statics(*lb));
         c.settled.remove(&Part::CellStatics(*lb));
@@ -1778,6 +2091,7 @@ pub fn recompile_landblocks(
     c.numbered.extend(numbered);
     edit_landblocks(packs, base, c, Some(touched))?;
     leave_to_base(c, base, Some(touched));
+    flag_statics(c, base, Some(touched))?;
     Ok(())
 }
 
@@ -1843,12 +2157,12 @@ pub fn write_records(
         let Some(file) = base.file(t) else {
             return Err(Error::Dat(format!(
                 "the overlay changes {}, which the files do not have",
-                t.file_name()
+                base.base_name(t)
             )));
         };
         let revision = decompose::revision_over(file);
         let path = dir.join(container_name(t));
-        let mut w = OverlayWriter::open_or_create(&path, file, t.file_name(), key, 0)?;
+        let mut w = OverlayWriter::open_or_create(&path, file, base.base_name(t), key, 0)?;
         for (id, mask) in gone.into_iter().flatten() {
             w.tombstone(DataId(*id), *mask, revision)?;
         }
@@ -1969,7 +2283,7 @@ pub fn build(
             ));
         }
     }
-    let base = DatSet::open(dats)?;
+    let base = DatSet::for_world(dats, world.era)?;
     let lock_path = world.lock_path();
     let lock = Lock::read(&lock_path)?;
     let c = compile(&world, &packs, &base, &lock)?;
@@ -1991,6 +2305,9 @@ pub fn build(
         let report = {
             let layered = base.with_overlay(&staging.join("overlay"), Some(&world.key))?;
             let mut report = crate::validate::validate(&layered, &crate::validate::Scope::of(&c));
+            report
+                .warnings
+                .extend(c.warnings.values().flatten().cloned());
             report
                 .problems
                 .extend(crate::sql_ids::check(&layered, &sql_named(&packs, &c)));
@@ -2047,6 +2364,13 @@ pub fn build(
     })();
     let _ = std::fs::remove_dir_all(&staging);
     result
+}
+
+/// The record `id` of the file `t` under the packs: the imports', else the base's unless an
+/// import deletes it.
+#[must_use]
+pub fn read_under(c: &Compiled, base: &DatSet, t: ModernDat, id: u32) -> Option<Vec<u8>> {
+    View { base, c }.get(t, id).map(|(b, _)| b)
 }
 
 /// The record `id` of the file `t` as the compiled world reads it: the overlay's, else the

@@ -452,7 +452,32 @@ pub struct ServerContent {
     pub quests: BTreeMap<String, Quest>,
     /// The death treasures, by their treasure type (what a weenie's data id 35 names).
     pub treasure: BTreeMap<u32, Treasure>,
+    /// Each house weenie's (type 53) property rows: what a copy of it takes.
+    pub houses: BTreeMap<u32, Vec<HouseRow>>,
 }
+
+/// One property row of a weenie: its table without `weenie_properties_` (`int`, `d_i_d`, ...),
+/// its type and its value as written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HouseRow {
+    pub table: String,
+    pub kind: u32,
+    pub value: String,
+}
+
+/// The weenie type of a house.
+pub const HOUSE_TYPE: u32 = 53;
+
+/// The property tables of one value each that a house's rows are kept from.
+const HOUSE_TABLES: [&str; 7] = [
+    "weenie_properties_int",
+    "weenie_properties_int64",
+    "weenie_properties_bool",
+    "weenie_properties_float",
+    "weenie_properties_string",
+    "weenie_properties_d_i_d",
+    "weenie_properties_i_i_d",
+];
 
 /// A registered quest: how long before it can be solved again (seconds), how many times it can
 /// be (-1: without end), and its message.
@@ -553,6 +578,30 @@ pub fn server_content(text: &str) -> ServerContent {
                 out.links.push((p, c));
             }
             return;
+        }
+        // A house's property rows: its `weenie` row, which says it is one, comes first.
+        if HOUSE_TABLES.contains(&row.table) {
+            let w = row.get("object_Id");
+            if w.and_then(|w| facts.get(w)).and_then(|f| f.kind) == Some(HOUSE_TYPE) {
+                if let (Some(w), Some(kind), Some(value)) = (
+                    w.and_then(number),
+                    row.get("type").and_then(number),
+                    row.get("value"),
+                ) {
+                    let table = &row.table["weenie_properties_".len()..];
+                    // A dump writes a bool as a bit; an export as a word.
+                    let value = if table == "bool" {
+                        if truth(value) { "True" } else { "False" }.to_owned()
+                    } else {
+                        value.trim().to_owned()
+                    };
+                    out.houses.entry(w).or_default().push(HouseRow {
+                        table: table.to_owned(),
+                        kind,
+                        value,
+                    });
+                }
+            }
         }
         fact(&mut facts, row);
     });
@@ -656,6 +705,8 @@ pub struct WeenieFacts {
     pub generator_radius: Option<f32>,
     /// Its destination's cell (position 2): where a portal sends who uses it.
     pub destination: Option<u32>,
+    /// Its destination's place in that cell's landblock, in meters.
+    pub destination_at: Option<[f32; 3]>,
 }
 
 /// A bool property's value as written: `0`, `false` and a dump's zero bit are false.
@@ -699,6 +750,11 @@ fn fact(out: &mut BTreeMap<String, WeenieFacts>, row: &Row<'_>) {
                 if row.get("position_Type").and_then(number) == Some(2) =>
             {
                 e.destination = row.get("obj_Cell_Id").and_then(number);
+                let at = |c: &str| row.get(c).and_then(float);
+                e.destination_at = match (at("origin_X"), at("origin_Y"), at("origin_Z")) {
+                    (Some(x), Some(y), Some(z)) => Some([x, y, z]),
+                    _ => None,
+                };
             }
             _ => {}
         }

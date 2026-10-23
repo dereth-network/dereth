@@ -3,6 +3,9 @@
 //! server class is shown, and copied into the pack (by its own class id, so the pack's copy takes
 //! its place) to be edited. Each change is one step of the history.
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use dereth_primitives::{DataId, Vec3};
 use lyceum_foundry::content::{self, PropertyKind, SqlDoc};
 use lyceum_foundry::edit::{Op, Weenie};
@@ -410,17 +413,7 @@ impl EditorApp {
         let w = self
             .form_weenie()
             .ok_or_else(|| self.say("messages.no_weenie_shown"))?;
-        let (file, mine) = self
-            .session
-            .weenie_file(&w)
-            .ok_or_else(|| self.say("messages.no_sql_writes_it"))?;
-        if !mine {
-            return Err(self.say("messages.another_packs_weenie"));
-        }
-        let text = self
-            .session
-            .sql_text(&file)
-            .ok_or_else(|| self.say("messages.sql_gone"))?;
+        let (file, text) = self.writable_sql(&w)?;
         let mut doc = SqlDoc::parse(&text);
         if !apply_edit(&mut doc, edit, self.schema.as_ref()) {
             return Err(self.say("messages.not_a_value"));
@@ -443,17 +436,7 @@ impl EditorApp {
         let w = self
             .form_weenie()
             .ok_or_else(|| self.say("messages.no_weenie_shown"))?;
-        let (file, mine) = self
-            .session
-            .weenie_file(&w)
-            .ok_or_else(|| self.say("messages.no_sql_writes_it"))?;
-        if !mine {
-            return Err(self.say("messages.another_packs_weenie"));
-        }
-        let text = self
-            .session
-            .sql_text(&file)
-            .ok_or_else(|| self.say("messages.sql_gone"))?;
+        let (file, text) = self.writable_sql(&w)?;
         let mut doc = SqlDoc::parse(&text);
         for edit in edits {
             if !apply_edit(&mut doc, edit, self.schema.as_ref()) {
@@ -542,13 +525,25 @@ impl EditorApp {
     /// # Errors
     /// No server database was read, it has no such class, or the file would not write.
     pub fn copy_class(&mut self, class: u32) -> Result<(), String> {
-        let path = self
-            .server_sql
-            .clone()
-            .ok_or_else(|| self.say("messages.no_server_database"))?;
-        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let world = String::from_utf8_lossy(&bytes);
-        let text = content::override_of(&world, class)
+        let (file, text) = self.class_copy(class)?;
+        self.apply(
+            &Op::WriteSql {
+                file,
+                text: Some(text),
+            },
+            false,
+        )?;
+        Ok(())
+    }
+
+    /// The file and text of server class `class` as the pack being edited would write it again:
+    /// its rows, under a line saying whose class it is.
+    ///
+    /// # Errors
+    /// No server database was read, or it has no such class.
+    fn class_copy(&mut self, class: u32) -> Result<(PathBuf, String), String> {
+        let text = self
+            .server_class_now(class)?
             .ok_or_else(|| self.say_with("messages.no_such_class", &[("id", &class)]))?;
         let name = self
             .session
@@ -560,14 +555,63 @@ impl EditorApp {
             "/* {name}: the server's class {class}, written again by this pack, which it takes \
              the place of. */\n"
         );
-        self.apply(
-            &Op::WriteSql {
-                file,
-                text: Some(header + &text),
-            },
-            false,
-        )?;
-        Ok(())
+        Ok((file, header + &text))
+    }
+
+    /// The SQL an edit of weenie `w`'s form is made to: the pack's own file of it, or for a
+    /// server class the pack does not write yet, the copy the pack will write (copy on write).
+    ///
+    /// # Errors
+    /// Another pack writes it, no file writes it, or the server's class cannot be read.
+    pub(super) fn writable_sql(&mut self, w: &Weenie) -> Result<(PathBuf, String), String> {
+        if let Some((file, mine)) = self.session.weenie_file(w) {
+            if !mine {
+                return Err(self.say("messages.another_packs_weenie"));
+            }
+            let text = self
+                .session
+                .sql_text(&file)
+                .ok_or_else(|| self.say("messages.sql_gone"))?;
+            return Ok((file, text));
+        }
+        match w {
+            Weenie::Class(c) => self.class_copy(*c),
+            Weenie::Symbol(_) => Err(self.say("messages.no_sql_writes_it")),
+        }
+    }
+
+    /// Server class `class`'s rows as the pack would write them, read from the server's database
+    /// off the frame loop: `None` while it is being read, then the rows (`None` inside for a
+    /// class the database does not have). The database is read once and kept.
+    pub fn server_class(&mut self, class: u32) -> Option<Option<String>> {
+        self.server_classes.poll();
+        if let Some(found) = self.server_classes.done.get(&class) {
+            return Some(found.clone());
+        }
+        if self.server_classes.job.is_none() {
+            if let Some(path) = self.server_sql.clone() {
+                self.server_classes.start(path, class);
+            } else {
+                return Some(None);
+            }
+        }
+        None
+    }
+
+    /// Server class `class`'s rows as [`Self::server_class`] reads them, waited for.
+    ///
+    /// # Errors
+    /// No server database was read.
+    pub fn server_class_now(&mut self, class: u32) -> Result<Option<String>, String> {
+        if self.server_sql.is_none() {
+            return Err(self.say("messages.no_server_database"));
+        }
+        loop {
+            if let Some(found) = self.server_class(class) {
+                return Ok(found);
+            }
+            self.server_classes.wait();
+        }
     }
 
     /// A new weenie of the pack being edited, symbol `name`, made from server class `from`
@@ -609,16 +653,22 @@ impl EditorApp {
         Ok(())
     }
 
+    /// The pack being edited's name.
+    fn target_pack(&self) -> String {
+        self.session.packs()[self.session.target()].name.clone()
+    }
+
     /// The name of spell `id` in the files' spell table, read the first time.
     fn spell_name(&mut self, id: u32) -> Option<String> {
         if self.spells.is_none() {
-            use dereth_assets::Decode;
             let table = DataId(0x0E00_000E);
+            let base = self.session.base();
             self.spells = Some(
-                self.session
-                    .base()
-                    .read_portal(table)
-                    .and_then(|b| dereth_assets::tables::SpellTable::decode_payload(table, &b).ok())
+                base.read_portal(table)
+                    .and_then(|b| {
+                        base.decode::<dereth_assets::tables::SpellTable>(table, &b)
+                            .ok()
+                    })
                     .map(|t| t.spells.into_iter().map(|(k, v)| (k, v.name)).collect())
                     .unwrap_or_default(),
             );
@@ -710,14 +760,36 @@ impl EditorApp {
         let (path, mine) = match (&w, file) {
             (_, Some(f)) => f,
             (Weenie::Class(c), None) => {
-                ui.label(t.get("weenie.servers_own"));
-                if self.server_sql.is_some() {
-                    if ui.button(t.get("weenie.copy_into_pack")).clicked() {
-                        out.push(UiAction::CopyClass(*c));
+                // The server's own, every property shown as it is; the first change makes the
+                // pack's copy, which takes its place.
+                let text = match self.server_class(*c) {
+                    None => {
+                        ui.weak(t.get("weenie.reading"));
+                        ui.ctx().request_repaint();
+                        return;
                     }
-                } else {
-                    ui.weak(t.get("weenie.cannot_copy"));
-                }
+                    Some(None) => {
+                        ui.weak(t.get(if self.server_sql.is_some() {
+                            "weenie.not_in_database"
+                        } else {
+                            "weenie.cannot_copy"
+                        }));
+                        return;
+                    }
+                    Some(Some(text)) => text,
+                };
+                ui.label(t.get("weenie.servers_own"));
+                let doc = SqlDoc::parse(&text);
+                egui::ScrollArea::vertical()
+                    .id_salt("weenie form")
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        self.flow_form(ui, &w, &doc, out);
+                        egui::CollapsingHeader::new(t.get("weenie.advanced"))
+                            .id_salt("advanced server")
+                            .default_open(true)
+                            .show(ui, |ui| self.weenie_form(ui, &doc, out));
+                    });
                 return;
             }
             (Weenie::Symbol(_), None) => {
@@ -732,6 +804,12 @@ impl EditorApp {
         );
         if !mine {
             ui.weak(t.get("weenie.another_pack"));
+        } else if matches!(w, Weenie::Class(_)) {
+            // A server class the pack writes again.
+            ui.colored_label(
+                super::panels::mark::TURN,
+                t.fill("weenie.changed_in", &[("pack", &self.target_pack())]),
+            );
         }
         let Some(text) = self.session.sql_text(&path) else {
             ui.weak(t.get("weenie.sql_gone"));
@@ -1384,5 +1462,66 @@ impl EditorApp {
                     self.panels.form_typing.remove(&k);
                 }
             });
+    }
+}
+
+/// The database's text, a class, and that class's rows cut from it, as the reading thread answers.
+type ClassCut = (std::sync::Arc<String>, u32, Option<String>);
+
+/// The server's classes as the forms read them: its database's text, read once off the frame
+/// loop and kept, and each class's rows, cut from it as they are asked for.
+#[derive(Default)]
+pub struct ServerClasses {
+    world: Option<std::sync::Arc<String>>,
+    done: BTreeMap<u32, Option<String>>,
+    job: Option<std::sync::mpsc::Receiver<ClassCut>>,
+}
+
+impl std::fmt::Debug for ServerClasses {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServerClasses")
+            .field("read", &self.world.is_some())
+            .field("classes", &self.done.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ServerClasses {
+    /// Cut class `class` from the database at `path` on a thread of its own.
+    fn start(&mut self, path: PathBuf, class: u32) {
+        let world = self.world.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let world = world.unwrap_or_else(|| {
+                let bytes = std::fs::read(&path).unwrap_or_default();
+                std::sync::Arc::new(String::from_utf8_lossy(&bytes).into_owned())
+            });
+            let rows = content::override_of(&world, class);
+            let _ = tx.send((world, class, rows));
+        });
+        self.job = Some(rx);
+    }
+
+    /// Take a class the thread has cut, if it has.
+    fn poll(&mut self) {
+        let Some(rx) = &self.job else { return };
+        match rx.try_recv() {
+            Ok((world, class, rows)) => {
+                self.world = Some(world);
+                self.done.insert(class, rows);
+                self.job = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.job = None,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+    }
+
+    /// Wait for the class being cut.
+    fn wait(&mut self) {
+        let Some(rx) = self.job.take() else { return };
+        if let Ok((world, class, rows)) = rx.recv() {
+            self.world = Some(world);
+            self.done.insert(class, rows);
+        }
     }
 }

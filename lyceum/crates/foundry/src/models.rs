@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use dereth_assets::geometry::{GfxObj, Setup};
 use dereth_assets::material::Surface;
 use dereth_assets::world::{EnvCell, LandblockInfo, Scene};
-use dereth_assets::{Decode, Region};
+use dereth_assets::Region;
 use dereth_primitives::DataId;
 
 use crate::dats::DatSet;
@@ -210,18 +210,18 @@ fn cut_out(set: &DatSet, id: DataId) -> bool {
     let parts = match id.raw() >> 24 {
         0x02 => set
             .read_portal(id)
-            .and_then(|b| Setup::decode_payload(id, &b).ok())
+            .and_then(|b| set.decode::<Setup>(id, &b).ok())
             .map(|s| s.parts)
             .unwrap_or_default(),
         _ => vec![id],
     };
     parts.iter().any(|p| {
         set.read_portal(*p)
-            .and_then(|b| GfxObj::decode_payload(*p, &b).ok())
+            .and_then(|b| set.decode::<GfxObj>(*p, &b).ok())
             .is_some_and(|g| {
                 g.surfaces.iter().any(|s| {
                     set.read_portal(*s)
-                        .and_then(|b| Surface::decode_payload(*s, &b).ok())
+                        .and_then(|b| set.decode::<Surface>(*s, &b).ok())
                         .is_some_and(|s| s.surface_type & 4 != 0)
                 })
             })
@@ -253,7 +253,7 @@ impl Placements {
                     for scene in &desc.scenes {
                         let models = scenes.entry(scene.raw()).or_insert_with(|| {
                             set.read_portal(*scene)
-                                .and_then(|b| Scene::decode_payload(*scene, &b).ok())
+                                .and_then(|b| set.decode::<Scene>(*scene, &b).ok())
                                 .map(|s| {
                                     s.objects
                                         .iter()
@@ -319,7 +319,7 @@ impl Placements {
                         .cell
                         .read(id)
                         .ok()
-                        .and_then(|b| LandblockInfo::decode_payload(id, &b).ok())
+                        .and_then(|b| set.decode::<LandblockInfo>(id, &b).ok())
                     else {
                         continue;
                     };
@@ -335,7 +335,7 @@ impl Placements {
                         .cell
                         .read(id)
                         .ok()
-                        .and_then(|b| EnvCell::decode_payload(id, &b).ok())
+                        .and_then(|b| set.decode::<EnvCell>(id, &b).ok())
                     else {
                         continue;
                     };
@@ -365,7 +365,7 @@ impl Placements {
             }
             let Some(s) = set
                 .read_portal(id)
-                .and_then(|b| Setup::decode_payload(id, &b).ok())
+                .and_then(|b| set.decode::<Setup>(id, &b).ok())
             else {
                 continue;
             };
@@ -498,7 +498,7 @@ pub fn scenery_of(set: &DatSet, region: &Region, terrain: u16) -> Vec<Vec<DataId
             for scene in scenes {
                 let objects = set
                     .read_portal(*scene)
-                    .and_then(|b| Scene::decode_payload(*scene, &b).ok())
+                    .and_then(|b| set.decode::<Scene>(*scene, &b).ok())
                     .map(|s| s.objects)
                     .unwrap_or_default();
                 for o in objects {

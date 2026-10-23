@@ -3,8 +3,9 @@
 //! The retail client has no defenses against a record that decodes badly or names something that
 //! is not there, so every build, every bake and anyone who asks ([`validate`]) runs these:
 //!
-//! 1. **Decode:** every record decodes with Dereth's own decoders, the cursor on its end, and the
-//!    kinds a world builder writes encode back to the same bytes.
+//! 1. **Decode:** every record decodes with Dereth's own decoders in the layout of its era's
+//!    files, the cursor on its end, and the kinds a world builder writes encode back to the same
+//!    bytes in that layout.
 //! 2. **References:** a landblock's terrain says it has a statics record exactly when it has one;
 //!    every static and building names a model (a GfxObj or a Setup) the files hold; a statics
 //!    record's cell count names cells its landblock holds, and each building portal and stab
@@ -16,14 +17,15 @@
 //! base's own statics are never warned of: retail stands 1,658 of them inside its buildings on
 //! purpose.
 //!
-//! The checks are calibrated on retail: over the end-of-retail files with no overlay every check
-//! passes, so a check that fails names a fault in the records, not in the check.
+//! The checks are calibrated on retail: over the end-of-retail files and over Infiltration's
+//! (February 2005) with no overlay every check passes, so a check that fails names a fault in the
+//! records, not in the check.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_assets::world::{CellLandblock, LandblockInfo, ObjectEntry};
-use dereth_assets::{decode_any, AssetError, Decode, RenderSurface, Surface, SurfaceTexture};
-use dereth_dat::{classify_cell_id, divine_type, DbType, ModernDat};
+use dereth_assets::{decode_any_in, AssetError, Decode, RenderSurface, Surface, SurfaceTexture};
+use dereth_dat::{classify_cell_id, divine_type, ContainerEra, DbType, ModernDat};
 use dereth_primitives::DataId;
 
 use crate::compile::Compiled;
@@ -98,15 +100,28 @@ impl Checker<'_> {
     }
 
     fn landblock(&mut self, id: u32, bytes: &[u8]) {
-        let lb = match CellLandblock::decode_payload(DataId(id), bytes) {
+        let era = self.set.era;
+        let lb = match CellLandblock::decode_payload_for(era, DataId(id), bytes) {
             Ok(lb) => lb,
             Err(e) => return self.problem(id, format!("does not decode: {e}")),
         };
-        if lb.encode() != bytes {
+        if lb.encode_for(era).ok().as_deref() != Some(bytes) {
             self.problem(id, "does not encode back to its own bytes");
         }
-        let has = self.set.cell.contains(DataId((id & 0xFFFF_0000) | 0xFFFE));
-        if (lb.lbi_exists != 0) != has {
+        let statics = DataId((id & 0xFFFF_0000) | 0xFFFE);
+        let has = self.set.cell.contains(statics);
+        // The files from before Throne of Destiny ship a few landblocks with statics their
+        // terrain does not name, which the client does not draw: the files' own, and no fault of
+        // a world's.
+        let shipped = self.set.layout() == ContainerEra::Classic
+            && has
+            && lb.lbi_exists == 0
+            && !self
+                .set
+                .cell
+                .layer()
+                .is_some_and(|l| l.touches(DataId(id)) || l.touches(statics));
+        if (lb.lbi_exists != 0) != has && !shipped {
             self.problem(
                 id,
                 if has {
@@ -119,11 +134,12 @@ impl Checker<'_> {
     }
 
     fn landblock_info(&mut self, id: u32, bytes: &[u8]) {
-        let info = match LandblockInfo::decode_payload(DataId(id), bytes) {
+        let era = self.set.era;
+        let info = match LandblockInfo::decode_payload_for(era, DataId(id), bytes) {
             Ok(i) => i,
             Err(e) => return self.problem(id, format!("does not decode: {e}")),
         };
-        if info.encode() != bytes {
+        if info.encode_for(era).ok().as_deref() != Some(bytes) {
             self.problem(id, "does not encode back to its own bytes");
         }
         let terrain = DataId(id | 0xFFFF);
@@ -201,7 +217,7 @@ impl Checker<'_> {
             .base()
             .read(DataId(id))
             .ok()
-            .and_then(|b| LandblockInfo::decode_payload(DataId(id), &b).ok())
+            .and_then(|b| self.set.decode::<LandblockInfo>(DataId(id), &b).ok())
             .map(|i| i.objects)
             .unwrap_or_default();
         let changed = |o: &ObjectEntry| !base.contains(o);
@@ -231,11 +247,12 @@ impl Checker<'_> {
     }
 
     fn surface(&mut self, id: u32, bytes: &[u8]) {
-        let s = match Surface::decode_payload(DataId(id), bytes) {
+        let era = self.set.era;
+        let s = match Surface::decode_payload_for(era, DataId(id), bytes) {
             Ok(s) => s,
             Err(e) => return self.problem(id, format!("does not decode: {e}")),
         };
-        if s.encode() != bytes {
+        if s.encode_for(era, DataId(id)).ok().as_deref() != Some(bytes) {
             self.problem(id, "does not encode back to its own bytes");
         }
         if let Some(t) = s.orig_texture_id {
@@ -263,6 +280,9 @@ impl Checker<'_> {
     }
 
     fn surface_texture(&mut self, id: u32, bytes: &[u8]) {
+        if self.set.layout() == ContainerEra::Classic {
+            return self.texture_holding(id, bytes);
+        }
         let st = match SurfaceTexture::decode_payload(DataId(id), bytes) {
             Ok(s) => s,
             Err(e) => return self.problem(id, format!("does not decode: {e}")),
@@ -280,13 +300,36 @@ impl Checker<'_> {
         }
     }
 
-    fn render_surface(&mut self, id: u32, bytes: &[u8]) {
-        let rs = match RenderSurface::decode_payload(DataId(id), bytes) {
+    /// An image texture of the files whose textures hold their pixels: it reads as the picture
+    /// it is, and a paletted one's palette is there.
+    fn texture_holding(&mut self, id: u32, bytes: &[u8]) {
+        let era = self.set.era;
+        let rs = match RenderSurface::from_classic_texture(DataId(id), bytes) {
             Ok(r) => r,
             Err(e) => return self.problem(id, format!("does not decode: {e}")),
         };
+        self.picture(id, bytes, &rs, |rs, px| rs.encode_texture_for(era, px));
+    }
+
+    fn render_surface(&mut self, id: u32, bytes: &[u8]) {
+        let era = self.set.era;
+        let rs = match RenderSurface::decode_payload_for(era, DataId(id), bytes) {
+            Ok(r) => r,
+            Err(e) => return self.problem(id, format!("does not decode: {e}")),
+        };
+        self.picture(id, bytes, &rs, |rs, px| rs.encode_for(era, px));
+    }
+
+    /// A picture's pixels encode back to its record, and its palette is there.
+    fn picture(
+        &mut self,
+        id: u32,
+        bytes: &[u8],
+        rs: &RenderSurface,
+        encode: impl Fn(&RenderSurface, &[u8]) -> Result<Vec<u8>, AssetError>,
+    ) {
         match rs.payload(bytes) {
-            Some(px) if rs.encode(px) == bytes => {}
+            Some(px) if encode(rs, px).ok().as_deref() == Some(bytes) => {}
             _ => self.problem(id, "does not encode back to its own bytes"),
         }
         if let Some(p) = rs.default_palette_id {
@@ -302,10 +345,10 @@ impl Checker<'_> {
         }
     }
 
-    /// Any other record: it decodes, when Dereth has a decoder for its kind.
+    /// Any other record: it decodes in its era's layout, when Dereth has a decoder for its kind.
     fn other(&mut self, id: u32, kind: Option<DbType>, bytes: &[u8]) {
         let Some(kind) = kind else { return };
-        match decode_any(kind, DataId(id), bytes) {
+        match decode_any_in(self.set.layout(), kind, DataId(id), bytes) {
             Ok(_) | Err(AssetError::NoDecoder(_)) => {}
             Err(e) => self.problem(id, format!("does not decode as {kind:?}: {e}")),
         }

@@ -70,6 +70,7 @@ fn the_overlay_kept_edit_by_edit_holds_what_a_whole_write_holds_record_for_recor
                 z: Height::Ground,
             },
             rotation: Rotation::Heading(0.0),
+            name: None,
         },
         // A hill over the corner the four landblocks share.
         Op::SetVertices(

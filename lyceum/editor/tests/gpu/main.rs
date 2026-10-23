@@ -24,6 +24,10 @@ use lyceum_foundry::script::Action as Edit;
 
 const HOLTBURG: u16 = 0xA9B4;
 
+mod classic;
+mod dungeon;
+mod floors;
+
 /// One device at a time in this binary.
 fn gpu_lock() -> MutexGuard<'static, ()> {
     static GPU: Mutex<()> = Mutex::new(());
@@ -375,6 +379,8 @@ fn a_spawn_is_drawn_where_it_will_stand_and_is_selected() {
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-spawn");
     let mut ed = editor(&world);
+    // The spawn tool's panels laid out from the first.
+    ed.mode = lyceum_editor::app::Mode::Spawn;
     let z = ed.session.ground(HOLTBURG, 60.0, 60.0).unwrap();
     ed.look_at(HOLTBURG, Vec3::new(60.0, 60.0, z + 1.0), 12.0, 0.0, -20.0);
     for _ in 0..3 {
@@ -387,7 +393,6 @@ fn a_spawn_is_drawn_where_it_will_stand_and_is_selected() {
         .project(Vec3::new(o.x + 60.0, o.y + 60.0, z + 1.0))
         .unwrap();
     let before = capture(&mut ed, dir.path());
-    ed.mode = lyceum_editor::app::Mode::Spawn;
     ed.panels.weenie = Some(lyceum_foundry::edit::Weenie::Symbol(
         "holtburg:guide".into(),
     ));
@@ -513,6 +518,7 @@ fn a_static_placed_inside_a_house_is_warned_of_and_a_click_on_the_warning_goes_t
             z: lyceum_foundry::source::Height::Ground,
         },
         rotation: lyceum_foundry::source::Rotation::Heading(0.0),
+        name: None,
     }))
     .unwrap();
     assert_eq!(ed.faults.len(), 1, "{:?}", ed.faults);
@@ -524,6 +530,7 @@ fn a_static_placed_inside_a_house_is_warned_of_and_a_click_on_the_warning_goes_t
     let (lb, at) = f.at.expect("a place");
     assert_eq!(lb, HOLTBURG);
     assert!((at.x - 79.5).abs() < 1e-3 && (at.y - 37.5).abs() < 1e-3);
+    ed.show_tab(lyceum_editor::app::Tab::Checks);
     ed.frame();
     // The finding is listed with the checks; a click on its row.
     let row = ed.fault_rect(0).expect("the finding listed");
@@ -574,6 +581,7 @@ fn a_building_moved_off_the_ground_is_warned_of_its_doors_and_a_click_on_the_war
         (at.x - 79.5).abs() < 1e-3 && (at.y - 37.5).abs() < 1e-3,
         "{at:?}"
     );
+    ed.show_tab(lyceum_editor::app::Tab::Checks);
     ed.frame();
     let i = ed.faults.iter().position(|x| x == f).unwrap();
     let row = ed.fault_rect(i).expect("the finding listed");
@@ -829,6 +837,7 @@ fn the_walking_body_stops_at_a_static_placed_in_its_way() {
                 z: lyceum_foundry::source::Height::Ground,
             },
             rotation: lyceum_foundry::source::Rotation::Heading(0.0),
+            name: None,
         }))
         .unwrap();
     });
@@ -1171,7 +1180,7 @@ fn the_browser_shows_one_category_as_a_grid_and_a_tag_finds_its_models_again() {
     let (_dir, world) = sample("editor-shelves");
     let gribble = dereth_primitives::DataId(0x0200_07DD);
     {
-        let mut ed = editor(&world);
+        let mut ed = editor_with(&world, &["--size", "1280x900"]);
         ed.wait_for_names().unwrap();
         assert!(!ed.naming());
         ed.mode = lyceum_editor::app::Mode::Place;
@@ -1186,7 +1195,7 @@ fn the_browser_shows_one_category_as_a_grid_and_a_tag_finds_its_models_again() {
             assert!(counts.get(&c).is_some_and(|n| *n > 0), "{c:?}: {counts:?}");
         }
         // One shelf: every model on it is a tree, drawn in rows of several.
-        ed.panels.category = Some(Category::Tree);
+        ed.panels.kinds = [Category::Tree].into_iter().collect();
         let list = ed.browser_list();
         assert_eq!(list.len(), counts[&Category::Tree]);
         assert!(list.iter().all(|m| ed.names.category(*m) == Category::Tree));
@@ -1222,7 +1231,7 @@ fn the_browser_shows_one_category_as_a_grid_and_a_tag_finds_its_models_again() {
         assert!(first_other > 0 && named[first_other..].iter().all(|n| !n));
         ed.panels.filter.clear();
         // A tag, kept beside the world, finds the guide's model on its own shelf.
-        ed.panels.category = None;
+        ed.panels.kinds.clear();
         ed.tag_model(gribble, "guide", true).unwrap();
         let file = world
             .parent()
@@ -1273,8 +1282,8 @@ fn the_road_brush_marks_the_vertices_it_covers_and_paints_and_erases_just_those(
     let mut ed = editor(&world);
     let z = ed.session.ground(HOLTBURG, 120.0, 120.0).unwrap();
     ed.look_at(HOLTBURG, Vec3::new(120.0, 120.0, z), 40.0, 0.0, -60.0);
-    ed.frame();
     ed.mode = lyceum_editor::app::Mode::Terrain;
+    ed.frame();
     ed.panels.brush = Brush::Road(1);
     ed.panels.radius = 24.0;
     // The pointer a few meters off the vertex at (120, 120): the brush is centered on it.
@@ -1327,17 +1336,32 @@ fn the_road_brush_marks_the_vertices_it_covers_and_paints_and_erases_just_those(
 }
 
 #[test]
-fn the_terrain_brush_lists_the_regions_terrains_by_name_and_picture_and_a_click_paints_with_one() {
+fn the_terrain_brush_lists_the_regions_terrains_by_name_and_picture_in_a_dropdown_and_one_chosen_paints(
+) {
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-terrains");
-    let mut ed = editor(&world);
+    let mut ed = editor_with(&world, &["--size", "1280x900"]);
     let types = ed.terrain_types();
     assert!(types.len() >= 32, "{} terrain types", types.len());
     assert_eq!(types[1].1, "Grassland");
     assert!(types.iter().all(|(_, _, tex)| tex.is_some()));
     ed.mode = lyceum_editor::app::Mode::Terrain;
+    ed.frame();
+    // The ground's brushes are icons: Lower clicked, the brush lowers.
+    let (_, lower) = *ed
+        .brush_rects
+        .iter()
+        .find(|(b, _)| matches!(b, Brush::Lower(_)))
+        .expect("Lower's icon");
+    assert!(lower.width() < 40.0 && lower.height() < 40.0, "{lower:?}");
+    click(&mut ed, (lower.center().x, lower.center().y));
+    assert!(matches!(ed.panels.brush, Brush::Lower(_)));
     ed.panels.brush = Brush::Terrain(0);
     ed.frame();
+    ed.frame();
+    // One dropdown; opened, it lists every terrain.
+    let combo = ed.panels.brush_combo.expect("the terrain's dropdown");
+    click(&mut ed, (combo.center().x, combo.center().y));
     ed.frame();
     assert_eq!(ed.terrain_rects.len(), types.len());
     let img = capture(&mut ed, dir.path());
@@ -1345,8 +1369,8 @@ fn the_terrain_brush_lists_the_regions_terrains_by_name_and_picture_and_a_click_
     let (_, r) = *ed.terrain_rects.iter().find(|(v, _)| *v == 1).unwrap();
     let mut sum = [0u32; 3];
     let mut n = 0;
-    for y in 4..40 {
-        for x in 4..40 {
+    for y in 4..36 {
+        for x in 4..36 {
             let [red, green, blue] = pixel(&img, r.min.x + x as f32, r.min.y + y as f32);
             sum[0] += u32::from(red);
             sum[1] += u32::from(green);
@@ -1364,11 +1388,11 @@ fn the_terrain_brush_lists_the_regions_terrains_by_name_and_picture_and_a_click_
 }
 
 #[test]
-fn the_scene_brush_lists_what_each_scene_grows_on_the_terrain_under_it_and_a_click_paints_with_one()
-{
+fn the_scene_brush_lists_what_each_scene_grows_on_the_terrain_under_it_in_a_dropdown_and_one_chosen_paints(
+) {
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-scenes");
-    let mut ed = editor(&world);
+    let mut ed = editor_with(&world, &["--size", "1280x900"]);
     ed.wait_for_names().unwrap();
     let z = ed.session.ground(HOLTBURG, 120.0, 120.0).unwrap();
     ed.look_at(HOLTBURG, Vec3::new(120.0, 120.0, z), 40.0, 0.0, -60.0);
@@ -1397,6 +1421,10 @@ fn the_scene_brush_lists_what_each_scene_grows_on_the_terrain_under_it_and_a_cli
     assert_eq!(ed.panels.scene_terrain, terrain);
     let scenes = ed.scenes_of(terrain).to_vec();
     assert!(scenes.iter().any(|m| !m.is_empty()), "{scenes:?}");
+    // One dropdown; opened, it lists every scene with what it grows.
+    ed.frame();
+    let combo = ed.panels.brush_combo.expect("the scene's dropdown");
+    click(&mut ed, (combo.center().x, combo.center().y));
     for _ in 0..12 {
         ed.frame();
     }
@@ -1449,6 +1477,39 @@ fn the_map_shows_the_camera_on_the_world_a_click_flies_there_and_an_edit_redraws
     let img = capture(&mut ed, dir.path());
     let [r, g, b] = pixel(&img, spot.x, spot.y);
     assert!(r > 200 && g < 90 && b < 90, "{r} {g} {b}");
+    // At zoom 1, as it opens: the whole world, square, as large as its panel allows and in its
+    // middle; zooming out goes no further.
+    assert_eq!(ed.panels.map_zoom, 1.0);
+    let whole = |ed: &EditorApp| {
+        (ed.map_view.width() - 2048.0).abs() < 1.0 && (ed.map_view.height() - 2048.0).abs() < 1.0
+    };
+    assert!(whole(&ed), "{:?}", ed.map_view);
+    let (shown, panel) = (ed.map_rect.unwrap(), ed.map_panel.unwrap());
+    assert!((shown.width() - shown.height()).abs() < 1.0, "{shown:?}");
+    assert!((shown.width() - panel.width().min(panel.height())).abs() < 1.0);
+    assert!(
+        (shown.center() - panel.center()).length() < 1.0,
+        "{shown:?} in {panel:?}"
+    );
+    let img = capture(&mut ed, dir.path());
+    let inside = pixel(&img, shown.center().x, shown.top() + 2.0);
+    let beside = pixel(&img, panel.left() + 2.0, panel.center().y);
+    assert_ne!(inside, beside, "the map drawn in its square alone");
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("map").join("zoom-1.png"),
+    )
+    .unwrap();
+    hover(&mut ed, (shown.center().x, shown.center().y));
+    ed.queue(HostEvent::MouseWheel { notches: 1.0 });
+    ed.frame();
+    assert!(ed.panels.map_zoom > 1.0);
+    for _ in 0..3 {
+        ed.queue(HostEvent::MouseWheel { notches: -1.0 });
+        ed.frame();
+    }
+    assert_eq!(ed.panels.map_zoom, 1.0);
+    assert!(whole(&ed));
     // A click on Yaraq flies the camera there, over the ground.
     let o = pick::block_origin(0x7D64);
     let target = (o.x + 96.0, o.y + 96.0);
@@ -1468,7 +1529,7 @@ fn the_map_shows_the_camera_on_the_world_a_click_flies_there_and_an_edit_redraws
     .unwrap();
     ed.panels.map_zoom = 64.0;
     ed.frame();
-    assert!((ed.map_view.width() - 32.0).abs() < 1e-3);
+    assert!((ed.map_view.width().min(ed.map_view.height()) - 32.0).abs() < 1e-3);
     let h = pick::block_origin(HOLTBURG);
     let spot = ed.map_point(h.x + 48.0, h.y + 48.0).unwrap();
     let before_pixels = ed.world_map.as_ref().unwrap().block_pixels(HOLTBURG);
@@ -1576,228 +1637,143 @@ fn a_selected_building_is_moved_by_its_handles_with_its_cells_and_says_so_beside
 }
 
 #[test]
-fn a_piece_is_placed_ahead_the_next_snapped_to_its_free_portal_both_drawn_things_stand_inside_and_a_body_walks_through(
+fn the_place_tool_filters_by_several_kinds_at_once_stars_favorites_tags_by_right_click_and_sets_things_on_what_is_under_it(
 ) {
+    use lyceum_editor::app::Mode;
     let _gpu = gpu_lock();
-    let (dir, world) = sample("editor-dungeon");
-    let mut ed = editor(&world);
-    ed.mode = lyceum_editor::app::Mode::Dungeon;
-    ed.wait_for_pieces();
-    // The corridor retail builds the most cells of.
-    let pieces = ed.kit.pieces.clone().unwrap();
-    let i = pieces
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| p.portals == 2)
-        .max_by_key(|(_, p)| p.cells)
-        .map(|(i, _)| i)
-        .unwrap();
-    ed.kit.chosen = Some(i);
-    ed.look_at(HOLTBURG, Vec3::new(120.0, 120.0, 90.0), 30.0, 0.0, -10.0);
-    ed.frame();
-    let before = capture(&mut ed, dir.path());
-    // A click in the middle of the world: the piece ahead of the camera.
-    let world_rect = ed.world_rect.unwrap();
-    click(&mut ed, (world_rect.center().x, world_rect.center().y));
-    let names = ed.session.cell_names(HOLTBURG);
-    assert_eq!(names.len(), 1, "one cell placed: {:?}", ed.panels.message);
-    // Its free portals; a click on the first joins the next piece there.
-    let free = ed.free_portals(HOLTBURG);
-    assert_eq!(free.len(), 2);
-    let o = pick::block_origin(HOLTBURG);
-    let m = free[0].opening.middle;
-    let p = ed
-        .view()
-        .unwrap()
-        .project(Vec3::new(o.x + m.x, o.y + m.y, o.z + m.z))
-        .unwrap();
-    click(&mut ed, p);
-    let names = ed.session.cell_names(HOLTBURG);
-    assert_eq!(names.len(), 2, "{:?}", ed.panels.message);
-    let cells = ed.session.cells(HOLTBURG);
-    let ids: Vec<u16> = names.keys().copied().collect();
-    let (a, b) = (&cells[&ids[0]], &cells[&ids[1]]);
-    assert!(a
-        .portals
-        .iter()
-        .any(|p| p.flags & 5 == 1 && p.other_cell_id == u32::from(ids[1])));
-    assert!(b
-        .portals
-        .iter()
-        .any(|p| p.flags & 5 == 1 && p.other_cell_id == u32::from(ids[0])));
-    assert!(a.visible_cells.contains(&ids[1]) && b.visible_cells.contains(&ids[0]));
-    let free = ed.free_portals(HOLTBURG);
-    assert_eq!(free.len(), 2, "the two ends left free");
-    // The walk finds each reached and standing.
-    let walk = ed.session.walk(HOLTBURG);
-    assert!(
-        walk.iter()
-            .all(|f| !f.text.contains("falls") && !f.text.contains("reaches")),
-        "{walk:#?}"
-    );
-    // From the flying camera, the free ends outlined in the selection's color.
-    ed.frame();
-    let after = capture(&mut ed, dir.path());
-    let c = &free[1].opening.corners;
-    let edge = Vec3::new(
-        o.x + (c[0].x + c[1].x) / 2.0,
-        o.y + (c[0].y + c[1].y) / 2.0,
-        o.z + (c[0].z + c[1].z) / 2.0,
-    );
-    let q = ed.view().unwrap().project(edge).unwrap();
-    assert!(
-        difference(&before, &after, q, 3.0) > 10.0,
-        "the free end's outline at {q:?}"
-    );
-    // From inside, as the client draws it: both pieces are in the drawn world, and a body in
-    // the first stands in its cell, which is drawn.
-    let env = ed.session.environment(a.environment).unwrap();
-    let vs = &env.cells[usize::from(a.cell_struct)].vertex_array.vertices;
-    #[allow(clippy::cast_precision_loss)]
-    let n = vs.len() as f32;
-    let mid = vs.iter().fold(Vec3::ZERO, |m, v| {
-        let p = dereth_primitives::frame::localtoglobal(&a.frame, v.position);
-        Vec3::new(m.x + p.x / n, m.y + p.y / n, m.z + p.z / n)
-    });
-    ed.camera.position = Vec3::new(o.x + mid.x, o.y + mid.y, o.z + mid.z);
-    ed.set_walking(true).unwrap();
-    for _ in 0..10 {
-        ed.frame();
-    }
-    assert_eq!(
-        ed.body_cell(),
-        Some((u32::from(HOLTBURG) << 16) | u32::from(ids[0]))
-    );
-    let (resident, meshes) = ed.cells_drawn();
-    for c in &ids {
-        assert!(resident.contains(&((u32::from(HOLTBURG) << 16) | u32::from(*c))));
-    }
-    assert!(meshes > 0, "the body's cell is drawn");
-    // Indoors, a click on a piece's floor stands a static in the cell the pointer's ray meets
-    // first, and places a spawn there: the floor under either piece's middle, where it shows in
-    // the world.
-    let world_rect = ed.world_rect.unwrap();
-    let (q, hit) = ids
-        .iter()
-        .find_map(|c| {
-            let e = ed.session.environment(cells[c].environment)?;
-            let vs = &e.cells[usize::from(cells[c].cell_struct)]
-                .vertex_array
-                .vertices;
-            #[allow(clippy::cast_precision_loss)]
-            let n = vs.len() as f32;
-            let m = vs.iter().fold(Vec3::ZERO, |m, v| {
-                let p = dereth_primitives::frame::localtoglobal(&cells[c].frame, v.position);
-                Vec3::new(m.x + p.x / n, m.y + p.y / n, m.z + p.z / n)
-            });
-            let (_, f) = ed
-                .session
-                .cell_hit(HOLTBURG, m, Vec3::new(0.0, 0.0, -1.0))?;
-            let q = ed
-                .view()?
-                .project(Vec3::new(o.x + f.x, o.y + f.y, o.z + f.z))?;
-            if !world_rect.shrink(4.0).contains(egui::pos2(q.0, q.1)) {
-                return None;
-            }
-            let r = ed.view()?.ray(q.0, q.1);
-            let (hit, _) = ed.session.cell_hit(
-                HOLTBURG,
-                Vec3::new(r.origin.x - o.x, r.origin.y - o.y, r.origin.z - o.z),
-                r.dir,
-            )?;
-            ids.contains(&hit).then_some((q, hit))
-        })
-        .expect("a piece's floor in view");
-    ed.mode = lyceum_editor::app::Mode::Place;
-    ed.model = Some(dereth_primitives::DataId(0x0200_040B));
-    click(&mut ed, q);
-    let cell = &ed.session.cells(HOLTBURG)[&hit];
-    assert_eq!(cell.static_objects.len(), 1, "{:?}", ed.panels.message);
-    assert_eq!(cell.static_objects[0].id.raw(), 0x0200_040B);
-    ed.mode = lyceum_editor::app::Mode::Spawn;
-    ed.panels.weenie = Some(lyceum_foundry::edit::Weenie::Symbol(
-        "holtburg:guide".into(),
-    ));
-    click(&mut ed, q);
-    let spawns = ed.session.spawns();
-    assert!(
-        spawns
-            .iter()
-            .any(|s| s.cell == (u32::from(HOLTBURG) << 16) | u32::from(hit)),
-        "{:?}",
-        ed.panels.message
-    );
-    // The body, turned toward the second piece and walked, goes through the portal between
-    // them into it.
-    ed.set_walking(false).unwrap();
-    let middle = |c: &dereth_assets::world::EnvCell| {
-        let e = ed.session.environment(c.environment).unwrap();
-        let vs = &e.cells[usize::from(c.cell_struct)].vertex_array.vertices;
-        #[allow(clippy::cast_precision_loss)]
-        let n = vs.len() as f32;
-        vs.iter().fold(Vec3::ZERO, |m, v| {
-            let p = dereth_primitives::frame::localtoglobal(&c.frame, v.position);
-            Vec3::new(m.x + p.x / n, m.y + p.y / n, m.z + p.z / n)
-        })
-    };
-    let (ma, mb) = (middle(a), middle(b));
-    ed.camera.position = Vec3::new(o.x + ma.x, o.y + ma.y, o.z + ma.z);
-    ed.camera.yaw = dereth_primitives::num::math::atan2f(-(mb.x - ma.x), mb.y - ma.y);
-    ed.set_walking(true).unwrap();
+    let (_dir, world) = sample("editor-place-tool");
+    let mut ed = editor_with(&world, &["--size", "1280x900"]);
+    ed.wait_for_names().unwrap();
+    let stone = stone_west(&mut ed);
+    ed.mode = Mode::Place;
     for _ in 0..3 {
         ed.frame();
     }
-    assert_eq!(
-        ed.body_cell(),
-        Some((u32::from(HOLTBURG) << 16) | u32::from(ids[0]))
-    );
-    hold_key(&mut ed, 0x57, 240);
-    assert_eq!(
-        ed.body_cell(),
-        Some((u32::from(HOLTBURG) << 16) | u32::from(ids[1])),
-        "the body at {:?}",
-        body_at(&ed)
-    );
-}
-
-#[test]
-fn the_piece_browser_draws_each_piece_s_floor_plan_finds_one_by_its_label_and_a_click_chooses_it() {
-    let _gpu = gpu_lock();
-    let (dir, world) = sample("editor-pieces");
-    let mut ed = editor(&world);
-    ed.mode = lyceum_editor::app::Mode::Dungeon;
-    // The steps folded away, for room to show the pieces in the small window.
-    ed.dungeon_list.steps = false;
-    ed.wait_for_pieces();
+    // The kinds in one dropdown, each a check box: Tree and Rock checked there, the dropdown
+    // staying open between; then its Clear shows every kind again.
+    let combo = ed.panels.category_combo.expect("the kind's dropdown");
+    click(&mut ed, (combo.center().x, combo.center().y));
     ed.frame();
+    let row = |ed: &EditorApp, k: Category| {
+        ed.panels
+            .category_rows
+            .iter()
+            .find(|(c, _)| *c == Some(k))
+            .map(|(_, r)| *r)
+            .expect("the kind listed")
+    };
+    let tree = row(&ed, Category::Tree);
+    click(&mut ed, (tree.center().x, tree.center().y));
     ed.frame();
-    let rects = ed.kit.piece_rects.clone();
-    assert!(rects.len() >= 2, "{} pieces shown", rects.len());
-    // Each drawn: its picture (or its floor plan until the picture is drawn), not an empty
-    // square.
-    let img = capture(&mut ed, dir.path());
-    let (_, r) = rects[0];
-    let middle = egui::pos2(r.center().x, r.min.y + 4.0 + (r.width() - 16.0) / 2.0);
-    let colors: std::collections::BTreeSet<[u8; 3]> = (0..40)
-        .flat_map(|x| (0..24).map(move |y| (x, y)))
-        .map(|(x, y)| pixel(&img, middle.x - 20.0 + x as f32, middle.y - 12.0 + y as f32))
-        .collect();
-    assert!(colors.len() > 3, "the piece: {} colors", colors.len());
-    // Typed: the corridor alone.
-    let pieces = ed.kit.pieces.clone().unwrap();
-    let corridor = pieces
+    let rock = row(&ed, Category::Rock);
+    click(&mut ed, (rock.center().x, rock.center().y));
+    assert_eq!(
+        ed.panels.kinds,
+        [Category::Tree, Category::Rock].into_iter().collect()
+    );
+    let list = ed.browser_list();
+    let kinds: std::collections::BTreeSet<Category> =
+        list.iter().map(|m| ed.names.category(*m)).collect();
+    assert_eq!(
+        kinds,
+        [Category::Tree, Category::Rock].into_iter().collect()
+    );
+    ed.frame();
+    let clear = ed
+        .panels
+        .category_rows
         .iter()
-        .filter(|p| p.portals == 2)
-        .max_by_key(|p| p.cells)
-        .unwrap()
-        .label();
-    ed.kit.filter = corridor.clone();
+        .find(|(c, _)| c.is_none())
+        .map(|(_, r)| *r)
+        .expect("the dropdown's Clear");
+    click(&mut ed, (clear.center().x, clear.center().y));
+    assert!(ed.panels.kinds.is_empty());
+    // Closed again by a click outside it.
+    let w = ed.world_rect.unwrap();
+    click(&mut ed, (w.center().x, w.max.y - 20.0));
     ed.frame();
-    let shown = ed.kit.piece_rects.clone();
-    assert_eq!(shown.len(), 1);
-    assert_eq!(pieces[shown[0].0].label(), corridor);
-    click(&mut ed, (shown[0].1.center().x, shown[0].1.center().y));
-    assert_eq!(ed.kit.chosen, Some(shown[0].0));
+    // A star in each tile's corner keeps it among the favorites, and lets it go; the tile is
+    // not chosen by it.
+    ed.frame();
+    let (m, star) = ed.picture_stars[0];
+    click(&mut ed, (star.center().x, star.center().y));
+    assert!(ed.browser_state.favorites.contains(&m.raw()));
+    assert_eq!(ed.model, None);
+    ed.frame();
+    let (_, star) = *ed.picture_stars.iter().find(|(k, _)| *k == m).unwrap();
+    click(&mut ed, (star.center().x, star.center().y));
+    assert!(!ed.browser_state.favorites.contains(&m.raw()));
+    // A tag given by a right click on a tile.
+    let (other, tile) = ed.picture_rects[1];
+    ed.tag_model(m, "standing", true).unwrap();
+    ed.frame();
+    let right = |ed: &mut EditorApp, pressed| {
+        ed.queue(HostEvent::MouseInput {
+            button: MouseButton::Right,
+            pressed,
+        });
+    };
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(tile.center().x),
+        y: f64::from(tile.center().y),
+    });
+    right(&mut ed, true);
+    ed.frame();
+    right(&mut ed, false);
+    ed.frame();
+    ed.frame();
+    let (_, check) = ed
+        .panels
+        .tag_menu
+        .iter()
+        .find(|(g, _)| g == "standing")
+        .cloned()
+        .expect("the tag in the menu");
+    click(&mut ed, (check.center().x, check.center().y));
+    assert!(ed.tags.of(other).iter().any(|g| g == "standing"));
+    // Set on the stone where the pointer meets it: off the ground, on the stone.
+    ed.choose_model(dereth_primitives::DataId(0x0200_040B))
+        .unwrap();
+    let ground = ed.session.ground(HOLTBURG, 24.0, 24.0).unwrap();
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let at = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(stone.x, stone.y, stone.z + 1.5))
+        .unwrap();
+    click(&mut ed, at);
+    let Some(Selection::Static { index, .. }) = ed.selection.clone() else {
+        panic!("placed: {:?} {}", ed.selection, ed.panels.message);
+    };
+    let placed = ed.session.statics(HOLTBURG).unwrap().objects[index]
+        .frame
+        .origin;
+    assert!(
+        placed.z > ground + 0.5 && placed.z < ground + 6.0,
+        "{placed:?} over {ground}"
+    );
+    // On open ground: on the ground.
+    let z = ed.session.ground(HOLTBURG, 40.0, 10.0).unwrap();
+    let at = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(
+            pick::block_origin(HOLTBURG).x + 40.0,
+            pick::block_origin(HOLTBURG).y + 10.0,
+            z,
+        ))
+        .unwrap();
+    click(&mut ed, at);
+    let Some(Selection::Static { index, .. }) = ed.selection.clone() else {
+        panic!("placed: {:?}", ed.selection);
+    };
+    let o = ed.session.statics(HOLTBURG).unwrap().objects[index]
+        .frame
+        .origin;
+    let g = ed.session.ground(HOLTBURG, o.x, o.y).unwrap();
+    assert!((o.z - g).abs() < 0.01, "{o:?} over {g}");
 }
 
 /// Two of the server's weenies, as its SQL names them: a door and a creature.
@@ -1990,7 +1966,10 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
     let (dir, world) = sample("editor-form");
     let schema = dir.path().join("schema.json");
     std::fs::write(&schema, SCHEMA).unwrap();
-    let mut ed = editor_with(&world, &["--schema", schema.to_str().unwrap()]);
+    let mut ed = editor_with(
+        &world,
+        &["--schema", schema.to_str().unwrap(), "--size", "1280x1000"],
+    );
     // Every property, under Advanced.
     ed.panels.advanced = true;
     let guide = ed
@@ -2125,7 +2104,8 @@ fn the_weenie_form_shows_a_packs_weenie_by_the_servers_names_and_an_edit_is_one_
 }
 
 #[test]
-fn a_server_class_copied_into_the_pack_is_edited_there_and_its_spawns_take_the_copy() {
+fn a_server_class_is_shown_as_it_is_and_its_first_edit_makes_the_packs_copy_which_its_spawns_take()
+{
     let _gpu = gpu_lock();
     let (dir, world) = sample("editor-copy-class");
     let sql = dir.path().join("server.sql");
@@ -2146,7 +2126,31 @@ fn a_server_class_copied_into_the_pack_is_edited_there_and_its_spawns_take_the_c
     let class = lyceum_foundry::edit::Weenie::Class(90005);
     assert_eq!(ed.form_weenie(), Some(class.clone()));
     assert!(ed.session.weenie_file(&class).is_none(), "the server's own");
-    ed.copy_class(90005).unwrap();
+    // Shown as the server has it, every row, with nothing written to the pack.
+    let shown = ed
+        .server_class_now(90005)
+        .unwrap()
+        .expect("the server's class");
+    assert!(
+        shown.contains("VALUES (90005, 'drudgeskulker', 10,"),
+        "{shown}"
+    );
+    ed.show_tab(lyceum_editor::app::Tab::Weenie);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert!(
+        ed.session.weenie_file(&class).is_none(),
+        "reading it copies nothing"
+    );
+    assert_eq!(ed.session.history(), (0, 0));
+    // The first edit makes the pack's copy, with the edit in it: one step.
+    ed.form_edit(&lyceum_editor::app::FormEdit::Property {
+        kind: lyceum_foundry::content::PropertyKind::DataId,
+        id: 1,
+        value: Some("0x02000DD2".into()),
+    })
+    .unwrap();
     let (file, mine) = ed.session.weenie_file(&class).expect("the pack's copy");
     assert!(mine && file.ends_with("server/sql/weenies/90005 Drudge Skulker.sql"));
     let text = ed.session.sql_text(&file).unwrap();
@@ -2154,13 +2158,6 @@ fn a_server_class_copied_into_the_pack_is_edited_there_and_its_spawns_take_the_c
         text.contains("VALUES (90005, 'drudgeskulker', 10,"),
         "{text}"
     );
-    // The copy's setup is the spawn's.
-    ed.form_edit(&lyceum_editor::app::FormEdit::Property {
-        kind: lyceum_foundry::content::PropertyKind::DataId,
-        id: 1,
-        value: Some("0x02000DD2".into()),
-    })
-    .unwrap();
     let now = ed
         .session
         .spawns()
@@ -2172,7 +2169,7 @@ fn a_server_class_copied_into_the_pack_is_edited_there_and_its_spawns_take_the_c
     // The spawn browser shows the copy.
     let entry = ed.weenies.iter().find(|w| w.weenie == class).unwrap();
     assert!(entry.pack && entry.setup == Some(0x0200_0DD2));
-    assert_eq!(ed.session.history(), (2, 0));
+    assert_eq!(ed.session.history(), (1, 0));
     ed.edit(&Edit::Save).unwrap();
     assert!(std::fs::read_to_string(&file)
         .unwrap()
@@ -2589,6 +2586,7 @@ fn the_checks_list_what_the_weenie_names_that_the_world_does_not_have() {
     assert!(!new.iter().any(|f| f.contains("90004")));
     // A click on one of them opens the guide's form.
     ed.panels.weenie = None;
+    ed.show_tab(lyceum_editor::app::Tab::Checks);
     ed.frame();
     // (The first of the guide's findings the list shows whole.)
     let r = (0..ed.faults.len())
@@ -2643,8 +2641,12 @@ fn a_resized_window_lays_the_panels_and_the_world_view_out_again_at_its_new_size
     assert!(after.max.x <= 1280.0 && after.max.y <= 800.0);
     assert!(after.width() > 1.5 * before.width() && after.height() > 1.3 * before.height());
     // The view's projection follows the new size: what the camera looks at stays in the middle
-    // of the window across, where the world is drawn under the panels.
-    assert!((at_before.0 - 400.0).abs() < 2.0 && (at_after.0 - 640.0).abs() < 2.0);
+    // of the world view across.
+    let middle = |r: egui::Rect| r.center().x * ed.ui_scale();
+    assert!(
+        (at_before.0 - middle(before)).abs() < 2.0 && (at_after.0 - middle(after)).abs() < 2.0,
+        "{at_before:?} {at_after:?}"
+    );
 }
 
 /// A Holtburg building's room with a doorway out: the room's cell id, the doorway's middle and
@@ -2725,10 +2727,10 @@ fn a_buildings_room_is_drawn_through_its_doorway_from_outside_and_around_the_cam
     )
     .unwrap();
     assert!(here.1, "a building's room is seen from outside");
-    // The room the camera is in is drawn around it, over the whole screen.
+    // The room the camera is in is drawn around it, over the whole world view.
     let around = seen.get(&here.0 .0).copied().unwrap_or(0.0);
     assert!(
-        around > 0.9 * 800.0 * 600.0,
+        around > 0.9 * view_area(&ed),
         "the room around the camera: {around} px; {seen:?}"
     );
     let (_, meshes) = ed.cells_drawn();
@@ -2843,13 +2845,18 @@ VALUES (90010, 2, 0x019E0114, 40, -40, 0, 1, 0, 0, 0);
 ";
 
 #[test]
-fn the_dungeon_list_names_a_dungeon_by_its_portal_and_enter_flies_into_its_first_cell_drawn_round_the_camera(
+fn the_dungeon_list_names_a_dungeon_and_one_click_goes_in_at_its_portals_drop_point_and_leave_comes_back(
 ) {
     let _g = gpu_lock();
     let (dir, world) = sample("editor-dungeon-list");
+    // Two portals into the hideout: one standing outdoors in Holtburg, and two of another that
+    // stand in another dungeon's rooms and send who uses them elsewhere in it.
     let sql = dir.path().join("server.sql");
-    std::fs::write(&sql, SERVER_PORTALS).unwrap();
-    let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
+    std::fs::write(&sql, format!("{SERVER_PORTALS}{HIDEOUT_ENTRANCES}")).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1200x900"],
+    );
     let all = ed.dungeons();
     assert!(all.len() > 1_000, "{}", all.len());
     let hideout = all
@@ -2862,179 +2869,129 @@ fn the_dungeon_list_names_a_dungeon_by_its_portal_and_enter_flies_into_its_first
         ed.dungeon_name(other),
         format!("Dungeon {:04X}", other.landblock)
     );
-    // Into it: the camera in its first cell, the cell drawn round it, in dungeon mode. Its rooms
-    // lie south of its landblock's square.
-    ed.enter_dungeon(0x019E, false).unwrap();
-    assert_eq!(ed.mode, lyceum_editor::app::Mode::Dungeon);
-    for _ in 0..4 {
+    // The drop point: the outdoor portal's destination, though the others are more.
+    let (cell, at) = ed.drop_point(0x019E).unwrap();
+    assert_eq!(cell, 0x019E_0114);
+    assert!(
+        (at.x - 40.0).abs() < 1e-3 && (at.y + 40.0).abs() < 1e-3,
+        "{at:?}"
+    );
+    // One click on its row goes in, in dungeon mode, at the drop point.
+    ed.show_tab(lyceum_editor::app::Tab::Dungeons);
+    ed.dungeon_list.filter = "drudge".into();
+    for _ in 0..2 {
         ed.frame();
     }
-    let (cell, seen) = ed.camera_cell().expect("in a room");
-    assert_eq!((cell.0, seen), (0x019E_0100, false));
-    let around = ed.cells_seen().get(&0x019E_0100).copied().unwrap_or(0.0);
-    assert!(around > 0.9 * 800.0 * 600.0, "{around}");
+    let before = ed.camera;
+    let (_, row) = ed
+        .dungeon_list
+        .rects
+        .iter()
+        .find(|(lb, _)| *lb == 0x019E)
+        .copied()
+        .expect("its row");
+    click(&mut ed, (row.center().x, row.center().y));
+    assert_eq!(ed.dungeon_mode(), Some(0x019E));
+    let o = pick::block_origin(0x019E);
+    let p = ed.camera.position;
+    assert!(
+        (p.x - o.x - 40.0).abs() < 1e-3 && (p.y - o.y + 40.0).abs() < 1e-3,
+        "{p:?}"
+    );
+    // The grid in the map's place, and the world view drawing the room round the camera.
+    for _ in 0..3 {
+        ed.frame();
+    }
+    assert!(ed.grid_shown() && ed.layout.rect.is_some());
+    let (here, _) = ed.camera_cell().expect("in a room");
+    assert_eq!(here.0 >> 16, 0x019E);
+    let around = ed.cells_seen().get(&here.0).copied().unwrap_or(0.0);
+    assert!(around > 0.9 * view_area(&ed), "{around}");
+    let grid = ed.layout.rect.unwrap();
+    let view = ed.world_rect.unwrap();
+    assert!(
+        grid.top() >= view.bottom() - 1.0,
+        "the grid under the world view"
+    );
     capture(&mut ed, dir.path());
     std::fs::copy(
         dir.path().join("frame.png"),
         shots("dungeons").join("entered.png"),
     )
     .unwrap();
-    // To edit it: select mode, with the Nearby list of its cells, statics and spawns.
-    ed.enter_dungeon(0x019E, true).unwrap();
-    assert_eq!(ed.mode, lyceum_editor::app::Mode::Select);
-    for _ in 0..2 {
-        ed.frame();
-    }
-    use lyceum_editor::app::NearbyKind;
-    let here = |k: NearbyKind| {
-        ed.nearby
-            .entries
-            .iter()
-            .filter(|e| e.landblock == 0x019E && e.kind == k)
-            .count()
-    };
-    assert!(
-        here(NearbyKind::Cell) > 5 && here(NearbyKind::Static) > 5,
-        "{:?}",
-        ed.nearby.entries.len()
-    );
-    // A click on a cell of it in the list goes into that cell.
-    ed.show_tab(lyceum_editor::app::Tab::Nearby);
-    ed.nearby.kinds.insert(NearbyKind::Cell);
-    ed.nearby.sort = lyceum_editor::app::NearbySort::Name;
+    // Named in the pack: the list and the card call it so.
+    ed.name_dungeon(0x019E, "Warren of Tests").unwrap();
+    assert_eq!(ed.dungeon_name_of(0x019E), "Warren of Tests");
+    ed.session.save().unwrap();
+    let text =
+        std::fs::read_to_string(dir.path().join("holtburg/edits/landblocks/019E.toml")).unwrap();
+    assert!(text.contains("name = \"Warren of Tests\""), "{text}");
+    // Leave: back where the camera was.
     ed.frame();
-    let (i, row) = ed.nearby.rects[1];
-    let target = ed.nearby.shown()[i].clone();
-    click(&mut ed, (row.left() + 12.0, row.center().y));
-    let want = (u32::from(target.landblock) << 16) | u32::from(target.cell.unwrap());
-    assert_eq!(ed.camera_cell().map(|c| c.0 .0), Some(want));
-    ed.nearby.kinds.clear();
-    capture(&mut ed, dir.path());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("dungeons").join("edit.png"),
-    )
-    .unwrap();
-    // The dungeon panel, with its steps, and the list of dungeons.
-    ed.mode = lyceum_editor::app::Mode::Dungeon;
-    ed.show_tab(lyceum_editor::app::Tab::Dungeons);
-    ed.dungeon_list.filter = "drudge".into();
-    for _ in 0..2 {
-        ed.frame();
-    }
-    capture(&mut ed, dir.path());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("dungeons").join("panel.png"),
-    )
-    .unwrap();
-    // A click on its Enter button does the same.
-    ed.fly_to(0xA9 as f32 * 192.0 + 96.0, 0xB4 as f32 * 192.0 + 96.0)
-        .unwrap();
-    ed.mode = lyceum_editor::app::Mode::Dungeon;
-    ed.frame();
-    let (_, enter, _) = ed
-        .dungeon_list
-        .rects
-        .iter()
-        .find(|(lb, ..)| *lb == 0x019E)
-        .copied()
-        .expect("its row");
-    click(&mut ed, (enter.center().x, enter.center().y));
-    assert_eq!(ed.dungeon_block, Some(0x019E));
-    assert_eq!(ed.camera_cell().map(|c| c.0 .0), Some(0x019E_0100));
+    let leave = ed.dungeon_list.leave_button.expect("the card's Leave");
+    click(&mut ed, (leave.center().x, leave.center().y));
+    assert_eq!(ed.dungeon_mode(), None);
+    assert_eq!(ed.camera, before);
+    assert!(!ed.grid_shown());
 }
 
-#[test]
-fn a_new_dungeon_starts_in_an_empty_landblock_is_walked_and_a_portal_outdoors_leads_into_its_first_cell(
-) {
-    let _g = gpu_lock();
-    let (dir, world) = sample("editor-new-dungeon");
-    let sql = dir.path().join("server.sql");
-    std::fs::write(&sql, SERVER_PORTALS).unwrap();
-    let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
-    let lb = ed.new_dungeon().unwrap();
-    assert!(ed.session.cell_names(lb).is_empty());
-    assert!(ed
-        .session
-        .statics(lb)
-        .is_none_or(|i| i.num_cells == 0 && i.buildings.is_empty()));
-    assert_eq!(ed.mode, lyceum_editor::app::Mode::Dungeon);
-    // The first piece, ahead of the camera, and one more snapped to it.
-    ed.wait_for_pieces();
-    let pieces = ed.kit.pieces.clone().unwrap();
-    let corridor = pieces
-        .iter()
-        .filter(|p| p.portals == 2)
-        .max_by_key(|p| p.cells)
-        .unwrap()
-        .label();
-    ed.step(&lyceum_editor::script::Step {
-        piece: Some(corridor),
-        extend: Some(2),
-        ..Default::default()
-    })
-    .unwrap();
-    assert_eq!(ed.session.cell_names(lb).len(), 2, "{}", ed.panels.message);
-    let walk = ed.session.walk(lb);
-    assert!(
-        walk.iter()
-            .all(|f| !f.text.contains("falls") && !f.text.contains("reaches")),
-        "{walk:#?}"
-    );
-    // Back outdoors in Holtburg, a portal in: a pack weenie whose destination is the dungeon's
-    // first cell, and its spawn on the ground ahead of the camera.
-    let z = ed.session.ground(HOLTBURG, 120.0, 120.0).unwrap();
-    ed.look_at(HOLTBURG, Vec3::new(120.0, 120.0, z + 2.0), 10.0, 0.0, -10.0);
-    ed.mode = lyceum_editor::app::Mode::Select;
-    ed.frame();
-    ed.portal_to_dungeon(lb).unwrap();
-    let w = lyceum_foundry::edit::Weenie::Symbol(format!("holtburg:portal-{lb:04x}"));
-    let (file, mine) = ed.session.weenie_file(&w).unwrap();
-    assert!(mine);
-    let text = ed.session.sql_text(&file).unwrap();
-    let first = ed.session.cell_names(lb).keys().copied().min().unwrap();
-    let doc = lyceum_foundry::content::SqlDoc::parse(&text);
-    let dest = doc
-        .rows("weenie_properties_position")
-        .into_iter()
-        .find(|r| doc.cell(*r, "position_Type").as_deref() == Some("2"))
-        .expect("a destination");
-    let cell = lyceum_foundry::sql_ids::number(&doc.cell(dest, "obj_Cell_Id").unwrap()).unwrap();
-    assert_eq!(cell, (u32::from(lb) << 16) | u32::from(first), "{text}");
-    let at = |c: &str| doc.cell(dest, c).unwrap().parse::<f32>().unwrap();
-    let inside = ed
-        .session
-        .cell_shapes(lb)
-        .into_iter()
-        .find(|r| r.index == first)
-        .unwrap();
-    assert!(
-        inside.holds(Vec3::new(
-            at("origin_X"),
-            at("origin_Y"),
-            at("origin_Z") + 0.5
-        )),
-        "{text}"
-    );
-    assert!(text.contains("Portal'"), "named for the dungeon: {text}");
-    let spawn = ed
-        .session
-        .spawns()
-        .into_iter()
-        .find(|s| s.weenie == format!("{{{{wcid:portal-{lb:04x}}}}}"))
-        .expect("its spawn");
-    assert_eq!(spawn.landblock(), HOLTBURG);
-    assert!(spawn.cell & 0xFFFF < 0x0100, "outdoors");
+/// More portals into the hideout: the outdoor one's spawn in Holtburg, and two of another that
+/// stand in another dungeon's rooms and send who uses them to its first room.
+const HIDEOUT_ENTRANCES: &str = "\
+INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (90011, 'portalhideoutback', 7, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
+VALUES (90011, 1, 'Hideout Back Door');
+INSERT INTO `weenie_properties_position` (`object_Id`, `position_Type`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`)
+VALUES (90011, 2, 0x019E0100, 10, -10, 0, 1, 0, 0, 0);
+INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, `last_Modified`)
+VALUES (0x7A9B4070, 90010, 0xA9B40011, 60, 60, 94, 1, 0, 0, 0, False, '2019-05-16 00:00:00')
+     , (0x701FD070, 90011, 0x01FD0101, 10, 10, 0, 1, 0, 0, 0, False, '2019-05-16 00:00:00')
+     , (0x701FD071, 90011, 0x01FD0102, 12, 10, 0, 1, 0, 0, 0, False, '2019-05-16 00:00:00');
+";
+
+/// A point of the grid, in landblock meters, as the window's pixels.
+fn grid_point(ed: &EditorApp, at: (f32, f32)) -> (f32, f32) {
+    let p = ed.layout.to_screen(at).expect("the grid drawn");
+    let s = ed.ui_scale();
+    (p.x * s, p.y * s)
+}
+
+/// The pointer moved to `at` (pixels) and a frame drawn.
+fn hover(ed: &mut EditorApp, at: (f32, f32)) {
+    ed.queue(HostEvent::CursorMoved {
+        x: f64::from(at.0),
+        y: f64::from(at.1),
+    });
+    assert!(ed.frame());
+}
+
+/// Choose piece `i` as a builder does: typed into the browser's filter, its tile clicked.
+fn choose_piece(ed: &mut EditorApp, i: usize) {
+    let label = ed.kit.pieces.as_ref().unwrap()[i].label();
+    ed.kit.filter = label;
+    ed.kit.every = true;
     for _ in 0..2 {
         ed.frame();
     }
-    capture(&mut ed, dir.path());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("dungeons").join("portal.png"),
-    )
-    .unwrap();
+    let (_, r) = ed
+        .kit
+        .piece_rects
+        .iter()
+        .find(|(k, _)| *k == i)
+        .copied()
+        .expect("its tile shown");
+    click(ed, (r.center().x, r.center().y));
+    assert_eq!(ed.kit.chosen, Some(i));
+    ed.kit.filter.clear();
+}
+
+/// The first square of the grid where piece `i` fits on the floor shown, by its middle.
+fn fitting_square(ed: &mut EditorApp, lb: u16, i: usize) -> Option<(f32, f32)> {
+    let marks = ed.piece_marks(lb, i);
+    let p = marks.iter().find(|p| p.square().is_some())?;
+    let (s, _) = p.square()?;
+    Some(lyceum_foundry::grid::square_middle(s))
 }
 
 /// The server's blanks the "New ..." flows start from: an NPC, a creature, an item, a door, a
@@ -3266,7 +3223,7 @@ fn a_servers_spawn_in_a_dungeons_room_is_drawn_with_the_room_and_selected_by_a_c
     )
     .unwrap();
     let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
-    ed.enter_dungeon(0x019E, true).unwrap();
+    ed.enter_dungeon(0x019E).unwrap();
     for _ in 0..4 {
         ed.frame();
     }
@@ -3404,215 +3361,6 @@ fn a_static_in_a_holtburg_room_is_selected_by_a_click_and_deleted_as_an_edit_of_
     );
 }
 
-#[test]
-fn the_piece_browser_groups_pieces_by_look_shows_each_in_a_dungeon_and_filters_by_shape_and_joins()
-{
-    use lyceum_foundry::pieces::Shape;
-    let _gpu = gpu_lock();
-    let (dir, world) = sample("editor-piece-looks");
-    let mut ed = editor(&world);
-    ed.resize(1280, 900);
-    ed.mode = lyceum_editor::app::Mode::Dungeon;
-    ed.dungeon_list.steps = false;
-    ed.wait_for_pieces();
-    for _ in 0..2 {
-        ed.frame();
-    }
-    // Grouped by look: a header before the pieces, each piece under its own commonest look.
-    assert!(!ed.kit.header_rects.is_empty());
-    let pieces = ed.kit.pieces.clone().unwrap();
-    let list = ed.piece_list();
-    let looks: Vec<usize> = list.iter().map(|i| pieces[*i].looks[0].family).collect();
-    assert!(looks.windows(2).all(|w| w[0] <= w[1]), "in look order");
-    // Each shown piece's picture drawn in a dungeon that uses it.
-    ed.wait_for_previews();
-    ed.frame();
-    let (drawn, read) = ed.previews_made();
-    assert!(drawn + read >= 4, "{drawn} drawn, {read} read");
-    let img = capture(&mut ed, dir.path());
-    let (_, r) = ed.kit.piece_rects[0];
-    let colors: std::collections::BTreeSet<[u8; 3]> = (0..60)
-        .flat_map(|x| (0..44).map(move |y| (x, y)))
-        .map(|(x, y)| pixel(&img, r.min.x + 14.0 + x as f32, r.min.y + 26.0 + y as f32))
-        .collect();
-    assert!(colors.len() > 40, "the picture: {} colors", colors.len());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("pieces").join("browser.png"),
-    )
-    .unwrap();
-    // The corridor chosen: its card, and with Joins the chosen piece only what retail joins
-    // it to.
-    let c = pieces
-        .iter()
-        .enumerate()
-        .filter(|(_, p)| p.portals == 2)
-        .max_by_key(|(_, p)| p.cells)
-        .map(|(i, _)| i)
-        .unwrap();
-    ed.kit.chosen = Some(c);
-    ed.kit.joins_chosen = true;
-    for _ in 0..2 {
-        ed.frame();
-    }
-    let joined: std::collections::BTreeSet<usize> =
-        pieces[c].joins.iter().map(|(i, _)| *i).collect();
-    let shown = ed.piece_list();
-    assert!(!shown.is_empty() && shown.iter().all(|i| joined.contains(i)));
-    ed.wait_for_previews();
-    ed.frame();
-    capture(&mut ed, dir.path());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("pieces").join("chosen.png"),
-    )
-    .unwrap();
-    // By shape: the rooms alone, grouped by shape.
-    ed.kit.joins_chosen = false;
-    ed.kit.shape = Some(Shape::Room);
-    ed.kit.group = lyceum_editor::app::PieceGroup::Shape;
-    ed.frame();
-    let rooms = ed.piece_list();
-    assert!(!rooms.is_empty() && rooms.iter().all(|i| pieces[*i].shape == Shape::Room));
-    // By look: the pieces drawn in the Drudge Hideout's look.
-    ed.kit.shape = None;
-    let hideout = ed
-        .kit
-        .families
-        .iter()
-        .position(|f| f.landblocks.iter().any(|(lb, _)| *lb == 0x019E))
-        .unwrap();
-    ed.kit.family = Some(hideout);
-    ed.frame();
-    let drawn_so = ed.piece_list();
-    assert!(drawn_so
-        .iter()
-        .all(|i| pieces[*i].looks.iter().any(|l| l.family == hideout)));
-    assert!(drawn_so.len() >= 10, "{}", drawn_so.len());
-}
-
-#[test]
-fn inside_a_dungeon_its_cells_are_listed_with_their_pieces_and_a_cell_chosen_or_clicked_shows_its_piece(
-) {
-    let _gpu = gpu_lock();
-    let (dir, world) = sample("editor-dungeon-pieces");
-    let mut ed = editor(&world);
-    ed.resize(1280, 900);
-    ed.dungeon_list.steps = false;
-    ed.wait_for_pieces();
-    ed.enter_dungeon(0x019E, false).unwrap();
-    for _ in 0..3 {
-        ed.frame();
-    }
-    // Chosen from the list: the cell selected, its piece chosen, the camera in it.
-    ed.choose_cell(0x019E, 0x0105).unwrap();
-    for _ in 0..3 {
-        ed.frame();
-    }
-    assert_eq!(
-        ed.selection,
-        Some(Selection::Cell {
-            landblock: 0x019E,
-            cell: 0x0105
-        })
-    );
-    let cell = ed.session.cells(0x019E).remove(&0x0105).unwrap();
-    let pieces = ed.kit.pieces.clone().unwrap();
-    let chosen = &pieces[ed.kit.chosen.unwrap()];
-    assert_eq!(
-        (chosen.environment, chosen.piece),
-        (cell.environment, cell.cell_struct)
-    );
-    assert_eq!(ed.camera_cell().map(|c| c.0 .0), Some(0x019E_0105));
-    ed.wait_for_previews();
-    ed.frame();
-    capture(&mut ed, dir.path());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("pieces").join("dungeon-cells.png"),
-    )
-    .unwrap();
-    // A click on the room's ceiling in the world selects the room and chooses its piece.
-    ed.kit.chosen = None;
-    ed.selection = None;
-    ed.camera.pitch = 1.2;
-    ed.frame();
-    let w = ed.world_rect.expect("the world drawn");
-    click(&mut ed, (w.center().x, w.center().y));
-    let Some(Selection::Cell { landblock, cell: n }) = ed.selection.clone() else {
-        panic!("{:?}", ed.selection)
-    };
-    assert_eq!(landblock, 0x019E);
-    let c = ed.session.cells(0x019E).remove(&n).unwrap();
-    let chosen = &pieces[ed.kit.chosen.expect("its piece chosen")];
-    assert_eq!(
-        (chosen.environment, chosen.piece),
-        (c.environment, c.cell_struct)
-    );
-    // Reshaped: the dead end 0103 replaced by a piece that keeps its way and opens another, a
-    // free portal to build on; then a piece built there.
-    let old = ed.session.cells(0x019E).remove(&0x0103).unwrap();
-    let old_env = ed.session.environment(old.environment).unwrap();
-    let fits = |ed: &EditorApp, p: &lyceum_foundry::pieces::Piece| {
-        let env = ed.session.environment(p.environment)?;
-        lyceum_foundry::pieces::reshape_fit(&old, &old_env, &env, p.piece, 90.0)
-    };
-    let i = pieces
-        .iter()
-        .position(|p| p.portals == 2 && fits(&ed, p).is_some())
-        .expect("a piece that takes the dead end's place");
-    ed.kit.chosen = Some(i);
-    ed.replace_cell(0x019E, 0x0103).unwrap();
-    let reshaped = ed.session.cells(0x019E).remove(&0x0103).unwrap();
-    assert_eq!(
-        (reshaped.environment, reshaped.cell_struct),
-        (pieces[i].environment, pieces[i].piece)
-    );
-    let free = ed.free_portals(0x019E);
-    let end = free
-        .iter()
-        .find(|f| {
-            matches!(
-                f.link,
-                lyceum_foundry::source::Link::Base { cell: 0x0103, .. }
-            )
-        })
-        .expect("its free end")
-        .opening
-        .clone();
-    let j = pieces
-        .iter()
-        .position(|p| {
-            p.portals >= 2
-                && ed.session.environment(p.environment).is_some_and(|e| {
-                    (0..p.portals).any(|k| {
-                        lyceum_foundry::pieces::snap(&e, p.piece, k, &end, 0.0, 90.0)
-                            .is_some_and(|(_, m)| m < 0.01)
-                    })
-                })
-        })
-        .expect("a piece that meets the free end");
-    ed.kit.chosen = Some(j);
-    ed.extend(1).unwrap();
-    let names = ed.session.cell_names(0x019E);
-    assert_eq!(names.len(), 1, "one new cell");
-    let new = *names.keys().next().unwrap();
-    assert!(ed.session.cells(0x019E)[&0x0103]
-        .portals
-        .iter()
-        .any(|p| p.other_cell_id == u32::from(new) && p.flags & 1 == 1));
-    ed.fly_into_cell(0x019E, 0x0103).unwrap();
-    for _ in 0..3 {
-        ed.frame();
-    }
-    capture(&mut ed, dir.path());
-    std::fs::copy(
-        dir.path().join("frame.png"),
-        shots("pieces").join("reshaped.png"),
-    )
-    .unwrap();
-}
-
 /// The work of `frames` frames after a few to settle: each frame's mean, and the most of each
 /// count.
 fn measure(
@@ -3646,7 +3394,6 @@ fn an_idle_frame_reads_no_cells_and_picks_nothing_in_every_tool_outdoors_and_in_
     let (_dir, world) = sample("editor-work");
     let mut ed = editor(&world);
     ed.resize(1600, 900);
-    ed.dungeon_list.steps = false;
     ed.wait_for_pieces();
     let mut rows = Vec::new();
     let mut scene = |ed: &mut EditorApp, name: &str| {
@@ -3664,18 +3411,18 @@ fn an_idle_frame_reads_no_cells_and_picks_nothing_in_every_tool_outdoors_and_in_
         (Mode::Select, "outdoors, select"),
         (Mode::Place, "outdoors, place scenery"),
         (Mode::Spawn, "outdoors, add object"),
-        (Mode::Dungeon, "outdoors, dungeon kit"),
     ] {
         ed.mode = mode;
         scene(&mut ed, name);
     }
-    // In the Drudge Hideout, a room selected.
-    ed.enter_dungeon(0x019E, false).unwrap();
-    scene(&mut ed, "in a dungeon, dungeon kit");
+    // In the Drudge Hideout, its grid shown; a room selected; a piece chosen.
+    ed.mode = Mode::Select;
+    ed.enter_dungeon(0x019E).unwrap();
+    scene(&mut ed, "in a dungeon, its grid");
     ed.choose_cell(0x019E, 0x0105).unwrap();
     scene(&mut ed, "in a dungeon, a room selected");
-    ed.mode = Mode::Select;
-    scene(&mut ed, "in a dungeon, select");
+    ed.mode = Mode::Place;
+    scene(&mut ed, "in a dungeon, place scenery");
     // Nothing idle reads a landblock's cells (they are read once until the world changes), or
     // picks. The times are printed for the record and asserted on nowhere.
     for (name, _, most) in &rows {
@@ -3707,6 +3454,7 @@ fn packs_at_odds_are_listed_with_the_checks_and_a_click_on_one_goes_there() {
     )
     .unwrap();
     let mut ed = editor(&world);
+    ed.show_tab(lyceum_editor::app::Tab::Checks);
     let i = ed
         .faults
         .iter()
@@ -3746,4 +3494,1784 @@ fn packs_at_odds_are_listed_with_the_checks_and_a_click_on_one_goes_there() {
         shots("conflicts").join("listed.png"),
     )
     .unwrap();
+}
+
+#[test]
+fn the_workspace_is_the_world_builders_the_world_view_top_left_the_map_under_it_controls_in_one_column(
+) {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-workspace-layout");
+    let mut ed = editor_with(&world, &["--size", "1400x900"]);
+    ed.wait_for_names().unwrap();
+    ed.mode = lyceum_editor::app::Mode::Select;
+    ed.frame();
+    let select = ed.world_rect.unwrap();
+    let map = ed.map_rect.expect("the map drawn");
+    // The world view at the top left; the map under it; the controls to the right of both.
+    assert!(select.left() < 20.0 && select.top() < 80.0, "{select:?}");
+    assert!(
+        map.top() >= select.bottom() && map.left() < select.center().x,
+        "{map:?}"
+    );
+    assert!(select.right() < 1100.0, "{select:?}");
+    // A tool's controls take their column: the world view stays where it is.
+    for mode in [
+        lyceum_editor::app::Mode::Place,
+        lyceum_editor::app::Mode::Terrain,
+        lyceum_editor::app::Mode::Spawn,
+    ] {
+        ed.mode = mode;
+        ed.frame();
+        assert_eq!(ed.world_rect.unwrap(), select, "{mode:?}");
+    }
+    ed.mode = lyceum_editor::app::Mode::Select;
+    ed.show_tab(lyceum_editor::app::Tab::Hierarchy);
+    ed.frame();
+    let (selection, rect) = ed
+        .hierarchy_rects
+        .iter()
+        .find(|(s, _)| matches!(s, Selection::Building { .. }))
+        .unwrap()
+        .clone();
+    click(&mut ed, (rect.center().x, rect.center().y));
+    assert_eq!(ed.selection, Some(selection));
+    ed.frame();
+    let checks = ed.checks_button.unwrap();
+    click(&mut ed, (checks.center().x, checks.center().y));
+    ed.frame();
+    assert_eq!(
+        ed.faults.len(),
+        (0..ed.faults.len())
+            .filter(|i| ed.fault_rect(*i).is_some())
+            .count()
+    );
+    let original = ed.camera;
+    ed.toggle_top_down().unwrap();
+    assert!(ed.camera.pitch < -1.5 && ed.camera.position.z > original.position.z);
+    ed.toggle_top_down().unwrap();
+    assert_eq!(ed.camera, original);
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("layout").join("workspace.png"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn recent_and_favorite_models_filter_the_browser_and_survive_reopening_the_world() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-model-shelves");
+    let mut ed = editor(&world);
+    let models = ed.browser_list();
+    let (first, second) = (models[0], models[1]);
+    ed.choose_model(first).unwrap();
+    ed.choose_model(second).unwrap();
+    ed.choose_model(first).unwrap();
+    ed.toggle_favorite(second).unwrap();
+    ed.panels.shelf = lyceum_editor::browser_state::Shelf::Recent;
+    assert_eq!(ed.browser_list(), [first, second]);
+    ed.panels.shelf = lyceum_editor::browser_state::Shelf::Favorites;
+    assert_eq!(ed.browser_list(), [second]);
+    drop(ed);
+    let mut ed = editor(&world);
+    ed.panels.shelf = lyceum_editor::browser_state::Shelf::Recent;
+    assert_eq!(ed.browser_list(), [first, second]);
+    ed.panels.shelf = lyceum_editor::browser_state::Shelf::Favorites;
+    assert_eq!(ed.browser_list(), [second]);
+}
+
+fn key(ed: &mut EditorApp, vk: usize, pressed: bool) {
+    ed.queue(HostEvent::KeyboardInput {
+        key: dereth_input::keys::Key::new(vk, 0),
+        pressed,
+        text: None,
+    });
+}
+
+/// The world view's rectangle in the window's pixels.
+fn view_pixels(ed: &EditorApp) -> dereth_primitives::Viewport {
+    let r = ed.world_rect.expect("the world view");
+    let s = ed.ui_scale();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let px = |v: f32| (v * s).round() as u32;
+    dereth_primitives::Viewport {
+        x: px(r.min.x),
+        y: px(r.min.y),
+        width: px(r.max.x) - px(r.min.x),
+        height: px(r.max.y) - px(r.min.y),
+    }
+}
+
+/// The world view's area in pixels: the whole of what the world is drawn in.
+fn view_area(ed: &EditorApp) -> f32 {
+    let vp = view_pixels(ed);
+    #[allow(clippy::cast_precision_loss)]
+    let area = (vp.width * vp.height) as f32;
+    area
+}
+
+/// Wait for the scenes' worker threads to come down to `n`: a stopped playtest's are told to stop
+/// and end as they finish what they were doing. A hang guard ends the wait.
+fn workers_down_to(n: usize) -> usize {
+    let start = std::time::Instant::now();
+    while dereth_scene::workers::running() > n
+        && start.elapsed() < std::time::Duration::from_secs(60)
+    {
+        std::thread::yield_now();
+    }
+    dereth_scene::workers::running()
+}
+
+#[test]
+fn a_playtest_draws_in_the_world_view_with_the_panels_around_it_and_stopping_it_leaves_nothing_running(
+) {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("embedded");
+    let mut ed = editor(&world);
+    assert!(ed.frame());
+    let position = ed.camera.position;
+    let workers = dereth_scene::workers::running();
+    let settings = world.parent().unwrap().join("play-settings");
+    let args = vec![
+        "--no-connect".to_owned(),
+        "--headless".to_owned(),
+        "--dat-dir".to_owned(),
+        dereth_dat::testing::dat_dir().display().to_string(),
+    ];
+    // Twice: a playtest stopped leaves nothing behind, so the second starts as the first did.
+    for round in ["first", "second"] {
+        ed.start_embedded(&args, &settings).unwrap();
+        assert!(ed.is_playing() && ed.game_has_focus());
+        for _ in 0..3 {
+            assert!(ed.frame());
+        }
+        // The game is drawn in the world view, on a screen of the view's shape.
+        let view = view_pixels(&ed);
+        let region = ed.play_region().expect("the game drawn");
+        assert_eq!(region.rect, view, "{round}");
+        assert_eq!(
+            region.extent,
+            lyceum_editor::app::screen_for((view.width, view.height))
+        );
+        assert_eq!(ed.play_census().sessions, 1);
+        ed.capture(&shots("embedded").join(format!("{round}-playing.png")))
+            .unwrap();
+        // The keyboard is the game's: the editor's Ctrl+Z does not undo the edit made before.
+        ed.edit(&Edit::Brush {
+            brush: Brush::Raise(2),
+            landblock: HOLTBURG,
+            x: 96.0,
+            y: 96.0,
+            radius: 12.0,
+        })
+        .unwrap();
+        let undo = |ed: &mut EditorApp| {
+            key(ed, 0x11, true);
+            key(ed, 0x5A, true);
+            key(ed, 0x5A, false);
+            key(ed, 0x11, false);
+            assert!(ed.frame());
+        };
+        undo(&mut ed);
+        assert_eq!(ed.session.history().0, 1, "{round}");
+        // A click in the view: the pointer is the game's, its cursor on the window.
+        #[allow(clippy::cast_precision_loss)]
+        let middle = (
+            (view.x + view.width / 2) as f32,
+            (view.y + view.height / 2) as f32,
+        );
+        click(&mut ed, middle);
+        assert!(ed.game_has_focus());
+        assert_eq!(ed.play_census().cursors, 1, "{round}");
+        // Shift+F1 gives the editor the keyboard and the mouse, and its own arrow; the game plays
+        // on, and Ctrl+Z is the editor's again.
+        key(&mut ed, 0x10, true);
+        key(&mut ed, 0x70, true);
+        key(&mut ed, 0x70, false);
+        key(&mut ed, 0x10, false);
+        assert!(ed.frame());
+        assert!(ed.is_playing() && !ed.game_has_focus());
+        assert_eq!(ed.play_census().cursors, 0, "{round}");
+        undo(&mut ed);
+        assert_eq!(ed.session.history().0, 0, "{round}");
+        // A click in the view gives them back to the game.
+        click(&mut ed, middle);
+        assert!(ed.game_has_focus());
+        assert_eq!(ed.play_census().cursors, 1, "{round}");
+        // Stopping (Stop in the view's corner, clicked) takes the game away: its session, connection,
+        // sound, cursor, pointer hold and its part of the device, and its world's workers end.
+        let stop = ed.play_button.expect("the Stop button");
+        assert!(view_pixels(&ed).x as f32 <= stop.min.x && stop.max.x <= 800.0);
+        click(&mut ed, (stop.center().x, stop.center().y));
+        assert!(!ed.is_playing(), "{round}");
+        assert_eq!(
+            ed.play_census(),
+            lyceum_editor::app::PlayCensus::default(),
+            "{round}"
+        );
+        assert_eq!(workers_down_to(workers), workers, "{round}");
+        assert!(ed.frame());
+        // The editor has its own view again, where it was.
+        assert_eq!(ed.camera.position, position);
+        assert!(ed.core.world.is_some());
+        assert_eq!(ed.core.present.size(), (800, 600));
+    }
+    ed.capture(&shots("embedded").join("editing.png")).unwrap();
+}
+
+#[test]
+fn the_window_resizes_freely_during_a_playtest_and_the_game_follows_the_world_view() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("embedded-resize");
+    let mut ed = editor(&world);
+    assert!(ed.frame());
+    let settings = world.parent().unwrap().join("play-settings");
+    let args = vec![
+        "--no-connect".to_owned(),
+        "--headless".to_owned(),
+        "--dat-dir".to_owned(),
+        dereth_dat::testing::dat_dir().display().to_string(),
+    ];
+    ed.start_embedded(&args, &settings).unwrap();
+    assert!(ed.frame());
+    let small = ed.play_region().unwrap();
+    // Bigger, then smaller than the game's smallest screen: the window takes each size, and the
+    // game's screen follows the view inside it.
+    for size in [(1400, 900), (700, 500), (1100, 700)] {
+        ed.resize(size.0, size.1);
+        for _ in 0..3 {
+            assert!(ed.frame());
+        }
+        assert_eq!(ed.core.present.size(), size);
+        let view = view_pixels(&ed);
+        let region = ed.play_region().unwrap();
+        assert_eq!(region.rect, view);
+        assert!(view.x + view.width <= size.0 && view.y + view.height <= size.1);
+        assert_eq!(
+            region.extent,
+            lyceum_editor::app::screen_for((view.width, view.height))
+        );
+        let floor = lyceum_editor::app::SMALLEST_SCREEN;
+        assert!(region.extent.0 >= floor.0 && region.extent.1 >= floor.1);
+    }
+    assert_ne!(ed.play_region().unwrap().rect, small.rect);
+    ed.capture(&shots("embedded").join("resized.png")).unwrap();
+    ed.stop_play();
+    // Stopped, the editor keeps the window's size.
+    assert!(ed.frame());
+    assert_eq!(ed.core.present.size(), (1100, 700));
+}
+
+#[test]
+fn the_panels_scale_with_the_ui_scale_and_ctrl_keys_step_it() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("ui-scale");
+    let mut ed = editor(&world);
+    assert!(ed.frame());
+    let at_100 = ed.world_rect.unwrap();
+    assert!((ed.ui_scale() - 1.0).abs() < 1e-6);
+    ed.set_ui_scale(1.5);
+    assert!(ed.frame());
+    assert!(ed.frame());
+    // In points the window is two thirds the size: the panels take more of it.
+    let at_150 = ed.world_rect.unwrap();
+    assert!(at_150.max.x * 1.5 <= 800.5 && at_150.max.y * 1.5 <= 600.5);
+    assert!(at_150.width() * 1.5 < at_100.width() || at_150.height() * 1.5 < at_100.height());
+    ed.capture(&shots("ui-scale").join("150.png")).unwrap();
+    // Ctrl+= a step bigger, Ctrl+- a step smaller, Ctrl+0 back to the screen's own.
+    let ctrl = |ed: &mut EditorApp, vk: usize| {
+        key(ed, 0x11, true);
+        key(ed, vk, true);
+        key(ed, vk, false);
+        key(ed, 0x11, false);
+        assert!(ed.frame());
+        assert!(ed.frame());
+        ed.ui_scale()
+    };
+    assert!((ctrl(&mut ed, 0xBB) - 1.75).abs() < 1e-6);
+    assert!((ctrl(&mut ed, 0xBD) - 1.5).abs() < 1e-6);
+    assert!((ctrl(&mut ed, 0xBD) - 1.25).abs() < 1e-6);
+    assert!((ctrl(&mut ed, 0x30) - ed.monitor_scale()).abs() < 1e-6);
+    assert!(
+        ed.ui_scale_note().is_some(),
+        "the change is shown in the status bar"
+    );
+}
+
+#[cfg(feature = "live-server-tests")]
+#[test]
+fn live_edits_and_undo_reach_the_connected_character_and_only_the_changed_landblock() {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("live-connected");
+    let server =
+        PathBuf::from(std::env::var_os("EMPYREAN_SERVER_BIN").expect("EMPYREAN_SERVER_BIN"));
+    let sql = PathBuf::from(std::env::var_os("EMPYREAN_WORLD_SQL").expect("EMPYREAN_WORLD_SQL"));
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--empyrean",
+            server.parent().unwrap().to_str().unwrap(),
+            "--weenies",
+            sql.to_str().unwrap(),
+        ],
+    );
+    ed.set_live(true).unwrap();
+    ed.wait_live().unwrap();
+    ed.play(&[], false).unwrap();
+    let start = std::time::Instant::now();
+    while !ed.play_ready() {
+        assert!(ed.frame());
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(120),
+            "playtest entry timed out"
+        );
+    }
+    let identity = ed.play_identity().unwrap();
+    let id = dereth_primitives::DataId(0xA9B4FFFF);
+    let other = dereth_primitives::DataId(0xA9B5FFFF);
+    let before = ed.play_store().unwrap().read_cell(id).unwrap();
+    let unaffected = ed.play_store().unwrap().read_cell(other).unwrap();
+    ed.return_to_editor();
+    let camera = ed.camera.position;
+    let mark = ed.live_log(0).len();
+    ed.edit(&Edit::Brush {
+        brush: Brush::Raise(30),
+        landblock: HOLTBURG,
+        x: 96.0,
+        y: 96.0,
+        radius: 12.0,
+    })
+    .unwrap();
+    ed.push_live().unwrap();
+    assert!(ed.frame());
+    let after = ed.play_identity().unwrap();
+    assert_eq!(after.0, identity.0);
+    assert!(after.1 > identity.1);
+    assert_ne!(ed.play_store().unwrap().read_cell(id).unwrap(), before);
+    assert_eq!(
+        ed.play_store().unwrap().read_cell(other).unwrap(),
+        unaffected
+    );
+    assert!(ed
+        .live_log(mark)
+        .iter()
+        .any(|s| s.contains("of 1 landblocks rebuilt.")));
+    assert_eq!(ed.camera.position, camera);
+    ed.edit(&Edit::Undo).unwrap();
+    ed.push_live().unwrap();
+    assert!(ed.frame());
+    let undone = ed.play_identity().unwrap();
+    assert_eq!(undone.0, identity.0);
+    assert!(undone.1 > after.1);
+    assert_eq!(ed.play_store().unwrap().read_cell(id).unwrap(), before);
+    let stale = lyceum_editor::live::Revision {
+        number: after.1,
+        overlay: ed
+            .play_store()
+            .unwrap()
+            .overlay_dir()
+            .unwrap()
+            .path()
+            .to_path_buf(),
+        blocks: [HOLTBURG].into_iter().collect(),
+    };
+    assert!(ed.adopt_play_revision(&stale).is_err());
+    assert_eq!(ed.play_identity(), Some(undone));
+    let missing = lyceum_editor::live::Revision {
+        number: undone.1 + 1,
+        overlay: world.parent().unwrap().join("missing"),
+        blocks: [HOLTBURG].into_iter().collect(),
+    };
+    assert!(ed.adopt_play_revision(&missing).is_err());
+    assert_eq!(ed.play_identity(), Some(undone));
+    assert_eq!(ed.play_store().unwrap().read_cell(id).unwrap(), before);
+    ed.play(&[], false).unwrap();
+    assert!(ed.frame());
+    ed.capture(&shots("live-connected").join("after-undo.png"))
+        .unwrap();
+    ed.set_live(false).unwrap();
+}
+
+#[cfg(feature = "live-server-tests")]
+#[test]
+fn stopping_a_playtest_logs_its_character_off_leaves_nothing_running_and_playing_again_shows_the_edits(
+) {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("live-stop");
+    let server =
+        PathBuf::from(std::env::var_os("EMPYREAN_SERVER_BIN").expect("EMPYREAN_SERVER_BIN"));
+    let sql = PathBuf::from(std::env::var_os("EMPYREAN_WORLD_SQL").expect("EMPYREAN_WORLD_SQL"));
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--empyrean",
+            server.parent().unwrap().to_str().unwrap(),
+            "--weenies",
+            sql.to_str().unwrap(),
+        ],
+    );
+    ed.set_live(true).unwrap();
+    ed.wait_live().unwrap();
+    assert!(ed.frame());
+    let workers = dereth_scene::workers::running();
+    ed.play_until_entered(&[]).unwrap();
+    let first = ed.play_identity().unwrap();
+    let census = ed.play_census();
+    assert_eq!((census.sessions, census.connections), (1, 1));
+    for _ in 0..30 {
+        assert!(ed.frame());
+    }
+    ed.capture(&shots("live-stop").join("playing.png")).unwrap();
+    let id = dereth_primitives::DataId(0xA9B4FFFF);
+    let before = ed.play_store().unwrap().read_cell(id).unwrap();
+    // Stopped: the game is gone, and the world lets its character go.
+    ed.stop_play();
+    assert_eq!(ed.play_census(), lyceum_editor::app::PlayCensus::default());
+    assert!(ed.wait_world_empty(), "the character logged off");
+    assert_eq!(workers_down_to(workers), workers);
+    assert!(ed.frame());
+    // An edit made while stopped is in the world the next playtest sees.
+    ed.edit(&Edit::Brush {
+        brush: Brush::Raise(30),
+        landblock: HOLTBURG,
+        x: 96.0,
+        y: 96.0,
+        radius: 12.0,
+    })
+    .unwrap();
+    ed.play_until_entered(&[]).unwrap();
+    let second = ed.play_identity().unwrap();
+    assert_eq!(second.0, first.0, "the same character");
+    assert!(second.1 > first.1, "the newer world");
+    assert_ne!(ed.play_store().unwrap().read_cell(id).unwrap(), before);
+    ed.capture(&shots("live-stop").join("played-again.png"))
+        .unwrap();
+    ed.stop_play();
+    assert_eq!(ed.play_census(), lyceum_editor::app::PlayCensus::default());
+    assert!(ed.wait_world_empty());
+    assert_eq!(workers_down_to(workers), workers);
+    ed.set_live(false).unwrap();
+}
+
+/// Where world point `p` (landblock meters of `lb`) is in the room `cell` of `lb`: along the
+/// room's own axes, from its origin.
+fn in_room(ed: &EditorApp, lb: u16, cell: u16, p: Vec3) -> Vec3 {
+    let c = ed.session.cells(lb).remove(&cell).unwrap();
+    dereth_primitives::frame::globaltolocal(&c.frame, p)
+}
+
+#[test]
+fn what_is_placed_in_a_room_belongs_to_it_is_listed_in_place_and_moves_and_goes_with_it() {
+    use lyceum_foundry::kit::Kind;
+    let _g = gpu_lock();
+    let (dir, world) = sample("editor-decorate");
+    let mut ed = editor_with(&world, &["--size", "1400x1000"]);
+    stone_west(&mut ed);
+    ed.wait_for_pieces();
+    let pieces = ed.kit.pieces.clone().unwrap();
+    // The commonest corridor of one part, closed above, drawn in more than one look.
+    let corridor = pieces
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            p.form.kind == Kind::Corridor
+                && p.form.parts() == 1
+                && !p.form.above
+                && p.looks.len() > 1
+        })
+        .max_by_key(|(_, p)| p.placed)
+        .map(|(i, _)| i)
+        .unwrap();
+    // Two corridors joined end to end in a new dungeon, drawn in the corridor's commonest look.
+    let lb = ed.new_dungeon(None).unwrap();
+    let first_look = ed.kit.families[pieces[corridor].looks[0].family].landblocks[0].0;
+    ed.choose_dungeon_look(lb, Some(first_look)).unwrap();
+    ed.frame();
+    ed.kit.chosen = Some(corridor);
+    ed.place_on_square((9, 9)).unwrap();
+    ed.kit.chosen = Some(corridor);
+    ed.frame();
+    let at = fitting_square(&mut ed, lb, corridor).expect("a square at its end");
+    ed.place_on_square(lyceum_foundry::grid::square_of(at.0, at.1))
+        .unwrap();
+    let rooms: Vec<(u16, String)> = ed.session.cell_names(lb).into_iter().collect();
+    assert_eq!(rooms.len(), 2, "{}", ed.panels.message);
+    let (b, b_name) = rooms[1].clone();
+    // Another look of the world's chosen for the dungeon: its rooms drawn so, as one step.
+    let other = &pieces[corridor].looks[1];
+    let of = ed.kit.families[other.family].landblocks[0].0;
+    let steps = ed.session.history().0;
+    ed.choose_dungeon_look(lb, Some(of)).unwrap();
+    assert_eq!(ed.session.history().0, steps + 1);
+    assert_eq!(ed.session.dungeon_info(lb).look, Some(of));
+    for (n, _) in &rooms {
+        assert_eq!(ed.session.cells(lb)[n].surfaces, other.surfaces);
+    }
+    // In the second room, looking down at its floor: a static placed there stands in it, and a
+    // spawn added there stands in it too.
+    ed.kit.chosen = None;
+    ed.fly_into_cell(lb, b).unwrap();
+    ed.camera.pitch = -1.2;
+    ed.mode = lyceum_editor::app::Mode::Place;
+    ed.model = Some(dereth_primitives::DataId(0x0200_040B));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let w = ed.world_rect.unwrap();
+    let s = ed.ui_scale();
+    click(&mut ed, (w.center().x * s, w.center().y * s));
+    let cell = ed.session.cells(lb).remove(&b).unwrap();
+    assert_eq!(cell.static_objects.len(), 1, "{}", ed.panels.message);
+    ed.mode = lyceum_editor::app::Mode::Spawn;
+    ed.panels.weenie = Some(lyceum_foundry::edit::Weenie::Symbol(
+        "holtburg:guide".into(),
+    ));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    click(&mut ed, ((w.center().x + 40.0) * s, w.center().y * s));
+    let id = (u32::from(lb) << 16) | u32::from(b);
+    let spawn = ed
+        .session
+        .spawns()
+        .into_iter()
+        .find(|x| x.cell == id)
+        .expect("a spawn in the room");
+    // The room selected on the grid lists both, each by its place in the room.
+    ed.mode = lyceum_editor::app::Mode::Select;
+    ed.selection = None;
+    ed.show_tab(lyceum_editor::app::Tab::Inspector);
+    ed.frame();
+    // Its middle: the mean of its corners.
+    let mid = {
+        let c = ed.session.cells(lb).remove(&b).unwrap();
+        let e = ed.session.environment(c.environment).unwrap();
+        let vs = &e.cells[usize::from(c.cell_struct)].vertex_array.vertices;
+        #[allow(clippy::cast_precision_loss)]
+        let n = vs.len() as f32;
+        let (x, y) = vs.iter().fold((0.0, 0.0), |(x, y), v| {
+            let p = dereth_primitives::frame::localtoglobal(&c.frame, v.position);
+            (x + p.x / n, y + p.y / n)
+        });
+        (x, y)
+    };
+    let (_, shown) = ed.plan_floors(lb);
+    let _ = shown;
+    let g = grid_point(&ed, mid);
+    click(&mut ed, g);
+    assert_eq!(
+        ed.selection,
+        Some(Selection::Cell {
+            landblock: lb,
+            cell: b
+        })
+    );
+    ed.frame();
+    assert_eq!(ed.panels.in_place.len(), 2, "the static and the spawn");
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("grid").join("in-place.png"),
+    )
+    .unwrap();
+    // A click on the static's row selects it; its plus on X moves it a step along the room.
+    let (sel, row) = ed.panels.in_place[0].clone();
+    assert!(matches!(sel, Selection::CellStatic { .. }));
+    click(&mut ed, (row.left() + 8.0, row.center().y));
+    assert_eq!(ed.selection, Some(sel.clone()));
+    ed.frame();
+    let static_at =
+        |ed: &EditorApp| ed.session.cells(lb).remove(&b).unwrap().static_objects[0].frame;
+    let was = in_room(&ed, lb, b, static_at(&ed).origin);
+    let (_, _, _, plus) = ed.panels.place_rects[0];
+    click(&mut ed, (plus.center().x, plus.center().y));
+    let now = in_room(&ed, lb, b, static_at(&ed).origin);
+    assert!(
+        (now.x - was.x - ed.panels.step).abs() < 0.01 && (now.y - was.y).abs() < 0.01,
+        "{was:?} -> {now:?}"
+    );
+    // The room moved to another square: what stands in it moves with it, its place in the
+    // room kept.
+    let static_in = in_room(&ed, lb, b, static_at(&ed).origin);
+    let spawn_in = in_room(&ed, lb, b, spawn.frame.origin);
+    let before = ed.session.cells(lb).remove(&b).unwrap().frame;
+    ed.lift_room(lb, b).unwrap();
+    ed.frame();
+    let to = ed
+        .piece_marks(lb, corridor)
+        .iter()
+        .map(|p| p.frame.origin)
+        .find(|o| (o.x - before.origin.x).abs() + (o.y - before.origin.y).abs() > 5.0)
+        .map(|o| lyceum_foundry::grid::square_of(o.x, o.y))
+        .expect("another square it fits on");
+    let g = grid_point(&ed, lyceum_foundry::grid::square_middle(to));
+    click(&mut ed, g);
+    let after = ed.session.cells(lb).remove(&b).unwrap().frame;
+    assert!(
+        (after.origin.x - before.origin.x).abs() + (after.origin.y - before.origin.y).abs() > 5.0,
+        "{before:?} -> {after:?}: {}",
+        ed.panels.message
+    );
+    let moved = ed
+        .session
+        .spawns()
+        .into_iter()
+        .find(|x| x.guid == spawn.guid)
+        .expect("the spawn still there");
+    assert_eq!(moved.cell, id, "still in its room");
+    let near = |a: Vec3, b: Vec3| (a.x - b.x).abs() + (a.y - b.y).abs() + (a.z - b.z).abs() < 0.02;
+    assert!(near(in_room(&ed, lb, b, static_at(&ed).origin), static_in));
+    assert!(near(in_room(&ed, lb, b, moved.frame.origin), spawn_in));
+    // Taken away, what stood in it goes too.
+    ed.edit(&Edit::Op(lyceum_foundry::edit::Op::RemoveCell {
+        landblock: lb,
+        name: b_name,
+    }))
+    .unwrap();
+    assert!(!ed.session.spawns().iter().any(|x| x.guid == spawn.guid));
+    assert_eq!(ed.session.cell_names(lb).len(), 1);
+}
+
+#[test]
+fn a_portal_is_placed_like_any_spawn_its_card_sends_it_into_a_dungeon_or_here_and_the_map_marks_outdoor_ways_in(
+) {
+    let _g = gpu_lock();
+    let (dir, world) = sample("editor-portal");
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, format!("{SERVER_PORTALS}{HIDEOUT_ENTRANCES}")).unwrap();
+    let mut ed = editor_with(
+        &world,
+        &["--weenies", sql.to_str().unwrap(), "--size", "1400x1000"],
+    );
+    stone_west(&mut ed);
+    ed.wait_for_names().unwrap();
+    // The spawn tool lists a Portal; placed on the ground, it goes nowhere yet.
+    ed.mode = lyceum_editor::app::Mode::Spawn;
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let tile = ed.panels.portal_rect.expect("the portal's tile");
+    click(&mut ed, (tile.center().x, tile.center().y));
+    assert!(ed.panels.portal && ed.panels.weenie.is_none());
+    let w = ed.world_rect.unwrap();
+    let s = ed.ui_scale();
+    click(
+        &mut ed,
+        (w.center().x * s, (w.center().y + w.height() * 0.2) * s),
+    );
+    let Some(Selection::Spawn { file, guid }) = ed.selection.clone() else {
+        panic!(
+            "the portal selected: {:?} {}",
+            ed.selection, ed.panels.message
+        );
+    };
+    let spawn = |ed: &EditorApp| {
+        ed.session
+            .spawns()
+            .into_iter()
+            .find(|x| x.file == file && x.guid == guid)
+            .unwrap()
+    };
+    assert_eq!(ed.portal_destination(&spawn(&ed)), Some(None));
+    ed.frame();
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("portal").join("card.png"),
+    )
+    .unwrap();
+    // Its card sends it into a dungeon, at its drop point: the outdoor portal's destination.
+    ed.destination_dungeon(0x019E).unwrap();
+    let (cell, _) = ed.drop_point(0x019E).unwrap();
+    assert_eq!(ed.portal_destination(&spawn(&ed)), Some(Some(cell)));
+    assert_eq!(cell, 0x019E_0114);
+    // Or where the camera is.
+    ed.destination_here().unwrap();
+    let to = ed.portal_destination(&spawn(&ed)).flatten().unwrap();
+    assert_eq!(to >> 16, u32::from(HOLTBURG));
+    assert!(to & 0xFFFF < 0x0100, "outdoors: {to:#010X}");
+    // The map, after going into the hideout and out: its way in from outdoors marked, and not
+    // the portals that stand in another dungeon's rooms.
+    ed.enter_dungeon(0x019E).unwrap();
+    ed.leave_dungeon();
+    ed.mode = lyceum_editor::app::Mode::Select;
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let marks: Vec<lyceum_editor::app::MapMark> = ed
+        .dungeon_list
+        .map_marks
+        .iter()
+        .map(|(_, m)| m.clone())
+        .collect();
+    assert_eq!(
+        marks,
+        vec![lyceum_editor::app::MapMark::Entrance(
+            HOLTBURG,
+            Vec3::new(60.0, 60.0, 94.0)
+        )],
+        "{marks:?}"
+    );
+}
+
+#[test]
+fn a_dungeons_grid_shows_one_floor_at_a_time_and_its_look_leads_the_palette_in_groups_by_what_pieces_are(
+) {
+    let _g = gpu_lock();
+    let (dir, world) = sample("editor-grid-floors");
+    let mut ed = editor_with(&world, &["--size", "1400x1000"]);
+    ed.wait_for_pieces();
+    // A retail dungeon of several floors: PageUp and PageDown step through them, the world
+    // view drawing the rooms round the camera all the while.
+    let lb = 0x019E;
+    ed.enter_dungeon(lb).unwrap();
+    for _ in 0..2 {
+        assert!(ed.frame());
+    }
+    assert!(ed.grid_shown());
+    let (floors, shown) = ed.plan_floors(lb);
+    println!("floors {floors:?}, shown {shown}");
+    assert!(floors.len() >= 2, "{floors:?}");
+    let at = floors
+        .iter()
+        .position(|f| (f - shown).abs() < 0.01)
+        .unwrap();
+    let (step, want) = if at + 1 < floors.len() {
+        (0x21, floors[at + 1])
+    } else {
+        (0x22, floors[at - 1])
+    };
+    key(&mut ed, step, true);
+    key(&mut ed, step, false);
+    assert!(ed.frame());
+    assert_eq!(ed.plan_floors(lb).1, want);
+    assert!(
+        ed.panels.message.starts_with("Floor "),
+        "{}",
+        ed.panels.message
+    );
+    let (here, _) = ed.camera_cell().expect("in a room");
+    assert!(ed.cells_seen().get(&here.0).copied().unwrap_or(0.0) > 0.9 * view_area(&ed));
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("grid").join("floors.png"),
+    )
+    .unwrap();
+    // The palette follows the dungeon's look, its pieces in groups by what each is on the grid,
+    // each group once.
+    let look = ed.dungeon_look(lb);
+    assert!(look.is_some());
+    for _ in 0..2 {
+        assert!(ed.frame());
+    }
+    assert_eq!(ed.kit.look, look);
+    let groups: Vec<lyceum_foundry::kit::Kind> =
+        ed.kit.group_rects.iter().map(|(k, _)| *k).collect();
+    assert!(groups.len() >= 3, "{groups:?}");
+    let distinct: std::collections::BTreeSet<_> = groups.iter().collect();
+    assert_eq!(distinct.len(), groups.len(), "{groups:?}");
+    let pieces = ed.kit.pieces.clone().unwrap();
+    assert!(ed
+        .kit
+        .piece_rects
+        .iter()
+        .all(|(i, _)| pieces[*i].in_look(look.unwrap())));
+}
+
+/// A server's generator: two entries of the drudge, one scattered and one at its own spot,
+/// working by night.
+const SERVER_GENERATOR: &str = "\
+INSERT INTO `weenie` (`class_Id`, `class_Name`, `type`, `last_Modified`)
+VALUES (90005, 'drudgeskulker', 10, '2005-02-09 10:00:00')
+     , (90100, 'drudgecamp', 1, '2005-02-09 10:00:00');
+INSERT INTO `weenie_properties_string` (`object_Id`, `type`, `value`)
+VALUES (90005, 1, 'Drudge Skulker'), (90100, 1, 'Drudge Camp');
+INSERT INTO `weenie_properties_d_i_d` (`object_Id`, `type`, `value`)
+VALUES (90005, 1, 0x020007DD), (90100, 1, 0x0200026B);
+INSERT INTO `weenie_properties_float` (`object_Id`, `type`, `value`)
+VALUES (90100, 41, 300), (90100, 43, 12), (90100, 121, 30);
+INSERT INTO `weenie_properties_int` (`object_Id`, `type`, `value`)
+VALUES (90100, 81, 6), (90100, 82, 3), (90100, 142, 4);
+INSERT INTO `weenie_properties_generator` (`object_Id`, `probability`, `weenie_Class_Id`, `delay`, `init_Create`, `max_Create`, `when_Create`, `where_Create`, `stack_Size`, `palette_Id`, `shade`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`)
+VALUES (90100, 0.25, 90005, 120, 1, 2, 4, 2, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+     , (90100, 1, 90005, 0, 1, 1, 1, 4, NULL, NULL, NULL, 0xA9B40011, 70, 70, ZZ, 1, 0, 0, 0);
+INSERT INTO `landblock_instance` (`guid`, `weenie_Class_Id`, `obj_Cell_Id`, `origin_X`, `origin_Y`, `origin_Z`, `angles_W`, `angles_X`, `angles_Y`, `angles_Z`, `is_Link_Child`, `last_Modified`)
+VALUES (0x7A9B4060, 90100, 0xA9B40011, 60, 60, ZZ, 1, 0, 0, 0, False, '2019-05-16 00:00:00');
+";
+
+#[test]
+fn a_servers_generator_is_explained_from_its_own_rows_with_nothing_copied() {
+    let _g = gpu_lock();
+    let (dir, world) = sample("editor-server-generator");
+    let z = {
+        let s = lyceum_foundry::edit::Session::open(&world, &dereth_dat::testing::dat_dir(), None)
+            .unwrap();
+        s.ground(HOLTBURG, 60.0, 60.0).unwrap()
+    };
+    let sql = dir.path().join("server.sql");
+    std::fs::write(&sql, SERVER_GENERATOR.replace("ZZ", &z.to_string())).unwrap();
+    let mut ed = editor_with(&world, &["--weenies", sql.to_str().unwrap()]);
+    ed.look_at(HOLTBURG, Vec3::new(60.0, 60.0, z + 1.0), 30.0, 0.0, -40.0);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let s = ed
+        .session
+        .spawns()
+        .into_iter()
+        .find(|s| s.server && s.weenie == "90100")
+        .expect("the server's generator, shown around the camera");
+    ed.selection = Some(Selection::Spawn {
+        file: s.file.clone(),
+        guid: s.guid.clone(),
+    });
+    ed.server_class_now(90100).unwrap().expect("its rows");
+    let g = ed.spawn_generator(&s).expect("a generator");
+    assert_eq!(
+        (g.radius, g.interval, g.initial_delay),
+        (Some(12.0), Some(300.0), Some(30.0))
+    );
+    assert_eq!((g.most, g.first, g.time), (Some(6), Some(3), Some(4)));
+    assert_eq!(g.profiles.len(), 2);
+    let (a, b) = (&g.profiles[0], &g.profiles[1]);
+    assert_eq!(
+        (a.init, a.max, a.when, a.place, a.delay),
+        (1, 2, 4, 2, Some(120.0))
+    );
+    assert_eq!((b.when, b.place), (1, 4));
+    let shares = lyceum_editor::app::generator_shares(&g.profiles);
+    assert!((shares[0].unwrap() - 25.0).abs() < 1e-3 && (shares[1].unwrap() - 75.0).abs() < 1e-3);
+    ed.show_tab(lyceum_editor::app::Tab::Inspector);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    // Shown, with nothing written into the pack.
+    assert!(ed
+        .session
+        .weenie_file(&lyceum_foundry::edit::Weenie::Class(90100))
+        .is_none());
+    assert_eq!(ed.session.history(), (0, 0));
+    capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("generator").join("explained.png"),
+    )
+    .unwrap();
+}
+
+/// Turn the camera about where it stands until world point `p` is drawn at window pixel column
+/// `want`: a frame drawn at each try. Answers where it is drawn.
+fn turn_until_at(ed: &mut EditorApp, p: Vec3, want: f32) -> (f32, f32) {
+    let (mut lo, mut hi) = (ed.camera.yaw - 1.2, ed.camera.yaw + 1.2);
+    let mut at = (0.0, 0.0);
+    for _ in 0..24 {
+        ed.camera.yaw = (hi + lo) / 2.0;
+        ed.frame();
+        at = ed.view().unwrap().project(p).unwrap_or((-1.0, 0.0));
+        // Turning left moves what is ahead to the right.
+        if at.0 > want {
+            hi = ed.camera.yaw;
+        } else {
+            lo = ed.camera.yaw;
+        }
+    }
+    at
+}
+
+#[test]
+fn the_world_is_drawn_only_in_its_view_and_a_pick_near_the_views_edge_meets_what_is_drawn_there() {
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-world-view");
+    let mut ed = editor_with(&world, &["--size", "1200x800"]);
+    // The tool's column beside the world view, and the map under it.
+    ed.mode = lyceum_editor::app::Mode::Place;
+    let stone = stone_west(&mut ed);
+    let vp = view_pixels(&ed);
+    assert!(vp.x + vp.width < 1000 && vp.y + vp.height < 600, "{vp:?}");
+    assert_eq!(
+        ed.view().unwrap().viewport(),
+        vp,
+        "the projection is the view's"
+    );
+    // As tall a field of view as a 4:3 window's, whatever the view's shape: the angle between
+    // the rays through the middles of its top and bottom edges.
+    let view = ed.view().unwrap();
+    #[allow(clippy::cast_precision_loss)]
+    let (mid, top, bottom) = (
+        vp.x as f32 + vp.width as f32 / 2.0,
+        vp.y as f32,
+        (vp.y + vp.height) as f32,
+    );
+    let (a, b) = (view.ray(mid, top).dir, view.ray(mid, bottom).dir);
+    let tall = dereth_primitives::num::math::acosf(a.dot(b).clamp(-1.0, 1.0)).to_degrees();
+    assert!((tall - 73.0).abs() < 1.0, "{tall} degrees in {vp:?}");
+    // The stone drawn 30 pixels inside the view's right edge, next to the tool's column.
+    let middle = Vec3::new(stone.x, stone.y, stone.z + 1.5);
+    #[allow(clippy::cast_precision_loss)]
+    let edge = (vp.x + vp.width) as f32 - 30.0;
+    let at = turn_until_at(&mut ed, middle, edge);
+    assert!((at.0 - edge).abs() < 1.0, "{at:?}");
+    // A pick there meets it.
+    let picked = ed.pick_at(at.0, at.1, pick::Mask::ALL).expect("a hit");
+    assert!(
+        matches!(
+            picked.hit,
+            pick::Hit::Static {
+                landblock: HOLTBURG,
+                index: 114,
+                ..
+            }
+        ),
+        "{:?}",
+        picked.hit
+    );
+    // And it is drawn there: taken away, the pixels there change, and those far from it do not.
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let with = capture(&mut ed, dir.path());
+    std::fs::copy(
+        dir.path().join("frame.png"),
+        shots("world-view").join("edge.png"),
+    )
+    .unwrap();
+    let which = ed.session.origins(HOLTBURG)[114].clone();
+    ed.edit(&Edit::Op(lyceum_foundry::edit::Op::RemoveStatic {
+        landblock: HOLTBURG,
+        which,
+    }))
+    .unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let without = capture(&mut ed, dir.path());
+    let here = difference(&with, &without, at, 3.0);
+    assert!(here > 15.0, "the stone is drawn where it is picked: {here}");
+    #[allow(clippy::cast_precision_loss)]
+    let far = (
+        vp.x as f32 + vp.width as f32 * 0.25,
+        vp.y as f32 + vp.height as f32 * 0.5,
+    );
+    assert!(difference(&with, &without, far, 3.0) < 4.0);
+    // Nothing of the world is drawn outside its view: looking up into the sky instead of down
+    // at the ground changes no pixel there. (The select tool shows the same panels either way.)
+    ed.mode = lyceum_editor::app::Mode::Select;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let down = capture(&mut ed, dir.path());
+    ed.camera.pitch = 0.6;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let up = capture(&mut ed, dir.path());
+    let vp = view_pixels(&ed);
+    let (w, h, _) = &down;
+    let mut inside = 0;
+    let mut outside = Vec::new();
+    for y in 0..*h {
+        for x in 0..*w {
+            #[allow(clippy::cast_precision_loss)]
+            let (a, b) = (
+                pixel(&down, x as f32, y as f32),
+                pixel(&up, x as f32, y as f32),
+            );
+            if a == b {
+                continue;
+            }
+            let x32 = u32::try_from(x).unwrap();
+            let y32 = u32::try_from(y).unwrap();
+            if (vp.x..vp.x + vp.width).contains(&x32) && (vp.y..vp.y + vp.height).contains(&y32) {
+                inside += 1;
+            } else if y + 24 >= *h {
+                // The status bar, which says where the eye is.
+            } else {
+                outside.push((x, y));
+            }
+        }
+    }
+    assert!(inside > 10_000, "the view changed: {inside}");
+    assert!(
+        outside.is_empty(),
+        "{} pixels outside the view changed, the first {:?}",
+        outside.len(),
+        &outside[..outside.len().min(8)]
+    );
+}
+
+#[test]
+fn going_to_what_stands_in_a_room_from_nearby_or_hierarchy_puts_the_camera_in_that_room_and_draws_it(
+) {
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("editor-go-to-room");
+    // Tall enough for the Hierarchy tab to show Holtburg's rooms.
+    let mut ed = editor_with(&world, &["--size", "1000x1200"]);
+    // In a dungeon: a static of another room, some way off, chosen from the Nearby list.
+    ed.enter_dungeon(0x019E).unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let start = ed.camera_cell().expect("in a room").0 .0;
+    let shown: Vec<lyceum_editor::app::NearbyEntry> =
+        ed.nearby.shown().into_iter().cloned().collect();
+    let i = shown
+        .iter()
+        .position(|e| {
+            matches!(e.select, Some(Selection::CellStatic { cell, .. })
+                if (u32::from(cell) | 0x019E_0000) != start)
+                && e.distance > 20.0
+        })
+        .expect("a static of another room");
+    let e = shown[i].clone();
+    let Some(Selection::CellStatic { cell, .. }) = e.select else {
+        unreachable!()
+    };
+    ed.nearby_go(i).unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let room = 0x019E_0000 | u32::from(cell);
+    assert_eq!(ed.camera_cell().map(|c| c.0 .0), Some(room), "{e:?}");
+    assert!(ed.cells_seen().contains_key(&room), "its room is drawn");
+    // It is selected and on screen, in the world view.
+    assert_eq!(ed.selection, e.select);
+    let w = ed.view().unwrap();
+    let o = pick::block_origin(0x019E);
+    let (x, y) = w
+        .project(Vec3::new(o.x + e.at.x, o.y + e.at.y, o.z + e.at.z))
+        .expect("in front of the camera");
+    let vp = view_pixels(&ed);
+    #[allow(clippy::cast_precision_loss)]
+    let inside = x > vp.x as f32
+        && x < (vp.x + vp.width) as f32
+        && y > vp.y as f32
+        && y < (vp.y + vp.height) as f32;
+    assert!(inside, "({x}, {y}) in {vp:?}");
+    // Outdoors, a room of a Holtburg house entered from Hierarchy: the camera in it, drawn round
+    // it; then a static outdoors from Nearby: the camera outdoors, looked for in no room.
+    ed.fly_to(
+        f32::from(0xA9u8) * 192.0 + 96.0,
+        f32::from(0xB4u8) * 192.0 + 96.0,
+    )
+    .unwrap();
+    ed.show_tab(lyceum_editor::app::Tab::Hierarchy);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    // A house's rooms are listed under it once it is opened.
+    let (_, house) = ed
+        .hierarchy_rects
+        .iter()
+        .find(|(s, _)| matches!(s, Selection::Building { .. }))
+        .cloned()
+        .expect("a house of Holtburg");
+    click(&mut ed, (house.left() + 30.0, house.center().y));
+    // Selecting the house brought the inspector forward; back to the list.
+    ed.show_tab(lyceum_editor::app::Tab::Hierarchy);
+    ed.frame();
+    let (room, rect) = ed
+        .hierarchy_rects
+        .iter()
+        .find_map(|(s, r)| match s {
+            Selection::Cell { landblock, cell } if *landblock == HOLTBURG => Some((*cell, *r)),
+            _ => None,
+        })
+        .expect("a room of the house");
+    assert!(
+        rect.top() < house.bottom() + 60.0,
+        "{rect:?} under {house:?}"
+    );
+    click(&mut ed, (rect.left() + 30.0, rect.center().y));
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let id = (u32::from(HOLTBURG) << 16) | u32::from(room);
+    assert_eq!(ed.camera_cell().map(|c| c.0 .0), Some(id));
+    assert!(ed.cells_seen().contains_key(&id));
+    ed.show_tab(lyceum_editor::app::Tab::Nearby);
+    for _ in 0..2 {
+        ed.frame();
+    }
+    let i = ed
+        .nearby
+        .shown()
+        .iter()
+        .position(|e| matches!(e.select, Some(Selection::Static { .. })))
+        .expect("a static outdoors");
+    ed.nearby_go(i).unwrap();
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert_eq!(ed.camera_cell(), None);
+    assert!(!ed.in_dungeon && ed.dungeon_block.is_none());
+}
+
+/// The most placed cottage of the world.
+const COTTAGE: u32 = 0x0100_2228;
+
+/// Keep the frame drawn last among the shots of the building drop.
+fn keep(ed: &mut EditorApp, name: &str) {
+    ed.capture(&shots("drop-building").join(name)).unwrap();
+}
+
+/// Whether pixel `p` of `img` is the red of a refused drop's land cell, or the green of an
+/// allowed one.
+fn reddish(c: [u8; 3]) -> bool {
+    c[0] > 170 && c[1] < 110 && c[2] < 110
+}
+
+fn greenish(c: [u8; 3]) -> bool {
+    c[1] > 170 && c[0] < 140 && c[2] < 150
+}
+
+/// Whether the outline of land cell `(cx, cy)` of landblock `lb`, drawn on the ground, shows
+/// pixels `of` the color: looked for about the middle of each of its edges.
+fn outlined(
+    ed: &EditorApp,
+    img: &(usize, usize, Vec<u8>),
+    lb: u16,
+    (cx, cy): (i32, i32),
+    of: fn([u8; 3]) -> bool,
+) -> bool {
+    let o = pick::block_origin(lb);
+    #[allow(clippy::cast_precision_loss)]
+    let (x0, y0) = (cx as f32 * 24.0, cy as f32 * 24.0);
+    let view = ed.view().unwrap();
+    [
+        (x0 + 12.0, y0),
+        (x0 + 24.0, y0 + 12.0),
+        (x0 + 12.0, y0 + 24.0),
+        (x0, y0 + 12.0),
+    ]
+    .into_iter()
+    .filter_map(|(x, y)| {
+        let z = ed.session.ground(lb, x.min(191.99), y.min(191.99))?;
+        view.project(Vec3::new(o.x + x, o.y + y, o.z + z + 0.15))
+    })
+    .any(|(x, y)| {
+        (-3..=3).any(|dx| (-3..=3).any(|dy| of(pixel(img, x + dx as f32, y + dy as f32))))
+    })
+}
+
+#[test]
+fn a_cottage_dropped_from_the_place_tool_is_refused_on_a_taken_land_cell_moved_with_its_rooms_and_undone(
+) {
+    use lyceum_editor::app::Mode;
+    use lyceum_foundry::buildings::land_cell;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-drop-building");
+    let mut ed = editor_with(&world, &["--size", "1280x900"]);
+    ed.wait_for_names().unwrap();
+    assert!(
+        ed.session.buildings().is_some(),
+        "the world's buildings are read"
+    );
+    ed.mode = Mode::Place;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    // Buildings are a kind of the dropdown: the gallery, the most placed first.
+    let combo = ed.panels.category_combo.expect("the kind's dropdown");
+    click(&mut ed, (combo.center().x, combo.center().y));
+    ed.frame();
+    let (_, row) = ed
+        .panels
+        .category_rows
+        .iter()
+        .find(|(c, _)| *c == Some(Category::Building))
+        .copied()
+        .expect("Building listed");
+    click(&mut ed, (row.center().x, row.center().y));
+    assert_eq!(ed.panels.kinds, [Category::Building].into_iter().collect());
+    let list = ed.browser_list();
+    let gallery = ed.session.buildings().unwrap().gallery();
+    assert_eq!(list.len(), gallery.len());
+    assert_eq!(
+        list[0],
+        dereth_primitives::DataId(COTTAGE),
+        "the most placed first"
+    );
+    assert_eq!(
+        lyceum_editor::app::building_name(gallery[0], None),
+        "Cottage"
+    );
+    // A click on its picture chooses it, and its card offers its furniture.
+    ed.frame();
+    let (_, tile) = *ed
+        .picture_rects
+        .iter()
+        .find(|(m, _)| m.raw() == COTTAGE)
+        .expect("the cottage's picture");
+    click(&mut ed, (tile.center().x, tile.center().y));
+    assert_eq!(ed.model.map(|m| m.raw()), Some(COTTAGE));
+    assert!(ed.dropping_building());
+    ed.frame();
+    let furniture = ed
+        .panels
+        .furnishing_combo
+        .expect("the furniture's dropdown");
+    click(&mut ed, (furniture.center().x, furniture.center().y));
+    ed.frame();
+    let rows = ed.panels.furnishing_rows.clone();
+    assert!(rows.len() >= 2, "each variant and Bare: {rows:?}");
+    assert_eq!(rows.last().map(|(k, _)| *k), Some(None), "Bare last");
+    let (k, first) = rows[0];
+    click(&mut ed, (first.center().x, first.center().y));
+    assert_eq!(ed.panels.building_furnishing, k);
+    // Over the land cell Holtburg's building 8 stands in: the ghost says why it is refused, its
+    // land cell red, and a click drops nothing.
+    let o = pick::block_origin(HOLTBURG);
+    let taken = (74.0, 30.0);
+    let gz = ed.session.ground(HOLTBURG, taken.0, taken.1).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(taken.0, taken.1, gz), 70.0, 20.0, -45.0);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let p = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(o.x + taken.0, o.y + taken.1, o.z + gz))
+        .unwrap();
+    hover(&mut ed, p);
+    ed.frame();
+    let g = ed.drop_ghost(p).unwrap();
+    assert!(!g.allowed());
+    assert_eq!(g.plan.as_ref().unwrap().taken, Some(8));
+    let (_, words) = ed.ghost_note.clone().expect("words beside the ghost");
+    assert_eq!(words, ["Another building stands in this land cell."]);
+    let img = capture(&mut ed, dir.path());
+    let cell = land_cell(g.at.0, g.at.1);
+    assert!(
+        outlined(&ed, &img, HOLTBURG, cell, reddish)
+            && !outlined(&ed, &img, HOLTBURG, cell, greenish),
+        "its land cell is outlined red"
+    );
+    keep(&mut ed, "01-refused.png");
+    click(&mut ed, p);
+    assert!(!ed.session.compiled().dropped.contains_key(&HOLTBURG));
+    assert_eq!(
+        ed.panels.message,
+        "Another building stands in this land cell."
+    );
+    // Over a free land cell of Holtburg: green; a click drops it there, and selects it. It has room
+    // to move east by its arrow: no other building's land or ground there that it may not stand on.
+    let (fx, fy) = (1..7)
+        .flat_map(|cx| (1..7).map(move |cy| (cx, cy)))
+        .map(|(cx, cy)| (cx as f32 * 24.0 + 12.0, cy as f32 * 24.0 + 12.0))
+        .find(|(x, y)| {
+            let (sx, sy, h) = ed
+                .session
+                .drop_snap(dereth_primitives::DataId(COTTAGE), 0, *x, *y, 0)
+                .unwrap();
+            let plan = |east: f32| {
+                ed.session.drop_plan(
+                    dereth_primitives::DataId(COTTAGE),
+                    0,
+                    HOLTBURG,
+                    sx + east,
+                    sy,
+                    h,
+                )
+            };
+            plan(0.0).is_ok_and(|p| {
+                p.refusal.is_none() && p.warnings.iter().all(|w| w.contains("doors"))
+            }) && [4.0, 8.0, 12.0, 16.0]
+                .into_iter()
+                .all(|east| plan(east).is_ok_and(|p| p.refusal.is_none()))
+        })
+        .expect("a free land cell in Holtburg with room east of it");
+    let fz = ed.session.ground(HOLTBURG, fx, fy).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(fx, fy, fz), 70.0, 20.0, -45.0);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let p = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(o.x + fx, o.y + fy, o.z + fz))
+        .unwrap();
+    hover(&mut ed, p);
+    ed.frame();
+    let g = ed.drop_ghost(p).unwrap();
+    assert!(g.allowed(), "{:?}", g.plan);
+    assert_eq!(
+        land_cell(g.at.0, g.at.1),
+        land_cell(fx, fy),
+        "snapped in its land cell"
+    );
+    let img = capture(&mut ed, dir.path());
+    let cell = land_cell(g.at.0, g.at.1);
+    assert!(
+        outlined(&ed, &img, HOLTBURG, cell, greenish)
+            && !outlined(&ed, &img, HOLTBURG, cell, reddish),
+        "its land cell is outlined green"
+    );
+    keep(&mut ed, "02-ghost.png");
+    // A pointer that stays looks for nothing again.
+    let picks = ed.stats.picks;
+    for _ in 0..3 {
+        ed.frame();
+    }
+    assert_eq!(ed.stats.picks, picks, "an idle ghost picks nothing");
+    // R turns it a quarter.
+    hold_key(&mut ed, 0x52, 1);
+    assert_eq!(ed.panels.building_turns, 1);
+    let turned = ed.drop_ghost(p).unwrap();
+    let off = (turned.heading - g.heading - 90.0).rem_euclid(360.0);
+    assert!(
+        off.min(360.0 - off) < 0.01,
+        "{} from {}",
+        turned.heading,
+        g.heading
+    );
+    for _ in 0..3 {
+        hold_key(&mut ed, 0x52, 1);
+    }
+    assert_eq!(ed.panels.building_turns, 0);
+    let steps = ed.session.history().0;
+    click(&mut ed, p);
+    assert_eq!(ed.session.history().0, steps + 1, "one step");
+    let (name, index) = ed.session.compiled().dropped[&HOLTBURG][0].clone();
+    assert_eq!(name, "holtburg:cottage-1");
+    assert_eq!(
+        ed.selection,
+        Some(Selection::Building {
+            landblock: HOLTBURG,
+            index
+        })
+    );
+    let dropped = ed.session.statics(HOLTBURG).unwrap().buildings[index].clone();
+    assert!((dropped.frame.origin.x - g.at.0).abs() < 1e-3);
+    assert!((dropped.frame.origin.y - g.at.1).abs() < 1e-3);
+    let rooms: Vec<u16> = ed.session.compiled().rooms[&HOLTBURG]
+        .values()
+        .copied()
+        .collect();
+    assert_eq!(rooms.len(), 7, "a cottage's seven rooms");
+    for _ in 0..2 {
+        ed.frame();
+    }
+    keep(&mut ed, "03-dropped.png");
+    // Moved by its east arrow: its row says where it stands, its rooms go with it, one step.
+    ed.mode = Mode::Select;
+    ed.frame();
+    let before = ed.session.cells(HOLTBURG);
+    let at = Vec3::new(
+        o.x + dropped.frame.origin.x,
+        o.y + dropped.frame.origin.y,
+        o.z + dropped.frame.origin.z,
+    );
+    let steps = ed.session.history().0;
+    let moved = drag_arrow(&mut ed, Handle::X, at);
+    assert!(moved.abs() > 0.5, "moved {moved} m: {}", ed.panels.message);
+    assert_eq!(ed.session.history().0, steps + 1, "one step");
+    let now = ed.session.statics(HOLTBURG).unwrap().buildings[index]
+        .frame
+        .origin;
+    assert!(
+        (now.x - dropped.frame.origin.x - moved).abs() < 0.05,
+        "the building: {now:?}, dropped at {:?}, moved {moved} m: {}",
+        dropped.frame.origin,
+        ed.panels.message
+    );
+    let row = ed.session.packs()[0]
+        .edits
+        .iter()
+        .flat_map(|e| e.drops.iter())
+        .next()
+        .unwrap()
+        .item
+        .clone();
+    assert!((row.at.x - now.x).abs() < 0.01, "its row: {:?}", row.at);
+    assert!(
+        ed.session.packs()[0]
+            .edits
+            .iter()
+            .all(|e| e.buildings.is_empty()),
+        "no move-building row"
+    );
+    let after = ed.session.cells(HOLTBURG);
+    for c in &rooms {
+        let dx = after[c].frame.origin.x - before[c].frame.origin.x;
+        assert!((dx - moved).abs() < 0.05, "room {c:04X} moved {dx}");
+    }
+    ed.frame();
+    keep(&mut ed, "04-moved.png");
+    // Undone: where it was dropped; again: not there.
+    ed.edit(&Edit::Undo).unwrap();
+    assert_eq!(
+        ed.session.statics(HOLTBURG).unwrap().buildings[index].frame,
+        dropped.frame
+    );
+    ed.edit(&Edit::Undo).unwrap();
+    assert!(!ed.session.compiled().dropped.contains_key(&HOLTBURG));
+    ed.frame();
+    keep(&mut ed, "05-undone.png");
+}
+
+/// The server's world database: `EMPYREAN_WORLD_SQL`, else the newest in the importer's cache.
+fn world_sql() -> PathBuf {
+    std::env::var_os("EMPYREAN_WORLD_SQL")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| lyceum_editor::catalog::server_database(dereth_primitives::EraId::Eor))
+        .expect("the server's world database: set EMPYREAN_WORLD_SQL, or fetch it")
+}
+
+/// A land cell beside a retail building whose land cell's edge toward it is not level: its
+/// landblock and the land cell.
+const TILTED: (u16, (i32, i32)) = (0x0408, (5, 5));
+
+#[test]
+fn a_house_drops_as_one_players_can_buy_unless_its_card_says_otherwise_and_a_tilt_is_refused() {
+    use lyceum_editor::app::Mode;
+    use lyceum_foundry::buildings::land_cell;
+    let _gpu = gpu_lock();
+    let (dir, world) = sample("editor-drop-house");
+    let sql = world_sql();
+    let mut ed = editor_with(
+        &world,
+        &["--size", "1280x900", "--weenies", sql.to_str().unwrap()],
+    );
+    ed.wait_for_names().unwrap();
+    let catalog = ed
+        .session
+        .buildings()
+        .expect("the world's buildings are read");
+    assert!(catalog.doors_known);
+    let plain_model = catalog
+        .gallery()
+        .into_iter()
+        .find(|e| e.kind == lyceum_foundry::buildings::Kind::Building)
+        .unwrap()
+        .model;
+    ed.mode = Mode::Place;
+    // A cottage's card: "A house players can buy", checked.
+    ed.choose_model(dereth_primitives::DataId(COTTAGE)).unwrap();
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let house = ed.panels.house_box.expect("the house's check box");
+    assert!(ed.panels.building_house && ed.chosen_house());
+    keep(&mut ed, "house-01-card.png");
+    // Unchecked, it drops as a plain building; checked, as a house players can buy.
+    click(&mut ed, (house.center().x, house.center().y));
+    assert!(!ed.panels.building_house && !ed.chosen_house());
+    ed.frame();
+    keep(&mut ed, "house-02-unchecked.png");
+    let o = pick::block_origin(HOLTBURG);
+    let (fx, fy) = (1..7)
+        .flat_map(|cx| (1..7).map(move |cy| (cx, cy)))
+        .map(|(cx, cy)| (cx as f32 * 24.0 + 12.0, cy as f32 * 24.0 + 12.0))
+        .find(|(x, y)| {
+            let (sx, sy, h) = ed
+                .session
+                .drop_snap(dereth_primitives::DataId(COTTAGE), 0, *x, *y, 0)
+                .unwrap();
+            ed.session
+                .drop_plan_as(
+                    dereth_primitives::DataId(COTTAGE),
+                    0,
+                    true,
+                    HOLTBURG,
+                    sx,
+                    sy,
+                    h,
+                )
+                .is_ok_and(|p| p.refusal.is_none())
+        })
+        .expect("a free land cell in Holtburg");
+    let fz = ed.session.ground(HOLTBURG, fx, fy).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(fx, fy, fz), 70.0, 20.0, -45.0);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let p = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(o.x + fx, o.y + fy, o.z + fz))
+        .unwrap();
+    hover(&mut ed, p);
+    ed.frame();
+    click(&mut ed, p);
+    let row = |ed: &EditorApp| {
+        ed.session.packs()[0]
+            .edits
+            .iter()
+            .flat_map(|e| e.drops.iter())
+            .next()
+            .map(|d| d.item.clone())
+    };
+    assert!(
+        row(&ed).expect("dropped").house.is_empty(),
+        "a plain building"
+    );
+    ed.edit(&Edit::Undo).unwrap();
+    assert!(row(&ed).is_none());
+    click(&mut ed, (house.center().x, house.center().y));
+    assert!(ed.chosen_house());
+    hover(&mut ed, p);
+    ed.frame();
+    click(&mut ed, p);
+    let dropped = row(&ed).expect("dropped");
+    assert_eq!(dropped.house, vec![format!("{}-house", dropped.name)]);
+    let bare = dropped.name.strip_prefix("holtburg:").unwrap().to_owned();
+    let sql_files: Vec<String> = ed
+        .session
+        .compiled()
+        .sql
+        .keys()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        sql_files
+            .iter()
+            .any(|f| f.contains(&format!("{bare}-house"))),
+        "its house's spawns: {sql_files:?}"
+    );
+    for _ in 0..2 {
+        ed.frame();
+    }
+    keep(&mut ed, "house-03-dropped.png");
+    // A building that is no house has no such box.
+    ed.choose_model(plain_model).unwrap();
+    for _ in 0..2 {
+        ed.frame();
+    }
+    assert_eq!(ed.panels.house_box, None);
+    assert!(!ed.chosen_house());
+    // Beside a building whose land is not level, the ghost's land cell is red, and the words
+    // say the drop would tilt the ground under it.
+    ed.choose_model(dereth_primitives::DataId(COTTAGE)).unwrap();
+    let (lb, (cx, cy)) = TILTED;
+    #[allow(clippy::cast_precision_loss)]
+    let (tx, ty) = (cx as f32 * 24.0 + 12.0, cy as f32 * 24.0 + 12.0);
+    let tz = ed.session.ground(lb, tx, ty).unwrap();
+    ed.look_at(lb, Vec3::new(tx, ty, tz), 70.0, 20.0, -45.0);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let to = pick::block_origin(lb);
+    let p = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(to.x + tx, to.y + ty, to.z + tz))
+        .unwrap();
+    hover(&mut ed, p);
+    ed.frame();
+    let g = ed.drop_ghost(p).unwrap();
+    assert!(!g.allowed());
+    let (_, words) = ed.ghost_note.clone().expect("words beside the ghost");
+    assert_eq!(words.len(), 1);
+    assert!(
+        words[0].starts_with("It would tilt the ground under the ")
+            && words[0].ends_with(" next door."),
+        "{words:?}"
+    );
+    let img = capture(&mut ed, dir.path());
+    let cell = land_cell(g.at.0, g.at.1);
+    assert!(
+        outlined(&ed, &img, lb, cell, reddish) && !outlined(&ed, &img, lb, cell, greenish),
+        "its land cell is outlined red"
+    );
+    keep(&mut ed, "house-04-tilt.png");
+    let steps = ed.session.history().0;
+    click(&mut ed, p);
+    assert_eq!(ed.session.history().0, steps, "nothing dropped");
+    assert_eq!(ed.panels.message, words[0]);
+}
+
+#[cfg(feature = "live-server-tests")]
+#[test]
+fn a_cottage_dropped_in_the_editor_is_walked_into_through_its_door_by_the_playtest_character() {
+    use lyceum_editor::app::Mode;
+    let _gpu = gpu_lock();
+    let (_dir, world) = sample("live-drop-building");
+    let server =
+        PathBuf::from(std::env::var_os("EMPYREAN_SERVER_BIN").expect("EMPYREAN_SERVER_BIN"));
+    let sql = PathBuf::from(std::env::var_os("EMPYREAN_WORLD_SQL").expect("EMPYREAN_WORLD_SQL"));
+    let mut ed = editor_with(
+        &world,
+        &[
+            "--empyrean",
+            server.parent().unwrap().to_str().unwrap(),
+            "--weenies",
+            sql.to_str().unwrap(),
+            "--size",
+            "1280x900",
+        ],
+    );
+    ed.wait_for_names().unwrap();
+    let cottage = dereth_primitives::DataId(COTTAGE);
+    let catalog = ed.session.buildings().expect("the world's buildings");
+    assert!(
+        catalog.doors_known,
+        "the doors are read from the world database"
+    );
+    let entry = catalog.get(cottage).unwrap().clone();
+    let door = entry.layouts[0].doors[0];
+    // The doorway its door stands in, in the building's frame: its foot, and the way in, square
+    // to the door and toward the building's origin.
+    let base = ed.session.base();
+    let read = |id: u32| base.cell.read(dereth_primitives::DataId(id)).ok();
+    let t = lyceum_foundry::drops::Template::read(
+        &read,
+        entry.layouts[0].example,
+        None,
+        dereth_primitives::EraId::Eor,
+    )
+    .unwrap();
+    let mut env = |id: dereth_primitives::DataId| ed.session.environment(id);
+    let feet = lyceum_foundry::buildings::doorway_feet(&t.building, &t.rooms, &mut env);
+    let local = |p: Vec3| dereth_primitives::frame::globaltolocal(&t.building.frame, p);
+    let foot = feet
+        .iter()
+        .map(|f| local(*f))
+        .min_by(|a, b| {
+            let d = |p: &Vec3| {
+                (p.x - door.frame.origin.x).powi(2) + (p.y - door.frame.origin.y).powi(2)
+            };
+            d(a).total_cmp(&d(b))
+        })
+        .unwrap();
+    let inward = {
+        let n = dereth_primitives::frame::localtoglobal(
+            &dereth_primitives::Frame::new(Vec3::ZERO, door.frame.rotation),
+            Vec3::new(0.0, 1.0, 0.0),
+        );
+        let toward = -(n.x * foot.x + n.y * foot.y);
+        if toward < 0.0 {
+            Vec3::new(-n.x, -n.y, 0.0)
+        } else {
+            Vec3::new(n.x, n.y, 0.0)
+        }
+    };
+    // A free land cell of Holtburg, and the turn that faces that doorway's way in north, as the
+    // character comes in facing.
+    let o = pick::block_origin(HOLTBURG);
+    let (cell, turns) = (1..7)
+        .flat_map(|cx| (1..7).map(move |cy| (cx, cy)))
+        .flat_map(|c| (0..4u8).map(move |k| (c, k)))
+        .find(|((cx, cy), k)| {
+            let (x, y) = (*cx as f32 * 24.0 + 12.0, *cy as f32 * 24.0 + 12.0);
+            let Some((sx, sy, h)) = ed.session.drop_snap(cottage, 0, x, y, *k) else {
+                return false;
+            };
+            let turn =
+                dereth_primitives::Frame::new(Vec3::ZERO, lyceum_foundry::compile::heading_quat(h));
+            dereth_primitives::frame::localtoglobal(&turn, inward).y > 0.9
+                && ed
+                    .session
+                    .drop_plan(cottage, 0, HOLTBURG, sx, sy, h)
+                    .is_ok_and(|p| p.refusal.is_none() && p.warnings.is_empty())
+        })
+        .expect("a free land cell of Holtburg");
+    // Dropped from the place tool: the gallery's cottage, turned, clicked on the ground there.
+    ed.mode = Mode::Place;
+    ed.choose_model(cottage).unwrap();
+    ed.panels.building_turns = turns;
+    let (fx, fy) = (cell.0 as f32 * 24.0 + 12.0, cell.1 as f32 * 24.0 + 12.0);
+    let fz = ed.session.ground(HOLTBURG, fx, fy).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(fx, fy, fz), 60.0, 20.0, -45.0);
+    for _ in 0..3 {
+        ed.frame();
+    }
+    let p = ed
+        .view()
+        .unwrap()
+        .project(Vec3::new(o.x + fx, o.y + fy, o.z + fz))
+        .unwrap();
+    hover(&mut ed, p);
+    click(&mut ed, p);
+    let (_, index) = ed.session.compiled().dropped[&HOLTBURG][0].clone();
+    let rooms: std::collections::BTreeSet<u16> = ed.session.compiled().rooms[&HOLTBURG]
+        .values()
+        .copied()
+        .collect();
+    let dropped = ed.session.statics(HOLTBURG).unwrap().buildings[index].clone();
+    // Its door's guid in the world.
+    let symbol = ed
+        .session
+        .compiled()
+        .lock
+        .of(lyceum_foundry::symbol::Kind::Guid)
+        .find(|(name, _)| name.contains("cottage-1-door-0"))
+        .map(|(_, id)| id)
+        .expect("the door's guid");
+    // The camera four meters out from the doorway, looking in: where the character comes in.
+    let at = dereth_primitives::frame::localtoglobal(&dropped.frame, foot);
+    let gz = ed.session.ground(HOLTBURG, at.x, at.y - 4.0).unwrap();
+    ed.look_at(HOLTBURG, Vec3::new(at.x, at.y, gz + 1.6), 4.0, 0.0, 0.0);
+    ed.frame();
+    ed.set_live(true).unwrap();
+    ed.wait_live().unwrap();
+    // In the world, under the interface whose script uses things, the door used as a player
+    // would: open, it lets the character through.
+    ed.play_options.interface = lyceum_editor::app::PlayInterface::Modern;
+    ed.play_until_entered(&["--use".to_owned(), format!("0x{symbol:08X}")])
+        .unwrap();
+    let shots = shots("live-drop-building");
+    for _ in 0..30 {
+        assert!(ed.frame());
+    }
+    ed.capture(&shots.join("outside.png")).unwrap();
+    // A door open is one the world lets things pass through.
+    const ETHEREAL: u32 = 0x4;
+    let start = std::time::Instant::now();
+    while ed
+        .play_object_state(symbol)
+        .is_none_or(|s| s & ETHEREAL == 0)
+    {
+        assert!(ed.frame());
+        // Only against a hang: the door opening is what ends the wait.
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(120),
+            "the door did not open: {:?}",
+            ed.play_object_state(symbol)
+        );
+    }
+    for _ in 0..30 {
+        assert!(ed.frame());
+    }
+    ed.capture(&shots.join("at-the-door.png")).unwrap();
+    let w = dereth_input::keys::Key::new(0x57, 0x11);
+    ed.queue(HostEvent::KeyboardInput {
+        key: w,
+        pressed: true,
+        text: None,
+    });
+    let start = std::time::Instant::now();
+    let inside = loop {
+        assert!(ed.frame());
+        let cell = ed.play_body().map(|b| b.cell.0);
+        if let Some(c) = cell.filter(|c| c >> 16 == u32::from(HOLTBURG)) {
+            if rooms.contains(&u16::try_from(c & 0xFFFF).unwrap()) {
+                break c;
+            }
+        }
+        // Only against a hang: the door opens and the walk in are what end the loop.
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(120),
+            "the character did not walk in: {:?}",
+            ed.play_body()
+        );
+    };
+    ed.queue(HostEvent::KeyboardInput {
+        key: w,
+        pressed: false,
+        text: None,
+    });
+    for _ in 0..30 {
+        assert!(ed.frame());
+    }
+    ed.capture(&shots.join("inside.png")).unwrap();
+    assert!(rooms.contains(&u16::try_from(inside & 0xFFFF).unwrap()));
+    assert!(ed.session.compiled().dropped[&HOLTBURG]
+        .iter()
+        .any(|(_, i)| *i == index));
+    ed.stop_play();
+    assert!(ed.wait_world_empty(), "the character logged off");
+    ed.set_live(false).unwrap();
 }

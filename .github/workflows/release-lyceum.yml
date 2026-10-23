@@ -132,7 +132,7 @@ jobs:
           echo "$MOLTENVK_SHA256  $RUNNER_TEMP/MoltenVK-macos.tar" | shasum -a 256 -c -
           tar -xf "$RUNNER_TEMP/MoltenVK-macos.tar" -C "$RUNNER_TEMP"
           echo "DERETH_MOLTENVK_DIR=$RUNNER_TEMP/MoltenVK" >> "$GITHUB_ENV"
-      - name: cargo xtask package lyceum
+      - name: Build and package Lyceum with its bundled Empyrean
         run: cargo xtask package lyceum --target ${{ matrix.target }} --out dist
       - name: Smoke-run the packaged programs
         env:
@@ -168,6 +168,15 @@ jobs:
               editor="smoke/Lyceum.app/Contents/MacOS/lyceum-editor"
               command="smoke/Lyceum.app/Contents/MacOS/lyceum" ;;
           esac
+          server="${editor%/*}/empyrean-server"
+          importer="${editor%/*}/empyrean-import"
+          case "$TARGET" in *windows*) server="$server.exe"; importer="$importer.exe" ;; esac
+          run "$server" --version | tee version-server.txt
+          grep -q "empyrean-server" version-server.txt
+          grep -qx "target: $TARGET" version-server.txt
+          run "$importer" --version | tee version-import.txt
+          grep -q "empyrean-import" version-import.txt
+          grep -qx "target: $TARGET" version-import.txt
           run "$editor" --version | tee version-editor.txt
           grep -qx "lyceum-editor $VERSION" version-editor.txt
           grep -qx "target: $TARGET" version-editor.txt

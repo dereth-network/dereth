@@ -41,6 +41,11 @@ base64.workspace = true
 # roots, so no system TLS library), as the importer downloads with.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
+[dev-dependencies]
+# The launcher fetches Empyrean's and Lyceum's release files by the names the packaging here gives
+# them; a test holds its copy of those names to these.
+dereth-launch.workspace = true
+
 [lints]
 workspace = true
 

@@ -35,7 +35,7 @@
 //! | [`gizmo`] | the move and turn handles: where they are drawn and what a drag on one does |
 //! | [`gui`] | the panels' toolkit: egui, fed the window's events and drawn through the overlay |
 //! | [`live`] | the editor's own server on the loopback: started, and each change pushed to it |
-//! | [`programs`] | where the editor finds Empyrean's programs and Dereth's client, and what it says when it cannot |
+//! | [`programs`] | where the editor finds its bundled server programs |
 //! | [`script`] | the scripted mode's steps |
 //! | [`shell`] | the front end the runtime calls: the window's events and the overlay |
 //! | [`text`] | every word the editor shows, from the creator's `lyceum-text.toml` |
@@ -43,11 +43,15 @@
 //! | `thumbs` | the model browser's pictures, drawn off screen and cached (with a device) |
 
 pub mod args;
+pub mod browser_state;
 pub mod camera;
 pub mod catalog;
+pub mod characters;
+pub mod database;
 pub mod gizmo;
 pub mod gui;
 pub mod live;
+pub mod place;
 pub mod programs;
 pub mod script;
 pub mod shell;

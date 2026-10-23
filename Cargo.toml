@@ -205,6 +205,7 @@ lyceum-foundry = { path = "lyceum/crates/foundry" }
 gilrs = { version = "0.11", default-features = false }
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam = "0.30"
+gltf = { version = "1.4", default-features = false, features = ["utils", "names"] }
 png = "0.17"
 # Lyceum's panels (`lyceum/editor` only): immediate-mode widgets, docked panels, tables.
 egui = { version = "0.36.2", default-features = false }

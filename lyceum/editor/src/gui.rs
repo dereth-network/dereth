@@ -13,6 +13,9 @@
 //!
 //! **Text** is the carried Liberation Sans (and Mono for numbers in tables), so no font of
 //! another licence is linked in.
+//!
+//! **Scale.** The panels are laid out in points, [`Gui::scale`] pixels each: the window's events
+//! come in pixels and are given to egui in points, and its shapes go back out in pixels.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,6 +55,108 @@ pub struct Gui {
     pub uploads: Vec<(OverlayTexture, TextureData)>,
     modifiers: egui::Modifiers,
     pointer: egui::Pos2,
+    /// Pixels to the point.
+    scale: f32,
+    /// The time egui was last given, and what is added to a frame's time so that egui's never
+    /// goes back: the editor's frames and a playtest's are timed by different clocks.
+    last_time: Option<f64>,
+    time_offset: f64,
+}
+
+/// The panels' scales a creator chooses from, as pixels to the point.
+pub const SCALES: [f32; 8] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
+/// The scale in [`SCALES`] nearest `scale`.
+#[must_use]
+pub fn nearest_scale(scale: f32) -> f32 {
+    SCALES
+        .into_iter()
+        .min_by(|a, b| (a - scale).abs().total_cmp(&(b - scale).abs()))
+        .unwrap_or(1.0)
+}
+
+/// The scale `steps` places along [`SCALES`] from `scale`, held at either end.
+#[must_use]
+pub fn step_scale(scale: f32, steps: i32) -> f32 {
+    let here = SCALES
+        .iter()
+        .position(|s| *s == nearest_scale(scale))
+        .unwrap_or(2);
+    let last = SCALES.len() - 1;
+    let to = usize::try_from(i64::try_from(here).unwrap_or(0) + i64::from(steps))
+        .unwrap_or(0)
+        .min(last);
+    SCALES[to]
+}
+
+/// The panels' scale a settings file `path` keeps (as the nearest of [`SCALES`]), when it keeps
+/// one.
+#[must_use]
+pub fn read_scale(path: &std::path::Path) -> Option<f32> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let table: toml::Table = toml::from_str(&text).ok()?;
+    #[allow(clippy::cast_possible_truncation)] // a scale, between a half and two
+    let scale = table.get("ui_scale")?.as_float()? as f32;
+    Some(nearest_scale(scale))
+}
+
+/// Keep the panels' scale `scale` in the settings file `path`, with the window it keeps.
+///
+/// # Errors
+/// The file would not write.
+pub fn write_scale(path: &std::path::Path, scale: f32) -> std::io::Result<()> {
+    write_view(path, Some(scale), read_window(path))
+}
+
+/// The window's place and size the settings file `path` keeps: its left and top on the desktop,
+/// and its width and height, in pixels.
+#[must_use]
+pub fn read_window(path: &std::path::Path) -> Option<(i32, i32, u32, u32)> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let table: toml::Table = toml::from_str(&text).ok()?;
+    let v: Vec<i64> = table
+        .get("window")?
+        .as_array()?
+        .iter()
+        .filter_map(toml::Value::as_integer)
+        .collect();
+    let [x, y, w, h] = v[..] else {
+        return None;
+    };
+    Some((
+        i32::try_from(x).ok()?,
+        i32::try_from(y).ok()?,
+        u32::try_from(w).ok().filter(|w| *w >= 320)?,
+        u32::try_from(h).ok().filter(|h| *h >= 240)?,
+    ))
+}
+
+/// Keep the window's place and size `window` in the settings file `path`, with the panels' scale
+/// it keeps.
+///
+/// # Errors
+/// The file would not write.
+pub fn write_window(path: &std::path::Path, window: (i32, i32, u32, u32)) -> std::io::Result<()> {
+    write_view(path, read_scale(path), Some(window))
+}
+
+fn write_view(
+    path: &std::path::Path,
+    scale: Option<f32>,
+    window: Option<(i32, i32, u32, u32)>,
+) -> std::io::Result<()> {
+    let mut text = String::new();
+    if let Some(scale) = scale {
+        text.push_str(&format!(
+            "# The size of Lyceum's panels: 1.0 is 100%.\nui_scale = {scale:.2}\n"
+        ));
+    }
+    if let Some((x, y, w, h)) = window {
+        text.push_str(&format!(
+            "# Where Lyceum's window was left: its left, top, width and height.\nwindow = [{x}, {y}, {w}, {h}]\n"
+        ));
+    }
+    std::fs::write(path, text)
 }
 
 impl std::fmt::Debug for Gui {
@@ -119,13 +224,35 @@ impl Gui {
         let ctx = egui::Context::default();
         ctx.set_fonts(fonts());
         ctx.set_visuals(egui::Visuals::dark());
+        // The editor's own keys scale the panels (Ctrl+=, Ctrl+- and Ctrl+0).
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
         Self {
             ctx,
             textures: HashMap::new(),
             uploads: Vec::new(),
             modifiers: egui::Modifiers::default(),
             pointer: egui::Pos2::ZERO,
+            scale: 1.0,
+            last_time: None,
+            time_offset: 0.0,
         }
+    }
+
+    /// Pixels to the point: how big the panels are drawn.
+    #[must_use]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Draw the panels `scale` pixels to the point from the next pass.
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = scale.clamp(SCALES[0], SCALES[SCALES.len() - 1]);
+    }
+
+    /// A point of the window, in pixels, as the panels' point.
+    #[must_use]
+    pub fn to_points(&self, x: f32, y: f32) -> egui::Pos2 {
+        egui::pos2(x / self.scale, y / self.scale)
     }
 
     /// The modifiers held, as the window's events last said.
@@ -137,15 +264,24 @@ impl Gui {
     /// egui's input for one frame of a screen of `size` pixels at `time` seconds: `events`, the
     /// window's, translated.
     pub fn input(&mut self, events: &[HostEvent], size: (u32, u32), time: f64) -> egui::RawInput {
+        let mut time = time + self.time_offset;
+        if let Some(last) = self.last_time.filter(|last| time < *last) {
+            self.time_offset += last - time;
+            time = last;
+        }
+        self.last_time = Some(time);
+        let s = self.scale;
         #[allow(clippy::cast_precision_loss)] // a screen
-        let screen =
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.0 as f32, size.1 as f32));
+        let screen = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(size.0 as f32 / s, size.1 as f32 / s),
+        );
         let mut out = Vec::new();
         for e in events {
             match e {
                 HostEvent::CursorMoved { x, y } => {
                     #[allow(clippy::cast_possible_truncation)]
-                    let p = egui::pos2(*x as f32, *y as f32);
+                    let p = egui::pos2(*x as f32 / s, *y as f32 / s);
                     self.pointer = p;
                     out.push(egui::Event::PointerMoved(p));
                 }
@@ -209,13 +345,25 @@ impl Gui {
                 _ => {}
             }
         }
-        egui::RawInput {
+        let mut raw = egui::RawInput {
             screen_rect: Some(screen),
             time: Some(time),
             events: out,
             max_texture_side: Some(8192),
             ..egui::RawInput::default()
+        };
+        if let Some(root) = raw.viewports.get_mut(&raw.viewport_id) {
+            root.native_pixels_per_point = Some(s);
+        } else {
+            raw.viewports.insert(
+                raw.viewport_id,
+                egui::ViewportInfo {
+                    native_pixels_per_point: Some(s),
+                    ..egui::ViewportInfo::default()
+                },
+            );
         }
+        raw
     }
 
     /// The overlay key of egui texture `id`, when it has one.
@@ -239,8 +387,12 @@ impl Gui {
             .ctx
             .tessellate(std::mem::take(&mut out.shapes), out.pixels_per_point);
         let mut items: Vec<OverlayItem> = Vec::new();
+        // The shapes are in points; the screen is `size` pixels.
         #[allow(clippy::cast_precision_loss)] // a screen
-        let (w, h) = (size.0.max(1) as f32, size.1.max(1) as f32);
+        let (w, h) = (
+            size.0.max(1) as f32 / self.scale,
+            size.1.max(1) as f32 / self.scale,
+        );
         let to_clip = |p: egui::Pos2| [p.x / w * 2.0 - 1.0, 1.0 - p.y / h * 2.0, 0.5];
         for egui::ClippedPrimitive {
             clip_rect,
@@ -497,6 +649,91 @@ mod tests {
             })
             .sum();
         assert!((area - 1600.0).abs() < 1.0, "{area}");
+    }
+
+    #[test]
+    fn at_a_scale_the_windows_pixels_reach_egui_as_points_and_its_shapes_fill_the_same_pixels() {
+        let mut g = Gui::new();
+        g.set_scale(2.0);
+        let input = g.input(
+            &[HostEvent::CursorMoved { x: 200.0, y: 100.0 }],
+            (800, 600),
+            1.0,
+        );
+        assert_eq!(
+            input.screen_rect,
+            Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 300.0)
+            ))
+        );
+        assert!(input
+            .events
+            .iter()
+            .any(|e| matches!(e, egui::Event::PointerMoved(p) if *p == egui::pos2(100.0, 50.0))));
+        // A rectangle over the right half of the screen in points covers the right half of the
+        // window in pixels.
+        let ctx = g.ctx.clone();
+        let out = ctx.run_ui(input, |ui| {
+            ui.painter().rect_filled(
+                egui::Rect::from_min_max(egui::pos2(200.0, 0.0), egui::pos2(400.0, 300.0)),
+                0.0,
+                egui::Color32::WHITE,
+            );
+        });
+        assert!((out.pixels_per_point - 2.0).abs() < 1e-6);
+        let items = g.paint(out, (800, 600));
+        let xs: Vec<f32> = items
+            .iter()
+            .flat_map(|i| match i {
+                OverlayItem::Triangles { vertices, .. } => {
+                    vertices.iter().map(|v| v.position[0]).collect::<Vec<_>>()
+                }
+                OverlayItem::Preview { .. } => Vec::new(),
+            })
+            .collect();
+        let (lo, hi) = xs
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(*x), hi.max(*x)));
+        assert!(
+            (lo - 0.0).abs() < 0.01 && (hi - 1.0).abs() < 0.01,
+            "{lo} {hi}"
+        );
+    }
+
+    #[test]
+    fn the_scale_chosen_is_kept_and_read_back_and_a_file_without_one_keeps_none() {
+        let dir = std::env::temp_dir().join(format!("lyceum-scale-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("lyceum-view.toml");
+        assert_eq!(read_scale(&path), None);
+        write_scale(&path, 1.25).unwrap();
+        assert_eq!(read_scale(&path), Some(1.25));
+        // The window kept beside it, and each kept when the other is written.
+        write_window(&path, (-8, 30, 1600, 900)).unwrap();
+        assert_eq!(read_window(&path), Some((-8, 30, 1600, 900)));
+        assert_eq!(read_scale(&path), Some(1.25));
+        write_scale(&path, 1.5).unwrap();
+        assert_eq!(read_window(&path), Some((-8, 30, 1600, 900)));
+        write_scale(&path, 1.25).unwrap();
+        std::fs::write(&path, "ui_scale = 1.3\n").unwrap();
+        assert_eq!(read_scale(&path), Some(1.25), "the nearest of the scales");
+        std::fs::write(&path, "something = 1\n").unwrap();
+        assert_eq!(read_scale(&path), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_scales_a_creator_steps_through_stop_at_either_end() {
+        assert!((nearest_scale(1.3) - 1.25).abs() < 1e-6);
+        assert!((nearest_scale(3.0) - 2.0).abs() < 1e-6);
+        assert!((step_scale(1.0, 1) - 1.1).abs() < 1e-6);
+        assert!((step_scale(1.0, -1) - 0.9).abs() < 1e-6);
+        assert!((step_scale(2.0, 1) - 2.0).abs() < 1e-6);
+        assert!((step_scale(0.75, -3) - 0.75).abs() < 1e-6);
+        let mut g = Gui::new();
+        g.set_scale(9.0);
+        assert!((g.scale() - 2.0).abs() < 1e-6);
     }
 
     #[test]

@@ -19,6 +19,8 @@ d3d12 = ["dereth-render/d3d12", "dereth-scene/d3d12", "dereth-client-shell/d3d12
 # Tier switch only: no code is gated on it. It selects the `gpu` test binary, which opens the
 # retail dats under $DERETH_TEST_DAT_DIR and a device.
 retail-dats = []
+# Explicit loopback integration checks need the built server/importer and a world SQL dump.
+live-server-tests = ["retail-dats"]
 
 [dependencies]
 # The editing logic: the edit session, its operations and saves, the brushes and the picks.
@@ -57,6 +59,8 @@ egui_dock.workspace = true
 egui_extras.workspace = true
 # The scripted mode's file.
 toml.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 glam.workspace = true
 tracing.workspace = true
 

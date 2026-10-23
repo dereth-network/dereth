@@ -44,18 +44,16 @@ impl Brush {
     }
 }
 
-/// The radius brush `b` takes from `r` meters moved `steps` steps: whole vertices for a brush that
-/// sets each vertex (a step of one grid space, from none, the one vertex under it, to ten), six
-/// meters for one that moves the ground (from six to 240).
+/// The radius brush `b` takes from `r` meters moved `steps` steps: whole vertices, a step of one
+/// grid space, as the ground has a height, a terrain and a scene only at its vertices. A brush
+/// that sets each vertex goes from none (the one vertex under it) to ten; one that moves the
+/// ground, from one to ten.
 #[must_use]
 pub fn step_radius(b: Brush, r: f32, steps: i32) -> f32 {
     #[allow(clippy::cast_precision_loss)] // a few steps
     let steps = steps as f32;
-    if b.by_vertex() {
-        ((r / GRID).round() * GRID + steps * GRID).clamp(0.0, 10.0 * GRID)
-    } else {
-        (r + steps * 6.0).clamp(6.0, 240.0)
-    }
+    let least = if b.by_vertex() { 0.0 } else { GRID };
+    ((r / GRID).round() * GRID + steps * GRID).clamp(least, 10.0 * GRID)
 }
 
 /// The radius a brush starts with when it is chosen over brush `from` at `r` meters: the road
@@ -235,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn a_brush_that_sets_vertices_is_sized_in_whole_vertices_and_centered_on_one() {
+    fn every_brush_is_sized_in_whole_vertices_and_one_that_sets_vertices_is_centered_on_one() {
         let road = Brush::Road(1);
         assert!(road.by_vertex() && Brush::Terrain(3).by_vertex() && Brush::Scene(0).by_vertex());
         assert!(!Brush::Raise(1).by_vertex() && !Brush::Smooth.by_vertex());
@@ -247,9 +245,10 @@ mod tests {
         assert_eq!(step_radius(road, 0.0, -1), 0.0);
         assert_eq!(step_radius(road, 240.0, 1), 240.0);
         assert_eq!(covered(48.0, 48.0, step_radius(road, 0.0, 0)), [(2, 2)]);
-        // A height brush keeps its six-meter steps.
-        assert_eq!(step_radius(Brush::Raise(1), 0.0, 0), 6.0);
-        assert_eq!(step_radius(Brush::Raise(1), 30.0, 1), 36.0);
+        // A height brush too, from one vertex.
+        assert_eq!(step_radius(Brush::Raise(1), 0.0, 0), 24.0);
+        assert_eq!(step_radius(Brush::Raise(1), 30.0, 1), 48.0);
+        assert_eq!(step_radius(Brush::Smooth, 24.0, -1), 24.0);
         // The vertex nearest a point, never off the world.
         assert_eq!(nearest_vertex(35.0, 37.0), (24.0, 48.0));
         assert_eq!(nearest_vertex(-5.0, 1e6), (0.0, 2040.0 * GRID));
@@ -268,7 +267,7 @@ mod tests {
             chosen_radius(Brush::Raise(1), Brush::Terrain(2), 30.0),
             24.0
         );
-        assert_eq!(chosen_radius(Brush::Road(1), Brush::Raise(1), 0.0), 6.0);
+        assert_eq!(chosen_radius(Brush::Road(1), Brush::Raise(1), 0.0), 24.0);
     }
 
     #[test]

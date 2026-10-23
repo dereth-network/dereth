@@ -1,17 +1,19 @@
 //! The command line.
 //!
 //! ```text
-//! lyceum-editor <world.toml> [--dats <dir>] [--pack <name>] [--landblock <XXYY>]
+//! lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--pack <name>]
+//!               [--landblock <XXYY>]
 //!               [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
 //!               [--radius <n>]
 //!               [--empyrean <dir>] [--live-dir <dir>] [--live]
-//!               [--client <exe>]
 //!               [--renderer vulkan|d3d12|wgpu]
 //!               [--headless] [--size <w>x<h>] [--frames <n>] [--script <file>]
 //!               [--capture-at <frame>:<png>]...
 //! ```
 //!
 //! - `--dats`: the player's data files (the later set); the folder the client would find otherwise.
+//! - `--classic-dats`: the files from before Throne of Destiny (`portal.dat`, `cell.dat`), which an
+//!   Infiltration world is built on, when they are not beside the later ones.
 //! - `--pack`: the pack edits are written into; the world's last otherwise.
 //! - `--landblock`: where the camera starts; the first landblock the world's packs edit otherwise.
 //! - `--weenies`: ACE SQL (an export or a dump) naming the server's own weenies' setups and names,
@@ -25,12 +27,10 @@
 //! - `--radius`: how many landblocks either side are drawn (2 by default).
 //! - `--empyrean`: the folder of the server's programs (`empyrean-server`, `empyrean-import`), for
 //!   the editor's own world and the forms' names; beside the editor otherwise.
-//! - `--live-dir`: the folder the editor's own world runs in, kept when it ends; a new temporary
-//!   folder, removed after, otherwise. Its world database is made from the server's SQL that
+//! - `--live-dir`: the persistent playtest folder; `.playtest/world` beside the world otherwise.
+//!   Its world database is made from the server's SQL that
 //!   `--weenies` names (or the one in the user's cache). `--live` starts that world as the editor
 //!   opens.
-//! - `--client`: the Dereth client the Play button starts; `dereth-client` beside the editor
-//!   otherwise.
 //! - `--headless`: no window; the frames are drawn off screen on the machine's graphics card.
 //!   `--frames` ends the run, `--script` runs a list of edits and pointer events by frame
 //!   ([`crate::script`]), and `--capture-at` writes the frame drawn then as a PNG.
@@ -42,6 +42,8 @@ use std::path::PathBuf;
 pub struct Args {
     pub world: PathBuf,
     pub dats: Option<PathBuf>,
+    /// The files from before Throne of Destiny, when they are not beside the later ones.
+    pub classic_dats: Option<PathBuf>,
     pub pack: Option<String>,
     pub landblock: Option<u16>,
     pub weenies: Option<PathBuf>,
@@ -56,7 +58,6 @@ pub struct Args {
     pub empyrean: Option<PathBuf>,
     pub live_dir: Option<PathBuf>,
     pub live: bool,
-    pub client: Option<PathBuf>,
     /// The file the editor's text is read from, in place of the one beside its settings.
     pub text: Option<PathBuf>,
     pub renderer: Option<String>,
@@ -69,10 +70,10 @@ pub struct Args {
 
 /// The usage line, for a command line that does not read.
 pub const USAGE: &str = "\
-lyceum-editor <world.toml> [--dats <dir>] [--pack <name>] [--landblock <XXYY>]
-              [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
+lyceum-editor <world.toml> [--dats <dir>] [--classic-dats <dir>] [--pack <name>]
+              [--landblock <XXYY>] [--weenies <sql> | --no-weenies] [--schema <json>] [--thumbnails <dir>]
               [--radius <n>] [--empyrean <dir>] [--live-dir <dir>] [--live]
-              [--client <exe>] [--text <toml>] [--renderer vulkan|d3d12|wgpu] [--headless]
+              [--text <toml>] [--renderer vulkan|d3d12|wgpu] [--headless]
               [--size <w>x<h>]
               [--frames <n>] [--script <file>] [--capture-at <frame>:<png>]...";
 
@@ -84,6 +85,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
     let mut a = Args {
         world: PathBuf::new(),
         dats: None,
+        classic_dats: None,
         pack: None,
         landblock: None,
         weenies: None,
@@ -94,7 +96,6 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         empyrean: None,
         live_dir: None,
         live: false,
-        client: None,
         text: None,
         renderer: None,
         headless: false,
@@ -113,6 +114,7 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
         };
         match arg.as_str() {
             "--dats" => a.dats = Some(PathBuf::from(value(arg)?)),
+            "--classic-dats" => a.classic_dats = Some(PathBuf::from(value(arg)?)),
             "--pack" => a.pack = Some(value(arg)?),
             "--landblock" => {
                 let v = value(arg)?;
@@ -138,7 +140,6 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
             "--empyrean" => a.empyrean = Some(PathBuf::from(value(arg)?)),
             "--live-dir" => a.live_dir = Some(PathBuf::from(value(arg)?)),
             "--live" => a.live = true,
-            "--client" => a.client = Some(PathBuf::from(value(arg)?)),
             "--text" => a.text = Some(PathBuf::from(value(arg)?)),
             "--renderer" => a.renderer = Some(value(arg)?),
             "--headless" => a.headless = true,
@@ -183,9 +184,17 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
 }
 
 impl Args {
+    /// The era whose files the world is built on, as its `world.toml` names it; the end of
+    /// retail's when the file does not read (the editor says why once it opens the world).
+    #[must_use]
+    pub fn world_era(&self) -> dereth_primitives::EraId {
+        lyceum_foundry::world::World::read(&self.world)
+            .map_or(dereth_primitives::EraId::Eor, |w| w.era)
+    }
+
     /// The client's own command line for the runtime under the editor: offline, no body, no game
-    /// interface, no sound, the dats named. The overlay folder is the editor's own, set once the
-    /// world is open.
+    /// interface, no sound, the dats named and the world's era. The overlay folder is the
+    /// editor's own, set once the world is open.
     #[must_use]
     pub fn runtime_argv(&self, landblock: u16) -> Vec<String> {
         let mut v: Vec<String> = [
@@ -206,6 +215,15 @@ impl Args {
         if let Some(d) = &self.dats {
             v.push("--dat-dir".into());
             v.push(d.display().to_string());
+        }
+        if let Some(d) = &self.classic_dats {
+            v.push("--classic-dat-dir".into());
+            v.push(d.display().to_string());
+        }
+        let era = self.world_era();
+        if era != dereth_primitives::EraId::Eor {
+            v.push("--era".into());
+            v.push(era.name().into());
         }
         if let Some(r) = &self.renderer {
             v.push("--renderer".into());
@@ -273,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn the_editors_own_world_reads_its_programs_folder_and_client() {
+    fn the_editors_own_world_reads_its_programs_folder() {
         let a = args(&[
             "w.toml",
             "--empyrean",
@@ -281,14 +299,11 @@ mod tests {
             "--live-dir",
             "live",
             "--live",
-            "--client",
-            "dereth-client.exe",
         ])
         .unwrap();
         assert_eq!(a.empyrean, Some(PathBuf::from("server")));
         assert_eq!(a.live_dir, Some(PathBuf::from("live")));
         assert!(a.live);
-        assert_eq!(a.client, Some(PathBuf::from("dereth-client.exe")));
         let b = args(&["w.toml"]).unwrap();
         assert!(!b.live && b.empyrean.is_none() && b.live_dir.is_none());
     }

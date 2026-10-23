@@ -306,15 +306,29 @@ impl EditorApp {
         let Some(e) = self.nearby.shown().get(i).map(|e| (*e).clone()) else {
             return Ok(());
         };
+        if let Some(index) = e.cell {
+            if let Some(s) = e.select {
+                self.selection = Some(s);
+                self.also.clear();
+            }
+            return self.fly_into_cell(e.landblock, index);
+        }
+        // What stands in a room is gone to in its room, so the room is drawn round it.
+        let room = match &e.select {
+            Some(Selection::CellStatic { cell, .. }) => Some(*cell),
+            Some(Selection::Spawn { file, guid }) => self
+                .session
+                .spawns()
+                .into_iter()
+                .find(|s| s.file == *file && s.guid == *guid)
+                .and_then(|s| u16::try_from(s.cell & 0xFFFF).ok()),
+            _ => None,
+        };
+        self.go_to(e.landblock, e.at, room, 14.0);
         if let Some(s) = e.select {
             self.selection = Some(s);
             self.also.clear();
         }
-        if let Some(index) = e.cell {
-            return self.fly_into_cell(e.landblock, index);
-        }
-        let yaw = self.camera.yaw.to_degrees();
-        self.look_at(e.landblock, e.at, 14.0, yaw, -30.0);
         Ok(())
     }
 

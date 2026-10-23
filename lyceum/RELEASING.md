@@ -1,6 +1,7 @@
 # Releasing Lyceum
 
-A Lyceum release is the world builder's editor and its `lyceum` command, for Windows, macOS and
+A Lyceum release includes the editor, the `lyceum` command, and the separate Empyrean server
+and import tool, for Windows, macOS and
 Linux, published as a GitHub release of this repository under a `lyceum-v<version>` tag. It is
 released the way Dereth is ([`dereth/launcher/RELEASING.md`](../dereth/launcher/RELEASING.md)):
 two commands and one review.
@@ -41,9 +42,14 @@ and the target they were built from.
 
 | system | the release file | its label |
 |---|---|---|
-| Windows (x86-64) | `lyceum-<v>-windows-x86_64.zip`: one folder, `lyceum-<v>/`, holding `lyceum-editor.exe` (with its icon), `lyceum.exe`, `README.md`, `CHANGES.md`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer | Lyceum · Windows x64 (zip, no installer) |
-| macOS (Apple silicon, Intel) | `Lyceum-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Lyceum.app`, with the editor and the command in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`, and the icon, the documents and the notices in `Contents/Resources` | Lyceum · macOS Apple silicon, Lyceum · macOS Intel |
-| Linux (x86-64) | `lyceum-<v>-linux-x86_64.tar.gz`: one folder, `lyceum-<v>/`, holding `lyceum-editor`, `lyceum`, the desktop entry `network.dereth.lyceum.desktop` and its icon `network.dereth.lyceum.png`, the documents and the notices | Lyceum · Linux x86-64 (glibc 2.35+) |
+| Windows (x86-64) | `lyceum-<v>-windows-x86_64.zip`: one folder, `lyceum-<v>/`, holding `lyceum-editor.exe` (with its icon), `lyceum.exe`, `empyrean-server.exe`, `empyrean-import.exe`, `README.md`, `CHANGES.md`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer | Lyceum · Windows x64 (zip, no installer) |
+| macOS (Apple silicon, Intel) | `Lyceum-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Lyceum.app`, with all four programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`, and the icon, the documents and the notices in `Contents/Resources` | Lyceum · macOS Apple silicon, Lyceum · macOS Intel |
+| Linux (x86-64) | `lyceum-<v>-linux-x86_64.tar.gz`: one folder, `lyceum-<v>/`, holding `lyceum-editor`, `lyceum`, `empyrean-server`, `empyrean-import`, the desktop entry `network.dereth.lyceum.desktop` and its icon `network.dereth.lyceum.png`, the documents and the notices | Lyceum · Linux x86-64 (glibc 2.35+) |
+
+Every package also carries `EMPYREAN-LICENSE` and `LIFESTONED-LICENSE.txt`. Its notice
+identifies Empyrean as a separate AGPL-3.0-only program and links the corresponding source
+at the exact build commit. No world database is bundled; the editor offers to fetch it
+with the bundled importer into the per-user cache.
 
 Beside them: `MANIFEST.txt` (Release manifest: every file in every package, with its size, SHA-256
 and what the header checks read from each program), `release.json` (Release facts (JSON)) and
@@ -58,7 +64,7 @@ and what the header checks read from each program), `release.json` (Release fact
 **Not code-signed yet**, as Dereth's: Windows SmartScreen warns once, macOS refuses once (System
 Settings, Privacy & Security, Open Anyway). The macOS bundle is signed ad hoc, without the
 hardened runtime, so it runs on Apple silicon and the editor can load the bundled MoltenVK; with
-`APPLE_SIGNING_IDENTITY` set to a Developer ID, MoltenVK, the command and the bundle are signed
+`APPLE_SIGNING_IDENTITY` set to a Developer ID, MoltenVK, the three console programs and the bundle are signed
 with it under the hardened runtime. Lyceum has no updater, so there is no update signature and no
 `latest.json`: a release is downloaded by hand and checked with
 `sha256sum -c SHA256SUMS --ignore-missing`.
@@ -78,7 +84,8 @@ cargo xtask package lyceum [--target <triple>]... [--out <dir>] [--allow-dirty] 
 cargo xtask package lyceum --gather <dir>
 ```
 
-Builds both programs (`cargo build --locked --release -p lyceum-editor -p lyceum-cli`) for each
+Builds all four programs (`cargo build --locked --release -p lyceum-editor -p lyceum-cli
+-p empyrean-server -p empyrean-import`) in the same job for each
 `--target` (default: this host's), lays out, scans, checks and archives each release file, and
 writes the index in `target/package/lyceum-<version>/` unless `--out` names another folder. It
 refuses a tree with uncommitted changes unless `--allow-dirty`, and a shallow clone. `--gather

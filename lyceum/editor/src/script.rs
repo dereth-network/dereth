@@ -21,17 +21,24 @@
 //! `walk` (true walks with a body, false flies); `mode`; `model` (the static the place tool
 //! places); `filter` (what the model browser is typed to find); `shelf` (the browser's category
 //! by name, `Tree`, `Building piece`, or `all`); `show` (a tab brought forward: `weenie`);
-//! `weenie` (the spawn tool's: a symbol or a class id); `piece` (the dungeon kit's, by its label,
+//! `weenie` (the spawn tool's: a symbol or a class id); `dungeon` (`new`: a new dungeon near the
+//! camera, gone into; `leave`: out of it again); `look` (the dungeon's look: the landblock of the
+//! world's dungeon whose look it takes, `0163`); `piece` (the dungeon kit's, by its label,
 //! `0094/0`); `extend` (that piece placed so many times, each at the first free portal of the
-//! pack's cells there); `inside` (the camera put in the middle of the pack's cell of that symbol in
+//! pack's cells there); `fit` (of what fits at the dungeon's first free doorway, or on its middle
+//! square when it has no room yet, the best of a kind: `corridor`, `corner`, `tee`, `cross`,
+//! `dead end`, `stairs`, or `any`; `dead ends` closes every doorway left free with one); `inside` (the camera put in the middle of the pack's cell of that symbol in
 //! the camera's landblock); `brush` (`kind`, `amount`, `value`, `radius`); `select` (`landblock` and
 //! `static` or `index`); `pointer` (pixels) or `pointer_at` (`at` with no height is `lift` meters
 //! over the ground); `press`; `drag` (`handle`: `x`, `y`, `z` or `turn`, and `by`: pixels along an
 //! arrow, degrees round the ring), which takes the frames after it; `key` (a key pressed and let
 //! go: `delete`, `escape`, `undo`, `redo`, `save`); `new_weenie` (`name`, `from`: a server class,
 //! `blank`: a blank of it rather than a copy); `edit` (an edit as `lyceum edit` reads it);
-//! `live` (true starts the editor's own world and waits for it, false stops it); `export_gdle`
-//! (true writes the world's content for GDLE, waited for); `play` (the Dereth client started in
+//! `live` (true starts the editor's own world and waits for it, false stops it); `export`
+//! (`empyrean`, `ace` or `gdle`: the world written out for that server, waited for;
+//! `export_gdle = true` is `export = "gdle"`; `gdle_quests`, GDLE's own quests.json, which an
+//! export for GDLE merges the world's quests into, as the Export menu names it); `play` (the
+//! Dereth client started in
 //! that world at the camera, with these switches after the editor's, waited for). The frames after the last step run with nothing new happening.
 
 use dereth_primitives::Vec3;
@@ -98,10 +105,16 @@ pub struct Step {
     /// A tab brought forward: `weenie`.
     pub show: Option<String>,
     pub weenie: Option<WeenieChoice>,
+    /// A new dungeon near the camera gone into (`new`), or left (`leave`); and its look, by the
+    /// landblock of the world's dungeon whose look it takes.
+    pub dungeon: Option<String>,
+    pub look: Option<u16>,
     /// The dungeon kit's piece, by its label; and how many of it to place, each at the first free
     /// portal.
     pub piece: Option<String>,
     pub extend: Option<u32>,
+    /// The best of what fits at the dungeon's first free doorway, of a kind by its name.
+    pub fit: Option<String>,
     /// The camera put in the middle of the pack's cell of this symbol, in its landblock.
     pub inside: Option<String>,
     pub brush: Option<BrushChoice>,
@@ -117,8 +130,12 @@ pub struct Step {
     pub edit: Option<toml::Table>,
     /// The editor's own world started (and waited for) or stopped.
     pub live: Option<bool>,
-    /// The world's content written for GDLE, waited for.
-    pub export_gdle: Option<bool>,
+    /// The world written out for a server, waited for.
+    pub export: Option<lyceum_foundry::export::Target>,
+    /// GDLE's own quests.json, which an export for GDLE merges the world's quests into.
+    pub gdle_quests: Option<String>,
+    /// Apply the selected character template after logout, keeping a recovery snapshot.
+    pub reset_character: Option<bool>,
     /// The client started in it with these switches, waited for.
     pub play: Option<Vec<String>>,
 }
@@ -238,6 +255,22 @@ fn step(t: &toml::Table, pack: &str) -> Result<Step, String> {
         )),
         Some(_) => return Err("weenie is a symbol or a class id".into()),
     };
+    s.dungeon = t
+        .get("dungeon")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
+    if let Some(l) = t.get("look").and_then(toml::Value::as_str) {
+        s.look = Some(
+            u16::from_str_radix(l, 16)
+                .ok()
+                .filter(|_| l.len() == 4)
+                .ok_or_else(|| format!("{l:?} is not a landblock"))?,
+        );
+    }
+    s.fit = t
+        .get("fit")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned);
     s.piece = t
         .get("piece")
         .and_then(toml::Value::as_str)
@@ -361,7 +394,22 @@ fn step(t: &toml::Table, pack: &str) -> Result<Step, String> {
     }
     s.edit = table(t, "edit")?.cloned();
     s.live = t.get("live").and_then(toml::Value::as_bool);
-    s.export_gdle = t.get("export_gdle").and_then(toml::Value::as_bool);
+    s.reset_character = t.get("reset_character").and_then(toml::Value::as_bool);
+    s.export = match t.get("export") {
+        Some(v) => Some(
+            v.as_str()
+                .and_then(lyceum_foundry::export::Target::parse)
+                .ok_or("export is empyrean, ace or gdle")?,
+        ),
+        None if t.get("export_gdle").and_then(toml::Value::as_bool) == Some(true) => {
+            Some(lyceum_foundry::export::Target::Gdle)
+        }
+        None => None,
+    };
+    s.gdle_quests = match t.get("gdle_quests") {
+        Some(v) => Some(v.as_str().ok_or("gdle_quests names a file")?.to_owned()),
+        None => None,
+    };
     if let Some(p) = t.get("play") {
         s.play = Some(
             p.as_array()
@@ -406,6 +454,35 @@ pub fn steps(text: &str, pack: &str) -> Result<Vec<Step>, String> {
 mod tests {
     //! Behaviour: none (tooling: the world editor's scripted mode)
     use super::*;
+
+    #[test]
+    fn a_script_builds_a_dungeon_with_what_fits_in_a_look() {
+        let s = steps(
+            r#"
+[[step]]
+frame = 3
+dungeon = "new"
+look = "0163"
+fit = "corridor"
+
+[[step]]
+frame = 5
+fit = "dead ends"
+dungeon = "leave"
+"#,
+            "holtburg",
+        )
+        .unwrap();
+        assert_eq!(
+            (s[0].dungeon.as_deref(), s[0].look, s[0].fit.as_deref()),
+            (Some("new"), Some(0x0163), Some("corridor"))
+        );
+        assert_eq!(
+            (s[1].dungeon.as_deref(), s[1].fit.as_deref()),
+            (Some("leave"), Some("dead ends"))
+        );
+        assert!(steps("[[step]]\nframe = 1\nlook = \"163\"\n", "holtburg").is_err());
+    }
 
     #[test]
     fn a_script_reads_its_steps_in_frame_order() {
@@ -459,6 +536,28 @@ filter = "gribble"
     }
 
     #[test]
+    fn a_script_exports_the_world_for_the_server_it_names() {
+        let s = steps(
+            "[[step]]
+frame = 2
+export = \"ace\"
+",
+            "p",
+        )
+        .unwrap();
+        assert_eq!(s[0].export, Some(lyceum_foundry::export::Target::Ace));
+        let e = steps(
+            "[[step]]
+frame = 2
+export = \"mysql\"
+",
+            "p",
+        )
+        .unwrap_err();
+        assert!(e.contains("empyrean, ace or gdle"), "{e}");
+    }
+
+    #[test]
     fn a_script_starts_the_editors_world_makes_a_weenie_and_plays() {
         let s = steps(
             r#"
@@ -466,6 +565,8 @@ filter = "gribble"
 frame = 3
 live = true
 export_gdle = true
+gdle_quests = "server/quests.json"
+reset_character = true
 new_weenie = { name = "Gate Guard", from = 1154, blank = true }
 
 [[step]]
@@ -478,7 +579,9 @@ live = false
         .unwrap();
         assert_eq!(s[0].live, Some(true));
         assert_eq!(s[0].new_weenie, Some(("Gate Guard".into(), 1154, true)));
-        assert_eq!(s[0].export_gdle, Some(true));
+        assert_eq!(s[0].export, Some(lyceum_foundry::export::Target::Gdle));
+        assert_eq!(s[0].gdle_quests.as_deref(), Some("server/quests.json"));
+        assert_eq!(s[0].reset_character, Some(true));
         assert_eq!(
             s[1].play.as_deref(),
             Some(&["--headless".to_owned(), "--linger".into(), "20".into()][..])

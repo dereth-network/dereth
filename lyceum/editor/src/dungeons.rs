@@ -1,6 +1,7 @@
 //! The world's dungeons from the editor's side: the list (the world's own and the packs', named
-//! by the portals that lead in), going into one to look round or to edit it, starting a new one in
-//! an empty landblock, and a portal in to one from outdoors.
+//! as a pack names them or by the portals that lead in), dungeon mode (going into one at its drop
+//! point and back out where the camera was), starting a new one on the open sea floor, and the
+//! dungeon's name and look, kept in the pack.
 
 use std::collections::BTreeMap;
 
@@ -8,56 +9,88 @@ use dereth_primitives::frame::{localtoglobal, V3};
 use dereth_primitives::Vec3;
 use lyceum_foundry::content::{self, SqlDoc};
 use lyceum_foundry::dungeons::Dungeon;
-use lyceum_foundry::edit::{Op, Weenie};
+use lyceum_foundry::edit::Op;
 use lyceum_foundry::pick;
 
-use crate::camera::landblock_of;
+use crate::camera::{landblock_of, FlyCamera};
 
 use super::{EditorApp, Mode, UiAction};
 
 /// The class a portal is made a blank of.
-const PORTAL_BLANK: u32 = 371;
+pub(super) const PORTAL_BLANK: u32 = 371;
 
-/// How far ahead of the camera a portal in is put on the ground, in meters.
-const PORTAL_AHEAD: f32 = 8.0;
+/// A portal's weenie type, as the server numbers it.
+const PORTAL_KIND: u32 = 7;
 
-/// How far under a new dungeon's landblock's ground its first piece goes, in meters.
-const UNDERGROUND: f32 = 60.0;
+/// How far under a new dungeon's landblock's ground the camera starts, in meters.
+const UNDERGROUND: f32 = 20.0;
 
-/// The dungeon list's state: the world's own dungeons once read, the typed filter, whether the
-/// steps are shown, and where each row's buttons were drawn.
-#[derive(Debug)]
-pub struct DungeonList {
-    retail: Option<BTreeMap<u16, u32>>,
-    pub filter: String,
-    /// Whether the dungeon tool shows its steps.
-    pub steps: bool,
-    /// Each row as drawn: its landblock, its Enter button and its Edit button.
-    pub rects: Vec<(u16, egui::Rect, egui::Rect)>,
+/// How high over the floor the camera goes in, in meters: a body's eye.
+const EYE: f32 = 1.6;
+
+/// Dungeon mode: the dungeon being edited, and where the camera was before it went in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InDungeon {
+    pub landblock: u16,
+    pub back: FlyCamera,
 }
 
-impl Default for DungeonList {
-    fn default() -> Self {
-        Self {
-            retail: None,
-            filter: String::new(),
-            steps: true,
-            rects: Vec::new(),
-        }
-    }
+/// The dungeon list's state: the world's own dungeons once read, the typed filter, the landblock
+/// typed for a new dungeon to start near, and where each row was drawn.
+#[derive(Debug, Default)]
+pub struct DungeonList {
+    pub(super) retail: Option<BTreeMap<u16, u32>>,
+    /// Every dungeon, as last listed (till the next edit, or the server's weenies learned).
+    pub(super) listed: Option<Vec<Dungeon>>,
+    pub filter: String,
+    pub start_near: String,
+    /// Each row as drawn: its landblock and its rectangle.
+    pub rects: Vec<(u16, egui::Rect)>,
+    /// The New dungeon button, and the dungeon card's Leave button, as drawn.
+    pub new_button: Option<egui::Rect>,
+    pub leave_button: Option<egui::Rect>,
+    /// The portals that lead into a dungeon, as last found (till the next edit).
+    pub entrances: Option<(u16, Vec<lyceum_foundry::edit::Entrance>)>,
+    /// The dungeon whose outdoor entrances the map marks: the one last gone into.
+    pub marked: Option<u16>,
+    /// Its marks on the map, as last drawn: each portal into it with where it stands.
+    pub map_marks: Vec<(egui::Rect, MapMark)>,
+    /// The name being typed in dungeon mode, until it is left.
+    pub naming: Option<String>,
+    /// The world's own dungeon whose taking away waits for the creator's word.
+    pub confirm: Option<u16>,
+    /// The card's look dropdown, its Delete, and the question's Delete, as drawn.
+    pub look_combo: Option<egui::Rect>,
+    pub delete_button: Option<egui::Rect>,
+    pub confirm_button: Option<egui::Rect>,
+    /// Each row's Delete in the list, as drawn.
+    pub delete_rects: Vec<(u16, egui::Rect)>,
+}
+
+/// What a mark of a dungeon on the map is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MapMark {
+    /// A portal into it: its landblock and where it stands there.
+    Entrance(u16, Vec3),
 }
 
 impl EditorApp {
     /// Every dungeon, the world's own and the packs', read the first time it is wanted.
     pub fn dungeons(&mut self) -> Vec<Dungeon> {
+        if let Some(listed) = &self.dungeon_list.listed {
+            return listed.clone();
+        }
         if self.dungeon_list.retail.is_none() {
             self.dungeon_list.retail = Some(self.session.retail_dungeons());
         }
         let retail = self.dungeon_list.retail.clone().unwrap_or_default();
-        self.session.dungeons(&retail)
+        let listed = self.session.dungeons(&retail);
+        self.dungeon_list.listed = Some(listed.clone());
+        listed
     }
 
-    /// What a dungeon is called: its portals' name, else its landblock.
+    /// What a dungeon is called: as the pack names it, else its portals' name, else its
+    /// landblock.
     #[must_use]
     pub fn dungeon_name(&self, d: &Dungeon) -> String {
         d.name.clone().unwrap_or_else(|| {
@@ -68,19 +101,35 @@ impl EditorApp {
         })
     }
 
-    /// The landblock the camera works in: the dungeon it was taken into while it is in one of its
-    /// rooms or building it, else the one it is over.
+    /// The name of dungeon `lb`, as the list shows it.
+    #[must_use]
+    pub fn dungeon_name_of(&mut self, lb: u16) -> String {
+        self.dungeons()
+            .into_iter()
+            .find(|d| d.landblock == lb)
+            .map_or_else(|| format!("{lb:04X}"), |d| self.dungeon_name(&d))
+    }
+
+    /// The dungeon being edited, in dungeon mode.
+    #[must_use]
+    pub fn dungeon_mode(&self) -> Option<u16> {
+        self.dungeon.map(|d| d.landblock)
+    }
+
+    /// The landblock the camera works in: in dungeon mode, or with the camera in one of a
+    /// dungeon's rooms, the dungeon's; else the one it is over.
     #[must_use]
     pub fn work_block(&self) -> Option<(u16, f32, f32)> {
-        if let Some(d) = self.dungeon_block {
-            if self.mode == Mode::Dungeon || self.in_dungeon {
-                let o = pick::block_origin(d);
-                return Some((
-                    d,
-                    self.camera.position.x - o.x,
-                    self.camera.position.y - o.y,
-                ));
-            }
+        let d = self
+            .dungeon_mode()
+            .or(self.dungeon_block.filter(|_| self.in_dungeon));
+        if let Some(d) = d {
+            let o = pick::block_origin(d);
+            return Some((
+                d,
+                self.camera.position.x - o.x,
+                self.camera.position.y - o.y,
+            ));
         }
         landblock_of(self.camera.position)
     }
@@ -96,12 +145,17 @@ impl EditorApp {
             .or_else(|| cells.keys().copied().next())
     }
 
-    /// Where a portal into dungeon `lb` sends who uses it: its first cell, and the middle of it
-    /// on its floor.
+    /// Where who goes into dungeon `lb` arrives, its drop point: the destination of the portals
+    /// that lead in (those standing outdoors first, then the one most share), else the middle of
+    /// its first cell on its floor. The cell, and the place in its landblock.
     ///
     /// # Errors
-    /// A landblock with no cell.
-    pub(super) fn dungeon_door(&self, lb: u16) -> Result<(u32, Vec3), String> {
+    /// A dungeon no portal leads into that has no cell.
+    pub fn drop_point(&mut self, lb: u16) -> Result<(u32, Vec3), String> {
+        let entrances = self.entrances(lb);
+        if let Some(to) = lyceum_foundry::edit::drop_point(&entrances) {
+            return Ok(to);
+        }
         let first = self.first_cell(lb).ok_or_else(|| {
             self.say_with("messages.no_cells", &[("landblock", &format!("{lb:04X}"))])
         })?;
@@ -112,7 +166,7 @@ impl EditorApp {
     }
 
     /// The middle of cell `index` of landblock `lb` on its floor (landblock meters).
-    fn cell_floor(&self, lb: u16, index: u16) -> Option<Vec3> {
+    pub(super) fn cell_floor(&self, lb: u16, index: u16) -> Option<Vec3> {
         let cell = self.cells_of(lb).get(&index)?.clone();
         let env = self.session.environment(cell.environment)?;
         let cs = env.cells.get(usize::from(cell.cell_struct))?;
@@ -130,79 +184,93 @@ impl EditorApp {
         Some(Vec3::new(mid.x, mid.y, floor))
     }
 
-    /// Into dungeon `lb`: the camera in its first cell, to build it on in dungeon mode, or with
-    /// `edit` to select and change what is in it, with the Nearby list of its cells, statics and
-    /// spawns brought forward.
+    /// Into dungeon `lb`, in dungeon mode: the camera at its drop point (or, for a dungeon with
+    /// no room yet, under the middle of its landblock), its grid in the map's place. Leaving puts
+    /// the camera back where it was before the first dungeon gone into.
     ///
     /// # Errors
-    /// A landblock with no cell.
-    pub fn enter_dungeon(&mut self, lb: u16, edit: bool) -> Result<(), String> {
-        let first = self.first_cell(lb).ok_or_else(|| {
-            self.say_with("messages.no_cells", &[("landblock", &format!("{lb:04X}"))])
-        })?;
-        let at = self
-            .cell_floor(lb, first)
-            .ok_or_else(|| self.say("messages.cell_not_compiled"))?;
-        self.dungeon_block = Some(lb);
-        self.in_dungeon = true;
-        self.camera.position = pick::block_origin(lb).add(Vec3::new(at.x, at.y, at.z + 1.6));
-        self.rooms = None;
-        if edit {
-            self.mode = Mode::Select;
-            self.nearby.stale();
-            self.show_tab(super::Tab::Nearby);
+    /// None for a dungeon the packs name; a landblock with no cells otherwise.
+    pub fn enter_dungeon(&mut self, lb: u16) -> Result<(), String> {
+        let empty = self.cells_of(lb).is_empty();
+        let at = if empty {
+            None
         } else {
-            self.mode = Mode::Dungeon;
+            Some(self.drop_point(lb)?)
+        };
+        if self.walking {
+            self.set_walking(false)?;
         }
+        let back = self.dungeon.map_or(self.camera, |d| d.back);
+        let mut camera = self.camera;
+        match at {
+            Some((cell, p)) => {
+                let o = pick::block_origin(u16::try_from(cell >> 16).unwrap_or(lb));
+                camera.position = Vec3::new(o.x + p.x, o.y + p.y, o.z + p.z + EYE);
+                camera.pitch = -0.2;
+            }
+            None => {
+                camera.position = pick::block_origin(lb).add(Vec3::new(96.0, 96.0, -UNDERGROUND));
+                camera.pitch = 0.0;
+            }
+        }
+        self.camera = camera;
+        self.dungeon = Some(InDungeon {
+            landblock: lb,
+            back,
+        });
+        self.dungeon_block = Some(lb);
+        self.dungeon_list.marked = Some(lb);
+        self.dungeon_list.naming = None;
+        self.in_dungeon = !empty;
+        self.rooms = None;
+        self.selection = None;
+        self.also.clear();
+        if self.mode == Mode::Terrain {
+            self.mode = Mode::Select;
+        }
+        self.layout.reset();
+        self.kit.chosen = None;
+        self.kit.look_of = None;
         Ok(())
     }
 
-    /// A new dungeon: the nearest landblock to the camera with no cells and no buildings, the
-    /// camera put under its middle to place the first piece in front of, in dungeon mode.
+    /// Out of dungeon mode: the camera back where it was before going in.
+    pub fn leave_dungeon(&mut self) {
+        let Some(d) = self.dungeon.take() else {
+            return;
+        };
+        if self.walking {
+            let _ = self.set_walking(false);
+        }
+        self.camera = d.back;
+        self.dungeon_block = None;
+        self.in_dungeon = false;
+        self.rooms = None;
+        self.selection = None;
+        self.also.clear();
+        self.layout.reset();
+        self.kit.chosen = None;
+        self.dungeon_list.naming = None;
+    }
+
+    /// A new dungeon: the landblock nearest `near` (else the camera's) of the open sea floor that
+    /// nothing uses, gone into in dungeon mode.
     ///
     /// # Errors
     /// The camera is off the world, or no landblock round it is free.
-    pub fn new_dungeon(&mut self) -> Result<u16, String> {
-        let (here, ..) =
-            landblock_of(self.camera.position).ok_or_else(|| self.say("messages.off_world"))?;
-        let (hx, hy) = (i32::from(here >> 8), i32::from(here & 0xFF));
-        let free = |lb: u16| {
-            self.session.cell_names(lb).is_empty()
-                && self
-                    .session
-                    .statics(lb)
-                    .is_none_or(|i| i.num_cells == 0 && i.buildings.is_empty())
-        };
-        let mut found = None;
-        'out: for r in 1..=64_i32 {
-            for dx in -r..=r {
-                for dy in -r..=r {
-                    if dx.abs() != r && dy.abs() != r {
-                        continue;
-                    }
-                    let (x, y) = (hx + dx, hy + dy);
-                    let Ok(lb) = u16::try_from((x << 8) | y) else {
-                        continue;
-                    };
-                    if (0..=0xFE).contains(&x) && (0..=0xFE).contains(&y) && free(lb) {
-                        found = Some(lb);
-                        break 'out;
-                    }
-                }
+    pub fn new_dungeon(&mut self, near: Option<u16>) -> Result<u16, String> {
+        let here = match near {
+            Some(lb) => lb,
+            None => {
+                landblock_of(self.camera.position)
+                    .ok_or_else(|| self.say("messages.off_world"))?
+                    .0
             }
-        }
-        let lb = found.ok_or_else(|| self.say("messages.no_free_landblock"))?;
-        let ground = self.session.ground(lb, 96.0, 96.0).unwrap_or(0.0);
-        self.camera.position = pick::block_origin(lb).add(Vec3::new(
-            96.0,
-            96.0 - dungeon_ahead(),
-            ground - UNDERGROUND,
-        ));
-        self.camera.yaw = 0.0;
-        self.camera.pitch = 0.0;
-        self.dungeon_block = Some(lb);
-        self.in_dungeon = false;
-        self.mode = Mode::Dungeon;
+        };
+        let lb = self
+            .room_near(here)
+            .ok_or_else(|| self.say("messages.no_free_landblock"))?;
+        self.enter_dungeon(lb)?;
         self.panels.message = self.say_with(
             "messages.dungeon_started",
             &[("landblock", &format!("{lb:04X}"))],
@@ -210,234 +278,706 @@ impl EditorApp {
         Ok(lb)
     }
 
-    /// A portal into dungeon `lb` from outdoors: a weenie of the pack, a blank of the server's
-    /// portal named for the dungeon, sending who uses it to the middle of the dungeon's first
-    /// cell; and a spawn of it on the ground ahead of the camera when the camera is outdoors,
-    /// else in the middle of the dungeon's landblock. One step.
+    /// The portals that lead into dungeon `lb`, found once till the next edit.
+    pub fn entrances(&mut self, lb: u16) -> Vec<lyceum_foundry::edit::Entrance> {
+        if let Some((at, found)) = &self.dungeon_list.entrances {
+            if *at == lb {
+                return found.clone();
+            }
+        }
+        let found = self.session.entrances(lb);
+        self.dungeon_list.entrances = Some((lb, found.clone()));
+        found
+    }
+
+    /// The landblock nearest `from` with room for a new dungeon ([`Self::room_for_dungeon`]),
+    /// ring by ring outward.
+    #[must_use]
+    pub fn room_near(&self, from: u16) -> Option<u16> {
+        let (hx, hy) = (i32::from(from >> 8), i32::from(from & 0xFF));
+        for r in 0..=0xFF_i32 {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    if dx.abs() != r && dy.abs() != r {
+                        continue;
+                    }
+                    let (x, y) = (hx + dx, hy + dy);
+                    if !(0..0xFF).contains(&x) || !(0..0xFF).contains(&y) {
+                        continue;
+                    }
+                    let Ok(lb) = u16::try_from((x << 8) | y) else {
+                        continue;
+                    };
+                    if self.room_for_dungeon(lb).is_ok()
+                        && self.session.dungeon_info(lb) == Default::default()
+                    {
+                        return Some(lb);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Whether landblock `lb` has room for a new dungeon, as the packs leave it: the open sea
+    /// floor, where retail builds its dungeons, with no statics and no rooms
+    /// ([`lyceum_foundry::room::room_for_dungeon`]).
     ///
     /// # Errors
-    /// No server database to make a portal from, a dungeon with no cell, or a name taken.
-    pub fn portal_to_dungeon(&mut self, lb: u16) -> Result<(), String> {
-        let first = self.first_cell(lb).ok_or_else(|| {
-            self.say_with("messages.no_cells", &[("landblock", &format!("{lb:04X}"))])
-        })?;
-        let to = self
-            .cell_floor(lb, first)
-            .ok_or_else(|| self.say("messages.cell_not_compiled"))?;
+    /// What uses it, as a sentence.
+    pub fn room_for_dungeon(&self, lb: u16) -> Result<(), String> {
+        use lyceum_foundry::room::Taken;
+        let rooms = self.session.cell_names(lb).len();
+        lyceum_foundry::room::room_for_dungeon(
+            lb,
+            self.session.terrain(lb).as_ref(),
+            self.session.statics(lb).as_ref(),
+            rooms,
+        )
+        .map_err(|why| {
+            let key = match why {
+                Taken::Land => "messages.room_land",
+                Taken::Statics => "messages.room_statics",
+                Taken::Rooms => "messages.room_rooms",
+                Taken::Edge => "messages.room_edge",
+            };
+            self.say_with(key, &[("landblock", &format!("{lb:04X}"))])
+        })
+    }
+
+    /// The portal weenies that lead into dungeon `lb`, by their destination: the server's own
+    /// (or the pack's copy that takes one's place) and the packs' own.
+    #[must_use]
+    pub fn portals_into(&self, lb: u16) -> Vec<lyceum_foundry::edit::Weenie> {
+        use lyceum_foundry::edit::Weenie;
+        let leads = |f: &lyceum_foundry::sql_ids::WeenieFacts| {
+            f.kind == Some(PORTAL_KIND) && f.destination.is_some_and(|d| d >> 16 == u32::from(lb))
+        };
+        let copies = self.session.pack_classes();
+        let mut out: Vec<Weenie> = Vec::new();
+        for (c, f) in self.session.server_weenies() {
+            if leads(copies.get(c).unwrap_or(f)) {
+                out.push(Weenie::Class(*c));
+            }
+        }
+        for (c, f) in &copies {
+            if leads(f) && !out.contains(&Weenie::Class(*c)) {
+                out.push(Weenie::Class(*c));
+            }
+        }
+        for (sym, f) in self.session.pack_weenies() {
+            if leads(&f) {
+                out.push(Weenie::Symbol(sym));
+            }
+        }
+        out
+    }
+
+    /// The portals that lead into dungeon `lb`, each with its name as the packs have it.
+    #[must_use]
+    pub fn portal_names(&self, lb: u16) -> Vec<(lyceum_foundry::edit::Weenie, String)> {
+        use lyceum_foundry::edit::Weenie;
+        let copies = self.session.pack_classes();
+        let own = self.session.pack_weenies();
+        self.portals_into(lb)
+            .into_iter()
+            .map(|w| {
+                let name = match &w {
+                    Weenie::Class(c) => copies
+                        .get(c)
+                        .cloned()
+                        .or_else(|| self.session.class_facts(*c))
+                        .and_then(|f| f.name),
+                    Weenie::Symbol(s) => own.get(s).and_then(|f| f.name.clone()),
+                };
+                (w, name.unwrap_or_default())
+            })
+            .collect()
+    }
+
+    /// Name dungeon `lb`, kept in the pack, and its portals with it: each portal that leads in
+    /// (the server's own, by the pack's copy of its weenie, and the packs' own) called by the new
+    /// name where it said the old one, else by the new name. One step.
+    ///
+    /// # Errors
+    /// The pack would not take it, or a server portal's weenie cannot be read to copy.
+    pub fn name_dungeon(&mut self, lb: u16, name: &str) -> Result<(), String> {
+        let look = self.session.dungeon_info(lb).look;
+        let old = self.dungeon_name_of(lb);
+        let name = Some(name.trim().to_owned()).filter(|n| !n.is_empty());
+        let mut ops = vec![Op::SetDungeon {
+            landblock: lb,
+            name: name.clone(),
+            look,
+        }];
+        if let Some(new) = &name {
+            for w in self.portals_into(lb) {
+                let Ok((file, text)) = self.writable_sql(&w) else {
+                    continue;
+                };
+                let mut doc = SqlDoc::parse(&text);
+                let now = doc
+                    .property(content::PropertyKind::String, 1)
+                    .map(|v| content::unquote(&v))
+                    .unwrap_or_default();
+                let renamed = if !old.is_empty() && now.contains(&old) {
+                    now.replace(&old, new)
+                } else {
+                    new.clone()
+                };
+                if renamed == now {
+                    continue;
+                }
+                doc.set_property(content::PropertyKind::String, 1, &renamed, None);
+                ops.push(Op::WriteSql {
+                    file,
+                    text: Some(doc.render()),
+                });
+            }
+        }
+        let renamed = ops.len() - 1;
+        self.apply(&Op::Batch(ops), false)?;
+        self.dungeon_list.listed = None;
+        if renamed > 0 {
+            self.panels.message = self.say_with("dungeon.renamed", &[("n", &renamed)]);
+        }
+        Ok(())
+    }
+
+    /// Choose the look dungeon `lb` is drawn in, kept in the pack: the look of the world's dungeon
+    /// `of`, or each piece as the world draws it most (`None`). Every room of it is drawn in that
+    /// look, the world's own too: by the world's own list where it draws the piece so, else each
+    /// surface by its role. One step.
+    ///
+    /// # Errors
+    /// The pack would not take it.
+    pub fn choose_dungeon_look(&mut self, lb: u16, of: Option<u16>) -> Result<(), String> {
+        self.wait_for_pieces();
+        let name = self.session.dungeon_info(lb).name;
+        let mut ops = vec![Op::SetDungeon {
+            landblock: lb,
+            name,
+            look: of,
+        }];
+        let family = of.and_then(|l| self.family_of_landblock(l));
+        let pieces = self.kit.pieces.clone().unwrap_or_default();
+        let cells = self.cells_of(lb);
+        let (mut exact, mut by_role, mut kept) = (0usize, 0usize, 0usize);
+        for placed in lyceum_foundry::kit::placed_pieces(&cells) {
+            let Some(p) = pieces.iter().find(|p| p.environment == placed.environment) else {
+                continue;
+            };
+            let (surfaces, how) = match family {
+                Some(f) => lyceum_foundry::kit::dress(p, f, self.kit.dress.get(f)),
+                None => (p.surfaces.clone(), lyceum_foundry::kit::Dressed::Exact),
+            };
+            match how {
+                lyceum_foundry::kit::Dressed::Exact => exact += placed.cells.len(),
+                lyceum_foundry::kit::Dressed::ByRole => by_role += placed.cells.len(),
+                lyceum_foundry::kit::Dressed::Kept => kept += placed.cells.len(),
+            }
+            for c in &placed.cells {
+                if cells.get(c).is_some_and(|cell| cell.surfaces != surfaces) {
+                    ops.push(Op::DressCell {
+                        landblock: lb,
+                        cell: *c,
+                        surfaces: surfaces.clone(),
+                    });
+                }
+            }
+        }
+        self.apply(&Op::Batch(ops), false)?;
+        self.kit.look_of = None;
+        self.kit.look = family;
+        self.panels.message =
+            self.say_with("dungeon.restyled", &[("exact", &exact), ("role", &by_role)]);
+        if kept > 0 {
+            let more = self.say_with("dungeon.restyled_kept", &[("n", &kept)]);
+            self.panels.message = format!("{} {more}", self.panels.message);
+        }
+        Ok(())
+    }
+
+    /// Whether the card offers look `f`: one the world draws more than one dungeon in, with a
+    /// surface for each role its pieces' surfaces cover.
+    #[must_use]
+    pub fn offered_look(&self, f: usize) -> bool {
+        self.kit
+            .families
+            .get(f)
+            .is_some_and(|fam| fam.landblocks.len() >= 2)
+            && self.kit.dress.get(f).is_some_and(|d| !d.is_empty())
+    }
+
+    /// The family of looks the world's dungeon `lb` is drawn in.
+    #[must_use]
+    pub fn family_of_landblock(&self, lb: u16) -> Option<usize> {
+        self.kit
+            .families
+            .iter()
+            .position(|f| f.landblocks.iter().any(|(l, _)| *l == lb))
+    }
+
+    /// What taking dungeon `lb` away takes: its rooms, the things standing in them (statics and
+    /// spawns), and the portals that lead into it.
+    pub fn dungeon_contents(&mut self, lb: u16) -> (usize, usize, usize) {
+        let cells = self.cells_of(lb);
+        let rooms = cells
+            .values()
+            .filter(|c| c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0)
+            .count();
+        let ids: std::collections::BTreeSet<u32> = cells
+            .keys()
+            .map(|n| (u32::from(lb) << 16) | u32::from(*n))
+            .collect();
+        self.session.show_server_spawns([lb]);
+        let things = cells
+            .values()
+            .map(|c| c.static_objects.len())
+            .sum::<usize>()
+            + self
+                .session
+                .spawns()
+                .iter()
+                .filter(|s| ids.contains(&s.cell))
+                .count();
+        let portals = self.entrances(lb).len();
+        (rooms, things, portals)
+    }
+
+    /// Take dungeon `lb` away, whole: its rooms, what stands in them, the portals that lead into
+    /// it (their spawns, and the packs' own portal weenies), and its name and look. One step; the
+    /// camera leaves it first when it is in it.
+    ///
+    /// # Errors
+    /// The pack would not take it.
+    pub fn delete_dungeon(&mut self, lb: u16) -> Result<(), String> {
+        let cells = self.cells_of(lb);
+        let names = self.session.cell_names(lb);
+        let mut ops: Vec<Op> = names
+            .values()
+            .map(|name| Op::RemoveCell {
+                landblock: lb,
+                name: name.clone(),
+            })
+            .collect();
+        let world: Vec<u16> = cells
+            .iter()
+            .filter(|(n, c)| {
+                !names.contains_key(n)
+                    && c.frame.origin.z > lyceum_foundry::cells::CLOSED_DEPTH + 1.0
+            })
+            .map(|(n, _)| *n)
+            .collect();
+        if !world.is_empty() {
+            self.session.show_server_spawns([lb]);
+            ops.push(Op::TakeCells {
+                landblock: lb,
+                cells: world,
+            });
+        }
+        ops.push(Op::SetDungeon {
+            landblock: lb,
+            name: None,
+            look: None,
+        });
+        // The portals that lead in: their spawns, and the packs' own weenies of them.
+        let spawns = self.session.spawns();
+        for e in self.entrances(lb) {
+            if e.landblock == lb {
+                continue;
+            }
+            match spawns.iter().find(|s| s.guid == e.guid) {
+                Some(s) if s.server => ops.push(Op::RemoveServerSpawn {
+                    file: s.file.clone(),
+                    guid: s.guid.clone(),
+                }),
+                Some(s) => {
+                    if !ops
+                        .iter()
+                        .any(|o| matches!(o, Op::RemoveSpawn { file } if *file == s.file))
+                    {
+                        ops.push(Op::RemoveSpawn {
+                            file: s.file.clone(),
+                        });
+                    }
+                }
+                None => ops.push(Op::RemoveServerSpawn {
+                    file: self.session.override_file(e.landblock),
+                    guid: e.guid.clone(),
+                }),
+            }
+        }
+        for w in self.portals_into(lb) {
+            if let lyceum_foundry::edit::Weenie::Symbol(_) = &w {
+                if let Some((file, true)) = self.session.weenie_file(&w) {
+                    ops.push(Op::WriteSql { file, text: None });
+                }
+            }
+        }
+        if self.dungeon_mode() == Some(lb) {
+            self.leave_dungeon();
+        }
+        self.apply(&Op::Batch(ops), false)?;
+        self.dungeon_list.confirm = None;
+        self.dungeon_list.listed = None;
+        self.panels.message = self.say("dungeon.deleted");
+        Ok(())
+    }
+
+    /// Delete dungeon `lb` as its button asks: the pack's own at once; one of the world's after
+    /// the creator confirms it, naming what goes with it.
+    ///
+    /// # Errors
+    /// The pack would not take it.
+    pub fn ask_delete_dungeon(&mut self, lb: u16) -> Result<(), String> {
+        let worlds = self
+            .cells_of(lb)
+            .keys()
+            .any(|n| !self.session.cell_names(lb).contains_key(n));
+        if worlds && self.dungeon_list.confirm != Some(lb) {
+            self.dungeon_list.confirm = Some(lb);
+            return Ok(());
+        }
+        self.delete_dungeon(lb)
+    }
+
+    /// The dungeon card at the head of the tools in dungeon mode: its name (typed and kept, its
+    /// portals renamed with it), its look first (chosen from the world's, its textures shown,
+    /// every room drawn in it), the way out, and taking it away.
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn dungeon_card(&mut self, ui: &mut egui::Ui, lb: u16, out: &mut Vec<UiAction>) {
+        let t = self.text.table();
+        let name = self.dungeon_name_of(lb);
+        ui.horizontal(|ui| {
+            ui.heading(t.fill("dungeon.header", &[("name", &name)]));
+            let leave = ui
+                .button(t.get("dungeon.leave"))
+                .on_hover_text(t.get("dungeon.leave_tip"));
+            self.dungeon_list.leave_button = Some(leave.rect);
+            if leave.clicked() {
+                out.push(UiAction::LeaveDungeon);
+            }
+        });
+        // The look first: its name and its textures.
+        let shown = self.dungeon_look(lb);
+        let shown_name = shown.map_or_else(
+            || t.get("dungeon.no_look").to_owned(),
+            |f| self.family_name(f),
+        );
+        let mut pick: Option<Option<u16>> = None;
+        self.kit.look_rects.clear();
+        ui.horizontal(|ui| {
+            ui.label(t.get("dungeon.look"));
+            let combo = egui::ComboBox::from_id_salt("dungeon look")
+                .selected_text(shown_name)
+                .width(ui.available_width() - 8.0)
+                .height(360.0)
+                .show_ui(ui, |ui| {
+                    for f in 0..self.kit.families.len() {
+                        if !self.offered_look(f) {
+                            continue;
+                        }
+                        let first = self.kit.families[f].landblocks[0].0;
+                        let label = self.family_name(f);
+                        let r = ui
+                            .horizontal(|ui| {
+                                let r = ui.selectable_label(shown == Some(f), label);
+                                self.swatches(ui, f, 16.0, 6);
+                                r
+                            })
+                            .inner;
+                        self.kit.look_rects.push((f, r.rect));
+                        if r.clicked() {
+                            pick = Some(Some(first));
+                        }
+                    }
+                });
+            self.dungeon_list.look_combo = Some(combo.response.rect);
+        });
+        if let Some(f) = shown {
+            ui.horizontal_wrapped(|ui| {
+                self.swatches(ui, f, 34.0, 8);
+            });
+        }
+        if let Some(p) = pick {
+            out.push(UiAction::DungeonLook(lb, p));
+        }
+        ui.horizontal(|ui| {
+            ui.label(t.get("dungeon.name"));
+            let typed = self
+                .dungeon_list
+                .naming
+                .get_or_insert_with(|| self.session.dungeon_info(lb).name.unwrap_or_default());
+            let r = ui
+                .add(
+                    egui::TextEdit::singleline(typed)
+                        .hint_text(t.get("dungeon.name_hint"))
+                        .desired_width(180.0),
+                )
+                .on_hover_text(t.get("dungeon.name_tip"));
+            if r.lost_focus() {
+                let now = typed.clone();
+                if Some(now.trim()) != self.session.dungeon_info(lb).name.as_deref() {
+                    out.push(UiAction::NameDungeon(lb, now));
+                }
+            }
+            let del = ui
+                .button(t.get("dungeon.delete"))
+                .on_hover_text(t.get("dungeon.delete_tip"));
+            self.dungeon_list.delete_button = Some(del.rect);
+            if del.clicked() {
+                out.push(UiAction::DeleteDungeon(lb));
+            }
+        });
+        self.confirm_delete(ui, lb, out);
+        ui.separator();
+    }
+
+    /// The question before one of the world's own dungeons is taken away, naming what goes.
+    fn confirm_delete(&mut self, ui: &mut egui::Ui, lb: u16, out: &mut Vec<UiAction>) {
+        if self.dungeon_list.confirm != Some(lb) {
+            return;
+        }
+        let (rooms, things, portals) = self.dungeon_contents(lb);
+        let name = self.dungeon_name_of(lb);
+        let t = self.text.table();
+        ui.colored_label(
+            super::panels::mark::FAULT,
+            t.fill(
+                "dungeon.delete_confirm",
+                &[
+                    ("name", &name),
+                    ("rooms", &rooms),
+                    ("things", &things),
+                    ("portals", &portals),
+                ],
+            ),
+        );
+        ui.horizontal(|ui| {
+            let yes = ui.button(t.get("dungeon.delete_yes"));
+            self.dungeon_list.confirm_button = Some(yes.rect);
+            if yes.clicked() {
+                out.push(UiAction::DeleteDungeon(lb));
+            }
+            if ui.button(t.get("dungeon.delete_no")).clicked() {
+                out.push(UiAction::KeepDungeon);
+            }
+        });
+    }
+
+    /// The textures of look `f` as swatches `side` points square, at most `most`.
+    fn swatches(&mut self, ui: &mut egui::Ui, f: usize, side: f32, most: usize) {
+        let textures = self
+            .kit
+            .families
+            .get(f)
+            .map(|fam| fam.textures.clone())
+            .unwrap_or_default();
+        for tex in textures.into_iter().take(most) {
+            let (r, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+            match self.texture_picture(tex) {
+                Some(id) => {
+                    ui.painter().image(
+                        id,
+                        r,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                }
+                None => {
+                    ui.painter()
+                        .rect_filled(r, 2.0, egui::Color32::from_gray(60));
+                }
+            }
+        }
+    }
+
+    /// A new portal standing at `origin` (landblock meters of `landblock`; in its room `cell`,
+    /// when it stands in one): a weenie of the pack's own, a blank of the server's portal, and a
+    /// spawn of it, as one step. It leads into the dungeon last gone into, at its drop point, when
+    /// there is one; its card chooses another. Selected.
+    ///
+    /// # Errors
+    /// No server database to make a portal from.
+    pub(super) fn place_portal(
+        &mut self,
+        landblock: u16,
+        cell: Option<u16>,
+        origin: Vec3,
+    ) -> Result<(), String> {
         let path = self
             .server_sql
             .clone()
             .ok_or_else(|| self.say("messages.no_server_database"))?;
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let world = String::from_utf8_lossy(&bytes);
-        let dungeon = self
-            .dungeons()
-            .into_iter()
-            .find(|d| d.landblock == lb)
-            .map_or_else(|| format!("{lb:04X}"), |d| self.dungeon_name(&d));
-        let name = format!("portal-{lb:04x}");
-        let (file, sym) = self
-            .session
-            .new_weenie_file(&name)
-            .map_err(|e| e.to_string())?;
-        if self.session.sql_text(&file).is_some() {
-            return Err(self.say_with("messages.name_taken", &[("name", &sym)]));
-        }
-        let text = content::template(&world, PORTAL_BLANK, &name, true)
+        let (file, sym, name) = (1..)
+            .find_map(|n| {
+                let name = format!("portal-{n}");
+                let (file, sym) = self.session.new_weenie_file(&name).ok()?;
+                self.session
+                    .sql_text(&file)
+                    .is_none()
+                    .then_some((file, sym, name))
+            })
+            .ok_or_else(|| self.say("messages.no_server_database"))?;
+        let mut text = content::template(&world, PORTAL_BLANK, &name, true)
             .ok_or_else(|| self.say_with("messages.no_such_class", &[("id", &PORTAL_BLANK)]))?;
-        let title = self.say_with("dungeon.portal_name", &[("dungeon", &dungeon)]);
-        let cell = (u32::from(lb) << 16) | u32::from(first);
-        let text = with_destination(&text, cell, to, &title);
-        let header = self.say_with(
-            "dungeon.portal_header",
-            &[("dungeon", &dungeon), ("cell", &format!("0x{cell:08X}"))],
-        );
-        // Where it stands: ahead of the camera outdoors, else over the dungeon.
-        let (at_lb, at) = match self.camera_cell() {
-            None => {
-                let f = self.camera.forward();
-                let len = (f.x * f.x + f.y * f.y).sqrt().max(1e-3);
-                let p = self.camera.position;
-                let ahead = Vec3::new(
-                    p.x + f.x / len * PORTAL_AHEAD,
-                    p.y + f.y / len * PORTAL_AHEAD,
-                    p.z,
-                );
-                let (alb, x, y) =
-                    landblock_of(ahead).ok_or_else(|| self.say("messages.off_world"))?;
-                (
-                    alb,
-                    Vec3::new(x, y, self.session.ground(alb, x, y).unwrap_or(0.0)),
-                )
+        if let Some(lb) = self.dungeon_list.marked {
+            if let Ok((to, at)) = self.drop_point(lb) {
+                let dungeon = self.dungeon_name_of(lb);
+                let title = self.say_with("dungeon.portal_name", &[("dungeon", &dungeon)]);
+                text = with_destination(&text, to, at, &title);
             }
-            Some(_) => (
-                lb,
-                Vec3::new(
-                    96.0,
-                    96.0,
-                    self.session.ground(lb, 96.0, 96.0).unwrap_or(0.0),
-                ),
-            ),
+        }
+        let weenie = lyceum_foundry::edit::Weenie::Symbol(sym);
+        let place = match cell {
+            Some(cell) => Op::PlaceSpawnInCell {
+                landblock,
+                cell,
+                weenie,
+                origin,
+                heading: 0.0,
+            },
+            None => Op::PlaceSpawn {
+                landblock,
+                weenie,
+                origin,
+                heading: 0.0,
+            },
         };
-        let weenie = Weenie::Symbol(sym.clone());
         let applied = self.apply(
             &Op::Batch(vec![
                 Op::WriteSql {
                     file,
-                    text: Some(format!("/* {header} */\n{text}")),
+                    text: Some(text),
                 },
-                Op::PlaceSpawn {
-                    landblock: at_lb,
-                    weenie: weenie.clone(),
-                    origin: at,
-                    heading: 0.0,
-                },
+                place,
             ]),
             false,
         )?;
-        self.panels.weenie = Some(weenie);
         if let Some(file) = applied.spawned {
             if let Some(s) = self.session.spawns().into_iter().find(|s| s.file == file) {
                 self.selection = Some(super::Selection::Spawn { file, guid: s.guid });
                 self.also.clear();
+                self.show_tab(super::Tab::Inspector);
             }
         }
-        self.panels.message = self.say_with("messages.portal_made", &[("dungeon", &dungeon)]);
         Ok(())
     }
 
-    /// The dungeon tab's head: the steps, the dungeons, and the buttons that start one or lead
-    /// into one.
-    pub(super) fn dungeons_section(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
-        let t = self.text.table();
-        let steps = egui::CollapsingHeader::new(t.get("dungeon.steps_title"))
-            .id_salt("dungeon steps")
-            .open(Some(self.dungeon_list.steps))
-            .show(ui, |ui| {
-                for k in 1..=6 {
-                    ui.label(t.get(&format!("dungeon.step_{k}")));
-                }
-            });
-        if steps.header_response.clicked() {
-            self.dungeon_list.steps = !self.dungeon_list.steps;
-        }
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .button(t.get("dungeon.new"))
-                .on_hover_text(t.get("dungeon.new_tip"))
-                .clicked()
-            {
-                out.push(UiAction::NewDungeon);
-            }
-            let here = self
-                .dungeon_block
-                .or_else(|| self.work_block().map(|w| w.0));
-            if let Some(lb) = here {
-                if ui
-                    .add_enabled(
-                        self.server_sql.is_some(),
-                        egui::Button::new(t.get("dungeon.portal_in")),
-                    )
-                    .on_hover_text(t.fill(
-                        "dungeon.portal_in_tip",
-                        &[("landblock", &format!("{lb:04X}"))],
-                    ))
-                    .on_disabled_hover_text(t.get("dungeon.portal_in_no_server"))
-                    .clicked()
-                {
-                    out.push(UiAction::PortalToDungeon(lb));
-                }
-            }
-            if ui
-                .button(t.get("dungeon.all"))
-                .on_hover_text(t.get("dungeon.all_tip"))
-                .clicked()
-            {
-                out.push(UiAction::ShowTab(super::Tab::Dungeons));
-            }
-        });
-        ui.separator();
+    /// Where portal spawn `s` sends who uses it (`Some(None)`: nowhere yet); `None` when it is not
+    /// a portal.
+    #[must_use]
+    pub fn portal_destination(&self, s: &lyceum_foundry::edit::Spawn) -> Option<Option<u32>> {
+        let facts = match self.session.spawn_weenie(s)? {
+            lyceum_foundry::edit::Weenie::Symbol(sym) => self.session.pack_weenies().remove(&sym),
+            lyceum_foundry::edit::Weenie::Class(c) => self
+                .session
+                .pack_classes()
+                .remove(&c)
+                .or_else(|| self.session.class_facts(c)),
+        }?;
+        (facts.kind == Some(PORTAL_KIND)).then_some(facts.destination)
     }
 
-    /// The Dungeons tab: every dungeon, the world's and the packs', by name, with a button to go
-    /// in and one to edit it.
+    /// The Dungeons tab: every dungeon, the world's and the packs', by name; a click on one goes
+    /// into it. New dungeon starts one near a landblock typed, or near the camera.
     pub(super) fn dungeons_tab(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let t = self.text.table();
+        ui.horizontal_wrapped(|ui| {
+            let b = ui
+                .button(t.get("dungeon.new"))
+                .on_hover_text(t.get("dungeon.new_tip"));
+            self.dungeon_list.new_button = Some(b.rect);
+            if b.clicked() {
+                let near = u16::from_str_radix(self.dungeon_list.start_near.trim(), 16).ok();
+                out.push(UiAction::NewDungeon(near));
+            }
+            ui.label(t.get("dungeon.near"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.dungeon_list.start_near)
+                    .hint_text(t.get("dungeon.near_hint"))
+                    .desired_width(70.0),
+            );
+        });
+        ui.separator();
         let all = self.dungeons();
         ui.strong(t.fill("dungeon.list", &[("n", &all.len())]));
+        ui.add(
+            egui::TextEdit::singleline(&mut self.dungeon_list.filter)
+                .hint_text(t.get("dungeon.list_filter"))
+                .desired_width(f32::INFINITY),
+        );
+        let f = self.dungeon_list.filter.trim().to_lowercase();
+        let shown: Vec<(Dungeon, String)> = all
+            .into_iter()
+            .map(|d| {
+                let n = self.dungeon_name(&d);
+                (d, n)
+            })
+            .filter(|(d, n)| {
+                f.is_empty()
+                    || n.to_lowercase().contains(&f)
+                    || format!("{:04x}", d.landblock).contains(&f)
+            })
+            .collect();
+        self.dungeon_list.rects.clear();
+        self.dungeon_list.delete_rects.clear();
+        if let Some(lb) = self
+            .dungeon_list
+            .confirm
+            .filter(|lb| self.dungeon_mode() != Some(*lb))
         {
-            {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.dungeon_list.filter)
-                        .hint_text(t.get("dungeon.list_filter"))
-                        .desired_width(f32::INFINITY),
-                );
-                let f = self.dungeon_list.filter.trim().to_lowercase();
-                let shown: Vec<(Dungeon, String)> = all
-                    .into_iter()
-                    .map(|d| {
-                        let n = self.dungeon_name(&d);
-                        (d, n)
-                    })
-                    .filter(|(d, n)| {
-                        f.is_empty()
-                            || n.to_lowercase().contains(&f)
-                            || format!("{:04x}", d.landblock).contains(&f)
-                    })
-                    .collect();
-                self.dungeon_list.rects.clear();
-                egui::ScrollArea::vertical().id_salt("dungeons").show_rows(
-                    ui,
-                    20.0,
-                    shown.len(),
-                    |ui, rows| {
-                        for i in rows {
-                            let (d, name) = &shown[i];
-                            ui.horizontal(|ui| {
-                                let enter = ui
-                                    .small_button(t.get("dungeon.enter"))
-                                    .on_hover_text(t.get("dungeon.enter_tip"));
-                                let edit = ui
-                                    .small_button(t.get("dungeon.edit"))
-                                    .on_hover_text(t.get("dungeon.edit_tip"));
-                                ui.label(name);
-                                ui.weak(t.fill(
-                                    "dungeon.list_row",
-                                    &[
-                                        ("landblock", &format!("{:04X}", d.landblock)),
-                                        ("n", &d.cells),
-                                        (
-                                            "whose",
-                                            &t.get(if d.pack {
-                                                "dungeon.packs"
-                                            } else {
-                                                "dungeon.worlds"
-                                            }),
-                                        ),
-                                    ],
-                                ));
-                                self.dungeon_list
-                                    .rects
-                                    .push((d.landblock, enter.rect, edit.rect));
-                                if enter.clicked() {
-                                    out.push(UiAction::EnterDungeon(d.landblock, false));
-                                }
-                                if edit.clicked() {
-                                    out.push(UiAction::EnterDungeon(d.landblock, true));
-                                }
-                            });
-                        }
-                    },
-                );
-            }
+            self.confirm_delete(ui, lb, out);
         }
+        let here = self.dungeon_mode();
+        egui::ScrollArea::vertical().id_salt("dungeons").show_rows(
+            ui,
+            20.0,
+            shown.len(),
+            |ui, rows| {
+                for i in rows {
+                    let (d, name) = &shown[i];
+                    let whose = t.get(if d.pack {
+                        "dungeon.packs"
+                    } else {
+                        "dungeon.worlds"
+                    });
+                    ui.horizontal(|ui| {
+                        let del = ui
+                            .small_button(t.get("dungeon.delete_short"))
+                            .on_hover_text(t.get("dungeon.delete_tip"));
+                        self.dungeon_list.delete_rects.push((d.landblock, del.rect));
+                        if del.clicked() {
+                            out.push(UiAction::DeleteDungeon(d.landblock));
+                        }
+                        let row = ui
+                            .selectable_label(
+                                here == Some(d.landblock),
+                                format!(
+                                    "{name}   {}",
+                                    t.fill(
+                                        "dungeon.list_row",
+                                        &[
+                                            ("landblock", &format!("{:04X}", d.landblock)),
+                                            ("n", &d.cells),
+                                            ("whose", &whose),
+                                        ],
+                                    )
+                                ),
+                            )
+                            .on_hover_text(t.get("dungeon.enter_tip"));
+                        self.dungeon_list.rects.push((d.landblock, row.rect));
+                        if row.clicked() {
+                            out.push(UiAction::EnterDungeon(d.landblock));
+                        }
+                    });
+                }
+            },
+        );
     }
-}
-
-/// How far behind the middle of a new dungeon's landblock the camera starts, so the first piece,
-/// placed ahead of it, lands in the middle.
-fn dungeon_ahead() -> f32 {
-    super::dungeon::AHEAD
 }
 
 /// Weenie `text` (one weenie's SQL) named `name` and sending who uses it to cell `cell` at `at`

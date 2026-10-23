@@ -1,5 +1,11 @@
 mod bake;
 mod build;
+mod buildings;
+mod classic;
 mod conflicts;
+mod format;
 mod import;
+mod model_import;
+mod piece;
+mod revise;
 mod validate;

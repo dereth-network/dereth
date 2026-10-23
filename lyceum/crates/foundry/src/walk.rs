@@ -498,18 +498,40 @@ pub fn cell_hit(
     dir: Vec3,
     env: &dyn Fn(DataId) -> Option<Environment>,
 ) -> Option<(u16, Vec3)> {
-    let mut best: Option<(u16, f32)> = None;
+    cell_hit_facing(cells, from, dir, env).map(|(c, p, _)| (c, p))
+}
+
+/// [`cell_hit`], meeting a polygon only from its cell's inside, as the world draws it (a floor
+/// from above, a ceiling from below; a cell seen from outside shows its far walls): the cell, the
+/// point, and the way the polygon faces into its cell.
+#[must_use]
+pub fn cell_hit_facing(
+    cells: &BTreeMap<u16, EnvCell>,
+    from: Vec3,
+    dir: Vec3,
+    env: &dyn Fn(DataId) -> Option<Environment>,
+) -> Option<(u16, Vec3, Vec3)> {
+    let mut best: Option<(u16, f32, Vec3)> = None;
     for (c, cell) in cells {
         let Some(placed) = env(cell.environment).and_then(|e| place(cell, &e)) else {
             continue;
         };
+        let middle = placed.inner[0];
         for p in &placed.solid {
+            let inward = if p.n.dot(middle.sub(p.corners[0])) < 0.0 {
+                Vec3::new(-p.n.x, -p.n.y, -p.n.z)
+            } else {
+                p.n
+            };
+            if inward.dot(dir) >= 0.0 {
+                continue;
+            }
             if let Some(t) = ray_hit(p, from, dir) {
-                if best.is_none_or(|(_, b)| t < b) {
-                    best = Some((*c, t));
+                if best.is_none_or(|(_, b, _)| t < b) {
+                    best = Some((*c, t, inward));
                 }
             }
         }
     }
-    best.map(|(c, t)| (c, from.add(Vec3::new(dir.x * t, dir.y * t, dir.z * t))))
+    best.map(|(c, t, n)| (c, from.add(Vec3::new(dir.x * t, dir.y * t, dir.z * t)), n))
 }

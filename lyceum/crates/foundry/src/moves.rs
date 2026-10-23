@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_assets::world::{CellLandblock, EnvCell, LandblockInfo};
-use dereth_assets::{Decode, Region};
+use dereth_assets::Region;
 use dereth_primitives::frame::localtoglobal;
 use dereth_primitives::{DataId, Vec3};
 
@@ -37,18 +37,20 @@ struct Block {
 fn block(set: &DatSet, lb: u16) -> Option<Block> {
     let first = u32::from(lb) << 16;
     let read = |low: u32| set.cell.read(DataId(first | low)).ok();
-    let info = LandblockInfo::decode_payload(DataId(first | 0xFFFE), &read(0xFFFE)?).ok()?;
+    let info = set
+        .decode::<LandblockInfo>(DataId(first | 0xFFFE), &read(0xFFFE)?)
+        .ok()?;
     let mut cells = BTreeMap::new();
     for n in 0x0100..0x0100 + info.num_cells {
         let id = DataId(first | n);
-        if let Some(c) = read(n).and_then(|b| EnvCell::decode_payload(id, &b).ok()) {
+        if let Some(c) = read(n).and_then(|b| set.decode::<EnvCell>(id, &b).ok()) {
             if let Ok(n) = u16::try_from(n) {
                 cells.insert(n, c);
             }
         }
     }
     let land =
-        read(0xFFFF).and_then(|b| CellLandblock::decode_payload(DataId(first | 0xFFFF), &b).ok());
+        read(0xFFFF).and_then(|b| set.decode::<CellLandblock>(DataId(first | 0xFFFF), &b).ok());
     Some(Block { info, cells, land })
 }
 
@@ -169,7 +171,7 @@ pub fn check(before: &DatSet, now: &DatSet, lb: u16, moved: &BTreeSet<usize>) ->
     };
     let region = now
         .read_portal(crate::compile::REGION)
-        .and_then(|b| Region::decode_payload(crate::compile::REGION, &b).ok());
+        .and_then(|b| now.decode::<Region>(crate::compile::REGION, &b).ok());
     let mut envs = Environments::default();
     let fp_was = Footprints::of(before, lb, &was.info, &mut envs);
     let fp_is = Footprints::of(now, lb, &is.info, &mut envs);

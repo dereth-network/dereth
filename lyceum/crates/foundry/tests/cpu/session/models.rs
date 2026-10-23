@@ -30,6 +30,7 @@ fn a_dumps_weenie_rows_say_its_name_setup_type_and_flags() {
             attackable: Some(false),
             generator_radius: None,
             destination: None,
+            destination_at: None,
         })
     );
     assert_eq!(
@@ -42,6 +43,7 @@ fn a_dumps_weenie_rows_say_its_name_setup_type_and_flags() {
             attackable: None,
             generator_radius: None,
             destination: None,
+            destination_at: None,
         })
     );
     assert_eq!(f.len(), 2);

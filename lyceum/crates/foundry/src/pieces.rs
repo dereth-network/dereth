@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dereth_assets::geometry::CellStruct;
 use dereth_assets::world::EnvCell;
-use dereth_assets::{Decode, Environment, Surface};
+use dereth_assets::{Environment, Surface};
 use dereth_dat::{DbType, ModernDat};
 use dereth_primitives::frame::{localtoglobal, V3};
 use dereth_primitives::{DataId, Frame, Vec3};
@@ -43,6 +43,40 @@ impl Piece {
     pub fn label(&self) -> String {
         format!("{:04X}/{}", self.environment.raw() & 0xFFFF, self.piece)
     }
+}
+
+/// Original pieces that have no retail look or placement yet.
+#[must_use]
+pub fn original(env: &Environment, surfaces: &[DataId]) -> Vec<Piece> {
+    env.cells
+        .iter()
+        .enumerate()
+        .filter_map(|(i, cs)| {
+            let mut lo = [f32::MAX; 3];
+            let mut hi = [f32::MIN; 3];
+            for v in &cs.vertex_array.vertices {
+                for (k, q) in [v.position.x, v.position.y, v.position.z]
+                    .into_iter()
+                    .enumerate()
+                {
+                    lo[k] = lo[k].min(q);
+                    hi[k] = hi[k].max(q);
+                }
+            }
+            Some(Piece {
+                environment: env.id,
+                piece: u16::try_from(i).ok()?,
+                portals: cs.portals.len(),
+                size: std::array::from_fn(|k| (hi[k] - lo[k]).max(0.0)),
+                surfaces: surfaces.to_vec(),
+                cells: 0,
+                landblocks: BTreeMap::new(),
+                shape: shape_of(cs),
+                looks: Vec::new(),
+                joins: Vec::new(),
+            })
+        })
+        .collect()
 }
 
 /// What a piece is for, from its portals and its shape.
@@ -215,21 +249,28 @@ pub struct Look {
     pub surfaces: Vec<DataId>,
 }
 
-/// Every piece retail's cells are built of, and the families of looks they are drawn in.
+/// Every piece retail's cells are built of, and the families of looks they are drawn in; and the
+/// dungeon kit: every environment the world's dungeons place whole ([`crate::kit`]), with what each
+/// family of looks draws each role with.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Catalog {
     pub pieces: Vec<Piece>,
     pub families: Vec<Family>,
+    pub kit: Vec<crate::kit::KitPiece>,
+    pub dress: Vec<crate::kit::Dress>,
 }
 
 /// What one retail cell says: its piece, its landblock, its surfaces, the cells its portals
-/// join, and its number.
+/// join, its number, where it stands (to the tenth of a meter and the thousandth of its turn), and
+/// whether it is seen from outside.
 struct SeenCell {
     key: (u32, u16),
     landblock: u16,
     number: u16,
     surfaces: Vec<DataId>,
     joins: Vec<u16>,
+    at: [i32; 7],
+    outside: bool,
 }
 
 fn find(parent: &mut [usize], mut i: usize) -> usize {
@@ -263,13 +304,25 @@ pub fn catalog_with(set: &DatSet, share: f32, alike: f32, common_share: f32) -> 
         let Some(cell) = cells
             .read(id)
             .ok()
-            .and_then(|b| EnvCell::decode_payload(id, &b).ok())
+            .and_then(|b| set.decode::<EnvCell>(id, &b).ok())
         else {
             continue;
         };
         #[allow(clippy::cast_possible_truncation)]
         let (landblock, number) = ((id.raw() >> 16) as u16, (id.raw() & 0xFFFF) as u16);
+        let (o, q) = (cell.frame.origin, cell.frame.rotation);
+        let round = |v: f32, k: f32| dereth_primitives::num::floor_to_i32(v * k + 0.5);
         seen.push(SeenCell {
+            at: [
+                round(o.x, 10.0),
+                round(o.y, 10.0),
+                round(o.z, 10.0),
+                round(q.w, 1000.0),
+                round(q.x, 1000.0),
+                round(q.y, 1000.0),
+                round(q.z, 1000.0),
+            ],
+            outside: cell.flags & 1 != 0,
             key: (cell.environment.raw(), cell.cell_struct),
             landblock,
             number,
@@ -287,7 +340,7 @@ pub fn catalog_with(set: &DatSet, share: f32, alike: f32, common_share: f32) -> 
     let mut texture = |s: DataId| -> DataId {
         *texture_of.entry(s.raw()).or_insert_with(|| {
             set.read_portal(s)
-                .and_then(|b| Surface::decode_payload(s, &b).ok())
+                .and_then(|b| set.decode::<Surface>(s, &b).ok())
                 .and_then(|x| x.orig_texture_id)
                 .unwrap_or(s)
         })
@@ -468,7 +521,7 @@ pub fn catalog_with(set: &DatSet, share: f32, alike: f32, common_share: f32) -> 
     for (key, p) in &mut by_piece {
         let e = envs.entry(p.environment.raw()).or_insert_with(|| {
             set.read_portal(p.environment)
-                .and_then(|b| Environment::decode_payload(p.environment, &b).ok())
+                .and_then(|b| set.decode::<Environment>(p.environment, &b).ok())
         });
         if let Some(cs) = e.as_ref().and_then(|e| e.cells.get(usize::from(p.piece))) {
             p.portals = cs.portals.len();
@@ -522,7 +575,138 @@ pub fn catalog_with(set: &DatSet, share: f32, alike: f32, common_share: f32) -> 
             }
         }
     }
-    Catalog { pieces, families }
+    let kit = kit_pieces(set, &seen, &family_of, &mut envs);
+    let dress = crate::kit::dresses(&kit, families.len());
+    Catalog {
+        pieces,
+        families,
+        kit,
+        dress,
+    }
+}
+
+/// The dungeon kit: every environment the world's dungeons place (the landblocks whose first cell
+/// is not seen from outside), each placement its cells of one environment at one frame; where
+/// and in which looks each is placed, and the pieces its doorways join.
+fn kit_pieces(
+    set: &DatSet,
+    seen: &[SeenCell],
+    family_of: &BTreeMap<u16, usize>,
+    envs: &mut BTreeMap<u32, Option<Environment>>,
+) -> Vec<crate::kit::KitPiece> {
+    type Uses = (
+        usize,
+        BTreeMap<u16, usize>,
+        BTreeMap<usize, BTreeMap<Vec<DataId>, usize>>,
+    );
+    let dungeons: BTreeSet<u16> = seen
+        .iter()
+        .filter(|c| c.number == crate::cells::FIRST_CELL && !c.outside)
+        .map(|c| c.landblock)
+        .collect();
+    // Each placement: its landblock, environment and frame, and its cells.
+    let mut placements: BTreeMap<(u16, u32, [i32; 7]), Vec<usize>> = BTreeMap::new();
+    for (i, c) in seen.iter().enumerate() {
+        if dungeons.contains(&c.landblock) {
+            placements
+                .entry((c.landblock, c.key.0, c.at))
+                .or_default()
+                .push(i);
+        }
+    }
+    let place_of: BTreeMap<(u16, u16), usize> = placements
+        .values()
+        .enumerate()
+        .flat_map(|(k, cells)| {
+            cells
+                .iter()
+                .map(move |i| ((seen[*i].landblock, seen[*i].number), k))
+        })
+        .collect();
+    let env_of: Vec<u32> = placements.keys().map(|(_, e, _)| *e).collect();
+    let mut uses: BTreeMap<u32, Uses> = BTreeMap::new();
+    let mut joins: BTreeMap<u32, BTreeMap<u32, usize>> = BTreeMap::new();
+    for (k, ((lb, env, _), cells)) in placements.iter().enumerate() {
+        let u = uses.entry(*env).or_default();
+        u.0 += 1;
+        *u.1.entry(*lb).or_default() += 1;
+        // Its surfaces: its first cell's, as its other parts' are the same.
+        if let Some(i) = cells.iter().min_by_key(|i| seen[**i].number) {
+            let fam = family_of.get(lb).copied().unwrap_or(0);
+            *u.2.entry(fam)
+                .or_default()
+                .entry(seen[*i].surfaces.clone())
+                .or_default() += 1;
+        }
+        for i in cells {
+            for o in &seen[*i].joins {
+                if let Some(q) = place_of.get(&(*lb, *o)).filter(|q| **q != k) {
+                    *joins
+                        .entry(*env)
+                        .or_default()
+                        .entry(env_of[*q])
+                        .or_default() += 1;
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut env_joins = Vec::new();
+    for (env, (placed, landblocks, looks)) in uses {
+        let Some(e) = envs
+            .entry(env)
+            .or_insert_with(|| {
+                set.read_portal(DataId(env))
+                    .and_then(|b| set.decode::<Environment>(DataId(env), &b).ok())
+            })
+            .as_ref()
+        else {
+            continue;
+        };
+        let Some(form) = crate::kit::form(e) else {
+            continue;
+        };
+        let mut looks: Vec<Look> = looks
+            .into_iter()
+            .map(|(family, lists)| Look {
+                family,
+                cells: lists.values().sum(),
+                surfaces: lists
+                    .into_iter()
+                    .max_by_key(|(_, n)| *n)
+                    .map(|(l, _)| l)
+                    .unwrap_or_default(),
+            })
+            .collect();
+        looks.sort_by_key(|l| (std::cmp::Reverse(l.cells), l.family));
+        env_joins.push(joins.remove(&env).unwrap_or_default());
+        out.push(crate::kit::KitPiece {
+            environment: DataId(env),
+            surfaces: looks
+                .first()
+                .map(|l| l.surfaces.clone())
+                .unwrap_or_default(),
+            form,
+            placed,
+            landblocks,
+            looks,
+            joins: Vec::new(),
+        });
+    }
+    let index: BTreeMap<u32, usize> = out
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.environment.raw(), i))
+        .collect();
+    for (p, j) in out.iter_mut().zip(env_joins) {
+        let mut j: Vec<(usize, usize)> = j
+            .into_iter()
+            .filter_map(|(o, n)| index.get(&o).map(|i| (*i, n)))
+            .collect();
+        j.sort_by_key(|(i, n)| (std::cmp::Reverse(*n), *i));
+        p.joins = j;
+    }
+    out
 }
 
 /// A portal of a placed piece: its corners in landblock space, their middle, and the way it
@@ -651,9 +835,9 @@ pub fn snap(
 }
 
 /// Where piece `piece` of `env` stands to take cell `old`'s place (built of `old_env`): turned
-/// in steps of `step` degrees so that every way the cell has is met by one of the piece's
-/// portals, the least off of those that do; and the piece's links, `Keep` where it meets a way
-/// and `Shut` elsewhere. `None` when no turn meets them all.
+/// in steps of `step` degrees to retain as many doorways as possible, then minimize their
+/// mismatch. Links are `Keep` at matched doorways and `Shut` elsewhere. A piece with no
+/// matching doorway keeps the old frame. `None` means an invalid piece or opening.
 #[must_use]
 pub fn reshape_fit(
     old: &EnvCell,
@@ -676,32 +860,31 @@ pub fn reshape_fit(
         })
         .collect::<Option<_>>()?;
     let slots = env.cells.get(usize::from(piece))?.portals.len();
-    if ways.is_empty() || slots < ways.len() {
-        return None;
-    }
-    let mut best: Option<(Frame, Vec<Link>, f32)> = None;
-    // Every turn of every portal that meets the first way: a way in a floor meets a portal at
-    // any turn, and the others say which.
+    let mut best: Option<(Frame, Vec<Link>, usize, f32)> = None;
+    // Anchor each candidate at each old doorway; the first doorway may be dropped.
     let turns = (360.0 / step.max(1.0)).round().max(1.0);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let turns = turns as u32;
-    let mut frames = Vec::new();
-    for slot in 0..slots {
-        for k in 0..turns {
-            #[allow(clippy::cast_precision_loss)]
-            let q = heading_quat(k as f32 * step);
-            let Some(local) = opening(env, piece, slot, &Frame::new(Vec3::ZERO, q)) else {
-                continue;
-            };
-            if local.out.dot(ways[0].out) > -0.99 {
-                continue;
+    let mut frames = vec![old.frame];
+    for way in &ways {
+        for slot in 0..slots {
+            for k in 0..turns {
+                #[allow(clippy::cast_precision_loss)]
+                let q = heading_quat(k as f32 * step);
+                let Some(local) = opening(env, piece, slot, &Frame::new(Vec3::ZERO, q)) else {
+                    continue;
+                };
+                if local.out.dot(way.out) > -0.99 {
+                    continue;
+                }
+                frames.push(Frame::new(way.middle.sub(local.middle), q));
             }
-            frames.push(Frame::new(ways[0].middle.sub(local.middle), q));
         }
     }
     for frame in frames {
         let mut links = vec![Link::Shut; slots];
         let mut worst = 0.0f32;
+        let mut matched = 0;
         for w in &ways {
             let found = (0..slots)
                 .filter(|s| links[*s] == Link::Shut)
@@ -709,15 +892,18 @@ pub fn reshape_fit(
                 .filter(|(_, m)| *m < crate::cells::KEEP)
                 .min_by(|a, b| a.1.total_cmp(&b.1));
             let Some((s, m)) = found else {
-                worst = f32::MAX;
-                break;
+                continue;
             };
+            matched += 1;
             links[s] = Link::Keep;
             worst = worst.max(m);
         }
-        if worst < f32::MAX && best.as_ref().is_none_or(|b| worst < b.2) {
-            best = Some((frame, links, worst));
+        if best
+            .as_ref()
+            .is_none_or(|b| matched > b.2 || (matched == b.2 && worst < b.3))
+        {
+            best = Some((frame, links, matched, worst));
         }
     }
-    best.map(|(f, l, _)| (f, l))
+    best.map(|(f, l, _, _)| (f, l))
 }

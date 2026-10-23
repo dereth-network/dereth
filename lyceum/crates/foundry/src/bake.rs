@@ -132,6 +132,13 @@ pub fn bake(
         )));
     }
     let base = DatSet::open(dats)?;
+    if base.layout() == dereth_dat::ContainerEra::Classic {
+        return Err(Error::Refused(format!(
+            "{} holds {}; a bake writes only the end-of-retail files",
+            dats.display(),
+            crate::dats::files_of(base.era)
+        )));
+    }
     let od = OverlayDir::new(overlay_dir)?;
     let layered = base.with_overlay(overlay_dir, None)?;
     // The overlay's own records must pass the checks before a client sees them.

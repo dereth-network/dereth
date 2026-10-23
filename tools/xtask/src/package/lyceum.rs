@@ -7,14 +7,14 @@
 //! ```
 //!
 //! For each target (the host's own by default; each builds on its own operating system) it builds
-//! both programs with cargo, then writes into `<target dir>/package/lyceum-<version>/` (or
+//! all four programs with cargo, then writes into `<target dir>/package/lyceum-<version>/` (or
 //! `--out`):
 //!
 //! | system | the release file |
 //! |---|---|
 //! | Windows | `lyceum-<v>-windows-x86_64.zip`: `lyceum-editor.exe`, `lyceum.exe`, the notices, README and CHANGES, under `lyceum-<v>/` |
-//! | macOS | `Lyceum-<v>-macos-<arch>.app.tar.gz`: `Lyceum.app`, both programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`, the icon, the notices, README and CHANGES in `Contents/Resources` |
-//! | Linux | `lyceum-<v>-linux-x86_64.tar.gz`: both programs, the desktop entry and its icon, the notices, README and CHANGES, under `lyceum-<v>/` |
+//! | macOS | `Lyceum-<v>-macos-<arch>.app.tar.gz`: `Lyceum.app`, all four programs in `Contents/MacOS`, MoltenVK in `Contents/Frameworks`, the icon, the notices, README and CHANGES in `Contents/Resources` |
+//! | Linux | `lyceum-<v>-linux-x86_64.tar.gz`: all four programs, the desktop entry and its icon, the notices, README and CHANGES, under `lyceum-<v>/` |
 //!
 //! Each release file's lines of `MANIFEST.txt` go in `<file>.manifest`. Then the index is written
 //! over the folder: `MANIFEST.txt`, `release.json` and `SHA256SUMS`. `--gather <dir>` builds
@@ -55,10 +55,16 @@ pub const EDITOR: &str = "lyceum-editor";
 /// The command's program name (the `lyceum-cli` package's binary).
 pub const COMMAND: &str = "lyceum";
 
-/// The packages the two programs are built from, with their manifests.
+/// The bundled server and its database tool, run as separate processes.
+pub const SERVER: &str = "empyrean-server";
+pub const IMPORT: &str = "empyrean-import";
+
+/// The packages the four programs are built from, with their manifests.
 const PACKAGES: &[(&str, &str)] = &[
     ("lyceum-editor", "lyceum/editor/Cargo.toml"),
     ("lyceum-cli", "lyceum/cli/Cargo.toml"),
+    ("empyrean-server", "empyrean/server/Cargo.toml"),
+    ("empyrean-import", "empyrean/import/Cargo.toml"),
 ];
 
 /// cargo-about's configuration and template for Lyceum.
@@ -69,10 +75,15 @@ const ABOUT: (&str, &str) = ("lyceum/about.toml", "lyceum/about.hbs");
 pub const DOCUMENTS: &[(&str, &str)] = &[
     ("README.md", "lyceum/README.md"),
     ("CHANGES.md", "lyceum/CHANGES.md"),
+    ("EMPYREAN-LICENSE", "empyrean/LICENSE"),
+    (
+        "LIFESTONED-LICENSE.txt",
+        "empyrean/licenses/Lifestoned-MIT.txt",
+    ),
 ];
 
 /// The notices every package carries: Dereth's three.
-pub const NOTICES: &[&str] = super::dereth::NOTICES;
+pub const NOTICES: &[&str] = &["LICENSE", "NOTICE.txt", "THIRD-PARTY-LICENSES.html"];
 
 /// The typefaces the package carries: (typeface, what carries it and for what, its license).
 pub const FONTS: &[(&str, &str, &str)] = &[(
@@ -157,6 +168,8 @@ pub fn programs(target: Target) -> Vec<(String, bool)> {
     vec![
         (format!("{dir}{EDITOR}{exe}"), true),
         (format!("{dir}{COMMAND}{exe}"), false),
+        (format!("{dir}{SERVER}{exe}"), false),
+        (format!("{dir}{IMPORT}{exe}"), false),
     ]
 }
 
@@ -259,6 +272,8 @@ pub fn codesign_runs(app: &str, identity: Option<&str>) -> Vec<Vec<String>> {
     [
         format!("{app}/Contents/Frameworks/libMoltenVK.dylib"),
         format!("{app}/Contents/MacOS/{COMMAND}"),
+        format!("{app}/Contents/MacOS/{SERVER}"),
+        format!("{app}/Contents/MacOS/{IMPORT}"),
         app.to_owned(),
     ]
     .into_iter()
@@ -486,31 +501,17 @@ fn gather(ws: &Path, dir: &Path, allow_dirty: bool) -> Result<PathBuf, String> {
     Ok(dir.to_path_buf())
 }
 
-/// The environment a release build runs with: the commit and the target both programs name in
+/// The environment a release build runs with: the commit and the target all four programs name in
 /// `--version`, the commit's time, and the flags that keep local paths out of the programs. On
 /// Windows the C runtime is linked in, so neither program needs a Visual C++ redistributable, and
 /// the linker writes no time; on macOS the programs claim the release's oldest macOS.
 pub fn build_env(ws: &Path, facts: &BuildFacts, target: Target) -> Vec<(String, String)> {
-    let mut flags: Vec<String> = super::local_remaps(ws)
-        .iter()
-        .map(|(from, to)| format!("--remap-path-prefix={}={to}", from.display()))
-        .collect();
-    if target.os == Os::Windows {
-        flags.push("-Ctarget-feature=+crt-static".to_owned());
-        flags.push("-Clink-arg=/Brepro".to_owned());
-    }
-    let mut env = vec![
-        ("CARGO_ENCODED_RUSTFLAGS".to_owned(), flags.join("\u{1f}")),
-        ("SOURCE_DATE_EPOCH".to_owned(), facts.epoch.to_string()),
+    let mut env = super::build_env(facts, target, &super::local_remaps(ws));
+    env.extend([
         ("LYCEUM_BUILD_COMMIT".to_owned(), facts.commit.clone()),
         ("LYCEUM_BUILD_TARGET".to_owned(), target.triple.to_owned()),
-    ];
-    if target.os == Os::Mac {
-        env.push((
-            "MACOSX_DEPLOYMENT_TARGET".to_owned(),
-            format!("{}.{}", targets::MACOS_FLOOR.0, targets::MACOS_FLOOR.1),
-        ));
-    }
+        ("LYCEUM_BUNDLED_SERVER".to_owned(), "1".to_owned()),
+    ]);
     env
 }
 
@@ -538,9 +539,9 @@ impl Job<'_> {
         self.finish_tree(&tree, &root)
     }
 
-    /// Both programs, built with cargo in the workspace: each copied out of the target folder, so
+    /// All four programs, built with cargo in the workspace: each copied out of the target folder, so
     /// a later build there cannot change what this package holds. Editor first.
-    fn build(&self) -> Result<[PathBuf; 2], String> {
+    fn build(&self) -> Result<[PathBuf; 4], String> {
         let t = self.target;
         let mut args = vec!["build", "--locked", "--release", "--target", t.triple];
         for (package, _) in PACKAGES {
@@ -560,7 +561,12 @@ impl Job<'_> {
             copy(&release.join(format!("{program}{exe}")), &to)?;
             Ok(to)
         };
-        Ok([staged(EDITOR)?, staged(COMMAND)?])
+        Ok([
+            staged(EDITOR)?,
+            staged(COMMAND)?,
+            staged(SERVER)?,
+            staged(IMPORT)?,
+        ])
     }
 
     /// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html`: the folder they are written in.
@@ -588,10 +594,19 @@ impl Job<'_> {
         let about = self.stage.join("about");
         mkdir(&about)?;
         let exe = t.exe_suffix();
-        let names = [format!("{EDITOR}{exe}"), format!("{COMMAND}{exe}")];
+        let names = [EDITOR, COMMAND, SERVER, IMPORT].map(|name| format!("{name}{exe}"));
         let mut pages = Vec::new();
-        for (((_, manifest), program), name) in PACKAGES.iter().zip([EDITOR, COMMAND]).zip(&names) {
-            let page = about_page(self.ws, ABOUT, manifest, t, &about, program)?;
+        for (((_, manifest), program), name) in PACKAGES
+            .iter()
+            .zip([EDITOR, COMMAND, SERVER, IMPORT])
+            .zip(&names)
+        {
+            let config = if program == SERVER || program == IMPORT {
+                ("empyrean/about.toml", "empyrean/about.hbs")
+            } else {
+                ABOUT
+            };
+            let page = about_page(self.ws, config, manifest, t, &about, program)?;
             pages.push((name.as_str(), page));
         }
         let dir = self.stage.join("notices");
@@ -617,7 +632,7 @@ impl Job<'_> {
 
     /// The release file's tree in `tree`, every file written anew from a named path; on macOS the
     /// bundle, signed.
-    fn lay_out(&self, tree: &Path, built: &[PathBuf; 2], notices: &Path) -> Result<(), String> {
+    fn lay_out(&self, tree: &Path, built: &[PathBuf; 4], notices: &Path) -> Result<(), String> {
         let t = self.target;
         fresh_dir(tree)?;
         for ((name, _), from) in programs(t).iter().zip(built) {

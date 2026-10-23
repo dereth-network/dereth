@@ -55,6 +55,7 @@ fn a_placed_static_is_one_named_entry_in_its_landblock_file_and_undo_takes_it_ba
             model: DataId(SETUP),
             at: at(12.0, 34.5, 56.0),
             rotation: Rotation::Heading(90.0),
+            name: None,
         })
         .unwrap();
     assert_eq!(
@@ -236,6 +237,40 @@ fn an_edge_vertex_is_set_where_a_file_already_sets_it_else_in_its_owning_landblo
 }
 
 #[test]
+fn an_unset_vertex_shows_the_world_again_and_a_row_left_setting_nothing_goes() {
+    let f = Fixture::new("edit-vertex-unset");
+    let world = f.world();
+    let file = f.write(
+        "sample/edits/landblocks/0202.toml",
+        "[[vertex]]\nat = [0, 0]\nto = [2, 2]\nterrain = 5\n\n[[vertex]]\nat = [1, 1]\nheight = 40\n\n\
+         [[vertex]]\nat = [2, 1]\nheight = 41\nterrain = 7\n",
+    );
+    let mut s = open(&f, &world);
+    // World (17, 17) is 0x0202's (1, 1), (18, 17) its (2, 1), and (16, 16) its (0, 0).
+    assert_eq!(s.vertex(17, 17).unwrap().height, 40);
+    s.apply(&Op::UnsetVertices(vec![
+        (17, 17, Field::Height),
+        (18, 17, Field::Height),
+        (16, 16, Field::Terrain),
+    ]))
+    .unwrap();
+    // The world's heights again: every vertex at 10 + x + y.
+    assert_eq!(s.vertex(17, 17).unwrap().height, 12);
+    assert_eq!(s.vertex(18, 17).unwrap().height, 13);
+    // What else a row sets stays, and a rectangle's setting is not taken back.
+    assert_eq!(s.vertex(18, 17).unwrap().terrain, 7);
+    assert_eq!(s.vertex(16, 16).unwrap().terrain, 5);
+    s.save().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "[[vertex]]\nat = [0, 0]\nto = [2, 2]\nterrain = 5\n\n[[vertex]]\nat = [2, 1]\nterrain = 7\n"
+    );
+    assert_same_as_full(&s);
+    s.undo().unwrap();
+    assert_eq!(s.vertex(17, 17).unwrap().height, 40);
+}
+
+#[test]
 fn a_corner_vertex_reaches_all_four_landblocks_and_one_inside_a_rectangle_is_set_alone() {
     let f = Fixture::new("edit-vertex-corner");
     let world = f.world();
@@ -406,6 +441,7 @@ fn every_incremental_compile_gives_what_a_full_build_of_the_same_sources_gives()
                 z: Height::Ground,
             },
             rotation: Rotation::Heading(0.0),
+            name: None,
         },
         // A hill over the corner the four landblocks share, under the ground static.
         Op::SetVertices(
@@ -590,4 +626,77 @@ fn edits_written_as_text_read_and_one_that_does_not_read_says_which() {
     )
     .unwrap_err();
     assert!(e.contains("index = 0"), "{e}");
+}
+
+#[test]
+fn a_dungeon_is_named_and_given_a_look_in_its_landblocks_file_and_the_list_calls_it_so() {
+    let f = Fixture::new("edit-dungeon-name");
+    let world = f.world();
+    let mut s = open(&f, &world);
+    let lb = 0x0102;
+    s.apply(&Op::SetDungeon {
+        landblock: lb,
+        name: Some("Warren of Tests".into()),
+        look: Some(0x019E),
+    })
+    .unwrap();
+    let info = s.dungeon_info(lb);
+    assert_eq!(
+        (info.name.as_deref(), info.look),
+        (Some("Warren of Tests"), Some(0x019E))
+    );
+    // Named before its first room: the list has it by its name.
+    let listed = s.dungeons(&std::collections::BTreeMap::new());
+    assert!(listed
+        .iter()
+        .any(|d| d.landblock == lb && d.name.as_deref() == Some("Warren of Tests")));
+    // Saved, the file reads back the same; unnamed, the section goes.
+    s.save().unwrap();
+    let text = std::fs::read_to_string(f.path().join("sample/edits/landblocks/0102.toml")).unwrap();
+    assert!(
+        text.contains("[dungeon]") && text.contains("name = \"Warren of Tests\""),
+        "{text}"
+    );
+    let reopened = open(&f, &world);
+    assert_eq!(reopened.dungeon_info(lb), info);
+    s.apply(&Op::SetDungeon {
+        landblock: lb,
+        name: None,
+        look: None,
+    })
+    .unwrap();
+    assert_eq!(s.dungeon_info(lb), source::DungeonInfo::default());
+}
+
+#[test]
+fn the_drop_point_is_where_the_portals_standing_outdoors_send_the_one_most_share() {
+    use lyceum_foundry::edit::{drop_point, Entrance};
+    let e = |cell: u32, to: (u32, f32)| Entrance {
+        guid: String::new(),
+        landblock: (cell >> 16) as u16,
+        at: Vec3::ZERO,
+        cell,
+        to: Some((to.0, Vec3::new(to.1, 1.0, 0.0))),
+    };
+    let outdoor = 0xA9B4_0011;
+    let indoor = 0x01FD_0101;
+    // Two outdoors to one place, one outdoors to another, three from rooms to a third.
+    let all = [
+        e(outdoor, (0x019E_0114, 40.0)),
+        e(outdoor, (0x019E_0114, 40.0)),
+        e(outdoor, (0x019E_0100, 10.0)),
+        e(indoor, (0x019E_0105, 5.0)),
+        e(indoor, (0x019E_0105, 5.0)),
+        e(indoor, (0x019E_0105, 5.0)),
+    ];
+    assert_eq!(
+        drop_point(&all).map(|(c, p)| (c, p.x)),
+        Some((0x019E_0114, 40.0))
+    );
+    // With none outdoors, the one most share of those in rooms.
+    assert_eq!(
+        drop_point(&all[3..]).map(|(c, p)| (c, p.x)),
+        Some((0x019E_0105, 5.0))
+    );
+    assert_eq!(drop_point(&[]), None);
 }

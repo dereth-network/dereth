@@ -1,70 +1,199 @@
 //! A set of data files on this machine, with or without an overlay over them.
+//!
+//! A set is the files of one era: the end of retail's (`client_portal.dat`, `client_cell_1.dat`
+//! and the language and high-res files beside them) or Infiltration's (`portal.dat` and
+//! `cell.dat`, from February 2005, before Throne of Destiny). The era goes with the set
+//! everywhere: every record is read and written in the layout of its era's files, and a world is
+//! built over the files of the era it names, and over no other.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use dereth_assets::{AssetError, Decode};
 use dereth_dat::overlay::OverlayDir;
-use dereth_dat::{ContainerEra, DatFile, ModernDat};
-use dereth_primitives::DataId;
+use dereth_dat::{ClassicDat, ContainerEra, DatFile, ModernDat};
+use dereth_primitives::{DataId, EraId};
 
 use crate::error::Error;
 
-/// The later set of files in a folder: the portal and cell files, and the language and high-res
-/// files when they are there.
+/// One era's files in a folder: the portal and cell files, and the language and high-res files
+/// when the era has them and they are there.
 #[derive(Debug)]
 pub struct DatSet {
     pub dir: PathBuf,
+    /// The era whose files these are, which every record of them is read and written as.
+    pub era: EraId,
     pub portal: DatFile,
     pub cell: DatFile,
     pub local: Option<DatFile>,
     pub highres: Option<DatFile>,
 }
 
-fn open(dir: &Path, t: ModernDat) -> Result<Option<DatFile>, Error> {
-    let path = t.in_dir(dir);
+fn open_file(path: &Path) -> Result<Option<DatFile>, Error> {
     if !path.is_file() {
         return Ok(None);
     }
-    DatFile::open(&path)
+    DatFile::open(path)
         .map(Some)
         .map_err(|e| Error::Dat(format!("{}: {e}", path.display())))
 }
 
+/// The era a set of files in the `layout` is taken for when nothing names one: Infiltration's
+/// for the files from before Throne of Destiny, the end of retail's otherwise.
+#[must_use]
+pub const fn era_of_layout(layout: ContainerEra) -> EraId {
+    match layout {
+        ContainerEra::Classic => EraId::Infiltration,
+        ContainerEra::Modern => EraId::Eor,
+    }
+}
+
+/// An era's files as a sentence names them.
+#[must_use]
+pub fn files_of(era: EraId) -> String {
+    match era.container_era() {
+        ContainerEra::Classic => format!(
+            "the {} files ({} and {})",
+            era_name(era),
+            ClassicDat::Portal.file_name(),
+            ClassicDat::Cell.file_name()
+        ),
+        ContainerEra::Modern => format!(
+            "the {} files ({})",
+            era_name(era),
+            ModernDat::Portal.file_name()
+        ),
+    }
+}
+
+/// An era's name as a sentence says it.
+#[must_use]
+pub const fn era_name(era: EraId) -> &'static str {
+    match era {
+        EraId::Infiltration => "Infiltration",
+        EraId::Eor => "end-of-retail",
+    }
+}
+
+/// Whether `dir` holds the files of `era`.
+#[must_use]
+pub fn holds(dir: &Path, era: EraId) -> bool {
+    match era.container_era() {
+        ContainerEra::Classic => dereth_dat::holds_classic_dats(dir),
+        ContainerEra::Modern => {
+            dereth_dat::holds_modern_dats(dir) && ModernDat::Cell.in_dir(dir).is_file()
+        }
+    }
+}
+
 impl DatSet {
-    /// The files in `dir`.
+    /// The files in `dir`: the end of retail's when they are there, else Infiltration's.
     ///
     /// # Errors
-    /// No portal or cell file there, a file that will not open, or files from before Throne of
-    /// Destiny (a world builder writes the later layout only).
+    /// Neither set there, or a file that will not open or is not in its era's layout.
     pub fn open(dir: &Path) -> Result<Self, Error> {
-        let need = |t: ModernDat| -> Result<DatFile, Error> {
-            open(dir, t)?.ok_or_else(|| {
-                if dereth_dat::holds_classic_dats(dir) {
-                    Error::Refused(format!(
-                        "{} holds the files from before Throne of Destiny, which this tool does \
-                         not write",
-                        dir.display()
-                    ))
-                } else {
-                    Error::Dat(format!("{} has no {}", dir.display(), t.file_name()))
-                }
-            })
-        };
-        let portal = need(ModernDat::Portal)?;
-        let cell = need(ModernDat::Cell)?;
-        if portal.era() != ContainerEra::Modern || cell.era() != ContainerEra::Modern {
-            return Err(Error::Refused(format!(
-                "{}: the files are in the layout from before Throne of Destiny",
-                dir.display()
-            )));
+        if !holds(dir, EraId::Eor) && holds(dir, EraId::Infiltration) {
+            return Self::open_era(dir, EraId::Infiltration);
         }
-        Ok(Self {
-            dir: dir.to_path_buf(),
-            portal,
-            cell,
-            local: open(dir, ModernDat::Local)?,
-            highres: open(dir, ModernDat::HighRes)?,
+        Self::open_era(dir, EraId::Eor)
+    }
+
+    /// The files of `era` in `dir`.
+    ///
+    /// # Errors
+    /// The era's portal or cell file not there (with what is there instead, when the folder
+    /// holds another era's), a file that will not open, or one in another era's layout.
+    pub fn open_era(dir: &Path, era: EraId) -> Result<Self, Error> {
+        let layout = era.container_era();
+        if !holds(dir, era) {
+            let other = EraId::ALL
+                .into_iter()
+                .find(|e| e.container_era() != layout && holds(dir, *e));
+            return Err(match other {
+                Some(other) => Error::Refused(format!(
+                    "{} holds {}, not {}",
+                    dir.display(),
+                    files_of(other),
+                    files_of(era)
+                )),
+                None => Error::Dat(format!("{} does not hold {}", dir.display(), files_of(era))),
+            });
+        }
+        let need = |path: PathBuf| -> Result<DatFile, Error> {
+            let f = open_file(&path)?
+                .ok_or_else(|| Error::Dat(format!("{} is not there", path.display())))?;
+            if f.era() != layout {
+                return Err(Error::Refused(format!(
+                    "{} is not in the layout of {}",
+                    path.display(),
+                    files_of(era)
+                )));
+            }
+            Ok(f)
+        };
+        Ok(match layout {
+            ContainerEra::Classic => Self {
+                dir: dir.to_path_buf(),
+                era,
+                portal: need(ClassicDat::Portal.in_dir(dir))?,
+                cell: need(ClassicDat::Cell.in_dir(dir))?,
+                local: None,
+                highres: None,
+            },
+            ContainerEra::Modern => Self {
+                dir: dir.to_path_buf(),
+                era,
+                portal: need(ModernDat::Portal.in_dir(dir))?,
+                cell: need(ModernDat::Cell.in_dir(dir))?,
+                local: open_file(&ModernDat::Local.in_dir(dir))?,
+                highres: open_file(&ModernDat::HighRes.in_dir(dir))?,
+            },
         })
+    }
+
+    /// The files a world built on `era` is built over, in `dir`.
+    ///
+    /// # Errors
+    /// As [`Self::open_era`]: the folder holds another era's files, say, in words for a person.
+    pub fn for_world(dir: &Path, era: EraId) -> Result<Self, Error> {
+        Self::open_era(dir, era).map_err(|e| match e {
+            Error::Refused(why) => Error::Refused(format!(
+                "this world is built on {}, and {why}",
+                files_of(era)
+            )),
+            other => other,
+        })
+    }
+
+    /// The layout of the set's files.
+    #[must_use]
+    pub fn layout(&self) -> ContainerEra {
+        self.era.container_era()
+    }
+
+    /// The name on disk of the file `t` stands for: `portal.dat` and `cell.dat` for the files
+    /// from before Throne of Destiny, the later names otherwise. An overlay names its base by it.
+    #[must_use]
+    pub fn base_name(&self, t: ModernDat) -> &'static str {
+        match (self.layout(), t) {
+            (ContainerEra::Classic, ModernDat::Cell) => ClassicDat::Cell.file_name(),
+            (ContainerEra::Classic, _) => ClassicDat::Portal.file_name(),
+            (ContainerEra::Modern, t) => t.file_name(),
+        }
+    }
+
+    /// The path of the file `t` stands for.
+    #[must_use]
+    pub fn path_of(&self, t: ModernDat) -> PathBuf {
+        self.dir.join(self.base_name(t))
+    }
+
+    /// The record `id`'s bytes read as a `T` in the layout of the set's era.
+    ///
+    /// # Errors
+    /// The bytes do not read as a `T` of the era.
+    pub fn decode<T: Decode>(&self, id: DataId, bytes: &[u8]) -> Result<T, AssetError> {
+        T::decode_payload_for(self.era, id, bytes)
     }
 
     /// The file `t`, when the set has it.
@@ -125,6 +254,7 @@ impl DatSet {
         };
         Ok(Self {
             dir: self.dir.clone(),
+            era: self.era,
             portal: lay(ModernDat::Portal, &self.portal)?,
             cell: lay(ModernDat::Cell, &self.cell)?,
             local: self

@@ -371,6 +371,24 @@ Lyceum builds worlds for Asheron's Call, made by the Dereth project (https://der
 is free software under the MIT license, which is in LICENSE beside this file and below.
 
 
+BUNDLED EMPYREAN
+
+The separate empyrean-server and empyrean-import programs are Empyrean, a Rust port of ACE
+(https://github.com/ACEmulator/ACE), copyright its contributors. Empyrean is licensed under the
+GNU Affero General Public License, version 3 only; EMPYREAN-LICENSE carries its full text.
+Its earlier-era rules also derive from ClassicACE (https://github.com/bDekaru/ClassicACE), under
+the same license. The Lifestoned data model's MIT notice is in LIFESTONED-LICENSE.txt. SQLite is
+in the public domain. These programs run separately; they are not linked into Lyceum.
+
+Complete corresponding source for these bundled programs, including build instructions, is
+available at the exact commit below, without charge:
+  {url}/tree/{commit}/empyrean
+  {url}/archive/{commit}.tar.gz
+If you run modified server software for players over a network, offer them its modified source
+through the server's source_url setting. THIRD-PARTY-LICENSES.html separates each program's
+linked dependencies. No world database is bundled; first use can fetch ACE-World into your cache.
+
+
 SOURCE CODE
 
 This build was made from commit {commit} of

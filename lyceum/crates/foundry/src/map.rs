@@ -5,7 +5,7 @@
 use crate::brush::GRID;
 use crate::dats::DatSet;
 use dereth_assets::world::CellLandblock;
-use dereth_assets::{Decode, Region};
+use dereth_assets::Region;
 
 /// The picture's width and height, in pixels: room for every world vertex, 2,041 a side.
 pub const SIDE: usize = 2048;
@@ -67,7 +67,7 @@ impl WorldMap {
                 .cell
                 .read(id)
                 .ok()
-                .and_then(|b| CellLandblock::decode_payload(id, &b).ok())
+                .and_then(|b| set.decode::<CellLandblock>(id, &b).ok())
             else {
                 continue;
             };

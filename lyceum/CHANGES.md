@@ -12,6 +12,41 @@ refuses a release with nothing here ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
 
+- Build worlds on the Infiltration (February 2005) data files, portal and cell alike.
+- Export a world for Empyrean, ACE or GDLE, from the Export menu or `lyceum export`.
+- Fixed the start screen listing a world twice.
+- Drop any retail building from Place, with its rooms and doors, then move it.
+- Dropped cottages, villas and mansions are houses players can buy.
+- Find rooms in Hierarchy, switch views, and keep favorite scenery handy.
+- Search scenery, filter it by several kinds, star favorites, and tag it by right click.
+- Scenery lands on the ground, or on top of what you click.
+- Terrain brushes have icons and dropdowns, and a radius in land vertices.
+- The world view no longer draws behind the panels.
+- Going to something in a room from Nearby takes you into that room.
+- Dungeon pieces are whole rooms, drawn as floor plans and grouped by shape.
+- Click a doorway or an empty square to see what fits there.
+- Delete a room or a whole dungeon, with what stands in it.
+- Choose a look to restyle a whole dungeon; renaming renames its portals.
+- Doors snap into doorways, and Ctrl+D copies what is selected.
+- Lyceum reopens where you left off, window and world.
+- Add your own dungeon pieces from glTF and join them in the kit.
+- Import your own models from glTF.
+- Check how collision fits your model and compare replacement models.
+- Keep playtest characters and edit templates for stats, skills, and equipment.
+- Play inside the editor's world view; Stop ends the playtest.
+- Live edits update the running playtest without logging out.
+- Scale the editor's panels from the Views menu or with Ctrl+= and Ctrl+-.
+- Lay out dungeons on a grid a floor at a time, building up and down from where players arrive.
+- New dungeons start on the open sea floor, near where you choose.
+- Dungeons are a mode: go in from the list, name them, and choose their look.
+- Things placed in a dungeon room move and go with it.
+- Portals are added like any object; their card picks where they lead.
+- New layout: the world view over the map, and the controls in one column on the right.
+- See the server's weenies and generators in place; your first change copies them.
+- Empyrean comes with Lyceum; download its world database from the editor.
+- Upgrade older world sources with backups and keep their assigned IDs.
+- `lyceum new` makes a world, from the sample or empty.
+
 ## 0.1.0 (2026-10-20)
 
 - First release of Lyceum, the world builder.

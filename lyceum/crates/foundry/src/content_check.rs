@@ -241,10 +241,9 @@ pub fn unused_quests(registered: &[(Loc, String)], used: &BTreeSet<String>) -> V
 /// The spells the files' spell table has.
 #[must_use]
 pub fn spells(set: &crate::dats::DatSet) -> BTreeSet<u32> {
-    use dereth_assets::Decode;
     let id = dereth_primitives::DataId(0x0E00_000E);
     set.read_portal(id)
-        .and_then(|b| dereth_assets::tables::SpellTable::decode_payload(id, &b).ok())
+        .and_then(|b| set.decode::<dereth_assets::tables::SpellTable>(id, &b).ok())
         .map(|t| t.spells.into_keys().collect())
         .unwrap_or_default()
 }

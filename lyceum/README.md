@@ -22,18 +22,88 @@ played.
 cargo run -p lyceum-editor -- lyceum/sample/world.toml --dats <your client folder>
 ```
 
-Its settings, and `lyceum-text.toml`, every word it shows, which you can change, are kept in its
-own settings folder (`Dereth/lyceum` beside the client's).
+A world built on Infiltration's files is drawn from `portal.dat` and `cell.dat`: beside the client's
+files, or in the folder `--classic-dats` names. Its server is that era's, over its world database.
 
-The dungeon kit's pieces are every piece the world's own cells are built of, each shown in a
-dungeon that uses it. They group and filter by look (the textures a set of dungeons share, named
-after the dungeons drawn so), by shape (room, corridor, junction, stairs, dead end), by the
-dungeons that use them and by the pieces the world's dungeons join a chosen piece to. Inside a
-dungeon, its cells are listed with their pieces; a cell can be replaced by another piece that
-keeps its doorways, and built on from the doorways the new piece adds. With Collide on, the flying
+Its settings, and `lyceum-text.toml`, every word it shows, which you can change, are kept in its
+own settings folder (`Dereth/lyceum` beside the client's). It opens where you left it: the window
+where it was, and each world with its camera, tool and dungeon as they were (kept beside the world
+in `.lyceum-place.toml`), unless the command line names a landblock.
+
+The world view is at the top left, the map under it, and one column of controls on the right.
+The mode bar keeps Select, Place scenery, Terrain and Add object beside Undo, Redo, Save,
+speed, Play, Live and Export (for Empyrean, ACE or GDLE, as `lyceum export` writes them). The
+active tool heads the right column; under it are Inspector, Nearby, Hierarchy, Dungeons, Weenie and Checks. Hierarchy selects buildings, their rooms and scenery, or dungeon cells.
+The status bar opens Checks and shows position, landblock, selection count, Grid, Collide and
+Bounds. Views offers a top-down camera and hideable key hints. The map opens on the whole world,
+square and in the middle of its panel; the wheel zooms in from there.
+
+The scenery browser has Recent and Favorites shelves, a search box, a dropdown of the kinds of
+model to show, as many as you tick (Clear shows every kind), and one for your tags. Choose a model to add it to Recent; the star in a tile's
+corner adds or removes a favorite, and a right click on a tile gives or takes its tags. These
+shelves are saved beside the world in `.lyceum-browser.toml`. A click places the model on the
+ground, or on top of the static under the pointer.
+
+Buildings are a kind of the dropdown: every building the world places, the most placed first,
+houses named Cottage, Villa and Mansion. A building chosen is dropped whole, with its rooms and
+doors. Its card chooses its layout, where it has two, and its furniture: like a town's copy, or
+bare. Its ghost follows the pointer, snapped where its retail copy stands in its land cell (Shift
+places it freely, R turns it a quarter); the land cell is outlined green where the drop is
+allowed and red where it is not, with the reason, and what the drop warns of beside it. A
+mansion drops as its four. Moved or turned, a dropped building takes its doors, its steps and
+porches, what stands in its rooms and its level ground along, as one step; Delete takes it away
+with all of that.
+
+Dungeons are a mode. A click on one in the Dungeons tab goes in, at the place its portals
+drop you; New dungeon starts one on the open sea floor, near a landblock you type or near the
+camera; Leave goes back where you were. Until you leave, the world view draws the dungeon alone,
+all of it when the camera flies outside its rooms, and the map's place shows its grid, one floor
+at a time. The world's own dungeons stand on a grid of 10 m squares, turned in quarter turns,
+with floors 6 m apart.
+
+The dungeon's card comes first: its look (the textures a set of the world's dungeons share), its
+name, and Delete dungeon. Under it are the look's pieces, each a whole room set down at once,
+drawn as a floor plan (its floors, outline, doorways, and openings up and down) and grouped by
+what it is on the grid: dead ends, corridors, corners, T junctions, crossings, rooms by their
+squares, stairs and ramps, shafts and ceilings. Every piece adds the rest of the world's pieces,
+drawn in this look by what each surface covers; a pack's own pieces are offered in every look, in
+their own materials.
+
+Click a free doorway's dot or an empty square on the grid to list what fits there: the look's
+pieces that meet every doorway around it, best first (those that join the most doorways, then
+those the world's dungeons join to the neighbors most). The pointer over one shows its ghost on
+the grid and, textured, in the world view; a click sets it in. Or choose a piece and click a
+green square (R turns it). In the world view a click only selects. Delete takes the selected room
+away whole, the world's own too, with what stands in it, as one step; the doorways into it are
+free to build on again.
+
+Another look chosen restyles the whole dungeon: each room as the world draws that piece in the
+look, where it does, else each surface by what it covers (floor, ceiling, walls, trim). A new name
+renames the portals that lead in too, the world's own by the pack's copy of their weenie; quests,
+books and what characters say keep the old name. Delete dungeon takes it away with its rooms, what
+stands in them and the portals to it; one of the world's own asks first, naming what goes.
+
+What you place in a room belongs to it: the room's card lists it, with its place in the room, and
+moving or removing the room carries it along. A door set by a doorway stands in it, facing
+through; anything else lands on the floor, or against the wall clicked. Ctrl+D (or Duplicate)
+copies what is selected beside itself and selects the copies. Portals are added like any object;
+a portal's card sends it into a dungeon or to where the camera is. With Collide on, the flying
 camera stops at the ground, walls and things, as the client's own camera does.
 
+Releases include Empyrean and its import tool beside the editor. Play and Live use that
+server. On first use, choose **Download world database**; the editor downloads it into
+Empyrean's per-user cache while you keep editing. An existing cached database is reused.
+Development builds use server programs built beside the editor, or the `--empyrean` folder.
+
 ## The Foundry and the `lyceum` command
+
+World and pack sources declare `format_version = 1`. Unversioned sources remain readable.
+`lyceum upgrade <world.toml> --check` previews changes without writing.
+`lyceum upgrade <world.toml>` updates the world and its packs, preserving comments and content.
+It validates every pack first and saves each original beside its source as
+`*.toml.before-upgrade`, plus `world.lock.before-upgrade` when a lockfile exists.
+Assigned IDs in `world.lock` stay unchanged. A newer source format
+requires a newer Lyceum and is refused before editing or building.
 
 The Foundry turns content packs into a world's overlay: the records a world adds to and changes
 in the data files, kept beside them and never written into them. Empyrean serves an overlay to
@@ -41,32 +111,48 @@ Dereth and to the retail client; `bake` writes one into a copy of a player's own
 whose server or client reads only plain files.
 
 ```text
-lyceum build <world.toml> --dats <dir> [--out <dir>] [--check]
+lyceum build <world.toml> --dats <dir> [--out <dir>] [--after <overlay>] [--check]
 lyceum validate --dats <dir> [--overlay <dir>] [--sql <file or folder>]
 lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies <sql>] [--dry-run]
+lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading>
+            [--layout <n>] [--furnished <XXYY/n> | --bare] [--pack <name>] [--dry-run]
 lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
+lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir>
+              [--era eor|infiltration] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <file>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
+lyceum facts <world.toml>
 ```
 
-- **`build`** compiles a world's packs over the data files in `--dats` (the later set,
-  `client_portal.dat` and its siblings). It writes the overlay to `<out>/overlay`, the server's SQL
+- **`build`** compiles a world's packs over the data files in `--dats` of the era the world is
+  built on: the end of retail's (`client_portal.dat` and its siblings) or Infiltration's
+  (`portal.dat` and `cell.dat`), each written in its own layout. It writes the overlay to `<out>/overlay`, the server's SQL
   to `<out>/sql` and the world's lockfile beside `world.toml`. Nothing is written while two packs
   set one thing differently (below), or unless every record passes the checks. `--check` builds
   into a scratch folder and says whether what is there is current. The same sources and files give
-  the same bytes every time.
+  the same bytes every time. `--after` names the overlay the world was last published with: the
+  new overlay is then its next revision, so a server patches a player who has the last one with
+  what changed alone (a record that reads as it did keeps its revision, and one the world no
+  longer has is deleted in the new one).
 - **`validate`** runs the checks over a set of files, with an overlay over them or without.
-  Over the end-of-retail files alone every check passes. `--sql` also checks that the records an
+  Over the end-of-retail or the Infiltration files alone every check passes. `--sql` also checks that the records an
   SQL file or folder names (setups, motion tables, palettes, parts, textures, cells) are in the
   files. A static an overlay places inside a building is a warning, which stops nothing.
 - **`edit`** applies the edits in `--edits` to a world's pack (`--pack`, the last by default) and
   saves them as that pack's sources: the same edits the world editor makes, written as text
   (below). `--weenies` names ACE SQL (an export or a dump) for the server's own weenies' setups;
-  `--dry-run` saves nothing.
+  `--dry-run` saves nothing. `add-building` is one edit given on the command line: a copy of a
+  retail building (below), with its doors from the world database in `--weenies`.
 - **`bake`** writes an overlay into copies of the files in `--dats`, in `--to`, and checks each
   copy before it takes its name. The files in `--dats` are only read. `--touched-only` copies only
   the files the overlay changes.
-- **`import`** takes any modified set of files (another editor's output, a custom world's files)
-  apart against its base into an overlay folder. A world can lay that folder under its packs.
+- **`export`** builds a world and writes it out for a server that runs it elsewhere (below).
+- **`import`** takes any modified set of files (another editor's output, a custom world's files,
+  of either era) apart against its base into an overlay folder. A world can lay that folder under
+  its packs.
+- **`facts`** prints what a world changes as one line of JSON, read from its sources alone: its
+  key and era, its packs, the landblocks whose terrain it edits, the statics, buildings,
+  dungeons and rooms it adds or changes, the spawns and weenies of its server content, and the
+  pictures and models it brings.
 
 The sample in [`sample/`](sample/) is a world with one pack: statics west of Holtburg, a hill on a
 landblock edge, a new texture, and an NPC wearing it.
@@ -74,6 +160,56 @@ landblock edge, a new texture, and an NPC wearing it.
 ```text
 cargo run -p lyceum-cli -- build lyceum/sample/world.toml --dats <your client folder>
 ```
+
+## Exporting a world
+
+`lyceum export`, or the editor's Export menu, writes a world out for another server. The folder
+it writes into is new, empty, or an earlier export, and it holds a `README.txt` saying where each
+part goes and what players need.
+
+| for | what it writes |
+|---|---|
+| Empyrean | `world.pack`, the era's world database with the world's content in it; `overlay/`, what the world changes in the data files; `sql/`, the world's content |
+| ACE | `dats/`, the data files the world changes, baked; `sql/`, the world's content laid out as ACE's content folder |
+| GDLE | `dats/`, as for ACE; `json/`, the world's weenies and spawn maps as GDLE's files, and `quests.json`, the quests the world adds or changes |
+
+Empyrean and GDLE exports run Empyrean's `empyrean-import`, from the folder `--empyrean` names or
+beside `lyceum`, over the era's world database: `--world-sql`, else the newest in its download
+cache, downloaded when there is none. `--era` chooses the world database, the end of retail's
+(`eor`, the default) or Infiltration's. A retail client reads only plain files, so its players
+need the baked data files; Empyrean patches a Dereth client itself.
+
+GDLE reads all its quests from one `quests.json`. `--gdle-quests` (or the field under the Export
+menu's targets) names the server's own: the export's `quests.json` is then that list with the
+world's quests merged in, and the README names the quests the world adds and those whose entries
+it replaces. A quest the world leaves as the world database has it keeps the server's entry, and
+one the world removes loses it; the README lists those under a heading of their own. Without it,
+`quests.json` holds the world's own quests, and the README says how to merge them.
+
+## Original dungeon pieces
+
+A pack can add a convex indoor piece from a glTF or GLB scene:
+
+```toml
+[[piece]]
+name = "hall"
+file = "art/hall.glb"
+```
+
+Use meters and glTF's Y-up axes, as for models. Walls, floor and ceiling face inward.
+Name opening meshes `portal_0`, `portal_1`, and so on without gaps. Each opening is
+one flat convex boundary triangulated without holes. Its triangles mark the opening;
+they are not drawn or collided with. The walls and opening boundaries must close the
+cell with matching edges. Split a concave room into several convex pieces.
+
+The kit lists the new piece even before it is placed, as its floor plan, in every look and
+in its imported materials. Place or join it like any other piece.
+The world's lockfile names its environment and surfaces for command-line cell edits.
+Each imported scene supplies piece `0` of its own environment. Solid colors become
+small textures for indoor walls. Place lights in the room as in other dungeons. Keep
+the generated opening surface when supplying a custom surface list. A piece has at
+most 254 materials and 255 openings, with at most 255 corners per opening. Keep each
+piece below 32768 vertices and polygons.
 
 ## A pack
 
@@ -114,6 +250,61 @@ luminosity = 0.0
 diffuse = 1.0
 ```
 
+**New models**, also in `records/*.toml`:
+
+```toml
+[[model]]
+name = "arch"
+file = "art/arch.glb"        # .gltf with local buffers works too
+collision = "mesh"          # mesh (default), cylinder, sphere, or none
+# replace = 0x0200040B      # optionally replace an existing Setup
+# distances = [40.0, 80.0]  # optional: one cutoff per detail level, in meters
+```
+
+Place it with `model = "arch"` in a landblock's `[[static]]`, or use `"pack:arch"`
+from another pack. Its parts, surfaces and pictures receive stable world ids too.
+For a replacement, keep `name` for those supporting records and place the numeric Setup id.
+
+Import static glTF 2.0 triangle scenes in meters. The scene's default scene is used, or its
+first scene. Coordinates `(x, y, z)` become `(x, -z, y)`: Y up becomes Z up. Node translation,
+rotation, scale and parent transforms are preserved; scale is baked into the vertices.
+Each mesh node becomes a part with its own placement frame. Missing normals are generated.
+
+Name lower-detail nodes `arch_lod1`, `arch_lod2`, and so on beside a base node named `arch`.
+Levels must be consecutive; the default cutoffs are 40, 80, 120 meters and so on, followed by
+no drawing. Each part's levels use the base part's frame. Only the base level collides.
+A node named `arch_collision` supplies that part's mesh collision and is never drawn.
+Cylinder and sphere collision enclose the drawn model; `none` gives scenery without collision.
+
+Base-color PNG pictures become the pack's picture, texture and surface records. Pictures may
+be embedded or in the pack, with power-of-two dimensions up to 2048. Base-color factors tint
+pictures in linear color space. Solid colors, opaque and blended alpha, the first UV set and
+double-sided materials are supported. Textures repeat. Other PBR channels are not represented.
+Animations, skins, morphs, alpha cutoff, sparse accessors and required extensions are refused.
+Resources must stay inside the pack. Split meshes exceeding 32767 vertices or triangles per
+part and level; a separate collision mesh shares the base part's vertex limit.
+
+**Collision fit**, after building the world:
+
+```text
+lyceum fit --dats <dir> --overlay build/overlay --model 0x02001C57 --against 0x0200040B
+```
+
+Use the new model's id from `world.lock`. `--against` is optional and always reads the original
+model from the base files, even when both ids are the same. The candidate reads through the overlay.
+The report gives the largest sampled gap from drawing to collision and how many surface samples
+are within 5 cm. It uses seven samples per triangle; these are sampled bounds, not a guarantee
+about every point on the surface. Excess collision volume is estimated at grid-cell centers, with
+closed drawn parts treated as a union. Open or non-manifold meshes report volume as unknown.
+`--grid` chooses 4 to 64 cells per axis (32 by default).
+
+The comparison walks a 0.48-meter-radius sphere through both models on flat ground, with the
+client's transition code. `--directions` chooses 4 to 128 approaches (32 by default). Each approach
+reports stopping outcomes and endpoint separation, including sliding and stepping. A stop means
+at least 25 cm less forward progress than the empty control. Models extending more than 30 meters
+horizontally from their origin are refused by this bounded walk test. The report is diagnostic;
+a reported difference does not prevent building or replacing a model.
+
 **Changes to a landblock**, in `edits/landblocks/XXYY.toml`, one file per landblock:
 
 ```toml
@@ -142,8 +333,18 @@ cell = 0x0105
 index = 3
 model = 0x02000BCD           # optional: what must be there
 
+[[add-cell-static]]          # a static added to one of the world's own rooms
+cell = 0x0105
+model = 0x0200040B
+at = [61.5, 40.2, 94.0]      # meters inside the landblock
+heading = 90.0
+
+[dungeon]                    # the landblock's dungeon: its name, and the look of the world's
+name = "Drudge Warren"       # dungeon whose look its pieces are drawn in
+look = 0x019E
+
 [[replace-cell]]             # one of the landblock's own cells with another piece in its place
-cell = 0x0103                # it keeps its number, its statics and every doorway it had
+cell = 0x0103                # it keeps its number and statics; dropped doorways produce warnings
 environment = 0x0D000586
 piece = 1
 surfaces = [0x080000A1, 0x080000A2]
@@ -151,6 +352,14 @@ at = [0.0, -20.0, 0.0]
 rotation = [1.0, 0.0, 0.0, 0.0]
 portals = ["keep", ""]       # per doorway of the piece: "keep" one the cell had, "" free,
                              # "outside", or "<new cell>:<doorway>"
+
+[[add-building]]             # a copy of a retail building, with its rooms
+name = "cottage-1"           # its rooms are cells named cottage-1-room-000 and on
+model = 0x01002228           # a set that stands together lists its models and templates
+template = "3B9C/3"          # the retail copy: its landblock and its place in that landblock's buildings
+at = [61.3, 79.8, 78.0]      # where its origin stands; the height, or "ground"
+heading = 180.0
+furnished = "bare"           # or another copy's furniture, "3DC7/1"; left out, the template's
 
 [[vertex]]                   # one vertex, or every vertex from at to to
 at = [4, 3]                  # 0 to 8 each
@@ -160,6 +369,11 @@ terrain = 1                  # 0 to 31
 scene = 0                    # 0 to 31
 road = 0                     # 0 to 3
 ```
+
+A dropped building is the template's copy: the same rooms, ways and lists, carried to where it
+stands, numbered after the landblock's own cells, and belonging to no house. A building whose
+origin is outside its landblock, or in a land cell another building stands in, stops the build:
+the client draws only one building in each land cell.
 
 A vertex on a landblock's edge is shared with the landblock beside it (and at a corner with
 three); the build changes every copy. A static in a landblock that had none gets the landblock its
@@ -210,6 +424,26 @@ at = [170.0, 36.0, "ground"]
 heading = 270.0
 ```
 
+```toml
+[[edit]]
+do = "add-building"              # a copy of a retail building, from the building catalog
+model = 0x01002228
+landblock = "A9AD"
+at = [61.3, 79.8]                # its origin, landblock meters
+heading = 180.0
+furnished = "bare"               # or another copy's furniture, "3DC7/1"; left out, its own
+```
+
+A dropped building comes from the world's own: its most common layout, its doors as the world
+database stands them, and the steps and porches most of its copies have (statics named after it,
+`cottage-1-outdoor-0`). The ground under it is made level at the height under its origin, and
+scenery that would stand inside it is cleared (scenery is chosen by vertex, so a cleared vertex
+grows nothing around it either). A mansion drops with the other three buildings it always stands
+with. A drop that reaches further into the next land cell than any retail copy of its model is
+warned of. A dropped building is moved by writing its `[[add-building]]` row anew, and taken
+away with it; the ground it stood on goes back to what the world (and the packs before) make it,
+but where another drop stands. A `[[move-building]]` row moves only the world's own buildings.
+
 An edit changes the pack's files in place: the entries it does not touch, and their comments,
 stay as they were. A base static is moved or removed by its index, a pack's by its symbol, and a
 new one gets a name (`static-1`) so later edits can find it. A vertex goes into the file that
@@ -221,12 +455,19 @@ its own, `server/sql/landblocks/A8B4 guide.sql`.
 ```toml
 # world.toml
 key = "my-world"             # the world's key; the overlay records it
+era = "eor"                  # the files it is built on: eor (default) or infiltration
 packs = ["mypack", "other"]  # the load order, folders relative to this file
 imports = []                 # overlay folders made by import, laid under the packs
 out = "build"                # where build writes, relative to this file
 [ids]
 wcid = 100000                # where new weenie class ids start
 ```
+
+A world is built on one era's files and refused over another's. An Infiltration world is
+built over `portal.dat` and `cell.dat` from February 2005: its records are written as those files
+hold them (a new texture's pixels in the texture itself, 16 bits a pixel), its content goes over
+that era's world database, and Empyrean serves it. A bake, and so an export for ACE or GDLE,
+writes only the end-of-retail files. `lyceum new <folder> --era infiltration` makes one.
 
 New ids are taken above the highest the files hold in each kind's range (pictures, image textures,
 surfaces), weenie class ids from `[ids] wcid` (100,000 by default, above every class id of the
@@ -277,3 +518,53 @@ cargo run -p lyceum-cli -- layer <manifest> --check
 
 The client builds in the classic portal's layer from `core/client-runtime/assets/classic-portal/`;
 `cargo test -p lyceum-foundry` fails while that container is not what its manifest makes.
+
+### Play in the editor
+
+Start Live, then choose Play to take control of a character at the edit camera.
+The world view expands while playing. F8 returns to the same edit camera; Escape
+continues to belong to the game's menus. The character stays connected while you
+edit, and Play resumes it. Stopping Live ends that session.
+
+The bundled server keeps the local character databases under `.playtest/world`
+beside the world file. Opening the world again preserves them. A second editor
+cannot start the same playtest folder while its server is running. Play uses the
+editor's window and graphics device; no separate client installation is needed.
+
+### Playtest characters
+
+Open **Characters** to choose a saved template or name a new character. Templates live in
+`characters/<name>.json` beside the world file. Set the level, attributes, named skills and
+purchased ranks, then add equipment by its weenie ID. Start Live to load the server's skill and
+wield-location choices. Equipment can start in inventory or at a valid, unoccupied wield location.
+
+**Save template** saves source, not a played character's state. A new character uses its template
+on first Play. Existing characters retain their progress, including characters made before
+this feature. **Reset from template** logs the character out and applies the template explicitly.
+The listed skills are replaced; unlisted skills and unrelated character properties remain intact.
+Equipment replaces the current inventory and worn items, including nested container contents.
+The server validates the complete request and commits it as one transaction.
+
+Each reset saves the previous character and its possessions under
+`.playtest/character-backups/`. To recover one, leave the character logged out and use the owned
+server's console: `playtest-character restore "+Character Name" "backup.sqlite" "before-restore.sqlite"`.
+Use full paths to the chosen backup and a new recovery file. Restore keeps another backup first
+and refuses object IDs now used outside that character's possessions. Character identity,
+account ownership and other characters are preserved.
+
+### Editing a running playtest
+
+Press F8 to return to editing while the character stays connected. Live publishes edits after
+a drag or brush stroke ends. The server and embedded client adopt the same numbered overlay;
+terrain and cell edits rebuild only their affected landblocks. Shared model changes also rebuild
+resident blocks so their geometry cannot retain an old model. Play returns to the same character.
+Undo publishes another revision in the same way.
+
+Publication is serialized and waits for the server acknowledgement before refreshing the client.
+A failed publication reports its error and restores the previous content; if recovery fails,
+the owned server stops. Old overlays remain available for recovery. Every server start rebuilds
+generated content in a fresh run folder while preserving the world's character databases.
+
+The opt-in connected-play check uses `--features live-server-tests --test gpu` with
+`EMPYREAN_SERVER_BIN` naming the built server (its importer beside it), `EMPYREAN_WORLD_SQL`
+naming the world SQL dump, and `DERETH_TEST_DAT_DIR` naming the data files.

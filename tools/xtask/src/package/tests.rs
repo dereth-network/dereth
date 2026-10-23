@@ -429,6 +429,33 @@ fn the_archive_scan_refuses_strays_links_and_escapes_in_the_written_archive() {
     );
 }
 
+/// The launcher, which cannot depend on this crate, keeps its own copy of the release file names
+/// to fetch Empyrean and Lyceum by: for every target either is released for, it names the file
+/// the packaging here writes, and it names none for a target Lyceum is not released for.
+#[test]
+fn the_launcher_fetches_the_files_the_packaging_names() {
+    use dereth_launch::components::Product;
+    for v in ["0.1.0", "1.20.3"] {
+        for t in targets::TARGETS {
+            assert_eq!(
+                Product::Empyrean.archive_name(t.triple, v),
+                Some(t.archive_name(v)),
+                "{}",
+                t.triple
+            );
+            let expected = targets::LYCEUM_TRIPLES
+                .contains(&t.triple)
+                .then(|| lyceum::release_file_name(*t, v));
+            assert_eq!(
+                Product::Lyceum.archive_name(t.triple, v),
+                expected,
+                "{}",
+                t.triple
+            );
+        }
+    }
+}
+
 /// Archives are named `empyrean-<version>-<target>`, a `.zip` for Windows and a `.tar.gz`
 /// elsewhere, and the release folder holds nothing else but the manifest parts and the index.
 #[test]

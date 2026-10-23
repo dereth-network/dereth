@@ -74,9 +74,23 @@ fn verify(base: &DatFile, world: &DatFile, path: &Path, key: &str) -> Result<usi
     Ok(n)
 }
 
+/// The names the file `t` has on disk, in either set: the later name, and for the portal and cell
+/// files the name from before Throne of Destiny.
+fn names(t: ModernDat) -> Vec<&'static str> {
+    let older = match t {
+        ModernDat::Portal => Some(dereth_dat::ClassicDat::Portal),
+        ModernDat::Cell => Some(dereth_dat::ClassicDat::Cell),
+        ModernDat::Local | ModernDat::HighRes => None,
+    };
+    std::iter::once(t.file_name())
+        .chain(older.map(dereth_dat::ClassicDat::file_name))
+        .collect()
+}
+
 /// Take the files in `world` apart against the files in `base`, writing an overlay folder at
-/// `out` for the world `key`. Each of the four later files present in both is compared; an
-/// overlay already in `out` is replaced file by file.
+/// `out` for the world `key`. Each file present in both, the four later files or `portal.dat`
+/// and `cell.dat` from before Throne of Destiny, is compared; an overlay already in `out` is
+/// replaced file by file.
 ///
 /// # Errors
 /// `out` holding data files of its own, files in different layouts, and the reader's and the
@@ -92,7 +106,10 @@ pub fn import(
     let dir = OverlayDir::new(out)?;
     let mut done = Vec::new();
     for t in ModernDat::ALL {
-        let (Some(b), Some(w)) = (find(base, t.file_name()), find(world, t.file_name())) else {
+        let Some((name, b, w)) = names(t).into_iter().find_map(|n| {
+            let (b, w) = (find(base, n)?, find(world, n)?);
+            Some((n, b, w))
+        }) else {
             continue;
         };
         let open =
@@ -115,16 +132,8 @@ pub fn import(
         if !file.diff.is_empty() {
             let path = dir.container(t);
             let cell = t == ModernDat::Cell;
-            let revision = decompose::write(
-                &bf,
-                &wf,
-                &file.diff,
-                &path,
-                t.file_name(),
-                key,
-                cell,
-                iterations,
-            )?;
+            let revision =
+                decompose::write(&bf, &wf, &file.diff, &path, name, key, cell, iterations)?;
             if check {
                 file.verified = Some(verify(&bf, &wf, &path, key)?);
             }

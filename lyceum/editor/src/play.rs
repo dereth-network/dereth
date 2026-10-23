@@ -1,7 +1,7 @@
 //! The editor's own world, from the editor's side: started and stopped (the Live button), each
 //! edit pushed to it once the hand that made it lets go, its answers shown, and the Dereth client
-//! started in it at the camera (the Play button). And the world's content written for GDLE (the
-//! Export for GDLE button), by the server's import tool, off the frame loop.
+//! started in it at the camera (the Play button). And the world written out for a server (the
+//! Export menu: Empyrean, ACE or GDLE), off the frame loop.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -15,7 +15,6 @@ use super::EditorApp;
 pub struct LiveArgs {
     pub empyrean: Option<PathBuf>,
     pub dir: Option<PathBuf>,
-    pub client: Option<PathBuf>,
     /// The world's playtest folder ([`playtest_dir`]): the world's server keeps its files there
     /// unless `dir` names a folder, and the client playing it its settings.
     pub playtest: PathBuf,
@@ -177,25 +176,17 @@ pub fn write_play_options(settings: &Path, o: PlayOptions) -> Result<(), String>
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// The playtest client started with `args`, its settings in `settings` rather than the player's.
-#[must_use]
-pub fn play_command(client: &Path, args: &[String], settings: &Path) -> std::process::Command {
-    let mut c = std::process::Command::new(client);
-    c.args(args)
-        .env(dereth_desktop::folders::SETTINGS_DIR_ENV, settings)
-        .stdin(std::process::Stdio::null());
-    c
-}
-
 impl LiveArgs {
-    /// What the world is made of: over the data files `dats`, its world database made from `sql`
-    /// (the server's SQL).
+    /// What the world is made of: over the data files of `era` in `dats`, its world database made
+    /// from `sql` (the server's SQL); and the later files the client plays it with beside them,
+    /// in `client_dats`.
     ///
     /// # Errors
     /// A part that is not there.
     pub fn setup(
         &self,
-        dats: &std::path::Path,
+        (dats, era): (&std::path::Path, dereth_primitives::EraId),
+        client_dats: &std::path::Path,
         sql: Option<&std::path::Path>,
     ) -> Result<LiveSetup, String> {
         let at = self.empyrean.as_deref();
@@ -206,13 +197,15 @@ impl LiveArgs {
         let sql = sql.ok_or("no server SQL to make the world of: name it with --weenies")?;
         let (dir, keep) = match &self.dir {
             Some(d) => (d.clone(), true),
-            None => (self.playtest.join("world"), false),
+            None => (self.playtest.join("world"), true),
         };
         Ok(LiveSetup {
             server,
             import,
             sql: sql.to_path_buf(),
             dats: dats.to_path_buf(),
+            era,
+            client_dats: client_dats.to_path_buf(),
             dir,
             keep,
         })
@@ -222,7 +215,8 @@ impl LiveArgs {
 /// Whether a line of the server's log answers what the editor told it: an import, the overlay
 /// read again, or an error.
 fn answers(line: &str) -> bool {
-    line.contains("Imported ")
+    line.contains("Overlay revision ")
+        || line.contains("Imported ")
         || line.contains("The data overlay")
         || line.contains("is not a landblock")
         || line.contains(" ERROR ")
@@ -234,6 +228,43 @@ fn said(line: &str) -> &str {
 }
 
 impl EditorApp {
+    /// Download the server database on first use, keeping the frame loop responsive.
+    ///
+    /// # Errors
+    /// Missing bundled tools or a cache folder that cannot be determined.
+    pub fn fetch_database(&mut self) -> Result<(), String> {
+        if self.fetching.is_some() || self.server_sql.is_some() {
+            return Ok(());
+        }
+        let era = self.session.world().era;
+        if let Some(path) = crate::catalog::server_database(era) {
+            self.database_ready(path);
+            return Ok(());
+        }
+        let text = self.text.table();
+        crate::programs::ready(&mut self.live_args.empyrean, &text)?;
+        let import = program(self.live_args.empyrean.as_deref(), "empyrean-import")
+            .ok_or_else(|| self.say("missing.empyrean"))?;
+        let cache = crate::catalog::database_cache()
+            .ok_or_else(|| self.say("messages.database_no_cache"))?;
+        self.fetching = Some(crate::database::Fetch::start(import, cache, era)?);
+        self.panels.message = self.say("messages.database_fetching");
+        Ok(())
+    }
+
+    fn database_ready(&mut self, path: PathBuf) {
+        self.server_sql = Some(path.clone());
+        self.catalog = Some(crate::catalog::Catalog::start(
+            (self.session.base().dir.clone(), self.session.base().era),
+            self.session.region().cloned(),
+            Some(path),
+            None,
+            self.thumbs_root.clone(),
+            self.terrain_colors.clone(),
+        ));
+        self.panels.message = self.say("messages.database_ready");
+    }
+
     /// Start the editor's own world (it comes up over the frames that follow), or stop it and
     /// the client playing it.
     ///
@@ -242,10 +273,9 @@ impl EditorApp {
     pub fn set_live(&mut self, on: bool) -> Result<(), String> {
         if !on {
             self.starting = None;
-            if let Some(mut c) = self.playing.take() {
-                let _ = c.kill();
-                let _ = c.wait();
-            }
+            self.character_work = None;
+            self.waiting_play = None;
+            self.stop_embedded();
             if let Some(mut l) = self.live.take() {
                 l.stop();
                 self.panels.message = self.say("messages.live_stopped");
@@ -257,10 +287,16 @@ impl EditorApp {
         }
         let text = self.text.table();
         let args = &mut self.live_args;
-        crate::programs::ready(&mut args.client, &mut args.empyrean, &text, false)?;
-        let setup = self
-            .live_args
-            .setup(&self.core.cfg.dat_dir, self.server_sql.as_deref())?;
+        crate::programs::ready(&mut args.empyrean, &text)?;
+        if self.server_sql.is_none() {
+            return Err(self.say("messages.database_needed"));
+        }
+        let base = self.session.base();
+        let setup = self.live_args.setup(
+            (&base.dir, base.era),
+            &self.core.cfg.dat_dir,
+            self.server_sql.as_deref(),
+        )?;
         tracing::info!("starting the editor's world in {}", setup.dir.display());
         self.starting = Some(Live::launch(&setup, &self.session)?);
         self.panels.message = self.say("messages.live_starting");
@@ -285,13 +321,18 @@ impl EditorApp {
         (self.live.is_some(), self.starting.is_some())
     }
 
-    fn went_live(&mut self, live: Live) -> Result<(), String> {
+    fn went_live(&mut self, mut live: Live) -> Result<(), String> {
         tracing::info!(
             "the editor's world is up on 127.0.0.1:{} in {}",
             live.port,
             live.dir.display()
         );
         self.panels.message = self.say_with("messages.live_up", &[("port", &live.port)]);
+        live.command(&format!(
+            "playtest-character schema {}",
+            crate::live::console_path(&self.live_args.playtest.join("character-schema.json"))
+        ))?;
+        self.characters.schema = None;
         self.live = Some(live);
         self.live_read = 0;
         self.push_live()
@@ -316,59 +357,121 @@ impl EditorApp {
     /// A file that would not write, or a server whose console is closed.
     pub fn push_live(&mut self) -> Result<(), String> {
         self.live_dirty = false;
-        let near = self.near_camera();
-        let Some(live) = self.live.as_mut() else {
+        let mut near = self.near_camera();
+        near.extend(self.play_resident_blocks());
+        let Some(mut live) = self.live.take() else {
             return Ok(());
         };
-        for line in live.push(&self.session, &near)? {
-            tracing::info!("the editor's world: {line}");
-        }
-        Ok(())
+        let result = (|| {
+            if let Some(revision) = live.push(&self.session, &near)? {
+                if let Err(error) = self.adopt_play_revision(&revision) {
+                    return match live.reject_pending() {
+                        Ok(()) => Err(error),
+                        Err(recovery) => {
+                            live.stop();
+                            Err(format!("{error}; recovery failed: {recovery}"))
+                        }
+                    };
+                }
+                tracing::info!(revision=revision.number, blocks=?revision.blocks, "live revision adopted by server and playtest");
+                self.panels.message =
+                    self.say_with("play.updated", &[("revision", &revision.number)]);
+                live.accept_pending();
+            }
+            Ok(())
+        })();
+        live.error = result.as_ref().err().cloned();
+        self.live = Some(live);
+        result
     }
 
-    /// Write the world's content for GDLE into the build's `gdle` folder, off the frame loop (or
-    /// waited for: `wait`, a script's).
+    /// Write the world as the editor holds it out for `target`, into the build's
+    /// `export/<target>` folder, off the frame loop (or waited for: `wait`, a script's).
     ///
     /// # Errors
-    /// No import tool, no server SQL to write over, or (waited for) the tool's refusal.
-    pub fn export_gdle(&mut self, wait: bool) -> Result<(), String> {
-        let import = program(self.live_args.empyrean.as_deref(), "empyrean-import")
-            .ok_or("no empyrean-import: name the server's folder with --empyrean")?;
-        let dump = self
-            .server_sql
-            .clone()
-            .ok_or("no server SQL to write over: name it with --weenies")?;
+    /// No import tool where the server needs one, an overlay that would not write, or (waited
+    /// for) the export's refusal.
+    pub fn export_world(
+        &mut self,
+        target: lyceum_foundry::export::Target,
+        wait: bool,
+    ) -> Result<(), String> {
+        use lyceum_foundry::export::{self, Era, ImportProgram, Importer, Options};
+        let import = program(self.live_args.empyrean.as_deref(), "empyrean-import");
+        if target.needs_world_database() && import.is_none() {
+            return Err("no empyrean-import: name the server's folder with --empyrean".into());
+        }
+        let world = self.session.world();
+        let out = world.out.join("export").join(target.word());
+        let key = world.key.clone();
+        let staging = std::env::temp_dir().join(format!(
+            "lyceum-export-{}-{}",
+            std::process::id(),
+            target.word()
+        ));
+        lyceum_foundry::compile::write_overlay(
+            self.session.compiled(),
+            self.session.base(),
+            &key,
+            &staging,
+        )
+        .map_err(|e| e.to_string())?;
         let sql = self.session.compiled().sql.clone();
-        let out = self.session.world().out.join("gdle");
-        let scratch = std::env::temp_dir().join(format!("lyceum-gdle-{}", std::process::id()));
-        self.panels.message = self.say("messages.gdle_writing");
+        let dats = self.session.base().dir.clone();
+        let world_sql = self.server_sql.clone();
+        let gdle_quests = Some(self.gdle_quests.trim())
+            .filter(|q| target == lyceum_foundry::export::Target::Gdle && !q.is_empty())
+            .map(std::path::PathBuf::from);
+        let era = Era::of(world.era);
+        self.panels.message =
+            self.say_with("messages.export_writing", &[("target", &target.name())]);
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(crate::live::export_gdle(
-                &import, &dump, &sql, &scratch, &out,
-            ));
+            let importer = import.map(ImportProgram);
+            let opts = Options {
+                target,
+                out: &out,
+                era,
+                world_sql: world_sql.as_deref(),
+                importer: importer.as_ref().map(|i| i as &dyn Importer),
+                gdle_quests: gdle_quests.as_deref(),
+            };
+            let done = export::export_compiled(&staging, &sql, &key, &dats, &opts)
+                .map(|d| d.out.display().to_string())
+                .map_err(|e| e.to_string());
+            let _ = std::fs::remove_dir_all(&staging);
+            let _ = tx.send(done);
         });
-        self.gdle = Some(rx);
+        self.export = Some((target, rx));
         if wait {
             let r = self
-                .gdle
+                .export
                 .take()
-                .map(|rx| rx.recv().map_err(|e| e.to_string()))
+                .map(|(_, rx)| rx.recv().map_err(|e| e.to_string()))
                 .transpose()?;
-            return self.gdle_done(r.unwrap_or_else(|| Err("no export".into())));
+            return self.export_done(target, r.unwrap_or_else(|| Err("no export".into())));
         }
         Ok(())
     }
 
-    fn gdle_done(&mut self, r: Result<String, String>) -> Result<(), String> {
+    fn export_done(
+        &mut self,
+        target: lyceum_foundry::export::Target,
+        r: Result<String, String>,
+    ) -> Result<(), String> {
+        let name = target.name();
         match r {
-            Ok(said) => {
-                tracing::info!("written for GDLE: {said}");
-                self.panels.message = self.say_with("messages.gdle_written", &[("said", &said)]);
+            Ok(out) => {
+                tracing::info!("exported for {name} to {out}");
+                self.panels.message = self.say_with(
+                    "messages.export_written",
+                    &[("target", &name), ("out", &out)],
+                );
                 Ok(())
             }
             Err(e) => {
-                self.panels.message = self.say_with("messages.gdle_failed", &[("why", &e)]);
+                self.panels.message =
+                    self.say_with("messages.export_failed", &[("target", &name), ("why", &e)]);
                 Err(self.panels.message.clone())
             }
         }
@@ -377,9 +480,27 @@ impl EditorApp {
     /// Each frame: the start's end, the edits waiting (once no drag or stroke goes on), the
     /// server's answers, and a server that ended.
     pub(super) fn live_frame(&mut self) {
-        if let Some(r) = self.gdle.as_ref().and_then(|rx| rx.try_recv().ok()) {
-            self.gdle = None;
-            let _ = self.gdle_done(r);
+        if let Some(result) = self
+            .fetching
+            .as_ref()
+            .and_then(crate::database::Fetch::poll)
+        {
+            self.fetching = None;
+            match result {
+                Ok(path) => self.database_ready(path),
+                Err(error) => {
+                    self.panels.message =
+                        self.say_with("messages.database_failed", &[("why", &error)])
+                }
+            }
+        }
+        if let Some((target, r)) = self
+            .export
+            .as_ref()
+            .and_then(|(target, rx)| rx.try_recv().ok().map(|r| (*target, r)))
+        {
+            self.export = None;
+            let _ = self.export_done(target, r);
         }
         if let Some(r) = self.starting.as_ref().and_then(Starting::poll) {
             self.starting = None;
@@ -388,6 +509,8 @@ impl EditorApp {
             }
         }
         if let Some(mut l) = self.live.take_if(|l| !l.running()) {
+            self.waiting_play = None;
+            self.stop_embedded();
             l.keep_folder();
             self.panels.message = format!(
                 "The editor's world stopped on its own; its log is in {}.",
@@ -400,6 +523,18 @@ impl EditorApp {
                 self.panels.message = e;
             }
         }
+        if self.characters.schema.is_none() {
+            if let Ok(bytes) = std::fs::read(self.live_args.playtest.join("character-schema.json"))
+            {
+                if let Ok(schema) = serde_json::from_slice::<crate::characters::Schema>(&bytes) {
+                    if schema.version == 1 {
+                        self.characters.schema = Some(schema);
+                    }
+                }
+            }
+        }
+        self.waiting_play_frame();
+        self.character_frame();
         self.read_live();
     }
 
@@ -414,6 +549,16 @@ impl EditorApp {
             tracing::info!("the editor's world says: {}", said(l));
             said(l).clone_into(&mut self.panels.message);
         }
+        if let Some(error) = &live.error {
+            self.panels.message.clone_from(error);
+        }
+    }
+
+    /// Wait for the editor's world to hold no player (a playtest's character logs off as it
+    /// stops, and is in the world until its logout ends). False when it did not empty, or no
+    /// world runs.
+    pub fn wait_world_empty(&mut self) -> bool {
+        self.live.as_mut().is_some_and(Live::wait_empty)
     }
 
     /// The server's log from line `from` on, as a test reads it.
@@ -425,22 +570,37 @@ impl EditorApp {
             .unwrap_or_default()
     }
 
-    /// Start the Dereth client in the editor's world, its character put on the floor of the cell
-    /// the camera is in, or on the ground under it, with `extra` after the editor's own switches; `wait` waits for it to end (a
-    /// script's run), answering how it ended.
+    /// Start a playtest in the editor's world view, its character put on the floor of the cell
+    /// the camera is in, or on the ground under it, with `extra` after the editor's own switches.
+    /// It starts once the world is ready for it (a character that played last has logged out),
+    /// over the frames that follow; `wait` waits for it to end (a script's run), answering how it
+    /// ended. With a playtest running, the game is given the keyboard and the mouse again.
     ///
     /// # Errors
-    /// No world running, no client, or a client that would not start.
+    /// No world running, or a client that would not start.
     pub fn play(&mut self, extra: &[String], wait: bool) -> Result<Option<i32>, String> {
-        let text = self.text.table();
-        let args = &mut self.live_args;
-        crate::programs::ready(&mut args.client, &mut args.empyrean, &text, true)?;
-        let client = self
-            .live_args
-            .client
-            .clone()
-            .or_else(|| program(None, "dereth-client"))
-            .ok_or_else(|| self.say("messages.no_client"))?;
+        if self
+            .playing
+            .as_ref()
+            .is_some_and(|p| p.name != self.characters.name)
+        {
+            self.stop_embedded();
+        }
+        if self.playing.is_some() {
+            self.focus_game(true);
+            return Ok(None);
+        }
+        if self.waiting_play.is_some() {
+            return if wait { self.wait_play() } else { Ok(None) };
+        }
+        self.characters.save()?;
+        if !self.characters.applied().is_file() {
+            self.prepare_character(false)?;
+            if let Some(work) = self.character_work.as_mut() {
+                work.extra = extra.to_vec();
+            }
+            return if wait { self.wait_play() } else { Ok(None) };
+        }
         let (lb, x, y) = self
             .work_block()
             .ok_or_else(|| self.say("messages.off_world"))?;
@@ -458,14 +618,8 @@ impl EditorApp {
                     .map_or(self.camera.position.z, |g| g + 0.5),
             ),
         };
-        let dats = self.core.cfg.dat_dir.clone();
         if self.live.is_none() {
             return Err(self.say("messages.live_not_running"));
-        }
-        // A client playing already ends first.
-        if let Some(mut c) = self.playing.take() {
-            let _ = c.kill();
-            let _ = c.wait();
         }
         // What waits to reach the world reaches it first, and the world has taken it.
         if self.live_dirty {
@@ -478,33 +632,141 @@ impl EditorApp {
         if !live.settle() {
             return Err("the editor's world did not answer what it was told".into());
         }
-        // The character a client played last logs in again once its logout has ended.
-        if live.made_character && !live.wait_empty() {
-            return Err("the character played last is still in the editor's world".into());
+        self.waiting_play = Some(WaitingPlay {
+            extra: extra.to_vec(),
+            cell,
+            at: [x, y, z],
+            ask: crate::live::ReadyAsk::default(),
+        });
+        self.panels.message = self.say("play.waiting");
+        if wait {
+            return self.wait_play();
         }
-        let mut args = live.play_args(&dats, cell, [x, y, z]);
-        args.extend(extra.iter().cloned());
+        Ok(None)
+    }
+
+    /// Stop the playtest, or one waiting to start: the game logs off and shuts down, and the
+    /// editor has its whole window again.
+    pub fn stop_play(&mut self) {
+        let was = self.playing.is_some() || self.waiting_play.is_some();
+        self.waiting_play = None;
+        if self.character_work.is_some() && self.playing.is_some() {
+            self.character_work = None;
+        }
+        self.stop_embedded();
+        if was {
+            self.panels.message = self.say("play.stopped");
+        }
+    }
+
+    /// Each frame: a playtest waiting for the world started once the world is ready for it.
+    pub(super) fn waiting_play_frame(&mut self) {
+        let Some(mut waiting) = self.waiting_play.take() else {
+            return;
+        };
+        let Some(live) = self.live.as_mut() else {
+            return;
+        };
+        match live.poll_ready(&mut waiting.ask) {
+            Ok(false) => self.waiting_play = Some(waiting),
+            Ok(true) => {
+                if let Err(e) = self.start_waiting_play(&waiting) {
+                    self.panels.message = e;
+                }
+            }
+            Err(e) => self.panels.message = e,
+        }
+    }
+
+    /// Start the client of a playtest whose world is ready for it.
+    fn start_waiting_play(&mut self, waiting: &WaitingPlay) -> Result<(), String> {
+        let dats = self.core.cfg.dat_dir.clone();
+        let live = self
+            .live
+            .as_mut()
+            .ok_or("the editor's world is not running")?;
+        let mut args = live.play_args(&dats, waiting.cell, waiting.at);
+        if let Some(at) = args.iter().position(|s| s == "-u" || s == "-r") {
+            args[at] = "-r".into();
+            args[at + 1] = self.characters.name.clone();
+        }
+        args.extend(waiting.extra.iter().cloned());
         live.made_character = true;
         // The client's own settings, beside the world: never the player's.
         let settings = self.live_args.playtest.join("client");
         write_play_options(&settings, self.play_options)?;
-        tracing::info!(
-            "playing: {} {} (its settings in {})",
-            client.display(),
-            args.join(" "),
-            settings.display()
-        );
-        let mut child = play_command(&client, &args, &settings)
-            .spawn()
-            .map_err(|e| format!("{}: {e}", client.display()))?;
-        if wait {
-            let status = child.wait().map_err(|e| e.to_string())?;
-            self.read_live();
-            return Ok(Some(status.code().unwrap_or(-1)));
+        self.start_embedded(&args, &settings)?;
+        if let Some(play) = self.playing.as_mut() {
+            play.destination = Some((waiting.cell, waiting.at));
         }
-        self.playing = Some(child);
-        Ok(None)
+        Ok(())
     }
+
+    fn wait_play(&mut self) -> Result<Option<i32>, String> {
+        let started = std::time::Instant::now();
+        let mut entered = false;
+        while self.playing.is_some() || self.character_work.is_some() || self.waiting_play.is_some()
+        {
+            if self.character_work.is_none() {
+                entered |= self.play_ready();
+            }
+            if !self.frame() {
+                break;
+            }
+            if started.elapsed() > std::time::Duration::from_secs(120) {
+                self.character_work = None;
+                self.stop_play();
+                return Err("the playtest did not finish within two minutes".into());
+            }
+        }
+        self.read_live();
+        if !entered {
+            return Err(format!(
+                "the playtest ended before reaching the editor camera: {}",
+                self.characters.message
+            ));
+        }
+        Ok(Some(0))
+    }
+
+    /// Start a playtest and wait until its character stands at the editor's camera, the game
+    /// running on in the world view (a script's or a test's).
+    ///
+    /// # Errors
+    /// No world running, a client that would not start, or one that did not arrive.
+    pub fn play_until_entered(&mut self, extra: &[String]) -> Result<(), String> {
+        self.play(extra, false)?;
+        let started = std::time::Instant::now();
+        while !self.play_ready() {
+            if !self.frame() {
+                return Err("the editor closed while the playtest started".into());
+            }
+            if self.playing.is_none()
+                && self.character_work.is_none()
+                && self.waiting_play.is_none()
+            {
+                return Err(format!(
+                    "the playtest ended before reaching the editor camera: {}",
+                    self.panels.message
+                ));
+            }
+            if started.elapsed() > std::time::Duration::from_secs(120) {
+                self.stop_play();
+                return Err("the playtest did not arrive within two minutes".into());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A playtest asked for, waiting for the world to be ready for it: the switches after the
+/// editor's, where its character is put, and the question the world is being asked.
+#[derive(Debug)]
+pub(super) struct WaitingPlay {
+    extra: Vec<String>,
+    cell: u32,
+    at: [f32; 3],
+    ask: crate::live::ReadyAsk,
 }
 
 #[cfg(test)]
@@ -526,17 +788,20 @@ mod tests {
         let a = LiveArgs {
             empyrean: Some(dir.clone()),
             dir: Some(PathBuf::from("live")),
-            client: None,
             playtest: playtest_dir(Path::new("worlds/mine/world.toml")),
         };
-        let (dats, sql) = (std::path::Path::new("dats"), std::path::Path::new("d.sql"));
+        let (dats, sql) = (
+            (std::path::Path::new("dats"), dereth_primitives::EraId::Eor),
+            std::path::Path::new("d.sql"),
+        );
+        let client = std::path::Path::new("dats");
         // No programs there; then no import tool; then no SQL.
-        assert!(a.setup(dats, Some(sql)).is_err());
+        assert!(a.setup(dats, client, Some(sql)).is_err());
         std::fs::write(exe("empyrean-server"), b"").unwrap();
-        assert!(a.setup(dats, Some(sql)).is_err());
+        assert!(a.setup(dats, client, Some(sql)).is_err());
         std::fs::write(exe("empyrean-import"), b"").unwrap();
-        assert!(a.setup(dats, None).is_err());
-        let s = a.setup(dats, Some(sql)).unwrap();
+        assert!(a.setup(dats, client, None).is_err());
+        let s = a.setup(dats, client, Some(sql)).unwrap();
         assert_eq!(
             (s.server, s.import, s.sql),
             (
@@ -550,8 +815,8 @@ mod tests {
             (std::path::Path::new("live"), true)
         );
         let b = LiveArgs { dir: None, ..a };
-        let s = b.setup(dats, Some(sql)).unwrap();
-        assert!(!s.keep, "a folder of the playtest's");
+        let s = b.setup(dats, client, Some(sql)).unwrap();
+        assert!(s.keep, "playtest characters survive closing the editor");
         assert_eq!(s.dir, Path::new("worlds/mine/.playtest/world"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -581,12 +846,6 @@ mod tests {
         let text = std::fs::read_to_string(settings.join(PREFERENCES)).unwrap();
         assert_eq!(ini_get(&text, "Sound", "Volume"), Some("7"));
         assert_eq!(ini_get(&text, "Display", "Resolution"), Some("83886800"));
-        // The client is told to keep its settings there.
-        let c = play_command(Path::new("dereth-client"), &[], &settings);
-        assert!(c
-            .get_envs()
-            .any(|(k, v)| k == dereth_desktop::folders::SETTINGS_DIR_ENV
-                && v == Some(settings.as_os_str())));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
